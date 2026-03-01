@@ -467,6 +467,6 @@ export function defaultAcConfig(): AcLanSessionConfig {
     damage_multiplier: 100,
     fuel_rate: 100,
     tyre_wear_rate: 100,
-    min_csp_version: 0,
+    min_csp_version: 2144,
   };
 }

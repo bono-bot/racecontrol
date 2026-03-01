@@ -263,10 +263,15 @@ pub async fn start_ac_server(
     std::fs::write(cfg_dir.join("server_cfg.ini"), &server_cfg)?;
     std::fs::write(cfg_dir.join("entry_list.ini"), &entry_list)?;
 
-    // Write CSP extra options if provided
-    if let Some(csp_opts) = &config.csp_extra_options {
-        std::fs::write(cfg_dir.join("csp_extra_options.ini"), csp_opts)?;
-    }
+    // Always write csp_extra_options.ini — CSP reads this from the server.
+    // Custom content takes priority; otherwise generate a baseline that ensures
+    // CSP properly handles audio reinit and session transitions.
+    let csp_opts = config.csp_extra_options.clone().unwrap_or_else(|| {
+        "[EXTRA_RULES]\n\
+         FORCE_MINIMUM_CSP=1\n"
+            .to_string()
+    });
+    std::fs::write(cfg_dir.join("csp_extra_options.ini"), &csp_opts)?;
 
     // Determine LAN IP
     let lan_ip = state.config.ac_server.lan_ip.clone()

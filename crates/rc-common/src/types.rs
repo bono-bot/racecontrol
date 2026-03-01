@@ -445,7 +445,7 @@ impl Default for AcLanSessionConfig {
             udp_port: 9600,
             tcp_port: 9600,
             http_port: 8081,
-            min_csp_version: 0,
+            min_csp_version: 2144, // Enforce CSP — fixes audio restart on session start
             csp_extra_options: None,
             abs_allowed: 1,
             tc_allowed: 1,
