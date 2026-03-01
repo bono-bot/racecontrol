@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { Pod, TelemetryFrame, Lap, BillingSession, GameLaunchInfo, AiDebugSuggestion } from "@/lib/api";
+import type { Pod, TelemetryFrame, Lap, BillingSession, GameLaunchInfo, AiDebugSuggestion, AcServerInfo, AcPresetSummary, AcLanSessionConfig } from "@/lib/api";
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/dashboard";
 
@@ -27,6 +27,9 @@ export function useWebSocket() {
   const [billingWarnings, setBillingWarnings] = useState<BillingWarning[]>([]);
   const [gameStates, setGameStates] = useState<Map<string, GameLaunchInfo>>(new Map());
   const [aiDebugSuggestions, setAiDebugSuggestions] = useState<AiDebugSuggestion[]>([]);
+  const [acServerInfo, setAcServerInfo] = useState<AcServerInfo | null>(null);
+  const [acPresets, setAcPresets] = useState<AcPresetSummary[]>([]);
+  const [acLoadedConfig, setAcLoadedConfig] = useState<{ presetId: string; config: AcLanSessionConfig } | null>(null);
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -156,6 +159,24 @@ export function useWebSocket() {
             setAiDebugSuggestions((prev) => [suggestion, ...prev].slice(0, 20));
             break;
           }
+          case "ac_server_update": {
+            const info = msg.data as AcServerInfo;
+            if (info.status === "stopped") {
+              setAcServerInfo(null);
+            } else {
+              setAcServerInfo(info);
+            }
+            break;
+          }
+          case "ac_preset_list": {
+            setAcPresets(msg.data as AcPresetSummary[]);
+            break;
+          }
+          case "ac_preset_loaded": {
+            const d = msg.data as { preset_id: string; config: AcLanSessionConfig };
+            setAcLoadedConfig({ presetId: d.preset_id, config: d.config });
+            break;
+          }
         }
       } catch (e) {
         console.warn("[RaceControl] Parse error:", e);
@@ -191,6 +212,9 @@ export function useWebSocket() {
     billingWarnings,
     gameStates,
     aiDebugSuggestions,
+    acServerInfo,
+    acPresets,
+    acLoadedConfig,
     sendCommand,
   };
 }

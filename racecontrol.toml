@@ -27,6 +27,11 @@ ollama_url = "http://localhost:11434"
 ollama_model = "qwen2.5-coder:14b"
 # anthropic_api_key = "sk-ant-..."  # Optional fallback when Ollama is unavailable
 
+[ac_server]
+acserver_path = "/opt/ac-server/acServer"
+data_dir = "./data/ac_servers"
+# lan_ip = "192.168.1.100"  # Auto-detected if not set
+
 [integrations.discord]
 results_channel = "race-results"
 

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
+    AcLanSessionConfig, AcPresetSummary, AcServerInfo,
     AiDebugSuggestion, BillingSessionInfo, DrivingState, GameLaunchInfo, Leaderboard, LapData,
     PodInfo, SessionInfo, SimType, TelemetryFrame,
 };
@@ -122,6 +123,18 @@ pub enum DashboardEvent {
 
     /// All active game sessions (sent on dashboard connect)
     GameSessionList(Vec<GameLaunchInfo>),
+
+    /// AC server state changed (started, running, stopped, error)
+    AcServerUpdate(AcServerInfo),
+
+    /// AC preset loaded (response to LoadAcPreset command)
+    AcPresetLoaded {
+        preset_id: String,
+        config: AcLanSessionConfig,
+    },
+
+    /// List of saved AC presets (sent on connect or after save/delete)
+    AcPresetList(Vec<AcPresetSummary>),
 }
 
 /// Messages sent from Web Dashboard → Core Server
@@ -165,4 +178,25 @@ pub enum DashboardCommand {
 
     /// Stop the game running on a specific pod
     StopGame { pod_id: String },
+
+    /// Start an AC LAN server session and launch pods
+    StartAcSession {
+        config: AcLanSessionConfig,
+        pod_ids: Vec<String>,
+    },
+
+    /// Stop the running AC LAN server session
+    StopAcSession { session_id: String },
+
+    /// Save an AC preset
+    SaveAcPreset {
+        name: String,
+        config: AcLanSessionConfig,
+    },
+
+    /// Delete an AC preset
+    DeleteAcPreset { preset_id: String },
+
+    /// Load an AC preset (returns config via AcPresetLoaded event)
+    LoadAcPreset { preset_id: String },
 }

@@ -28,6 +28,13 @@ pub struct GameProcess {
 impl GameProcess {
     /// Launch a game executable
     pub fn launch(config: &GameExeConfig, sim_type: SimType) -> anyhow::Result<Self> {
+        // Check if args contain a URL scheme (acmanager://, steam://) — launch via OS handler
+        if let Some(args) = &config.args {
+            if args.starts_with("acmanager://") || args.starts_with("steam://") {
+                return Self::launch_url(args, sim_type);
+            }
+        }
+
         if config.use_steam {
             if let Some(app_id) = config.steam_app_id {
                 let url = format!("steam://rungameid/{}", app_id);
@@ -120,6 +127,29 @@ impl GameProcess {
         self.child = None;
         self.pid = None;
         Ok(())
+    }
+
+    /// Launch via URL scheme (Content Manager join URL or Steam URL)
+    fn launch_url(url: &str, sim_type: SimType) -> anyhow::Result<Self> {
+        tracing::info!("Launching via URL scheme: {}", url);
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("cmd")
+                .args(["/C", "start", "", url])
+                .spawn()?;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            tracing::info!("Would launch URL: {}", url);
+            let _ = Command::new("xdg-open").arg(url).spawn();
+        }
+
+        Ok(Self {
+            sim_type,
+            state: GameState::Launching,
+            child: None,
+            pid: None,
+        })
     }
 }
 

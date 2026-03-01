@@ -94,10 +94,10 @@ export default function GamesPage() {
                 className={`rounded-lg border p-4 transition-all ${
                   isRunning
                     ? "border-emerald-500/50 bg-emerald-500/5"
-                    : gameState === "launching"
-                    ? "border-amber-500/50 bg-amber-500/5"
                     : isError
                     ? "border-red-500/50 bg-red-500/5"
+                    : isStopping
+                    ? "border-amber-500/50 bg-amber-500/5"
                     : pod.status === "offline"
                     ? "border-zinc-800 bg-zinc-900/50"
                     : "border-zinc-700 bg-zinc-900"

@@ -9,6 +9,7 @@ use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
+use crate::ac_server;
 use crate::billing;
 use crate::game_launcher;
 use crate::state::AppState;
@@ -210,6 +211,27 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
         let _ = sender.send(Message::Text(json.into())).await;
     }
 
+    // Send active AC server sessions on connect
+    {
+        let instances = state.ac_server.instances.read().await;
+        for inst in instances.values() {
+            if matches!(inst.status, rc_common::types::AcServerStatus::Running | rc_common::types::AcServerStatus::Starting) {
+                let msg = DashboardEvent::AcServerUpdate(inst.to_info());
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = sender.send(Message::Text(json.into())).await;
+                }
+            }
+        }
+    }
+
+    // Send AC preset list on connect
+    if let Ok(presets) = ac_server::list_presets(&state).await {
+        let msg = DashboardEvent::AcPresetList(presets);
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = sender.send(Message::Text(json.into())).await;
+        }
+    }
+
     // Subscribe to broadcast events
     let mut rx = state.dashboard_tx.subscribe();
 
@@ -234,6 +256,13 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                         DashboardCommand::LaunchGame { .. }
                         | DashboardCommand::StopGame { .. } => {
                             game_launcher::handle_dashboard_command(&cmd_state, cmd).await;
+                        }
+                        DashboardCommand::StartAcSession { .. }
+                        | DashboardCommand::StopAcSession { .. }
+                        | DashboardCommand::SaveAcPreset { .. }
+                        | DashboardCommand::DeleteAcPreset { .. }
+                        | DashboardCommand::LoadAcPreset { .. } => {
+                            ac_server::handle_dashboard_command(&cmd_state, cmd).await;
                         }
                         _ => {
                             billing::handle_dashboard_command(&cmd_state, cmd).await;

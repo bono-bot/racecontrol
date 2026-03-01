@@ -16,6 +16,8 @@ pub struct Config {
     pub integrations: IntegrationsConfig,
     #[serde(default)]
     pub ai_debugger: AiDebuggerConfig,
+    #[serde(default)]
+    pub ac_server: AcServerConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +135,25 @@ impl Default for AiDebuggerConfig {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AcServerConfig {
+    #[serde(default = "default_acserver_path")]
+    pub acserver_path: String,
+    #[serde(default = "default_ac_data_dir")]
+    pub data_dir: String,
+    pub lan_ip: Option<String>,
+}
+
+impl Default for AcServerConfig {
+    fn default() -> Self {
+        Self {
+            acserver_path: default_acserver_path(),
+            data_dir: default_ac_data_dir(),
+            lan_ip: None,
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -171,6 +192,7 @@ impl Config {
             branding: BrandingConfig::default(),
             integrations: IntegrationsConfig::default(),
             ai_debugger: AiDebuggerConfig::default(),
+            ac_server: AcServerConfig::default(),
         }
     }
 }
@@ -185,6 +207,8 @@ fn default_pod_count() -> u32 { 16 }
 fn default_true() -> bool { true }
 fn default_color() -> String { "#FF4400".to_string() }
 fn default_theme() -> String { "dark".to_string() }
+fn default_acserver_path() -> String { "/opt/ac-server/acServer".to_string() }
+fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_ollama_model() -> String { "qwen2.5-coder:14b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }

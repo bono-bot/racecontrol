@@ -279,6 +279,42 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── AC LAN tables ──────────────────────────────────────────────────────
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ac_presets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            config_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ac_sessions (
+            id TEXT PRIMARY KEY,
+            preset_id TEXT,
+            config_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'starting',
+            pod_ids TEXT,
+            pid INTEGER,
+            join_url TEXT,
+            error_message TEXT,
+            started_at TEXT,
+            ended_at TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ac_sessions_status ON ac_sessions(status)")
+        .execute(pool)
+        .await?;
+
     // Add trial tracking column to drivers (ignore error if already exists)
     let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN has_used_trial BOOLEAN DEFAULT 0")
         .execute(pool)

@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 
+use crate::ac_server;
 use crate::billing;
 use crate::game_launcher;
 use crate::state::AppState;
@@ -55,6 +56,15 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/games/active", get(active_games))
         .route("/games/history", get(game_launch_history))
         .route("/games/pod/{pod_id}", get(pod_game_state))
+        // AC LAN
+        .route("/ac/presets", get(list_ac_presets).post(save_ac_preset))
+        .route("/ac/presets/{id}", get(get_ac_preset).put(update_ac_preset).delete(delete_ac_preset))
+        .route("/ac/session/start", post(start_ac_session))
+        .route("/ac/session/stop", post(stop_ac_session))
+        .route("/ac/session/active", get(active_ac_session))
+        .route("/ac/sessions", get(list_ac_sessions))
+        .route("/ac/content/tracks", get(list_ac_tracks))
+        .route("/ac/content/cars", get(list_ac_cars))
         // Venue info
         .route("/venue", get(venue_info))
 }
@@ -762,4 +772,249 @@ async fn pod_game_state(
         Some(tracker) => Json(json!({ "game": tracker.to_info() })),
         None => Json(json!({ "game": null, "state": "idle" })),
     }
+}
+
+// ─── AC LAN ──────────────────────────────────────────────────────────────────
+
+async fn list_ac_presets(State(state): State<Arc<AppState>>) -> Json<Value> {
+    match ac_server::list_presets(&state).await {
+        Ok(presets) => Json(json!({ "presets": presets })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn save_ac_preset(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let name = match body.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n.to_string(),
+        None => return Json(json!({ "error": "name is required" })),
+    };
+
+    let config: AcLanSessionConfig = match body.get("config") {
+        Some(c) => match serde_json::from_value(c.clone()) {
+            Ok(cfg) => cfg,
+            Err(e) => return Json(json!({ "error": format!("Invalid config: {}", e) })),
+        },
+        None => return Json(json!({ "error": "config is required" })),
+    };
+
+    match ac_server::save_preset(&state, &name, &config).await {
+        Ok(id) => Json(json!({ "id": id, "name": name })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn get_ac_preset(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match ac_server::load_preset(&state, &id).await {
+        Ok((name, config)) => Json(json!({ "id": id, "name": name, "config": config })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn update_ac_preset(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let name = body.get("name").and_then(|v| v.as_str());
+    let config = body.get("config").and_then(|c| serde_json::from_value::<AcLanSessionConfig>(c.clone()).ok());
+
+    let mut updates = Vec::new();
+    let mut binds: Vec<String> = Vec::new();
+
+    if let Some(n) = name {
+        updates.push("name = ?");
+        binds.push(n.to_string());
+    }
+    if let Some(cfg) = &config {
+        updates.push("config_json = ?");
+        binds.push(serde_json::to_string(cfg).unwrap_or_default());
+    }
+
+    if updates.is_empty() {
+        return Json(json!({ "error": "No fields to update" }));
+    }
+
+    updates.push("updated_at = datetime('now')");
+    let query = format!("UPDATE ac_presets SET {} WHERE id = ?", updates.join(", "));
+
+    let mut q = sqlx::query(&query);
+    for b in &binds {
+        q = q.bind(b);
+    }
+    q = q.bind(&id);
+
+    match q.execute(&state.db).await {
+        Ok(r) if r.rows_affected() == 0 => Json(json!({ "error": "Preset not found" })),
+        Ok(_) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn delete_ac_preset(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match ac_server::delete_preset(&state, &id).await {
+        Ok(_) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn start_ac_session(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let config: AcLanSessionConfig = match body.get("config") {
+        Some(c) => match serde_json::from_value(c.clone()) {
+            Ok(cfg) => cfg,
+            Err(e) => return Json(json!({ "error": format!("Invalid config: {}", e) })),
+        },
+        None => return Json(json!({ "error": "config is required" })),
+    };
+
+    let pod_ids: Vec<String> = body
+        .get("pod_ids")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
+    match ac_server::start_ac_server(&state, config, pod_ids).await {
+        Ok(session_id) => Json(json!({ "session_id": session_id })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn stop_ac_session(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let session_id = match body.get("session_id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => return Json(json!({ "error": "session_id is required" })),
+    };
+
+    match ac_server::stop_ac_server(&state, session_id).await {
+        Ok(_) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn active_ac_session(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let instances = state.ac_server.instances.read().await;
+    let active: Vec<_> = instances
+        .values()
+        .filter(|i| matches!(i.status, AcServerStatus::Running | AcServerStatus::Starting))
+        .map(|i| i.to_info())
+        .collect();
+    Json(json!({ "sessions": active }))
+}
+
+#[derive(Deserialize)]
+struct AcSessionsQuery {
+    status: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn list_ac_sessions(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<AcSessionsQuery>,
+) -> Json<Value> {
+    let limit = params.limit.unwrap_or(50);
+    let mut query = String::from(
+        "SELECT id, preset_id, status, pod_ids, pid, join_url, error_message, started_at, ended_at, created_at \
+         FROM ac_sessions WHERE 1=1"
+    );
+
+    if let Some(status) = &params.status {
+        query.push_str(&format!(" AND status = '{}'", status));
+    }
+
+    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", limit));
+
+    let rows = sqlx::query_as::<_, (String, Option<String>, String, Option<String>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>, String)>(
+        &query,
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(sessions) => {
+            let list: Vec<Value> = sessions
+                .iter()
+                .map(|s| {
+                    json!({
+                        "id": s.0, "preset_id": s.1, "status": s.2,
+                        "pod_ids": s.3, "pid": s.4, "join_url": s.5,
+                        "error_message": s.6, "started_at": s.7,
+                        "ended_at": s.8, "created_at": s.9,
+                    })
+                })
+                .collect();
+            Json(json!({ "sessions": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn list_ac_tracks(State(_state): State<Arc<AppState>>) -> Json<Value> {
+    // Curated list of popular AC tracks
+    Json(json!({ "tracks": [
+        { "id": "monza", "name": "Monza", "configs": ["", "junior"] },
+        { "id": "spa", "name": "Spa-Francorchamps", "configs": [""] },
+        { "id": "silverstone", "name": "Silverstone", "configs": ["", "international", "national", "gp"] },
+        { "id": "brands_hatch", "name": "Brands Hatch", "configs": ["", "gp", "indy"] },
+        { "id": "nurburgring", "name": "Nurburgring", "configs": ["", "sprint"] },
+        { "id": "nordschleife", "name": "Nordschleife", "configs": ["", "endurance", "tourist"] },
+        { "id": "mugello", "name": "Mugello", "configs": [""] },
+        { "id": "imola", "name": "Imola", "configs": [""] },
+        { "id": "barcelona", "name": "Barcelona", "configs": ["", "moto", "national"] },
+        { "id": "ks_red_bull_ring", "name": "Red Bull Ring", "configs": ["", "national"] },
+        { "id": "vallelunga", "name": "Vallelunga", "configs": ["", "club"] },
+        { "id": "drift", "name": "Drift Track", "configs": [""] },
+        { "id": "ks_zandvoort", "name": "Zandvoort", "configs": [""] },
+        { "id": "ks_laguna_seca", "name": "Laguna Seca", "configs": [""] },
+        { "id": "suzuka", "name": "Suzuka", "configs": ["", "east"] },
+        { "id": "ks_highlands", "name": "Highlands", "configs": [""] },
+        { "id": "ks_black_cat_county", "name": "Black Cat County", "configs": ["", "long"] },
+        { "id": "magione", "name": "Magione", "configs": [""] },
+        { "id": "trento-bondone", "name": "Trento Bondone", "configs": [""] },
+    ]}))
+}
+
+async fn list_ac_cars(State(_state): State<Arc<AppState>>) -> Json<Value> {
+    // Curated list of popular AC cars grouped by class
+    Json(json!({ "cars": [
+        { "id": "ks_ferrari_488_gt3", "name": "Ferrari 488 GT3", "class": "GT3" },
+        { "id": "ks_lamborghini_huracan_gt3", "name": "Lamborghini Huracan GT3", "class": "GT3" },
+        { "id": "ks_mercedes_amg_gt3", "name": "Mercedes AMG GT3", "class": "GT3" },
+        { "id": "ks_audi_r8_lms_2016", "name": "Audi R8 LMS 2016", "class": "GT3" },
+        { "id": "ks_porsche_911_gt3_r_2016", "name": "Porsche 911 GT3 R", "class": "GT3" },
+        { "id": "ks_mclaren_650_gt3", "name": "McLaren 650S GT3", "class": "GT3" },
+        { "id": "ks_nissan_gtr_gt3", "name": "Nissan GT-R GT3", "class": "GT3" },
+        { "id": "ks_bmw_m6_gt3", "name": "BMW M6 GT3", "class": "GT3" },
+        { "id": "ks_ferrari_488_gtb", "name": "Ferrari 488 GTB", "class": "Street" },
+        { "id": "ks_lamborghini_huracan_performante", "name": "Lamborghini Huracan Performante", "class": "Street" },
+        { "id": "ks_porsche_911_r", "name": "Porsche 911 R", "class": "Street" },
+        { "id": "ks_mclaren_p1", "name": "McLaren P1", "class": "Hypercar" },
+        { "id": "ks_ferrari_laferrari", "name": "Ferrari LaFerrari", "class": "Hypercar" },
+        { "id": "ks_porsche_918_spyder", "name": "Porsche 918 Spyder", "class": "Hypercar" },
+        { "id": "ks_audi_r18_etron_quattro", "name": "Audi R18 e-tron", "class": "LMP" },
+        { "id": "ks_porsche_919_hybrid_2016", "name": "Porsche 919 Hybrid", "class": "LMP" },
+        { "id": "ks_toyota_ts040", "name": "Toyota TS040", "class": "LMP" },
+        { "id": "tatuusfa1", "name": "Tatuus FA01", "class": "Open Wheel" },
+        { "id": "ks_ferrari_sf15t", "name": "Ferrari SF15-T", "class": "Open Wheel" },
+        { "id": "lotus_exos_125_s1", "name": "Lotus Exos 125 S1", "class": "Open Wheel" },
+        { "id": "ks_mazda_mx5_cup", "name": "Mazda MX-5 Cup", "class": "Cup" },
+        { "id": "ks_toyota_gt86", "name": "Toyota GT86", "class": "Street" },
+        { "id": "ks_ford_mustang_2015", "name": "Ford Mustang 2015", "class": "Street" },
+        { "id": "ks_abarth_595ss_s2", "name": "Abarth 595 SS", "class": "Street" },
+        { "id": "lotus_2_eleven", "name": "Lotus 2-Eleven", "class": "Track Day" },
+        { "id": "ks_toyota_ae86_drift", "name": "Toyota AE86 Drift", "class": "Drift" },
+        { "id": "ks_nissan_370z", "name": "Nissan 370Z", "class": "Drift" },
+    ]}))
 }

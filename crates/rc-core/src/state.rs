@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc, RwLock};
 
+use crate::ac_server::AcServerManager;
 use crate::billing::BillingManager;
 use crate::config::Config;
 use crate::game_launcher::GameManager;
@@ -15,6 +16,7 @@ pub struct AppState {
     pub dashboard_tx: broadcast::Sender<DashboardEvent>,
     pub billing: BillingManager,
     pub game_launcher: GameManager,
+    pub ac_server: AcServerManager,
     /// Map of pod_id -> sender for pushing commands to specific agents
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,
 }
@@ -29,6 +31,7 @@ impl AppState {
             dashboard_tx,
             billing: BillingManager::new(),
             game_launcher: GameManager::new(),
+            ac_server: AcServerManager::new(),
             agent_senders: RwLock::new(HashMap::new()),
         }
     }

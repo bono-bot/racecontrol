@@ -1,3 +1,4 @@
+mod ac_server;
 mod api;
 mod billing;
 mod config;
@@ -79,6 +80,16 @@ async fn main() -> anyhow::Result<()> {
         loop {
             interval.tick().await;
             game_launcher::check_game_health(&game_state).await;
+        }
+    });
+
+    // Spawn AC server health check loop (5 second interval)
+    let ac_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            ac_server::check_ac_server_health(&ac_state).await;
         }
     });
 

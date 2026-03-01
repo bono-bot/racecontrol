@@ -404,8 +404,8 @@ async fn main() -> Result<()> {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
-                                    tracing::info!("Launching game: {:?}", launch_sim);
-                                    let game_config = match launch_sim {
+                                    tracing::info!("Launching game: {:?} (args: {:?})", launch_sim, launch_args);
+                                    let base_config = match launch_sim {
                                         SimType::AssettocCorsa => &config.games.assetto_corsa,
                                         SimType::IRacing => &config.games.iracing,
                                         SimType::F125 => &config.games.f1_25,
@@ -413,7 +413,13 @@ async fn main() -> Result<()> {
                                         SimType::Forza => &config.games.forza,
                                     };
 
-                                    match game_process::GameProcess::launch(game_config, launch_sim) {
+                                    // Merge runtime launch_args into config
+                                    let mut game_config = base_config.clone();
+                                    if let Some(args) = launch_args {
+                                        game_config.args = Some(args);
+                                    }
+
+                                    match game_process::GameProcess::launch(&game_config, launch_sim) {
                                         Ok(gp) => {
                                             let info = GameLaunchInfo {
                                                 pod_id: pod_id.clone(),

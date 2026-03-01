@@ -103,6 +103,37 @@ export const api = {
     const qs = pod_id ? `?pod_id=${pod_id}` : "";
     return fetchApi<{ events: GameLaunchEvent[] }>(`/games/history${qs}`);
   },
+
+  // AC LAN
+  listAcPresets: () => fetchApi<{ presets: AcPresetSummary[] }>("/ac/presets"),
+  saveAcPreset: (name: string, config: AcLanSessionConfig) =>
+    fetchApi<{ id: string; name: string }>("/ac/presets", {
+      method: "POST",
+      body: JSON.stringify({ name, config }),
+    }),
+  getAcPreset: (id: string) =>
+    fetchApi<{ id: string; name: string; config: AcLanSessionConfig }>(`/ac/presets/${id}`),
+  updateAcPreset: (id: string, data: { name?: string; config?: AcLanSessionConfig }) =>
+    fetchApi<{ ok: boolean }>(`/ac/presets/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteAcPreset: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/ac/presets/${id}`, { method: "DELETE" }),
+  startAcSession: (config: AcLanSessionConfig, pod_ids: string[]) =>
+    fetchApi<{ session_id: string }>("/ac/session/start", {
+      method: "POST",
+      body: JSON.stringify({ config, pod_ids }),
+    }),
+  stopAcSession: (session_id: string) =>
+    fetchApi<{ ok: boolean }>("/ac/session/stop", {
+      method: "POST",
+      body: JSON.stringify({ session_id }),
+    }),
+  activeAcSessions: () => fetchApi<{ sessions: AcServerInfo[] }>("/ac/session/active"),
+  listAcSessions: (params?: { status?: string; limit?: number }) => {
+    const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : "";
+    return fetchApi<{ sessions: AcSessionRecord[] }>(`/ac/sessions${qs ? `?${qs}` : ""}`);
+  },
+  acTracks: () => fetchApi<{ tracks: AcTrack[] }>("/ac/content/tracks"),
+  acCars: () => fetchApi<{ cars: AcCar[] }>("/ac/content/cars"),
 };
 
 interface GameLaunchEvent {
@@ -279,4 +310,163 @@ export interface AiDebugSuggestion {
   suggestion: string;
   model: string;
   created_at: string;
+}
+
+// ─── AC LAN Types ─────────────────────────────────────────────────────────
+
+export type AcServerStatus = "starting" | "running" | "stopping" | "stopped" | "error";
+
+export interface AcSessionBlock {
+  name: string;
+  session_type: "practice" | "qualifying" | "race" | "booking";
+  duration_minutes: number;
+  laps: number;
+  wait_time_secs: number;
+}
+
+export interface AcWeatherConfig {
+  graphics: string;
+  base_temperature_ambient: number;
+  base_temperature_road: number;
+  variation_ambient: number;
+  variation_road: number;
+  wind_base_speed_min: number;
+  wind_base_speed_max: number;
+  wind_base_direction: number;
+  wind_variation_direction: number;
+}
+
+export interface AcDynamicTrackConfig {
+  session_start: number;
+  randomness: number;
+  session_transfer: number;
+  lap_gain: number;
+}
+
+export interface AcEntrySlot {
+  car_model: string;
+  skin: string;
+  driver_name: string;
+  guid: string;
+  ballast: number;
+  restrictor: number;
+  pod_id?: string;
+}
+
+export interface AcLanSessionConfig {
+  name: string;
+  track: string;
+  track_config: string;
+  cars: string[];
+  max_clients: number;
+  password: string;
+  sessions: AcSessionBlock[];
+  entries: AcEntrySlot[];
+  weather: AcWeatherConfig[];
+  dynamic_track: AcDynamicTrackConfig;
+  pickup_mode: boolean;
+  udp_port: number;
+  tcp_port: number;
+  http_port: number;
+  abs_allowed: number;
+  tc_allowed: number;
+  autoclutch_allowed: boolean;
+  tyre_blankets_allowed: boolean;
+  stability_allowed: boolean;
+  force_virtual_mirror: boolean;
+  damage_multiplier: number;
+  fuel_rate: number;
+  tyre_wear_rate: number;
+  min_csp_version: number;
+  csp_extra_options?: string;
+}
+
+export interface AcServerInfo {
+  session_id: string;
+  config: AcLanSessionConfig;
+  status: AcServerStatus;
+  pid?: number;
+  started_at?: string;
+  join_url: string;
+  connected_pods: string[];
+  error_message?: string;
+}
+
+export interface AcPresetSummary {
+  id: string;
+  name: string;
+  track: string;
+  track_config: string;
+  cars: string[];
+  max_clients: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface AcSessionRecord {
+  id: string;
+  preset_id?: string;
+  status: string;
+  pod_ids?: string;
+  pid?: number;
+  join_url?: string;
+  error_message?: string;
+  started_at?: string;
+  ended_at?: string;
+  created_at: string;
+}
+
+export interface AcTrack {
+  id: string;
+  name: string;
+  configs: string[];
+}
+
+export interface AcCar {
+  id: string;
+  name: string;
+  class: string;
+}
+
+export function defaultAcConfig(): AcLanSessionConfig {
+  return {
+    name: "RacingPoint LAN Race",
+    track: "monza",
+    track_config: "",
+    cars: ["ks_ferrari_488_gt3"],
+    max_clients: 16,
+    password: "",
+    sessions: [
+      { name: "Practice", session_type: "practice", duration_minutes: 10, laps: 0, wait_time_secs: 30 },
+      { name: "Qualifying", session_type: "qualifying", duration_minutes: 10, laps: 0, wait_time_secs: 60 },
+      { name: "Race", session_type: "race", duration_minutes: 0, laps: 10, wait_time_secs: 60 },
+    ],
+    entries: [],
+    weather: [{
+      graphics: "3_clear",
+      base_temperature_ambient: 26,
+      base_temperature_road: 32,
+      variation_ambient: 1,
+      variation_road: 1,
+      wind_base_speed_min: 0,
+      wind_base_speed_max: 5,
+      wind_base_direction: 0,
+      wind_variation_direction: 15,
+    }],
+    dynamic_track: { session_start: 100, randomness: 0, session_transfer: 100, lap_gain: 0 },
+    pickup_mode: true,
+    udp_port: 9600,
+    tcp_port: 9600,
+    http_port: 8081,
+    abs_allowed: 1,
+    tc_allowed: 1,
+    autoclutch_allowed: true,
+    tyre_blankets_allowed: true,
+    stability_allowed: false,
+    force_virtual_mirror: false,
+    damage_multiplier: 100,
+    fuel_rate: 100,
+    tyre_wear_rate: 100,
+    min_csp_version: 0,
+  };
 }
