@@ -185,6 +185,6 @@ fn default_pod_count() -> u32 { 16 }
 fn default_true() -> bool { true }
 fn default_color() -> String { "#FF4400".to_string() }
 fn default_theme() -> String { "dark".to_string() }
-fn default_ollama_url() -> String { "http://localhost:32769".to_string() }
+fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_ollama_model() -> String { "qwen2.5-coder:14b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }

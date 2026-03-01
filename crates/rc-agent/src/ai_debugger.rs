@@ -16,7 +16,7 @@ pub struct AiDebuggerConfig {
 }
 
 fn default_ollama_url() -> String {
-    "http://localhost:32769".to_string()
+    "http://localhost:11434".to_string()
 }
 fn default_ollama_model() -> String {
     "qwen2.5-coder:14b".to_string()
