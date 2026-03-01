@@ -10,6 +10,8 @@ pub enum SimType {
     AssettocCorsa,
     IRacing,
     LeMansUltimate,
+    F125,
+    Forza,
 }
 
 impl std::fmt::Display for SimType {
@@ -18,6 +20,8 @@ impl std::fmt::Display for SimType {
             SimType::AssettocCorsa => write!(f, "Assetto Corsa"),
             SimType::IRacing => write!(f, "iRacing"),
             SimType::LeMansUltimate => write!(f, "Le Mans Ultimate"),
+            SimType::F125 => write!(f, "F1 25"),
+            SimType::Forza => write!(f, "Forza Motorsport"),
         }
     }
 }
@@ -48,6 +52,10 @@ pub struct PodInfo {
     pub driving_state: Option<DrivingState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub billing_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_state: Option<GameState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_game: Option<SimType>,
 }
 
 // ─── Driver ──────────────────────────────────────────────────────────────────
@@ -260,4 +268,43 @@ pub struct PricingTier {
     pub price_paise: u32,
     pub is_trial: bool,
     pub is_active: bool,
+}
+
+// ─── Game Launcher ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameState {
+    /// No game running on this pod
+    Idle,
+    /// Game executable is being launched
+    Launching,
+    /// Game process is running (PID tracked)
+    Running,
+    /// Game is being stopped/killed
+    Stopping,
+    /// Game crashed or failed to launch
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameLaunchInfo {
+    pub pod_id: String,
+    pub sim_type: SimType,
+    pub game_state: GameState,
+    pub pid: Option<u32>,
+    pub launched_at: Option<DateTime<Utc>>,
+    pub error_message: Option<String>,
+}
+
+// ─── AI Debugger ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiDebugSuggestion {
+    pub pod_id: String,
+    pub sim_type: SimType,
+    pub error_context: String,
+    pub suggestion: String,
+    pub model: String,
+    pub created_at: DateTime<Utc>,
 }

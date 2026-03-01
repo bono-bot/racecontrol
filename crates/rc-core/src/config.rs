@@ -14,6 +14,8 @@ pub struct Config {
     pub branding: BrandingConfig,
     #[serde(default)]
     pub integrations: IntegrationsConfig,
+    #[serde(default)]
+    pub ai_debugger: AiDebuggerConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,6 +108,31 @@ pub struct WhatsAppConfig {
     pub contact: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AiDebuggerConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_ollama_url")]
+    pub ollama_url: String,
+    #[serde(default = "default_ollama_model")]
+    pub ollama_model: String,
+    pub anthropic_api_key: Option<String>,
+    #[serde(default = "default_anthropic_model")]
+    pub anthropic_model: String,
+}
+
+impl Default for AiDebuggerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ollama_url: default_ollama_url(),
+            ollama_model: default_ollama_model(),
+            anthropic_api_key: None,
+            anthropic_model: default_anthropic_model(),
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -143,6 +170,7 @@ impl Config {
             pods: PodsConfig::default(),
             branding: BrandingConfig::default(),
             integrations: IntegrationsConfig::default(),
+            ai_debugger: AiDebuggerConfig::default(),
         }
     }
 }
@@ -157,3 +185,6 @@ fn default_pod_count() -> u32 { 16 }
 fn default_true() -> bool { true }
 fn default_color() -> String { "#FF4400".to_string() }
 fn default_theme() -> String { "dark".to_string() }
+fn default_ollama_url() -> String { "http://localhost:32769".to_string() }
+fn default_ollama_model() -> String { "qwen2.5-coder:14b".to_string() }
+fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }

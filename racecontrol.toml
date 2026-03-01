@@ -21,6 +21,12 @@ discovery = true
 primary_color = "#FF4400"
 theme = "dark"
 
+[ai_debugger]
+enabled = true
+ollama_url = "http://localhost:32769"
+ollama_model = "qwen2.5-coder:14b"
+# anthropic_api_key = "sk-ant-..."  # Optional fallback when Ollama is unavailable
+
 [integrations.discord]
 results_channel = "race-results"
 

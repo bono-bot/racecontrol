@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    BillingSessionInfo, DrivingState, Leaderboard, LapData, PodInfo, SessionInfo, TelemetryFrame,
+    AiDebugSuggestion, BillingSessionInfo, DrivingState, GameLaunchInfo, Leaderboard, LapData,
+    PodInfo, SessionInfo, SimType, TelemetryFrame,
 };
 
 /// Messages sent from Pod Agent → Core Server
@@ -29,6 +30,12 @@ pub enum AgentMessage {
 
     /// Agent is shutting down
     Disconnect { pod_id: String },
+
+    /// Agent reports game state change (launched, running, stopped, crashed)
+    GameStateUpdate(GameLaunchInfo),
+
+    /// Agent sends AI debug suggestion after analyzing a crash/error
+    AiDebugResult(AiDebugSuggestion),
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -57,6 +64,15 @@ pub enum CoreToAgentMessage {
 
     /// Notify agent that billing session ended
     BillingStopped { billing_session_id: String },
+
+    /// Command to launch a game on this pod
+    LaunchGame {
+        sim_type: SimType,
+        launch_args: Option<String>,
+    },
+
+    /// Command to stop the currently running game
+    StopGame,
 }
 
 /// Messages sent from Core Server → Web Dashboard
@@ -97,6 +113,15 @@ pub enum DashboardEvent {
         pod_id: String,
         remaining_seconds: u32,
     },
+
+    /// Game state changed on a pod
+    GameStateChanged(GameLaunchInfo),
+
+    /// AI debug suggestion for a game crash/error
+    AiDebugSuggestion(AiDebugSuggestion),
+
+    /// All active game sessions (sent on dashboard connect)
+    GameSessionList(Vec<GameLaunchInfo>),
 }
 
 /// Messages sent from Web Dashboard → Core Server
@@ -130,4 +155,14 @@ pub enum DashboardCommand {
         billing_session_id: String,
         additional_seconds: u32,
     },
+
+    /// Launch a game on a specific pod
+    LaunchGame {
+        pod_id: String,
+        sim_type: SimType,
+        launch_args: Option<String>,
+    },
+
+    /// Stop the game running on a specific pod
+    StopGame { pod_id: String },
 }

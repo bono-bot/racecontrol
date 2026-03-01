@@ -9,6 +9,7 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 
 use crate::billing;
+use crate::game_launcher;
 use crate::state::AppState;
 use rc_common::types::*;
 
@@ -48,6 +49,12 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/billing/{id}/resume", post(resume_billing))
         .route("/billing/{id}/extend", post(extend_billing))
         .route("/billing/report/daily", get(daily_billing_report))
+        // Game Launcher
+        .route("/games/launch", post(launch_game))
+        .route("/games/stop", post(stop_game))
+        .route("/games/active", get(active_games))
+        .route("/games/history", get(game_launch_history))
+        .route("/games/pod/{pod_id}", get(pod_game_state))
         // Venue info
         .route("/venue", get(venue_info))
 }
@@ -641,5 +648,118 @@ async fn daily_billing_report(
             }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+// ─── Game Launcher ─────────────────────────────────────────────────────────
+
+async fn launch_game(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let pod_id = body.get("pod_id").and_then(|v| v.as_str()).unwrap_or("");
+    let sim_type_str = body.get("sim_type").and_then(|v| v.as_str()).unwrap_or("");
+    let launch_args = body
+        .get("launch_args")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    if pod_id.is_empty() || sim_type_str.is_empty() {
+        return Json(json!({ "error": "pod_id and sim_type are required" }));
+    }
+
+    let sim_type: SimType = match serde_json::from_value(serde_json::Value::String(
+        sim_type_str.to_string(),
+    )) {
+        Ok(st) => st,
+        Err(_) => return Json(json!({ "error": format!("Unknown sim_type: {}", sim_type_str) })),
+    };
+
+    let cmd = rc_common::protocol::DashboardCommand::LaunchGame {
+        pod_id: pod_id.to_string(),
+        sim_type,
+        launch_args,
+    };
+
+    game_launcher::handle_dashboard_command(&state, cmd).await;
+    Json(json!({ "ok": true }))
+}
+
+async fn stop_game(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let pod_id = body.get("pod_id").and_then(|v| v.as_str()).unwrap_or("");
+
+    if pod_id.is_empty() {
+        return Json(json!({ "error": "pod_id is required" }));
+    }
+
+    let cmd = rc_common::protocol::DashboardCommand::StopGame {
+        pod_id: pod_id.to_string(),
+    };
+
+    game_launcher::handle_dashboard_command(&state, cmd).await;
+    Json(json!({ "ok": true }))
+}
+
+async fn active_games(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let games = state.game_launcher.active_games.read().await;
+    let list: Vec<_> = games.values().map(|g| g.to_info()).collect();
+    Json(json!({ "games": list }))
+}
+
+#[derive(Deserialize)]
+struct GameHistoryQuery {
+    pod_id: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn game_launch_history(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<GameHistoryQuery>,
+) -> Json<Value> {
+    let limit = params.limit.unwrap_or(100);
+    let mut query =
+        String::from("SELECT id, pod_id, sim_type, event_type, pid, error_message, created_at FROM game_launch_events WHERE 1=1");
+
+    if let Some(pod_id) = &params.pod_id {
+        query.push_str(&format!(" AND pod_id = '{}'", pod_id));
+    }
+
+    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", limit));
+
+    let rows = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<String>, String)>(
+        &query,
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(events) => {
+            let list: Vec<Value> = events
+                .iter()
+                .map(|e| {
+                    json!({
+                        "id": e.0, "pod_id": e.1, "sim_type": e.2,
+                        "event_type": e.3, "pid": e.4,
+                        "error_message": e.5, "created_at": e.6,
+                    })
+                })
+                .collect();
+            Json(json!({ "events": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn pod_game_state(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+) -> Json<Value> {
+    let games = state.game_launcher.active_games.read().await;
+    match games.get(&pod_id) {
+        Some(tracker) => Json(json!({ "game": tracker.to_info() })),
+        None => Json(json!({ "game": null, "state": "idle" })),
     }
 }

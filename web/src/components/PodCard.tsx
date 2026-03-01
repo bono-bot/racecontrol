@@ -6,6 +6,8 @@ const simLabels: Record<string, string> = {
   assetto_corsa: "Assetto Corsa",
   iracing: "iRacing",
   le_mans_ultimate: "Le Mans Ultimate",
+  f1_25: "F1 25",
+  forza: "Forza Motorsport",
 };
 
 interface PodCardProps {

@@ -4,6 +4,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 
 use crate::billing::BillingManager;
 use crate::config::Config;
+use crate::game_launcher::GameManager;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 use rc_common::types::PodInfo;
 
@@ -13,6 +14,7 @@ pub struct AppState {
     pub pods: RwLock<HashMap<String, PodInfo>>,
     pub dashboard_tx: broadcast::Sender<DashboardEvent>,
     pub billing: BillingManager,
+    pub game_launcher: GameManager,
     /// Map of pod_id -> sender for pushing commands to specific agents
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,
 }
@@ -26,6 +28,7 @@ impl AppState {
             pods: RwLock::new(HashMap::new()),
             dashboard_tx,
             billing: BillingManager::new(),
+            game_launcher: GameManager::new(),
             agent_senders: RwLock::new(HashMap::new()),
         }
     }

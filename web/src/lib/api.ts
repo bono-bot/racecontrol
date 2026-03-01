@@ -86,7 +86,34 @@ export const api = {
     const qs = date ? `?date=${date}` : "";
     return fetchApi<DailyReport>(`/billing/report/daily${qs}`);
   },
+
+  // Game Launcher
+  launchGame: (pod_id: string, sim_type: string, launch_args?: string) =>
+    fetchApi<{ ok: boolean }>("/games/launch", {
+      method: "POST",
+      body: JSON.stringify({ pod_id, sim_type, launch_args }),
+    }),
+  stopGame: (pod_id: string) =>
+    fetchApi<{ ok: boolean }>("/games/stop", {
+      method: "POST",
+      body: JSON.stringify({ pod_id }),
+    }),
+  activeGames: () => fetchApi<{ games: GameLaunchInfo[] }>("/games/active"),
+  gameHistory: (pod_id?: string) => {
+    const qs = pod_id ? `?pod_id=${pod_id}` : "";
+    return fetchApi<{ events: GameLaunchEvent[] }>(`/games/history${qs}`);
+  },
 };
+
+interface GameLaunchEvent {
+  id: string;
+  pod_id: string;
+  sim_type: string;
+  event_type: string;
+  pid?: number;
+  error_message?: string;
+  created_at: string;
+}
 
 // Types
 export interface Pod {
@@ -101,6 +128,8 @@ export interface Pod {
   last_seen?: string;
   driving_state?: "active" | "idle" | "no_device";
   billing_session_id?: string;
+  game_state?: GameState;
+  current_game?: string;
 }
 
 export interface Driver {
@@ -228,4 +257,26 @@ export interface BillingSessionRecord {
   price_paise: number;
   started_at?: string;
   ended_at?: string;
+}
+
+// ─── Game Launcher Types ───────────────────────────────────────────────────
+
+export type GameState = "idle" | "launching" | "running" | "stopping" | "error";
+
+export interface GameLaunchInfo {
+  pod_id: string;
+  sim_type: string;
+  game_state: GameState;
+  pid?: number;
+  launched_at?: string;
+  error_message?: string;
+}
+
+export interface AiDebugSuggestion {
+  pod_id: string;
+  sim_type: string;
+  error_context: string;
+  suggestion: string;
+  model: string;
+  created_at: string;
 }

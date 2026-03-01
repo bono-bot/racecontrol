@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { Pod, TelemetryFrame, Lap, BillingSession } from "@/lib/api";
+import type { Pod, TelemetryFrame, Lap, BillingSession, GameLaunchInfo, AiDebugSuggestion } from "@/lib/api";
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/dashboard";
 
@@ -25,6 +25,8 @@ export function useWebSocket() {
   const [recentLaps, setRecentLaps] = useState<Lap[]>([]);
   const [billingTimers, setBillingTimers] = useState<Map<string, BillingSession>>(new Map());
   const [billingWarnings, setBillingWarnings] = useState<BillingWarning[]>([]);
+  const [gameStates, setGameStates] = useState<Map<string, GameLaunchInfo>>(new Map());
+  const [aiDebugSuggestions, setAiDebugSuggestions] = useState<AiDebugSuggestion[]>([]);
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -129,6 +131,31 @@ export function useWebSocket() {
             }, 10000);
             break;
           }
+          case "game_session_list": {
+            const games = msg.data as GameLaunchInfo[];
+            const map = new Map<string, GameLaunchInfo>();
+            games.forEach((g) => map.set(g.pod_id, g));
+            setGameStates(map);
+            break;
+          }
+          case "game_state_changed": {
+            const info = msg.data as GameLaunchInfo;
+            setGameStates((prev) => {
+              const next = new Map(prev);
+              if (info.game_state === "idle") {
+                next.delete(info.pod_id);
+              } else {
+                next.set(info.pod_id, info);
+              }
+              return next;
+            });
+            break;
+          }
+          case "ai_debug_suggestion": {
+            const suggestion = msg.data as AiDebugSuggestion;
+            setAiDebugSuggestions((prev) => [suggestion, ...prev].slice(0, 20));
+            break;
+          }
         }
       } catch (e) {
         console.warn("[RaceControl] Parse error:", e);
@@ -162,6 +189,8 @@ export function useWebSocket() {
     recentLaps,
     billingTimers,
     billingWarnings,
+    gameStates,
+    aiDebugSuggestions,
     sendCommand,
   };
 }

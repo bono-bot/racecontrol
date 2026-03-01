@@ -312,6 +312,8 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
         } => {
             extend_billing_session(state, &billing_session_id, additional_seconds).await;
         }
+        // Game launcher commands are handled by game_launcher module
+        _ => {}
     }
 }
 

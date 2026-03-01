@@ -2,6 +2,7 @@ mod api;
 mod billing;
 mod config;
 mod db;
+mod game_launcher;
 mod state;
 mod ws;
 
@@ -68,6 +69,16 @@ async fn main() -> anyhow::Result<()> {
         loop {
             interval.tick().await;
             billing::sync_timers_to_db(&sync_state).await;
+        }
+    });
+
+    // Spawn game health check loop (5 second interval)
+    let game_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            game_launcher::check_game_health(&game_state).await;
         }
     });
 

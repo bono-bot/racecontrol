@@ -10,8 +10,10 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::billing;
+use crate::game_launcher;
 use crate::state::AppState;
 use rc_common::protocol::{AgentMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent};
+use rc_common::types::GameState;
 
 /// WebSocket endpoint for pod agents
 pub async fn agent_ws(
@@ -116,11 +118,29 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             // Update billing timer
                             billing::update_driving_state(&state, pod_id, *driving_state).await;
                         }
+                        AgentMessage::GameStateUpdate(info) => {
+                            tracing::info!(
+                                "Pod {} game state: {:?} ({:?})",
+                                info.pod_id, info.game_state, info.sim_type
+                            );
+                            game_launcher::handle_game_state_update(&state, info.clone()).await;
+                        }
+                        AgentMessage::AiDebugResult(suggestion) => {
+                            tracing::info!(
+                                "AI debug suggestion for pod {}: {}",
+                                suggestion.pod_id, suggestion.model
+                            );
+                            let _ = state
+                                .dashboard_tx
+                                .send(DashboardEvent::AiDebugSuggestion(suggestion.clone()));
+                        }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             if let Some(pod) = state.pods.write().await.get_mut(pod_id) {
                                 pod.status = rc_common::types::PodStatus::Offline;
                                 pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
+                                pod.game_state = Some(GameState::Idle);
+                                pod.current_game = None;
                                 let _ = state
                                     .dashboard_tx
                                     .send(DashboardEvent::PodUpdate(pod.clone()));
@@ -180,6 +200,16 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
         let _ = sender.send(Message::Text(json.into())).await;
     }
 
+    // Send active game sessions on connect
+    let games = state.game_launcher.active_games.read().await;
+    let game_list: Vec<_> = games.values().map(|g| g.to_info()).collect();
+    drop(games);
+
+    let game_msg = DashboardEvent::GameSessionList(game_list);
+    if let Ok(json) = serde_json::to_string(&game_msg) {
+        let _ = sender.send(Message::Text(json.into())).await;
+    }
+
     // Subscribe to broadcast events
     let mut rx = state.dashboard_tx.subscribe();
 
@@ -200,9 +230,15 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
         match msg {
             Message::Text(text) => {
                 match serde_json::from_str::<DashboardCommand>(&text) {
-                    Ok(cmd) => {
-                        billing::handle_dashboard_command(&cmd_state, cmd).await;
-                    }
+                    Ok(cmd) => match &cmd {
+                        DashboardCommand::LaunchGame { .. }
+                        | DashboardCommand::StopGame { .. } => {
+                            game_launcher::handle_dashboard_command(&cmd_state, cmd).await;
+                        }
+                        _ => {
+                            billing::handle_dashboard_command(&cmd_state, cmd).await;
+                        }
+                    },
                     Err(e) => {
                         tracing::debug!("Non-command dashboard message: {}", e);
                     }

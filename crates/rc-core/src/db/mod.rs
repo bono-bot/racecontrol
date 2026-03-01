@@ -261,6 +261,24 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Game launcher tables ─────────────────────────────────────────────────
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS game_launch_events (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            sim_type TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            pid INTEGER,
+            error_message TEXT,
+            ai_suggestion TEXT,
+            metadata TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     // Add trial tracking column to drivers (ignore error if already exists)
     let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN has_used_trial BOOLEAN DEFAULT 0")
         .execute(pool)
@@ -289,6 +307,12 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_billing_events_session ON billing_events(billing_session_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_game_events_pod ON game_launch_events(pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_game_events_type ON game_launch_events(event_type)")
         .execute(pool)
         .await?;
 

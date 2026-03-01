@@ -1,4 +1,6 @@
+mod ai_debugger;
 mod driving_detector;
+mod game_process;
 mod sims;
 
 use std::time::Duration;
@@ -14,6 +16,8 @@ use driving_detector::{
     DetectorConfig, DetectorSignal, DrivingDetector,
     is_input_active, is_steering_moving, parse_openffboard_report,
 };
+use ai_debugger::AiDebuggerConfig;
+use game_process::GameExeConfig;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::*;
 use sims::SimAdapter;
@@ -27,6 +31,24 @@ struct AgentConfig {
     wheelbase: WheelbaseConfig,
     #[serde(default)]
     telemetry_ports: TelemetryPortsConfig,
+    #[serde(default)]
+    games: GamesConfig,
+    #[serde(default)]
+    ai_debugger: AiDebuggerConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GamesConfig {
+    #[serde(default)]
+    assetto_corsa: GameExeConfig,
+    #[serde(default)]
+    iracing: GameExeConfig,
+    #[serde(default)]
+    f1_25: GameExeConfig,
+    #[serde(default)]
+    le_mans_ultimate: GameExeConfig,
+    #[serde(default)]
+    forza: GameExeConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +130,8 @@ async fn main() -> Result<()> {
         "assetto_corsa" | "ac" => SimType::AssettocCorsa,
         "iracing" => SimType::IRacing,
         "lmu" | "le_mans_ultimate" => SimType::LeMansUltimate,
+        "f1_25" | "f1" => SimType::F125,
+        "forza" => SimType::Forza,
         other => {
             tracing::error!("Unknown sim type: {}", other);
             return Ok(());
@@ -127,6 +151,8 @@ async fn main() -> Result<()> {
         last_seen: Some(Utc::now()),
         driving_state: None,
         billing_session_id: None,
+        game_state: None,
+        current_game: None,
     };
 
     // Connect to core server
@@ -203,10 +229,17 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Game process state
+    let mut game_process: Option<game_process::GameProcess> = None;
+
+    // AI debugger result channel
+    let (ai_result_tx, mut ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
+
     // Main loop
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(5));
     let mut telemetry_interval = tokio::time::interval(Duration::from_millis(100));
     let mut detector_interval = tokio::time::interval(Duration::from_millis(100));
+    let mut game_check_interval = tokio::time::interval(Duration::from_secs(2));
     let mut last_lap_count: u32 = 0;
 
     loop {
@@ -216,6 +249,8 @@ async fn main() -> Result<()> {
                     status: if adapter.is_connected() { PodStatus::InSession } else { PodStatus::Idle },
                     last_seen: Some(Utc::now()),
                     driving_state: Some(detector.state()),
+                    game_state: game_process.as_ref().map(|g| g.state),
+                    current_game: game_process.as_ref().map(|g| g.sim_type),
                     ..pod_info.clone()
                 });
                 let json = serde_json::to_string(&hb)?;
@@ -294,11 +329,72 @@ async fn main() -> Result<()> {
                     tracing::info!("Driving state changed (timeout): {:?}", detector.state());
                 }
             }
+            // Game process health check (every 2s)
+            _ = game_check_interval.tick() => {
+                if let Some(ref mut game) = game_process {
+                    let was_active = matches!(game.state, GameState::Running | GameState::Launching);
+
+                    if game.state == GameState::Launching && game.child.is_none() {
+                        // Steam-launched game — scan for process by name
+                        if let Some(pid) = game_process::find_game_pid(game.sim_type) {
+                            game.pid = Some(pid);
+                            game.state = GameState::Running;
+                            let info = GameLaunchInfo {
+                                pod_id: pod_id.clone(),
+                                sim_type: game.sim_type,
+                                game_state: GameState::Running,
+                                pid: Some(pid),
+                                launched_at: Some(Utc::now()),
+                                error_message: None,
+                            };
+                            let msg = AgentMessage::GameStateUpdate(info);
+                            let json = serde_json::to_string(&msg)?;
+                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                        }
+                    } else {
+                        let still_alive = game.is_running();
+                        if !still_alive && was_active {
+                            // Game crashed or exited
+                            let err_msg = "Game process exited unexpectedly".to_string();
+                            let info = GameLaunchInfo {
+                                pod_id: pod_id.clone(),
+                                sim_type: game.sim_type,
+                                game_state: GameState::Error,
+                                pid: game.pid,
+                                launched_at: None,
+                                error_message: Some(err_msg.clone()),
+                            };
+                            let msg = AgentMessage::GameStateUpdate(info);
+                            let json = serde_json::to_string(&msg)?;
+                            let _ = ws_tx.send(Message::Text(json.into())).await;
+
+                            // Trigger AI debugger if configured
+                            if config.ai_debugger.enabled {
+                                let err_ctx = format!("{:?} crashed on pod {}", game.sim_type, pod_id);
+                                tokio::spawn(ai_debugger::analyze_crash(
+                                    config.ai_debugger.clone(),
+                                    pod_id.clone(),
+                                    game.sim_type,
+                                    err_ctx,
+                                    ai_result_tx.clone(),
+                                ));
+                            }
+
+                            game_process = None;
+                        }
+                    }
+                }
+            }
+            // AI debug result channel
+            Some(suggestion) = ai_result_rx.recv() => {
+                let msg = AgentMessage::AiDebugResult(suggestion);
+                let json = serde_json::to_string(&msg)?;
+                let _ = ws_tx.send(Message::Text(json.into())).await;
+            }
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         tracing::debug!("Received from core: {}", text);
-                        // Handle billing messages from core
                         if let Ok(core_msg) = serde_json::from_str::<rc_common::protocol::CoreToAgentMessage>(&text) {
                             match core_msg {
                                 rc_common::protocol::CoreToAgentMessage::BillingStarted { billing_session_id, driver_name, allocated_seconds } => {
@@ -306,6 +402,72 @@ async fn main() -> Result<()> {
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingStopped { billing_session_id } => {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
+                                }
+                                rc_common::protocol::CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
+                                    tracing::info!("Launching game: {:?}", launch_sim);
+                                    let game_config = match launch_sim {
+                                        SimType::AssettocCorsa => &config.games.assetto_corsa,
+                                        SimType::IRacing => &config.games.iracing,
+                                        SimType::F125 => &config.games.f1_25,
+                                        SimType::LeMansUltimate => &config.games.le_mans_ultimate,
+                                        SimType::Forza => &config.games.forza,
+                                    };
+
+                                    match game_process::GameProcess::launch(game_config, launch_sim) {
+                                        Ok(gp) => {
+                                            let info = GameLaunchInfo {
+                                                pod_id: pod_id.clone(),
+                                                sim_type: launch_sim,
+                                                game_state: GameState::Launching,
+                                                pid: gp.pid,
+                                                launched_at: Some(Utc::now()),
+                                                error_message: None,
+                                            };
+                                            game_process = Some(gp);
+                                            let msg = AgentMessage::GameStateUpdate(info);
+                                            let json = serde_json::to_string(&msg)?;
+                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("Failed to launch {:?}: {}", launch_sim, e);
+                                            let info = GameLaunchInfo {
+                                                pod_id: pod_id.clone(),
+                                                sim_type: launch_sim,
+                                                game_state: GameState::Error,
+                                                pid: None,
+                                                launched_at: None,
+                                                error_message: Some(e.to_string()),
+                                            };
+                                            let msg = AgentMessage::GameStateUpdate(info);
+                                            let json = serde_json::to_string(&msg)?;
+                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        }
+                                    }
+                                }
+                                rc_common::protocol::CoreToAgentMessage::StopGame => {
+                                    if let Some(ref mut game) = game_process {
+                                        tracing::info!("Stopping game: {:?}", game.sim_type);
+                                        let sim = game.sim_type;
+                                        match game.stop() {
+                                            Ok(()) => {
+                                                let info = GameLaunchInfo {
+                                                    pod_id: pod_id.clone(),
+                                                    sim_type: sim,
+                                                    game_state: GameState::Idle,
+                                                    pid: None,
+                                                    launched_at: None,
+                                                    error_message: None,
+                                                };
+                                                let msg = AgentMessage::GameStateUpdate(info);
+                                                let json = serde_json::to_string(&msg)?;
+                                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("Failed to stop game: {}", e);
+                                            }
+                                        }
+                                        game_process = None;
+                                    }
                                 }
                                 _ => {}
                             }
@@ -350,6 +512,8 @@ fn load_config() -> Result<AgentConfig> {
         },
         wheelbase: WheelbaseConfig::default(),
         telemetry_ports: TelemetryPortsConfig::default(),
+        games: GamesConfig::default(),
+        ai_debugger: AiDebuggerConfig::default(),
     })
 }
 

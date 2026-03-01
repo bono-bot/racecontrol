@@ -1,0 +1,41 @@
+# ─── rc-agent Configuration ──────────────────────────────────────────────────
+# Copy this file to rc-agent.toml on each gaming PC and adjust paths.
+
+[agent]
+pod_name = "Pod 01"
+pod_number = 1
+server_url = "ws://192.168.1.100:8080/ws/agent"
+
+# ─── Game Paths ──────────────────────────────────────────────────────────────
+# Configure installed games. Steam games use steam_app_id for launch.
+# Direct exe games use exe_path. Set use_steam = false for direct launch.
+
+[games.assetto_corsa]
+steam_app_id = 244210
+use_steam = true
+# exe_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\assettocorsa\\acs.exe"
+
+[games.iracing]
+exe_path = "C:\\Program Files (x86)\\iRacing\\iRacingSim64DX11.exe"
+use_steam = false
+
+[games.f1_25]
+steam_app_id = 2488620
+use_steam = true
+
+[games.le_mans_ultimate]
+steam_app_id = 1564310
+use_steam = true
+
+[games.forza]
+steam_app_id = 2440510
+use_steam = true
+
+# ─── AI Debugger ─────────────────────────────────────────────────────────────
+# Local Ollama is tried first. Anthropic API is the fallback.
+
+[ai_debugger]
+enabled = true
+ollama_url = "http://192.168.1.100:32769"
+ollama_model = "qwen2.5-coder:14b"
+# anthropic_api_key = "sk-ant-..."
