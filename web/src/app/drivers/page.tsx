@@ -1,0 +1,81 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import DashboardLayout from "@/components/DashboardLayout";
+import type { Driver } from "@/lib/api";
+import { api } from "@/lib/api";
+
+function formatDuration(ms: number): string {
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+export default function DriversPage() {
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.listDrivers().then((res) => {
+      setDrivers(res.drivers || []);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  return (
+    <DashboardLayout>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-100">Drivers</h1>
+          <p className="text-sm text-zinc-500">Registered driver profiles</p>
+        </div>
+        <span className="text-xs text-zinc-500">{drivers.length} drivers</span>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-zinc-500 text-sm">Loading drivers...</div>
+      ) : drivers.length === 0 ? (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
+          <p className="text-zinc-400 mb-2">No drivers registered</p>
+          <p className="text-zinc-500 text-sm">
+            Drivers can register through the kiosk or be added via the API.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {drivers.map((driver) => (
+            <div
+              key={driver.id}
+              className="bg-zinc-900 border border-zinc-800 rounded-lg p-4"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold text-lg">
+                  {driver.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div className="text-zinc-200 font-medium">{driver.name}</div>
+                  {driver.email && (
+                    <div className="text-xs text-zinc-500">{driver.email}</div>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-zinc-800/50 rounded px-2 py-1.5">
+                  <div className="text-zinc-500">Laps</div>
+                  <div className="text-zinc-300 font-mono">{driver.total_laps}</div>
+                </div>
+                <div className="bg-zinc-800/50 rounded px-2 py-1.5">
+                  <div className="text-zinc-500">Track Time</div>
+                  <div className="text-zinc-300 font-mono">
+                    {formatDuration(driver.total_time_ms)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </DashboardLayout>
+  );
+}

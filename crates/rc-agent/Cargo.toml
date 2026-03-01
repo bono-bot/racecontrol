@@ -1,0 +1,33 @@
+[package]
+name = "rc-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "rc-agent"
+path = "src/main.rs"
+
+[dependencies]
+rc-common = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+
+# WebSocket client
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+
+# mDNS
+mdns-sd = "0.12"
+
+# USB HID for wheelbase monitoring
+hidapi = "2"

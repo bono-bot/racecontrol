@@ -1,0 +1,9 @@
+/target
+/data
+*.db
+*.db-wal
+*.db-shm
+web/node_modules
+web/.next
+.env
+*.log

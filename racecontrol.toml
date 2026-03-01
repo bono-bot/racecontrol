@@ -1,0 +1,29 @@
+[venue]
+name = "RacingPoint"
+location = "Bandlaguda, Hyderabad"
+timezone = "Asia/Kolkata"
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[database]
+path = "./data/racecontrol.db"
+
+[cloud]
+enabled = false
+
+[pods]
+count = 16
+discovery = true
+
+[branding]
+primary_color = "#FF4400"
+theme = "dark"
+
+[integrations.discord]
+results_channel = "race-results"
+
+[integrations.whatsapp]
+enabled = false
+contact = "+917981264279"
