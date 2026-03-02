@@ -51,6 +51,9 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "settingsynchost.exe",
     "backgroundtaskhost.exe",
 
+    // Windows shell
+    "explorer.exe",
+
     // GPU / Display
     "nvcontainer.exe",
     "nvdisplay.container.exe",
