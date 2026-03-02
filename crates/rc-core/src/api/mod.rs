@@ -1,9 +1,7 @@
 pub mod routes;
 
 use axum::Router;
-use sqlx::SqlitePool;
 use std::sync::Arc;
-use tokio::sync::broadcast;
 
 use crate::state::AppState;
 

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};

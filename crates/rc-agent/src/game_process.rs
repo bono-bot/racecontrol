@@ -185,7 +185,6 @@ pub fn find_game_pid(sim_type: SimType) -> Option<u32> {
 /// Platform-specific process alive check
 #[cfg(target_os = "windows")]
 fn is_process_alive(pid: u32) -> bool {
-    use std::ptr;
     unsafe {
         let handle = winapi::um::processthreadsapi::OpenProcess(
             winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION,

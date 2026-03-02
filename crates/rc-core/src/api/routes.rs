@@ -1,11 +1,10 @@
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    routing::{get, post, put, delete},
+    routing::{get, post, put},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use std::sync::Arc;
 
 use crate::ac_server;
@@ -227,7 +226,7 @@ async fn create_session(
     }
 }
 
-async fn get_session(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
+async fn get_session(State(_state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
     Json(json!({ "todo": "get_session", "id": id }))
 }
 
@@ -251,7 +250,7 @@ async fn list_laps(State(state): State<Arc<AppState>>) -> Json<Value> {
     }
 }
 
-async fn session_laps(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
+async fn session_laps(State(_state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
     Json(json!({ "todo": "session_laps", "session_id": id }))
 }
 
@@ -278,19 +277,19 @@ async fn track_leaderboard(State(state): State<Arc<AppState>>, Path(track): Path
     }
 }
 
-async fn list_events(State(state): State<Arc<AppState>>) -> Json<Value> {
+async fn list_events(State(_state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({ "events": [] }))
 }
 
-async fn create_event(State(state): State<Arc<AppState>>, Json(body): Json<Value>) -> Json<Value> {
+async fn create_event(State(_state): State<Arc<AppState>>, Json(_body): Json<Value>) -> Json<Value> {
     Json(json!({ "todo": "create_event" }))
 }
 
-async fn list_bookings(State(state): State<Arc<AppState>>) -> Json<Value> {
+async fn list_bookings(State(_state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({ "bookings": [] }))
 }
 
-async fn create_booking(State(state): State<Arc<AppState>>, Json(body): Json<Value>) -> Json<Value> {
+async fn create_booking(State(_state): State<Arc<AppState>>, Json(_body): Json<Value>) -> Json<Value> {
     Json(json!({ "todo": "create_booking" }))
 }
 
@@ -746,21 +745,26 @@ async fn game_launch_history(
     State(state): State<Arc<AppState>>,
     Query(params): Query<GameHistoryQuery>,
 ) -> Json<Value> {
-    let limit = params.limit.unwrap_or(100);
-    let mut query =
-        String::from("SELECT id, pod_id, sim_type, event_type, pid, error_message, created_at FROM game_launch_events WHERE 1=1");
+    let limit = params.limit.unwrap_or(100).min(1000).max(1);
 
-    if let Some(pod_id) = &params.pod_id {
-        query.push_str(&format!(" AND pod_id = '{}'", pod_id));
-    }
-
-    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", limit));
-
-    let rows = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<String>, String)>(
-        &query,
-    )
-    .fetch_all(&state.db)
-    .await;
+    let rows = if let Some(pod_id) = &params.pod_id {
+        sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<String>, String)>(
+            "SELECT id, pod_id, sim_type, event_type, pid, error_message, created_at \
+             FROM game_launch_events WHERE pod_id = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(pod_id)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<String>, String)>(
+            "SELECT id, pod_id, sim_type, event_type, pid, error_message, created_at \
+             FROM game_launch_events ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    };
 
     match rows {
         Ok(events) => {
@@ -941,23 +945,26 @@ async fn list_ac_sessions(
     State(state): State<Arc<AppState>>,
     Query(params): Query<AcSessionsQuery>,
 ) -> Json<Value> {
-    let limit = params.limit.unwrap_or(50);
-    let mut query = String::from(
-        "SELECT id, preset_id, status, pod_ids, pid, join_url, error_message, started_at, ended_at, created_at \
-         FROM ac_sessions WHERE 1=1"
-    );
+    let limit = params.limit.unwrap_or(50).min(1000).max(1);
 
-    if let Some(status) = &params.status {
-        query.push_str(&format!(" AND status = '{}'", status));
-    }
-
-    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", limit));
-
-    let rows = sqlx::query_as::<_, (String, Option<String>, String, Option<String>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>, String)>(
-        &query,
-    )
-    .fetch_all(&state.db)
-    .await;
+    let rows = if let Some(status) = &params.status {
+        sqlx::query_as::<_, (String, Option<String>, String, Option<String>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>, String)>(
+            "SELECT id, preset_id, status, pod_ids, pid, join_url, error_message, started_at, ended_at, created_at \
+             FROM ac_sessions WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(status)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, (String, Option<String>, String, Option<String>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>, String)>(
+            "SELECT id, preset_id, status, pod_ids, pid, join_url, error_message, started_at, ended_at, created_at \
+             FROM ac_sessions ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    };
 
     match rows {
         Ok(sessions) => {

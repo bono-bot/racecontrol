@@ -79,7 +79,7 @@ impl LockScreenManager {
         allocated_seconds: u32,
     ) {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::PinEntry {
                 token_id,
                 driver_name,
@@ -100,7 +100,7 @@ impl LockScreenManager {
         allocated_seconds: u32,
     ) {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::QrDisplay {
                 token_id,
                 qr_payload,
@@ -115,7 +115,7 @@ impl LockScreenManager {
     /// Clear/dismiss the lock screen.
     pub fn clear(&mut self) {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::Hidden;
         }
         self.close_browser();
@@ -232,7 +232,7 @@ async fn serve_lock_screen(
                 let _ = stream.write_all(resp.as_bytes()).await;
             } else {
                 // GET — serve current lock screen page
-                let current = state.lock().unwrap().clone();
+                let current = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 let body = render_page(&current);
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",

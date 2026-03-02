@@ -1,5 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import { Montserrat } from "next/font/google";
 import "./globals.css";
+
+const montserrat = Montserrat({
+  variable: "--font-montserrat",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+});
 
 export const metadata: Metadata = {
   title: "RacingPoint",
@@ -27,7 +34,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="min-h-screen bg-rp-dark text-white antialiased">
+      <body className={`${montserrat.variable} min-h-screen bg-rp-dark text-white antialiased font-sans`}>
         {children}
       </body>
     </html>
