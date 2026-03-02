@@ -190,7 +190,8 @@ impl Default for AuthConfig {
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&content)?;
+        let mut config: Config = toml::from_str(&content)?;
+        config.apply_env_overrides();
         Ok(config)
     }
 
@@ -227,6 +228,21 @@ impl Config {
             ai_debugger: AiDebuggerConfig::default(),
             ac_server: AcServerConfig::default(),
             auth: AuthConfig::default(),
+        }
+    }
+
+    fn apply_env_overrides(&mut self) {
+        if let Ok(url) = std::env::var("OLLAMA_URL") {
+            tracing::info!("Overriding ollama_url from OLLAMA_URL env var");
+            self.ai_debugger.ollama_url = url;
+        }
+        if let Ok(model) = std::env::var("OLLAMA_MODEL") {
+            tracing::info!("Overriding ollama_model from OLLAMA_MODEL env var");
+            self.ai_debugger.ollama_model = model;
+        }
+        if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+            tracing::info!("Overriding anthropic_api_key from ANTHROPIC_API_KEY env var");
+            self.ai_debugger.anthropic_api_key = Some(key);
         }
     }
 }
