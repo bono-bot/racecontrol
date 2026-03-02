@@ -104,6 +104,28 @@ export const api = {
     return fetchApi<{ events: GameLaunchEvent[] }>(`/games/history${qs}`);
   },
 
+  // Auth
+  assignCustomer: (data: {
+    pod_id: string;
+    driver_id: string;
+    pricing_tier_id: string;
+    auth_type: string;
+    custom_price_paise?: number;
+    custom_duration_minutes?: number;
+  }) =>
+    fetchApi<{ token?: AuthTokenInfo; error?: string }>("/auth/assign", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  cancelAssignment: (id: string) =>
+    fetchApi<{ status?: string; error?: string }>(`/auth/cancel/${id}`, {
+      method: "POST",
+    }),
+  pendingAuthTokens: () =>
+    fetchApi<{ tokens: AuthTokenInfo[] }>("/auth/pending"),
+  pendingAuthTokenForPod: (podId: string) =>
+    fetchApi<{ token: AuthTokenInfo | null }>(`/auth/pending/${podId}`),
+
   // AC LAN
   listAcPresets: () => fetchApi<{ presets: AcPresetSummary[] }>("/ac/presets"),
   saveAcPreset: (name: string, config: AcLanSessionConfig) =>
@@ -288,6 +310,25 @@ export interface BillingSessionRecord {
   price_paise: number;
   started_at?: string;
   ended_at?: string;
+}
+
+// ─── Auth Token Types ──────────────────────────────────────────────────────
+
+export interface AuthTokenInfo {
+  id: string;
+  pod_id: string;
+  driver_id: string;
+  driver_name: string;
+  pricing_tier_id: string;
+  pricing_tier_name: string;
+  auth_type: "pin" | "qr";
+  token: string;
+  status: "pending" | "consumed" | "expired" | "cancelled";
+  allocated_seconds: number;
+  custom_price_paise?: number;
+  custom_duration_minutes?: number;
+  created_at: string;
+  expires_at: string;
 }
 
 // ─── Game Launcher Types ───────────────────────────────────────────────────

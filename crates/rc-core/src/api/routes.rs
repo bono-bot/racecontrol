@@ -9,6 +9,7 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 
 use crate::ac_server;
+use crate::auth;
 use crate::billing;
 use crate::game_launcher;
 use crate::state::AppState;
@@ -67,6 +68,22 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/ac/content/cars", get(list_ac_cars))
         // Venue info
         .route("/venue", get(venue_info))
+        // Auth (staff-facing)
+        .route("/auth/assign", post(assign_customer))
+        .route("/auth/cancel/{id}", post(cancel_assignment))
+        .route("/auth/pending", get(pending_auth_tokens))
+        .route("/auth/pending/{pod_id}", get(pending_auth_token_for_pod))
+        // Auth (agent-facing)
+        .route("/auth/validate-pin", post(validate_pin))
+        // Auth (PWA-facing)
+        .route("/auth/validate-qr", post(validate_qr))
+        // Customer (PWA endpoints)
+        .route("/customer/login", post(customer_login))
+        .route("/customer/verify-otp", post(customer_verify_otp))
+        .route("/customer/profile", get(customer_profile))
+        .route("/customer/sessions", get(customer_sessions))
+        .route("/customer/laps", get(customer_laps))
+        .route("/customer/stats", get(customer_stats))
 }
 
 async fn health() -> Json<Value> {
@@ -1017,4 +1034,343 @@ async fn list_ac_cars(State(_state): State<Arc<AppState>>) -> Json<Value> {
         { "id": "ks_toyota_ae86_drift", "name": "Toyota AE86 Drift", "class": "Drift" },
         { "id": "ks_nissan_370z", "name": "Nissan 370Z", "class": "Drift" },
     ]}))
+}
+
+// ─── Auth Endpoints ────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct AssignCustomerRequest {
+    pod_id: String,
+    driver_id: String,
+    pricing_tier_id: String,
+    auth_type: String,
+    custom_price_paise: Option<u32>,
+    custom_duration_minutes: Option<u32>,
+}
+
+async fn assign_customer(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<AssignCustomerRequest>,
+) -> Json<Value> {
+    match auth::create_auth_token(
+        &state,
+        req.pod_id,
+        req.driver_id,
+        req.pricing_tier_id,
+        req.auth_type,
+        req.custom_price_paise,
+        req.custom_duration_minutes,
+    )
+    .await
+    {
+        Ok(token_info) => Json(json!({ "token": token_info })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn cancel_assignment(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match auth::cancel_auth_token(&state, id).await {
+        Ok(()) => Json(json!({ "status": "cancelled" })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn pending_auth_tokens(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let tokens = auth::get_pending_tokens(&state).await;
+    Json(json!({ "tokens": tokens }))
+}
+
+async fn pending_auth_token_for_pod(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+) -> Json<Value> {
+    let tokens = auth::get_pending_tokens(&state).await;
+    let token = tokens.into_iter().find(|t| t.pod_id == pod_id);
+    match token {
+        Some(t) => Json(json!({ "token": t })),
+        None => Json(json!({ "token": null })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ValidatePinRequest {
+    pod_id: String,
+    pin: String,
+}
+
+async fn validate_pin(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ValidatePinRequest>,
+) -> Json<Value> {
+    match auth::validate_pin(&state, req.pod_id, req.pin).await {
+        Ok(billing_session_id) => Json(json!({
+            "status": "ok",
+            "billing_session_id": billing_session_id,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ValidateQrRequest {
+    qr_token: String,
+    driver_id: String,
+}
+
+async fn validate_qr(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ValidateQrRequest>,
+) -> Json<Value> {
+    match auth::validate_qr(&state, req.qr_token, req.driver_id).await {
+        Ok(billing_session_id) => Json(json!({
+            "status": "ok",
+            "billing_session_id": billing_session_id,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+// ─── Customer PWA Endpoints ────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct CustomerLoginRequest {
+    phone: String,
+}
+
+async fn customer_login(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CustomerLoginRequest>,
+) -> Json<Value> {
+    match auth::send_otp(&state, &req.phone).await {
+        Ok(_driver_id) => Json(json!({ "status": "otp_sent" })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct VerifyOtpRequest {
+    phone: String,
+    otp: String,
+}
+
+async fn customer_verify_otp(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<VerifyOtpRequest>,
+) -> Json<Value> {
+    match auth::verify_otp(&state, &req.phone, &req.otp).await {
+        Ok(jwt) => Json(json!({
+            "status": "ok",
+            "token": jwt,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+/// Extract driver_id from Authorization: Bearer <jwt> header
+fn extract_driver_id(state: &AppState, headers: &axum::http::HeaderMap) -> Result<String, String> {
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "Missing Authorization header".to_string())?;
+
+    let token = auth_header
+        .strip_prefix("Bearer ")
+        .ok_or_else(|| "Invalid Authorization format".to_string())?;
+
+    auth::verify_jwt(token, &state.config.auth.jwt_secret)
+}
+
+async fn customer_profile(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64)>(
+        "SELECT id, name, email, phone, total_laps, total_time_ms FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match driver {
+        Ok(Some(d)) => Json(json!({
+            "driver": {
+                "id": d.0,
+                "name": d.1,
+                "email": d.2,
+                "phone": d.3,
+                "total_laps": d.4,
+                "total_time_ms": d.5,
+            }
+        })),
+        Ok(None) => Json(json!({ "error": "Driver not found" })),
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn customer_sessions(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<i64>)>(
+        "SELECT bs.id, bs.pod_id, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at, bs.ended_at, bs.custom_price_paise
+         FROM billing_sessions bs
+         WHERE bs.driver_id = ?
+         ORDER BY bs.created_at DESC
+         LIMIT 50",
+    )
+    .bind(&driver_id)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(sessions) => {
+            let list: Vec<Value> = sessions
+                .iter()
+                .map(|s| {
+                    json!({
+                        "id": s.0,
+                        "pod_id": s.1,
+                        "allocated_seconds": s.2,
+                        "driving_seconds": s.3,
+                        "status": s.4,
+                        "started_at": s.5,
+                        "ended_at": s.6,
+                        "custom_price_paise": s.7,
+                    })
+                })
+                .collect();
+            Json(json!({ "sessions": list }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn customer_laps(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let rows = sqlx::query_as::<_, (String, String, String, String, i64, Option<i64>, Option<i64>, Option<i64>, bool, String)>(
+        "SELECT id, track, car, sim_type, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, created_at
+         FROM laps
+         WHERE driver_id = ?
+         ORDER BY created_at DESC
+         LIMIT 100",
+    )
+    .bind(&driver_id)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(laps) => {
+            let list: Vec<Value> = laps
+                .iter()
+                .map(|l| {
+                    json!({
+                        "id": l.0,
+                        "track": l.1,
+                        "car": l.2,
+                        "sim_type": l.3,
+                        "lap_time_ms": l.4,
+                        "sector1_ms": l.5,
+                        "sector2_ms": l.6,
+                        "sector3_ms": l.7,
+                        "valid": l.8,
+                        "created_at": l.9,
+                    })
+                })
+                .collect();
+            Json(json!({ "laps": list }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn customer_stats(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Total laps and time
+    let totals = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT COALESCE(total_laps, 0), COALESCE(total_time_ms, 0) FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or((0, 0));
+
+    // Total sessions
+    let session_count = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM billing_sessions WHERE driver_id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    // Total driving time (seconds)
+    let total_driving_secs = sqlx::query_as::<_, (i64,)>(
+        "SELECT COALESCE(SUM(driving_seconds), 0) FROM billing_sessions WHERE driver_id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    // Favourite car (most laps)
+    let fav_car = sqlx::query_as::<_, (String, i64)>(
+        "SELECT car, COUNT(*) as cnt FROM laps WHERE driver_id = ? GROUP BY car ORDER BY cnt DESC LIMIT 1",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    // Personal bests count
+    let pb_count = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM personal_bests WHERE driver_id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    Json(json!({
+        "stats": {
+            "total_laps": totals.0,
+            "total_time_ms": totals.1,
+            "total_sessions": session_count,
+            "total_driving_seconds": total_driving_secs,
+            "favourite_car": fav_car.as_ref().map(|c| &c.0),
+            "personal_bests": pb_count,
+        }
+    }))
 }

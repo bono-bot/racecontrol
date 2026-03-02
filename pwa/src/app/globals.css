@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-rp-orange: #FF4400;
+  --color-rp-orange-light: #FF6633;
+  --color-rp-dark: #09090B;
+  --color-rp-card: #18181B;
+  --color-rp-border: #27272A;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #09090B;
+  color: #FAFAFA;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: contain;
+}
+
+/* PWA safe area */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3F3F46;
+  border-radius: 2px;
+}
+
+/* Pin keypad button */
+.keypad-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #27272A;
+  color: #FAFAFA;
+  font-size: 24px;
+  font-weight: 600;
+  transition: background 0.15s;
+  user-select: none;
+  cursor: pointer;
+}
+.keypad-btn:active {
+  background: #FF4400;
+}

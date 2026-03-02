@@ -320,6 +320,74 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Customer auth columns on drivers ───────────────────────────────────
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN pin_hash TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN phone_verified BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN otp_code TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN otp_expires_at TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN last_login_at TEXT")
+        .execute(pool)
+        .await;
+
+    // ─── Auth tokens (single-use session PINs + QR codes) ──────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS auth_tokens (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            pricing_tier_id TEXT NOT NULL REFERENCES pricing_tiers(id),
+            auth_type TEXT NOT NULL CHECK(auth_type IN ('pin', 'qr')),
+            token TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'consumed', 'expired', 'cancelled')),
+            billing_session_id TEXT,
+            custom_price_paise INTEGER,
+            custom_duration_minutes INTEGER,
+            created_at TEXT DEFAULT (datetime('now')),
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // ─── Customer sessions (PWA JWT tracking) ───────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS customer_sessions (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            token_hash TEXT NOT NULL,
+            device_info TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            expires_at TEXT NOT NULL,
+            revoked_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // ─── Sync log (change data capture for cloud replication) ───────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sync_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_name TEXT NOT NULL,
+            row_id TEXT NOT NULL,
+            operation TEXT NOT NULL CHECK(operation IN ('insert', 'update', 'delete')),
+            payload TEXT NOT NULL,
+            synced BOOLEAN DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     // Indexes for common queries
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_laps_session ON laps(session_id)")
         .execute(pool)
@@ -349,6 +417,30 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_game_events_type ON game_launch_events(event_type)")
+        .execute(pool)
+        .await?;
+
+    // Auth token indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_auth_tokens_pod ON auth_tokens(pod_id, status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_auth_tokens_token ON auth_tokens(token, status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_auth_tokens_driver ON auth_tokens(driver_id)")
+        .execute(pool)
+        .await?;
+
+    // Customer session indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_customer_sessions_driver ON customer_sessions(driver_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_customer_sessions_token ON customer_sessions(token_hash)")
+        .execute(pool)
+        .await?;
+
+    // Sync log index
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sync_log_unsynced ON sync_log(synced, created_at)")
         .execute(pool)
         .await?;
 

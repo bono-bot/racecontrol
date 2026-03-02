@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::ac_server;
+use crate::auth;
 use crate::billing;
 use crate::game_launcher;
 use crate::state::AppState;
@@ -134,6 +135,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             let _ = state
                                 .dashboard_tx
                                 .send(DashboardEvent::AiDebugSuggestion(suggestion.clone()));
+                        }
+                        AgentMessage::PinEntered { pod_id, pin } => {
+                            tracing::info!("PIN entered on pod {}", pod_id);
+                            auth::handle_pin_entered(&state, pod_id.clone(), pin.clone()).await;
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
@@ -263,6 +268,10 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                         | DashboardCommand::DeleteAcPreset { .. }
                         | DashboardCommand::LoadAcPreset { .. } => {
                             ac_server::handle_dashboard_command(&cmd_state, cmd).await;
+                        }
+                        DashboardCommand::AssignCustomer { .. }
+                        | DashboardCommand::CancelAssignment { .. } => {
+                            auth::handle_dashboard_command(&cmd_state, cmd).await;
                         }
                         _ => {
                             billing::handle_dashboard_command(&cmd_state, cmd).await;

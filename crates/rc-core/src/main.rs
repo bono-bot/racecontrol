@@ -1,5 +1,6 @@
 mod ac_server;
 mod api;
+mod auth;
 mod billing;
 mod config;
 mod db;
@@ -90,6 +91,16 @@ async fn main() -> anyhow::Result<()> {
         loop {
             interval.tick().await;
             ac_server::check_ac_server_health(&ac_state).await;
+        }
+    });
+
+    // Spawn auth token expiry loop (30 second interval)
+    let auth_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            auth::expire_stale_tokens(&auth_state).await;
         }
     });
 

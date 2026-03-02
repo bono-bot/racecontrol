@@ -9,7 +9,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import type { Pod } from "@/lib/api";
 
 export default function BillingPage() {
-  const { pods, billingTimers, billingWarnings, sendCommand } = useWebSocket();
+  const { pods, billingTimers, billingWarnings, pendingAuthTokens, sendCommand } = useWebSocket();
   const [modalPod, setModalPod] = useState<Pod | null>(null);
 
   function handleStart(data: {
@@ -21,6 +21,22 @@ export default function BillingPage() {
   }) {
     sendCommand("start_billing", data);
     setModalPod(null);
+  }
+
+  function handleAssign(data: {
+    pod_id: string;
+    driver_id: string;
+    pricing_tier_id: string;
+    auth_type: string;
+    custom_price_paise?: number;
+    custom_duration_minutes?: number;
+  }) {
+    sendCommand("assign_customer", data);
+    setModalPod(null);
+  }
+
+  function handleCancelToken(tokenId: string) {
+    sendCommand("cancel_assignment", { token_id: tokenId });
   }
 
   function handlePauseResume(sessionId: string, isPaused: boolean) {
@@ -96,6 +112,7 @@ export default function BillingPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {sortedPods.map((pod) => {
             const billing = billingTimers.get(pod.id);
+            const pendingToken = pendingAuthTokens.get(pod.id);
             const isPaused = billing?.status === "paused_manual";
 
             return (
@@ -104,6 +121,8 @@ export default function BillingPage() {
                 className={`rounded-lg border p-4 transition-all ${
                   billing
                     ? "border-orange-500/50 bg-orange-500/5"
+                    : pendingToken
+                    ? "border-yellow-500/50 bg-yellow-500/5"
                     : pod.status === "idle"
                     ? "border-zinc-700 bg-zinc-900"
                     : pod.status === "offline"
@@ -119,7 +138,13 @@ export default function BillingPage() {
                     </span>
                     <span className="text-sm text-zinc-500">{pod.name}</span>
                   </div>
-                  <StatusBadge status={pod.status} />
+                  {pendingToken ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 animate-pulse">
+                      WAITING
+                    </span>
+                  ) : (
+                    <StatusBadge status={pod.status} />
+                  )}
                 </div>
 
                 {billing ? (
@@ -176,6 +201,42 @@ export default function BillingPage() {
                       </button>
                     </div>
                   </div>
+                ) : pendingToken ? (
+                  <div className="space-y-2">
+                    <div className="text-xs space-y-1.5">
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Driver</span>
+                        <span className="text-yellow-400">{pendingToken.driver_name}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Tier</span>
+                        <span className="text-zinc-300">{pendingToken.pricing_tier_name}</span>
+                      </div>
+                      {pendingToken.auth_type === "pin" && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-zinc-500">PIN</span>
+                          <span className="text-2xl font-bold font-mono tracking-widest text-yellow-300">
+                            {pendingToken.token}
+                          </span>
+                        </div>
+                      )}
+                      {pendingToken.auth_type === "qr" && (
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Method</span>
+                          <span className="text-zinc-300">QR scan</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-yellow-400 animate-pulse font-medium">Waiting for customer...</span>
+                    </div>
+                    <button
+                      onClick={() => handleCancelToken(pendingToken.id)}
+                      className="w-full rounded-lg py-2 text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+                    >
+                      Cancel Assignment
+                    </button>
+                  </div>
                 ) : (
                   <div className="pt-2">
                     <button
@@ -204,6 +265,7 @@ export default function BillingPage() {
           podName={`Pod ${String(modalPod.number).padStart(2, "0")} - ${modalPod.name}`}
           onClose={() => setModalPod(null)}
           onStart={handleStart}
+          onAssign={handleAssign}
         />
       )}
     </DashboardLayout>

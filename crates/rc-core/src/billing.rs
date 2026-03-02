@@ -275,7 +275,7 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
             custom_price_paise,
             custom_duration_minutes,
         } => {
-            start_billing_session(
+            let _ = start_billing_session(
                 state,
                 pod_id,
                 driver_id,
@@ -317,20 +317,20 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
     }
 }
 
-async fn start_billing_session(
+pub async fn start_billing_session(
     state: &Arc<AppState>,
     pod_id: String,
     driver_id: String,
     pricing_tier_id: String,
     custom_price_paise: Option<u32>,
     custom_duration_minutes: Option<u32>,
-) {
+) -> Option<String> {
     // Check no active session on this pod
     {
         let timers = state.billing.active_timers.read().await;
         if timers.contains_key(&pod_id) {
             tracing::warn!("Pod {} already has an active billing session", pod_id);
-            return;
+            return None;
         }
     }
 
@@ -346,11 +346,11 @@ async fn start_billing_session(
         Ok(Some(t)) => t,
         Ok(None) => {
             tracing::warn!("Pricing tier {} not found or inactive", pricing_tier_id);
-            return;
+            return None;
         }
         Err(e) => {
             tracing::error!("DB error looking up tier: {}", e);
-            return;
+            return None;
         }
     };
 
@@ -368,15 +368,15 @@ async fn start_billing_session(
         match has_used {
             Ok(Some((true,))) => {
                 tracing::warn!("Driver {} has already used their free trial", driver_id);
-                return;
+                return None;
             }
             Ok(None) => {
                 tracing::warn!("Driver {} not found", driver_id);
-                return;
+                return None;
             }
             Err(e) => {
                 tracing::error!("DB error checking trial: {}", e);
-                return;
+                return None;
             }
             _ => {} // OK, hasn't used trial
         }
@@ -491,6 +491,8 @@ async fn start_billing_session(
         allocated_seconds,
         tier.1
     );
+
+    Some(session_id)
 }
 
 async fn set_billing_status(

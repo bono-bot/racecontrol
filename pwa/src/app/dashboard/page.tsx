@@ -1,0 +1,128 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import type { DriverProfile, CustomerStats, BillingSession } from "@/lib/api";
+import SessionCard from "@/components/SessionCard";
+
+export default function DashboardPage() {
+  const [profile, setProfile] = useState<DriverProfile | null>(null);
+  const [stats, setStats] = useState<CustomerStats | null>(null);
+  const [recentSessions, setRecentSessions] = useState<BillingSession[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [pRes, sRes, sessRes] = await Promise.all([
+          api.profile(),
+          api.stats(),
+          api.sessions(),
+        ]);
+        if (pRes.driver) setProfile(pRes.driver);
+        if (sRes.stats) setStats(sRes.stats);
+        if (sessRes.sessions) setRecentSessions(sessRes.sessions.slice(0, 3));
+      } catch {
+        // network error
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-8 h-8 border-2 border-rp-orange border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
+      {/* Header */}
+      <div className="mb-8">
+        <p className="text-zinc-500 text-sm">Welcome back</p>
+        <h1 className="text-2xl font-bold text-zinc-100">
+          {profile?.name || "Racer"}
+        </h1>
+      </div>
+
+      {/* Quick stats */}
+      {stats && (
+        <div className="grid grid-cols-3 gap-3 mb-8">
+          <StatBox label="Sessions" value={stats.total_sessions.toString()} />
+          <StatBox label="Laps" value={stats.total_laps.toString()} />
+          <StatBox
+            label="Drive Time"
+            value={formatMinutes(stats.total_driving_seconds)}
+          />
+        </div>
+      )}
+
+      {/* Active session banner */}
+      {recentSessions.some((s) => s.status === "active") && (
+        <div className="bg-rp-orange/10 border border-rp-orange/30 rounded-xl p-4 mb-6">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-2 h-2 bg-rp-orange rounded-full animate-pulse" />
+            <span className="text-rp-orange font-semibold text-sm">
+              Session Active
+            </span>
+          </div>
+          {recentSessions
+            .filter((s) => s.status === "active")
+            .map((s) => (
+              <p key={s.id} className="text-zinc-300 text-sm">
+                Pod {s.pod_id.replace("pod_", "#")} —{" "}
+                {formatMinutes(s.allocated_seconds - s.driving_seconds)}{" "}
+                remaining
+              </p>
+            ))}
+        </div>
+      )}
+
+      {/* Recent sessions */}
+      <div className="mb-6">
+        <h2 className="text-sm font-medium text-zinc-500 mb-3">
+          Recent Sessions
+        </h2>
+        {recentSessions.length === 0 ? (
+          <p className="text-zinc-600 text-sm">No sessions yet. Get racing!</p>
+        ) : (
+          <div className="space-y-3">
+            {recentSessions.map((session) => (
+              <SessionCard key={session.id} session={session} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Favourite car */}
+      {stats?.favourite_car && (
+        <div className="bg-rp-card border border-rp-border rounded-xl p-4">
+          <p className="text-xs text-zinc-500 mb-1">Favourite Car</p>
+          <p className="text-lg font-semibold text-zinc-100">
+            {stats.favourite_car}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-rp-card border border-rp-border rounded-xl p-3 text-center">
+      <p className="text-xl font-bold text-zinc-100">{value}</p>
+      <p className="text-[10px] text-zinc-500 mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+function formatMinutes(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}

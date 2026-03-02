@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { Pod, TelemetryFrame, Lap, BillingSession, GameLaunchInfo, AiDebugSuggestion, AcServerInfo, AcPresetSummary, AcLanSessionConfig } from "@/lib/api";
+import type { Pod, TelemetryFrame, Lap, BillingSession, GameLaunchInfo, AiDebugSuggestion, AcServerInfo, AcPresetSummary, AcLanSessionConfig, AuthTokenInfo } from "@/lib/api";
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/dashboard";
 
@@ -30,6 +30,7 @@ export function useWebSocket() {
   const [acServerInfo, setAcServerInfo] = useState<AcServerInfo | null>(null);
   const [acPresets, setAcPresets] = useState<AcPresetSummary[]>([]);
   const [acLoadedConfig, setAcLoadedConfig] = useState<{ presetId: string; config: AcLanSessionConfig } | null>(null);
+  const [pendingAuthTokens, setPendingAuthTokens] = useState<Map<string, AuthTokenInfo>>(new Map());
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -177,6 +178,33 @@ export function useWebSocket() {
             setAcLoadedConfig({ presetId: d.preset_id, config: d.config });
             break;
           }
+          case "auth_token_created": {
+            const token = msg.data as AuthTokenInfo;
+            setPendingAuthTokens((prev) => {
+              const next = new Map(prev);
+              next.set(token.pod_id, token);
+              return next;
+            });
+            break;
+          }
+          case "auth_token_consumed": {
+            const d = msg.data as { token_id: string; pod_id: string; billing_session_id: string };
+            setPendingAuthTokens((prev) => {
+              const next = new Map(prev);
+              next.delete(d.pod_id);
+              return next;
+            });
+            break;
+          }
+          case "auth_token_cleared": {
+            const d = msg.data as { token_id: string; pod_id: string; reason: string };
+            setPendingAuthTokens((prev) => {
+              const next = new Map(prev);
+              next.delete(d.pod_id);
+              return next;
+            });
+            break;
+          }
         }
       } catch (e) {
         console.warn("[RaceControl] Parse error:", e);
@@ -215,6 +243,7 @@ export function useWebSocket() {
     acServerInfo,
     acPresets,
     acLoadedConfig,
+    pendingAuthTokens,
     sendCommand,
   };
 }

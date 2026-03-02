@@ -1,4 +1,5 @@
-import type { Pod, BillingSession } from "@/lib/api";
+import { useState, useEffect } from "react";
+import type { Pod, BillingSession, AuthTokenInfo } from "@/lib/api";
 import StatusBadge from "./StatusBadge";
 import CountdownTimer from "./CountdownTimer";
 
@@ -13,14 +14,51 @@ const simLabels: Record<string, string> = {
 interface PodCardProps {
   pod: Pod;
   billingSession?: BillingSession;
+  pendingToken?: AuthTokenInfo;
+  onCancelToken?: (tokenId: string) => void;
 }
 
-export default function PodCard({ pod, billingSession }: PodCardProps) {
+function ExpiryCountdown({ expiresAt }: { expiresAt: string }) {
+  const [remaining, setRemaining] = useState(0);
+
+  useEffect(() => {
+    const update = () => {
+      const diff = Math.max(
+        0,
+        Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)
+      );
+      setRemaining(diff);
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [expiresAt]);
+
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+
+  return (
+    <span className="text-yellow-400 font-mono text-xs">
+      {mins}:{String(secs).padStart(2, "0")}
+    </span>
+  );
+}
+
+export default function PodCard({
+  pod,
+  billingSession,
+  pendingToken,
+  onCancelToken,
+}: PodCardProps) {
+  const isPending = !!pendingToken;
+
   return (
     <div
       className={`rounded-lg border p-4 transition-all ${
         billingSession
           ? "border-orange-500/50 bg-orange-500/5"
+          : isPending
+          ? "border-yellow-500/50 bg-yellow-500/5"
           : pod.status === "in_session"
           ? "border-orange-500/50 bg-orange-500/5"
           : pod.status === "idle"
@@ -37,7 +75,13 @@ export default function PodCard({ pod, billingSession }: PodCardProps) {
           </span>
           <span className="text-sm text-zinc-500">{pod.name}</span>
         </div>
-        <StatusBadge status={pod.status} />
+        {isPending ? (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 animate-pulse">
+            WAITING
+          </span>
+        ) : (
+          <StatusBadge status={pod.status} />
+        )}
       </div>
 
       {billingSession ? (
@@ -57,6 +101,46 @@ export default function PodCard({ pod, billingSession }: PodCardProps) {
               <span className="text-zinc-300">{billingSession.pricing_tier_name}</span>
             </div>
           </div>
+        </div>
+      ) : isPending ? (
+        <div className="space-y-2">
+          {/* Pending auth token — show PIN or QR indicator */}
+          <div className="text-xs space-y-1.5">
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Driver</span>
+              <span className="text-yellow-400">{pendingToken.driver_name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Tier</span>
+              <span className="text-zinc-300">{pendingToken.pricing_tier_name}</span>
+            </div>
+            {pendingToken.auth_type === "pin" && (
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-500">PIN</span>
+                <span className="text-2xl font-bold font-mono tracking-widest text-yellow-300">
+                  {pendingToken.token}
+                </span>
+              </div>
+            )}
+            {pendingToken.auth_type === "qr" && (
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Method</span>
+                <span className="text-zinc-300">QR on rig screen</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Expires in</span>
+              <ExpiryCountdown expiresAt={pendingToken.expires_at} />
+            </div>
+          </div>
+          {onCancelToken && (
+            <button
+              onClick={() => onCancelToken(pendingToken.id)}
+              className="w-full mt-2 text-xs text-red-400 hover:text-red-300 bg-red-500/10 border border-red-500/20 rounded py-1.5 transition-colors"
+            >
+              Cancel Assignment
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-1.5 text-xs">

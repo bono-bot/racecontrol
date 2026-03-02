@@ -1,0 +1,635 @@
+use std::sync::Arc;
+
+use chrono::{Duration, Utc};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::billing;
+use crate::state::AppState;
+use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
+use rc_common::types::AuthTokenInfo;
+
+// ─── JWT Claims ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String, // driver_id
+    pub exp: usize,
+    pub iat: usize,
+}
+
+// ─── Create Auth Token ─────────────────────────────────────────────────────
+
+pub async fn create_auth_token(
+    state: &Arc<AppState>,
+    pod_id: String,
+    driver_id: String,
+    pricing_tier_id: String,
+    auth_type: String,
+    custom_price_paise: Option<u32>,
+    custom_duration_minutes: Option<u32>,
+) -> Result<AuthTokenInfo, String> {
+    // Cancel any existing pending token for this pod
+    let existing = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM auth_tokens WHERE pod_id = ? AND status = 'pending'",
+    )
+    .bind(&pod_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    for (id,) in existing {
+        let _ = cancel_auth_token(state, id).await;
+    }
+
+    // Verify driver exists and get name
+    let driver = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, name FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| format!("Driver {} not found", driver_id))?;
+
+    let driver_name = driver.1;
+
+    // Verify pricing tier exists
+    let tier = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT id, name, duration_minutes FROM pricing_tiers WHERE id = ? AND is_active = 1",
+    )
+    .bind(&pricing_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| format!("Pricing tier {} not found", pricing_tier_id))?;
+
+    let pricing_tier_name = tier.1;
+    let duration_minutes = custom_duration_minutes.unwrap_or(tier.2 as u32);
+    let allocated_seconds = duration_minutes * 60;
+
+    // Generate token
+    let token = match auth_type.as_str() {
+        "pin" => {
+            let pin: u32 = rand::thread_rng().gen_range(1000..=9999);
+            format!("{:04}", pin)
+        }
+        "qr" => Uuid::new_v4().to_string(),
+        _ => return Err("auth_type must be 'pin' or 'qr'".to_string()),
+    };
+
+    let token_id = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    let expires_at = now + Duration::seconds(state.config.auth.pin_expiry_secs as i64);
+
+    // Insert into DB
+    sqlx::query(
+        "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, custom_price_paise, custom_duration_minutes, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+    )
+    .bind(&token_id)
+    .bind(&pod_id)
+    .bind(&driver_id)
+    .bind(&pricing_tier_id)
+    .bind(&auth_type)
+    .bind(&token)
+    .bind(custom_price_paise.map(|p| p as i64))
+    .bind(custom_duration_minutes.map(|m| m as i64))
+    .bind(now.to_rfc3339())
+    .bind(expires_at.to_rfc3339())
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("DB insert error: {}", e))?;
+
+    let info = AuthTokenInfo {
+        id: token_id.clone(),
+        pod_id: pod_id.clone(),
+        driver_id: driver_id.clone(),
+        driver_name: driver_name.clone(),
+        pricing_tier_id: pricing_tier_id.clone(),
+        pricing_tier_name: pricing_tier_name.clone(),
+        auth_type: auth_type.clone(),
+        token: token.clone(),
+        status: "pending".to_string(),
+        allocated_seconds,
+        custom_price_paise,
+        custom_duration_minutes,
+        created_at: now.to_rfc3339(),
+        expires_at: expires_at.to_rfc3339(),
+    };
+
+    // Send lock screen to agent
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let msg = match auth_type.as_str() {
+            "pin" => CoreToAgentMessage::ShowPinLockScreen {
+                token_id: token_id.clone(),
+                driver_name: driver_name.clone(),
+                pricing_tier_name: pricing_tier_name.clone(),
+                allocated_seconds,
+            },
+            _ => CoreToAgentMessage::ShowQrLockScreen {
+                token_id: token_id.clone(),
+                qr_payload: token.clone(),
+                driver_name: driver_name.clone(),
+                pricing_tier_name: pricing_tier_name.clone(),
+                allocated_seconds,
+            },
+        };
+        let _ = sender.send(msg).await;
+    }
+    drop(agent_senders);
+
+    // Broadcast to dashboards
+    let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenCreated(info.clone()));
+
+    tracing::info!(
+        "Auth token created: {} ({}) for {} on pod {} (expires in {}s)",
+        token_id,
+        auth_type,
+        driver_name,
+        pod_id,
+        state.config.auth.pin_expiry_secs
+    );
+
+    Ok(info)
+}
+
+// ─── Validate PIN ──────────────────────────────────────────────────────────
+
+pub async fn validate_pin(
+    state: &Arc<AppState>,
+    pod_id: String,
+    pin: String,
+) -> Result<String, String> {
+    // Find pending token for this pod with matching PIN
+    let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>)>(
+        "SELECT id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes
+         FROM auth_tokens
+         WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
+           AND expires_at > datetime('now')
+         LIMIT 1",
+    )
+    .bind(&pod_id)
+    .bind(&pin)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| "Invalid PIN or no pending assignment for this pod".to_string())?;
+
+    let token_id = row.0;
+    let driver_id = row.1;
+    let pricing_tier_id = row.2;
+    let custom_price_paise = row.3.map(|p| p as u32);
+    let custom_duration_minutes = row.4.map(|m| m as u32);
+
+    // Start billing session
+    let billing_session_id = billing::start_billing_session(
+        state,
+        pod_id.clone(),
+        driver_id,
+        pricing_tier_id,
+        custom_price_paise,
+        custom_duration_minutes,
+    )
+    .await
+    .ok_or_else(|| "Failed to start billing session".to_string())?;
+
+    // Mark token as consumed
+    let _ = sqlx::query(
+        "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&billing_session_id)
+    .bind(&token_id)
+    .execute(&state.db)
+    .await;
+
+    // Clear lock screen on agent
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+    }
+    drop(agent_senders);
+
+    // Broadcast consumed event
+    let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
+        token_id: token_id.clone(),
+        pod_id: pod_id.clone(),
+        billing_session_id: billing_session_id.clone(),
+    });
+
+    tracing::info!("PIN validated on pod {}, billing session {} started", pod_id, billing_session_id);
+
+    Ok(billing_session_id)
+}
+
+// ─── Validate QR ───────────────────────────────────────────────────────────
+
+pub async fn validate_qr(
+    state: &Arc<AppState>,
+    qr_token: String,
+    driver_id: String,
+) -> Result<String, String> {
+    // Find pending token with matching UUID
+    let row = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>)>(
+        "SELECT id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes
+         FROM auth_tokens
+         WHERE token = ? AND auth_type = 'qr' AND status = 'pending'
+           AND expires_at > datetime('now')
+         LIMIT 1",
+    )
+    .bind(&qr_token)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| "Invalid or expired QR token".to_string())?;
+
+    let token_id = row.0;
+    let pod_id = row.1;
+    let token_driver_id = row.2;
+    let pricing_tier_id = row.3;
+    let custom_price_paise = row.4.map(|p| p as u32);
+    let custom_duration_minutes = row.5.map(|m| m as u32);
+
+    // Verify driver matches the assignment
+    if token_driver_id != driver_id {
+        return Err("QR token is not assigned to this customer".to_string());
+    }
+
+    // Start billing session
+    let billing_session_id = billing::start_billing_session(
+        state,
+        pod_id.clone(),
+        driver_id,
+        pricing_tier_id,
+        custom_price_paise,
+        custom_duration_minutes,
+    )
+    .await
+    .ok_or_else(|| "Failed to start billing session".to_string())?;
+
+    // Mark token as consumed
+    let _ = sqlx::query(
+        "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&billing_session_id)
+    .bind(&token_id)
+    .execute(&state.db)
+    .await;
+
+    // Clear lock screen on agent
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+    }
+    drop(agent_senders);
+
+    // Broadcast consumed event
+    let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
+        token_id: token_id.clone(),
+        pod_id: pod_id.clone(),
+        billing_session_id: billing_session_id.clone(),
+    });
+
+    tracing::info!("QR validated on pod {}, billing session {} started", pod_id, billing_session_id);
+
+    Ok(billing_session_id)
+}
+
+// ─── Cancel Auth Token ─────────────────────────────────────────────────────
+
+pub async fn cancel_auth_token(
+    state: &Arc<AppState>,
+    token_id: String,
+) -> Result<(), String> {
+    // Get pod_id before updating
+    let row = sqlx::query_as::<_, (String,)>(
+        "SELECT pod_id FROM auth_tokens WHERE id = ? AND status = 'pending'",
+    )
+    .bind(&token_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| "Token not found or not pending".to_string())?;
+
+    let pod_id = row.0;
+
+    // Update status
+    sqlx::query("UPDATE auth_tokens SET status = 'cancelled' WHERE id = ?")
+        .bind(&token_id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
+
+    // Clear lock screen on agent
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+    }
+    drop(agent_senders);
+
+    // Broadcast cleared event
+    let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenCleared {
+        token_id: token_id.clone(),
+        pod_id: pod_id.clone(),
+        reason: "cancelled".to_string(),
+    });
+
+    tracing::info!("Auth token {} cancelled for pod {}", token_id, pod_id);
+    Ok(())
+}
+
+// ─── Expire Stale Tokens ───────────────────────────────────────────────────
+
+pub async fn expire_stale_tokens(state: &Arc<AppState>) {
+    let expired = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, pod_id FROM auth_tokens WHERE status = 'pending' AND expires_at <= datetime('now')",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    if expired.is_empty() {
+        return;
+    }
+
+    for (token_id, pod_id) in &expired {
+        let _ = sqlx::query("UPDATE auth_tokens SET status = 'expired' WHERE id = ?")
+            .bind(token_id)
+            .execute(&state.db)
+            .await;
+
+        // Clear lock screen
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(pod_id) {
+            let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        }
+        drop(agent_senders);
+
+        let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenCleared {
+            token_id: token_id.clone(),
+            pod_id: pod_id.clone(),
+            reason: "expired".to_string(),
+        });
+    }
+
+    tracing::info!("Expired {} stale auth tokens", expired.len());
+}
+
+// ─── Get Pending Tokens ────────────────────────────────────────────────────
+
+pub async fn get_pending_tokens(state: &Arc<AppState>) -> Vec<AuthTokenInfo> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, String, String, Option<i64>, Option<i64>, String, String)>(
+        "SELECT at.id, at.pod_id, at.driver_id, d.name, at.pricing_tier_id, pt.name, at.auth_type, at.token, at.custom_price_paise, at.custom_duration_minutes, at.created_at, at.expires_at
+         FROM auth_tokens at
+         JOIN drivers d ON at.driver_id = d.id
+         JOIN pricing_tiers pt ON at.pricing_tier_id = pt.id
+         WHERE at.status = 'pending' AND at.expires_at > datetime('now')
+         ORDER BY at.created_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let duration_query = "SELECT duration_minutes FROM pricing_tiers WHERE id = ?";
+
+    let mut tokens = Vec::new();
+    for r in rows {
+        let duration_minutes = r.9.unwrap_or_else(|| {
+            // Can't do async here, use a default
+            0
+        });
+
+        let tier_duration = sqlx::query_as::<_, (i64,)>(duration_query)
+            .bind(&r.4)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .map(|t| t.0 as u32)
+            .unwrap_or(0);
+
+        let actual_minutes = if duration_minutes > 0 {
+            duration_minutes as u32
+        } else {
+            tier_duration
+        };
+
+        tokens.push(AuthTokenInfo {
+            id: r.0,
+            pod_id: r.1,
+            driver_id: r.2,
+            driver_name: r.3,
+            pricing_tier_id: r.4,
+            pricing_tier_name: r.5,
+            auth_type: r.6,
+            token: r.7,
+            status: "pending".to_string(),
+            allocated_seconds: actual_minutes * 60,
+            custom_price_paise: r.8.map(|p| p as u32),
+            custom_duration_minutes: r.9.map(|m| m as u32),
+            created_at: r.10,
+            expires_at: r.11,
+        });
+    }
+
+    tokens
+}
+
+// ─── JWT Helpers ───────────────────────────────────────────────────────────
+
+pub fn create_jwt(driver_id: &str, secret: &str) -> Result<String, String> {
+    let now = Utc::now();
+    let exp = now + Duration::days(30);
+
+    let claims = Claims {
+        sub: driver_id.to_string(),
+        iat: now.timestamp() as usize,
+        exp: exp.timestamp() as usize,
+    };
+
+    jsonwebtoken::encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| format!("JWT encode error: {}", e))
+}
+
+pub fn verify_jwt(token: &str, secret: &str) -> Result<String, String> {
+    let data = jsonwebtoken::decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|e| format!("JWT decode error: {}", e))?;
+
+    Ok(data.claims.sub)
+}
+
+// ─── OTP ───────────────────────────────────────────────────────────────────
+
+pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, String> {
+    // Find or create driver by phone
+    let driver = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, name FROM drivers WHERE phone = ?",
+    )
+    .bind(phone)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    let driver_id = match driver {
+        Some((id, _)) => id,
+        None => {
+            // Auto-create driver with phone
+            let id = Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO drivers (id, name, phone) VALUES (?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(format!("Customer {}", &phone[phone.len().saturating_sub(4)..]))
+            .bind(phone)
+            .execute(&state.db)
+            .await
+            .map_err(|e| format!("DB error creating driver: {}", e))?;
+            id
+        }
+    };
+
+    // Generate 6-digit OTP
+    let otp: u32 = rand::thread_rng().gen_range(100000..=999999);
+    let otp_str = format!("{:06}", otp);
+    let expires_at = Utc::now() + Duration::seconds(state.config.auth.otp_expiry_secs as i64);
+
+    // Store OTP in driver record
+    sqlx::query("UPDATE drivers SET otp_code = ?, otp_expires_at = ? WHERE id = ?")
+        .bind(&otp_str)
+        .bind(expires_at.to_rfc3339())
+        .bind(&driver_id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("DB error storing OTP: {}", e))?;
+
+    // TODO: Send via WhatsApp (Evolution API) when reqwest is added to rc-core
+    // For now, OTP is logged so staff can relay it verbally
+    tracing::info!("OTP for phone {}: {} (staff can relay verbally)", phone, otp_str);
+
+    Ok(driver_id)
+}
+
+pub async fn verify_otp(state: &Arc<AppState>, phone: &str, otp: &str) -> Result<String, String> {
+    let driver = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+        "SELECT id, otp_code, otp_expires_at FROM drivers WHERE phone = ?",
+    )
+    .bind(phone)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| "Phone number not found".to_string())?;
+
+    let driver_id = driver.0;
+    let stored_otp = driver.1.ok_or_else(|| "No OTP pending".to_string())?;
+    let expires_at = driver.2.ok_or_else(|| "No OTP pending".to_string())?;
+
+    // Check expiry
+    let expires = chrono::DateTime::parse_from_rfc3339(&expires_at)
+        .map_err(|_| "Invalid expiry timestamp".to_string())?;
+    if Utc::now() > expires {
+        return Err("OTP has expired".to_string());
+    }
+
+    // Verify OTP
+    if stored_otp != otp {
+        return Err("Invalid OTP".to_string());
+    }
+
+    // Clear OTP and update login timestamp
+    sqlx::query(
+        "UPDATE drivers SET otp_code = NULL, otp_expires_at = NULL, phone_verified = 1, last_login_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    // Create JWT
+    let jwt = create_jwt(&driver_id, &state.config.auth.jwt_secret)?;
+
+    // Record customer session
+    let session_id = Uuid::new_v4().to_string();
+    let expires_at = Utc::now() + Duration::days(30);
+
+    sqlx::query(
+        "INSERT INTO customer_sessions (id, driver_id, token_hash, created_at, expires_at)
+         VALUES (?, ?, ?, datetime('now'), ?)",
+    )
+    .bind(&session_id)
+    .bind(&driver_id)
+    .bind(&jwt[jwt.len().saturating_sub(32)..]) // store last 32 chars as hash
+    .bind(expires_at.to_rfc3339())
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("DB error creating session: {}", e))?;
+
+    tracing::info!("Customer {} verified OTP and logged in", driver_id);
+
+    Ok(jwt)
+}
+
+// ─── Handle Dashboard Commands ─────────────────────────────────────────────
+
+pub async fn handle_dashboard_command(
+    state: &Arc<AppState>,
+    cmd: rc_common::protocol::DashboardCommand,
+) {
+    match cmd {
+        rc_common::protocol::DashboardCommand::AssignCustomer {
+            pod_id,
+            driver_id,
+            pricing_tier_id,
+            auth_type,
+            custom_price_paise,
+            custom_duration_minutes,
+        } => {
+            if let Err(e) = create_auth_token(
+                state,
+                pod_id,
+                driver_id,
+                pricing_tier_id,
+                auth_type,
+                custom_price_paise,
+                custom_duration_minutes,
+            )
+            .await
+            {
+                tracing::error!("Failed to assign customer: {}", e);
+            }
+        }
+        rc_common::protocol::DashboardCommand::CancelAssignment { token_id } => {
+            if let Err(e) = cancel_auth_token(state, token_id).await {
+                tracing::error!("Failed to cancel assignment: {}", e);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ─── Handle Agent PIN Entry ────────────────────────────────────────────────
+
+pub async fn handle_pin_entered(state: &Arc<AppState>, pod_id: String, pin: String) {
+    match validate_pin(state, pod_id.clone(), pin).await {
+        Ok(billing_session_id) => {
+            tracing::info!(
+                "PIN auth success on pod {}: billing session {}",
+                pod_id,
+                billing_session_id
+            );
+        }
+        Err(e) => {
+            tracing::warn!("PIN auth failed on pod {}: {}", pod_id, e);
+        }
+    }
+}

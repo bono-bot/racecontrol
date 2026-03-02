@@ -15,7 +15,17 @@ interface BillingStartModalProps {
     custom_price_paise?: number;
     custom_duration_minutes?: number;
   }) => void;
+  onAssign?: (data: {
+    pod_id: string;
+    driver_id: string;
+    pricing_tier_id: string;
+    auth_type: string;
+    custom_price_paise?: number;
+    custom_duration_minutes?: number;
+  }) => void;
 }
+
+type StartMode = "pin" | "qr" | "direct";
 
 const formatINR = (paise: number) =>
   new Intl.NumberFormat("en-IN", {
@@ -28,7 +38,9 @@ export default function BillingStartModal({
   podName,
   onClose,
   onStart,
+  onAssign,
 }: BillingStartModalProps) {
+  const [startMode, setStartMode] = useState<StartMode>("pin");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [tiers, setTiers] = useState<PricingTier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,24 +89,48 @@ export default function BillingStartModal({
     if (!selectedDriver) return;
     setStarting(true);
 
-    const data: {
-      pod_id: string;
-      driver_id: string;
-      pricing_tier_id: string;
-      custom_price_paise?: number;
-      custom_duration_minutes?: number;
-    } = {
-      pod_id: podId,
-      driver_id: selectedDriver.id,
-      pricing_tier_id: selectedTier?.id || "",
-    };
+    if (startMode === "direct") {
+      const data: {
+        pod_id: string;
+        driver_id: string;
+        pricing_tier_id: string;
+        custom_price_paise?: number;
+        custom_duration_minutes?: number;
+      } = {
+        pod_id: podId,
+        driver_id: selectedDriver.id,
+        pricing_tier_id: selectedTier?.id || "",
+      };
 
-    if (variableTime) {
-      data.custom_duration_minutes = customMinutes;
-      data.custom_price_paise = customPriceRupees * 100;
+      if (variableTime) {
+        data.custom_duration_minutes = customMinutes;
+        data.custom_price_paise = customPriceRupees * 100;
+      }
+
+      onStart(data);
+    } else if (onAssign) {
+      // PIN or QR assignment
+      const data: {
+        pod_id: string;
+        driver_id: string;
+        pricing_tier_id: string;
+        auth_type: string;
+        custom_price_paise?: number;
+        custom_duration_minutes?: number;
+      } = {
+        pod_id: podId,
+        driver_id: selectedDriver.id,
+        pricing_tier_id: selectedTier?.id || "",
+        auth_type: startMode,
+      };
+
+      if (variableTime) {
+        data.custom_duration_minutes = customMinutes;
+        data.custom_price_paise = customPriceRupees * 100;
+      }
+
+      onAssign(data);
     }
-
-    onStart(data);
   }
 
   return (
@@ -127,6 +163,39 @@ export default function BillingStartModal({
           </div>
         ) : (
           <div className="space-y-6">
+            {/* Start Mode */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
+                Start Method
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { mode: "pin" as StartMode, label: "Assign PIN", desc: "Customer enters PIN" },
+                    { mode: "qr" as StartMode, label: "Assign QR", desc: "Customer scans QR" },
+                    { mode: "direct" as StartMode, label: "Direct Start", desc: "Staff override" },
+                  ] as const
+                ).map(({ mode, label, desc }) => (
+                  <button
+                    key={mode}
+                    onClick={() => setStartMode(mode)}
+                    className={`rounded-lg border p-2.5 text-left transition-all ${
+                      startMode === mode
+                        ? "border-orange-500 bg-orange-500/10"
+                        : "border-zinc-700 bg-zinc-800 hover:border-zinc-600"
+                    }`}
+                  >
+                    <div className="text-xs font-medium text-zinc-200">
+                      {label}
+                    </div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5">
+                      {desc}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Driver Selection */}
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -309,7 +378,13 @@ export default function BillingStartModal({
                   : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
               }`}
             >
-              {starting ? "Starting..." : "Start Session"}
+              {starting
+                ? "Processing..."
+                : startMode === "direct"
+                ? "Start Session"
+                : startMode === "pin"
+                ? "Assign with PIN"
+                : "Assign with QR"}
             </button>
           </div>
         )}

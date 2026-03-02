@@ -7,7 +7,7 @@ import LiveLapFeed from "@/components/LiveLapFeed";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
 export default function LiveOverview() {
-  const { connected, pods, latestTelemetry, recentLaps, billingTimers } = useWebSocket();
+  const { connected, pods, latestTelemetry, recentLaps, billingTimers, pendingAuthTokens, sendCommand } = useWebSocket();
 
   return (
     <DashboardLayout>
@@ -45,7 +45,15 @@ export default function LiveOverview() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {pods.map((pod) => (
-              <PodCard key={pod.id} pod={pod} billingSession={billingTimers.get(pod.id)} />
+              <PodCard
+                key={pod.id}
+                pod={pod}
+                billingSession={billingTimers.get(pod.id)}
+                pendingToken={pendingAuthTokens.get(pod.id)}
+                onCancelToken={(tokenId) =>
+                  sendCommand("cancel_assignment", { token_id: tokenId })
+                }
+              />
             ))}
           </div>
         )}

@@ -25,6 +25,8 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 thiserror = "2"
 toml = "0.8"
+jsonwebtoken = "9"
+rand = "0.8"
 
 # rc-common
 rc-common = { path = "crates/rc-common" }

@@ -5,5 +5,8 @@
 *.db-shm
 web/node_modules
 web/.next
+pwa/node_modules
+pwa/.next
+.next
 .env
 *.log

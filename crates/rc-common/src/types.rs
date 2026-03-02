@@ -484,6 +484,26 @@ pub struct AcPresetSummary {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
+// ─── Auth Token ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthTokenInfo {
+    pub id: String,
+    pub pod_id: String,
+    pub driver_id: String,
+    pub driver_name: String,
+    pub pricing_tier_id: String,
+    pub pricing_tier_name: String,
+    pub auth_type: String,
+    pub token: String,
+    pub status: String,
+    pub allocated_seconds: u32,
+    pub custom_price_paise: Option<u32>,
+    pub custom_duration_minutes: Option<u32>,
+    pub created_at: String,
+    pub expires_at: String,
+}
+
 // ─── AI Debugger ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

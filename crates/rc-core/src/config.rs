@@ -18,6 +18,8 @@ pub struct Config {
     pub ai_debugger: AiDebuggerConfig,
     #[serde(default)]
     pub ac_server: AcServerConfig,
+    #[serde(default)]
+    pub auth: AuthConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,6 +156,32 @@ impl Default for AcServerConfig {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AuthConfig {
+    #[serde(default = "default_jwt_secret")]
+    pub jwt_secret: String,
+    #[serde(default = "default_pin_expiry")]
+    pub pin_expiry_secs: u64,
+    #[serde(default = "default_otp_expiry")]
+    pub otp_expiry_secs: u64,
+    pub evolution_url: Option<String>,
+    pub evolution_api_key: Option<String>,
+    pub evolution_instance: Option<String>,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            jwt_secret: default_jwt_secret(),
+            pin_expiry_secs: default_pin_expiry(),
+            otp_expiry_secs: default_otp_expiry(),
+            evolution_url: None,
+            evolution_api_key: None,
+            evolution_instance: None,
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -193,6 +221,7 @@ impl Config {
             integrations: IntegrationsConfig::default(),
             ai_debugger: AiDebuggerConfig::default(),
             ac_server: AcServerConfig::default(),
+            auth: AuthConfig::default(),
         }
     }
 }
@@ -209,6 +238,9 @@ fn default_color() -> String { "#FF4400".to_string() }
 fn default_theme() -> String { "dark".to_string() }
 fn default_acserver_path() -> String { "/opt/ac-server/acServer".to_string() }
 fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }
+fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to_string() }
+fn default_pin_expiry() -> u64 { 600 }
+fn default_otp_expiry() -> u64 { 300 }
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_ollama_model() -> String { "qwen2.5-coder:14b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }

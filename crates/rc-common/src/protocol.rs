@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     AcLanSessionConfig, AcPresetSummary, AcServerInfo,
-    AiDebugSuggestion, BillingSessionInfo, DrivingState, GameLaunchInfo, Leaderboard, LapData,
-    PodInfo, SessionInfo, SimType, TelemetryFrame,
+    AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DrivingState, GameLaunchInfo,
+    Leaderboard, LapData, PodInfo, SessionInfo, SimType, TelemetryFrame,
 };
 
 /// Messages sent from Pod Agent → Core Server
@@ -37,6 +37,9 @@ pub enum AgentMessage {
 
     /// Agent sends AI debug suggestion after analyzing a crash/error
     AiDebugResult(AiDebugSuggestion),
+
+    /// Customer entered PIN on lock screen
+    PinEntered { pod_id: String, pin: String },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -74,6 +77,26 @@ pub enum CoreToAgentMessage {
 
     /// Command to stop the currently running game
     StopGame,
+
+    /// Show PIN entry lock screen on the pod
+    ShowPinLockScreen {
+        token_id: String,
+        driver_name: String,
+        pricing_tier_name: String,
+        allocated_seconds: u32,
+    },
+
+    /// Show QR code lock screen on the pod
+    ShowQrLockScreen {
+        token_id: String,
+        qr_payload: String,
+        driver_name: String,
+        pricing_tier_name: String,
+        allocated_seconds: u32,
+    },
+
+    /// Clear/dismiss the lock screen
+    ClearLockScreen,
 }
 
 /// Messages sent from Core Server → Web Dashboard
@@ -135,6 +158,23 @@ pub enum DashboardEvent {
 
     /// List of saved AC presets (sent on connect or after save/delete)
     AcPresetList(Vec<AcPresetSummary>),
+
+    /// Auth token created (customer assignment pending)
+    AuthTokenCreated(AuthTokenInfo),
+
+    /// Auth token consumed (customer verified, billing started)
+    AuthTokenConsumed {
+        token_id: String,
+        pod_id: String,
+        billing_session_id: String,
+    },
+
+    /// Auth token cleared (expired or cancelled)
+    AuthTokenCleared {
+        token_id: String,
+        pod_id: String,
+        reason: String,
+    },
 }
 
 /// Messages sent from Web Dashboard → Core Server
@@ -199,4 +239,17 @@ pub enum DashboardCommand {
 
     /// Load an AC preset (returns config via AcPresetLoaded event)
     LoadAcPreset { preset_id: String },
+
+    /// Assign customer to a pod with PIN or QR auth
+    AssignCustomer {
+        pod_id: String,
+        driver_id: String,
+        pricing_tier_id: String,
+        auth_type: String,
+        custom_price_paise: Option<u32>,
+        custom_duration_minutes: Option<u32>,
+    },
+
+    /// Cancel a pending customer assignment
+    CancelAssignment { token_id: String },
 }
