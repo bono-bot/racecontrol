@@ -1,6 +1,8 @@
 mod ai_debugger;
 mod driving_detector;
 mod game_process;
+mod kiosk;
+mod lock_screen;
 mod sims;
 
 use std::time::Duration;
@@ -22,6 +24,8 @@ use rc_common::protocol::AgentMessage;
 use rc_common::types::*;
 use sims::SimAdapter;
 use sims::assetto_corsa::AssettoCorsaAdapter;
+use kiosk::KioskManager;
+use lock_screen::{LockScreenEvent, LockScreenManager};
 
 #[derive(Debug, Deserialize)]
 struct AgentConfig {
@@ -235,11 +239,21 @@ async fn main() -> Result<()> {
     // AI debugger result channel
     let (ai_result_tx, mut ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
 
+    // Kiosk mode — prevent unauthorized desktop access on gaming PCs
+    let kiosk = KioskManager::new();
+    kiosk.activate();
+
+    // Lock screen for customer authentication (PIN / QR)
+    let (lock_event_tx, mut lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
+    let mut lock_screen = LockScreenManager::new(lock_event_tx);
+    lock_screen.start_server();
+
     // Main loop
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(5));
     let mut telemetry_interval = tokio::time::interval(Duration::from_millis(100));
     let mut detector_interval = tokio::time::interval(Duration::from_millis(100));
     let mut game_check_interval = tokio::time::interval(Duration::from_secs(2));
+    let mut kiosk_interval = tokio::time::interval(Duration::from_secs(5));
     let mut last_lap_count: u32 = 0;
 
     loop {
@@ -391,6 +405,24 @@ async fn main() -> Result<()> {
                 let json = serde_json::to_string(&msg)?;
                 let _ = ws_tx.send(Message::Text(json.into())).await;
             }
+            // Kiosk enforcement — kill unauthorized processes
+            _ = kiosk_interval.tick() => {
+                kiosk.enforce_process_whitelist();
+            }
+            // Lock screen events (customer submitted PIN)
+            Some(event) = lock_event_rx.recv() => {
+                match event {
+                    LockScreenEvent::PinEntered { pin } => {
+                        let msg = AgentMessage::PinEntered {
+                            pod_id: pod_id.clone(),
+                            pin,
+                        };
+                        let json = serde_json::to_string(&msg)?;
+                        let _ = ws_tx.send(Message::Text(json.into())).await;
+                        tracing::info!("PIN submitted, forwarding to core for verification");
+                    }
+                }
+            }
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
@@ -475,6 +507,26 @@ async fn main() -> Result<()> {
                                         game_process = None;
                                     }
                                 }
+                                rc_common::protocol::CoreToAgentMessage::ShowPinLockScreen {
+                                    token_id, driver_name, pricing_tier_name, allocated_seconds,
+                                } => {
+                                    tracing::info!("Lock screen: PIN entry for {}", driver_name);
+                                    lock_screen.show_pin_screen(
+                                        token_id, driver_name, pricing_tier_name, allocated_seconds,
+                                    );
+                                }
+                                rc_common::protocol::CoreToAgentMessage::ShowQrLockScreen {
+                                    token_id, qr_payload, driver_name, pricing_tier_name, allocated_seconds,
+                                } => {
+                                    tracing::info!("Lock screen: QR display for {}", driver_name);
+                                    lock_screen.show_qr_screen(
+                                        token_id, qr_payload, driver_name, pricing_tier_name, allocated_seconds,
+                                    );
+                                }
+                                rc_common::protocol::CoreToAgentMessage::ClearLockScreen => {
+                                    tracing::info!("Lock screen cleared");
+                                    lock_screen.clear();
+                                }
                                 _ => {}
                             }
                         }
@@ -489,6 +541,8 @@ async fn main() -> Result<()> {
         }
     }
 
+    kiosk.deactivate();
+    lock_screen.clear();
     adapter.disconnect();
     Ok(())
 }
