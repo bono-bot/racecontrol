@@ -26,13 +26,13 @@ function statusColor(status: string): string {
     case "active":
       return "text-emerald-400";
     case "completed":
-      return "text-zinc-400";
+      return "text-neutral-400";
     case "ended_early":
-      return "text-orange-400";
+      return "text-rp-red";
     case "cancelled":
       return "text-red-400";
     default:
-      return "text-zinc-500";
+      return "text-rp-grey";
   }
 }
 
@@ -58,9 +58,9 @@ function statusLabel(status: string): string {
 export default function SessionCard({ session }: { session: BillingSession }) {
   return (
     <Link href={`/sessions/${session.id}`}>
-      <div className="bg-rp-card border border-rp-border rounded-xl p-4 active:bg-zinc-800 transition-colors">
+      <div className="bg-rp-card border border-rp-border rounded-xl p-4 active:bg-rp-card transition-colors">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-zinc-300">
+          <span className="text-sm font-medium text-neutral-300">
             Pod {session.pod_id.replace("pod_", "#")}
           </span>
           <span className={`text-xs font-medium ${statusColor(session.status)}`}>
@@ -70,20 +70,20 @@ export default function SessionCard({ session }: { session: BillingSession }) {
 
         <div className="flex items-end justify-between">
           <div>
-            <p className="text-lg font-bold text-zinc-100">
+            <p className="text-lg font-bold text-white">
               {formatDuration(session.driving_seconds)}
             </p>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-rp-grey">
               of {formatDuration(session.allocated_seconds)}
             </p>
           </div>
-          <p className="text-xs text-zinc-500">{formatDate(session.started_at)}</p>
+          <p className="text-xs text-rp-grey">{formatDate(session.started_at)}</p>
         </div>
 
         {/* Progress bar */}
-        <div className="mt-3 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <div className="mt-3 h-1.5 bg-rp-card rounded-full overflow-hidden">
           <div
-            className="h-full bg-rp-orange rounded-full transition-all"
+            className="h-full bg-rp-red rounded-full transition-all"
             style={{
               width: `${Math.min(
                 100,

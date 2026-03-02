@@ -68,26 +68,26 @@ export default function LoginPage() {
       {/* Logo */}
       <div className="mb-12 text-center">
         <h1 className="text-5xl font-black tracking-tight">
-          <span className="text-rp-orange">Racing</span>
-          <span className="text-zinc-100">Point</span>
+          <span className="text-rp-red">Racing</span>
+          <span className="text-white">Point</span>
         </h1>
-        <p className="text-zinc-500 text-sm mt-2">Sim Racing Experience</p>
+        <p className="text-rp-grey text-sm mt-2">Sim Racing Experience</p>
       </div>
 
       <div className="w-full max-w-sm">
         {step === "phone" ? (
           <>
-            <label className="block text-sm font-medium text-zinc-400 mb-2">
+            <label className="block text-sm font-medium text-neutral-400 mb-2">
               Phone number
             </label>
             <div className="flex items-center gap-2 mb-4">
-              <span className="text-zinc-500 text-lg font-medium">+91</span>
+              <span className="text-rp-grey text-lg font-medium">+91</span>
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
                 placeholder="Enter your number"
-                className="flex-1 bg-rp-card border border-rp-border rounded-xl px-4 py-3.5 text-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-rp-orange transition-colors"
+                className="flex-1 bg-rp-card border border-rp-border rounded-xl px-4 py-3.5 text-lg text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors"
                 autoFocus
                 inputMode="numeric"
               />
@@ -100,24 +100,24 @@ export default function LoginPage() {
             <button
               onClick={handleSendOtp}
               disabled={loading || phone.length < 10}
-              className="w-full bg-rp-orange text-white font-semibold py-3.5 rounded-xl disabled:opacity-50 active:bg-rp-orange-light transition-colors"
+              className="w-full bg-rp-red text-white font-semibold py-3.5 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors"
             >
               {loading ? "Sending..." : "Send verification code"}
             </button>
           </>
         ) : (
           <>
-            <p className="text-sm text-zinc-400 mb-1">
+            <p className="text-sm text-neutral-400 mb-1">
               Code sent to +91 {phone}
             </p>
             <button
               onClick={() => { setStep("phone"); setOtp(""); setError(""); }}
-              className="text-rp-orange text-sm mb-4 inline-block"
+              className="text-rp-red text-sm mb-4 inline-block"
             >
               Change number
             </button>
 
-            <label className="block text-sm font-medium text-zinc-400 mb-2">
+            <label className="block text-sm font-medium text-neutral-400 mb-2">
               Verification code
             </label>
             <input
@@ -125,7 +125,7 @@ export default function LoginPage() {
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               placeholder="6-digit code"
-              className="w-full bg-rp-card border border-rp-border rounded-xl px-4 py-3.5 text-lg text-center tracking-[0.5em] text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-rp-orange transition-colors mb-4"
+              className="w-full bg-rp-card border border-rp-border rounded-xl px-4 py-3.5 text-lg text-center tracking-[0.5em] text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors mb-4"
               autoFocus
               inputMode="numeric"
             />
@@ -137,14 +137,14 @@ export default function LoginPage() {
             <button
               onClick={handleVerifyOtp}
               disabled={loading || otp.length !== 6}
-              className="w-full bg-rp-orange text-white font-semibold py-3.5 rounded-xl disabled:opacity-50 active:bg-rp-orange-light transition-colors"
+              className="w-full bg-rp-red text-white font-semibold py-3.5 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors"
             >
               {loading ? "Verifying..." : "Verify & Sign In"}
             </button>
           </>
         )}
 
-        <p className="text-zinc-600 text-xs text-center mt-8">
+        <p className="text-rp-grey text-xs text-center mt-8">
           By signing in, you agree to our Terms of Service
         </p>
       </div>

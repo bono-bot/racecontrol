@@ -13,7 +13,7 @@ function formatLapTime(ms: number): string {
 export default function LiveLapFeed({ laps }: { laps: Lap[] }) {
   if (laps.length === 0) {
     return (
-      <div className="text-center py-8 text-zinc-500 text-sm">
+      <div className="text-center py-8 text-rp-grey text-sm">
         No laps recorded yet. Start a session to see live data.
       </div>
     );
@@ -25,16 +25,16 @@ export default function LiveLapFeed({ laps }: { laps: Lap[] }) {
         <div
           key={lap.id || i}
           className={`flex items-center justify-between px-3 py-2 rounded text-sm ${
-            i === 0 ? "bg-orange-500/10 border border-orange-500/30" : "bg-zinc-900"
+            i === 0 ? "bg-rp-red/10 border border-rp-red/30" : "bg-rp-card"
           }`}
         >
           <div className="flex items-center gap-3">
-            <span className="text-zinc-500 text-xs w-6">L{lap.lap_number || "?"}</span>
-            <span className="text-zinc-300">{lap.driver_id?.slice(0, 8) || "Unknown"}</span>
-            <span className="text-zinc-500 text-xs">{lap.track}</span>
+            <span className="text-rp-grey text-xs w-6">L{lap.lap_number || "?"}</span>
+            <span className="text-neutral-300">{lap.driver_id?.slice(0, 8) || "Unknown"}</span>
+            <span className="text-rp-grey text-xs">{lap.track}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-zinc-500 text-xs">{lap.car}</span>
+            <span className="text-rp-grey text-xs">{lap.car}</span>
             <span
               className={`font-mono font-bold ${
                 lap.valid ? "text-emerald-400" : "text-red-400 line-through"

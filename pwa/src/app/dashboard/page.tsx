@@ -34,7 +34,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-2 border-rp-orange border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -43,8 +43,8 @@ export default function DashboardPage() {
     <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <p className="text-zinc-500 text-sm">Welcome back</p>
-        <h1 className="text-2xl font-bold text-zinc-100">
+        <p className="text-rp-grey text-sm">Welcome back</p>
+        <h1 className="text-2xl font-bold text-white">
           {profile?.name || "Racer"}
         </h1>
       </div>
@@ -63,17 +63,17 @@ export default function DashboardPage() {
 
       {/* Active session banner */}
       {recentSessions.some((s) => s.status === "active") && (
-        <div className="bg-rp-orange/10 border border-rp-orange/30 rounded-xl p-4 mb-6">
+        <div className="bg-rp-red/10 border border-rp-red/30 rounded-xl p-4 mb-6">
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-2 h-2 bg-rp-orange rounded-full animate-pulse" />
-            <span className="text-rp-orange font-semibold text-sm">
+            <div className="w-2 h-2 bg-rp-red rounded-full animate-pulse" />
+            <span className="text-rp-red font-semibold text-sm">
               Session Active
             </span>
           </div>
           {recentSessions
             .filter((s) => s.status === "active")
             .map((s) => (
-              <p key={s.id} className="text-zinc-300 text-sm">
+              <p key={s.id} className="text-neutral-300 text-sm">
                 Pod {s.pod_id.replace("pod_", "#")} —{" "}
                 {formatMinutes(s.allocated_seconds - s.driving_seconds)}{" "}
                 remaining
@@ -84,11 +84,11 @@ export default function DashboardPage() {
 
       {/* Recent sessions */}
       <div className="mb-6">
-        <h2 className="text-sm font-medium text-zinc-500 mb-3">
+        <h2 className="text-sm font-medium text-rp-grey mb-3">
           Recent Sessions
         </h2>
         {recentSessions.length === 0 ? (
-          <p className="text-zinc-600 text-sm">No sessions yet. Get racing!</p>
+          <p className="text-rp-grey text-sm">No sessions yet. Get racing!</p>
         ) : (
           <div className="space-y-3">
             {recentSessions.map((session) => (
@@ -101,8 +101,8 @@ export default function DashboardPage() {
       {/* Favourite car */}
       {stats?.favourite_car && (
         <div className="bg-rp-card border border-rp-border rounded-xl p-4">
-          <p className="text-xs text-zinc-500 mb-1">Favourite Car</p>
-          <p className="text-lg font-semibold text-zinc-100">
+          <p className="text-xs text-rp-grey mb-1">Favourite Car</p>
+          <p className="text-lg font-semibold text-white">
             {stats.favourite_car}
           </p>
         </div>
@@ -114,8 +114,8 @@ export default function DashboardPage() {
 function StatBox({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-rp-card border border-rp-border rounded-xl p-3 text-center">
-      <p className="text-xl font-bold text-zinc-100">{value}</p>
-      <p className="text-[10px] text-zinc-500 mt-0.5">{label}</p>
+      <p className="text-xl font-bold text-white">{value}</p>
+      <p className="text-[10px] text-rp-grey mt-0.5">{label}</p>
     </div>
   );
 }

@@ -21,17 +21,17 @@ export default function BookingsPage() {
     <DashboardLayout>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Bookings</h1>
-          <p className="text-sm text-zinc-500">Pod reservations and time slots</p>
+          <h1 className="text-2xl font-bold text-white">Bookings</h1>
+          <p className="text-sm text-rp-grey">Pod reservations and time slots</p>
         </div>
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-zinc-500 text-sm">Loading bookings...</div>
+        <div className="text-center py-12 text-rp-grey text-sm">Loading bookings...</div>
       ) : bookings.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-          <p className="text-zinc-400 mb-2">No bookings</p>
-          <p className="text-zinc-500 text-sm">
+        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
+          <p className="text-neutral-400 mb-2">No bookings</p>
+          <p className="text-rp-grey text-sm">
             Bookings can be made via the kiosk or API.
           </p>
         </div>
@@ -40,14 +40,14 @@ export default function BookingsPage() {
           {bookings.map((booking) => (
             <div
               key={booking.id}
-              className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3"
+              className="flex items-center justify-between bg-rp-card border border-rp-border rounded-lg px-4 py-3"
             >
               <div className="flex items-center gap-4">
-                <span className="text-zinc-300 text-sm">
+                <span className="text-neutral-300 text-sm">
                   {new Date(booking.start_time).toLocaleString()} &mdash;{" "}
                   {new Date(booking.end_time).toLocaleTimeString()}
                 </span>
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-rp-grey">
                   Driver: {booking.driver_id?.slice(0, 8)}
                 </span>
               </div>

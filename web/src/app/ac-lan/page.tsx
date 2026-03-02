@@ -187,28 +187,28 @@ export default function AcLanPage() {
           <StatusBadge status={acServerInfo.status} />
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 space-y-4">
+        <div className="bg-rp-card border border-rp-border rounded-lg p-6 space-y-4">
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className="text-xs text-zinc-500 uppercase">Track</label>
+              <label className="text-xs text-rp-grey uppercase">Track</label>
               <p className="text-lg font-medium">
                 {tracks.find((t) => t.id === acServerInfo.config.track)?.name || acServerInfo.config.track}
                 {acServerInfo.config.track_config && ` (${acServerInfo.config.track_config})`}
               </p>
             </div>
             <div>
-              <label className="text-xs text-zinc-500 uppercase">Cars</label>
+              <label className="text-xs text-rp-grey uppercase">Cars</label>
               <p className="text-lg font-medium">
                 {acServerInfo.config.cars.map((c) => cars.find((car) => car.id === c)?.name || c).join(", ")}
               </p>
             </div>
             <div>
-              <label className="text-xs text-zinc-500 uppercase">Sessions</label>
+              <label className="text-xs text-rp-grey uppercase">Sessions</label>
               <div className="flex gap-2 mt-1">
                 {acServerInfo.config.sessions.map((s) => (
                   <span
                     key={s.session_type}
-                    className="px-2 py-1 bg-zinc-800 rounded text-sm"
+                    className="px-2 py-1 bg-rp-card rounded text-sm"
                   >
                     {s.name} {s.session_type === "race" && s.laps > 0 ? `(${s.laps} laps)` : `(${s.duration_minutes}min)`}
                   </span>
@@ -216,22 +216,22 @@ export default function AcLanPage() {
               </div>
             </div>
             <div>
-              <label className="text-xs text-zinc-500 uppercase">Pods</label>
+              <label className="text-xs text-rp-grey uppercase">Pods</label>
               <p className="text-lg font-medium">
                 {acServerInfo.connected_pods.length} connected
               </p>
             </div>
           </div>
 
-          <div className="border-t border-zinc-800 pt-4">
-            <label className="text-xs text-zinc-500 uppercase">Join URL</label>
+          <div className="border-t border-rp-border pt-4">
+            <label className="text-xs text-rp-grey uppercase">Join URL</label>
             <div className="flex items-center gap-2 mt-1">
-              <code className="flex-1 bg-zinc-800 px-3 py-2 rounded text-sm font-mono text-orange-400">
+              <code className="flex-1 bg-rp-card px-3 py-2 rounded text-sm font-mono text-rp-red">
                 {acServerInfo.join_url}
               </code>
               <button
                 onClick={() => navigator.clipboard.writeText(acServerInfo.join_url)}
-                className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors"
+                className="px-3 py-2 bg-rp-card hover:bg-rp-card rounded text-sm transition-colors"
               >
                 Copy
               </button>
@@ -273,10 +273,10 @@ export default function AcLanPage() {
       )}
 
       {/* Presets */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+      <div className="bg-rp-card border border-rp-border rounded-lg p-4">
         <div className="flex items-center gap-3">
           <select
-            className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+            className="flex-1 bg-rp-card border border-rp-border rounded px-3 py-2 text-sm"
             defaultValue=""
             onChange={(e) => {
               if (e.target.value) handleLoadPreset(e.target.value);
@@ -294,12 +294,12 @@ export default function AcLanPage() {
             placeholder="Preset name"
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
-            className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm w-48"
+            className="bg-rp-card border border-rp-border rounded px-3 py-2 text-sm w-48"
           />
           <button
             onClick={handleSavePreset}
             disabled={!presetName.trim()}
-            className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 rounded text-sm transition-colors"
+            className="px-4 py-2 bg-rp-card hover:bg-rp-card disabled:opacity-50 rounded text-sm transition-colors"
           >
             Save As
           </button>
@@ -307,11 +307,11 @@ export default function AcLanPage() {
         {presets.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-3">
             {presets.map((p) => (
-              <div key={p.id} className="flex items-center gap-1 bg-zinc-800 rounded px-2 py-1 text-xs">
-                <button onClick={() => handleLoadPreset(p.id)} className="hover:text-orange-400 transition-colors">
+              <div key={p.id} className="flex items-center gap-1 bg-rp-card rounded px-2 py-1 text-xs">
+                <button onClick={() => handleLoadPreset(p.id)} className="hover:text-rp-red transition-colors">
                   {p.name}
                 </button>
-                <button onClick={() => handleDeletePreset(p.id)} className="text-zinc-500 hover:text-red-400 ml-1">&times;</button>
+                <button onClick={() => handleDeletePreset(p.id)} className="text-rp-grey hover:text-red-400 ml-1">&times;</button>
               </div>
             ))}
           </div>
@@ -319,8 +319,8 @@ export default function AcLanPage() {
       </div>
 
       {/* Track Selection */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <label className="text-sm font-medium text-zinc-300 mb-2 block">Track</label>
+      <div className="bg-rp-card border border-rp-border rounded-lg p-4">
+        <label className="text-sm font-medium text-neutral-300 mb-2 block">Track</label>
         <div className="grid grid-cols-2 gap-3">
           <select
             value={config.track}
@@ -331,7 +331,7 @@ export default function AcLanPage() {
                 track_config: track?.configs[0] || "",
               });
             }}
-            className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+            className="bg-rp-card border border-rp-border rounded px-3 py-2 text-sm"
           >
             {tracks.map((t) => (
               <option key={t.id} value={t.id}>{t.name}</option>
@@ -344,7 +344,7 @@ export default function AcLanPage() {
               <select
                 value={config.track_config}
                 onChange={(e) => updateConfig({ track_config: e.target.value })}
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                className="bg-rp-card border border-rp-border rounded px-3 py-2 text-sm"
               >
                 {track.configs.map((c) => (
                   <option key={c} value={c}>{c || "Default"}</option>
@@ -356,14 +356,14 @@ export default function AcLanPage() {
       </div>
 
       {/* Car Selection */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <label className="text-sm font-medium text-zinc-300 mb-2 block">
+      <div className="bg-rp-card border border-rp-border rounded-lg p-4">
+        <label className="text-sm font-medium text-neutral-300 mb-2 block">
           Cars ({config.cars.length} selected)
         </label>
         <div className="space-y-3 max-h-64 overflow-y-auto">
           {Object.entries(carsByClass).map(([cls, classCars]) => (
             <div key={cls}>
-              <p className="text-xs text-zinc-500 uppercase mb-1">{cls}</p>
+              <p className="text-xs text-rp-grey uppercase mb-1">{cls}</p>
               <div className="flex flex-wrap gap-2">
                 {classCars.map((car) => {
                   const selected = config.cars.includes(car.id);
@@ -373,8 +373,8 @@ export default function AcLanPage() {
                       onClick={() => toggleCar(car.id)}
                       className={`px-3 py-1.5 rounded text-xs transition-colors ${
                         selected
-                          ? "bg-orange-500/20 text-orange-400 border border-orange-500/40"
-                          : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:border-zinc-600"
+                          ? "bg-rp-red/20 text-rp-red border border-rp-red/40"
+                          : "bg-rp-card text-neutral-400 border border-rp-border hover:border-rp-border"
                       }`}
                     >
                       {car.name}
@@ -388,8 +388,8 @@ export default function AcLanPage() {
       </div>
 
       {/* Session Types */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <label className="text-sm font-medium text-zinc-300 mb-3 block">Sessions</label>
+      <div className="bg-rp-card border border-rp-border rounded-lg p-4">
+        <label className="text-sm font-medium text-neutral-300 mb-3 block">Sessions</label>
         <div className="space-y-3">
           {(["practice", "qualifying", "race"] as const).map((type) => {
             const session = config.sessions.find((s) => s.session_type === type);
@@ -400,7 +400,7 @@ export default function AcLanPage() {
                     type="checkbox"
                     checked={!!session}
                     onChange={() => toggleSession(type)}
-                    className="rounded border-zinc-700"
+                    className="rounded border-rp-border"
                   />
                   <span className="text-sm capitalize">{type}</span>
                 </label>
@@ -408,40 +408,40 @@ export default function AcLanPage() {
                   <div className="flex items-center gap-3">
                     {type === "race" ? (
                       <>
-                        <label className="text-xs text-zinc-500">Laps:</label>
+                        <label className="text-xs text-rp-grey">Laps:</label>
                         <input
                           type="number"
                           value={session.laps}
                           onChange={(e) => updateSession(type, "laps", parseInt(e.target.value) || 0)}
-                          className="w-20 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm"
+                          className="w-20 bg-rp-card border border-rp-border rounded px-2 py-1 text-sm"
                         />
-                        <label className="text-xs text-zinc-500">or Minutes:</label>
+                        <label className="text-xs text-rp-grey">or Minutes:</label>
                         <input
                           type="number"
                           value={session.duration_minutes}
                           onChange={(e) => updateSession(type, "duration_minutes", parseInt(e.target.value) || 0)}
-                          className="w-20 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm"
+                          className="w-20 bg-rp-card border border-rp-border rounded px-2 py-1 text-sm"
                         />
                       </>
                     ) : (
                       <>
-                        <label className="text-xs text-zinc-500">Minutes:</label>
+                        <label className="text-xs text-rp-grey">Minutes:</label>
                         <input
                           type="number"
                           value={session.duration_minutes}
                           onChange={(e) => updateSession(type, "duration_minutes", parseInt(e.target.value) || 0)}
-                          className="w-20 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm"
+                          className="w-20 bg-rp-card border border-rp-border rounded px-2 py-1 text-sm"
                         />
                       </>
                     )}
-                    <label className="text-xs text-zinc-500">Wait:</label>
+                    <label className="text-xs text-rp-grey">Wait:</label>
                     <input
                       type="number"
                       value={session.wait_time_secs}
                       onChange={(e) => updateSession(type, "wait_time_secs", parseInt(e.target.value) || 0)}
-                      className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm"
+                      className="w-16 bg-rp-card border border-rp-border rounded px-2 py-1 text-sm"
                     />
-                    <span className="text-xs text-zinc-500">sec</span>
+                    <span className="text-xs text-rp-grey">sec</span>
                   </div>
                 )}
               </div>
@@ -451,21 +451,21 @@ export default function AcLanPage() {
       </div>
 
       {/* Pod Selection */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+      <div className="bg-rp-card border border-rp-border rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
-          <label className="text-sm font-medium text-zinc-300">
+          <label className="text-sm font-medium text-neutral-300">
             Pods ({selectedPods.size} of {onlinePods.length} selected)
           </label>
           <div className="flex gap-2">
             <button
               onClick={selectAllPods}
-              className="text-xs text-zinc-400 hover:text-orange-400 transition-colors"
+              className="text-xs text-neutral-400 hover:text-rp-red transition-colors"
             >
               Select All
             </button>
             <button
               onClick={deselectAllPods}
-              className="text-xs text-zinc-400 hover:text-orange-400 transition-colors"
+              className="text-xs text-neutral-400 hover:text-rp-red transition-colors"
             >
               Deselect All
             </button>
@@ -480,8 +480,8 @@ export default function AcLanPage() {
                 onClick={() => togglePod(pod.id)}
                 className={`p-3 rounded border text-left transition-colors ${
                   selected
-                    ? "bg-orange-500/10 border-orange-500/40 text-orange-400"
-                    : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                    ? "bg-rp-red/10 border-rp-red/40 text-rp-red"
+                    : "bg-rp-card border-rp-border text-neutral-400 hover:border-rp-border"
                 }`}
               >
                 <div className="font-medium text-sm">{pod.name || `Pod ${pod.number}`}</div>
@@ -492,7 +492,7 @@ export default function AcLanPage() {
             );
           })}
           {onlinePods.length === 0 && (
-            <p className="col-span-4 text-zinc-500 text-sm text-center py-4">
+            <p className="col-span-4 text-rp-grey text-sm text-center py-4">
               No pods connected. Start rc-agent on gaming PCs to connect.
             </p>
           )}
@@ -500,34 +500,34 @@ export default function AcLanPage() {
       </div>
 
       {/* Advanced Settings */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg">
+      <div className="bg-rp-card border border-rp-border rounded-lg">
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full p-4 flex items-center justify-between text-sm font-medium text-zinc-300 hover:text-zinc-100 transition-colors"
+          className="w-full p-4 flex items-center justify-between text-sm font-medium text-neutral-300 hover:text-white transition-colors"
         >
           <span>Advanced Settings</span>
-          <span className="text-zinc-500">{showAdvanced ? "▲" : "▼"}</span>
+          <span className="text-rp-grey">{showAdvanced ? "▲" : "▼"}</span>
         </button>
         {showAdvanced && (
-          <div className="px-4 pb-4 space-y-4 border-t border-zinc-800 pt-4">
+          <div className="px-4 pb-4 space-y-4 border-t border-rp-border pt-4">
             {/* Session Name & Password */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-zinc-500 mb-1 block">Session Name</label>
+                <label className="text-xs text-rp-grey mb-1 block">Session Name</label>
                 <input
                   type="text"
                   value={config.name}
                   onChange={(e) => updateConfig({ name: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                  className="w-full bg-rp-card border border-rp-border rounded px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="text-xs text-zinc-500 mb-1 block">Password</label>
+                <label className="text-xs text-rp-grey mb-1 block">Password</label>
                 <input
                   type="text"
                   value={config.password}
                   onChange={(e) => updateConfig({ password: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                  className="w-full bg-rp-card border border-rp-border rounded px-3 py-2 text-sm"
                   placeholder="Leave empty for no password"
                 />
               </div>
@@ -536,12 +536,12 @@ export default function AcLanPage() {
             {/* Max Clients & Pickup Mode */}
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="text-xs text-zinc-500 mb-1 block">Max Clients</label>
+                <label className="text-xs text-rp-grey mb-1 block">Max Clients</label>
                 <input
                   type="number"
                   value={config.max_clients}
                   onChange={(e) => updateConfig({ max_clients: parseInt(e.target.value) || 16 })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                  className="w-full bg-rp-card border border-rp-border rounded px-3 py-2 text-sm"
                   min={1}
                   max={16}
                 />
@@ -552,18 +552,18 @@ export default function AcLanPage() {
                     type="checkbox"
                     checked={config.pickup_mode}
                     onChange={(e) => updateConfig({ pickup_mode: e.target.checked })}
-                    className="rounded border-zinc-700"
+                    className="rounded border-rp-border"
                   />
-                  <span className="text-sm text-zinc-300">Pickup Mode</span>
+                  <span className="text-sm text-neutral-300">Pickup Mode</span>
                 </label>
               </div>
               <div>
-                <label className="text-xs text-zinc-500 mb-1 block">CSP Version</label>
+                <label className="text-xs text-rp-grey mb-1 block">CSP Version</label>
                 <input
                   type="number"
                   value={config.min_csp_version}
                   onChange={(e) => updateConfig({ min_csp_version: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                  className="w-full bg-rp-card border border-rp-border rounded px-3 py-2 text-sm"
                   placeholder="0 = none"
                 />
               </div>
@@ -571,14 +571,14 @@ export default function AcLanPage() {
 
             {/* Assists */}
             <div>
-              <label className="text-xs text-zinc-500 mb-2 block">Assists</label>
+              <label className="text-xs text-rp-grey mb-2 block">Assists</label>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs text-zinc-400">ABS</label>
+                  <label className="text-xs text-neutral-400">ABS</label>
                   <select
                     value={config.abs_allowed}
                     onChange={(e) => updateConfig({ abs_allowed: parseInt(e.target.value) })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   >
                     <option value={0}>Off</option>
                     <option value={1}>Factory</option>
@@ -586,11 +586,11 @@ export default function AcLanPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-400">TC</label>
+                  <label className="text-xs text-neutral-400">TC</label>
                   <select
                     value={config.tc_allowed}
                     onChange={(e) => updateConfig({ tc_allowed: parseInt(e.target.value) })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   >
                     <option value={0}>Off</option>
                     <option value={1}>Factory</option>
@@ -599,11 +599,11 @@ export default function AcLanPage() {
                 </div>
                 <div className="space-y-1 pt-1">
                   <label className="flex items-center gap-2 text-xs">
-                    <input type="checkbox" checked={config.autoclutch_allowed} onChange={(e) => updateConfig({ autoclutch_allowed: e.target.checked })} className="rounded border-zinc-700" />
+                    <input type="checkbox" checked={config.autoclutch_allowed} onChange={(e) => updateConfig({ autoclutch_allowed: e.target.checked })} className="rounded border-rp-border" />
                     Autoclutch
                   </label>
                   <label className="flex items-center gap-2 text-xs">
-                    <input type="checkbox" checked={config.stability_allowed} onChange={(e) => updateConfig({ stability_allowed: e.target.checked })} className="rounded border-zinc-700" />
+                    <input type="checkbox" checked={config.stability_allowed} onChange={(e) => updateConfig({ stability_allowed: e.target.checked })} className="rounded border-rp-border" />
                     Stability
                   </label>
                 </div>
@@ -612,33 +612,33 @@ export default function AcLanPage() {
 
             {/* Rates */}
             <div>
-              <label className="text-xs text-zinc-500 mb-2 block">Simulation Rates (%)</label>
+              <label className="text-xs text-rp-grey mb-2 block">Simulation Rates (%)</label>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="text-xs text-zinc-400">Damage</label>
+                  <label className="text-xs text-neutral-400">Damage</label>
                   <input
                     type="number"
                     value={config.damage_multiplier}
                     onChange={(e) => updateConfig({ damage_multiplier: parseInt(e.target.value) || 100 })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-400">Fuel</label>
+                  <label className="text-xs text-neutral-400">Fuel</label>
                   <input
                     type="number"
                     value={config.fuel_rate}
                     onChange={(e) => updateConfig({ fuel_rate: parseInt(e.target.value) || 100 })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-400">Tyre Wear</label>
+                  <label className="text-xs text-neutral-400">Tyre Wear</label>
                   <input
                     type="number"
                     value={config.tyre_wear_rate}
                     onChange={(e) => updateConfig({ tyre_wear_rate: parseInt(e.target.value) || 100 })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   />
                 </div>
               </div>
@@ -646,10 +646,10 @@ export default function AcLanPage() {
 
             {/* Weather */}
             <div>
-              <label className="text-xs text-zinc-500 mb-2 block">Weather</label>
+              <label className="text-xs text-rp-grey mb-2 block">Weather</label>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs text-zinc-400">Preset</label>
+                  <label className="text-xs text-neutral-400">Preset</label>
                   <select
                     value={config.weather[0]?.graphics || "3_clear"}
                     onChange={(e) => {
@@ -657,7 +657,7 @@ export default function AcLanPage() {
                       if (w[0]) w[0] = { ...w[0], graphics: e.target.value };
                       updateConfig({ weather: w });
                     }}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   >
                     <option value="3_clear">Clear</option>
                     <option value="7_heavy_clouds">Heavy Clouds</option>
@@ -669,7 +669,7 @@ export default function AcLanPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-400">Ambient Temp</label>
+                  <label className="text-xs text-neutral-400">Ambient Temp</label>
                   <input
                     type="number"
                     value={config.weather[0]?.base_temperature_ambient || 26}
@@ -678,11 +678,11 @@ export default function AcLanPage() {
                       if (w[0]) w[0] = { ...w[0], base_temperature_ambient: parseInt(e.target.value) || 26 };
                       updateConfig({ weather: w });
                     }}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-400">Road Temp</label>
+                  <label className="text-xs text-neutral-400">Road Temp</label>
                   <input
                     type="number"
                     value={config.weather[0]?.base_temperature_road || 32}
@@ -691,7 +691,7 @@ export default function AcLanPage() {
                       if (w[0]) w[0] = { ...w[0], base_temperature_road: parseInt(e.target.value) || 32 };
                       updateConfig({ weather: w });
                     }}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   />
                 </div>
               </div>
@@ -699,33 +699,33 @@ export default function AcLanPage() {
 
             {/* Ports */}
             <div>
-              <label className="text-xs text-zinc-500 mb-2 block">Server Ports</label>
+              <label className="text-xs text-rp-grey mb-2 block">Server Ports</label>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="text-xs text-zinc-400">UDP</label>
+                  <label className="text-xs text-neutral-400">UDP</label>
                   <input
                     type="number"
                     value={config.udp_port}
                     onChange={(e) => updateConfig({ udp_port: parseInt(e.target.value) || 9600 })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-400">TCP</label>
+                  <label className="text-xs text-neutral-400">TCP</label>
                   <input
                     type="number"
                     value={config.tcp_port}
                     onChange={(e) => updateConfig({ tcp_port: parseInt(e.target.value) || 9600 })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-400">HTTP</label>
+                  <label className="text-xs text-neutral-400">HTTP</label>
                   <input
                     type="number"
                     value={config.http_port}
                     onChange={(e) => updateConfig({ http_port: parseInt(e.target.value) || 8081 })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm mt-1"
+                    className="w-full bg-rp-card border border-rp-border rounded px-2 py-1 text-sm mt-1"
                   />
                 </div>
               </div>
@@ -736,7 +736,7 @@ export default function AcLanPage() {
 
       {/* Start Button */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-rp-grey">
           {config.cars.length} car{config.cars.length !== 1 ? "s" : ""} &middot;{" "}
           {config.sessions.length} session{config.sessions.length !== 1 ? "s" : ""} &middot;{" "}
           {selectedPods.size} pod{selectedPods.size !== 1 ? "s" : ""}
@@ -744,7 +744,7 @@ export default function AcLanPage() {
         <button
           onClick={handleStart}
           disabled={starting || selectedPods.size === 0 || config.cars.length === 0}
-          className="px-8 py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold text-lg transition-colors"
+          className="px-8 py-3 bg-rp-red hover:bg-rp-red disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold text-lg transition-colors"
         >
           {starting ? "Starting..." : "Start Race"}
         </button>
@@ -758,7 +758,7 @@ function StatusBadge({ status }: { status: string }) {
     starting: "bg-amber-500/20 text-amber-400",
     running: "bg-green-500/20 text-green-400",
     stopping: "bg-amber-500/20 text-amber-400",
-    stopped: "bg-zinc-500/20 text-zinc-400",
+    stopped: "bg-rp-grey/20 text-neutral-400",
     error: "bg-red-500/20 text-red-400",
   };
   return (

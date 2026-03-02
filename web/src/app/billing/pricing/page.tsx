@@ -102,30 +102,30 @@ export default function PricingPage() {
     <DashboardLayout>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Pricing Tiers</h1>
-          <p className="text-sm text-zinc-500">Configure session pricing</p>
+          <h1 className="text-2xl font-bold text-white">Pricing Tiers</h1>
+          <p className="text-sm text-rp-grey">Configure session pricing</p>
         </div>
-        <span className="text-xs text-zinc-500">{tiers.length} tiers</span>
+        <span className="text-xs text-rp-grey">{tiers.length} tiers</span>
       </div>
 
       {/* Add New Tier Form */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6">
-        <h3 className="text-sm font-medium text-zinc-300 mb-3">
+      <div className="bg-rp-card border border-rp-border rounded-lg p-4 mb-6">
+        <h3 className="text-sm font-medium text-neutral-300 mb-3">
           Add New Tier
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
           <div>
-            <label className="block text-xs text-zinc-500 mb-1">Name</label>
+            <label className="block text-xs text-rp-grey mb-1">Name</label>
             <input
               type="text"
               placeholder="e.g. Standard"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-orange-500 transition-colors"
+              className="w-full bg-rp-card border border-rp-border rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-rp-grey focus:outline-none focus:border-rp-red transition-colors"
             />
           </div>
           <div>
-            <label className="block text-xs text-zinc-500 mb-1">
+            <label className="block text-xs text-rp-grey mb-1">
               Duration (min)
             </label>
             <input
@@ -133,11 +133,11 @@ export default function PricingPage() {
               min={1}
               value={newDuration}
               onChange={(e) => setNewDuration(parseInt(e.target.value) || 30)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500 transition-colors"
+              className="w-full bg-rp-card border border-rp-border rounded-lg px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-rp-red transition-colors"
             />
           </div>
           <div>
-            <label className="block text-xs text-zinc-500 mb-1">
+            <label className="block text-xs text-rp-grey mb-1">
               Price (INR)
             </label>
             <input
@@ -147,14 +147,14 @@ export default function PricingPage() {
               value={newPrice}
               onChange={(e) => setNewPrice(parseInt(e.target.value) || 0)}
               disabled={newIsTrial}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500 transition-colors disabled:opacity-50"
+              className="w-full bg-rp-card border border-rp-border rounded-lg px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-rp-red transition-colors disabled:opacity-50"
             />
           </div>
           <div className="flex items-center gap-2 pt-1">
             <button
               onClick={() => setNewIsTrial(!newIsTrial)}
               className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                newIsTrial ? "bg-emerald-500" : "bg-zinc-700"
+                newIsTrial ? "bg-emerald-500" : "bg-rp-card"
               }`}
             >
               <span
@@ -163,15 +163,15 @@ export default function PricingPage() {
                 }`}
               />
             </button>
-            <span className="text-xs text-zinc-400">Trial</span>
+            <span className="text-xs text-neutral-400">Trial</span>
           </div>
           <button
             onClick={handleCreate}
             disabled={!newName.trim() || creating}
             className={`rounded-lg py-2 text-sm font-semibold transition-all ${
               newName.trim() && !creating
-                ? "bg-orange-500 text-white hover:bg-orange-600"
-                : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                ? "bg-rp-red text-white hover:bg-rp-red"
+                : "bg-rp-card text-rp-grey cursor-not-allowed"
             }`}
           >
             {creating ? "Adding..." : "Add Tier"}
@@ -181,44 +181,44 @@ export default function PricingPage() {
 
       {/* Tiers Table */}
       {loading ? (
-        <div className="text-center py-12 text-zinc-500 text-sm">
+        <div className="text-center py-12 text-rp-grey text-sm">
           Loading tiers...
         </div>
       ) : tiers.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-          <p className="text-zinc-400 mb-2">No pricing tiers</p>
-          <p className="text-zinc-500 text-sm">
+        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
+          <p className="text-neutral-400 mb-2">No pricing tiers</p>
+          <p className="text-rp-grey text-sm">
             Add your first pricing tier above.
           </p>
         </div>
       ) : (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+        <div className="bg-rp-card border border-rp-border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800">
-                <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+              <tr className="border-b border-rp-border">
+                <th className="text-left px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">
                   Name
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                <th className="text-left px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">
                   Duration
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                <th className="text-left px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">
                   Price
                 </th>
-                <th className="text-center px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                <th className="text-center px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">
                   Trial
                 </th>
-                <th className="text-center px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                <th className="text-center px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">
                   Active
                 </th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                <th className="text-right px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/50">
+            <tbody className="divide-y divide-rp-border/50">
               {tiers.map((tier) => (
-                <tr key={tier.id} className="hover:bg-zinc-800/30 transition-colors">
+                <tr key={tier.id} className="hover:bg-rp-card/30 transition-colors">
                   {editId === tier.id ? (
                     <>
                       <td className="px-4 py-3">
@@ -226,7 +226,7 @@ export default function PricingPage() {
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200 focus:outline-none focus:border-orange-500 w-full"
+                          className="bg-rp-card border border-rp-border rounded px-2 py-1 text-sm text-neutral-200 focus:outline-none focus:border-rp-red w-full"
                         />
                       </td>
                       <td className="px-4 py-3">
@@ -237,7 +237,7 @@ export default function PricingPage() {
                           onChange={(e) =>
                             setEditDuration(parseInt(e.target.value) || 0)
                           }
-                          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200 focus:outline-none focus:border-orange-500 w-20"
+                          className="bg-rp-card border border-rp-border rounded px-2 py-1 text-sm text-neutral-200 focus:outline-none focus:border-rp-red w-20"
                         />
                       </td>
                       <td className="px-4 py-3">
@@ -250,14 +250,14 @@ export default function PricingPage() {
                             setEditPrice(parseInt(e.target.value) || 0)
                           }
                           disabled={editIsTrial}
-                          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200 focus:outline-none focus:border-orange-500 w-24 disabled:opacity-50"
+                          className="bg-rp-card border border-rp-border rounded px-2 py-1 text-sm text-neutral-200 focus:outline-none focus:border-rp-red w-24 disabled:opacity-50"
                         />
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button
                           onClick={() => setEditIsTrial(!editIsTrial)}
                           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                            editIsTrial ? "bg-emerald-500" : "bg-zinc-700"
+                            editIsTrial ? "bg-emerald-500" : "bg-rp-card"
                           }`}
                         >
                           <span
@@ -268,7 +268,7 @@ export default function PricingPage() {
                         </button>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className="text-xs text-zinc-500">&mdash;</span>
+                        <span className="text-xs text-rp-grey">&mdash;</span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -280,7 +280,7 @@ export default function PricingPage() {
                           </button>
                           <button
                             onClick={cancelEdit}
-                            className="text-xs text-zinc-500 hover:text-zinc-300"
+                            className="text-xs text-rp-grey hover:text-neutral-300"
                           >
                             Cancel
                           </button>
@@ -289,13 +289,13 @@ export default function PricingPage() {
                     </>
                   ) : (
                     <>
-                      <td className="px-4 py-3 text-zinc-200 font-medium">
+                      <td className="px-4 py-3 text-neutral-200 font-medium">
                         {tier.name}
                       </td>
-                      <td className="px-4 py-3 text-zinc-400">
+                      <td className="px-4 py-3 text-neutral-400">
                         {tier.duration_minutes} min
                       </td>
-                      <td className="px-4 py-3 text-zinc-300 font-mono">
+                      <td className="px-4 py-3 text-neutral-300 font-mono">
                         {tier.is_trial ? (
                           <span className="text-emerald-400">Free</span>
                         ) : (
@@ -313,7 +313,7 @@ export default function PricingPage() {
                         <button
                           onClick={() => handleToggleActive(tier)}
                           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                            tier.is_active ? "bg-orange-500" : "bg-zinc-700"
+                            tier.is_active ? "bg-rp-red" : "bg-rp-card"
                           }`}
                         >
                           <span
@@ -329,13 +329,13 @@ export default function PricingPage() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => startEdit(tier)}
-                            className="text-xs text-zinc-400 hover:text-orange-400 font-medium transition-colors"
+                            className="text-xs text-neutral-400 hover:text-rp-red font-medium transition-colors"
                           >
                             Edit
                           </button>
                           <button
                             onClick={() => handleDelete(tier.id)}
-                            className="text-xs text-zinc-500 hover:text-red-400 font-medium transition-colors"
+                            className="text-xs text-rp-grey hover:text-red-400 font-medium transition-colors"
                           >
                             Delete
                           </button>

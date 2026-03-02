@@ -64,10 +64,10 @@ export default function BillingPage() {
     <DashboardLayout>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Billing</h1>
-          <p className="text-sm text-zinc-500">Session management</p>
+          <h1 className="text-2xl font-bold text-white">Billing</h1>
+          <p className="text-sm text-rp-grey">Session management</p>
         </div>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-rp-grey">
           {billingTimers.size} active session{billingTimers.size !== 1 ? "s" : ""}
         </span>
       </div>
@@ -102,9 +102,9 @@ export default function BillingPage() {
 
       {/* Pod Grid */}
       {sortedPods.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-          <p className="text-zinc-400 mb-2">No pods connected</p>
-          <p className="text-zinc-500 text-sm">
+        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
+          <p className="text-neutral-400 mb-2">No pods connected</p>
+          <p className="text-rp-grey text-sm">
             Pods appear automatically when rc-agent connects from a sim PC.
           </p>
         </div>
@@ -120,23 +120,23 @@ export default function BillingPage() {
                 key={pod.id}
                 className={`rounded-lg border p-4 transition-all ${
                   billing
-                    ? "border-orange-500/50 bg-orange-500/5"
+                    ? "border-rp-red/50 bg-rp-red/5"
                     : pendingToken
                     ? "border-yellow-500/50 bg-yellow-500/5"
                     : pod.status === "idle"
-                    ? "border-zinc-700 bg-zinc-900"
+                    ? "border-rp-border bg-rp-card"
                     : pod.status === "offline"
-                    ? "border-zinc-800 bg-zinc-900/50"
-                    : "border-zinc-800 bg-zinc-900"
+                    ? "border-rp-border bg-rp-card/50"
+                    : "border-rp-border bg-rp-card"
                 }`}
               >
                 {/* Pod header */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl font-bold text-zinc-300">
+                    <span className="text-xl font-bold text-neutral-300">
                       {String(pod.number).padStart(2, "0")}
                     </span>
-                    <span className="text-sm text-zinc-500">{pod.name}</span>
+                    <span className="text-sm text-rp-grey">{pod.name}</span>
                   </div>
                   {pendingToken ? (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 animate-pulse">
@@ -159,14 +159,14 @@ export default function BillingPage() {
                     {/* Driver & tier info */}
                     <div className="space-y-1 text-xs">
                       <div className="flex justify-between">
-                        <span className="text-zinc-500">Driver</span>
-                        <span className="text-orange-400">
+                        <span className="text-rp-grey">Driver</span>
+                        <span className="text-rp-red">
                           {billing.driver_name}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-zinc-500">Tier</span>
-                        <span className="text-zinc-300">
+                        <span className="text-rp-grey">Tier</span>
+                        <span className="text-neutral-300">
                           {billing.pricing_tier_name}
                         </span>
                       </div>
@@ -181,7 +181,7 @@ export default function BillingPage() {
                         className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
                           isPaused
                             ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
-                            : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                            : "bg-rp-card text-neutral-400 hover:bg-rp-card"
                         }`}
                       >
                         {isPaused ? "Resume" : "Pause"}
@@ -194,7 +194,7 @@ export default function BillingPage() {
                       </button>
                       <button
                         onClick={() => handleExtend(billing.id)}
-                        className="rounded px-2 py-1.5 text-xs font-medium bg-zinc-800 text-zinc-400 hover:bg-zinc-700 transition-colors"
+                        className="rounded px-2 py-1.5 text-xs font-medium bg-rp-card text-neutral-400 hover:bg-rp-card transition-colors"
                         title="Extend by 10 minutes"
                       >
                         +10m
@@ -205,16 +205,16 @@ export default function BillingPage() {
                   <div className="space-y-2">
                     <div className="text-xs space-y-1.5">
                       <div className="flex justify-between">
-                        <span className="text-zinc-500">Driver</span>
+                        <span className="text-rp-grey">Driver</span>
                         <span className="text-yellow-400">{pendingToken.driver_name}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-zinc-500">Tier</span>
-                        <span className="text-zinc-300">{pendingToken.pricing_tier_name}</span>
+                        <span className="text-rp-grey">Tier</span>
+                        <span className="text-neutral-300">{pendingToken.pricing_tier_name}</span>
                       </div>
                       {pendingToken.auth_type === "pin" && (
                         <div className="flex justify-between items-center">
-                          <span className="text-zinc-500">PIN</span>
+                          <span className="text-rp-grey">PIN</span>
                           <span className="text-2xl font-bold font-mono tracking-widest text-yellow-300">
                             {pendingToken.token}
                           </span>
@@ -222,8 +222,8 @@ export default function BillingPage() {
                       )}
                       {pendingToken.auth_type === "qr" && (
                         <div className="flex justify-between">
-                          <span className="text-zinc-500">Method</span>
-                          <span className="text-zinc-300">QR scan</span>
+                          <span className="text-rp-grey">Method</span>
+                          <span className="text-neutral-300">QR scan</span>
                         </div>
                       )}
                     </div>
@@ -244,8 +244,8 @@ export default function BillingPage() {
                       disabled={pod.status === "offline"}
                       className={`w-full rounded-lg py-2.5 text-sm font-semibold transition-all ${
                         pod.status === "offline"
-                          ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
-                          : "bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700"
+                          ? "bg-rp-card text-rp-grey cursor-not-allowed"
+                          : "bg-rp-red text-white hover:bg-rp-red active:bg-rp-red"
                       }`}
                     >
                       Start Session

@@ -61,7 +61,7 @@ export default function LeaderboardPage() {
   return (
     <div className="min-h-screen pb-20">
       <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
-        <h1 className="text-2xl font-bold text-zinc-100 mb-4">Leaderboard</h1>
+        <h1 className="text-2xl font-bold text-white mb-4">Leaderboard</h1>
 
         {/* Track selector */}
         <div className="flex gap-2 overflow-x-auto pb-2 mb-6 -mx-4 px-4 no-scrollbar">
@@ -71,8 +71,8 @@ export default function LeaderboardPage() {
               onClick={() => setSelectedTrack(track)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
                 selectedTrack === track
-                  ? "bg-rp-orange text-white"
-                  : "bg-rp-card border border-rp-border text-zinc-400"
+                  ? "bg-rp-red text-white"
+                  : "bg-rp-card border border-rp-border text-neutral-400"
               }`}
             >
               {track.charAt(0).toUpperCase() + track.slice(1).replace("_", " ")}
@@ -82,11 +82,11 @@ export default function LeaderboardPage() {
 
         {loading ? (
           <div className="flex justify-center py-12">
-            <div className="w-8 h-8 border-2 border-rp-orange border-t-transparent rounded-full animate-spin" />
+            <div className="w-8 h-8 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
           </div>
         ) : entries.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-zinc-500">No times recorded for this track</p>
+            <p className="text-rp-grey">No times recorded for this track</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -95,7 +95,7 @@ export default function LeaderboardPage() {
                 key={i}
                 className={`bg-rp-card border rounded-xl p-3 flex items-center gap-3 ${
                   entry.is_track_record
-                    ? "border-rp-orange/50"
+                    ? "border-rp-red/50"
                     : "border-rp-border"
                 }`}
               >
@@ -104,26 +104,26 @@ export default function LeaderboardPage() {
                     i === 0
                       ? "bg-yellow-500/20 text-yellow-400"
                       : i === 1
-                      ? "bg-zinc-400/20 text-zinc-300"
+                      ? "bg-neutral-400/20 text-neutral-300"
                       : i === 2
-                      ? "bg-orange-700/20 text-orange-400"
-                      : "bg-zinc-800 text-zinc-500"
+                      ? "bg-rp-red/20 text-rp-red"
+                      : "bg-rp-card text-rp-grey"
                   }`}
                 >
                   {entry.position}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-zinc-200 truncate">
+                  <p className="text-sm font-medium text-neutral-200 truncate">
                     {entry.driver_name}
                   </p>
-                  <p className="text-xs text-zinc-500 truncate">{entry.car}</p>
+                  <p className="text-xs text-rp-grey truncate">{entry.car}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-mono font-medium text-zinc-100">
+                  <p className="text-sm font-mono font-medium text-white">
                     {formatLapTime(entry.best_lap_ms)}
                   </p>
                   {entry.is_track_record && (
-                    <span className="text-[10px] text-rp-orange font-medium">
+                    <span className="text-[10px] text-rp-red font-medium">
                       RECORD
                     </span>
                   )}

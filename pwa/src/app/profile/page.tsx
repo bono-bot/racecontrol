@@ -30,7 +30,7 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <div className="min-h-screen pb-20 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-rp-orange border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -38,22 +38,22 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen pb-20">
       <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
-        <h1 className="text-2xl font-bold text-zinc-100 mb-8">Profile</h1>
+        <h1 className="text-2xl font-bold text-white mb-8">Profile</h1>
 
         {profile && (
           <>
             {/* Avatar + name */}
             <div className="flex items-center gap-4 mb-8">
-              <div className="w-16 h-16 rounded-full bg-rp-orange/20 flex items-center justify-center">
-                <span className="text-2xl font-bold text-rp-orange">
+              <div className="w-16 h-16 rounded-full bg-rp-red/20 flex items-center justify-center">
+                <span className="text-2xl font-bold text-rp-red">
                   {profile.name.charAt(0).toUpperCase()}
                 </span>
               </div>
               <div>
-                <h2 className="text-xl font-bold text-zinc-100">
+                <h2 className="text-xl font-bold text-white">
                   {profile.name}
                 </h2>
-                <p className="text-sm text-zinc-500">
+                <p className="text-sm text-rp-grey">
                   {profile.phone || profile.email || "No contact info"}
                 </p>
               </div>
@@ -75,7 +75,7 @@ export default function ProfilePage() {
             <div className="space-y-2 mb-8">
               <button
                 onClick={() => router.push("/leaderboard")}
-                className="w-full bg-rp-card border border-rp-border rounded-xl p-4 text-left text-sm text-zinc-300 active:bg-zinc-800 transition-colors"
+                className="w-full bg-rp-card border border-rp-border rounded-xl p-4 text-left text-sm text-neutral-300 active:bg-rp-card transition-colors"
               >
                 View Leaderboard
               </button>
@@ -99,8 +99,8 @@ export default function ProfilePage() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-rp-card border border-rp-border rounded-xl p-4 flex justify-between items-center">
-      <span className="text-sm text-zinc-500">{label}</span>
-      <span className="text-sm font-medium text-zinc-200">{value}</span>
+      <span className="text-sm text-rp-grey">{label}</span>
+      <span className="text-sm font-medium text-neutral-200">{value}</span>
     </div>
   );
 }

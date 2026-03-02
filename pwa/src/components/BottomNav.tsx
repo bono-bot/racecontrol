@@ -71,7 +71,7 @@ export default function BottomNav() {
               key={tab.href}
               href={tab.href}
               className={`flex flex-col items-center gap-0.5 px-3 py-1 transition-colors ${
-                isActive ? "text-rp-orange" : "text-zinc-500"
+                isActive ? "text-rp-red" : "text-rp-grey"
               }`}
             >
               {tab.icon}

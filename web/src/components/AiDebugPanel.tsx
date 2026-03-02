@@ -49,14 +49,14 @@ export default function AiDebugPanel({ suggestions, pods }: AiDebugPanelProps) {
                     <span className="text-sm font-semibold text-violet-200">
                       AI Debug — {podLabel}
                     </span>
-                    <span className="text-xs text-zinc-500">
+                    <span className="text-xs text-rp-grey">
                       {simLabels[s.sim_type] || s.sim_type}
                     </span>
-                    <span className="text-xs text-zinc-600">
+                    <span className="text-xs text-rp-grey">
                       via {s.model}
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-500 mb-1">
+                  <p className="text-xs text-rp-grey mb-1">
                     Error: {s.error_context}
                   </p>
                   <p className="text-sm text-violet-100 whitespace-pre-wrap">
@@ -68,7 +68,7 @@ export default function AiDebugPanel({ suggestions, pods }: AiDebugPanelProps) {
                 onClick={() =>
                   setDismissed((prev) => new Set(prev).add(key))
                 }
-                className="text-zinc-600 hover:text-zinc-400 transition-colors text-sm shrink-0"
+                className="text-rp-grey hover:text-neutral-400 transition-colors text-sm shrink-0"
               >
                 &times;
               </button>

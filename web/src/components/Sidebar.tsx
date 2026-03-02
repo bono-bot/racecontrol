@@ -23,10 +23,10 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-56 bg-zinc-900 border-r border-zinc-800 flex flex-col min-h-screen">
-      <div className="p-4 border-b border-zinc-800">
-        <h1 className="text-lg font-bold text-orange-500">RaceControl</h1>
-        <p className="text-xs text-zinc-500">RacingPoint Bandlaguda</p>
+    <aside className="w-56 bg-rp-black border-r border-rp-border flex flex-col min-h-screen">
+      <div className="p-4 border-b border-rp-border">
+        <h1 className="text-lg font-bold text-rp-red tracking-wide">RaceControl</h1>
+        <p className="text-xs text-rp-grey">RacingPoint Bandlaguda</p>
       </div>
       <nav className="flex-1 py-2">
         {nav.map((item) => {
@@ -37,8 +37,8 @@ export default function Sidebar() {
               href={item.href}
               className={`flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                 active
-                  ? "bg-orange-500/10 text-orange-500 border-r-2 border-orange-500"
-                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                  ? "bg-rp-red/10 text-rp-red border-r-2 border-rp-red"
+                  : "text-neutral-400 hover:text-white hover:bg-rp-card"
               }`}
             >
               <span dangerouslySetInnerHTML={{ __html: item.icon }} />
@@ -47,18 +47,18 @@ export default function Sidebar() {
           );
         })}
       </nav>
-      <div className="p-4 border-t border-zinc-800">
+      <div className="p-4 border-t border-rp-border">
         <div className="flex items-center gap-2">
           <Link
             href="/presenter"
-            className="text-xs text-zinc-500 hover:text-orange-500 transition-colors"
+            className="text-xs text-rp-grey hover:text-rp-red transition-colors"
           >
             Presenter View
           </Link>
-          <span className="text-zinc-700">|</span>
+          <span className="text-rp-grey/50">|</span>
           <Link
             href="/kiosk"
-            className="text-xs text-zinc-500 hover:text-orange-500 transition-colors"
+            className="text-xs text-rp-grey hover:text-rp-red transition-colors"
           >
             Kiosk Mode
           </Link>

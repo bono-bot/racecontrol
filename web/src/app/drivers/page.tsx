@@ -27,18 +27,18 @@ export default function DriversPage() {
     <DashboardLayout>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Drivers</h1>
-          <p className="text-sm text-zinc-500">Registered driver profiles</p>
+          <h1 className="text-2xl font-bold text-white">Drivers</h1>
+          <p className="text-sm text-rp-grey">Registered driver profiles</p>
         </div>
-        <span className="text-xs text-zinc-500">{drivers.length} drivers</span>
+        <span className="text-xs text-rp-grey">{drivers.length} drivers</span>
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-zinc-500 text-sm">Loading drivers...</div>
+        <div className="text-center py-12 text-rp-grey text-sm">Loading drivers...</div>
       ) : drivers.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-          <p className="text-zinc-400 mb-2">No drivers registered</p>
-          <p className="text-zinc-500 text-sm">
+        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
+          <p className="text-neutral-400 mb-2">No drivers registered</p>
+          <p className="text-rp-grey text-sm">
             Drivers can register through the kiosk or be added via the API.
           </p>
         </div>
@@ -47,27 +47,27 @@ export default function DriversPage() {
           {drivers.map((driver) => (
             <div
               key={driver.id}
-              className="bg-zinc-900 border border-zinc-800 rounded-lg p-4"
+              className="bg-rp-card border border-rp-border rounded-lg p-4"
             >
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold text-lg">
+                <div className="w-10 h-10 rounded-full bg-rp-red/20 flex items-center justify-center text-rp-red font-bold text-lg">
                   {driver.name.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <div className="text-zinc-200 font-medium">{driver.name}</div>
+                  <div className="text-neutral-200 font-medium">{driver.name}</div>
                   {driver.email && (
-                    <div className="text-xs text-zinc-500">{driver.email}</div>
+                    <div className="text-xs text-rp-grey">{driver.email}</div>
                   )}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-zinc-800/50 rounded px-2 py-1.5">
-                  <div className="text-zinc-500">Laps</div>
-                  <div className="text-zinc-300 font-mono">{driver.total_laps}</div>
+                <div className="bg-rp-card/50 rounded px-2 py-1.5">
+                  <div className="text-rp-grey">Laps</div>
+                  <div className="text-neutral-300 font-mono">{driver.total_laps}</div>
                 </div>
-                <div className="bg-zinc-800/50 rounded px-2 py-1.5">
-                  <div className="text-zinc-500">Track Time</div>
-                  <div className="text-zinc-300 font-mono">
+                <div className="bg-rp-card/50 rounded px-2 py-1.5">
+                  <div className="text-rp-grey">Track Time</div>
+                  <div className="text-neutral-300 font-mono">
                     {formatDuration(driver.total_time_ms)}
                   </div>
                 </div>

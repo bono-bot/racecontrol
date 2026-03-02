@@ -27,17 +27,17 @@ export default function SessionsPage() {
     <DashboardLayout>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Sessions</h1>
-          <p className="text-sm text-zinc-500">Practice, race, and qualifying sessions</p>
+          <h1 className="text-2xl font-bold text-white">Sessions</h1>
+          <p className="text-sm text-rp-grey">Practice, race, and qualifying sessions</p>
         </div>
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-zinc-500 text-sm">Loading sessions...</div>
+        <div className="text-center py-12 text-rp-grey text-sm">Loading sessions...</div>
       ) : sessions.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-          <p className="text-zinc-400 mb-2">No sessions yet</p>
-          <p className="text-zinc-500 text-sm">
+        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
+          <p className="text-neutral-400 mb-2">No sessions yet</p>
+          <p className="text-rp-grey text-sm">
             Sessions are created when you start a practice, race, or qualifying run.
           </p>
         </div>
@@ -46,27 +46,27 @@ export default function SessionsPage() {
           {sessions.map((session) => (
             <div
               key={session.id}
-              className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3"
+              className="flex items-center justify-between bg-rp-card border border-rp-border rounded-lg px-4 py-3"
             >
               <div className="flex items-center gap-4">
                 <div>
-                  <span className="text-zinc-200 font-medium capitalize">
+                  <span className="text-neutral-200 font-medium capitalize">
                     {session.type}
                   </span>
-                  <span className="text-zinc-500 text-sm ml-2">
+                  <span className="text-rp-grey text-sm ml-2">
                     {session.track}
                   </span>
                 </div>
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-rp-grey">
                   {simLabels[session.sim_type] || session.sim_type}
                 </span>
                 {session.car_class && (
-                  <span className="text-xs text-zinc-500">{session.car_class}</span>
+                  <span className="text-xs text-rp-grey">{session.car_class}</span>
                 )}
               </div>
               <div className="flex items-center gap-3">
                 {session.started_at && (
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-rp-grey">
                     {new Date(session.started_at).toLocaleString()}
                   </span>
                 )}

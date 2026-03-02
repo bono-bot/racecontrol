@@ -1,11 +1,13 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
 
 @theme {
-  --color-rp-orange: #FF4400;
-  --color-rp-orange-light: #FF6633;
-  --color-rp-dark: #09090B;
-  --color-rp-card: #18181B;
-  --color-rp-border: #27272A;
+  --color-rp-red: #E10600;
+  --color-rp-red-light: #FF1A1A;
+  --color-rp-dark: #1A1A1A;
+  --color-rp-card: #222222;
+  --color-rp-border: #333333;
+  --color-rp-grey: #5A5A5A;
 }
 
 * {
@@ -20,9 +22,9 @@ html {
 }
 
 body {
-  background-color: #09090B;
-  color: #FAFAFA;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: #1A1A1A;
+  color: #FFFFFF;
+  font-family: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: contain;
 }
@@ -40,7 +42,7 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3F3F46;
+  background: #5A5A5A;
   border-radius: 2px;
 }
 
@@ -52,8 +54,8 @@ body {
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: #27272A;
-  color: #FAFAFA;
+  background: #333333;
+  color: #FFFFFF;
   font-size: 24px;
   font-weight: 600;
   transition: background 0.15s;
@@ -61,5 +63,5 @@ body {
   cursor: pointer;
 }
 .keypad-btn:active {
-  background: #FF4400;
+  background: #E10600;
 }

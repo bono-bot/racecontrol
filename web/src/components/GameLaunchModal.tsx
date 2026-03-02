@@ -75,16 +75,16 @@ export default function GameLaunchModal({
         onClick={onClose}
       />
 
-      <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-6 mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="relative w-full max-w-lg bg-rp-card border border-rp-border rounded-xl shadow-2xl p-6 mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-lg font-bold text-zinc-100">Launch Game</h2>
-            <p className="text-sm text-zinc-500">{podName}</p>
+            <h2 className="text-lg font-bold text-white">Launch Game</h2>
+            <p className="text-sm text-rp-grey">{podName}</p>
           </div>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors text-xl leading-none"
+            className="text-rp-grey hover:text-neutral-300 transition-colors text-xl leading-none"
           >
             &times;
           </button>
@@ -93,7 +93,7 @@ export default function GameLaunchModal({
         <div className="space-y-6">
           {/* Game Selection */}
           <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
+            <label className="block text-sm font-medium text-neutral-300 mb-2">
               Select Game
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -106,18 +106,18 @@ export default function GameLaunchModal({
                     className={`rounded-lg border p-3 text-left transition-all ${
                       isSelected
                         ? `${game.border} ${game.bg}`
-                        : "border-zinc-700 bg-zinc-800 hover:border-zinc-600"
+                        : "border-rp-border bg-rp-card hover:border-rp-border"
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       <span
                         className={`text-lg font-bold ${
-                          isSelected ? game.color : "text-zinc-500"
+                          isSelected ? game.color : "text-rp-grey"
                         }`}
                       >
                         {game.icon}
                       </span>
-                      <span className="text-sm font-medium text-zinc-200">
+                      <span className="text-sm font-medium text-neutral-200">
                         {game.name}
                       </span>
                     </div>
@@ -129,16 +129,16 @@ export default function GameLaunchModal({
 
           {/* Launch Args (optional) */}
           <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
+            <label className="block text-sm font-medium text-neutral-300 mb-2">
               Launch Arguments{" "}
-              <span className="text-zinc-600 font-normal">(optional)</span>
+              <span className="text-rp-grey font-normal">(optional)</span>
             </label>
             <input
               type="text"
               placeholder="e.g. -fullscreen -monitor 2"
               value={launchArgs}
               onChange={(e) => setLaunchArgs(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-orange-500 transition-colors"
+              className="w-full bg-rp-card border border-rp-border rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-rp-grey focus:outline-none focus:border-rp-red transition-colors"
             />
           </div>
 
@@ -148,8 +148,8 @@ export default function GameLaunchModal({
             disabled={!selectedGame || launching}
             className={`w-full rounded-lg py-3 font-semibold text-sm transition-all ${
               selectedGame && !launching
-                ? "bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700"
-                : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                ? "bg-rp-red text-white hover:bg-rp-red active:bg-rp-red"
+                : "bg-rp-card text-rp-grey cursor-not-allowed"
             }`}
           >
             {launching ? "Launching..." : "Launch Game"}

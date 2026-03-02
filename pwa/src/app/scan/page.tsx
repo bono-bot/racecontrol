@@ -120,8 +120,8 @@ export default function ScanPage() {
   return (
     <div className="min-h-screen pb-20">
       <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
-        <h1 className="text-2xl font-bold text-zinc-100 mb-2">Scan QR</h1>
-        <p className="text-zinc-500 text-sm mb-6">
+        <h1 className="text-2xl font-bold text-white mb-2">Scan QR</h1>
+        <p className="text-rp-grey text-sm mb-6">
           Scan the QR code on your rig screen to start your session
         </p>
 
@@ -136,14 +136,14 @@ export default function ScanPage() {
                 fill="none"
                 stroke="currentColor"
                 strokeWidth={1.5}
-                className="w-16 h-16 text-zinc-600 mb-4"
+                className="w-16 h-16 text-rp-grey mb-4"
               >
                 <rect x="3" y="3" width="7" height="7" rx="1" />
                 <rect x="14" y="3" width="7" height="7" rx="1" />
                 <rect x="3" y="14" width="7" height="7" rx="1" />
                 <path d="M14 14h3v3M17 20h3v-3M20 14h-3M14 17v3h3" />
               </svg>
-              <p className="text-zinc-500 text-sm">Camera not active</p>
+              <p className="text-rp-grey text-sm">Camera not active</p>
             </div>
           )}
         </div>
@@ -171,7 +171,7 @@ export default function ScanPage() {
         {!scanning && (
           <button
             onClick={startScanner}
-            className="w-full bg-rp-orange text-white font-semibold py-3.5 rounded-xl active:bg-rp-orange-light transition-colors"
+            className="w-full bg-rp-red text-white font-semibold py-3.5 rounded-xl active:bg-rp-red-light transition-colors"
           >
             {result ? "Scan Again" : "Open Camera"}
           </button>
@@ -190,7 +190,7 @@ export default function ScanPage() {
               }
               setScanning(false);
             }}
-            className="w-full bg-zinc-800 text-zinc-300 font-semibold py-3.5 rounded-xl active:bg-zinc-700 transition-colors"
+            className="w-full bg-rp-card text-neutral-300 font-semibold py-3.5 rounded-xl active:bg-rp-card transition-colors"
           >
             Cancel
           </button>

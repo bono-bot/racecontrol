@@ -17,7 +17,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#09090B",
+  themeColor: "#1A1A1A",
 };
 
 export default function RootLayout({
@@ -27,7 +27,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="min-h-screen bg-rp-dark text-zinc-100 antialiased">
+      <body className="min-h-screen bg-rp-dark text-white antialiased">
         {children}
       </body>
     </html>

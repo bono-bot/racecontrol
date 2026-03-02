@@ -57,12 +57,12 @@ export default function GamesPage() {
     <DashboardLayout>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Game Launcher</h1>
-          <p className="text-sm text-zinc-500">
+          <h1 className="text-2xl font-bold text-white">Game Launcher</h1>
+          <p className="text-sm text-rp-grey">
             Remote launch and monitor games on pods
           </p>
         </div>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-rp-grey">
           {activeCount} game{activeCount !== 1 ? "s" : ""} running
         </span>
       </div>
@@ -72,9 +72,9 @@ export default function GamesPage() {
 
       {/* Pod Grid */}
       {sortedPods.length === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-          <p className="text-zinc-400 mb-2">No pods connected</p>
-          <p className="text-zinc-500 text-sm">
+        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
+          <p className="text-neutral-400 mb-2">No pods connected</p>
+          <p className="text-rp-grey text-sm">
             Pods appear automatically when rc-agent connects from a sim PC.
           </p>
         </div>
@@ -99,17 +99,17 @@ export default function GamesPage() {
                     : isStopping
                     ? "border-amber-500/50 bg-amber-500/5"
                     : pod.status === "offline"
-                    ? "border-zinc-800 bg-zinc-900/50"
-                    : "border-zinc-700 bg-zinc-900"
+                    ? "border-rp-border bg-rp-card/50"
+                    : "border-rp-border bg-rp-card"
                 }`}
               >
                 {/* Pod header */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl font-bold text-zinc-300">
+                    <span className="text-xl font-bold text-neutral-300">
                       {String(pod.number).padStart(2, "0")}
                     </span>
-                    <span className="text-sm text-zinc-500">{pod.name}</span>
+                    <span className="text-sm text-rp-grey">{pod.name}</span>
                   </div>
                   <StatusBadge
                     status={
@@ -122,23 +122,23 @@ export default function GamesPage() {
                 {gameInfo && gameState !== "idle" && (
                   <div className="space-y-1.5 text-xs mb-3">
                     <div className="flex justify-between">
-                      <span className="text-zinc-500">Game</span>
+                      <span className="text-rp-grey">Game</span>
                       <span className="text-emerald-400 font-medium">
                         {simLabels[gameInfo.sim_type] || gameInfo.sim_type}
                       </span>
                     </div>
                     {gameInfo.pid && (
                       <div className="flex justify-between">
-                        <span className="text-zinc-500">PID</span>
-                        <span className="text-zinc-400 font-mono">
+                        <span className="text-rp-grey">PID</span>
+                        <span className="text-neutral-400 font-mono">
                           {gameInfo.pid}
                         </span>
                       </div>
                     )}
                     {gameInfo.launched_at && (
                       <div className="flex justify-between">
-                        <span className="text-zinc-500">Launched</span>
-                        <span className="text-zinc-400">
+                        <span className="text-rp-grey">Launched</span>
+                        <span className="text-neutral-400">
                           {new Date(gameInfo.launched_at).toLocaleTimeString()}
                         </span>
                       </div>
@@ -157,14 +157,14 @@ export default function GamesPage() {
                 {(!gameInfo || gameState === "idle") && (
                   <div className="space-y-1.5 text-xs mb-3">
                     <div className="flex justify-between">
-                      <span className="text-zinc-500">Sim</span>
-                      <span className="text-zinc-300">
+                      <span className="text-rp-grey">Sim</span>
+                      <span className="text-neutral-300">
                         {simLabels[pod.sim_type] || pod.sim_type}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-zinc-500">IP</span>
-                      <span className="text-zinc-400 font-mono">
+                      <span className="text-rp-grey">IP</span>
+                      <span className="text-neutral-400 font-mono">
                         {pod.ip_address || "\u2014"}
                       </span>
                     </div>
@@ -179,7 +179,7 @@ export default function GamesPage() {
                       disabled={isStopping}
                       className={`w-full rounded-lg py-2.5 text-sm font-semibold transition-all ${
                         isStopping
-                          ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                          ? "bg-rp-card text-rp-grey cursor-not-allowed"
                           : "bg-red-500/20 text-red-400 hover:bg-red-500/30"
                       }`}
                     >
@@ -189,13 +189,13 @@ export default function GamesPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => setModalPod(pod)}
-                        className="flex-1 rounded-lg py-2.5 text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 transition-all"
+                        className="flex-1 rounded-lg py-2.5 text-sm font-semibold bg-rp-red text-white hover:bg-rp-red active:bg-rp-red transition-all"
                       >
                         Retry
                       </button>
                       <button
                         onClick={() => handleStop(pod.id)}
-                        className="rounded-lg px-3 py-2.5 text-sm font-medium bg-zinc-800 text-zinc-400 hover:bg-zinc-700 transition-colors"
+                        className="rounded-lg px-3 py-2.5 text-sm font-medium bg-rp-card text-neutral-400 hover:bg-rp-card transition-colors"
                       >
                         Clear
                       </button>
@@ -206,8 +206,8 @@ export default function GamesPage() {
                       disabled={pod.status === "offline"}
                       className={`w-full rounded-lg py-2.5 text-sm font-semibold transition-all ${
                         pod.status === "offline"
-                          ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
-                          : "bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700"
+                          ? "bg-rp-card text-rp-grey cursor-not-allowed"
+                          : "bg-rp-red text-white hover:bg-rp-red active:bg-rp-red"
                       }`}
                     >
                       Launch Game

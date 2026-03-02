@@ -28,13 +28,13 @@ export default function CountdownTimer({
     ? "text-red-500 animate-pulse"
     : isLow
     ? "text-amber-400"
-    : "text-orange-500";
+    : "text-rp-red";
 
   const barColor = isCritical
     ? "bg-red-500"
     : isLow
     ? "bg-amber-400"
-    : "bg-orange-500";
+    : "bg-rp-red";
 
   return (
     <div className="space-y-2">
@@ -44,7 +44,7 @@ export default function CountdownTimer({
       </div>
 
       {/* Progress bar */}
-      <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+      <div className="w-full h-2 bg-rp-card rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-1000 ${barColor}`}
           style={{ width: `${percent}%` }}
@@ -60,13 +60,13 @@ export default function CountdownTimer({
           </>
         ) : drivingState === "idle" ? (
           <>
-            <span className="w-2 h-2 rounded-full bg-zinc-500" />
-            <span className="text-zinc-400">Paused (idle)</span>
+            <span className="w-2 h-2 rounded-full bg-rp-grey" />
+            <span className="text-neutral-400">Paused (idle)</span>
           </>
         ) : (
           <>
-            <span className="w-2 h-2 rounded-full bg-zinc-700" />
-            <span className="text-zinc-600">No telemetry</span>
+            <span className="w-2 h-2 rounded-full bg-rp-card" />
+            <span className="text-rp-grey">No telemetry</span>
           </>
         )}
       </div>

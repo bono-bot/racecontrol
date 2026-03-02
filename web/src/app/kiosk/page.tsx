@@ -23,11 +23,11 @@ export default function KioskPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-rp-black flex items-center justify-center p-8">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-orange-500 mb-2">RacingPoint</h1>
-          <p className="text-zinc-500">Driver Check-In</p>
+          <h1 className="text-3xl font-bold text-rp-red mb-2">RacingPoint</h1>
+          <p className="text-rp-grey">Driver Check-In</p>
         </div>
 
         {registered ? (
@@ -36,40 +36,40 @@ export default function KioskPage() {
             <h2 className="text-xl font-bold text-emerald-400 mb-2">
               Welcome, {registered}!
             </h2>
-            <p className="text-zinc-400 text-sm mb-6">
+            <p className="text-neutral-400 text-sm mb-6">
               You&apos;re registered and ready to race.
             </p>
             <button
               onClick={() => setRegistered(null)}
-              className="px-6 py-2 bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors text-sm"
+              className="px-6 py-2 bg-rp-card text-neutral-300 rounded-lg hover:bg-rp-card transition-colors text-sm"
             >
               Register Another Driver
             </button>
           </div>
         ) : (
           <form onSubmit={handleRegister} className="space-y-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+            <div className="bg-rp-card border border-rp-border rounded-xl p-6 space-y-4">
               <div>
-                <label className="block text-sm text-zinc-400 mb-1.5">Name</label>
+                <label className="block text-sm text-neutral-400 mb-1.5">Name</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
                   placeholder="Enter your name"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition-colors"
+                  className="w-full bg-rp-card border border-rp-border rounded-lg px-4 py-3 text-white placeholder:text-rp-grey focus:outline-none focus:border-rp-red transition-colors"
                 />
               </div>
               <div>
-                <label className="block text-sm text-zinc-400 mb-1.5">
-                  Email <span className="text-zinc-600">(optional)</span>
+                <label className="block text-sm text-neutral-400 mb-1.5">
+                  Email <span className="text-rp-grey">(optional)</span>
                 </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="your@email.com"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition-colors"
+                  className="w-full bg-rp-card border border-rp-border rounded-lg px-4 py-3 text-white placeholder:text-rp-grey focus:outline-none focus:border-rp-red transition-colors"
                 />
               </div>
             </div>
@@ -81,7 +81,7 @@ export default function KioskPage() {
             <button
               type="submit"
               disabled={!name.trim()}
-              className="w-full py-3 bg-orange-500 text-white font-bold rounded-lg hover:bg-orange-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="w-full py-3 bg-rp-red text-white font-bold rounded-lg hover:bg-rp-red disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               Check In
             </button>

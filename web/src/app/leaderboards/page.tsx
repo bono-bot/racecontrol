@@ -42,16 +42,16 @@ export default function LeaderboardsPage() {
   return (
     <DashboardLayout>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-zinc-100">Leaderboards</h1>
-        <p className="text-sm text-zinc-500">Track records and personal bests</p>
+        <h1 className="text-2xl font-bold text-white">Leaderboards</h1>
+        <p className="text-sm text-rp-grey">Track records and personal bests</p>
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-zinc-500 text-sm">Loading leaderboards...</div>
+        <div className="text-center py-12 text-rp-grey text-sm">Loading leaderboards...</div>
       ) : grouped.size === 0 ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-          <p className="text-zinc-400 mb-2">No lap records yet</p>
-          <p className="text-zinc-500 text-sm">
+        <div className="bg-rp-card border border-rp-border rounded-lg p-8 text-center">
+          <p className="text-neutral-400 mb-2">No lap records yet</p>
+          <p className="text-rp-grey text-sm">
             Leaderboards populate as drivers complete valid laps.
           </p>
         </div>
@@ -59,13 +59,13 @@ export default function LeaderboardsPage() {
         <div className="space-y-6">
           {Array.from(grouped.entries()).map(([combo, comboLaps]) => (
             <div key={combo}>
-              <h3 className="text-sm font-medium text-orange-400 mb-2">{combo}</h3>
-              <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+              <h3 className="text-sm font-medium text-rp-red mb-2">{combo}</h3>
+              <div className="bg-rp-card border border-rp-border rounded-lg overflow-hidden">
                 {comboLaps.slice(0, 10).map((lap, i) => (
                   <div
                     key={lap.id}
                     className={`flex items-center justify-between px-4 py-2 text-sm ${
-                      i < comboLaps.length - 1 ? "border-b border-zinc-800/50" : ""
+                      i < comboLaps.length - 1 ? "border-b border-rp-border/50" : ""
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -74,15 +74,15 @@ export default function LeaderboardsPage() {
                           i === 0
                             ? "text-yellow-400"
                             : i === 1
-                            ? "text-zinc-400"
+                            ? "text-neutral-400"
                             : i === 2
                             ? "text-amber-600"
-                            : "text-zinc-500"
+                            : "text-rp-grey"
                         }`}
                       >
                         {i + 1}
                       </span>
-                      <span className="text-zinc-300">
+                      <span className="text-neutral-300">
                         {lap.driver_id?.slice(0, 8) || "Unknown"}
                       </span>
                     </div>

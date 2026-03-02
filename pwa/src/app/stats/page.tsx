@@ -44,7 +44,7 @@ export default function StatsPage() {
   if (loading) {
     return (
       <div className="min-h-screen pb-20 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-rp-orange border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -52,7 +52,7 @@ export default function StatsPage() {
   return (
     <div className="min-h-screen pb-20">
       <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
-        <h1 className="text-2xl font-bold text-zinc-100 mb-6">Stats</h1>
+        <h1 className="text-2xl font-bold text-white mb-6">Stats</h1>
 
         {stats && (
           <>
@@ -82,8 +82,8 @@ export default function StatsPage() {
 
             {stats.favourite_car && (
               <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-8">
-                <p className="text-xs text-zinc-500 mb-1">Most Driven Car</p>
-                <p className="text-lg font-semibold text-zinc-100">
+                <p className="text-xs text-rp-grey mb-1">Most Driven Car</p>
+                <p className="text-lg font-semibold text-white">
                   {stats.favourite_car}
                 </p>
               </div>
@@ -92,9 +92,9 @@ export default function StatsPage() {
         )}
 
         {/* Recent laps */}
-        <h2 className="text-sm font-medium text-zinc-500 mb-3">Recent Laps</h2>
+        <h2 className="text-sm font-medium text-rp-grey mb-3">Recent Laps</h2>
         {recentLaps.length === 0 ? (
-          <p className="text-zinc-600 text-sm">No laps recorded yet</p>
+          <p className="text-rp-grey text-sm">No laps recorded yet</p>
         ) : (
           <div className="space-y-2">
             {recentLaps.map((lap) => (
@@ -103,20 +103,20 @@ export default function StatsPage() {
                 className="bg-rp-card border border-rp-border rounded-xl p-3 flex items-center justify-between"
               >
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">
+                  <p className="text-sm font-medium text-neutral-200">
                     {lap.track}
                   </p>
-                  <p className="text-xs text-zinc-500">{lap.car}</p>
+                  <p className="text-xs text-rp-grey">{lap.car}</p>
                 </div>
                 <div className="text-right">
                   <p
                     className={`text-sm font-mono font-medium ${
-                      lap.valid ? "text-zinc-100" : "text-red-400 line-through"
+                      lap.valid ? "text-white" : "text-red-400 line-through"
                     }`}
                   >
                     {formatLapTime(lap.lap_time_ms)}
                   </p>
-                  <p className="text-[10px] text-zinc-600">
+                  <p className="text-[10px] text-rp-grey">
                     {new Date(lap.created_at).toLocaleDateString("en-IN", {
                       day: "numeric",
                       month: "short",
@@ -146,9 +146,9 @@ function StatCard({
     <div className="bg-rp-card border border-rp-border rounded-xl p-4">
       <div className="flex items-center gap-2 mb-2">
         <span className="text-lg">{icon}</span>
-        <span className="text-xs text-zinc-500">{label}</span>
+        <span className="text-xs text-rp-grey">{label}</span>
       </div>
-      <p className="text-2xl font-bold text-zinc-100">{value}</p>
+      <p className="text-2xl font-bold text-white">{value}</p>
     </div>
   );
 }

@@ -23,12 +23,12 @@ export default function ResultsPage() {
   return (
     <DashboardLayout>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-zinc-100">Session Results</h1>
-        <p className="text-sm text-zinc-500 font-mono">{sessionId}</p>
+        <h1 className="text-2xl font-bold text-white">Session Results</h1>
+        <p className="text-sm text-rp-grey font-mono">{sessionId}</p>
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-zinc-500 text-sm">Loading results...</div>
+        <div className="text-center py-12 text-rp-grey text-sm">Loading results...</div>
       ) : (
         <LiveLapFeed laps={laps} />
       )}
