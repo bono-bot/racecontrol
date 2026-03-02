@@ -348,12 +348,13 @@ const PAGE_SHELL: &str = r#"<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{TITLE}}</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-    background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0a0a1a 100%);
+    background: linear-gradient(135deg, #1A1A1A 0%, #222222 50%, #1A1A1A 100%);
     color: #fff;
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -367,12 +368,12 @@ body {
     font-size: 2.8em;
     font-weight: 800;
     letter-spacing: 6px;
-    color: #e63946;
+    color: #E10600;
     margin-bottom: 2px;
 }
 .tagline {
     font-size: 0.95em;
-    color: #555;
+    color: #5A5A5A;
     letter-spacing: 3px;
     margin-bottom: 50px;
     text-transform: uppercase;
@@ -398,23 +399,23 @@ body {
     text-align: center;
     font-size: 2.6em;
     font-weight: 700;
-    border: 2px solid #333;
+    border: 2px solid #333333;
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.05);
     color: #fff;
     outline: none;
-    caret-color: #e63946;
+    caret-color: #E10600;
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 .pin-box:focus {
-    border-color: #e63946;
+    border-color: #E10600;
     box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.2);
 }
 .btn {
     padding: 16px 64px;
     font-size: 1.25em;
     font-weight: 600;
-    background: #e63946;
+    background: #E10600;
     color: #fff;
     border: none;
     border-radius: 14px;
@@ -422,11 +423,11 @@ body {
     letter-spacing: 1px;
     transition: background 0.2s, transform 0.1s;
 }
-.btn:hover { background: #c62b38; }
+.btn:hover { background: #C60500; }
 .btn:active { transform: scale(0.97); }
-.btn:disabled { background: #333; color: #666; cursor: default; transform: none; }
+.btn:disabled { background: #333333; color: #5A5A5A; cursor: default; transform: none; }
 .hint {
-    color: #555;
+    color: #5A5A5A;
     margin-top: 28px;
     font-size: 0.9em;
     letter-spacing: 0.5px;
@@ -442,14 +443,14 @@ body {
 .qr-box svg { display: block; }
 .msg {
     font-size: 1.4em;
-    color: #888;
+    color: #5A5A5A;
     font-weight: 300;
 }
 </style>
 </head>
 <body>
 <div class="logo">RACING POINT</div>
-<div class="tagline">eSports &amp; Cafe</div>
+<div class="tagline">May the Fastest Win.</div>
 {{CONTENT}}
 </body>
 </html>"#;
@@ -466,7 +467,7 @@ const PIN_PAGE: &str = r#"<div class="welcome">Welcome, {{DRIVER_NAME}}!</div>
   <input type="hidden" name="pin" id="pinValue">
   <button class="btn" type="submit" id="submitBtn" disabled>START SESSION</button>
 </form>
-<div class="hint">Enter the 4-digit PIN from your receipt</div>
+<div class="hint">Enter the 4-digit PIN from your receipt. Need help? Ask at reception.</div>
 <script>
 (function() {
     var boxes = document.querySelectorAll('.pin-box');
