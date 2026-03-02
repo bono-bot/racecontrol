@@ -40,3 +40,6 @@ futures-util = "0.3"
 # Auth
 jsonwebtoken = { workspace = true }
 rand = { workspace = true }
+
+# AI/HTTP client
+reqwest = { version = "0.12", features = ["json"] }

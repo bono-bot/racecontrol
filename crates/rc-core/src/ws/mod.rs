@@ -132,6 +132,21 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "AI debug suggestion for pod {}: {}",
                                 suggestion.pod_id, suggestion.model
                             );
+                            // Persist to DB
+                            let id = uuid::Uuid::new_v4().to_string();
+                            let _ = sqlx::query(
+                                "INSERT INTO ai_suggestions (id, pod_id, sim_type, error_context, suggestion, model, source) \
+                                 VALUES (?, ?, ?, ?, ?, ?, 'crash')"
+                            )
+                            .bind(&id)
+                            .bind(&suggestion.pod_id)
+                            .bind(format!("{:?}", suggestion.sim_type))
+                            .bind(&suggestion.error_context)
+                            .bind(&suggestion.suggestion)
+                            .bind(&suggestion.model)
+                            .execute(&state.db)
+                            .await;
+
                             let _ = state
                                 .dashboard_tx
                                 .send(DashboardEvent::AiDebugSuggestion(suggestion.clone()));

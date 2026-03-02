@@ -23,6 +23,7 @@ pub struct GameProcess {
     pub state: GameState,
     pub child: Option<Child>,
     pub pid: Option<u32>,
+    pub last_exit_code: Option<i32>,
 }
 
 impl GameProcess {
@@ -57,6 +58,7 @@ impl GameProcess {
                     state: GameState::Launching,
                     child: None,
                     pid: None,
+                    last_exit_code: None,
                 });
             }
         }
@@ -79,6 +81,7 @@ impl GameProcess {
                 state: GameState::Launching,
                 child: Some(child),
                 pid: Some(pid),
+                last_exit_code: None,
             })
         } else {
             anyhow::bail!(
@@ -92,8 +95,9 @@ impl GameProcess {
     pub fn is_running(&mut self) -> bool {
         if let Some(child) = &mut self.child {
             match child.try_wait() {
-                Ok(Some(_exit_status)) => {
-                    // Process exited
+                Ok(Some(exit_status)) => {
+                    // Process exited — capture exit code
+                    self.last_exit_code = exit_status.code();
                     self.state = GameState::Idle;
                     false
                 }
@@ -149,6 +153,7 @@ impl GameProcess {
             state: GameState::Launching,
             child: None,
             pid: None,
+            last_exit_code: None,
         })
     }
 }

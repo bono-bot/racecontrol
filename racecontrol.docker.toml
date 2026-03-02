@@ -8,7 +8,7 @@ host = "0.0.0.0"
 port = 8080
 
 [database]
-path = "./data/racecontrol.db"
+path = "/app/data/racecontrol.db"
 
 [cloud]
 enabled = false
@@ -23,16 +23,14 @@ theme = "dark"
 
 [ai_debugger]
 enabled = true
-ollama_url = "http://localhost:11434"
+ollama_url = "http://host.docker.internal:11434"
 ollama_model = "llama3.1:8b"
 chat_enabled = true
 proactive_analysis = true
-# anthropic_api_key = "sk-ant-..."  # Optional fallback when Ollama is unavailable
 
 [ac_server]
 acserver_path = "/opt/ac-server/acServer"
-data_dir = "./data/ac_servers"
-# lan_ip = "192.168.1.100"  # Auto-detected if not set
+data_dir = "/app/data/ac_servers"
 
 [integrations.discord]
 results_channel = "race-results"

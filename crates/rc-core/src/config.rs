@@ -122,6 +122,10 @@ pub struct AiDebuggerConfig {
     pub anthropic_api_key: Option<String>,
     #[serde(default = "default_anthropic_model")]
     pub anthropic_model: String,
+    #[serde(default = "default_true")]
+    pub chat_enabled: bool,
+    #[serde(default = "default_true")]
+    pub proactive_analysis: bool,
 }
 
 impl Default for AiDebuggerConfig {
@@ -132,6 +136,8 @@ impl Default for AiDebuggerConfig {
             ollama_model: default_ollama_model(),
             anthropic_api_key: None,
             anthropic_model: default_anthropic_model(),
+            chat_enabled: true,
+            proactive_analysis: true,
         }
     }
 }
@@ -241,5 +247,5 @@ fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to
 fn default_pin_expiry() -> u64 { 600 }
 fn default_otp_expiry() -> u64 { 300 }
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
-fn default_ollama_model() -> String { "qwen2.5-coder:14b".to_string() }
+fn default_ollama_model() -> String { "llama3.1:8b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }

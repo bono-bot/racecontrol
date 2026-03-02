@@ -83,6 +83,12 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/customer/sessions", get(customer_sessions))
         .route("/customer/laps", get(customer_laps))
         .route("/customer/stats", get(customer_stats))
+        // AI Chat
+        .route("/ai/chat", post(ai_chat))
+        .route("/customer/ai/chat", post(customer_ai_chat))
+        // AI Suggestions (history)
+        .route("/ai/suggestions", get(list_ai_suggestions))
+        .route("/ai/suggestions/{id}/dismiss", post(dismiss_ai_suggestion))
 }
 
 async fn health() -> Json<Value> {
@@ -1380,4 +1386,176 @@ async fn customer_stats(
             "personal_bests": pb_count,
         }
     }))
+}
+
+// ─── AI Chat ────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AiChatRequest {
+    message: String,
+    #[serde(default)]
+    history: Vec<Value>,
+}
+
+/// Staff/admin AI chat — full business context.
+async fn ai_chat(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<AiChatRequest>,
+) -> Json<Value> {
+    if !state.config.ai_debugger.enabled || !state.config.ai_debugger.chat_enabled {
+        return Json(json!({ "error": "AI chat is not enabled" }));
+    }
+
+    // Gather live business context
+    let context = crate::ai::gather_business_context(
+        &state.db,
+        &state.pods,
+        &state.billing,
+        &state.game_launcher,
+    )
+    .await;
+
+    let system_prompt = crate::ai::build_staff_prompt(&context);
+
+    // Build messages array: system + history + new message
+    let mut messages: Vec<Value> = vec![json!({
+        "role": "system",
+        "content": system_prompt,
+    })];
+
+    for msg in &req.history {
+        messages.push(msg.clone());
+    }
+
+    messages.push(json!({
+        "role": "user",
+        "content": req.message,
+    }));
+
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
+        Ok((reply, model)) => Json(json!({
+            "reply": reply,
+            "model": model,
+        })),
+        Err(e) => Json(json!({
+            "error": format!("AI query failed: {}", e),
+        })),
+    }
+}
+
+/// Customer AI chat — scoped to their own data only.
+async fn customer_ai_chat(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AiChatRequest>,
+) -> Json<Value> {
+    if !state.config.ai_debugger.enabled || !state.config.ai_debugger.chat_enabled {
+        return Json(json!({ "error": "AI chat is not enabled" }));
+    }
+
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Gather customer-scoped context
+    let context = crate::ai::gather_customer_context(&state.db, &driver_id).await;
+    let system_prompt = crate::ai::build_customer_prompt(&context);
+
+    let mut messages: Vec<Value> = vec![json!({
+        "role": "system",
+        "content": system_prompt,
+    })];
+
+    for msg in &req.history {
+        messages.push(msg.clone());
+    }
+
+    messages.push(json!({
+        "role": "user",
+        "content": req.message,
+    }));
+
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
+        Ok((reply, model)) => Json(json!({
+            "reply": reply,
+            "model": model,
+        })),
+        Err(e) => Json(json!({
+            "error": format!("AI query failed: {}", e),
+        })),
+    }
+}
+
+// ─── AI Suggestions History ─────────────────────────────────────────────────
+
+async fn list_ai_suggestions(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let limit = params
+        .get("limit")
+        .and_then(|l| l.parse::<i64>().ok())
+        .unwrap_or(50)
+        .min(200)
+        .max(1);
+
+    let pod_filter = params.get("pod_id");
+
+    let rows = if let Some(pod_id) = pod_filter {
+        sqlx::query_as::<_, (String, String, String, Option<String>, String, String, String, i32, String)>(
+            "SELECT id, pod_id, sim_type, error_context, suggestion, model, source, dismissed, created_at \
+             FROM ai_suggestions WHERE pod_id = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(pod_id)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, (String, String, String, Option<String>, String, String, String, i32, String)>(
+            "SELECT id, pod_id, sim_type, error_context, suggestion, model, source, dismissed, created_at \
+             FROM ai_suggestions ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    };
+
+    match rows {
+        Ok(suggestions) => {
+            let list: Vec<Value> = suggestions
+                .iter()
+                .map(|s| {
+                    json!({
+                        "id": s.0,
+                        "pod_id": s.1,
+                        "sim_type": s.2,
+                        "error_context": s.3,
+                        "suggestion": s.4,
+                        "model": s.5,
+                        "source": s.6,
+                        "dismissed": s.7 != 0,
+                        "created_at": s.8,
+                    })
+                })
+                .collect();
+            Json(json!({ "suggestions": list }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn dismiss_ai_suggestion(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match sqlx::query("UPDATE ai_suggestions SET dismissed = 1 WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+    {
+        Ok(r) if r.rows_affected() > 0 => Json(json!({ "status": "dismissed" })),
+        Ok(_) => Json(json!({ "error": "Suggestion not found" })),
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
 }

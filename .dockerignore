@@ -1,0 +1,12 @@
+target/
+data/
+web/
+pwa/
+.git/
+.env
+*.log
+*.db
+*.db-wal
+*.db-shm
+rc-agent.example.toml
+screenshots/

@@ -156,6 +156,23 @@ export const api = {
   },
   acTracks: () => fetchApi<{ tracks: AcTrack[] }>("/ac/content/tracks"),
   acCars: () => fetchApi<{ cars: AcCar[] }>("/ac/content/cars"),
+
+  // AI Chat
+  aiChat: (message: string, history: { role: string; content: string }[]) =>
+    fetchApi<{ reply?: string; model?: string; error?: string }>("/ai/chat", {
+      method: "POST",
+      body: JSON.stringify({ message, history }),
+    }),
+
+  // AI Suggestions
+  aiSuggestions: (params?: { pod_id?: string; limit?: number }) => {
+    const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : "";
+    return fetchApi<{ suggestions: AiSuggestion[] }>(`/ai/suggestions${qs ? `?${qs}` : ""}`);
+  },
+  dismissAiSuggestion: (id: string) =>
+    fetchApi<{ status?: string; error?: string }>(`/ai/suggestions/${id}/dismiss`, {
+      method: "POST",
+    }),
 };
 
 interface GameLaunchEvent {
@@ -350,6 +367,18 @@ export interface AiDebugSuggestion {
   error_context: string;
   suggestion: string;
   model: string;
+  created_at: string;
+}
+
+export interface AiSuggestion {
+  id: string;
+  pod_id: string;
+  sim_type: string;
+  error_context: string | null;
+  suggestion: string;
+  model: string;
+  source: string;
+  dismissed: boolean;
   created_at: string;
 }
 

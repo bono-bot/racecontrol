@@ -384,7 +384,10 @@ async fn main() -> Result<()> {
 
                             // Trigger AI debugger if configured
                             if config.ai_debugger.enabled {
-                                let err_ctx = format!("{:?} crashed on pod {}", game.sim_type, pod_id);
+                                let exit_info = game.last_exit_code
+                                    .map(|c| format!("exit code {}", c))
+                                    .unwrap_or_else(|| "no exit code".to_string());
+                                let err_ctx = format!("{:?} crashed on pod {} ({})", game.sim_type, pod_id, exit_info);
                                 tokio::spawn(ai_debugger::analyze_crash(
                                     config.ai_debugger.clone(),
                                     pod_id.clone(),

@@ -1,9 +1,11 @@
 mod ac_server;
+mod ai;
 mod api;
 mod auth;
 mod billing;
 mod config;
 mod db;
+mod error_aggregator;
 mod game_launcher;
 mod state;
 mod ws;
@@ -103,6 +105,9 @@ async fn main() -> anyhow::Result<()> {
             auth::expire_stale_tokens(&auth_state).await;
         }
     });
+
+    // Spawn proactive error pattern detection
+    error_aggregator::spawn(state.clone());
 
     // Build router
     let app = Router::new()

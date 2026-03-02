@@ -1,6 +1,7 @@
 "use client";
 
 import Sidebar from "./Sidebar";
+import AiChatPanel from "./AiChatPanel";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,6 +10,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className="flex-1 overflow-auto">
         <div className="p-6">{children}</div>
       </main>
+      <AiChatPanel />
     </div>
   );
 }

@@ -444,6 +444,29 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── AI suggestions table ─────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ai_suggestions (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            sim_type TEXT NOT NULL,
+            error_context TEXT,
+            suggestion TEXT NOT NULL,
+            model TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'crash',
+            dismissed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ai_suggestions_pod ON ai_suggestions(pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ai_suggestions_created ON ai_suggestions(created_at)")
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

@@ -141,4 +141,14 @@ export const api = {
 
   // Venue info (public)
   venue: () => fetchApi<{ name: string; location: string }>("/venue"),
+
+  // AI Chat
+  aiChat: (message: string, history: { role: string; content: string }[]) =>
+    fetchApi<{ reply?: string; model?: string; error?: string }>(
+      "/customer/ai/chat",
+      {
+        method: "POST",
+        body: JSON.stringify({ message, history }),
+      }
+    ),
 };
