@@ -66,28 +66,37 @@ export default function LoginPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-6">
       {/* Logo */}
-      <div className="mb-12 text-center">
+      <div className="mb-20 text-center">
         <h1 className="text-5xl font-black tracking-tight">
           <span className="text-rp-red">Racing</span>
           <span className="text-white">Point</span>
         </h1>
-        <p className="text-rp-grey text-sm mt-2">Sim Racing Experience</p>
+        <p className="text-rp-grey text-sm mt-4 tracking-widest uppercase">
+          May the Fastest Win
+        </p>
       </div>
 
       <div className="w-full max-w-sm">
         {step === "phone" ? (
           <>
-            <label className="block text-sm font-medium text-neutral-400 mb-2">
+            <h2 className="text-2xl font-bold mb-3">Sign In</h2>
+            <p className="text-neutral-400 text-sm mb-10">
+              Enter your phone number to continue
+            </p>
+
+            <label className="block text-sm font-medium text-neutral-400 mb-3">
               Phone number
             </label>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-rp-grey text-lg font-medium">+91</span>
+            <div className="flex items-center gap-3 mb-8">
+              <span className="bg-rp-card border border-rp-border rounded-xl px-4 py-4 text-rp-grey text-lg font-medium">
+                +91
+              </span>
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
-                placeholder="Enter your number"
-                className="flex-1 bg-rp-card border border-rp-border rounded-xl px-4 py-3.5 text-lg text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors"
+                placeholder="98765 43210"
+                className="flex-1 bg-rp-card border border-rp-border rounded-xl px-4 py-4 text-lg text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors"
                 autoFocus
                 inputMode="numeric"
               />
@@ -100,24 +109,32 @@ export default function LoginPage() {
             <button
               onClick={handleSendOtp}
               disabled={loading || phone.length < 10}
-              className="w-full bg-rp-red text-white font-semibold py-3.5 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors"
+              className="w-full bg-rp-red text-white font-semibold py-4 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors text-lg"
             >
-              {loading ? "Sending..." : "Send verification code"}
+              {loading ? "Sending..." : "Send OTP via WhatsApp"}
             </button>
+
+            <p className="text-rp-grey text-sm text-center mt-8">
+              New here? <a href="/register" className="text-rp-red font-medium">Register first</a>
+            </p>
           </>
         ) : (
           <>
-            <p className="text-sm text-neutral-400 mb-1">
-              Code sent to +91 {phone}
+            <h2 className="text-2xl font-bold mb-3">Verify OTP</h2>
+            <p className="text-neutral-400 text-sm mb-3">
+              Enter the 6-digit code sent to your WhatsApp
             </p>
-            <button
-              onClick={() => { setStep("phone"); setOtp(""); setError(""); }}
-              className="text-rp-red text-sm mb-4 inline-block"
-            >
-              Change number
-            </button>
+            <p className="text-neutral-500 text-sm mb-10">
+              +91 {phone}{" "}
+              <button
+                onClick={() => { setStep("phone"); setOtp(""); setError(""); }}
+                className="text-rp-red font-medium"
+              >
+                Change
+              </button>
+            </p>
 
-            <label className="block text-sm font-medium text-neutral-400 mb-2">
+            <label className="block text-sm font-medium text-neutral-400 mb-3">
               Verification code
             </label>
             <input
@@ -125,7 +142,7 @@ export default function LoginPage() {
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               placeholder="6-digit code"
-              className="w-full bg-rp-card border border-rp-border rounded-xl px-4 py-3.5 text-lg text-center tracking-[0.5em] text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors mb-4"
+              className="w-full bg-rp-card border border-rp-border rounded-xl px-4 py-4 text-lg text-center tracking-[0.5em] text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors mb-8"
               autoFocus
               inputMode="numeric"
             />
@@ -137,14 +154,14 @@ export default function LoginPage() {
             <button
               onClick={handleVerifyOtp}
               disabled={loading || otp.length !== 6}
-              className="w-full bg-rp-red text-white font-semibold py-3.5 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors"
+              className="w-full bg-rp-red text-white font-semibold py-4 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors text-lg"
             >
               {loading ? "Verifying..." : "Verify & Sign In"}
             </button>
           </>
         )}
 
-        <p className="text-rp-grey text-xs text-center mt-8">
+        <p className="text-rp-grey text-xs text-center mt-12">
           By signing in, you agree to our Terms of Service
         </p>
       </div>

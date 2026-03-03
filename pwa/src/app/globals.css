@@ -9,58 +9,61 @@
   --color-rp-grey: #5A5A5A;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  -webkit-tap-highlight-color: transparent;
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: #1A1A1A;
+    color: #FFFFFF;
+    font-family: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: contain;
+  }
 }
 
-html {
-  color-scheme: dark;
+@layer base {
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #5A5A5A;
+    border-radius: 2px;
+  }
 }
 
-body {
-  background-color: #1A1A1A;
-  color: #FFFFFF;
-  font-family: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  overscroll-behavior-y: contain;
-}
+@layer components {
+  /* PWA safe area */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 
-/* PWA safe area */
-.safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 4px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #5A5A5A;
-  border-radius: 2px;
-}
-
-/* Pin keypad button */
-.keypad-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: #333333;
-  color: #FFFFFF;
-  font-size: 24px;
-  font-weight: 600;
-  transition: background 0.15s;
-  user-select: none;
-  cursor: pointer;
-}
-.keypad-btn:active {
-  background: #E10600;
+  /* Pin keypad button */
+  .keypad-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: #333333;
+    color: #FFFFFF;
+    font-size: 24px;
+    font-weight: 600;
+    transition: background 0.15s;
+    user-select: none;
+    cursor: pointer;
+  }
+  .keypad-btn:active {
+    background: #E10600;
+  }
 }
