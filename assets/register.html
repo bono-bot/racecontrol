@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Register — RacingPoint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--red:#E10600;--black:#1A1A1A;--grey:#5A5A5A;--dark:#111;--card:#222;--border:#333;--text:#fff;--muted:#999}
+body{font-family:'Montserrat',sans-serif;background:var(--dark);color:var(--text);min-height:100dvh;display:flex;flex-direction:column;align-items:center}
+.container{width:100%;max-width:420px;padding:24px 20px;flex:1;display:flex;flex-direction:column}
+.logo{text-align:center;margin-bottom:8px}
+.logo h1{font-size:22px;font-weight:700;letter-spacing:1px}
+.logo h1 span{color:var(--red)}
+.logo p{font-size:11px;color:var(--muted);letter-spacing:3px;text-transform:uppercase;margin-top:2px}
+.progress{display:flex;gap:8px;justify-content:center;margin:20px 0}
+.progress .dot{width:10px;height:10px;border-radius:50%;background:var(--border);transition:background .3s}
+.progress .dot.active{background:var(--red)}
+.progress .dot.done{background:#4CAF50}
+.step{display:none;flex:1;flex-direction:column;animation:fadeIn .3s ease}
+.step.active{display:flex}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.step-title{font-size:20px;font-weight:700;margin-bottom:6px}
+.step-sub{font-size:13px;color:var(--muted);margin-bottom:24px}
+label{font-size:13px;font-weight:500;color:var(--muted);margin-bottom:6px;display:block}
+input,select{width:100%;padding:14px 16px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:16px;font-family:inherit;outline:none;transition:border .2s}
+input:focus{border-color:var(--red)}
+input::placeholder{color:#555}
+.phone-row{display:flex;gap:8px;align-items:center}
+.phone-prefix{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 12px;font-size:16px;color:var(--muted);white-space:nowrap}
+.phone-row input{flex:1}
+.otp-inputs{display:flex;gap:10px;justify-content:center;margin:16px 0}
+.otp-inputs input{width:48px;height:56px;text-align:center;font-size:24px;font-weight:700;padding:0;border-radius:12px}
+.btn{width:100%;padding:16px;border:none;border-radius:12px;font-size:16px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .2s;margin-top:16px}
+.btn-primary{background:var(--red);color:#fff}
+.btn-primary:hover{background:#c50500}
+.btn-primary:disabled{background:var(--grey);cursor:not-allowed}
+.btn-secondary{background:transparent;color:var(--red);border:1px solid var(--red)}
+.btn-secondary:hover{background:rgba(225,6,0,.1)}
+.link{color:var(--red);text-decoration:none;font-size:13px;cursor:pointer;display:inline-block;margin-top:12px}
+.link:hover{text-decoration:underline}
+.error{color:#ff4444;font-size:13px;margin-top:8px;min-height:18px}
+.field{margin-bottom:16px}
+.waiver-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;max-height:300px;overflow-y:auto;font-size:12px;line-height:1.7;color:var(--muted);margin-bottom:16px}
+.waiver-box h3{color:var(--text);font-size:13px;margin-bottom:8px}
+.waiver-box p{margin-bottom:10px}
+.checkbox-row{display:flex;align-items:flex-start;gap:10px;margin-top:12px}
+.checkbox-row input[type=checkbox]{width:20px;height:20px;min-width:20px;accent-color:var(--red);margin-top:2px}
+.checkbox-row label{font-size:13px;color:var(--text);cursor:pointer}
+.success-icon{width:80px;height:80px;border-radius:50%;background:rgba(76,175,80,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+.success-icon svg{width:40px;height:40px;color:#4CAF50}
+.timer{font-size:12px;color:var(--muted);margin-top:8px}
+.guardian-fields{display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
+.guardian-fields.show{display:block}
+.guardian-label{color:#FFB74D;font-size:13px;font-weight:600;margin-bottom:12px}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sig-section{margin-top:16px}
+.sig-section label{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;display:block}
+.sig-pad-wrap{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff;position:relative}
+.sig-pad-wrap canvas{display:block;width:100%;height:160px;touch-action:none;cursor:crosshair}
+.sig-placeholder{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#bbb;font-size:13px;pointer-events:none;transition:opacity .2s}
+.sig-placeholder.hidden{opacity:0}
+.sig-actions{display:flex;justify-content:flex-end;margin-top:8px}
+.sig-clear{background:transparent;border:1px solid var(--border);color:var(--muted);font-size:12px;font-family:inherit;padding:6px 14px;border-radius:8px;cursor:pointer;transition:all .2s}
+.sig-clear:hover{border-color:var(--red);color:var(--red)}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo">
+    <svg width="200" height="48" viewBox="0 0 200 48" xmlns="http://www.w3.org/2000/svg">
+      <!-- Checkered flag icon -->
+      <g transform="translate(0,8)">
+        <rect x="0" y="0" width="8" height="8" fill="#E10600"/>
+        <rect x="8" y="0" width="8" height="8" fill="#fff"/>
+        <rect x="16" y="0" width="8" height="8" fill="#E10600"/>
+        <rect x="0" y="8" width="8" height="8" fill="#fff"/>
+        <rect x="8" y="8" width="8" height="8" fill="#E10600"/>
+        <rect x="16" y="8" width="8" height="8" fill="#fff"/>
+        <rect x="0" y="16" width="8" height="8" fill="#E10600"/>
+        <rect x="8" y="16" width="8" height="8" fill="#fff"/>
+        <rect x="16" y="16" width="8" height="8" fill="#E10600"/>
+      </g>
+      <!-- Text -->
+      <text x="34" y="20" font-family="Montserrat,sans-serif" font-weight="700" font-size="18" fill="#FFFFFF" letter-spacing="1">RACING</text>
+      <text x="120" y="20" font-family="Montserrat,sans-serif" font-weight="700" font-size="18" fill="#E10600" letter-spacing="1">POINT</text>
+      <!-- Red underline accent -->
+      <rect x="34" y="24" width="130" height="2" rx="1" fill="#E10600"/>
+      <!-- Tagline -->
+      <text x="34" y="38" font-family="Montserrat,sans-serif" font-weight="500" font-size="8" fill="#999" letter-spacing="3">MAY THE FASTEST WIN</text>
+    </svg>
+  </div>
+  <div class="progress">
+    <div class="dot active" id="d1"></div>
+    <div class="dot" id="d2"></div>
+    <div class="dot" id="d3"></div>
+    <div class="dot" id="d4"></div>
+    <div class="dot" id="d5"></div>
+  </div>
+
+  <!-- STEP 1: Phone -->
+  <div class="step active" id="step1">
+    <div class="step-title">Welcome</div>
+    <div class="step-sub">Enter your phone number to get started</div>
+    <div class="field">
+      <label>Phone Number</label>
+      <div class="phone-row">
+        <span class="phone-prefix">+91</span>
+        <input type="tel" id="phone" placeholder="98765 43210" maxlength="10" inputmode="numeric" autocomplete="tel">
+      </div>
+    </div>
+    <div class="error" id="err1"></div>
+    <button class="btn btn-primary" id="btnSendOtp" onclick="sendOtp()">Send OTP via WhatsApp</button>
+  </div>
+
+  <!-- STEP 2: OTP -->
+  <div class="step" id="step2">
+    <div class="step-title">Verify OTP</div>
+    <div class="step-sub">Enter the 6-digit code sent to your WhatsApp</div>
+    <div class="otp-inputs" id="otpInputs">
+      <input type="tel" maxlength="1" inputmode="numeric" autocomplete="one-time-code">
+      <input type="tel" maxlength="1" inputmode="numeric">
+      <input type="tel" maxlength="1" inputmode="numeric">
+      <input type="tel" maxlength="1" inputmode="numeric">
+      <input type="tel" maxlength="1" inputmode="numeric">
+      <input type="tel" maxlength="1" inputmode="numeric">
+    </div>
+    <div class="error" id="err2"></div>
+    <button class="btn btn-primary" id="btnVerify" onclick="verifyOtp()">Verify</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+      <span class="link" onclick="goStep(1)">Change number</span>
+      <span class="link" id="resendLink" style="opacity:.4;pointer-events:none" onclick="resendOtp()">Resend OTP</span>
+    </div>
+    <div class="timer" id="resendTimer"></div>
+  </div>
+
+  <!-- STEP 3: Details -->
+  <div class="step" id="step3">
+    <div class="step-title">Your Details</div>
+    <div class="step-sub">Tell us a bit about yourself</div>
+    <div class="field">
+      <label>Full Name *</label>
+      <input type="text" id="fullName" placeholder="Your full name" autocomplete="name">
+    </div>
+    <div class="field">
+      <label>Email (optional)</label>
+      <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="field">
+      <label>Date of Birth *</label>
+      <input type="date" id="dob" max="">
+    </div>
+    <div class="guardian-fields" id="guardianFields">
+      <div class="guardian-label">Parent/Guardian consent required (under 18)</div>
+      <div class="field">
+        <label>Guardian Name *</label>
+        <input type="text" id="guardianName" placeholder="Parent or guardian's name">
+      </div>
+      <div class="field">
+        <label>Guardian Phone (optional)</label>
+        <input type="tel" id="guardianPhone" placeholder="Guardian's phone number" maxlength="10" inputmode="numeric">
+      </div>
+    </div>
+    <div class="error" id="err3"></div>
+    <button class="btn btn-primary" onclick="goToWaiver()">Continue</button>
+  </div>
+
+  <!-- STEP 4: Waiver -->
+  <div class="step" id="step4">
+    <div class="step-title">Liability Waiver</div>
+    <div class="step-sub">Please read and accept our terms</div>
+    <div class="waiver-box">
+      <h3>RACINGPOINT SIM RACING VENUE — WAIVER OF LIABILITY &amp; ACKNOWLEDGMENT OF RISK</h3>
+      <p><strong>1. ACKNOWLEDGMENT OF RISK</strong><br>
+      I understand that using sim racing equipment at RacingPoint may involve physical risks including but not limited to: motion sickness, dizziness, eye strain, muscle strain, repetitive stress injuries, and discomfort from extended use of sim racing equipment.</p>
+      <p><strong>2. EQUIPMENT RESPONSIBILITY</strong><br>
+      I agree to use all equipment (steering wheels, pedals, seats, monitors, headsets) with reasonable care. I accept financial responsibility for any damage caused by intentional misuse, negligence, or reckless behavior. Normal wear and tear during proper use is excluded.</p>
+      <p><strong>3. RULES &amp; CONDUCT</strong><br>
+      I agree to follow all venue rules and staff instructions. I understand that RacingPoint reserves the right to end my session without refund for unsafe behavior, equipment abuse, or violation of venue rules.</p>
+      <p><strong>4. PHOTO &amp; VIDEO CONSENT</strong><br>
+      I consent to being photographed or recorded while at RacingPoint for promotional purposes on social media, website, and marketing materials. I may opt out by informing staff.</p>
+      <p><strong>5. HEALTH DECLARATION</strong><br>
+      I confirm that I do not have any medical condition that would make participation in sim racing activities dangerous to my health. If I feel unwell during a session, I will immediately inform staff and stop.</p>
+      <p><strong>6. DATA COLLECTION</strong><br>
+      I consent to RacingPoint collecting my contact information (phone, email), session data, and driving statistics for service improvement and communication purposes.</p>
+      <p><strong>7. LIMITATION OF LIABILITY</strong><br>
+      To the fullest extent permitted by law, I release RacingPoint, its owners, employees, and affiliates from any claims arising from my participation in sim racing activities at the venue.</p>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="waiverConsent">
+      <label for="waiverConsent">I have read, understood, and agree to all terms above. I am signing this waiver voluntarily.</label>
+    </div>
+    <div id="guardianConsent" style="display:none">
+      <div class="checkbox-row" style="margin-top:8px">
+        <input type="checkbox" id="guardianConsentCheck">
+        <label for="guardianConsentCheck">As parent/guardian, I consent on behalf of the minor named above.</label>
+      </div>
+    </div>
+    <div class="sig-section">
+      <label>Your Signature *</label>
+      <div class="sig-pad-wrap">
+        <span class="sig-placeholder" id="sigPlaceholder">Sign here with your finger</span>
+        <canvas id="sigCanvas"></canvas>
+      </div>
+      <div class="sig-actions">
+        <button type="button" class="sig-clear" onclick="clearSignature()">Clear</button>
+      </div>
+    </div>
+    <div class="error" id="err4"></div>
+    <button class="btn btn-primary" id="btnRegister" onclick="submitRegistration()">Complete Registration</button>
+  </div>
+
+  <!-- STEP 5: Done -->
+  <div class="step" id="step5">
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
+      <div class="success-icon">
+        <svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+      </div>
+      <div class="step-title" id="welcomeMsg">Welcome to RacingPoint!</div>
+      <div class="step-sub" style="margin-top:8px">You're all set. Show this screen to staff to get started.</div>
+      <button class="btn btn-primary" style="margin-top:32px" onclick="openApp()">Open RacingPoint App</button>
+      <span class="link" style="margin-top:16px;color:var(--muted)">Show this to staff at the front desk</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin + '/api/v1';
+let jwt = null;
+let phoneNumber = '';
+let currentStep = 1;
+let resendCountdown = 0;
+let isMinor = false;
+let customerName = '';
+
+// ─── Navigation ────────────────────────────────────────────────────────────
+function goStep(n) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step' + n).classList.add('active');
+  currentStep = n;
+  // Update progress dots
+  for (let i = 1; i <= 5; i++) {
+    const dot = document.getElementById('d' + i);
+    dot.className = 'dot' + (i < n ? ' done' : i === n ? ' active' : '');
+  }
+}
+
+// ─── Step 1: Send OTP ─────────────────────────────────────────────────────
+async function sendOtp() {
+  const phone = document.getElementById('phone').value.replace(/\s/g, '');
+  const err = document.getElementById('err1');
+  const btn = document.getElementById('btnSendOtp');
+  err.textContent = '';
+
+  if (!/^\d{10}$/.test(phone)) {
+    err.textContent = 'Enter a valid 10-digit phone number';
+    return;
+  }
+
+  phoneNumber = '+91' + phone;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Sending...';
+
+  try {
+    const res = await fetch(API + '/customer/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phoneNumber }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      err.textContent = data.error;
+      return;
+    }
+    goStep(2);
+    startResendTimer();
+    // Focus first OTP input
+    document.querySelector('#otpInputs input').focus();
+  } catch (e) {
+    err.textContent = 'Network error. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send OTP via WhatsApp';
+  }
+}
+
+// ─── Step 2: Verify OTP ───────────────────────────────────────────────────
+function getOtp() {
+  return Array.from(document.querySelectorAll('#otpInputs input')).map(i => i.value).join('');
+}
+
+async function verifyOtp() {
+  const otp = getOtp();
+  const err = document.getElementById('err2');
+  const btn = document.getElementById('btnVerify');
+  err.textContent = '';
+
+  if (otp.length !== 6) {
+    err.textContent = 'Enter all 6 digits';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Verifying...';
+
+  try {
+    const res = await fetch(API + '/customer/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phoneNumber, otp }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      err.textContent = data.error;
+      // Clear OTP inputs on error
+      document.querySelectorAll('#otpInputs input').forEach(i => { i.value = ''; });
+      document.querySelector('#otpInputs input').focus();
+      return;
+    }
+    jwt = data.token;
+    if (data.registration_completed) {
+      // Already registered — skip to done
+      document.getElementById('welcomeMsg').textContent = 'Welcome back!';
+      goStep(5);
+    } else {
+      goStep(3);
+      document.getElementById('fullName').focus();
+    }
+  } catch (e) {
+    err.textContent = 'Network error. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Verify';
+  }
+}
+
+// OTP input auto-advance
+document.querySelectorAll('#otpInputs input').forEach((input, idx, arr) => {
+  input.addEventListener('input', (e) => {
+    const val = e.target.value;
+    if (val && idx < arr.length - 1) arr[idx + 1].focus();
+    if (getOtp().length === 6) verifyOtp();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Backspace' && !e.target.value && idx > 0) arr[idx - 1].focus();
+  });
+  // Handle paste
+  input.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, 6);
+    text.split('').forEach((ch, i) => { if (arr[i]) arr[i].value = ch; });
+    if (text.length === 6) verifyOtp();
+  });
+});
+
+// Resend timer
+function startResendTimer() {
+  resendCountdown = 60;
+  const link = document.getElementById('resendLink');
+  const timer = document.getElementById('resendTimer');
+  link.style.opacity = '.4';
+  link.style.pointerEvents = 'none';
+  const iv = setInterval(() => {
+    resendCountdown--;
+    timer.textContent = resendCountdown > 0 ? `Resend available in ${resendCountdown}s` : '';
+    if (resendCountdown <= 0) {
+      clearInterval(iv);
+      link.style.opacity = '1';
+      link.style.pointerEvents = 'auto';
+    }
+  }, 1000);
+}
+
+async function resendOtp() {
+  document.getElementById('err2').textContent = '';
+  try {
+    await fetch(API + '/customer/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phoneNumber }),
+    });
+    startResendTimer();
+    document.querySelectorAll('#otpInputs input').forEach(i => { i.value = ''; });
+    document.querySelector('#otpInputs input').focus();
+  } catch (e) {
+    document.getElementById('err2').textContent = 'Failed to resend OTP';
+  }
+}
+
+// ─── Step 3: Details ──────────────────────────────────────────────────────
+// Set max date for DOB (today)
+document.getElementById('dob').max = new Date().toISOString().split('T')[0];
+
+document.getElementById('dob').addEventListener('change', function() {
+  const dob = new Date(this.value);
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+
+  const gf = document.getElementById('guardianFields');
+  const err = document.getElementById('err3');
+  err.textContent = '';
+
+  if (age < 12) {
+    err.textContent = 'You must be at least 12 years old to register.';
+    gf.classList.remove('show');
+    isMinor = false;
+  } else if (age < 18) {
+    gf.classList.add('show');
+    isMinor = true;
+  } else {
+    gf.classList.remove('show');
+    isMinor = false;
+  }
+});
+
+function goToWaiver() {
+  const name = document.getElementById('fullName').value.trim();
+  const dob = document.getElementById('dob').value;
+  const err = document.getElementById('err3');
+  err.textContent = '';
+
+  if (name.length < 2) { err.textContent = 'Please enter your full name'; return; }
+  if (!dob) { err.textContent = 'Please enter your date of birth'; return; }
+
+  // Recalculate age
+  const dobDate = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - dobDate.getFullYear();
+  const m = today.getMonth() - dobDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dobDate.getDate())) age--;
+
+  if (age < 12) { err.textContent = 'You must be at least 12 years old'; return; }
+
+  if (isMinor) {
+    const gn = document.getElementById('guardianName').value.trim();
+    if (gn.length < 2) { err.textContent = 'Guardian name is required for customers under 18'; return; }
+    document.getElementById('guardianConsent').style.display = 'block';
+  }
+
+  customerName = name;
+  goStep(4);
+}
+
+// ─── Signature Pad ────────────────────────────────────────────────────────
+const sigCanvas = document.getElementById('sigCanvas');
+const sigCtx = sigCanvas.getContext('2d');
+let sigDrawing = false;
+let sigHasContent = false;
+
+function initSignaturePad() {
+  const wrap = sigCanvas.parentElement;
+  const rect = wrap.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  sigCanvas.width = rect.width * dpr;
+  sigCanvas.height = 160 * dpr;
+  sigCtx.scale(dpr, dpr);
+  sigCtx.lineWidth = 2.5;
+  sigCtx.lineCap = 'round';
+  sigCtx.lineJoin = 'round';
+  sigCtx.strokeStyle = '#1A1A1A';
+}
+
+function getSigPos(e) {
+  const rect = sigCanvas.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+}
+
+function sigStart(e) {
+  e.preventDefault();
+  sigDrawing = true;
+  const p = getSigPos(e);
+  sigCtx.beginPath();
+  sigCtx.moveTo(p.x, p.y);
+}
+
+function sigMove(e) {
+  if (!sigDrawing) return;
+  e.preventDefault();
+  if (!sigHasContent) {
+    sigHasContent = true;
+    document.getElementById('sigPlaceholder').classList.add('hidden');
+  }
+  const p = getSigPos(e);
+  sigCtx.lineTo(p.x, p.y);
+  sigCtx.stroke();
+}
+
+function sigEnd() { sigDrawing = false; }
+
+function clearSignature() {
+  const dpr = window.devicePixelRatio || 1;
+  sigCtx.clearRect(0, 0, sigCanvas.width / dpr, sigCanvas.height);
+  sigHasContent = false;
+  document.getElementById('sigPlaceholder').classList.remove('hidden');
+}
+
+function getSignatureData() {
+  if (!sigHasContent) return null;
+  return sigCanvas.toDataURL('image/png');
+}
+
+sigCanvas.addEventListener('mousedown', sigStart);
+sigCanvas.addEventListener('mousemove', sigMove);
+sigCanvas.addEventListener('mouseup', sigEnd);
+sigCanvas.addEventListener('mouseleave', sigEnd);
+sigCanvas.addEventListener('touchstart', sigStart, { passive: false });
+sigCanvas.addEventListener('touchmove', sigMove, { passive: false });
+sigCanvas.addEventListener('touchend', sigEnd);
+
+// Init on step 4 transition and on resize
+window.addEventListener('resize', () => { if (currentStep === 4) initSignaturePad(); });
+
+// Override goStep to init signature pad when entering step 4
+const _origGoStep = goStep;
+goStep = function(n) {
+  _origGoStep(n);
+  if (n === 4) setTimeout(initSignaturePad, 50);
+};
+
+// ─── Step 4: Register ─────────────────────────────────────────────────────
+async function submitRegistration() {
+  const err = document.getElementById('err4');
+  const btn = document.getElementById('btnRegister');
+  err.textContent = '';
+
+  if (!document.getElementById('waiverConsent').checked) {
+    err.textContent = 'You must accept the waiver to continue';
+    return;
+  }
+  if (isMinor && !document.getElementById('guardianConsentCheck').checked) {
+    err.textContent = 'Guardian consent is required for minors';
+    return;
+  }
+  if (!getSignatureData()) {
+    err.textContent = 'Please sign the waiver above';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Registering...';
+
+  const body = {
+    name: customerName,
+    email: document.getElementById('email').value.trim() || null,
+    dob: document.getElementById('dob').value,
+    waiver_consent: true,
+    signature_data: getSignatureData(),
+    guardian_name: isMinor ? document.getElementById('guardianName').value.trim() : null,
+    guardian_phone: isMinor ? (document.getElementById('guardianPhone').value.trim() || null) : null,
+  };
+
+  try {
+    const res = await fetch(API + '/customer/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.error) {
+      err.textContent = data.error;
+      return;
+    }
+    document.getElementById('welcomeMsg').textContent = 'Welcome to RacingPoint, ' + customerName + '!';
+    goStep(5);
+  } catch (e) {
+    err.textContent = 'Network error. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Complete Registration';
+  }
+}
+
+// ─── Step 5: Open App ─────────────────────────────────────────────────────
+function openApp() {
+  // Try to open the PWA — adjust URL to your deployment
+  const pwaUrl = window.location.origin.replace(':8080', ':3500');
+  window.location.href = pwaUrl;
+}
+
+// Enter key on phone input
+document.getElementById('phone').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendOtp();
+});
+</script>
+</body>
+</html>

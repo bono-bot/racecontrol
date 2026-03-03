@@ -337,6 +337,32 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Customer registration & waiver columns on drivers ──────────────────
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN dob TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN waiver_signed BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN waiver_signed_at TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN waiver_version TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN guardian_name TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN guardian_phone TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN registration_completed BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN signature_data TEXT")
+        .execute(pool)
+        .await;
+
     // ─── Auth tokens (single-use session PINs + QR codes) ──────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -417,6 +443,14 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_game_events_type ON game_launch_events(event_type)")
+        .execute(pool)
+        .await?;
+
+    // Driver phone index (used by OTP lookups)
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_drivers_phone ON drivers(phone)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_drivers_waiver ON drivers(waiver_signed)")
         .execute(pool)
         .await?;
 

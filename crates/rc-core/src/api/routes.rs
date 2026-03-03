@@ -79,10 +79,16 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Customer (PWA endpoints)
         .route("/customer/login", post(customer_login))
         .route("/customer/verify-otp", post(customer_verify_otp))
+        .route("/customer/register", post(customer_register))
+        .route("/customer/waiver-status", get(customer_waiver_status))
         .route("/customer/profile", get(customer_profile))
         .route("/customer/sessions", get(customer_sessions))
         .route("/customer/laps", get(customer_laps))
         .route("/customer/stats", get(customer_stats))
+        // Waivers (admin-facing)
+        .route("/waivers", get(list_waivers))
+        .route("/waivers/check", get(check_waiver))
+        .route("/waivers/{driver_id}/signature", get(get_waiver_signature))
         // AI Chat
         .route("/ai/chat", post(ai_chat))
         .route("/customer/ai/chat", post(customer_ai_chat))
@@ -1174,9 +1180,10 @@ async fn customer_verify_otp(
     Json(req): Json<VerifyOtpRequest>,
 ) -> Json<Value> {
     match auth::verify_otp(&state, &req.phone, &req.otp).await {
-        Ok(jwt) => Json(json!({
+        Ok((jwt, registration_completed)) => Json(json!({
             "status": "ok",
             "token": jwt,
+            "registration_completed": registration_completed,
         })),
         Err(e) => Json(json!({ "error": e })),
     }
@@ -1386,6 +1393,236 @@ async fn customer_stats(
             "personal_bests": pb_count,
         }
     }))
+}
+
+// ─── Customer Registration ───────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct CustomerRegisterRequest {
+    name: String,
+    email: Option<String>,
+    dob: String,
+    waiver_consent: bool,
+    signature_data: Option<String>,
+    guardian_name: Option<String>,
+    guardian_phone: Option<String>,
+}
+
+async fn customer_register(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<CustomerRegisterRequest>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    if !req.waiver_consent {
+        return Json(json!({ "error": "Waiver consent is required" }));
+    }
+
+    let name = req.name.trim().to_string();
+    if name.len() < 2 {
+        return Json(json!({ "error": "Name must be at least 2 characters" }));
+    }
+
+    // Parse and validate DOB
+    let dob = match chrono::NaiveDate::parse_from_str(&req.dob, "%Y-%m-%d") {
+        Ok(d) => d,
+        Err(_) => return Json(json!({ "error": "Invalid date format. Use YYYY-MM-DD" })),
+    };
+
+    let today = chrono::Utc::now().date_naive();
+    let age = (today - dob).num_days() / 365;
+
+    if age < 12 {
+        return Json(json!({ "error": "Minimum age is 12 years" }));
+    }
+
+    // Guardian required for minors (12-17)
+    if age < 18 {
+        if req.guardian_name.as_ref().map_or(true, |n| n.trim().is_empty()) {
+            return Json(json!({ "error": "Guardian name required for customers under 18" }));
+        }
+    }
+
+    // Update driver record
+    let result = sqlx::query(
+        "UPDATE drivers SET
+            name = ?, email = ?, dob = ?,
+            waiver_signed = 1, waiver_signed_at = datetime('now'),
+            waiver_version = 'v1.0',
+            signature_data = ?,
+            guardian_name = ?, guardian_phone = ?,
+            registration_completed = 1,
+            updated_at = datetime('now')
+         WHERE id = ?",
+    )
+    .bind(&name)
+    .bind(&req.email)
+    .bind(&req.dob)
+    .bind(&req.signature_data)
+    .bind(&req.guardian_name)
+    .bind(&req.guardian_phone)
+    .bind(&driver_id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            tracing::info!("Customer {} registered (age: {}, minor: {})", driver_id, age, age < 18);
+            Json(json!({
+                "status": "registered",
+                "driver_id": driver_id,
+                "is_minor": age < 18,
+            }))
+        }
+        Err(e) => Json(json!({ "error": format!("Registration failed: {}", e) })),
+    }
+}
+
+async fn customer_waiver_status(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let row = sqlx::query_as::<_, (bool, bool)>(
+        "SELECT COALESCE(waiver_signed, 0), COALESCE(registration_completed, 0) FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match row {
+        Ok(Some((waiver, registered))) => Json(json!({
+            "waiver_signed": waiver,
+            "registration_completed": registered,
+        })),
+        Ok(None) => Json(json!({ "error": "Driver not found" })),
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+// ─── Waivers (admin-facing) ──────────────────────────────────────────────────
+
+async fn list_waivers(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let page: i64 = params.get("page").and_then(|p| p.parse().ok()).unwrap_or(1).max(1);
+    let per_page: i64 = params.get("per_page").and_then(|p| p.parse().ok()).unwrap_or(50).min(200).max(1);
+    let offset = (page - 1) * per_page;
+
+    let total = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM drivers WHERE waiver_signed = 1",
+    )
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT id, name, phone, email, dob, waiver_signed_at, waiver_version, guardian_name, guardian_phone, signature_data
+         FROM drivers WHERE waiver_signed = 1
+         ORDER BY waiver_signed_at DESC
+         LIMIT ? OFFSET ?",
+    )
+    .bind(per_page)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(waivers) => {
+            let list: Vec<Value> = waivers.iter().map(|w| {
+                let is_minor = w.4.as_ref().map_or(false, |dob| {
+                    chrono::NaiveDate::parse_from_str(dob, "%Y-%m-%d")
+                        .map(|d| (chrono::Utc::now().date_naive() - d).num_days() / 365 < 18)
+                        .unwrap_or(false)
+                });
+                json!({
+                    "driver_id": w.0,
+                    "name": w.1,
+                    "phone": w.2,
+                    "email": w.3,
+                    "dob": w.4,
+                    "waiver_signed_at": w.5,
+                    "waiver_version": w.6,
+                    "guardian_name": w.7,
+                    "guardian_phone": w.8,
+                    "has_signature": w.9.is_some(),
+                    "is_minor": is_minor,
+                })
+            }).collect();
+            Json(json!({ "waivers": list, "total": total, "page": page, "per_page": per_page }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn check_waiver(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let phone = params.get("phone");
+    let email = params.get("email");
+
+    if phone.is_none() && email.is_none() {
+        return Json(json!({ "error": "Provide phone or email parameter" }));
+    }
+
+    let row = if let Some(phone) = phone {
+        // Normalize: strip non-digits, use last 10
+        let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+        let last10 = if digits.len() >= 10 { &digits[digits.len() - 10..] } else { &digits };
+        sqlx::query_as::<_, (String, String, Option<String>, bool)>(
+            "SELECT id, name, phone, COALESCE(waiver_signed, 0) FROM drivers WHERE phone LIKE '%' || ?",
+        )
+        .bind(last10)
+        .fetch_optional(&state.db)
+        .await
+    } else {
+        let email = email.unwrap();
+        sqlx::query_as::<_, (String, String, Option<String>, bool)>(
+            "SELECT id, name, phone, COALESCE(waiver_signed, 0) FROM drivers WHERE LOWER(email) = LOWER(?)",
+        )
+        .bind(email)
+        .fetch_optional(&state.db)
+        .await
+    };
+
+    match row {
+        Ok(Some((id, name, phone, signed))) => Json(json!({
+            "signed": signed,
+            "driver": { "id": id, "name": name, "phone": phone },
+        })),
+        Ok(None) => Json(json!({ "signed": false, "driver": null })),
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn get_waiver_signature(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+) -> Json<Value> {
+    let row = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT signature_data FROM drivers WHERE id = ? AND waiver_signed = 1",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match row {
+        Ok(Some((Some(sig),))) => Json(json!({ "signature_data": sig })),
+        Ok(Some((None,))) => Json(json!({ "error": "No signature on file" })),
+        Ok(None) => Json(json!({ "error": "Waiver not found" })),
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
 }
 
 // ─── AI Chat ────────────────────────────────────────────────────────────────
