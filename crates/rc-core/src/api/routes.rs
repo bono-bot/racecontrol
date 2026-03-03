@@ -13,13 +13,15 @@ use crate::billing;
 use crate::game_launcher;
 use crate::state::AppState;
 use rc_common::types::*;
+use rc_common::protocol::DashboardEvent;
 
 pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
         // Health
         .route("/health", get(health))
         // Pods
-        .route("/pods", get(list_pods))
+        .route("/pods", get(list_pods).post(register_pod))
+        .route("/pods/seed", post(seed_pods))
         .route("/pods/{id}", get(get_pod))
         // Drivers
         .route("/drivers", get(list_drivers).post(create_driver))
@@ -130,6 +132,86 @@ async fn get_pod(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> 
         Some(pod) => Json(json!({ "pod": pod })),
         None => Json(json!({ "error": "Pod not found" })),
     }
+}
+
+async fn register_pod(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let id = body["id"].as_str().unwrap_or("").to_string();
+    let number = body["number"].as_u64().unwrap_or(0) as u32;
+    let name = body["name"].as_str().unwrap_or("").to_string();
+    let ip = body["ip_address"].as_str().unwrap_or("").to_string();
+    let sim = body["sim_type"].as_str().unwrap_or("assetto_corsa");
+    let sim_type = match sim {
+        "iracing" => SimType::IRacing,
+        "f1_25" => SimType::F125,
+        "lemans" => SimType::LeMansUltimate,
+        "forza" => SimType::Forza,
+        _ => SimType::AssettoCorsa,
+    };
+
+    let pod = PodInfo {
+        id: id.clone(),
+        number,
+        name,
+        ip_address: ip,
+        sim_type,
+        status: PodStatus::Idle,
+        current_driver: None,
+        current_session_id: None,
+        last_seen: Some(chrono::Utc::now()),
+        driving_state: None,
+        billing_session_id: None,
+        game_state: None,
+        current_game: None,
+    };
+
+    state.pods.write().await.insert(id.clone(), pod.clone());
+    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+
+    Json(json!({ "ok": true, "pod": pod }))
+}
+
+async fn seed_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let pod_data = vec![
+        ("pod_1", 1, "Pod 1", "192.168.31.89"),
+        ("pod_2", 2, "Pod 2", "192.168.31.33"),
+        ("pod_3", 3, "Pod 3", "192.168.31.28"),
+        ("pod_4", 4, "Pod 4", "192.168.31.101"),
+        ("pod_5", 5, "Pod 5", "192.168.31.86"),
+        ("pod_6", 6, "Pod 6", "192.168.31.87"),
+        ("pod_7", 7, "Pod 7", "192.168.31.38"),
+        ("pod_8", 8, "Pod 8", "192.168.31.91"),
+    ];
+
+    let mut pods_created = Vec::new();
+    for (id, number, name, ip) in pod_data {
+        let pod = PodInfo {
+            id: id.to_string(),
+            number,
+            name: name.to_string(),
+            ip_address: ip.to_string(),
+            sim_type: SimType::AssettoCorsa,
+            status: PodStatus::Idle,
+            current_driver: None,
+            current_session_id: None,
+            last_seen: Some(chrono::Utc::now()),
+            driving_state: None,
+            billing_session_id: None,
+            game_state: None,
+            current_game: None,
+        };
+        state.pods.write().await.insert(id.to_string(), pod.clone());
+        let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+        pods_created.push(pod);
+    }
+
+    // Also send a full pod list event
+    let all_pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
+    let _ = state.dashboard_tx.send(DashboardEvent::PodList(all_pods));
+
+    Json(json!({ "ok": true, "count": pods_created.len() }))
 }
 
 async fn list_drivers(State(state): State<Arc<AppState>>) -> Json<Value> {

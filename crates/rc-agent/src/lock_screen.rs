@@ -30,6 +30,12 @@ pub enum LockScreenState {
         pricing_tier_name: String,
         allocated_seconds: u32,
     },
+    /// Active session — shows time remaining.
+    ActiveSession {
+        driver_name: String,
+        remaining_seconds: u32,
+        allocated_seconds: u32,
+    },
 }
 
 /// Events emitted by the lock screen to the agent main loop.
@@ -112,6 +118,29 @@ impl LockScreenManager {
         self.launch_browser();
     }
 
+    /// Show the active session screen with countdown timer.
+    pub fn show_active_session(
+        &mut self,
+        driver_name: String,
+        remaining_seconds: u32,
+        allocated_seconds: u32,
+    ) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        *state = LockScreenState::ActiveSession {
+            driver_name,
+            remaining_seconds,
+            allocated_seconds,
+        };
+    }
+
+    /// Update remaining seconds on the active session screen.
+    pub fn update_remaining(&self, remaining_seconds: u32) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let LockScreenState::ActiveSession { remaining_seconds: ref mut r, .. } = *state {
+            *r = remaining_seconds;
+        }
+    }
+
     /// Clear/dismiss the lock screen.
     pub fn clear(&mut self) {
         {
@@ -171,9 +200,9 @@ async fn serve_lock_screen(
     state: Arc<Mutex<LockScreenState>>,
     event_tx: mpsc::Sender<LockScreenEvent>,
 ) {
-    let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)).await {
+    let listener = match TcpListener::bind(format!("0.0.0.0:{}", port)).await {
         Ok(l) => {
-            tracing::info!("Lock screen server listening on http://127.0.0.1:{}", port);
+            tracing::info!("Lock screen server listening on http://0.0.0.0:{}", port);
             l
         }
         Err(e) => {
@@ -262,6 +291,11 @@ fn render_page(state: &LockScreenState) -> String {
             allocated_seconds,
             ..
         } => render_qr_page(qr_payload, driver_name, pricing_tier_name, *allocated_seconds),
+        LockScreenState::ActiveSession {
+            driver_name,
+            remaining_seconds,
+            allocated_seconds,
+        } => render_active_session_page(driver_name, *remaining_seconds, *allocated_seconds),
     }
 }
 
@@ -309,6 +343,24 @@ fn render_qr_page(
         .replace("{{MINUTES}}", &minutes.to_string())
         .replace("{{QR_SVG}}", &qr_svg);
     page_shell("Scan QR - Racing Point", &content)
+}
+
+fn render_active_session_page(driver_name: &str, remaining_seconds: u32, allocated_seconds: u32) -> String {
+    let mins = remaining_seconds / 60;
+    let secs = remaining_seconds % 60;
+    let progress = if allocated_seconds > 0 {
+        ((allocated_seconds - remaining_seconds) as f64 / allocated_seconds as f64 * 100.0) as u32
+    } else {
+        0
+    };
+    let warning_class = if remaining_seconds <= 60 { "time-warning" } else { "" };
+    let content = ACTIVE_SESSION_PAGE
+        .replace("{{DRIVER_NAME}}", &html_escape(driver_name))
+        .replace("{{MINUTES}}", &format!("{:02}", mins))
+        .replace("{{SECONDS}}", &format!("{:02}", secs))
+        .replace("{{PROGRESS}}", &progress.to_string())
+        .replace("{{WARNING_CLASS}}", warning_class);
+    page_shell("Session Active - Racing Point", &content)
 }
 
 fn render_verifying_page() -> String {
@@ -505,3 +557,52 @@ const QR_PAGE: &str = r#"<div class="welcome">Welcome, {{DRIVER_NAME}}!</div>
 <div class="qr-box">{{QR_SVG}}</div>
 <div class="hint">Scan the QR code with your phone to start your session</div>
 <script>setTimeout(function(){location.reload()},5000)</script>"#;
+
+const ACTIVE_SESSION_PAGE: &str = r#"<style>
+.timer-display {
+    font-size: 8em;
+    font-weight: 800;
+    letter-spacing: 4px;
+    margin: 20px 0;
+    font-variant-numeric: tabular-nums;
+}
+.timer-display .colon {
+    animation: blink 1s step-end infinite;
+}
+@keyframes blink {
+    50% { opacity: 0.3; }
+}
+.progress-container {
+    width: 80%;
+    max-width: 600px;
+    height: 12px;
+    background: #333333;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 30px auto;
+}
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #E10600 0%, #FF3B30 100%);
+    border-radius: 6px;
+    transition: width 1s linear;
+}
+.session-label {
+    font-size: 1.3em;
+    color: #888;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+}
+.time-warning {
+    color: #E10600;
+}
+</style>
+<div class="welcome">{{DRIVER_NAME}}</div>
+<div class="session-label">Time Remaining</div>
+<div class="timer-display {{WARNING_CLASS}}">{{MINUTES}}<span class="colon">:</span>{{SECONDS}}</div>
+<div class="progress-container">
+    <div class="progress-bar" style="width: {{PROGRESS}}%"></div>
+</div>
+<div class="hint">Enjoy your session! Need help? Ask at reception.</div>
+<script>setTimeout(function(){location.reload()},3000)</script>"#;

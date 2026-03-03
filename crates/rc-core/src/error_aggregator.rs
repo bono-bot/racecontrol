@@ -127,7 +127,7 @@ async fn detect_patterns(state: &Arc<AppState>) -> anyhow::Result<()> {
     let primary_sim: SimType = sim_crashes
         .first()
         .and_then(|(s, _)| serde_json::from_value(json!(s)).ok())
-        .unwrap_or(SimType::AssettocCorsa);
+        .unwrap_or(SimType::AssettoCorsa);
 
     match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
         Ok((suggestion, model)) => {

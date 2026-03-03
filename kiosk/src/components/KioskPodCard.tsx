@@ -9,6 +9,7 @@ import type {
   AuthTokenInfo,
   KioskPodState,
 } from "@/lib/types";
+import { LiveTelemetry } from "./LiveTelemetry";
 
 interface KioskPodCardProps {
   pod: Pod;
@@ -23,6 +24,8 @@ interface KioskPodCardProps {
   onResumeSession: (billingSessionId: string) => void;
   onExtendSession: (billingSessionId: string) => void;
   onCancelAssignment: (tokenId: string) => void;
+  onLaunchGame?: (podId: string) => void;
+  onStartNow?: (authToken: AuthTokenInfo) => void;
 }
 
 function derivePodState(
@@ -73,6 +76,8 @@ export function KioskPodCard({
   onResumeSession,
   onExtendSession,
   onCancelAssignment,
+  onLaunchGame,
+  onStartNow,
 }: KioskPodCardProps) {
   const state = derivePodState(pod, billing, authToken, gameInfo);
   const isOffline = pod.status === "offline";
@@ -142,12 +147,22 @@ export function KioskPodCard({
               <p className="text-sm text-rp-grey">Scan QR at pod</p>
             )}
             <p className="text-xs text-rp-grey">{authToken.pricing_tier_name}</p>
-            <button
-              onClick={() => onCancelAssignment(authToken.id)}
-              className="mt-1 px-3 py-1 text-xs border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded transition-colors"
-            >
-              Cancel
-            </button>
+            <div className="flex gap-2 mt-1">
+              {onStartNow && (
+                <button
+                  onClick={() => onStartNow(authToken)}
+                  className="px-4 py-1.5 text-xs bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded transition-colors"
+                >
+                  Start Now
+                </button>
+              )}
+              <button
+                onClick={() => onCancelAssignment(authToken.id)}
+                className="px-3 py-1.5 text-xs border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
@@ -177,29 +192,18 @@ export function KioskPodCard({
               </p>
             </div>
 
-            {/* Live Telemetry */}
-            {telemetry && (
-              <div className="flex items-center gap-3">
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-white tabular-nums">
-                    {Math.round(telemetry.speed_kmh)}
-                  </p>
-                  <p className="text-[10px] text-rp-grey uppercase">km/h</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-white">{telemetry.gear === 0 ? "N" : telemetry.gear === -1 ? "R" : telemetry.gear}</p>
-                  <p className="text-[10px] text-rp-grey uppercase">Gear</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-semibold text-white tabular-nums">
-                    Lap {telemetry.lap_number}
-                  </p>
-                  {telemetry.lap_time_ms > 0 && (
-                    <p className="text-[10px] text-rp-grey">{formatLapTime(telemetry.lap_time_ms)}</p>
-                  )}
-                </div>
-              </div>
+            {/* Launch Game button — shown when billing active but no game running */}
+            {onLaunchGame && (!gameInfo || gameInfo.game_state === "idle") && (
+              <button
+                onClick={() => onLaunchGame(pod.id)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md transition-colors text-sm"
+              >
+                Launch Game
+              </button>
             )}
+
+            {/* Live Telemetry */}
+            {telemetry && <LiveTelemetry telemetry={telemetry} />}
 
             {/* Session Timer */}
             <div className="mt-auto">

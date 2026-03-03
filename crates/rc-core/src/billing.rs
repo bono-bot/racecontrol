@@ -49,11 +49,9 @@ impl BillingTimer {
     }
 
     /// Tick the timer by 1 second. Returns true if time has expired.
+    /// Timer always counts down for active sessions regardless of driving state.
     pub fn tick(&mut self) -> bool {
         if self.status != BillingSessionStatus::Active {
-            return false;
-        }
-        if self.driving_state != DrivingState::Active {
             return false;
         }
 
@@ -85,6 +83,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut events_to_broadcast = Vec::new();
     let mut expired_sessions = Vec::new();
     let mut warnings = Vec::new();
+    let mut agent_ticks: Vec<(String, u32, u32, String)> = Vec::new();
 
     for (pod_id, timer) in timers.iter_mut() {
         if timer.status != BillingSessionStatus::Active {
@@ -106,10 +105,9 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             warnings.push((timer.session_id.clone(), pod_id.clone(), remaining));
         }
 
-        // Broadcast tick to dashboards (only if driving — reduces noise)
-        if timer.driving_state == DrivingState::Active {
-            events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
-        }
+        // Broadcast tick to dashboards and agents
+        events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
+        agent_ticks.push((pod_id.clone(), remaining, timer.allocated_seconds, timer.driver_name.clone()));
 
         if expired {
             timer.status = BillingSessionStatus::Completed;
@@ -129,9 +127,23 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     drop(timers); // Release write lock before DB/broadcast
 
-    // Broadcast events
+    // Broadcast events to dashboards
     for event in events_to_broadcast {
         let _ = state.dashboard_tx.send(event);
+    }
+
+    // Send billing ticks to agents (for pod lock screen timer)
+    if !agent_ticks.is_empty() {
+        let agent_senders = state.agent_senders.read().await;
+        for (pod_id, remaining, allocated, driver_name) in agent_ticks {
+            if let Some(sender) = agent_senders.get(&pod_id) {
+                let _ = sender.send(CoreToAgentMessage::BillingTick {
+                    remaining_seconds: remaining,
+                    allocated_seconds: allocated,
+                    driver_name,
+                }).await;
+            }
+        }
     }
 
     // Broadcast warnings

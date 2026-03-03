@@ -40,7 +40,10 @@ reqwest = { version = "0.12", features = ["json"] }
 
 # Windows process management
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser"] }
+winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd"] }
 
 # QR code generation for lock screen
 qrcode = "0.13"
+
+# Cross-platform directory paths (Documents, etc.)
+dirs-next = "2"

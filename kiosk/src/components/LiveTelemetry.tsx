@@ -48,7 +48,7 @@ export function LiveTelemetry({ telemetry }: LiveTelemetryProps) {
 
       {/* RPM bar */}
       <div>
-        <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+        <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-100 ${
               rpmPercent > 90 ? "bg-rp-red" : rpmPercent > 70 ? "bg-amber-500" : "bg-green-500"
@@ -59,6 +59,34 @@ export function LiveTelemetry({ telemetry }: LiveTelemetryProps) {
         <p className="text-[9px] text-rp-grey mt-0.5 text-right tabular-nums">
           {telemetry.rpm.toLocaleString()} RPM
         </p>
+      </div>
+
+      {/* Throttle + Brake bars */}
+      <div className="flex gap-2">
+        <div className="flex-1">
+          <div className="flex justify-between mb-0.5">
+            <span className="text-[9px] text-rp-grey">Throttle</span>
+            <span className="text-[9px] text-rp-grey tabular-nums">{Math.round(telemetry.throttle * 100)}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full bg-green-500 transition-all duration-100"
+              style={{ width: `${Math.min(100, telemetry.throttle * 100)}%` }}
+            />
+          </div>
+        </div>
+        <div className="flex-1">
+          <div className="flex justify-between mb-0.5">
+            <span className="text-[9px] text-rp-grey">Brake</span>
+            <span className="text-[9px] text-rp-grey tabular-nums">{Math.round(telemetry.brake * 100)}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full bg-rp-red transition-all duration-100"
+              style={{ width: `${Math.min(100, telemetry.brake * 100)}%` }}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Track + Car */}

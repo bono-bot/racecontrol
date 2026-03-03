@@ -1,3 +1,4 @@
+mod ac_launcher;
 mod ai_debugger;
 mod driving_detector;
 mod game_process;
@@ -39,7 +40,23 @@ struct AgentConfig {
     games: GamesConfig,
     #[serde(default)]
     ai_debugger: AiDebuggerConfig,
+    #[serde(default)]
+    kiosk: KioskConfig,
 }
+
+#[derive(Debug, Deserialize)]
+struct KioskConfig {
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+impl Default for KioskConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+fn default_true() -> bool { true }
 
 #[derive(Debug, Default, Deserialize)]
 struct GamesConfig {
@@ -129,9 +146,9 @@ async fn main() -> Result<()> {
     tracing::info!("Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
     tracing::info!("Core server: {}", config.core.url);
 
-    let pod_id = uuid::Uuid::new_v4().to_string();
+    let pod_id = format!("pod_{}", config.pod.number);
     let sim_type = match config.pod.sim.as_str() {
-        "assetto_corsa" | "ac" => SimType::AssettocCorsa,
+        "assetto_corsa" | "ac" => SimType::AssettoCorsa,
         "iracing" => SimType::IRacing,
         "lmu" | "le_mans_ultimate" => SimType::LeMansUltimate,
         "f1_25" | "f1" => SimType::F125,
@@ -173,7 +190,7 @@ async fn main() -> Result<()> {
 
     // Create sim adapter
     let mut adapter: Box<dyn SimAdapter> = match sim_type {
-        SimType::AssettocCorsa => Box::new(AssettoCorsaAdapter::new(
+        SimType::AssettoCorsa => Box::new(AssettoCorsaAdapter::new(
             pod_id.clone(),
             config.pod.sim_ip.clone(),
             config.pod.sim_port,
@@ -240,13 +257,21 @@ async fn main() -> Result<()> {
     let (ai_result_tx, mut ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
 
     // Kiosk mode — prevent unauthorized desktop access on gaming PCs
+    let kiosk_enabled = config.kiosk.enabled;
     let kiosk = KioskManager::new();
-    kiosk.activate();
+    if kiosk_enabled {
+        kiosk.activate();
+        tracing::info!("Kiosk mode ENABLED");
+    } else {
+        tracing::info!("Kiosk mode DISABLED (set kiosk.enabled=true in config to enable)");
+    }
 
     // Lock screen for customer authentication (PIN / QR)
+    // Always start the lock screen server so customers can enter PINs
     let (lock_event_tx, mut lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
     let mut lock_screen = LockScreenManager::new(lock_event_tx);
     lock_screen.start_server();
+    tracing::info!("Lock screen server started on port 18923");
 
     // Main loop
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(5));
@@ -260,7 +285,7 @@ async fn main() -> Result<()> {
         tokio::select! {
             _ = heartbeat_interval.tick() => {
                 let hb = AgentMessage::Heartbeat(PodInfo {
-                    status: if adapter.is_connected() { PodStatus::InSession } else { PodStatus::Idle },
+                    status: PodStatus::Idle, // billing state is managed by rc-core, not agent
                     last_seen: Some(Utc::now()),
                     driving_state: Some(detector.state()),
                     game_state: game_process.as_ref().map(|g| g.state),
@@ -410,7 +435,9 @@ async fn main() -> Result<()> {
             }
             // Kiosk enforcement — kill unauthorized processes
             _ = kiosk_interval.tick() => {
-                kiosk.enforce_process_whitelist();
+                if kiosk_enabled {
+                    kiosk.enforce_process_whitelist();
+                }
             }
             // Lock screen events (customer submitted PIN)
             Some(event) = lock_event_rx.recv() => {
@@ -434,54 +461,152 @@ async fn main() -> Result<()> {
                             match core_msg {
                                 rc_common::protocol::CoreToAgentMessage::BillingStarted { billing_session_id, driver_name, allocated_seconds } => {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
+                                    lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
+                                }
+                                rc_common::protocol::CoreToAgentMessage::BillingTick { remaining_seconds, allocated_seconds: _, driver_name: _ } => {
+                                    lock_screen.update_remaining(remaining_seconds);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingStopped { billing_session_id } => {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
+                                    lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
                                     tracing::info!("Launching game: {:?} (args: {:?})", launch_sim, launch_args);
-                                    let base_config = match launch_sim {
-                                        SimType::AssettocCorsa => &config.games.assetto_corsa,
-                                        SimType::IRacing => &config.games.iracing,
-                                        SimType::F125 => &config.games.f1_25,
-                                        SimType::LeMansUltimate => &config.games.le_mans_ultimate,
-                                        SimType::Forza => &config.games.forza,
-                                    };
 
-                                    // Merge runtime launch_args into config
-                                    let mut game_config = base_config.clone();
-                                    if let Some(args) = launch_args {
-                                        game_config.args = Some(args);
-                                    }
+                                    // AC gets special handling: kill → write race.ini → launch → restart Conspit
+                                    if launch_sim == SimType::AssettoCorsa {
+                                        // Disconnect telemetry adapter before killing AC
+                                        adapter.disconnect();
 
-                                    match game_process::GameProcess::launch(&game_config, launch_sim) {
-                                        Ok(gp) => {
-                                            let info = GameLaunchInfo {
-                                                pod_id: pod_id.clone(),
-                                                sim_type: launch_sim,
-                                                game_state: GameState::Launching,
-                                                pid: gp.pid,
-                                                launched_at: Some(Utc::now()),
-                                                error_message: None,
-                                            };
-                                            game_process = Some(gp);
-                                            let msg = AgentMessage::GameStateUpdate(info);
-                                            let json = serde_json::to_string(&msg)?;
-                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        // Parse launch params from JSON
+                                        let params: ac_launcher::AcLaunchParams = match &launch_args {
+                                            Some(args) => serde_json::from_str(args).unwrap_or(ac_launcher::AcLaunchParams {
+                                                car: "ks_ferrari_sf15t".to_string(),
+                                                track: "spa".to_string(),
+                                                driver: "Driver".to_string(),
+                                                track_config: String::new(),
+                                                skin: "00_default".to_string(),
+                                            }),
+                                            None => ac_launcher::AcLaunchParams {
+                                                car: "ks_ferrari_sf15t".to_string(),
+                                                track: "spa".to_string(),
+                                                driver: "Driver".to_string(),
+                                                track_config: String::new(),
+                                                skin: "00_default".to_string(),
+                                            },
+                                        };
+
+                                        // Send "launching" state
+                                        let info = GameLaunchInfo {
+                                            pod_id: pod_id.clone(),
+                                            sim_type: launch_sim,
+                                            game_state: GameState::Launching,
+                                            pid: None,
+                                            launched_at: Some(Utc::now()),
+                                            error_message: None,
+                                        };
+                                        let msg = AgentMessage::GameStateUpdate(info);
+                                        let json_str = serde_json::to_string(&msg)?;
+                                        let _ = ws_tx.send(Message::Text(json_str.into())).await;
+
+                                        // Run blocking launch sequence in spawn_blocking
+                                        let pod_id_clone = pod_id.clone();
+                                        let launch_result = tokio::task::spawn_blocking(move || {
+                                            ac_launcher::launch_ac(&params)
+                                        }).await;
+
+                                        let launch_result = match launch_result {
+                                            Ok(r) => r,
+                                            Err(e) => {
+                                                tracing::error!("AC launch task panicked: {}", e);
+                                                Err(anyhow::anyhow!("Launch task panicked: {}", e))
+                                            }
+                                        };
+
+                                        match launch_result {
+                                            Ok(pid) => {
+                                                let info = GameLaunchInfo {
+                                                    pod_id: pod_id_clone,
+                                                    sim_type: launch_sim,
+                                                    game_state: GameState::Running,
+                                                    pid: Some(pid),
+                                                    launched_at: Some(Utc::now()),
+                                                    error_message: None,
+                                                };
+                                                game_process = Some(game_process::GameProcess {
+                                                    sim_type: launch_sim,
+                                                    state: GameState::Running,
+                                                    child: None,
+                                                    pid: Some(pid),
+                                                    last_exit_code: None,
+                                                });
+                                                let msg = AgentMessage::GameStateUpdate(info);
+                                                let json_str = serde_json::to_string(&msg)?;
+                                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+
+                                                // Reconnect telemetry adapter to new AC instance
+                                                match adapter.connect() {
+                                                    Ok(()) => tracing::info!("Reconnected to AC telemetry"),
+                                                    Err(e) => tracing::warn!("Could not reconnect telemetry: {}", e),
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("AC launch failed: {}", e);
+                                                let info = GameLaunchInfo {
+                                                    pod_id: pod_id_clone,
+                                                    sim_type: launch_sim,
+                                                    game_state: GameState::Error,
+                                                    pid: None,
+                                                    launched_at: None,
+                                                    error_message: Some(e.to_string()),
+                                                };
+                                                let msg = AgentMessage::GameStateUpdate(info);
+                                                let json_str = serde_json::to_string(&msg)?;
+                                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                                            }
                                         }
-                                        Err(e) => {
-                                            tracing::error!("Failed to launch {:?}: {}", launch_sim, e);
-                                            let info = GameLaunchInfo {
-                                                pod_id: pod_id.clone(),
-                                                sim_type: launch_sim,
-                                                game_state: GameState::Error,
-                                                pid: None,
-                                                launched_at: None,
-                                                error_message: Some(e.to_string()),
-                                            };
-                                            let msg = AgentMessage::GameStateUpdate(info);
-                                            let json = serde_json::to_string(&msg)?;
-                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                    } else {
+                                        // Generic launch for other sims
+                                        let base_config = match launch_sim {
+                                            SimType::AssettoCorsa => &config.games.assetto_corsa,
+                                            SimType::IRacing => &config.games.iracing,
+                                            SimType::F125 => &config.games.f1_25,
+                                            SimType::LeMansUltimate => &config.games.le_mans_ultimate,
+                                            SimType::Forza => &config.games.forza,
+                                        };
+                                        let mut game_config = base_config.clone();
+                                        if let Some(args) = launch_args {
+                                            game_config.args = Some(args);
+                                        }
+                                        match game_process::GameProcess::launch(&game_config, launch_sim) {
+                                            Ok(gp) => {
+                                                let info = GameLaunchInfo {
+                                                    pod_id: pod_id.clone(),
+                                                    sim_type: launch_sim,
+                                                    game_state: GameState::Launching,
+                                                    pid: gp.pid,
+                                                    launched_at: Some(Utc::now()),
+                                                    error_message: None,
+                                                };
+                                                game_process = Some(gp);
+                                                let msg = AgentMessage::GameStateUpdate(info);
+                                                let json_str = serde_json::to_string(&msg)?;
+                                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("Failed to launch {:?}: {}", launch_sim, e);
+                                                let info = GameLaunchInfo {
+                                                    pod_id: pod_id.clone(),
+                                                    sim_type: launch_sim,
+                                                    game_state: GameState::Error,
+                                                    pid: None,
+                                                    launched_at: None,
+                                                    error_message: Some(e.to_string()),
+                                                };
+                                                let msg = AgentMessage::GameStateUpdate(info);
+                                                let json_str = serde_json::to_string(&msg)?;
+                                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                                            }
                                         }
                                     }
                                 }
@@ -544,8 +669,10 @@ async fn main() -> Result<()> {
         }
     }
 
-    kiosk.deactivate();
-    lock_screen.clear();
+    if kiosk_enabled {
+        kiosk.deactivate();
+        lock_screen.clear();
+    }
     adapter.disconnect();
     Ok(())
 }
@@ -577,6 +704,7 @@ fn load_config() -> Result<AgentConfig> {
         telemetry_ports: TelemetryPortsConfig::default(),
         games: GamesConfig::default(),
         ai_debugger: AiDebuggerConfig::default(),
+        kiosk: KioskConfig::default(),
     })
 }
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SimType {
-    AssettocCorsa,
+    AssettoCorsa,
     IRacing,
     LeMansUltimate,
     F125,
@@ -16,7 +16,7 @@ pub enum SimType {
 impl std::fmt::Display for SimType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SimType::AssettocCorsa => write!(f, "Assetto Corsa"),
+            SimType::AssettoCorsa => write!(f, "Assetto Corsa"),
             SimType::IRacing => write!(f, "iRacing"),
             SimType::LeMansUltimate => write!(f, "Le Mans Ultimate"),
             SimType::F125 => write!(f, "F1 25"),

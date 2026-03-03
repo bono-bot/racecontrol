@@ -7,7 +7,7 @@ import { KioskPodCard } from "@/components/KioskPodCard";
 import { DriverRegistration } from "@/components/DriverRegistration";
 import { ExperienceSelector } from "@/components/ExperienceSelector";
 import { api } from "@/lib/api";
-import type { KioskExperience } from "@/lib/types";
+import type { KioskExperience, AuthTokenInfo } from "@/lib/types";
 
 export default function StaffTerminal() {
   const {
@@ -45,8 +45,15 @@ export default function StaffTerminal() {
 
   const handleSelectExperience = async (experience: KioskExperience) => {
     if (!experiencePodId) return;
-    // Launch the game for this pod with the experience config
-    await api.launchGame(experiencePodId, experience.game);
+    // Build launch_args JSON with car/track for AC launcher
+    const launchArgs = JSON.stringify({
+      car: experience.car,
+      track: experience.track,
+      driver: billingTimers.get(experiencePodId)?.driver_name || "Driver",
+      track_config: "",
+      skin: "00_default",
+    });
+    await api.launchGame(experiencePodId, experience.game, launchArgs);
     setExperiencePodId(null);
   };
 
@@ -71,6 +78,17 @@ export default function StaffTerminal() {
 
   const handleCancelAssignment = (tokenId: string) => {
     sendCommand("cancel_assignment", { token_id: tokenId });
+  };
+
+  const handleStartNow = async (authToken: AuthTokenInfo) => {
+    // Start billing immediately (skip PIN auth on pod)
+    await api.startBilling({
+      pod_id: authToken.pod_id,
+      driver_id: authToken.driver_id,
+      pricing_tier_id: authToken.pricing_tier_id,
+    });
+    // Open experience selector for this pod
+    setExperiencePodId(authToken.pod_id);
   };
 
   return (
@@ -103,6 +121,8 @@ export default function StaffTerminal() {
                 onResumeSession={handleResumeSession}
                 onExtendSession={handleExtendSession}
                 onCancelAssignment={handleCancelAssignment}
+                onLaunchGame={(podId) => setExperiencePodId(podId)}
+                onStartNow={handleStartNow}
               />
             ))}
           </div>

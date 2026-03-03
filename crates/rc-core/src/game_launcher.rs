@@ -68,18 +68,14 @@ async fn launch_game(
     sim_type: SimType,
     launch_args: Option<String>,
 ) {
-    // Check if a game is already running on this pod
+    // Check if a game is currently launching (avoid double-launch race)
     {
         let games = state.game_launcher.active_games.read().await;
         if let Some(tracker) = games.get(pod_id) {
-            if matches!(
-                tracker.game_state,
-                GameState::Running | GameState::Launching
-            ) {
+            if matches!(tracker.game_state, GameState::Launching) {
                 tracing::warn!(
-                    "Pod {} already has a game in state {:?}",
-                    pod_id,
-                    tracker.game_state
+                    "Pod {} already launching a game, ignoring",
+                    pod_id
                 );
                 return;
             }

@@ -368,7 +368,7 @@ pub async fn start_ac_server(
     for pod_id in &pod_ids {
         if let Some(sender) = agent_senders.get(pod_id) {
             let cmd = CoreToAgentMessage::LaunchGame {
-                sim_type: SimType::AssettocCorsa,
+                sim_type: SimType::AssettoCorsa,
                 launch_args: Some(join_url.clone()),
             };
             let _ = sender.send(cmd).await;

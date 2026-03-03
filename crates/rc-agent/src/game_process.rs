@@ -161,7 +161,7 @@ impl GameProcess {
 /// Known process names per sim type (for Steam-launched games)
 fn process_names(sim_type: SimType) -> &'static [&'static str] {
     match sim_type {
-        SimType::AssettocCorsa => &["acs.exe", "AssettoCorsa.exe"],
+        SimType::AssettoCorsa => &["acs.exe", "AssettoCorsa.exe"],
         SimType::IRacing => &["iRacingSim64DX11.exe", "iRacingService.exe"],
         SimType::F125 => &["F1_25.exe"],
         SimType::LeMansUltimate => &["LMU.exe", "Le Mans Ultimate.exe"],

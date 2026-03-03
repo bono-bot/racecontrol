@@ -97,6 +97,13 @@ pub enum CoreToAgentMessage {
 
     /// Clear/dismiss the lock screen
     ClearLockScreen,
+
+    /// Billing timer tick — sent every second to update pod lock screen countdown
+    BillingTick {
+        remaining_seconds: u32,
+        allocated_seconds: u32,
+        driver_name: String,
+    },
 }
 
 /// Messages sent from Core Server → Web Dashboard

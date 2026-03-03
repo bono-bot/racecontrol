@@ -30,6 +30,15 @@ export const api = {
 
   // Billing
   activeBillingSessions: () => fetchApi<{ sessions: BillingSession[] }>("/billing/active"),
+  startBilling: (data: {
+    pod_id: string;
+    driver_id: string;
+    pricing_tier_id: string;
+  }) =>
+    fetchApi<{ ok: boolean }>("/billing/start", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 
   // Auth
   assignCustomer: (data: {
