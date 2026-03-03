@@ -478,6 +478,71 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Kiosk tables ─────────────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS kiosk_experiences (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            game TEXT NOT NULL,
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            car_class TEXT,
+            duration_minutes INTEGER NOT NULL,
+            start_type TEXT DEFAULT 'pitlane',
+            ac_preset_id TEXT,
+            sort_order INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS kiosk_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed default kiosk experiences (Assetto Corsa — Spa)
+    sqlx::query(
+        "INSERT OR IGNORE INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, sort_order)
+         VALUES
+            ('exp_spa_f1_30', 'Spa Hot Lap — F1', 'assetto_corsa', 'spa', 'ferrari_sf15t', 'A', 30, 'pitlane', 1),
+            ('exp_spa_f1_60', 'Spa Hot Lap — F1 (Long)', 'assetto_corsa', 'spa', 'ferrari_sf15t', 'A', 60, 'pitlane', 2),
+            ('exp_spa_gt3_30', 'Spa Hot Lap — GT3', 'assetto_corsa', 'spa', 'mclaren_p1_gtr', 'B', 30, 'pitlane', 3),
+            ('exp_spa_gt4_30', 'Spa Hot Lap — GT4', 'assetto_corsa', 'spa', 'audi_r8_lms', 'C', 30, 'pitlane', 4),
+            ('exp_spa_road_30', 'Spa Hot Lap — Road', 'assetto_corsa', 'spa', 'lotus_3_eleven', 'D', 30, 'pitlane', 5),
+            ('exp_trial', 'Trial Lap', 'assetto_corsa', 'spa', 'ferrari_sf15t', 'A', 5, 'pitlane', 0)",
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed default kiosk settings
+    sqlx::query(
+        "INSERT OR IGNORE INTO kiosk_settings (key, value)
+         VALUES
+            ('venue_name', 'Racing Point'),
+            ('tagline', 'May the Fastest Win.'),
+            ('business_hours_start', '10:00'),
+            ('business_hours_end', '22:00'),
+            ('spectator_auto_rotate', 'true'),
+            ('spectator_show_leaderboard', 'true')",
+    )
+    .execute(pool)
+    .await?;
+
+    // Kiosk indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_kiosk_exp_game ON kiosk_experiences(game)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_kiosk_exp_active ON kiosk_experiences(is_active, sort_order)")
+        .execute(pool)
+        .await?;
+
     // ─── AI suggestions table ─────────────────────────────────────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS ai_suggestions (

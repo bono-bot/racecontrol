@@ -89,6 +89,10 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/waivers", get(list_waivers))
         .route("/waivers/check", get(check_waiver))
         .route("/waivers/{driver_id}/signature", get(get_waiver_signature))
+        // Kiosk
+        .route("/kiosk/experiences", get(list_kiosk_experiences).post(create_kiosk_experience))
+        .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
+        .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
         // AI Chat
         .route("/ai/chat", post(ai_chat))
         .route("/customer/ai/chat", post(customer_ai_chat))
@@ -1180,11 +1184,25 @@ async fn customer_verify_otp(
     Json(req): Json<VerifyOtpRequest>,
 ) -> Json<Value> {
     match auth::verify_otp(&state, &req.phone, &req.otp).await {
-        Ok((jwt, registration_completed)) => Json(json!({
-            "status": "ok",
-            "token": jwt,
-            "registration_completed": registration_completed,
-        })),
+        Ok(jwt) => {
+            // Check registration status
+            let registered = sqlx::query_as::<_, (bool,)>(
+                "SELECT COALESCE(registration_completed, 0) FROM drivers WHERE phone = ?",
+            )
+            .bind(&req.phone)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.0)
+            .unwrap_or(false);
+
+            Json(json!({
+                "status": "ok",
+                "token": jwt,
+                "registration_completed": registered,
+            }))
+        }
         Err(e) => Json(json!({ "error": e })),
     }
 }
@@ -1795,4 +1813,232 @@ async fn dismiss_ai_suggestion(
         Ok(_) => Json(json!({ "error": "Suggestion not found" })),
         Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
     }
+}
+
+// ─── Kiosk ──────────────────────────────────────────────────────────────────
+
+async fn list_kiosk_experiences(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64, String, Option<String>, i64, i64)>(
+        "SELECT id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, is_active
+         FROM kiosk_experiences WHERE is_active = 1 ORDER BY sort_order ASC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(experiences) => {
+            let list: Vec<Value> = experiences
+                .iter()
+                .map(|e| {
+                    json!({
+                        "id": e.0, "name": e.1, "game": e.2,
+                        "track": e.3, "car": e.4, "car_class": e.5,
+                        "duration_minutes": e.6, "start_type": e.7,
+                        "ac_preset_id": e.8, "sort_order": e.9,
+                        "is_active": e.10 != 0,
+                    })
+                })
+                .collect();
+            Json(json!({ "experiences": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn create_kiosk_experience(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("New Experience");
+    let game = body.get("game").and_then(|v| v.as_str()).unwrap_or("assetto_corsa");
+    let track = body.get("track").and_then(|v| v.as_str()).unwrap_or("spa");
+    let car = body.get("car").and_then(|v| v.as_str()).unwrap_or("ks_ferrari_sf15t");
+    let car_class = body.get("car_class").and_then(|v| v.as_str());
+    let duration_minutes = body.get("duration_minutes").and_then(|v| v.as_i64()).unwrap_or(30);
+    let start_type = body.get("start_type").and_then(|v| v.as_str()).unwrap_or("pitlane");
+    let ac_preset_id = body.get("ac_preset_id").and_then(|v| v.as_str());
+    let sort_order = body.get("sort_order").and_then(|v| v.as_i64()).unwrap_or(10);
+
+    let result = sqlx::query(
+        "INSERT INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(name)
+    .bind(game)
+    .bind(track)
+    .bind(car)
+    .bind(car_class)
+    .bind(duration_minutes)
+    .bind(start_type)
+    .bind(ac_preset_id)
+    .bind(sort_order)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => Json(json!({ "id": id, "name": name })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn get_kiosk_experience(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let row = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64, String, Option<String>, i64, i64)>(
+        "SELECT id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, is_active
+         FROM kiosk_experiences WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match row {
+        Ok(Some(e)) => Json(json!({
+            "id": e.0, "name": e.1, "game": e.2,
+            "track": e.3, "car": e.4, "car_class": e.5,
+            "duration_minutes": e.6, "start_type": e.7,
+            "ac_preset_id": e.8, "sort_order": e.9,
+            "is_active": e.10 != 0,
+        })),
+        Ok(None) => Json(json!({ "error": "Experience not found" })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn update_kiosk_experience(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let mut updates = Vec::new();
+    let mut binds: Vec<String> = Vec::new();
+
+    if let Some(v) = body.get("name").and_then(|v| v.as_str()) {
+        updates.push("name = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("game").and_then(|v| v.as_str()) {
+        updates.push("game = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("track").and_then(|v| v.as_str()) {
+        updates.push("track = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("car").and_then(|v| v.as_str()) {
+        updates.push("car = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("car_class").and_then(|v| v.as_str()) {
+        updates.push("car_class = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("duration_minutes").and_then(|v| v.as_i64()) {
+        updates.push("duration_minutes = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("start_type").and_then(|v| v.as_str()) {
+        updates.push("start_type = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("ac_preset_id").and_then(|v| v.as_str()) {
+        updates.push("ac_preset_id = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("sort_order").and_then(|v| v.as_i64()) {
+        updates.push("sort_order = ?");
+        binds.push(v.to_string());
+    }
+    if let Some(v) = body.get("is_active").and_then(|v| v.as_bool()) {
+        updates.push("is_active = ?");
+        binds.push(if v { "1".to_string() } else { "0".to_string() });
+    }
+
+    if updates.is_empty() {
+        return Json(json!({ "error": "No fields to update" }));
+    }
+
+    let query = format!("UPDATE kiosk_experiences SET {} WHERE id = ?", updates.join(", "));
+
+    let mut q = sqlx::query(&query);
+    for b in &binds {
+        q = q.bind(b);
+    }
+    q = q.bind(&id);
+
+    match q.execute(&state.db).await {
+        Ok(r) if r.rows_affected() == 0 => Json(json!({ "error": "Experience not found" })),
+        Ok(_) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn delete_kiosk_experience(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match sqlx::query("UPDATE kiosk_experiences SET is_active = 0 WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+    {
+        Ok(r) if r.rows_affected() > 0 => Json(json!({ "ok": true })),
+        Ok(_) => Json(json!({ "error": "Experience not found" })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn get_kiosk_settings(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String)>(
+        "SELECT key, value FROM kiosk_settings",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(settings) => {
+            let mut map = serde_json::Map::new();
+            for (key, value) in &settings {
+                map.insert(key.clone(), json!(value));
+            }
+            Json(json!({ "settings": map }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn update_kiosk_settings(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let obj = match body.as_object() {
+        Some(o) => o,
+        None => return Json(json!({ "error": "Expected a JSON object of key-value pairs" })),
+    };
+
+    let mut updated = 0;
+    for (key, value) in obj {
+        let val_str = match value.as_str() {
+            Some(s) => s.to_string(),
+            None => value.to_string(),
+        };
+
+        let result = sqlx::query(
+            "INSERT INTO kiosk_settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(&val_str)
+        .execute(&state.db)
+        .await;
+
+        if result.is_ok() {
+            updated += 1;
+        }
+    }
+
+    Json(json!({ "ok": true, "updated": updated }))
 }

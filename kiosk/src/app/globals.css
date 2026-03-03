@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --background: #1A1A1A;
+  --foreground: #FFFFFF;
+  --rp-red: #E10600;
+  --rp-red-light: #FF1A1A;
+  --rp-black: #1A1A1A;
+  --rp-grey: #5A5A5A;
+}
+
+@theme inline {
+  --color-rp-red: #E10600;
+  --color-rp-red-hover: #FF1A1A;
+  --color-rp-black: #1A1A1A;
+  --color-rp-grey: #5A5A5A;
+  --color-rp-card: #222222;
+  --color-rp-border: #333333;
+  --color-rp-surface: #2A2A2A;
+  --font-sans: 'Montserrat', sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Kiosk full-screen — no scrollbar, no select */
+::-webkit-scrollbar {
+  display: none;
+}
+
+/* Pulse animation for connection indicator */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Racing red glow for active pods */
+@keyframes red-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(225, 6, 0, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(225, 6, 0, 0.6); }
+}
+
+.glow-active {
+  animation: red-glow 3s ease-in-out infinite;
+}
