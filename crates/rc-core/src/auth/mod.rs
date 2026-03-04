@@ -729,17 +729,32 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, Stri
     let driver_id = match driver {
         Some((id, _)) => id,
         None => {
-            // Auto-create driver with phone
+            // Auto-create driver with phone + generate customer_id
             let id = Uuid::new_v4().to_string();
+
+            // Get next customer_id sequence number
+            let max_num = sqlx::query_as::<_, (Option<String>,)>(
+                "SELECT MAX(customer_id) FROM drivers WHERE customer_id IS NOT NULL",
+            )
+            .fetch_one(&state.db)
+            .await
+            .ok()
+            .and_then(|r| r.0)
+            .and_then(|s| s.strip_prefix("RP").and_then(|n| n.parse::<u32>().ok()))
+            .unwrap_or(0);
+            let customer_id = format!("RP{:03}", max_num + 1);
+
             sqlx::query(
-                "INSERT INTO drivers (id, name, phone, updated_at) VALUES (?, ?, ?, datetime('now'))",
+                "INSERT INTO drivers (id, name, phone, customer_id, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
             )
             .bind(&id)
             .bind(format!("Customer {}", &phone[phone.len().saturating_sub(4)..]))
             .bind(phone)
+            .bind(&customer_id)
             .execute(&state.db)
             .await
             .map_err(|e| format!("DB error creating driver: {}", e))?;
+            tracing::info!("New customer {} assigned ID {}", id, customer_id);
             id
         }
     };

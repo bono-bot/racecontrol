@@ -712,6 +712,67 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Customer display ID ────────────────────────────────────────────────
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN customer_id TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_customer_id ON drivers(customer_id)")
+        .execute(pool)
+        .await;
+
+    // Backfill customer_id for existing drivers that don't have one
+    let unassigned = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM drivers WHERE customer_id IS NULL ORDER BY created_at ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if !unassigned.is_empty() {
+        // Find the current max customer_id number
+        let max_num = sqlx::query_as::<_, (Option<String>,)>(
+            "SELECT MAX(customer_id) FROM drivers WHERE customer_id IS NOT NULL",
+        )
+        .fetch_one(pool)
+        .await?
+        .0
+        .and_then(|s| s.strip_prefix("RP").and_then(|n| n.parse::<u32>().ok()))
+        .unwrap_or(0);
+
+        for (i, (id,)) in unassigned.iter().enumerate() {
+            let cid = format!("RP{:03}", max_num + 1 + i as u32);
+            let _ = sqlx::query("UPDATE drivers SET customer_id = ? WHERE id = ?")
+                .bind(&cid)
+                .bind(id)
+                .execute(pool)
+                .await;
+        }
+        tracing::info!("Backfilled {} customer IDs", unassigned.len());
+    }
+
+    // ─── Terminal commands table ─────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS terminal_commands (
+            id TEXT PRIMARY KEY,
+            cmd TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            exit_code INTEGER,
+            stdout TEXT,
+            stderr TEXT,
+            timeout_ms INTEGER DEFAULT 30000,
+            created_at TEXT DEFAULT (datetime('now')),
+            started_at TEXT,
+            completed_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_terminal_cmd_status ON terminal_commands(status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_terminal_cmd_created ON terminal_commands(created_at)")
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

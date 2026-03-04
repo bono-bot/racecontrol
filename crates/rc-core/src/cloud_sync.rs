@@ -198,13 +198,14 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
 
     // Upsert — cloud wins for customer-owned fields, preserve local-only fields (otp_code etc.)
     sqlx::query(
-        "INSERT INTO drivers (id, name, email, phone, steam_guid, iracing_id, avatar_url,
+        "INSERT INTO drivers (id, customer_id, name, email, phone, steam_guid, iracing_id, avatar_url,
             total_laps, total_time_ms, has_used_trial, pin_hash, phone_verified,
             dob, waiver_signed, waiver_signed_at, waiver_version,
             guardian_name, guardian_phone, registration_completed, signature_data,
             created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
         ON CONFLICT(id) DO UPDATE SET
+            customer_id = COALESCE(excluded.customer_id, drivers.customer_id),
             name = excluded.name,
             email = excluded.email,
             phone = excluded.phone,
@@ -225,6 +226,7 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
             updated_at = excluded.updated_at",
     )
     .bind(id)
+    .bind(driver.get("customer_id").and_then(|v| v.as_str()))
     .bind(driver.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"))
     .bind(driver.get("email").and_then(|v| v.as_str()))
     .bind(driver.get("phone").and_then(|v| v.as_str()))

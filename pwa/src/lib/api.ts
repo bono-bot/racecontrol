@@ -48,6 +48,7 @@ async function fetchApi<T>(
 
 export interface DriverProfile {
   id: string;
+  customer_id: string | null;
   name: string;
   email: string | null;
   phone: string | null;
@@ -296,4 +297,34 @@ export const api = {
         body: JSON.stringify({ message, history }),
       }
     ),
+
+  // Terminal
+  terminalSubmit: (cmd: string, timeout_ms = 30000) =>
+    fetchApi<{ status?: string; id?: string; error?: string }>(
+      "/terminal/commands",
+      {
+        method: "POST",
+        body: JSON.stringify({ cmd, timeout_ms }),
+        headers: { "x-terminal-secret": "rp-terminal-2026" },
+      }
+    ),
+
+  terminalList: (limit = 50) =>
+    fetchApi<{ commands?: TerminalCommand[]; error?: string }>(
+      `/terminal/commands?limit=${limit}`,
+      { headers: { "x-terminal-secret": "rp-terminal-2026" } }
+    ),
 };
+
+export interface TerminalCommand {
+  id: string;
+  cmd: string;
+  status: string;
+  exit_code: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  timeout_ms: number;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}

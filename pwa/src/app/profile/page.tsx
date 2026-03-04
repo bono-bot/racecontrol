@@ -53,6 +53,9 @@ export default function ProfilePage() {
                 <h2 className="text-xl font-bold text-white">
                   {profile.name}
                 </h2>
+                {profile.customer_id && (
+                  <p className="text-xs font-mono text-rp-red">{profile.customer_id}</p>
+                )}
                 <p className="text-sm text-rp-grey">
                   {profile.phone || profile.email || "No contact info"}
                 </p>

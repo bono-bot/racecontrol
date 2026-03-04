@@ -122,6 +122,10 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Cloud sync
         .route("/sync/changes", get(sync_changes))
         .route("/sync/health", get(sync_health))
+        // Terminal (remote command execution)
+        .route("/terminal/commands", get(terminal_list).post(terminal_submit))
+        .route("/terminal/commands/pending", get(terminal_pending))
+        .route("/terminal/commands/{id}/result", post(terminal_result))
 }
 
 async fn health() -> Json<Value> {
@@ -1567,8 +1571,8 @@ async fn customer_profile(
         Err(e) => return Json(json!({ "error": e })),
     };
 
-    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, bool)>(
-        "SELECT id, name, email, phone, total_laps, total_time_ms, COALESCE(has_used_trial, 0) FROM drivers WHERE id = ?",
+    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, bool, Option<String>)>(
+        "SELECT id, name, email, phone, total_laps, total_time_ms, COALESCE(has_used_trial, 0), customer_id FROM drivers WHERE id = ?",
     )
     .bind(&driver_id)
     .fetch_optional(&state.db)
@@ -1582,6 +1586,7 @@ async fn customer_profile(
             Json(json!({
                 "driver": {
                     "id": d.0,
+                    "customer_id": d.7,
                     "name": d.1,
                     "email": d.2,
                     "phone": d.3,
@@ -3114,7 +3119,8 @@ async fn sync_changes(
             "drivers" => {
                 let rows = sqlx::query_as::<_, (String,)>(
                     "SELECT json_object(
-                        'id', id, 'name', name, 'email', email, 'phone', phone,
+                        'id', id, 'customer_id', customer_id,
+                        'name', name, 'email', email, 'phone', phone,
                         'steam_guid', steam_guid, 'iracing_id', iracing_id,
                         'avatar_url', avatar_url, 'total_laps', total_laps,
                         'total_time_ms', total_time_ms,
@@ -3260,4 +3266,174 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "cloud_api_url": state.config.cloud.api_url,
         "sync_state": sync_info,
     }))
+}
+
+// ─── Terminal (remote command execution) ─────────────────────────────────────
+
+fn check_terminal_secret(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), String> {
+    let secret = state.config.cloud.terminal_secret.as_deref();
+    if secret.is_none() {
+        return Ok(()); // No secret configured = open access (local dev)
+    }
+    let provided = headers
+        .get("x-terminal-secret")
+        .and_then(|v| v.to_str().ok());
+    if provided == secret {
+        Ok(())
+    } else {
+        Err("Invalid or missing terminal secret".to_string())
+    }
+}
+
+#[derive(Deserialize)]
+struct TerminalSubmitRequest {
+    cmd: String,
+    timeout_ms: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct TerminalResultRequest {
+    exit_code: Option<i64>,
+    stdout: Option<String>,
+    stderr: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TerminalListQuery {
+    limit: Option<i64>,
+}
+
+async fn terminal_submit(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<TerminalSubmitRequest>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_secret(&state, &headers) {
+        return Json(json!({ "error": e }));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let timeout_ms = req.timeout_ms.unwrap_or(30000).min(120000);
+
+    let result = sqlx::query(
+        "INSERT INTO terminal_commands (id, cmd, status, timeout_ms) VALUES (?, ?, 'pending', ?)",
+    )
+    .bind(&id)
+    .bind(&req.cmd)
+    .bind(timeout_ms)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            tracing::info!("Terminal command queued: {} ({})", id, req.cmd);
+            Json(json!({ "status": "queued", "id": id }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn terminal_list(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<TerminalListQuery>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_secret(&state, &headers) {
+        return Json(json!({ "error": e }));
+    }
+
+    let limit = params.limit.unwrap_or(50).min(200);
+
+    let rows = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'cmd', cmd, 'status', status,
+            'exit_code', exit_code, 'stdout', stdout, 'stderr', stderr,
+            'timeout_ms', timeout_ms,
+            'created_at', created_at, 'started_at', started_at, 'completed_at', completed_at
+        ) FROM terminal_commands
+        ORDER BY created_at DESC
+        LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let commands: Vec<Value> = rows
+                .iter()
+                .filter_map(|r| serde_json::from_str(&r.0).ok())
+                .collect();
+            Json(json!({ "commands": commands }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn terminal_pending(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_secret(&state, &headers) {
+        return Json(json!({ "error": e }));
+    }
+
+    let rows = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'cmd', cmd, 'timeout_ms', timeout_ms, 'created_at', created_at
+        ) FROM terminal_commands
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT 10",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let commands: Vec<Value> = rows
+                .iter()
+                .filter_map(|r| serde_json::from_str(&r.0).ok())
+                .collect();
+            Json(json!({ "commands": commands }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+async fn terminal_result(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<TerminalResultRequest>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_secret(&state, &headers) {
+        return Json(json!({ "error": e }));
+    }
+
+    let status = if req.exit_code == Some(124) { "timeout" }
+        else if req.exit_code.is_some() && req.exit_code != Some(0) { "failed" }
+        else { "completed" };
+
+    let result = sqlx::query(
+        "UPDATE terminal_commands SET
+            status = ?, exit_code = ?, stdout = ?, stderr = ?, completed_at = datetime('now')
+         WHERE id = ?",
+    )
+    .bind(status)
+    .bind(req.exit_code)
+    .bind(&req.stdout)
+    .bind(&req.stderr)
+    .bind(&id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() > 0 => {
+            tracing::info!("Terminal command {} completed ({})", id, status);
+            Json(json!({ "status": "ok" }))
+        }
+        Ok(_) => Json(json!({ "error": "Command not found" })),
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
 }

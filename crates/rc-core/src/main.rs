@@ -11,6 +11,7 @@ mod error_aggregator;
 mod game_launcher;
 mod lap_tracker;
 mod pod_reservation;
+mod remote_terminal;
 mod state;
 mod wallet;
 mod ws;
@@ -136,6 +137,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn cloud sync (pulls customer data from cloud rc-core)
     cloud_sync::spawn(state.clone());
+
+    // Spawn remote terminal (polls cloud for commands to execute locally)
+    remote_terminal::spawn(state.clone());
 
     // Build router
     let app = Router::new()

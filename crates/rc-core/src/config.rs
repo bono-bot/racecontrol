@@ -53,6 +53,8 @@ pub struct CloudConfig {
     pub api_url: Option<String>,
     #[serde(default = "default_sync_interval")]
     pub sync_interval_secs: u64,
+    /// Shared secret for terminal command access
+    pub terminal_secret: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
