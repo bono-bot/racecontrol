@@ -34,6 +34,8 @@ pub enum PodStatus {
     Idle,
     InSession,
     Error,
+    /// Admin has intentionally disabled this pod — skip all auto-recovery
+    Disabled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -28,6 +28,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/pods/{id}", get(get_pod))
         .route("/pods/{id}/wake", post(wake_pod))
         .route("/pods/{id}/shutdown", post(shutdown_pod))
+        .route("/pods/{id}/enable", post(enable_pod))
+        .route("/pods/{id}/disable", post(disable_pod))
         .route("/pods/wake-all", post(wake_all_pods))
         .route("/pods/shutdown-all", post(shutdown_all_pods))
         // Drivers
@@ -284,14 +286,46 @@ async fn shutdown_pod(
 
     match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
         Ok(output) => {
-            // Mark pod offline
+            // Mark pod as Disabled — prevents auto-recovery from waking it back up
             if let Some(p) = state.pods.write().await.get_mut(&id) {
-                p.status = PodStatus::Offline;
+                p.status = PodStatus::Disabled;
                 let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(p.clone()));
             }
             Json(json!({ "status": "shutdown_sent", "pod_id": id, "output": output }))
         }
         Err(e) => Json(json!({ "error": format!("Shutdown failed: {}", e) })),
+    }
+}
+
+// POST /pods/{id}/enable — Re-enable a disabled pod (allows auto-recovery)
+async fn enable_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let mut pods = state.pods.write().await;
+    match pods.get_mut(&id) {
+        Some(pod) => {
+            pod.status = PodStatus::Offline;
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            Json(json!({ "status": "enabled", "pod_id": id }))
+        }
+        None => Json(json!({ "error": format!("Pod {} not found", id) })),
+    }
+}
+
+// POST /pods/{id}/disable — Disable a pod (prevents all auto-recovery, no shutdown)
+async fn disable_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let mut pods = state.pods.write().await;
+    match pods.get_mut(&id) {
+        Some(pod) => {
+            pod.status = PodStatus::Disabled;
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            Json(json!({ "status": "disabled", "pod_id": id }))
+        }
+        None => Json(json!({ "error": format!("Pod {} not found", id) })),
     }
 }
 
@@ -319,14 +353,14 @@ async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let mut results = Vec::new();
 
     for pod in &pods {
-        if pod.status == PodStatus::Offline {
-            results.push(json!({ "pod_id": pod.id, "status": "skipped_offline" }));
+        if pod.status == PodStatus::Offline || pod.status == PodStatus::Disabled {
+            results.push(json!({ "pod_id": pod.id, "status": "skipped" }));
             continue;
         }
         let status = match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
             Ok(_) => {
                 if let Some(p) = state.pods.write().await.get_mut(&pod.id) {
-                    p.status = PodStatus::Offline;
+                    p.status = PodStatus::Disabled;
                     let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(p.clone()));
                 }
                 "sent"

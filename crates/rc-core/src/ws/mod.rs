@@ -175,6 +175,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             if let Some(pod) = state.pods.write().await.get_mut(pod_id) {
+                                // Don't overwrite Disabled — admin intentionally shut it down
+                                if pod.status == rc_common::types::PodStatus::Disabled {
+                                    break;
+                                }
                                 pod.status = rc_common::types::PodStatus::Offline;
                                 pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
                                 pod.game_state = Some(GameState::Idle);
@@ -207,7 +211,9 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
 
         // Mark pod offline on ungraceful disconnect (WebSocket dropped without Disconnect message)
         if let Some(pod) = state.pods.write().await.get_mut(pod_id.as_str()) {
-            if pod.status != rc_common::types::PodStatus::Offline {
+            if pod.status != rc_common::types::PodStatus::Offline
+                && pod.status != rc_common::types::PodStatus::Disabled
+            {
                 tracing::warn!("Pod {} WebSocket dropped without Disconnect — marking Offline", pod_id);
                 pod.status = rc_common::types::PodStatus::Offline;
                 pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);

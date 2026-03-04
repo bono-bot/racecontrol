@@ -70,6 +70,11 @@ async fn check_all_pods(
     let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
 
     for pod in &pods {
+        // Skip disabled pods — admin intentionally shut them down
+        if pod.status == PodStatus::Disabled {
+            continue;
+        }
+
         // Check if heartbeat is stale
         let stale = match pod.last_seen {
             Some(last) => (now - last).num_seconds() > heartbeat_timeout,
