@@ -268,7 +268,7 @@ async fn main() -> Result<()> {
 
     // Kiosk mode — prevent unauthorized desktop access on gaming PCs
     let kiosk_enabled = config.kiosk.enabled;
-    let kiosk = KioskManager::new();
+    let mut kiosk = KioskManager::new();
     if kiosk_enabled {
         kiosk.activate();
         tracing::info!("Kiosk mode ENABLED");
@@ -703,6 +703,11 @@ async fn main() -> Result<()> {
                                 rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {
                                     tracing::info!("Assistance screen for {}: {}", driver_name, message);
                                     lock_screen.show_assistance(driver_name, message);
+                                }
+                                rc_common::protocol::CoreToAgentMessage::EnterDebugMode { employee_name } => {
+                                    tracing::info!("Employee debug mode activated by {}", employee_name);
+                                    kiosk.enter_debug_mode();
+                                    lock_screen.clear();
                                 }
                                 _ => {}
                             }

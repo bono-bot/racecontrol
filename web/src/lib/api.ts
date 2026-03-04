@@ -17,7 +17,10 @@ export const api = {
   getPod: (id: string) => fetchApi<{ pod: Pod }>(`/pods/${id}`),
 
   // Drivers
-  listDrivers: () => fetchApi<{ drivers: Driver[] }>("/drivers"),
+  listDrivers: (search?: string) => {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : "";
+    return fetchApi<{ drivers: Driver[] }>(`/drivers${qs}`);
+  },
   createDriver: (data: Partial<Driver>) =>
     fetchApi<{ id: string; name: string }>("/drivers", {
       method: "POST",
@@ -126,6 +129,13 @@ export const api = {
   pendingAuthTokenForPod: (podId: string) =>
     fetchApi<{ token: AuthTokenInfo | null }>(`/auth/pending/${podId}`),
 
+  // Kiosk PIN validation (no pod_id required)
+  kioskValidatePin: (pin: string) =>
+    fetchApi<KioskPinResponse>("/auth/kiosk/validate-pin", {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
+
   // AC LAN
   listAcPresets: () => fetchApi<{ presets: AcPresetSummary[] }>("/ac/presets"),
   saveAcPreset: (name: string, config: AcLanSessionConfig) =>
@@ -207,9 +217,21 @@ export interface Driver {
   name: string;
   email?: string;
   phone?: string;
+  customer_id?: string;
   steam_guid?: string;
   total_laps: number;
   total_time_ms: number;
+}
+
+export interface KioskPinResponse {
+  status?: string;
+  error?: string;
+  billing_session_id?: string;
+  pod_id?: string;
+  pod_number?: number;
+  driver_name?: string;
+  pricing_tier_name?: string;
+  allocated_seconds?: number;
 }
 
 export interface Session {

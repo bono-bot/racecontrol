@@ -129,6 +129,11 @@ pub enum CoreToAgentMessage {
         driver_name: String,
         message: String,
     },
+
+    /// Enter debug/maintenance mode (employee access — allow Content Manager, no billing)
+    EnterDebugMode {
+        employee_name: String,
+    },
 }
 
 /// Messages sent from Core Server → Web Dashboard

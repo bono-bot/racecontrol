@@ -582,6 +582,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     let _ = sqlx::query("ALTER TABLE auth_tokens ADD COLUMN experience_id TEXT")
         .execute(pool)
         .await;
+    let _ = sqlx::query("ALTER TABLE auth_tokens ADD COLUMN custom_launch_args TEXT")
+        .execute(pool)
+        .await;
 
     // ─── Session feedback ──────────────────────────────────────────────────────
     sqlx::query(
@@ -748,6 +751,11 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         }
         tracing::info!("Backfilled {} customer IDs", unassigned.len());
     }
+
+    // Employee flag
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN is_employee BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
 
     // ─── Terminal commands table ─────────────────────────────────────────────
     sqlx::query(

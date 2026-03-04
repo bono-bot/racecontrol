@@ -88,7 +88,7 @@ const ALLOWED_PROCESSES: &[&str] = &[
     // Sim racing games
     "acs.exe",                     // Assetto Corsa
     "acserver.exe",                // AC dedicated server
-    "content manager.exe",         // Content Manager (AC launcher)
+    // NOTE: "content manager.exe" is NOT here — only allowed in employee debug mode
     "iracing.exe",                 // iRacing
     "iracingservice.exe",
     "iracingsim64dx11.exe",
@@ -107,6 +107,7 @@ const ALLOWED_PROCESSES: &[&str] = &[
 /// Kiosk mode manager.
 pub struct KioskManager {
     active: Arc<AtomicBool>,
+    debug_mode: bool,
     allowed_extra: HashSet<String>,
 }
 
@@ -114,6 +115,7 @@ impl KioskManager {
     pub fn new() -> Self {
         Self {
             active: Arc::new(AtomicBool::new(false)),
+            debug_mode: false,
             allowed_extra: HashSet::new(),
         }
     }
@@ -160,6 +162,24 @@ impl KioskManager {
     /// Remove a process from the extra allow list.
     pub fn disallow_process(&mut self, name: &str) {
         self.allowed_extra.remove(&name.to_lowercase());
+    }
+
+    /// Enter employee debug mode — allows Content Manager and deactivates kiosk restrictions.
+    pub fn enter_debug_mode(&mut self) {
+        self.debug_mode = true;
+        self.deactivate();
+        tracing::info!("Kiosk: EMPLOYEE DEBUG MODE — Content Manager and all apps allowed");
+    }
+
+    /// Exit employee debug mode — re-engages kiosk restrictions.
+    pub fn exit_debug_mode(&mut self) {
+        self.debug_mode = false;
+        tracing::info!("Kiosk: exiting debug mode");
+    }
+
+    /// Check if in debug mode
+    pub fn is_debug_mode(&self) -> bool {
+        self.debug_mode
     }
 
     /// Scan running processes and kill any not on the allow list.

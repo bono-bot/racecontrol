@@ -32,6 +32,7 @@ pub async fn create_auth_token(
     custom_price_paise: Option<u32>,
     custom_duration_minutes: Option<u32>,
     experience_id: Option<String>,
+    custom_launch_args: Option<String>,
 ) -> Result<AuthTokenInfo, String> {
     // Cancel any existing pending token for this pod
     let existing = sqlx::query_as::<_, (String,)>(
@@ -88,8 +89,8 @@ pub async fn create_auth_token(
 
     // Insert into DB
     sqlx::query(
-        "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, custom_price_paise, custom_duration_minutes, experience_id, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)",
+        "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
     )
     .bind(&token_id)
     .bind(&pod_id)
@@ -100,6 +101,7 @@ pub async fn create_auth_token(
     .bind(custom_price_paise.map(|p| p as i64))
     .bind(custom_duration_minutes.map(|m| m as i64))
     .bind(&experience_id)
+    .bind(&custom_launch_args)
     .bind(now.to_rfc3339())
     .bind(expires_at.to_rfc3339())
     .execute(&state.db)
@@ -194,20 +196,35 @@ async fn launch_or_assist(
     pod_id: &str,
     billing_session_id: &str,
     experience_id: &Option<String>,
+    custom_launch_args: &Option<String>,
     driver_name: &str,
 ) -> Option<String> {
-    let exp_id = experience_id.as_ref()?;
-
-    let exp = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT game, track, car FROM kiosk_experiences WHERE id = ?",
-    )
-    .bind(exp_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()?;
-
-    let (game, track, car) = exp;
+    // Determine game/track/car from either custom launch args or experience
+    let (game, track, car, launch_args_json) = if let Some(custom_args) = custom_launch_args {
+        // Custom booking — parse the stored launch_args JSON
+        let parsed: serde_json::Value = serde_json::from_str(custom_args).ok()?;
+        let game = parsed["game"].as_str().unwrap_or("assetto_corsa").to_string();
+        let track = parsed["track"].as_str().unwrap_or("").to_string();
+        let car = parsed["car"].as_str().unwrap_or("").to_string();
+        (game, track, car, custom_args.clone())
+    } else if let Some(exp_id) = experience_id.as_ref() {
+        // Pre-defined experience
+        let exp = sqlx::query_as::<_, (String, String, String)>(
+            "SELECT game, track, car FROM kiosk_experiences WHERE id = ?",
+        )
+        .bind(exp_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()?;
+        let launch_args = serde_json::json!({
+            "car": exp.2, "track": exp.1, "driver": driver_name
+        })
+        .to_string();
+        (exp.0, exp.1, exp.2, launch_args)
+    } else {
+        return None;
+    };
 
     let sim_type = match game.as_str() {
         "assetto_corsa" | "ac" => rc_common::types::SimType::AssettoCorsa,
@@ -243,15 +260,10 @@ async fn launch_or_assist(
             );
         } else {
             // Auto-spawn game
-            let launch_args = serde_json::json!({
-                "car": car, "track": track, "driver": driver_name
-            })
-            .to_string();
-
             let _ = sender
                 .send(CoreToAgentMessage::LaunchGame {
                     sim_type,
-                    launch_args: Some(launch_args),
+                    launch_args: Some(launch_args_json),
                 })
                 .await;
 
@@ -264,6 +276,7 @@ async fn launch_or_assist(
     drop(agent_senders);
 
     // Update billing session with experience info
+    let exp_id = experience_id.as_deref().unwrap_or("");
     let _ = sqlx::query(
         "UPDATE billing_sessions SET experience_id = ?, car = ?, track = ?, sim_type = ? WHERE id = ?",
     )
@@ -285,9 +298,15 @@ pub async fn validate_pin(
     pod_id: String,
     pin: String,
 ) -> Result<String, String> {
+    // Check employee debug PIN first (4-digit daily rotating PIN)
+    let daily_pin = todays_debug_pin(&state.config.auth.jwt_secret);
+    if pin == daily_pin {
+        return validate_employee_pin(state, pod_id, pin).await;
+    }
+
     // Find pending token for this pod with matching PIN
-    let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>)>(
-        "SELECT id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id
+    let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+        "SELECT id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args
          FROM auth_tokens
          WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
            AND expires_at > datetime('now')
@@ -306,6 +325,7 @@ pub async fn validate_pin(
     let custom_price_paise = row.3.map(|p| p as u32);
     let custom_duration_minutes = row.4.map(|m| m as u32);
     let experience_id = row.5;
+    let custom_launch_args = row.6;
 
     // Start billing session
     let billing_session_id = billing::start_billing_session(
@@ -348,7 +368,7 @@ pub async fn validate_pin(
     link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
 
     // Auto-launch game or show assistance screen
-    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &driver_name).await;
+    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -395,15 +415,18 @@ pub async fn validate_qr(
         return Err("QR token is not assigned to this customer".to_string());
     }
 
-    // Fetch experience_id from token
-    let experience_id: Option<String> = sqlx::query_scalar(
-        "SELECT experience_id FROM auth_tokens WHERE id = ?",
+    // Fetch experience_id and custom_launch_args from token
+    let token_extra = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        "SELECT experience_id, custom_launch_args FROM auth_tokens WHERE id = ?",
     )
     .bind(&token_id)
     .fetch_optional(&state.db)
     .await
     .ok()
     .flatten();
+
+    let experience_id = token_extra.as_ref().and_then(|r| r.0.clone());
+    let custom_launch_args = token_extra.as_ref().and_then(|r| r.1.clone());
 
     // Start billing session
     let billing_session_id = billing::start_billing_session(
@@ -446,7 +469,7 @@ pub async fn validate_qr(
     link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
 
     // Auto-launch game or show assistance screen
-    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &driver_name).await;
+    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -469,8 +492,8 @@ pub async fn start_now(
     token_id: String,
 ) -> Result<String, String> {
     // Find the pending token
-    let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>)>(
-        "SELECT pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id
+    let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+        "SELECT pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args
          FROM auth_tokens
          WHERE id = ? AND status = 'pending'
          LIMIT 1",
@@ -487,6 +510,7 @@ pub async fn start_now(
     let custom_price_paise = row.3.map(|p| p as u32);
     let custom_duration_minutes = row.4.map(|m| m as u32);
     let experience_id = row.5;
+    let custom_launch_args = row.6;
 
     // Start billing session
     let billing_session_id = billing::start_billing_session(
@@ -529,7 +553,7 @@ pub async fn start_now(
     link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
 
     // Auto-launch game or show assistance screen
-    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &driver_name).await;
+    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -863,6 +887,7 @@ pub async fn handle_dashboard_command(
                 custom_price_paise,
                 custom_duration_minutes,
                 None, // experience_id — set via REST API
+                None, // custom_launch_args — set via REST API
             )
             .await
             {
@@ -901,4 +926,229 @@ pub async fn handle_pin_entered(state: &Arc<AppState>, pod_id: String, pin: Stri
             tracing::warn!("PIN auth failed on pod {}: {}", pod_id, e);
         }
     }
+}
+
+// ─── Kiosk PIN Validation (no pod_id required) ───────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct KioskPinResult {
+    pub billing_session_id: String,
+    pub pod_id: String,
+    pub pod_number: u32,
+    pub driver_name: String,
+    pub pricing_tier_name: String,
+    pub allocated_seconds: u32,
+}
+
+pub async fn validate_pin_kiosk(
+    state: &Arc<AppState>,
+    pin: String,
+) -> Result<KioskPinResult, String> {
+    // Find ANY pending pin token matching this PIN (across all pods)
+    let row = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+        "SELECT id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args
+         FROM auth_tokens
+         WHERE token = ? AND auth_type = 'pin' AND status = 'pending'
+           AND expires_at > datetime('now')
+         LIMIT 1",
+    )
+    .bind(&pin)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| "Invalid PIN. Please check with reception.".to_string())?;
+
+    let token_id = row.0;
+    let pod_id = row.1;
+    let driver_id = row.2;
+    let pricing_tier_id = row.3.clone();
+    let custom_price_paise = row.4.map(|p| p as u32);
+    let custom_duration_minutes = row.5.map(|m| m as u32);
+    let experience_id = row.6;
+    let custom_launch_args = row.7;
+
+    // Start billing session
+    let billing_session_id = billing::start_billing_session(
+        state,
+        pod_id.clone(),
+        driver_id.clone(),
+        pricing_tier_id.clone(),
+        custom_price_paise,
+        custom_duration_minutes,
+    )
+    .await
+    .ok_or_else(|| "Failed to start billing session".to_string())?;
+
+    // Mark token as consumed
+    let _ = sqlx::query(
+        "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&billing_session_id)
+    .bind(&token_id)
+    .execute(&state.db)
+    .await;
+
+    // Get driver name
+    let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Driver".to_string());
+
+    // Get pricing tier name and duration
+    let tier_row = sqlx::query_as::<_, (String, Option<i64>)>(
+        "SELECT name, duration_minutes FROM pricing_tiers WHERE id = ?",
+    )
+    .bind(&pricing_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let pricing_tier_name = tier_row
+        .as_ref()
+        .map(|r| r.0.clone())
+        .unwrap_or_else(|| "Session".to_string());
+
+    let allocated_seconds = custom_duration_minutes
+        .map(|m| m * 60)
+        .or_else(|| tier_row.as_ref().and_then(|r| r.1.map(|m| m as u32 * 60)))
+        .unwrap_or(0);
+
+    // Get pod number
+    let pod_number: i64 = sqlx::query_scalar("SELECT number FROM pods WHERE id = ?")
+        .bind(&pod_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    // Clear lock screen on agent
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+    }
+    drop(agent_senders);
+
+    // Link reservation to billing session
+    link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
+
+    // Auto-launch game or show assistance screen
+    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
+
+    // Broadcast consumed event
+    let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
+        token_id: token_id.clone(),
+        pod_id: pod_id.clone(),
+        billing_session_id: billing_session_id.clone(),
+    });
+
+    tracing::info!(
+        "Kiosk PIN validated: pod {} (#{}) driver {}, billing session {}",
+        pod_id, pod_number, driver_name, billing_session_id
+    );
+
+    Ok(KioskPinResult {
+        billing_session_id,
+        pod_id,
+        pod_number: pod_number as u32,
+        driver_name,
+        pricing_tier_name,
+        allocated_seconds,
+    })
+}
+
+// ─── Employee Debug PIN ──────────────────────────────────────────────────
+
+/// Generate a deterministic 4-digit daily PIN for employees.
+/// PIN = hash(secret + "YYYY-MM-DD") mod 10_000, formatted as 4 digits.
+/// Changes at midnight UTC each day.
+pub fn generate_daily_pin(secret: &str, date: &str) -> String {
+    let input = format!("{}-employee-debug-{}", secret, date);
+    // Simple hash: sum bytes with position-weighted mixing
+    let mut hash: u64 = 0;
+    for (i, b) in input.bytes().enumerate() {
+        hash = hash.wrapping_mul(31).wrapping_add(b as u64).wrapping_add(i as u64);
+    }
+    // Mix further to avoid patterns
+    hash ^= hash >> 16;
+    hash = hash.wrapping_mul(0x45d9f3b);
+    hash ^= hash >> 16;
+    // 4-digit PIN (1000-9999 range to avoid leading zeros confusion)
+    let pin = (hash % 9000 + 1000) as u32;
+    format!("{:04}", pin)
+}
+
+/// Get today's employee debug PIN
+pub fn todays_debug_pin(secret: &str) -> String {
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    generate_daily_pin(secret, &today)
+}
+
+/// Validate an employee debug PIN on a specific pod.
+/// If valid: clears lock screen, enters debug mode, no billing.
+pub async fn validate_employee_pin(
+    state: &Arc<AppState>,
+    pod_id: String,
+    pin: String,
+) -> Result<String, String> {
+    let expected = todays_debug_pin(&state.config.auth.jwt_secret);
+    if pin != expected {
+        return Err("Invalid employee PIN".to_string());
+    }
+
+    // Clear lock screen and enter debug mode
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        let _ = sender.send(CoreToAgentMessage::EnterDebugMode {
+            employee_name: "Staff".to_string(),
+        }).await;
+    }
+    drop(agent_senders);
+
+    tracing::info!("Employee debug PIN validated on pod {}", pod_id);
+
+    Ok("debug_mode".to_string())
+}
+
+/// Validate employee debug PIN from kiosk (no pod_id — unlock a specific pod chosen by staff).
+pub async fn validate_employee_pin_kiosk(
+    state: &Arc<AppState>,
+    pin: String,
+    pod_id: Option<String>,
+) -> Result<String, String> {
+    let expected = todays_debug_pin(&state.config.auth.jwt_secret);
+    if pin != expected {
+        return Err("Invalid employee PIN".to_string());
+    }
+
+    // If pod_id specified, enter debug mode on that pod
+    if let Some(ref pid) = pod_id {
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(pid) {
+            let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+            let _ = sender.send(CoreToAgentMessage::EnterDebugMode {
+                employee_name: "Staff".to_string(),
+            }).await;
+        }
+        drop(agent_senders);
+        tracing::info!("Employee debug mode on pod {} (kiosk)", pid);
+    }
+
+    Ok("debug_mode".to_string())
+}
+
+/// Check if a driver is an employee
+pub async fn is_employee(state: &Arc<AppState>, driver_id: &str) -> bool {
+    sqlx::query_scalar::<_, bool>("SELECT COALESCE(is_employee, 0) FROM drivers WHERE id = ?")
+        .bind(driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
 }

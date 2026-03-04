@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::ac_server;
 use crate::auth;
 use crate::billing;
+use crate::catalog;
 use crate::game_launcher;
 use crate::pod_reservation;
 use crate::wallet;
@@ -88,6 +89,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/auth/start-now", post(start_now))
         // Auth (agent-facing)
         .route("/auth/validate-pin", post(validate_pin))
+        // Auth (kiosk-facing — no pod_id required)
+        .route("/auth/kiosk/validate-pin", post(kiosk_validate_pin))
         // Auth (PWA-facing)
         .route("/auth/validate-qr", post(validate_qr))
         // Wallet (staff-facing)
@@ -108,6 +111,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/customer/wallet", get(customer_wallet))
         .route("/customer/wallet/transactions", get(customer_wallet_transactions))
         .route("/customer/experiences", get(customer_experiences))
+        .route("/customer/ac/catalog", get(customer_ac_catalog))
         .route("/customer/book", post(customer_book_session))
         .route("/customer/active-reservation", get(customer_active_reservation))
         .route("/customer/end-reservation", post(customer_end_reservation))
@@ -133,6 +137,9 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/terminal/commands", get(terminal_list).post(terminal_submit))
         .route("/terminal/commands/pending", get(terminal_pending))
         .route("/terminal/commands/{id}/result", post(terminal_result))
+        // Employee
+        .route("/employee/daily-pin", get(employee_daily_pin))
+        .route("/employee/debug-unlock", post(employee_debug_unlock))
 }
 
 async fn health() -> Json<Value> {
@@ -373,18 +380,41 @@ async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({ "status": "ok", "results": results }))
 }
 
-async fn list_drivers(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64)>(
-        "SELECT id, name, email, phone, total_laps, total_time_ms FROM drivers ORDER BY name"
-    )
-    .fetch_all(&state.db)
-    .await;
+#[derive(Debug, Deserialize)]
+struct ListDriversQuery {
+    search: Option<String>,
+}
+
+async fn list_drivers(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ListDriversQuery>,
+) -> Json<Value> {
+    let rows = if let Some(ref search) = params.search {
+        let q = format!("%{}%", search);
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>)>(
+            "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id
+             FROM drivers
+             WHERE name LIKE ?1 COLLATE NOCASE OR phone LIKE ?2
+             ORDER BY name LIMIT 20",
+        )
+        .bind(&q)
+        .bind(&q)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>)>(
+            "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id
+             FROM drivers ORDER BY name",
+        )
+        .fetch_all(&state.db)
+        .await
+    };
 
     match rows {
         Ok(drivers) => {
             let list: Vec<Value> = drivers.iter().map(|d| json!({
                 "id": d.0, "name": d.1, "email": d.2, "phone": d.3,
-                "total_laps": d.4, "total_time_ms": d.5,
+                "total_laps": d.4, "total_time_ms": d.5, "customer_id": d.6,
             })).collect();
             Json(json!({ "drivers": list }))
         }
@@ -1540,6 +1570,7 @@ async fn assign_customer(
         req.custom_price_paise,
         req.custom_duration_minutes,
         req.experience_id,
+        None, // custom_launch_args (staff assign doesn't use custom booking)
     )
     .await
     {
@@ -1589,6 +1620,29 @@ async fn validate_pin(
         Ok(billing_session_id) => Json(json!({
             "status": "ok",
             "billing_session_id": billing_session_id,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct KioskValidatePinRequest {
+    pin: String,
+}
+
+async fn kiosk_validate_pin(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<KioskValidatePinRequest>,
+) -> Json<Value> {
+    match auth::validate_pin_kiosk(&state, req.pin).await {
+        Ok(result) => Json(json!({
+            "status": "ok",
+            "billing_session_id": result.billing_session_id,
+            "pod_id": result.pod_id,
+            "pod_number": result.pod_number,
+            "driver_name": result.driver_name,
+            "pricing_tier_name": result.pricing_tier_name,
+            "allocated_seconds": result.allocated_seconds,
         })),
         Err(e) => Json(json!({ "error": e })),
     }
@@ -2569,12 +2623,29 @@ async fn customer_experiences(State(state): State<Arc<AppState>>) -> Json<Value>
     }
 }
 
+// ─── AC Catalog ─────────────────────────────────────────────────────────────
+
+async fn customer_ac_catalog() -> Json<Value> {
+    Json(catalog::get_catalog())
+}
+
 // ─── Customer Booking ───────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+struct CustomBookingOptions {
+    game: String,
+    game_mode: Option<String>,
+    track: String,
+    car: String,
+    difficulty: String,
+    transmission: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct BookSessionRequest {
-    experience_id: String,
+    experience_id: Option<String>,
     pricing_tier_id: String,
+    custom: Option<CustomBookingOptions>,
 }
 
 async fn customer_book_session(
@@ -2686,8 +2757,41 @@ async fn customer_book_session(
         }
     };
 
+    // Validate: must have either experience_id or custom, not both, not neither
+    if req.experience_id.is_none() && req.custom.is_none() {
+        // Refund if we already debited
+        if let (Some(_), Some(amount)) = (&wallet_txn_id, wallet_debit) {
+            let _ = wallet::refund(&state, &driver_id, amount, None, Some("Booking failed — auto-refund")).await;
+        }
+        let _ = pod_reservation::end_reservation(&state, &reservation_id).await;
+        return Json(json!({ "error": "Either experience_id or custom must be provided" }));
+    }
+
+    // Build custom launch args if custom booking
+    let custom_launch_args = req.custom.as_ref().map(|c| {
+        // Get driver name for launch args
+        let driver_name_for_args = "Driver"; // Will be set properly by launch_or_assist
+        catalog::build_custom_launch_args(
+            &c.car, &c.track, driver_name_for_args, &c.difficulty, &c.transmission,
+        ).to_string()
+    });
+
+    // For custom bookings, also embed game info in the launch args
+    let custom_launch_args = if let Some(ref args) = custom_launch_args {
+        if let Some(ref c) = req.custom {
+            let mut parsed: serde_json::Value = serde_json::from_str(args).unwrap_or_default();
+            parsed["game"] = serde_json::json!(c.game);
+            parsed["game_mode"] = serde_json::json!(c.game_mode.as_deref().unwrap_or("single"));
+            Some(parsed.to_string())
+        } else {
+            custom_launch_args
+        }
+    } else {
+        None
+    };
+
     // Create auth token (QR type) for this pod
-    let experience_id = Some(req.experience_id.clone());
+    let experience_id = req.experience_id.clone();
     let qr_token = match auth::create_auth_token(
         &state,
         pod_id.clone(),
@@ -2697,6 +2801,7 @@ async fn customer_book_session(
         None, // custom_price_paise
         None, // custom_duration_minutes
         experience_id,
+        custom_launch_args,
     )
     .await
     {
@@ -3569,5 +3674,54 @@ async fn terminal_result(
         }
         Ok(_) => Json(json!({ "error": "Command not found" })),
         Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
+// ─── Employee Endpoints ──────────────────────────────────────────────────
+
+/// GET /employee/daily-pin — returns today's 4-digit debug PIN (employee-only, JWT auth)
+async fn employee_daily_pin(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Verify employee flag
+    if !auth::is_employee(&state, &driver_id).await {
+        return Json(json!({ "error": "Access denied. Employee account required." }));
+    }
+
+    let pin = auth::todays_debug_pin(&state.config.auth.jwt_secret);
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    Json(json!({
+        "pin": pin,
+        "valid_date": today,
+        "note": "4-digit PIN valid until midnight UTC. Enter on any pod lock screen to unlock debug mode."
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct EmployeeDebugUnlockRequest {
+    pin: String,
+    pod_id: String,
+}
+
+/// POST /employee/debug-unlock — unlock a specific pod in debug mode
+async fn employee_debug_unlock(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<EmployeeDebugUnlockRequest>,
+) -> Json<Value> {
+    match auth::validate_employee_pin_kiosk(&state, req.pin, Some(req.pod_id.clone())).await {
+        Ok(_) => Json(json!({
+            "status": "ok",
+            "pod_id": req.pod_id,
+            "mode": "debug",
+            "message": "Pod unlocked in debug mode. Content Manager access enabled."
+        })),
+        Err(e) => Json(json!({ "error": e })),
     }
 }

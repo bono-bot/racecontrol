@@ -4,6 +4,7 @@ mod ai;
 mod api;
 mod auth;
 mod billing;
+mod catalog;
 mod cloud_sync;
 mod config;
 mod db;
