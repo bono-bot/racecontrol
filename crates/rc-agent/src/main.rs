@@ -165,6 +165,7 @@ async fn main() -> Result<()> {
         number: config.pod.number,
         name: config.pod.name.clone(),
         ip_address: local_ip(),
+        mac_address: None,
         sim_type,
         status: PodStatus::Idle,
         current_driver: None,

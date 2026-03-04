@@ -14,11 +14,15 @@ use crate::state::AppState;
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{DrivingState, GameState, PodInfo, PodStatus};
 
+use crate::wol;
+
 const POD_AGENT_PORT: u16 = 8090;
 const POD_AGENT_TIMEOUT_MS: u64 = 3000;
+const WOL_COOLDOWN_SECS: i64 = 300; // 5 minutes between WoL attempts
 
 struct PodRecoveryState {
     last_restart_attempt: Option<DateTime<Utc>>,
+    last_wol_attempt: Option<DateTime<Utc>>,
     consecutive_failures: u32,
     pod_agent_reachable: bool,
 }
@@ -112,6 +116,7 @@ async fn check_all_pods(
         // Track recovery state
         let rs = recovery.entry(pod.id.clone()).or_insert(PodRecoveryState {
             last_restart_attempt: None,
+            last_wol_attempt: None,
             consecutive_failures: 0,
             pod_agent_reachable: false,
         });
@@ -185,13 +190,28 @@ async fn check_all_pods(
                     rs.consecutive_failures
                 );
 
-                // Alert dashboard — staff needs to physically check this pod
+                // Attempt Wake-on-LAN if MAC address is known and cooldown elapsed
+                if let Some(mac) = &pod.mac_address {
+                    let wol_cooldown_ok = match rs.last_wol_attempt {
+                        Some(last) => (now - last).num_seconds() > WOL_COOLDOWN_SECS,
+                        None => true,
+                    };
+                    if wol_cooldown_ok {
+                        tracing::info!("Pod {} — sending Wake-on-LAN to {}", pod.id, mac);
+                        if let Err(e) = wol::send_wol(mac).await {
+                            tracing::warn!("Pod {} WoL failed: {}", pod.id, e);
+                        }
+                        rs.last_wol_attempt = Some(now);
+                    }
+                }
+
+                // Alert dashboard — staff may need to check this pod
                 let _ = state.dashboard_tx.send(DashboardEvent::AssistanceNeeded {
                     pod_id: pod.id.clone(),
                     driver_name: pod.current_driver.clone().unwrap_or_default(),
                     game: String::new(),
                     reason: format!(
-                        "Pod fully unreachable ({} checks). Both agents appear down. Manual intervention required.",
+                        "Pod fully unreachable ({} checks). WoL sent. Manual intervention may be needed.",
                         rs.consecutive_failures
                     ),
                 });

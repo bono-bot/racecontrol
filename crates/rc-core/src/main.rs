@@ -15,6 +15,7 @@ mod pod_reservation;
 mod remote_terminal;
 mod state;
 mod wallet;
+mod wol;
 mod ws;
 
 use axum::Router;

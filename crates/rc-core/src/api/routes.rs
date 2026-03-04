@@ -14,6 +14,7 @@ use crate::game_launcher;
 use crate::pod_reservation;
 use crate::wallet;
 use crate::state::AppState;
+use crate::wol;
 use rc_common::types::*;
 use rc_common::protocol::DashboardEvent;
 
@@ -25,6 +26,10 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/pods", get(list_pods).post(register_pod))
         .route("/pods/seed", post(seed_pods))
         .route("/pods/{id}", get(get_pod))
+        .route("/pods/{id}/wake", post(wake_pod))
+        .route("/pods/{id}/shutdown", post(shutdown_pod))
+        .route("/pods/wake-all", post(wake_all_pods))
+        .route("/pods/shutdown-all", post(shutdown_all_pods))
         // Drivers
         .route("/drivers", get(list_drivers).post(create_driver))
         .route("/drivers/{id}", get(get_driver))
@@ -181,6 +186,7 @@ async fn register_pod(
         number,
         name,
         ip_address: ip,
+        mac_address: None,
         sim_type,
         status: PodStatus::Idle,
         current_driver: None,
@@ -199,24 +205,26 @@ async fn register_pod(
 }
 
 async fn seed_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
+    // (id, number, name, ip, mac)
     let pod_data = vec![
-        ("pod_1", 1, "Pod 1", "192.168.31.89"),
-        ("pod_2", 2, "Pod 2", "192.168.31.33"),
-        ("pod_3", 3, "Pod 3", "192.168.31.28"),
-        ("pod_4", 4, "Pod 4", "192.168.31.101"),
-        ("pod_5", 5, "Pod 5", "192.168.31.86"),
-        ("pod_6", 6, "Pod 6", "192.168.31.87"),
-        ("pod_7", 7, "Pod 7", "192.168.31.38"),
-        ("pod_8", 8, "Pod 8", "192.168.31.91"),
+        ("pod_1", 1, "Pod 1", "192.168.31.89", "30:56:0F:05:45:88"),
+        ("pod_2", 2, "Pod 2", "192.168.31.33", "30:56:0F:05:46:53"),
+        ("pod_3", 3, "Pod 3", "192.168.31.28", "30:56:0F:05:44:B3"),
+        ("pod_4", 4, "Pod 4", "192.168.31.88", "30:56:0F:05:45:25"),
+        ("pod_5", 5, "Pod 5", "192.168.31.86", "30:56:0F:05:44:B7"),
+        ("pod_6", 6, "Pod 6", "192.168.31.87", "30:56:0F:05:45:6E"),
+        ("pod_7", 7, "Pod 7", "192.168.31.38", "30:56:0F:05:44:B4"),
+        ("pod_8", 8, "Pod 8", "192.168.31.91", "30:56:0F:05:46:C5"),
     ];
 
     let mut pods_created = Vec::new();
-    for (id, number, name, ip) in pod_data {
+    for (id, number, name, ip, mac) in pod_data {
         let pod = PodInfo {
             id: id.to_string(),
             number,
             name: name.to_string(),
             ip_address: ip.to_string(),
+            mac_address: Some(mac.to_string()),
             sim_type: SimType::AssettoCorsa,
             status: PodStatus::Idle,
             current_driver: None,
@@ -237,6 +245,98 @@ async fn seed_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let _ = state.dashboard_tx.send(DashboardEvent::PodList(all_pods));
 
     Json(json!({ "ok": true, "count": pods_created.len() }))
+}
+
+// POST /pods/{id}/wake — Send Wake-on-LAN magic packet
+async fn wake_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let pods = state.pods.read().await;
+    let pod = match pods.get(&id) {
+        Some(p) => p.clone(),
+        None => return Json(json!({ "error": format!("Pod {} not found", id) })),
+    };
+    drop(pods);
+
+    let mac = match &pod.mac_address {
+        Some(m) => m.clone(),
+        None => return Json(json!({ "error": format!("No MAC address for pod {}", id) })),
+    };
+
+    match wol::send_wol(&mac).await {
+        Ok(_) => Json(json!({ "status": "wol_sent", "pod_id": id, "mac": mac })),
+        Err(e) => Json(json!({ "error": format!("WoL failed: {}", e) })),
+    }
+}
+
+// POST /pods/{id}/shutdown — Shutdown pod via pod-agent
+async fn shutdown_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let pods = state.pods.read().await;
+    let pod = match pods.get(&id) {
+        Some(p) => p.clone(),
+        None => return Json(json!({ "error": format!("Pod {} not found", id) })),
+    };
+    drop(pods);
+
+    match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
+        Ok(output) => {
+            // Mark pod offline
+            if let Some(p) = state.pods.write().await.get_mut(&id) {
+                p.status = PodStatus::Offline;
+                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(p.clone()));
+            }
+            Json(json!({ "status": "shutdown_sent", "pod_id": id, "output": output }))
+        }
+        Err(e) => Json(json!({ "error": format!("Shutdown failed: {}", e) })),
+    }
+}
+
+// POST /pods/wake-all — Wake all pods with known MACs
+async fn wake_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
+    let mut results = Vec::new();
+
+    for pod in &pods {
+        if let Some(mac) = &pod.mac_address {
+            let status = match wol::send_wol(mac).await {
+                Ok(_) => "sent",
+                Err(_) => "failed",
+            };
+            results.push(json!({ "pod_id": pod.id, "mac": mac, "status": status }));
+        }
+    }
+
+    Json(json!({ "status": "ok", "results": results }))
+}
+
+// POST /pods/shutdown-all — Shutdown all reachable pods
+async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
+    let mut results = Vec::new();
+
+    for pod in &pods {
+        if pod.status == PodStatus::Offline {
+            results.push(json!({ "pod_id": pod.id, "status": "skipped_offline" }));
+            continue;
+        }
+        let status = match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
+            Ok(_) => {
+                if let Some(p) = state.pods.write().await.get_mut(&pod.id) {
+                    p.status = PodStatus::Offline;
+                    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(p.clone()));
+                }
+                "sent"
+            }
+            Err(_) => "failed",
+        };
+        results.push(json!({ "pod_id": pod.id, "status": status }));
+    }
+
+    Json(json!({ "status": "ok", "results": results }))
 }
 
 async fn list_drivers(State(state): State<Arc<AppState>>) -> Json<Value> {

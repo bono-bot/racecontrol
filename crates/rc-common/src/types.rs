@@ -42,6 +42,8 @@ pub struct PodInfo {
     pub number: u32,
     pub name: String,
     pub ip_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac_address: Option<String>,
     pub sim_type: SimType,
     pub status: PodStatus,
     pub current_driver: Option<String>,
