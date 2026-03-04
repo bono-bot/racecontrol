@@ -188,6 +188,15 @@ async fn main() -> Result<()> {
     ws_tx.send(Message::Text(json.into())).await?;
     tracing::info!("Registered as Pod #{}", config.pod.number);
 
+    // Watchdog: ensure pod-agent.exe stays running
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        loop {
+            watchdog_ensure_running("pod-agent.exe").await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
+    });
+
     // Create sim adapter
     let mut adapter: Box<dyn SimAdapter> = match sim_type {
         SimType::AssettoCorsa => Box::new(AssettoCorsaAdapter::new(
@@ -904,5 +913,37 @@ async fn run_udp_monitor(ports: Vec<u16>, signal_tx: mpsc::Sender<DetectorSignal
         if signal_tx.send(DetectorSignal::UdpIdle).await.is_err() {
             return;
         }
+    }
+}
+
+const WATCHDOG_DIR: &str = r"C:\RacingPoint";
+
+/// Check if an exe is running; if not and it exists on disk, start it.
+async fn watchdog_ensure_running(exe_name: &str) {
+    let exe_path = format!(r"{}\{}", WATCHDOG_DIR, exe_name);
+    if !std::path::Path::new(&exe_path).exists() {
+        return;
+    }
+
+    let output = tokio::process::Command::new("cmd")
+        .args(["/C", &format!("tasklist /NH /FI \"IMAGENAME eq {}\"", exe_name)])
+        .kill_on_drop(true)
+        .output()
+        .await;
+
+    let is_running = match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            stdout.contains(exe_name)
+        }
+        Err(_) => return,
+    };
+
+    if !is_running {
+        tracing::warn!("[watchdog] {} not running — restarting", exe_name);
+        let _ = tokio::process::Command::new("cmd")
+            .args(["/C", &format!("cd /d {} && start /b {}", WATCHDOG_DIR, exe_name)])
+            .kill_on_drop(false)
+            .spawn();
     }
 }
