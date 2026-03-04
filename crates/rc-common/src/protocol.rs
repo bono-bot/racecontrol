@@ -69,6 +69,15 @@ pub enum CoreToAgentMessage {
     /// Notify agent that billing session ended
     BillingStopped { billing_session_id: String },
 
+    /// Session ended — agent should stop game, show summary, then return to idle
+    SessionEnded {
+        billing_session_id: String,
+        driver_name: String,
+        total_laps: u32,
+        best_lap_ms: Option<u32>,
+        driving_seconds: u32,
+    },
+
     /// Command to launch a game on this pod
     LaunchGame {
         sim_type: SimType,
@@ -103,6 +112,22 @@ pub enum CoreToAgentMessage {
         remaining_seconds: u32,
         allocated_seconds: u32,
         driver_name: String,
+    },
+
+    /// Sub-session ended (billing expired but pod has active reservation — multi-session)
+    SubSessionEnded {
+        billing_session_id: String,
+        driver_name: String,
+        total_laps: u32,
+        best_lap_ms: Option<u32>,
+        driving_seconds: u32,
+        wallet_balance_paise: i64,
+    },
+
+    /// Show assistance screen (for games without auto-spawn, e.g. F1 25)
+    ShowAssistanceScreen {
+        driver_name: String,
+        message: String,
     },
 }
 
@@ -182,6 +207,29 @@ pub enum DashboardEvent {
         pod_id: String,
         reason: String,
     },
+
+    /// Pod reservation state changed
+    PodReservationChanged {
+        reservation_id: String,
+        driver_id: String,
+        pod_id: String,
+        status: String,
+    },
+
+    /// A pod needs staff assistance (F1 25 or non-auto-spawn games)
+    AssistanceNeeded {
+        pod_id: String,
+        driver_name: String,
+        game: String,
+        reason: String,
+    },
+
+    /// Camera focus recommendation from automated camera controller
+    CameraFocusUpdate {
+        pod_id: String,
+        driver_name: String,
+        reason: String,
+    },
 }
 
 /// Messages sent from Web Dashboard → Core Server
@@ -259,4 +307,13 @@ pub enum DashboardCommand {
 
     /// Cancel a pending customer assignment
     CancelAssignment { token_id: String },
+
+    /// Acknowledge staff assistance notification
+    AcknowledgeAssistance { pod_id: String },
+
+    /// Set camera control mode
+    SetCameraMode {
+        mode: String,
+        enabled: Option<bool>,
+    },
 }

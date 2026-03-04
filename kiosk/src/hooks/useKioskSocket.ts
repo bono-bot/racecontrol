@@ -18,6 +18,16 @@ interface DashboardEvent {
   data: unknown;
 }
 
+interface AssistanceRequest {
+  pod_id: string;
+  driver_name: string;
+  game: string;
+  reason: string;
+  timestamp: number;
+}
+
+export type { AssistanceRequest };
+
 export function useKioskSocket() {
   const ws = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
@@ -28,6 +38,8 @@ export function useKioskSocket() {
   const [billingWarnings, setBillingWarnings] = useState<BillingWarning[]>([]);
   const [gameStates, setGameStates] = useState<Map<string, GameLaunchInfo>>(new Map());
   const [pendingAuthTokens, setPendingAuthTokens] = useState<Map<string, AuthTokenInfo>>(new Map());
+  const [assistanceRequests, setAssistanceRequests] = useState<AssistanceRequest[]>([]);
+  const [cameraFocus, setCameraFocus] = useState<{ pod_id: string; driver_name: string; reason: string } | null>(null);
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -183,6 +195,38 @@ export function useKioskSocket() {
             });
             break;
           }
+          case "assistance_needed": {
+            const d = msg.data as {
+              pod_id: string;
+              driver_name: string;
+              game: string;
+              reason: string;
+            };
+            setAssistanceRequests((prev) => [
+              ...prev,
+              { ...d, timestamp: Date.now() },
+            ]);
+            break;
+          }
+          case "pod_reservation_changed": {
+            const d = msg.data as {
+              reservation_id: string;
+              driver_id: string;
+              pod_id: string;
+              status: string;
+            };
+            console.log("[Kiosk] Pod reservation changed:", d);
+            break;
+          }
+          case "camera_focus_update": {
+            const d = msg.data as {
+              pod_id: string;
+              driver_name: string;
+              reason: string;
+            };
+            setCameraFocus(d.pod_id ? d : null);
+            break;
+          }
         }
       } catch (e) {
         console.warn("[Kiosk] Parse error:", e);
@@ -209,6 +253,10 @@ export function useKioskSocket() {
     };
   }, [connect]);
 
+  const dismissAssistance = useCallback((podId: string) => {
+    setAssistanceRequests((prev) => prev.filter((r) => r.pod_id !== podId));
+  }, []);
+
   return {
     connected,
     pods,
@@ -218,6 +266,9 @@ export function useKioskSocket() {
     billingWarnings,
     gameStates,
     pendingAuthTokens,
+    assistanceRequests,
+    dismissAssistance,
+    cameraFocus,
     sendCommand,
   };
 }

@@ -36,6 +36,26 @@ pub enum LockScreenState {
         remaining_seconds: u32,
         allocated_seconds: u32,
     },
+    /// Session ended — shows summary, auto-returns to idle.
+    SessionSummary {
+        driver_name: String,
+        total_laps: u32,
+        best_lap_ms: Option<u32>,
+        driving_seconds: u32,
+    },
+    /// Between sessions — sub-session ended, customer can pick next race.
+    BetweenSessions {
+        driver_name: String,
+        total_laps: u32,
+        best_lap_ms: Option<u32>,
+        driving_seconds: u32,
+        wallet_balance_paise: i64,
+    },
+    /// Awaiting staff assistance (F1 25 or manual-launch games).
+    AwaitingAssistance {
+        driver_name: String,
+        message: String,
+    },
 }
 
 /// Events emitted by the lock screen to the agent main loop.
@@ -139,6 +159,64 @@ impl LockScreenManager {
         if let LockScreenState::ActiveSession { remaining_seconds: ref mut r, .. } = *state {
             *r = remaining_seconds;
         }
+    }
+
+    /// Show the session summary screen (auto-returns to idle after 15 seconds).
+    pub fn show_session_summary(
+        &mut self,
+        driver_name: String,
+        total_laps: u32,
+        best_lap_ms: Option<u32>,
+        driving_seconds: u32,
+    ) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::SessionSummary {
+                driver_name,
+                total_laps,
+                best_lap_ms,
+                driving_seconds,
+            };
+        }
+        self.launch_browser();
+    }
+
+    /// Show between-sessions screen (sub-session ended, customer can pick next race).
+    pub fn show_between_sessions(
+        &mut self,
+        driver_name: String,
+        total_laps: u32,
+        best_lap_ms: Option<u32>,
+        driving_seconds: u32,
+        wallet_balance_paise: i64,
+    ) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::BetweenSessions {
+                driver_name,
+                total_laps,
+                best_lap_ms,
+                driving_seconds,
+                wallet_balance_paise,
+            };
+        }
+        self.launch_browser();
+    }
+
+    /// Show assistance screen (waiting for staff to launch game).
+    pub fn show_assistance(
+        &mut self,
+        driver_name: String,
+        message: String,
+    ) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::AwaitingAssistance {
+                driver_name,
+                message,
+            };
+        }
+        self.launch_browser();
     }
 
     /// Clear/dismiss the lock screen.
@@ -296,6 +374,23 @@ fn render_page(state: &LockScreenState) -> String {
             remaining_seconds,
             allocated_seconds,
         } => render_active_session_page(driver_name, *remaining_seconds, *allocated_seconds),
+        LockScreenState::SessionSummary {
+            driver_name,
+            total_laps,
+            best_lap_ms,
+            driving_seconds,
+        } => render_session_summary_page(driver_name, *total_laps, *best_lap_ms, *driving_seconds),
+        LockScreenState::BetweenSessions {
+            driver_name,
+            total_laps,
+            best_lap_ms,
+            driving_seconds,
+            wallet_balance_paise,
+        } => render_between_sessions_page(driver_name, *total_laps, *best_lap_ms, *driving_seconds, *wallet_balance_paise),
+        LockScreenState::AwaitingAssistance {
+            driver_name,
+            message,
+        } => render_assistance_page(driver_name, message),
     }
 }
 
@@ -354,13 +449,124 @@ fn render_active_session_page(driver_name: &str, remaining_seconds: u32, allocat
         0
     };
     let warning_class = if remaining_seconds <= 60 { "time-warning" } else { "" };
+    let warning_level = if remaining_seconds <= 10 {
+        "critical"
+    } else if remaining_seconds <= 60 {
+        "urgent"
+    } else if remaining_seconds <= 300 {
+        "caution"
+    } else {
+        "none"
+    };
     let content = ACTIVE_SESSION_PAGE
         .replace("{{DRIVER_NAME}}", &html_escape(driver_name))
         .replace("{{MINUTES}}", &format!("{:02}", mins))
         .replace("{{SECONDS}}", &format!("{:02}", secs))
         .replace("{{PROGRESS}}", &progress.to_string())
-        .replace("{{WARNING_CLASS}}", warning_class);
+        .replace("{{WARNING_CLASS}}", warning_class)
+        .replace("{{WARNING_LEVEL}}", warning_level)
+        .replace("{{REMAINING}}", &remaining_seconds.to_string());
     page_shell("Session Active - Racing Point", &content)
+}
+
+fn render_session_summary_page(
+    driver_name: &str,
+    total_laps: u32,
+    best_lap_ms: Option<u32>,
+    driving_seconds: u32,
+) -> String {
+    let best_lap_display = match best_lap_ms {
+        Some(ms) => {
+            let mins = ms / 60000;
+            let secs = (ms % 60000) / 1000;
+            let millis = ms % 1000;
+            format!("{}:{:02}.{:03}", mins, secs, millis)
+        }
+        None => "--:--.---".to_string(),
+    };
+    let session_mins = driving_seconds / 60;
+    let session_secs = driving_seconds % 60;
+    let content = SESSION_SUMMARY_PAGE
+        .replace("{{DRIVER_NAME}}", &html_escape(driver_name))
+        .replace("{{TOTAL_LAPS}}", &total_laps.to_string())
+        .replace("{{BEST_LAP}}", &best_lap_display)
+        .replace("{{SESSION_MINS}}", &session_mins.to_string())
+        .replace("{{SESSION_SECS}}", &format!("{:02}", session_secs));
+    page_shell("Session Complete - Racing Point", &content)
+}
+
+fn render_between_sessions_page(
+    driver_name: &str,
+    total_laps: u32,
+    best_lap_ms: Option<u32>,
+    driving_seconds: u32,
+    wallet_balance_paise: i64,
+) -> String {
+    let best_lap_display = match best_lap_ms {
+        Some(ms) => {
+            let mins = ms / 60000;
+            let secs = (ms % 60000) / 1000;
+            let millis = ms % 1000;
+            format!("{}:{:02}.{:03}", mins, secs, millis)
+        }
+        None => "--:--.---".to_string(),
+    };
+    let session_mins = driving_seconds / 60;
+    let session_secs = driving_seconds % 60;
+    let balance_rupees = wallet_balance_paise as f64 / 100.0;
+
+    let content = format!(
+        r#"<div style="text-align:center;padding:40px 20px">
+<div style="font-size:48px;margin-bottom:10px">&#127937;</div>
+<h1 style="font-size:32px;margin:0 0 10px">Great session, {driver}!</h1>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;max-width:600px;margin:20px auto">
+<div style="background:#222;border-radius:12px;padding:20px">
+<div style="font-size:36px;font-weight:700">{laps}</div>
+<div style="font-size:14px;color:#999">Laps</div>
+</div>
+<div style="background:#222;border-radius:12px;padding:20px">
+<div style="font-size:36px;font-weight:700">{best}</div>
+<div style="font-size:14px;color:#999">Best Lap</div>
+</div>
+<div style="background:#222;border-radius:12px;padding:20px">
+<div style="font-size:36px;font-weight:700">{mins}:{secs:02}</div>
+<div style="font-size:14px;color:#999">Session Time</div>
+</div>
+</div>
+<div style="background:#1a3a1a;border:2px solid #2d6a2d;border-radius:12px;padding:20px;max-width:400px;margin:20px auto">
+<div style="font-size:14px;color:#4ade80">Wallet Balance</div>
+<div style="font-size:42px;font-weight:700;color:#4ade80">&#x20B9;{balance:.0}</div>
+</div>
+<p style="font-size:20px;color:#ccc;margin-top:20px">Open the app on your phone to pick your next race!</p>
+<p style="font-size:14px;color:#666;margin-top:30px">This pod will return to idle in 5 minutes if no new session is started.</p>
+</div>
+<script>setTimeout(function(){{location.reload()}},5000)</script>"#,
+        driver = html_escape(driver_name),
+        laps = total_laps,
+        best = best_lap_display,
+        mins = session_mins,
+        secs = session_secs,
+        balance = balance_rupees,
+    );
+    page_shell("Pick Next Race - Racing Point", &content)
+}
+
+fn render_assistance_page(driver_name: &str, message: &str) -> String {
+    let content = format!(
+        r#"<div style="text-align:center;padding:60px 20px">
+<div style="font-size:64px;margin-bottom:20px">&#128075;</div>
+<h1 style="font-size:36px;margin:0 0 15px">Welcome, {driver}!</h1>
+<div style="background:#3a2a00;border:2px solid #E10600;border-radius:12px;padding:30px;max-width:500px;margin:20px auto">
+<div style="font-size:22px;color:#fbbf24;margin-bottom:10px">Staff Assistance Needed</div>
+<p style="font-size:18px;color:#fff;margin:0">{msg}</p>
+</div>
+<p style="font-size:16px;color:#999;margin-top:30px">Please wait — a team member will be with you shortly.</p>
+</div>
+<script>setTimeout(function(){{location.reload()}},5000)</script>"#,
+        driver = html_escape(driver_name),
+        msg = html_escape(message),
+    );
+    page_shell("Staff Assistance - Racing Point", &content)
 }
 
 fn render_verifying_page() -> String {
@@ -597,7 +803,49 @@ const ACTIVE_SESSION_PAGE: &str = r#"<style>
 .time-warning {
     color: #E10600;
 }
+/* Warning overlays */
+.warning-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 16px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.4em;
+    letter-spacing: 2px;
+    z-index: 100;
+}
+.warning-caution .warning-overlay {
+    display: block;
+    background: rgba(255, 165, 0, 0.15);
+    color: #FFA500;
+    border-bottom: 2px solid #FFA500;
+}
+.warning-urgent .warning-overlay {
+    display: block;
+    background: rgba(225, 6, 0, 0.2);
+    color: #E10600;
+    border-bottom: 2px solid #E10600;
+    animation: pulse-bg 1s ease-in-out infinite;
+}
+.warning-critical .warning-overlay {
+    display: block;
+    background: rgba(225, 6, 0, 0.35);
+    color: #fff;
+    border-bottom: 3px solid #E10600;
+    animation: pulse-bg 0.5s ease-in-out infinite;
+    font-size: 2em;
+}
+.warning-urgent body, .warning-critical body {
+    border: 3px solid #E10600;
+}
+@keyframes pulse-bg {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
 </style>
+<div class="warning-wrapper warning-{{WARNING_LEVEL}}">
+<div class="warning-overlay" id="warningBanner"></div>
 <div class="welcome">{{DRIVER_NAME}}</div>
 <div class="session-label">Time Remaining</div>
 <div class="timer-display {{WARNING_CLASS}}">{{MINUTES}}<span class="colon">:</span>{{SECONDS}}</div>
@@ -605,4 +853,81 @@ const ACTIVE_SESSION_PAGE: &str = r#"<style>
     <div class="progress-bar" style="width: {{PROGRESS}}%"></div>
 </div>
 <div class="hint">Enjoy your session! Need help? Ask at reception.</div>
-<script>setTimeout(function(){location.reload()},3000)</script>"#;
+</div>
+<script>
+(function(){
+    var remaining = {{REMAINING}};
+    var banner = document.getElementById('warningBanner');
+    if (remaining <= 10) {
+        banner.textContent = remaining + ' SECONDS';
+    } else if (remaining <= 60) {
+        banner.textContent = 'LESS THAN 1 MINUTE REMAINING';
+    } else if (remaining <= 300) {
+        banner.textContent = Math.ceil(remaining / 60) + ' MINUTES REMAINING';
+    }
+    setTimeout(function(){location.reload()},3000);
+})();
+</script>"#;
+
+const SESSION_SUMMARY_PAGE: &str = r#"<style>
+.summary-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid #333333;
+    border-radius: 20px;
+    padding: 40px 60px;
+    margin: 20px 0;
+    text-align: center;
+}
+.checkmark {
+    font-size: 4em;
+    color: #4CAF50;
+    margin-bottom: 10px;
+}
+.stats-grid {
+    display: flex;
+    gap: 60px;
+    justify-content: center;
+    margin: 30px 0;
+}
+.stat-item {
+    text-align: center;
+}
+.stat-value {
+    font-size: 3.5em;
+    font-weight: 800;
+    color: #E10600;
+    font-variant-numeric: tabular-nums;
+}
+.stat-label {
+    font-size: 0.95em;
+    color: #5A5A5A;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-top: 8px;
+}
+.farewell {
+    font-size: 1.1em;
+    color: #5A5A5A;
+    margin-top: 20px;
+}
+</style>
+<div class="summary-card">
+    <div class="checkmark">&#10003;</div>
+    <div class="welcome">Great drive, {{DRIVER_NAME}}!</div>
+    <div class="stats-grid">
+        <div class="stat-item">
+            <div class="stat-value">{{TOTAL_LAPS}}</div>
+            <div class="stat-label">Laps</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-value">{{BEST_LAP}}</div>
+            <div class="stat-label">Best Lap</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-value">{{SESSION_MINS}}m {{SESSION_SECS}}s</div>
+            <div class="stat-label">Session Time</div>
+        </div>
+    </div>
+    <div class="farewell">See you next time at Racing Point!</div>
+</div>
+<script>setTimeout(function(){location.reload()},15000)</script>"#;

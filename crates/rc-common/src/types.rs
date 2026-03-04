@@ -503,6 +503,43 @@ pub struct AuthTokenInfo {
     pub expires_at: String,
 }
 
+// ─── Wallet ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletInfo {
+    pub driver_id: String,
+    pub balance_paise: i64,
+    pub total_credited_paise: i64,
+    pub total_debited_paise: i64,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletTransaction {
+    pub id: String,
+    pub driver_id: String,
+    pub amount_paise: i64,
+    pub balance_after_paise: i64,
+    pub txn_type: String,
+    pub reference_id: Option<String>,
+    pub notes: Option<String>,
+    pub staff_id: Option<String>,
+    pub created_at: String,
+}
+
+// ─── Pod Reservation ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PodReservationInfo {
+    pub id: String,
+    pub driver_id: String,
+    pub pod_id: String,
+    pub status: String,
+    pub created_at: String,
+    pub ended_at: Option<String>,
+    pub last_activity_at: Option<String>,
+}
+
 // ─── AI Debugger ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

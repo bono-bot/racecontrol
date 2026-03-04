@@ -49,12 +49,20 @@ export default function LoginPage() {
 
     try {
       const formatted = phone.startsWith("+") ? phone : `+91${phone}`;
-      const res = await api.verifyOtp(formatted, otp);
+      const res = await api.verifyOtp(formatted, otp) as {
+        error?: string;
+        token?: string;
+        registration_completed?: boolean;
+      };
       if (res.error) {
         setError(res.error);
       } else if (res.token) {
         setToken(res.token);
-        router.replace("/dashboard");
+        if (res.registration_completed === false) {
+          router.replace("/register");
+        } else {
+          router.replace("/dashboard");
+        }
       }
     } catch {
       setError("Network error. Try again.");

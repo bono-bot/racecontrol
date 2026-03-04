@@ -53,6 +53,60 @@ export interface DriverProfile {
   phone: string | null;
   total_laps: number;
   total_time_ms: number;
+  has_used_trial: boolean;
+  wallet_balance_paise: number;
+  active_reservation: PodReservation | null;
+}
+
+export interface WalletInfo {
+  driver_id: string;
+  balance_paise: number;
+  total_credited_paise: number;
+  total_debited_paise: number;
+  updated_at: string | null;
+}
+
+export interface WalletTransaction {
+  id: string;
+  driver_id: string;
+  amount_paise: number;
+  balance_after_paise: number;
+  txn_type: string;
+  reference_id: string | null;
+  notes: string | null;
+  staff_id: string | null;
+  created_at: string;
+}
+
+export interface PodReservation {
+  id: string;
+  driver_id: string;
+  pod_id: string;
+  status: string;
+  created_at: string;
+  ended_at: string | null;
+  last_activity_at: string | null;
+}
+
+export interface Experience {
+  id: string;
+  name: string;
+  game: string;
+  track: string;
+  car: string;
+  car_class: string | null;
+  duration_minutes: number;
+  start_type: string;
+  sort_order: number;
+}
+
+export interface PricingTier {
+  id: string;
+  name: string;
+  duration_minutes: number;
+  price_paise: number;
+  is_trial: boolean;
+  sort_order: number;
 }
 
 export interface BillingSession {
@@ -88,6 +142,16 @@ export interface CustomerStats {
   personal_bests: number;
 }
 
+export interface SessionDetail {
+  session: BillingSession;
+  laps: LapRecord[];
+  track: string | null;
+  car: string | null;
+  total_laps: number;
+  best_lap_ms: number | null;
+  avg_lap_ms: number | null;
+}
+
 // ─── API calls ─────────────────────────────────────────────────────────────
 
 export const api = {
@@ -116,6 +180,11 @@ export const api = {
       "/customer/sessions"
     ),
 
+  sessionDetail: (id: string) =>
+    fetchApi<SessionDetail & { error?: string }>(
+      `/customer/sessions/${encodeURIComponent(id)}`
+    ),
+
   laps: () =>
     fetchApi<{ laps?: LapRecord[]; error?: string }>("/customer/laps"),
 
@@ -133,6 +202,24 @@ export const api = {
       body: JSON.stringify({ qr_token: qrToken, driver_id: driverId }),
     }),
 
+  // Registration
+  register: (data: {
+    name: string;
+    dob: string;
+    email?: string;
+    waiver_consent: boolean;
+    signature_data?: string;
+    guardian_name?: string;
+    guardian_phone?: string;
+  }) =>
+    fetchApi<{ status?: string; driver_id?: string; is_minor?: boolean; error?: string }>(
+      "/customer/register",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    ),
+
   // Leaderboard (public)
   leaderboard: (track: string) =>
     fetchApi<{ leaderboard?: unknown; error?: string }>(
@@ -141,6 +228,64 @@ export const api = {
 
   // Venue info (public)
   venue: () => fetchApi<{ name: string; location: string }>("/venue"),
+
+  // Wallet
+  wallet: () =>
+    fetchApi<{ wallet?: WalletInfo; error?: string }>("/customer/wallet"),
+
+  walletTransactions: (limit = 50) =>
+    fetchApi<{ transactions?: WalletTransaction[]; error?: string }>(
+      `/customer/wallet/transactions?limit=${limit}`
+    ),
+
+  // Experiences & Booking
+  experiences: () =>
+    fetchApi<{
+      experiences?: Experience[];
+      pricing_tiers?: PricingTier[];
+      error?: string;
+    }>("/customer/experiences"),
+
+  bookSession: (experience_id: string, pricing_tier_id: string) =>
+    fetchApi<{
+      status?: string;
+      reservation_id?: string;
+      pod_id?: string;
+      pod_number?: number;
+      qr_token?: string;
+      wallet_debit_paise?: number;
+      error?: string;
+      balance_paise?: number;
+      required_paise?: number;
+    }>("/customer/book", {
+      method: "POST",
+      body: JSON.stringify({ experience_id, pricing_tier_id }),
+    }),
+
+  activeReservation: () =>
+    fetchApi<{
+      reservation?: PodReservation | null;
+      pod_number?: number;
+      active_billing?: BillingSession | null;
+      error?: string;
+    }>("/customer/active-reservation"),
+
+  endReservation: () =>
+    fetchApi<{ status?: string; error?: string }>("/customer/end-reservation", {
+      method: "POST",
+    }),
+
+  continueSession: (experience_id: string, pricing_tier_id: string) =>
+    fetchApi<{
+      status?: string;
+      billing_session_id?: string;
+      reservation_id?: string;
+      pod_id?: string;
+      error?: string;
+    }>("/customer/continue-session", {
+      method: "POST",
+      body: JSON.stringify({ experience_id, pricing_tier_id }),
+    }),
 
   // AI Chat
   aiChat: (message: string, history: { role: string; content: string }[]) =>

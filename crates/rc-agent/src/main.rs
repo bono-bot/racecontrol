@@ -468,7 +468,25 @@ async fn main() -> Result<()> {
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingStopped { billing_session_id } => {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
+                                    // Fallback — SessionEnded is the preferred message with summary data
                                     lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
+                                }
+                                rc_common::protocol::CoreToAgentMessage::SessionEnded {
+                                    billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds,
+                                } => {
+                                    tracing::info!(
+                                        "Session ended: {} — {} laps, best: {:?}, {}s",
+                                        billing_session_id, total_laps, best_lap_ms, driving_seconds
+                                    );
+                                    // Stop the game if still running
+                                    if let Some(ref mut game) = game_process {
+                                        let _ = game.stop();
+                                        game_process = None;
+                                    }
+                                    // Show session summary (auto-returns to idle after 15s via HTML refresh)
+                                    lock_screen.show_session_summary(
+                                        driver_name, total_laps, best_lap_ms, driving_seconds,
+                                    );
                                 }
                                 rc_common::protocol::CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
                                     tracing::info!("Launching game: {:?} (args: {:?})", launch_sim, launch_args);
@@ -654,6 +672,27 @@ async fn main() -> Result<()> {
                                 rc_common::protocol::CoreToAgentMessage::ClearLockScreen => {
                                     tracing::info!("Lock screen cleared");
                                     lock_screen.clear();
+                                }
+                                rc_common::protocol::CoreToAgentMessage::SubSessionEnded {
+                                    billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
+                                } => {
+                                    tracing::info!(
+                                        "Sub-session ended: {} — {} laps, wallet: {}p",
+                                        billing_session_id, total_laps, wallet_balance_paise
+                                    );
+                                    // Stop the game
+                                    if let Some(ref mut game) = game_process {
+                                        let _ = game.stop();
+                                        game_process = None;
+                                    }
+                                    // Show between-sessions screen
+                                    lock_screen.show_between_sessions(
+                                        driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
+                                    );
+                                }
+                                rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {
+                                    tracing::info!("Assistance screen for {}: {}", driver_name, message);
+                                    lock_screen.show_assistance(driver_name, message);
                                 }
                                 _ => {}
                             }

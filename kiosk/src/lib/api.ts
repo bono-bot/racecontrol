@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -57,6 +57,11 @@ export const api = {
     fetchApi<{ status?: string; error?: string }>(`/auth/cancel/${id}`, {
       method: "POST",
     }),
+  startNow: (tokenId: string) =>
+    fetchApi<{ status?: string; billing_session_id?: string; error?: string }>("/auth/start-now", {
+      method: "POST",
+      body: JSON.stringify({ token_id: tokenId }),
+    }),
 
   // Game Launcher
   launchGame: (pod_id: string, sim_type: string, launch_args?: string) =>
@@ -93,4 +98,38 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+
+  // Wallet (staff-facing)
+  getWallet: (driverId: string) =>
+    fetchApi<{ wallet: WalletInfo | null }>(`/wallet/${driverId}`),
+  topupWallet: (
+    driverId: string,
+    amount_paise: number,
+    method: string,
+    notes?: string
+  ) =>
+    fetchApi<{ status?: string; new_balance_paise?: number; error?: string }>(
+      `/wallet/${driverId}/topup`,
+      {
+        method: "POST",
+        body: JSON.stringify({ amount_paise, method, notes }),
+      }
+    ),
+  walletTransactions: (driverId: string, limit = 20) =>
+    fetchApi<{ transactions: WalletTransaction[] }>(
+      `/wallet/${driverId}/transactions?limit=${limit}`
+    ),
+  refundWallet: (
+    driverId: string,
+    amount_paise: number,
+    notes?: string,
+    reference_id?: string
+  ) =>
+    fetchApi<{ status?: string; new_balance_paise?: number; error?: string }>(
+      `/wallet/${driverId}/refund`,
+      {
+        method: "POST",
+        body: JSON.stringify({ amount_paise, notes, reference_id }),
+      }
+    ),
 };

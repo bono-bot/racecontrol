@@ -115,13 +115,14 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 pod_id.clone(),
                 timer.session_id.clone(),
                 timer.driving_seconds,
+                timer.driver_name.clone(),
             ));
             events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info()));
         }
     }
 
     // Remove expired timers
-    for (pod_id, _, _) in &expired_sessions {
+    for (pod_id, _, _, _) in &expired_sessions {
         timers.remove(pod_id);
     }
 
@@ -142,6 +143,67 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     allocated_seconds: allocated,
                     driver_name,
                 }).await;
+            }
+        }
+    }
+
+    // Send StopGame + SessionEnded/SubSessionEnded to agents for expired sessions
+    if !expired_sessions.is_empty() {
+        let agent_senders = state.agent_senders.read().await;
+        for (pod_id, session_id, driving_seconds, driver_name) in &expired_sessions {
+            // Check if pod has active reservation (multi-sub-session support)
+            let has_reservation = crate::pod_reservation::get_active_reservation_for_pod(state, pod_id)
+                .await
+                .is_some();
+
+            if let Some(sender) = agent_senders.get(pod_id) {
+                let _ = sender.send(CoreToAgentMessage::StopGame).await;
+
+                if has_reservation {
+                    // Sub-session ended — pod stays reserved, customer picks next race
+                    let wallet_balance = crate::wallet::get_balance(state, &{
+                        // Look up driver_id from session
+                        sqlx::query_as::<_, (String,)>(
+                            "SELECT driver_id FROM billing_sessions WHERE id = ?",
+                        )
+                        .bind(session_id)
+                        .fetch_optional(&state.db)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|r| r.0)
+                        .unwrap_or_default()
+                    })
+                    .await
+                    .unwrap_or(0);
+
+                    let _ = sender
+                        .send(CoreToAgentMessage::SubSessionEnded {
+                            billing_session_id: session_id.clone(),
+                            driver_name: driver_name.clone(),
+                            total_laps: 0,
+                            best_lap_ms: None,
+                            driving_seconds: *driving_seconds,
+                            wallet_balance_paise: wallet_balance,
+                        })
+                        .await;
+                } else {
+                    // Full session ended — pod returns to idle
+                    let _ = sender
+                        .send(CoreToAgentMessage::SessionEnded {
+                            billing_session_id: session_id.clone(),
+                            driver_name: driver_name.clone(),
+                            total_laps: 0,
+                            best_lap_ms: None,
+                            driving_seconds: *driving_seconds,
+                        })
+                        .await;
+                }
+            }
+
+            // Clear pod billing reference
+            if let Some(pod) = state.pods.write().await.get_mut(pod_id) {
+                pod.billing_session_id = None;
             }
         }
     }
@@ -172,7 +234,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     }
 
     // Persist expired sessions to DB
-    for (_, session_id, driving_seconds) in expired_sessions {
+    for (_, session_id, driving_seconds, _) in expired_sessions {
         let _ = sqlx::query(
             "UPDATE billing_sessions SET status = 'completed', driving_seconds = ?, ended_at = datetime('now')
              WHERE id = ?",
@@ -563,6 +625,15 @@ async fn set_billing_status(
     }
 }
 
+/// Public wrapper for ending billing sessions from API routes
+pub async fn end_billing_session_public(
+    state: &Arc<AppState>,
+    session_id: &str,
+    end_status: BillingSessionStatus,
+) {
+    end_billing_session(state, session_id, end_status).await;
+}
+
 async fn end_billing_session(
     state: &Arc<AppState>,
     session_id: &str,
@@ -622,14 +693,69 @@ async fn end_billing_session(
                 pod.billing_session_id = None;
             }
 
-            // Notify agent
+            // Proportional refund for early end with wallet debit
+            if end_status == BillingSessionStatus::EndedEarly {
+                let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>)>(
+                    "SELECT driver_id, allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                )
+                .bind(session_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten();
+
+                if let Some((driver_id, allocated, Some(debit))) = wallet_info {
+                    if debit > 0 && (driving_seconds as i64) < allocated {
+                        let remaining = allocated - driving_seconds as i64;
+                        let refund_amount = (remaining * debit) / allocated;
+                        if refund_amount > 0 {
+                            let _ = crate::wallet::refund(
+                                state,
+                                &driver_id,
+                                refund_amount,
+                                Some(session_id),
+                                Some("Early end — proportional refund"),
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
+
+            // Notify agent: stop game and show session summary
+            let has_reservation = crate::pod_reservation::get_active_reservation_for_pod(state, &pod_id)
+                .await
+                .is_some();
+
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
-                let _ = sender
-                    .send(CoreToAgentMessage::BillingStopped {
-                        billing_session_id: session_id.to_string(),
-                    })
-                    .await;
+                let _ = sender.send(CoreToAgentMessage::StopGame).await;
+
+                if has_reservation && end_status != BillingSessionStatus::Cancelled {
+                    let wallet_balance = crate::wallet::get_balance(state, &info.driver_id)
+                        .await
+                        .unwrap_or(0);
+                    let _ = sender
+                        .send(CoreToAgentMessage::SubSessionEnded {
+                            billing_session_id: session_id.to_string(),
+                            driver_name: info.driver_name.clone(),
+                            total_laps: 0,
+                            best_lap_ms: None,
+                            driving_seconds,
+                            wallet_balance_paise: wallet_balance,
+                        })
+                        .await;
+                } else {
+                    let _ = sender
+                        .send(CoreToAgentMessage::SessionEnded {
+                            billing_session_id: session_id.to_string(),
+                            driver_name: info.driver_name.clone(),
+                            total_laps: 0,
+                            best_lap_ms: None,
+                            driving_seconds,
+                        })
+                        .await;
+                }
             }
 
             let _ = state

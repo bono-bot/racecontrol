@@ -149,6 +149,28 @@ export interface Driver {
   total_time_ms: number;
 }
 
+// ─── Wallet ──────────────────────────────────────────────────────────────
+
+export interface WalletInfo {
+  driver_id: string;
+  balance_paise: number;
+  total_credited_paise: number;
+  total_debited_paise: number;
+  updated_at: string | null;
+}
+
+export interface WalletTransaction {
+  id: string;
+  driver_id: string;
+  amount_paise: number;
+  balance_after_paise: number;
+  txn_type: string;
+  reference_id: string | null;
+  notes: string | null;
+  staff_id: string | null;
+  created_at: string;
+}
+
 // ─── Billing Warning ──────────────────────────────────────────────────────
 
 export interface BillingWarning {

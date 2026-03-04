@@ -9,6 +9,7 @@ use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::ac_camera;
 use crate::ac_server;
 use crate::auth;
 use crate::billing;
@@ -91,18 +92,34 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 .send(DashboardEvent::PodUpdate(pod_info.clone()));
                         }
                         AgentMessage::Telemetry(frame) => {
+                            // Feed telemetry to camera controller
+                            crate::ac_camera::on_telemetry(&state, &frame).await;
                             let _ = state
                                 .dashboard_tx
                                 .send(DashboardEvent::Telemetry(frame.clone()));
                         }
                         AgentMessage::LapCompleted(lap) => {
+                            let mut lap = lap.clone();
+
+                            // Resolve driver from active billing session on this pod
+                            if let Some((driver_id, session_id)) =
+                                crate::lap_tracker::resolve_driver_for_pod(&state, &lap.pod_id).await
+                            {
+                                lap.driver_id = driver_id;
+                                lap.session_id = session_id;
+                            }
+
                             tracing::info!(
                                 "Lap completed: {} - {}ms on {}",
                                 lap.driver_id, lap.lap_time_ms, lap.track
                             );
+
+                            // Persist to DB and update leaderboards
+                            crate::lap_tracker::persist_lap(&state, &lap).await;
+
                             let _ = state
                                 .dashboard_tx
-                                .send(DashboardEvent::LapCompleted(lap.clone()));
+                                .send(DashboardEvent::LapCompleted(lap));
                         }
                         AgentMessage::SessionUpdate(session) => {
                             let _ = state
@@ -287,6 +304,22 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                         DashboardCommand::AssignCustomer { .. }
                         | DashboardCommand::CancelAssignment { .. } => {
                             auth::handle_dashboard_command(&cmd_state, cmd).await;
+                        }
+                        DashboardCommand::SetCameraMode { mode, enabled } => {
+                            if let Some(en) = enabled {
+                                ac_camera::set_enabled(&cmd_state, *en).await;
+                            }
+                            if !mode.is_empty() {
+                                let cam_mode = match mode.as_str() {
+                                    "closest_cycle" => ac_camera::CameraMode::ClosestCycle,
+                                    "leader" => ac_camera::CameraMode::Leader,
+                                    "closest" => ac_camera::CameraMode::Closest,
+                                    "cycle" => ac_camera::CameraMode::Cycle,
+                                    "off" => ac_camera::CameraMode::Off,
+                                    _ => ac_camera::CameraMode::ClosestCycle,
+                                };
+                                ac_camera::set_mode(&cmd_state, cam_mode).await;
+                            }
                         }
                         _ => {
                             billing::handle_dashboard_command(&cmd_state, cmd).await;

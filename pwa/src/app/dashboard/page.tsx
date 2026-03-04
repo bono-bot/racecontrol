@@ -49,6 +49,40 @@ export default function DashboardPage() {
         </h1>
       </div>
 
+      {/* Wallet balance + Race CTA */}
+      <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-6 flex items-center justify-between">
+        <div>
+          <p className="text-xs text-rp-grey">Wallet Balance</p>
+          <p className="text-2xl font-bold text-white">
+            {"\u20B9"}{((profile?.wallet_balance_paise || 0) / 100).toFixed(0)}
+          </p>
+        </div>
+        <a
+          href="/book"
+          className="bg-rp-red text-white font-semibold px-6 py-3 rounded-xl text-sm"
+        >
+          Race Now
+        </a>
+      </div>
+
+      {/* Free trial CTA */}
+      {profile && !profile.has_used_trial && (
+        <div className="bg-emerald-900/30 border border-emerald-500/30 rounded-xl p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-emerald-400 font-semibold text-sm">Free 5-min trial available!</p>
+              <p className="text-neutral-400 text-xs mt-0.5">Try sim racing for free</p>
+            </div>
+            <a
+              href="/book?trial=true"
+              className="bg-emerald-600 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+            >
+              Start Free Trial
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* Quick stats */}
       {stats && (
         <div className="grid grid-cols-3 gap-3 mb-8">

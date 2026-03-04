@@ -17,7 +17,12 @@
   --color-rp-card: #222222;
   --color-rp-border: #333333;
   --color-rp-surface: #2A2A2A;
+  --color-rp-purple: #a855f7;
+  --color-rp-green: #16a34a;
+  --color-rp-yellow: #ca8a04;
   --font-sans: 'Montserrat', sans-serif;
+  --font-display: var(--font-display, 'Space Grotesk', sans-serif);
+  --font-mono: var(--font-mono-jb, 'JetBrains Mono', monospace);
 }
 
 body {

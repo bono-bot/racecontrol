@@ -18,6 +18,7 @@ interface KioskPodCardProps {
   warning?: BillingWarning;
   gameInfo?: GameLaunchInfo;
   authToken?: AuthTokenInfo;
+  walletBalance?: number; // paise
   onStartSession: (podId: string) => void;
   onEndSession: (billingSessionId: string) => void;
   onPauseSession: (billingSessionId: string) => void;
@@ -26,6 +27,7 @@ interface KioskPodCardProps {
   onCancelAssignment: (tokenId: string) => void;
   onLaunchGame?: (podId: string) => void;
   onStartNow?: (authToken: AuthTokenInfo) => void;
+  onTopUp?: (driverId: string) => void;
 }
 
 function derivePodState(
@@ -78,6 +80,8 @@ export function KioskPodCard({
   onCancelAssignment,
   onLaunchGame,
   onStartNow,
+  walletBalance,
+  onTopUp,
 }: KioskPodCardProps) {
   const state = derivePodState(pod, billing, authToken, gameInfo);
   const isOffline = pod.status === "offline";
@@ -183,13 +187,27 @@ export function KioskPodCard({
         {state === "on_track" && billing && (
           <div className="flex-1 flex flex-col gap-2">
             {/* Driver + Experience */}
-            <div>
-              <p className="text-white font-semibold text-sm truncate">
-                {billing.driver_name}
-              </p>
-              <p className="text-rp-grey text-xs truncate">
-                {telemetry ? `${telemetry.track} — ${telemetry.car}` : billing.pricing_tier_name}
-              </p>
+            <div className="flex items-start justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-white font-semibold text-sm truncate">
+                  {billing.driver_name}
+                </p>
+                <p className="text-rp-grey text-xs truncate">
+                  {telemetry ? `${telemetry.track} — ${telemetry.car}` : billing.pricing_tier_name}
+                </p>
+              </div>
+              {walletBalance !== undefined && (
+                <button
+                  onClick={() => onTopUp?.(billing.driver_id)}
+                  className="shrink-0 ml-2 text-right group"
+                  title="Top up wallet"
+                >
+                  <p className="text-[10px] text-rp-grey">Balance</p>
+                  <p className="text-xs font-bold text-white group-hover:text-rp-red transition-colors">
+                    {"\u20B9"}{(walletBalance / 100).toFixed(0)}
+                  </p>
+                </button>
+              )}
             </div>
 
             {/* Launch Game button — shown when billing active but no game running */}
