@@ -10,6 +10,7 @@ mod db;
 mod error_aggregator;
 mod game_launcher;
 mod lap_tracker;
+mod pod_monitor;
 mod pod_reservation;
 mod remote_terminal;
 mod state;
@@ -140,6 +141,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn remote terminal (polls cloud for commands to execute locally)
     remote_terminal::spawn(state.clone());
+
+    // Spawn pod monitor (Tier 2: detect stale pods, auto-restart via pod-agent)
+    pod_monitor::spawn(state.clone());
 
     // Build router
     let app = Router::new()

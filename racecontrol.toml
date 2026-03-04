@@ -16,6 +16,12 @@ api_url = "https://app.racingpoint.cloud/api/v1"
 sync_interval_secs = 30
 terminal_secret = "rp-terminal-2026"
 
+[watchdog]
+enabled = true
+# check_interval_secs = 10
+# heartbeat_timeout_secs = 30
+# restart_cooldown_secs = 120
+
 [pods]
 count = 16
 discovery = true

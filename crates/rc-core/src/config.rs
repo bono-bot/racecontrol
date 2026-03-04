@@ -19,6 +19,8 @@ pub struct Config {
     pub ac_server: AcServerConfig,
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub watchdog: WatchdogConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,6 +193,29 @@ impl Default for AuthConfig {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WatchdogConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_watchdog_interval")]
+    pub check_interval_secs: u64,
+    #[serde(default = "default_heartbeat_timeout")]
+    pub heartbeat_timeout_secs: i64,
+    #[serde(default = "default_restart_cooldown")]
+    pub restart_cooldown_secs: i64,
+}
+
+impl Default for WatchdogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            check_interval_secs: default_watchdog_interval(),
+            heartbeat_timeout_secs: default_heartbeat_timeout(),
+            restart_cooldown_secs: default_restart_cooldown(),
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -232,6 +257,7 @@ impl Config {
             ai_debugger: AiDebuggerConfig::default(),
             ac_server: AcServerConfig::default(),
             auth: AuthConfig::default(),
+            watchdog: WatchdogConfig::default(),
         }
     }
 
@@ -266,6 +292,9 @@ fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }
 fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to_string() }
 fn default_pin_expiry() -> u64 { 600 }
 fn default_otp_expiry() -> u64 { 300 }
+fn default_watchdog_interval() -> u64 { 10 }
+fn default_heartbeat_timeout() -> i64 { 30 }
+fn default_restart_cooldown() -> i64 { 120 }
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_ollama_model() -> String { "llama3.1:8b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }

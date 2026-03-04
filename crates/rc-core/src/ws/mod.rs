@@ -201,10 +201,22 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
         }
     }
 
-    // Cleanup: remove agent sender
+    // Cleanup: remove agent sender and mark pod offline
     if let Some(pod_id) = &registered_pod_id {
         state.agent_senders.write().await.remove(pod_id);
-        // Set driving state to NoDevice for any active billing
+
+        // Mark pod offline on ungraceful disconnect (WebSocket dropped without Disconnect message)
+        if let Some(pod) = state.pods.write().await.get_mut(pod_id.as_str()) {
+            if pod.status != rc_common::types::PodStatus::Offline {
+                tracing::warn!("Pod {} WebSocket dropped without Disconnect — marking Offline", pod_id);
+                pod.status = rc_common::types::PodStatus::Offline;
+                pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
+                pod.game_state = Some(GameState::Idle);
+                pod.current_game = None;
+                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            }
+        }
+
         billing::update_driving_state(&state, pod_id, rc_common::types::DrivingState::NoDevice)
             .await;
     }
