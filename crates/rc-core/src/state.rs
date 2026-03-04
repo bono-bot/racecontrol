@@ -23,6 +23,8 @@ pub struct AppState {
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,
     /// Shared HTTP client for outbound requests (cloud sync, etc.)
     pub http_client: reqwest::Client,
+    /// Active terminal PIN sessions (token -> expiry)
+    pub terminal_sessions: RwLock<HashMap<String, chrono::DateTime<chrono::Utc>>>,
 }
 
 impl AppState {
@@ -42,6 +44,7 @@ impl AppState {
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .expect("Failed to build HTTP client"),
+            terminal_sessions: RwLock::new(HashMap::new()),
         }
     }
 }

@@ -57,6 +57,8 @@ pub struct CloudConfig {
     pub sync_interval_secs: u64,
     /// Shared secret for terminal command access
     pub terminal_secret: Option<String>,
+    /// PIN for terminal web UI authentication (only Uday knows this)
+    pub terminal_pin: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -5,6 +5,96 @@ import { api } from "@/lib/api";
 import type { TerminalCommand } from "@/lib/api";
 
 export default function TerminalPage() {
+  const [session, setSession] = useState<string | null>(null);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [authenticating, setAuthenticating] = useState(false);
+
+  // Check for existing session on mount
+  useEffect(() => {
+    const saved = sessionStorage.getItem("terminal_session");
+    if (saved) setSession(saved);
+  }, []);
+
+  async function handlePinSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pin.trim() || authenticating) return;
+    setAuthenticating(true);
+    setPinError("");
+
+    const res = await api.terminalAuth(pin.trim());
+    if (res.session) {
+      sessionStorage.setItem("terminal_session", res.session);
+      setSession(res.session);
+    } else {
+      setPinError(res.error || "Invalid PIN");
+    }
+    setAuthenticating(false);
+  }
+
+  if (!session) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-black">
+        <form
+          onSubmit={handlePinSubmit}
+          className="flex flex-col items-center gap-6 p-8 bg-neutral-900 rounded-2xl border border-neutral-800 w-80"
+        >
+          <div className="w-12 h-12 rounded-full bg-rp-red/20 flex items-center justify-center">
+            <svg
+              className="w-6 h-6 text-rp-red"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+          </div>
+          <div className="text-center">
+            <h1 className="text-white text-lg font-bold font-mono">
+              James Terminal
+            </h1>
+            <p className="text-neutral-500 text-sm mt-1">
+              Enter PIN to access
+            </p>
+          </div>
+          <input
+            type="password"
+            inputMode="numeric"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            placeholder="PIN"
+            autoFocus
+            maxLength={16}
+            className="w-full text-center text-2xl tracking-[0.5em] bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-3 text-white font-mono outline-none focus:border-rp-red transition-colors"
+          />
+          {pinError && (
+            <p className="text-red-500 text-sm -mt-3">{pinError}</p>
+          )}
+          <button
+            type="submit"
+            disabled={authenticating || !pin.trim()}
+            className="w-full bg-rp-red text-white py-2.5 rounded-lg font-medium disabled:opacity-30 transition-opacity"
+          >
+            {authenticating ? "Verifying..." : "Unlock"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  return <Terminal session={session} onSessionExpired={() => {
+    sessionStorage.removeItem("terminal_session");
+    setSession(null);
+    setPin("");
+  }} />;
+}
+
+function Terminal({ session, onSessionExpired }: { session: string; onSessionExpired: () => void }) {
   const [commands, setCommands] = useState<TerminalCommand[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -14,7 +104,11 @@ export default function TerminalPage() {
   // Poll for command updates
   useEffect(() => {
     const poll = async () => {
-      const res = await api.terminalList(30);
+      const res = await api.terminalList(30, session);
+      if (res.error?.includes("Unauthorized")) {
+        onSessionExpired();
+        return;
+      }
       if (res.commands) {
         setCommands(res.commands.reverse());
       }
@@ -22,7 +116,7 @@ export default function TerminalPage() {
     poll();
     const interval = setInterval(poll, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [session, onSessionExpired]);
 
   // Auto-scroll to bottom on new commands
   useEffect(() => {
@@ -38,12 +132,16 @@ export default function TerminalPage() {
 
     setSending(true);
     setInput("");
-    await api.terminalSubmit(cmd);
+    const res = await api.terminalSubmit(cmd, 30000, session);
+    if (res.error?.includes("Unauthorized")) {
+      onSessionExpired();
+      return;
+    }
     setSending(false);
 
     // Quick refresh
-    const res = await api.terminalList(30);
-    if (res.commands) setCommands(res.commands.reverse());
+    const listRes = await api.terminalList(30, session);
+    if (listRes.commands) setCommands(listRes.commands.reverse());
     inputRef.current?.focus();
   }
 

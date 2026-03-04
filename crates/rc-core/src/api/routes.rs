@@ -134,6 +134,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/sync/changes", get(sync_changes))
         .route("/sync/health", get(sync_health))
         // Terminal (remote command execution)
+        .route("/terminal/auth", post(terminal_auth))
         .route("/terminal/commands", get(terminal_list).post(terminal_submit))
         .route("/terminal/commands/pending", get(terminal_pending))
         .route("/terminal/commands/{id}/result", post(terminal_result))
@@ -3509,19 +3510,74 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
 
 // ─── Terminal (remote command execution) ─────────────────────────────────────
 
-fn check_terminal_secret(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), String> {
+async fn check_terminal_auth(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), String> {
+    // 1. Check PIN session token (x-terminal-session header)
+    if let Some(token) = headers.get("x-terminal-session").and_then(|v| v.to_str().ok()) {
+        let sessions = state.terminal_sessions.read().await;
+        if let Some(expiry) = sessions.get(token) {
+            if *expiry > chrono::Utc::now() {
+                return Ok(());
+            }
+        }
+    }
+
+    // 2. Check legacy shared secret (x-terminal-secret header — for cloud polling)
     let secret = state.config.cloud.terminal_secret.as_deref();
-    if secret.is_none() {
-        return Ok(()); // No secret configured = open access (local dev)
+    if let Some(secret) = secret {
+        let provided = headers.get("x-terminal-secret").and_then(|v| v.to_str().ok());
+        if provided == Some(secret) {
+            return Ok(());
+        }
     }
-    let provided = headers
-        .get("x-terminal-secret")
-        .and_then(|v| v.to_str().ok());
-    if provided == secret {
-        Ok(())
-    } else {
-        Err("Invalid or missing terminal secret".to_string())
+
+    // 3. If no secret AND no pin configured, allow (local dev)
+    if state.config.cloud.terminal_secret.is_none() && state.config.cloud.terminal_pin.is_none() {
+        return Ok(());
     }
+
+    Err("Unauthorized. Use POST /terminal/auth with your PIN.".to_string())
+}
+
+#[derive(Deserialize)]
+struct TerminalAuthRequest {
+    pin: String,
+}
+
+/// POST /terminal/auth — authenticate with PIN, returns a 24h session token
+async fn terminal_auth(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<TerminalAuthRequest>,
+) -> Json<Value> {
+    let expected = state.config.cloud.terminal_pin.as_deref();
+    match expected {
+        None => {
+            return Json(json!({ "error": "Terminal PIN not configured on server." }));
+        }
+        Some(pin) => {
+            if req.pin != pin {
+                tracing::warn!("Terminal auth failed — wrong PIN");
+                return Json(json!({ "error": "Invalid PIN." }));
+            }
+        }
+    }
+
+    // Generate session token valid for 24 hours
+    let token = uuid::Uuid::new_v4().to_string();
+    let expiry = chrono::Utc::now() + chrono::Duration::hours(24);
+
+    // Clean up expired sessions while we're here
+    let mut sessions = state.terminal_sessions.write().await;
+    let now = chrono::Utc::now();
+    sessions.retain(|_, exp| *exp > now);
+    sessions.insert(token.clone(), expiry);
+    drop(sessions);
+
+    tracing::info!("Terminal session created (expires {})", expiry.format("%Y-%m-%d %H:%M UTC"));
+
+    Json(json!({
+        "session": token,
+        "expires_at": expiry.to_rfc3339(),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -3547,7 +3603,7 @@ async fn terminal_submit(
     headers: axum::http::HeaderMap,
     Json(req): Json<TerminalSubmitRequest>,
 ) -> Json<Value> {
-    if let Err(e) = check_terminal_secret(&state, &headers) {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
         return Json(json!({ "error": e }));
     }
 
@@ -3577,7 +3633,7 @@ async fn terminal_list(
     headers: axum::http::HeaderMap,
     Query(params): Query<TerminalListQuery>,
 ) -> Json<Value> {
-    if let Err(e) = check_terminal_secret(&state, &headers) {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
         return Json(json!({ "error": e }));
     }
 
@@ -3613,7 +3669,7 @@ async fn terminal_pending(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> Json<Value> {
-    if let Err(e) = check_terminal_secret(&state, &headers) {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
         return Json(json!({ "error": e }));
     }
 
@@ -3646,7 +3702,7 @@ async fn terminal_result(
     Path(id): Path<String>,
     Json(req): Json<TerminalResultRequest>,
 ) -> Json<Value> {
-    if let Err(e) = check_terminal_secret(&state, &headers) {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
         return Json(json!({ "error": e }));
     }
 

@@ -299,20 +299,35 @@ export const api = {
     ),
 
   // Terminal
-  terminalSubmit: (cmd: string, timeout_ms = 30000) =>
+  terminalAuth: (pin: string) =>
+    fetchApi<{ session?: string; expires_at?: string; error?: string }>(
+      "/terminal/auth",
+      {
+        method: "POST",
+        body: JSON.stringify({ pin }),
+      }
+    ),
+
+  terminalSubmit: (cmd: string, timeout_ms = 30000, session?: string) =>
     fetchApi<{ status?: string; id?: string; error?: string }>(
       "/terminal/commands",
       {
         method: "POST",
         body: JSON.stringify({ cmd, timeout_ms }),
-        headers: { "x-terminal-secret": "rp-terminal-2026" },
+        headers: session
+          ? { "x-terminal-session": session }
+          : { "x-terminal-secret": "rp-terminal-2026" },
       }
     ),
 
-  terminalList: (limit = 50) =>
+  terminalList: (limit = 50, session?: string) =>
     fetchApi<{ commands?: TerminalCommand[]; error?: string }>(
       `/terminal/commands?limit=${limit}`,
-      { headers: { "x-terminal-secret": "rp-terminal-2026" } }
+      {
+        headers: session
+          ? { "x-terminal-session": session }
+          : { "x-terminal-secret": "rp-terminal-2026" },
+      }
     ),
 };
 
