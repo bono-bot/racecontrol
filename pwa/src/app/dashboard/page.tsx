@@ -52,9 +52,9 @@ export default function DashboardPage() {
       {/* Wallet balance + Race CTA */}
       <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-6 flex items-center justify-between">
         <div>
-          <p className="text-xs text-rp-grey">Wallet Balance</p>
+          <p className="text-xs text-rp-grey">Credits</p>
           <p className="text-2xl font-bold text-white">
-            {"\u20B9"}{((profile?.wallet_balance_paise || 0) / 100).toFixed(0)}
+            {((profile?.wallet_balance_paise || 0) / 100).toFixed(0)} credits
           </p>
         </div>
         <a

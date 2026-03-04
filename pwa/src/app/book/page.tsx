@@ -101,10 +101,9 @@ function BookPageInner() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-white">Race Now</h1>
         <div className="text-right">
-          <p className="text-xs text-rp-grey">Balance</p>
+          <p className="text-xs text-rp-grey">Credits</p>
           <p className="text-lg font-bold text-white">
-            {"\u20B9"}
-            {((profile?.wallet_balance_paise || 0) / 100).toFixed(0)}
+            {((profile?.wallet_balance_paise || 0) / 100).toFixed(0)} cr
           </p>
         </div>
       </div>
@@ -189,7 +188,7 @@ function BookPageInner() {
                 }`}
               >
                 <p className="text-white font-bold text-lg">
-                  {"\u20B9"}{(tier.price_paise / 100).toFixed(0)}
+                  {(tier.price_paise / 100).toFixed(0)} credits
                 </p>
                 <p className="text-rp-grey text-xs">{tier.name}</p>
               </button>
@@ -210,7 +209,7 @@ function BookPageInner() {
               ? "Booking..."
               : isTrial
               ? "Start Free Trial"
-              : `Debit \u20B9${(selectedTier.price_paise / 100).toFixed(0)} for ${selectedTier.name}`}
+              : `Debit ${(selectedTier.price_paise / 100).toFixed(0)} credits for ${selectedTier.name}`}
           </button>
         </div>
       )}

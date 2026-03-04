@@ -38,7 +38,7 @@ function formatDate(iso: string | null): string {
 
 function formatPrice(paise: number | null): string {
   if (!paise) return "\u2014";
-  return `\u20B9${(paise / 100).toFixed(0)}`;
+  return `${(paise / 100).toFixed(0)} credits`;
 }
 
 // ─── Status helpers ──────────────────────────────────────────────────────────
