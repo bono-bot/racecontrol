@@ -1,13 +1,18 @@
+mod ac_camera;
 mod ac_server;
 mod ai;
 mod api;
 mod auth;
 mod billing;
+mod cloud_sync;
 mod config;
 mod db;
 mod error_aggregator;
 mod game_launcher;
+mod lap_tracker;
+mod pod_reservation;
 mod state;
+mod wallet;
 mod ws;
 
 use axum::Router;
@@ -106,8 +111,31 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Spawn pod reservation expiry loop (30 second interval)
+    let res_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            pod_reservation::expire_idle_reservations(&res_state).await;
+        }
+    });
+
+    // Spawn camera control tick loop (2 second interval)
+    let cam_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        loop {
+            interval.tick().await;
+            ac_camera::tick(&cam_state).await;
+        }
+    });
+
     // Spawn proactive error pattern detection
     error_aggregator::spawn(state.clone());
+
+    // Spawn cloud sync (pulls customer data from cloud rc-core)
+    cloud_sync::spawn(state.clone());
 
     // Build router
     let app = Router::new()

@@ -11,7 +11,9 @@ port = 8080
 path = "./data/racecontrol.db"
 
 [cloud]
-enabled = false
+enabled = true
+api_url = "https://app.racingpoint.cloud/api/v1"
+sync_interval_secs = 30
 
 [pods]
 count = 16

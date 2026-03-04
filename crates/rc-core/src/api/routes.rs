@@ -11,6 +11,8 @@ use crate::ac_server;
 use crate::auth;
 use crate::billing;
 use crate::game_launcher;
+use crate::pod_reservation;
+use crate::wallet;
 use crate::state::AppState;
 use rc_common::types::*;
 use rc_common::protocol::DashboardEvent;
@@ -47,6 +49,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/billing/sessions", get(list_billing_sessions))
         .route("/billing/sessions/{id}", get(get_billing_session))
         .route("/billing/sessions/{id}/events", get(billing_session_events))
+        .route("/billing/sessions/{id}/summary", get(billing_session_summary))
         .route("/billing/{id}/stop", post(stop_billing))
         .route("/billing/{id}/pause", post(pause_billing))
         .route("/billing/{id}/resume", post(resume_billing))
@@ -74,10 +77,17 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/auth/cancel/{id}", post(cancel_assignment))
         .route("/auth/pending", get(pending_auth_tokens))
         .route("/auth/pending/{pod_id}", get(pending_auth_token_for_pod))
+        // Auth (staff override — start billing without PIN/QR)
+        .route("/auth/start-now", post(start_now))
         // Auth (agent-facing)
         .route("/auth/validate-pin", post(validate_pin))
         // Auth (PWA-facing)
         .route("/auth/validate-qr", post(validate_qr))
+        // Wallet (staff-facing)
+        .route("/wallet/{driver_id}", get(get_wallet))
+        .route("/wallet/{driver_id}/topup", post(topup_wallet))
+        .route("/wallet/{driver_id}/transactions", get(wallet_transactions))
+        .route("/wallet/{driver_id}/refund", post(refund_wallet))
         // Customer (PWA endpoints)
         .route("/customer/login", post(customer_login))
         .route("/customer/verify-otp", post(customer_verify_otp))
@@ -85,8 +95,16 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/customer/waiver-status", get(customer_waiver_status))
         .route("/customer/profile", get(customer_profile))
         .route("/customer/sessions", get(customer_sessions))
+        .route("/customer/sessions/{id}", get(customer_session_detail))
         .route("/customer/laps", get(customer_laps))
         .route("/customer/stats", get(customer_stats))
+        .route("/customer/wallet", get(customer_wallet))
+        .route("/customer/wallet/transactions", get(customer_wallet_transactions))
+        .route("/customer/experiences", get(customer_experiences))
+        .route("/customer/book", post(customer_book_session))
+        .route("/customer/active-reservation", get(customer_active_reservation))
+        .route("/customer/end-reservation", post(customer_end_reservation))
+        .route("/customer/continue-session", post(customer_continue_session))
         // Waivers (admin-facing)
         .route("/waivers", get(list_waivers))
         .route("/waivers/check", get(check_waiver))
@@ -101,6 +119,9 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // AI Suggestions (history)
         .route("/ai/suggestions", get(list_ai_suggestions))
         .route("/ai/suggestions/{id}/dismiss", post(dismiss_ai_suggestion))
+        // Cloud sync
+        .route("/sync/changes", get(sync_changes))
+        .route("/sync/health", get(sync_health))
 }
 
 async fn health() -> Json<Value> {
@@ -244,7 +265,7 @@ async fn create_driver(
     let steam_guid = body.get("steam_guid").and_then(|v| v.as_str());
 
     let result = sqlx::query(
-        "INSERT INTO drivers (id, name, email, phone, steam_guid) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO drivers (id, name, email, phone, steam_guid, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
     )
     .bind(&id)
     .bind(name)
@@ -324,8 +345,74 @@ async fn create_session(
     }
 }
 
-async fn get_session(State(_state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
-    Json(json!({ "todo": "get_session", "id": id }))
+async fn get_session(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
+    use sqlx::Row;
+
+    let row = sqlx::query(
+        "SELECT bs.id, bs.driver_id, d.name as driver_name, bs.pod_id,
+                bs.pricing_tier_id, pt.name as tier_name,
+                bs.allocated_seconds, bs.driving_seconds, bs.status,
+                COALESCE(bs.custom_price_paise, pt.price_paise) as price_paise,
+                bs.started_at, bs.ended_at,
+                bs.experience_id, ke.name as experience_name,
+                bs.car, bs.track, bs.sim_type,
+                bs.reservation_id, bs.wallet_txn_id,
+                bs.wallet_debit_paise, bs.created_at
+         FROM billing_sessions bs
+         JOIN drivers d ON bs.driver_id = d.id
+         JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
+         LEFT JOIN kiosk_experiences ke ON bs.experience_id = ke.id
+         WHERE bs.id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let row = match row {
+        Ok(Some(r)) => r,
+        Ok(None) => return Json(json!({ "error": "Session not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    // Get laps count and best lap for this session
+    let lap_stats = sqlx::query_as::<_, (i64, Option<i64>)>(
+        "SELECT COUNT(*), MIN(CASE WHEN valid = 1 THEN lap_time_ms END)
+         FROM laps WHERE session_id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or((0, None));
+
+    Json(json!({
+        "session": {
+            "id": row.get::<String, _>("id"),
+            "driver_id": row.get::<String, _>("driver_id"),
+            "driver_name": row.get::<String, _>("driver_name"),
+            "pod_id": row.get::<String, _>("pod_id"),
+            "pricing_tier_id": row.get::<String, _>("pricing_tier_id"),
+            "pricing_tier_name": row.get::<String, _>("tier_name"),
+            "allocated_seconds": row.get::<i64, _>("allocated_seconds"),
+            "driving_seconds": row.get::<i64, _>("driving_seconds"),
+            "status": row.get::<String, _>("status"),
+            "price_paise": row.get::<i64, _>("price_paise"),
+            "started_at": row.get::<Option<String>, _>("started_at"),
+            "ended_at": row.get::<Option<String>, _>("ended_at"),
+            "experience_id": row.get::<Option<String>, _>("experience_id"),
+            "experience_name": row.get::<Option<String>, _>("experience_name"),
+            "car": row.get::<Option<String>, _>("car"),
+            "track": row.get::<Option<String>, _>("track"),
+            "sim_type": row.get::<Option<String>, _>("sim_type"),
+            "reservation_id": row.get::<Option<String>, _>("reservation_id"),
+            "wallet_txn_id": row.get::<Option<String>, _>("wallet_txn_id"),
+            "wallet_debit_paise": row.get::<Option<i64>, _>("wallet_debit_paise"),
+            "created_at": row.get::<String, _>("created_at"),
+            "total_laps": lap_stats.0,
+            "best_lap_ms": lap_stats.1,
+        }
+    }))
 }
 
 async fn list_laps(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -348,8 +435,47 @@ async fn list_laps(State(state): State<Arc<AppState>>) -> Json<Value> {
     }
 }
 
-async fn session_laps(State(_state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
-    Json(json!({ "todo": "session_laps", "session_id": id }))
+async fn session_laps(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (
+        String, String, String, String, String, i64, i64,
+        Option<i64>, Option<i64>, Option<i64>, bool, String,
+    )>(
+        "SELECT l.id, l.driver_id, l.pod_id, l.track, l.car, l.lap_number, l.lap_time_ms,
+                l.sector1_ms, l.sector2_ms, l.sector3_ms, l.valid, l.created_at
+         FROM laps l
+         WHERE l.session_id = ?
+         ORDER BY l.lap_number ASC",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(laps) => {
+            let list: Vec<Value> = laps
+                .iter()
+                .map(|l| {
+                    json!({
+                        "id": l.0,
+                        "driver_id": l.1,
+                        "pod_id": l.2,
+                        "track": l.3,
+                        "car": l.4,
+                        "lap_number": l.5,
+                        "lap_time_ms": l.6,
+                        "sector1_ms": l.7,
+                        "sector2_ms": l.8,
+                        "sector3_ms": l.9,
+                        "valid": l.10,
+                        "created_at": l.11,
+                    })
+                })
+                .collect();
+            let count = list.len();
+            Json(json!({ "session_id": id, "laps": list, "count": count }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
 }
 
 async fn track_leaderboard(State(state): State<Arc<AppState>>, Path(track): Path<String>) -> Json<Value> {
@@ -711,6 +837,115 @@ async fn billing_session_events(
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
+}
+
+async fn billing_session_summary(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    // Get billing session info
+    let session = sqlx::query_as::<_, (String, String, String, String, i64, i64, String, Option<String>, Option<String>)>(
+        "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at, bs.ended_at
+         FROM billing_sessions bs
+         JOIN drivers d ON bs.driver_id = d.id
+         WHERE bs.id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let session = match session {
+        Ok(Some(s)) => s,
+        Ok(None) => return Json(json!({ "error": "Session not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    // Get laps for this session
+    let laps = sqlx::query_as::<_, (String, i64, i64, Option<i64>, Option<i64>, Option<i64>, bool, String, String)>(
+        "SELECT id, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, track, car
+         FROM laps WHERE session_id = ? ORDER BY lap_number ASC",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let total_laps = laps.len() as u32;
+    let valid_laps: Vec<_> = laps.iter().filter(|l| l.6).collect();
+    let best_lap_ms = valid_laps.iter().map(|l| l.2).min();
+    let avg_lap_ms = if !valid_laps.is_empty() {
+        Some(valid_laps.iter().map(|l| l.2).sum::<i64>() / valid_laps.len() as i64)
+    } else {
+        None
+    };
+
+    // Check personal best
+    let track = laps.first().map(|l| l.7.as_str()).unwrap_or("");
+    let car = laps.first().map(|l| l.8.as_str()).unwrap_or("");
+
+    let pb = sqlx::query_as::<_, (i64,)>(
+        "SELECT best_lap_ms FROM personal_bests WHERE driver_id = ? AND track = ? AND car = ?",
+    )
+    .bind(&session.1)
+    .bind(track)
+    .bind(car)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let personal_best_broken = best_lap_ms.map(|b| pb.map(|p| b <= p.0).unwrap_or(true)).unwrap_or(false);
+
+    // Check leaderboard position
+    let leaderboard_position = if !track.is_empty() && !car.is_empty() {
+        sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) + 1 FROM personal_bests WHERE track = ? AND car = ? AND best_lap_ms < ?",
+        )
+        .bind(track)
+        .bind(car)
+        .bind(best_lap_ms.unwrap_or(i64::MAX))
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.0)
+    } else {
+        None
+    };
+
+    let laps_json: Vec<Value> = laps
+        .iter()
+        .map(|l| {
+            json!({
+                "lap_number": l.1,
+                "lap_time_ms": l.2,
+                "sector1_ms": l.3,
+                "sector2_ms": l.4,
+                "sector3_ms": l.5,
+                "valid": l.6,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "summary": {
+            "billing_session_id": session.0,
+            "driver_id": session.1,
+            "driver_name": session.2,
+            "pod_id": session.3,
+            "track": track,
+            "car": car,
+            "allocated_seconds": session.4,
+            "driving_seconds": session.5,
+            "status": session.6,
+            "total_laps": total_laps,
+            "best_lap_ms": best_lap_ms,
+            "average_lap_ms": avg_lap_ms,
+            "personal_best_broken": personal_best_broken,
+            "leaderboard_position": leaderboard_position,
+            "laps": laps_json,
+        }
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1151,6 +1386,7 @@ struct AssignCustomerRequest {
     auth_type: String,
     custom_price_paise: Option<u32>,
     custom_duration_minutes: Option<u32>,
+    experience_id: Option<String>,
 }
 
 async fn assign_customer(
@@ -1165,6 +1401,7 @@ async fn assign_customer(
         req.auth_type,
         req.custom_price_paise,
         req.custom_duration_minutes,
+        req.experience_id,
     )
     .await
     {
@@ -1211,6 +1448,24 @@ async fn validate_pin(
     Json(req): Json<ValidatePinRequest>,
 ) -> Json<Value> {
     match auth::validate_pin(&state, req.pod_id, req.pin).await {
+        Ok(billing_session_id) => Json(json!({
+            "status": "ok",
+            "billing_session_id": billing_session_id,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct StartNowRequest {
+    token_id: String,
+}
+
+async fn start_now(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<StartNowRequest>,
+) -> Json<Value> {
+    match auth::start_now(&state, req.token_id).await {
         Ok(billing_session_id) => Json(json!({
             "status": "ok",
             "billing_session_id": billing_session_id,
@@ -1312,24 +1567,32 @@ async fn customer_profile(
         Err(e) => return Json(json!({ "error": e })),
     };
 
-    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64)>(
-        "SELECT id, name, email, phone, total_laps, total_time_ms FROM drivers WHERE id = ?",
+    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, bool)>(
+        "SELECT id, name, email, phone, total_laps, total_time_ms, COALESCE(has_used_trial, 0) FROM drivers WHERE id = ?",
     )
     .bind(&driver_id)
     .fetch_optional(&state.db)
     .await;
 
     match driver {
-        Ok(Some(d)) => Json(json!({
-            "driver": {
-                "id": d.0,
-                "name": d.1,
-                "email": d.2,
-                "phone": d.3,
-                "total_laps": d.4,
-                "total_time_ms": d.5,
-            }
-        })),
+        Ok(Some(d)) => {
+            let wallet_balance = wallet::get_balance(&state, &d.0).await.unwrap_or(0);
+            let active_reservation = pod_reservation::get_active_reservation_for_driver(&state, &d.0).await;
+
+            Json(json!({
+                "driver": {
+                    "id": d.0,
+                    "name": d.1,
+                    "email": d.2,
+                    "phone": d.3,
+                    "total_laps": d.4,
+                    "total_time_ms": d.5,
+                    "has_used_trial": d.6,
+                    "wallet_balance_paise": wallet_balance,
+                    "active_reservation": active_reservation,
+                }
+            }))
+        }
         Ok(None) => Json(json!({ "error": "Driver not found" })),
         Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
     }
@@ -1376,6 +1639,110 @@ async fn customer_sessions(
         }
         Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
     }
+}
+
+async fn customer_session_detail(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Fetch the billing session, ensuring it belongs to this customer
+    let row = sqlx::query_as::<_, (
+        String, String, String, i64, i64, String, i64,
+        Option<String>, Option<String>,
+        Option<String>, Option<String>, Option<String>, Option<String>,
+        Option<String>,
+    )>(
+        "SELECT bs.id, bs.pod_id, pt.name, bs.allocated_seconds, bs.driving_seconds,
+                bs.status, COALESCE(bs.custom_price_paise, pt.price_paise),
+                bs.started_at, bs.ended_at,
+                bs.experience_id, ke.name,
+                bs.car, bs.track, bs.sim_type
+         FROM billing_sessions bs
+         JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
+         LEFT JOIN kiosk_experiences ke ON bs.experience_id = ke.id
+         WHERE bs.id = ? AND bs.driver_id = ?",
+    )
+    .bind(&id)
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let session = match row {
+        Ok(Some(s)) => s,
+        Ok(None) => return Json(json!({ "error": "Session not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    // Get all laps for this session
+    let laps = sqlx::query_as::<_, (
+        String, i64, i64, Option<i64>, Option<i64>, Option<i64>, bool, String, String, String,
+    )>(
+        "SELECT id, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms,
+                valid, track, car, created_at
+         FROM laps WHERE session_id = ? AND driver_id = ?
+         ORDER BY lap_number ASC",
+    )
+    .bind(&id)
+    .bind(&driver_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let total_laps = laps.len() as i64;
+    let valid_laps: Vec<_> = laps.iter().filter(|l| l.6).collect();
+    let best_lap_ms = valid_laps.iter().map(|l| l.2).min();
+    let avg_lap_ms = if !valid_laps.is_empty() {
+        Some(valid_laps.iter().map(|l| l.2).sum::<i64>() / valid_laps.len() as i64)
+    } else {
+        None
+    };
+
+    let laps_json: Vec<Value> = laps
+        .iter()
+        .map(|l| {
+            json!({
+                "id": l.0,
+                "lap_number": l.1,
+                "lap_time_ms": l.2,
+                "sector1_ms": l.3,
+                "sector2_ms": l.4,
+                "sector3_ms": l.5,
+                "valid": l.6,
+                "track": l.7,
+                "car": l.8,
+                "created_at": l.9,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "session": {
+            "id": session.0,
+            "pod_id": session.1,
+            "pricing_tier_name": session.2,
+            "allocated_seconds": session.3,
+            "driving_seconds": session.4,
+            "status": session.5,
+            "price_paise": session.6,
+            "started_at": session.7,
+            "ended_at": session.8,
+            "experience_id": session.9,
+            "experience_name": session.10,
+            "car": session.11,
+            "track": session.12,
+            "sim_type": session.13,
+            "total_laps": total_laps,
+            "best_lap_ms": best_lap_ms,
+            "average_lap_ms": avg_lap_ms,
+        },
+        "laps": laps_json,
+    }))
 }
 
 async fn customer_laps(
@@ -1571,6 +1938,9 @@ async fn customer_register(
 
     match result {
         Ok(_) => {
+            // Auto-create wallet for new customer
+            let _ = wallet::ensure_wallet(&state, &driver_id).await;
+
             tracing::info!("Customer {} registered (age: {}, minor: {})", driver_id, age, age < 18);
             Json(json!({
                 "status": "registered",
@@ -1897,6 +2267,595 @@ async fn dismiss_ai_suggestion(
     }
 }
 
+// ─── Wallet (staff-facing) ───────────────────────────────────────────────────
+
+async fn get_wallet(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+) -> Json<Value> {
+    match wallet::get_wallet_info(&state, &driver_id).await {
+        Ok(Some(info)) => Json(json!({ "wallet": info })),
+        Ok(None) => Json(json!({ "wallet": null })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct TopupRequest {
+    amount_paise: i64,
+    method: String, // cash, card, upi
+    notes: Option<String>,
+    staff_id: Option<String>,
+}
+
+async fn topup_wallet(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    Json(req): Json<TopupRequest>,
+) -> Json<Value> {
+    let txn_type = match req.method.as_str() {
+        "cash" => "topup_cash",
+        "card" => "topup_card",
+        "upi" => "topup_upi",
+        _ => "topup_cash",
+    };
+
+    match wallet::credit(
+        &state,
+        &driver_id,
+        req.amount_paise,
+        txn_type,
+        None,
+        req.notes.as_deref(),
+        req.staff_id.as_deref(),
+    )
+    .await
+    {
+        Ok(new_balance) => Json(json!({
+            "status": "ok",
+            "new_balance_paise": new_balance,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn wallet_transactions(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let limit = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(50i64);
+    let txns = wallet::get_transactions(&state, &driver_id, limit).await;
+    Json(json!({ "transactions": txns }))
+}
+
+#[derive(Debug, Deserialize)]
+struct RefundRequest {
+    amount_paise: i64,
+    notes: Option<String>,
+    reference_id: Option<String>,
+}
+
+async fn refund_wallet(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    Json(req): Json<RefundRequest>,
+) -> Json<Value> {
+    match wallet::credit(
+        &state,
+        &driver_id,
+        req.amount_paise,
+        "refund_manual",
+        req.reference_id.as_deref(),
+        req.notes.as_deref(),
+        None,
+    )
+    .await
+    {
+        Ok(new_balance) => Json(json!({
+            "status": "ok",
+            "new_balance_paise": new_balance,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+// ─── Customer Wallet ────────────────────────────────────────────────────────
+
+async fn customer_wallet(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    match wallet::get_wallet_info(&state, &driver_id).await {
+        Ok(Some(info)) => Json(json!({ "wallet": info })),
+        Ok(None) => Json(json!({ "wallet": { "driver_id": driver_id, "balance_paise": 0, "total_credited_paise": 0, "total_debited_paise": 0 } })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn customer_wallet_transactions(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let limit = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(50i64);
+    let txns = wallet::get_transactions(&state, &driver_id, limit).await;
+    Json(json!({ "transactions": txns }))
+}
+
+// ─── Customer Experiences ───────────────────────────────────────────────────
+
+async fn customer_experiences(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64, String, i64)>(
+        "SELECT e.id, e.name, e.game, e.track, e.car, e.car_class, e.duration_minutes, e.start_type, e.sort_order
+         FROM kiosk_experiences e WHERE e.is_active = 1 ORDER BY e.sort_order ASC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    // Also fetch pricing tiers for the client
+    let tiers = sqlx::query_as::<_, (String, String, i64, i64, bool, i64)>(
+        "SELECT id, name, duration_minutes, price_paise, is_trial, sort_order
+         FROM pricing_tiers WHERE is_active = 1 ORDER BY sort_order ASC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match (rows, tiers) {
+        (Ok(experiences), Ok(tiers)) => {
+            let exp_list: Vec<Value> = experiences.iter().map(|e| json!({
+                "id": e.0, "name": e.1, "game": e.2, "track": e.3,
+                "car": e.4, "car_class": e.5, "duration_minutes": e.6,
+                "start_type": e.7, "sort_order": e.8,
+            })).collect();
+
+            let tier_list: Vec<Value> = tiers.iter().map(|t| json!({
+                "id": t.0, "name": t.1, "duration_minutes": t.2,
+                "price_paise": t.3, "is_trial": t.4, "sort_order": t.5,
+            })).collect();
+
+            Json(json!({ "experiences": exp_list, "pricing_tiers": tier_list }))
+        }
+        _ => Json(json!({ "error": "Failed to load experiences" })),
+    }
+}
+
+// ─── Customer Booking ───────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct BookSessionRequest {
+    experience_id: String,
+    pricing_tier_id: String,
+}
+
+async fn customer_book_session(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<BookSessionRequest>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Validate pricing tier and get price
+    let tier = match sqlx::query_as::<_, (String, String, i64, i64, bool)>(
+        "SELECT id, name, duration_minutes, price_paise, is_trial FROM pricing_tiers WHERE id = ? AND is_active = 1",
+    )
+    .bind(&req.pricing_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return Json(json!({ "error": "Invalid pricing tier" })),
+        Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+    };
+
+    let is_trial = tier.4;
+    let price_paise = tier.3;
+
+    // Handle trial booking
+    if is_trial {
+        let has_used = sqlx::query_as::<_, (bool,)>(
+            "SELECT COALESCE(has_used_trial, 0) FROM drivers WHERE id = ?",
+        )
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await;
+
+        match has_used {
+            Ok(Some((true,))) => return Json(json!({ "error": "Free trial already used" })),
+            Ok(None) => return Json(json!({ "error": "Driver not found" })),
+            Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+            _ => {} // OK to proceed
+        }
+    } else {
+        // Validate wallet balance for non-trial
+        let balance = match wallet::get_balance(&state, &driver_id).await {
+            Ok(b) => b,
+            Err(e) => return Json(json!({ "error": e })),
+        };
+
+        if balance < price_paise {
+            return Json(json!({
+                "error": "Insufficient wallet balance",
+                "balance_paise": balance,
+                "required_paise": price_paise,
+            }));
+        }
+    }
+
+    // Check if driver already has an active reservation
+    if let Some(existing) = pod_reservation::get_active_reservation_for_driver(&state, &driver_id).await {
+        return Json(json!({
+            "error": "You already have an active reservation",
+            "reservation_id": existing.id,
+            "pod_id": existing.pod_id,
+        }));
+    }
+
+    // Find idle pod
+    let pod_id = match pod_reservation::find_idle_pod(&state).await {
+        Some(id) => id,
+        None => return Json(json!({ "error": "No pods available right now. Please try again shortly." })),
+    };
+
+    // Get pod number for display
+    let pod_number = {
+        let pods = state.pods.read().await;
+        pods.get(&pod_id).map(|p| p.number).unwrap_or(0)
+    };
+
+    // Debit wallet (skip for trial)
+    let (wallet_txn_id, wallet_debit) = if !is_trial && price_paise > 0 {
+        match wallet::debit(
+            &state,
+            &driver_id,
+            price_paise,
+            "debit_session",
+            None, // reference_id set after billing session created
+            Some(&format!("{} on Pod {}", tier.1, pod_number)),
+        )
+        .await
+        {
+            Ok((_, txn_id)) => (Some(txn_id), Some(price_paise)),
+            Err(e) => return Json(json!({ "error": e })),
+        }
+    } else {
+        (None, None)
+    };
+
+    // Create pod reservation
+    let reservation_id = match pod_reservation::create_reservation(&state, &driver_id, &pod_id).await {
+        Ok(id) => id,
+        Err(e) => {
+            // Refund if we already debited
+            if let (Some(_), Some(amount)) = (&wallet_txn_id, wallet_debit) {
+                let _ = wallet::refund(&state, &driver_id, amount, None, Some("Booking failed — auto-refund")).await;
+            }
+            return Json(json!({ "error": e }));
+        }
+    };
+
+    // Create auth token (QR type) for this pod
+    let experience_id = Some(req.experience_id.clone());
+    let qr_token = match auth::create_auth_token(
+        &state,
+        pod_id.clone(),
+        driver_id.clone(),
+        req.pricing_tier_id.clone(),
+        "qr".to_string(),
+        None, // custom_price_paise
+        None, // custom_duration_minutes
+        experience_id,
+    )
+    .await
+    {
+        Ok(token_info) => token_info.token,
+        Err(e) => {
+            // Cleanup: end reservation + refund
+            let _ = pod_reservation::end_reservation(&state, &reservation_id).await;
+            if let (Some(_), Some(amount)) = (&wallet_txn_id, wallet_debit) {
+                let _ = wallet::refund(&state, &driver_id, amount, None, Some("Booking failed — auto-refund")).await;
+            }
+            return Json(json!({ "error": format!("Failed to create auth: {}", e) }));
+        }
+    };
+
+    Json(json!({
+        "status": "booked",
+        "reservation_id": reservation_id,
+        "pod_id": pod_id,
+        "pod_number": pod_number,
+        "qr_token": qr_token,
+        "wallet_debit_paise": wallet_debit,
+        "wallet_txn_id": wallet_txn_id,
+    }))
+}
+
+async fn customer_active_reservation(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let reservation = pod_reservation::get_active_reservation_for_driver(&state, &driver_id).await;
+
+    match reservation {
+        Some(res) => {
+            // Get pod number
+            let pod_number = {
+                let pods = state.pods.read().await;
+                pods.get(&res.pod_id).map(|p| p.number).unwrap_or(0)
+            };
+
+            // Check if there's an active billing session on this pod
+            let active_billing = {
+                let timers = state.billing.active_timers.read().await;
+                timers.get(&res.pod_id).map(|t| t.to_info())
+            };
+
+            Json(json!({
+                "reservation": res,
+                "pod_number": pod_number,
+                "active_billing": active_billing,
+            }))
+        }
+        None => Json(json!({ "reservation": null })),
+    }
+}
+
+async fn customer_end_reservation(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let reservation = match pod_reservation::get_active_reservation_for_driver(&state, &driver_id).await {
+        Some(r) => r,
+        None => return Json(json!({ "error": "No active reservation" })),
+    };
+
+    // End any active billing on this pod
+    {
+        let timers = state.billing.active_timers.read().await;
+        if let Some(timer) = timers.get(&reservation.pod_id) {
+            let session_id = timer.session_id.clone();
+            drop(timers);
+
+            // Proportional refund
+            let billing = sqlx::query_as::<_, (i64, i64, Option<i64>)>(
+                "SELECT allocated_seconds, driving_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+            )
+            .bind(&session_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            if let Some((allocated, driving, Some(debit))) = billing {
+                if debit > 0 && driving < allocated {
+                    let remaining = allocated - driving;
+                    let refund_amount = (remaining * debit) / allocated;
+                    if refund_amount > 0 {
+                        let _ = wallet::refund(
+                            &state,
+                            &driver_id,
+                            refund_amount,
+                            Some(&session_id),
+                            Some("Early end — proportional refund"),
+                        )
+                        .await;
+                    }
+                }
+            }
+
+            billing::end_billing_session_public(&state, &session_id, rc_common::types::BillingSessionStatus::EndedEarly).await;
+        }
+    }
+
+    // End the reservation
+    let _ = pod_reservation::end_reservation(&state, &reservation.id).await;
+
+    Json(json!({ "status": "ok" }))
+}
+
+// ─── Continue Session (Multi-Sub-Session) ───────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct ContinueSessionRequest {
+    experience_id: String,
+    pricing_tier_id: String,
+}
+
+async fn customer_continue_session(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<ContinueSessionRequest>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Must have an active reservation
+    let reservation = match pod_reservation::get_active_reservation_for_driver(&state, &driver_id).await {
+        Some(r) => r,
+        None => return Json(json!({ "error": "No active reservation. Book a new session instead." })),
+    };
+
+    // Must not have active billing on this pod
+    {
+        let timers = state.billing.active_timers.read().await;
+        if timers.contains_key(&reservation.pod_id) {
+            return Json(json!({ "error": "A session is still active on this pod" }));
+        }
+    }
+
+    // Get pricing tier
+    let tier = match sqlx::query_as::<_, (String, String, i64, i64, bool)>(
+        "SELECT id, name, duration_minutes, price_paise, is_trial FROM pricing_tiers WHERE id = ? AND is_active = 1",
+    )
+    .bind(&req.pricing_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return Json(json!({ "error": "Invalid pricing tier" })),
+        Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+    };
+
+    let price_paise = tier.3;
+
+    // Debit wallet
+    if price_paise > 0 {
+        let balance = match wallet::get_balance(&state, &driver_id).await {
+            Ok(b) => b,
+            Err(e) => return Json(json!({ "error": e })),
+        };
+
+        if balance < price_paise {
+            return Json(json!({
+                "error": "Insufficient wallet balance",
+                "balance_paise": balance,
+                "required_paise": price_paise,
+            }));
+        }
+
+        match wallet::debit(
+            &state,
+            &driver_id,
+            price_paise,
+            "debit_session",
+            None,
+            Some(&format!("Continue: {}", tier.1)),
+        )
+        .await
+        {
+            Ok(_) => {}
+            Err(e) => return Json(json!({ "error": e })),
+        }
+    }
+
+    // Touch reservation
+    pod_reservation::touch_reservation(&state, &reservation.id).await;
+
+    // Start billing session directly (skip auth token — customer is already at pod)
+    let billing_session_id = match billing::start_billing_session(
+        &state,
+        reservation.pod_id.clone(),
+        driver_id.clone(),
+        req.pricing_tier_id.clone(),
+        None,
+        None,
+    )
+    .await
+    {
+        Some(id) => id,
+        None => {
+            // Refund on failure
+            if price_paise > 0 {
+                let _ = wallet::refund(&state, &driver_id, price_paise, None, Some("Continue failed — auto-refund")).await;
+            }
+            return Json(json!({ "error": "Failed to start billing session" }));
+        }
+    };
+
+    // Link billing session to reservation and record wallet debit
+    let _ = sqlx::query(
+        "UPDATE billing_sessions SET reservation_id = ?, wallet_debit_paise = ? WHERE id = ?",
+    )
+    .bind(&reservation.id)
+    .bind(price_paise)
+    .bind(&billing_session_id)
+    .execute(&state.db)
+    .await;
+
+    // Auto-launch game
+    let exp = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT game, track, car FROM kiosk_experiences WHERE id = ?",
+    )
+    .bind(&req.experience_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((game, track, car)) = exp {
+        let sim_type = match game.as_str() {
+            "assetto_corsa" | "ac" => SimType::AssettoCorsa,
+            "iracing" => SimType::IRacing,
+            "f1_25" | "f1" => SimType::F125,
+            "le_mans_ultimate" | "lmu" => SimType::LeMansUltimate,
+            "forza" => SimType::Forza,
+            _ => SimType::AssettoCorsa,
+        };
+
+        // Check if this game supports auto-spawn
+        let needs_assistance = matches!(sim_type, SimType::F125);
+
+        let agent_senders = state.agent_senders.read().await;
+        if needs_assistance {
+            // Send assistance screen instead of launching
+            if let Some(sender) = agent_senders.get(&reservation.pod_id) {
+                let _ = sender.send(rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen {
+                    driver_name: driver_id.clone(),
+                    message: "A team member is on the way to help launch your game.".to_string(),
+                }).await;
+            }
+            let _ = state.dashboard_tx.send(DashboardEvent::AssistanceNeeded {
+                pod_id: reservation.pod_id.clone(),
+                driver_name: driver_id.clone(),
+                game: game.clone(),
+                reason: "Game requires manual launch".to_string(),
+            });
+        } else {
+            let launch_args = serde_json::json!({ "car": car, "track": track, "driver": "Driver" }).to_string();
+            if let Some(sender) = agent_senders.get(&reservation.pod_id) {
+                let _ = sender.send(rc_common::protocol::CoreToAgentMessage::LaunchGame {
+                    sim_type,
+                    launch_args: Some(launch_args),
+                }).await;
+            }
+        }
+
+        // Update billing session with experience info
+        let _ = sqlx::query(
+            "UPDATE billing_sessions SET experience_id = ?, car = ?, track = ?, sim_type = ? WHERE id = ?",
+        )
+        .bind(&req.experience_id)
+        .bind(&car)
+        .bind(&track)
+        .bind(&game)
+        .bind(&billing_session_id)
+        .execute(&state.db)
+        .await;
+    }
+
+    Json(json!({
+        "status": "ok",
+        "billing_session_id": billing_session_id,
+        "reservation_id": reservation.id,
+        "pod_id": reservation.pod_id,
+    }))
+}
+
 // ─── Kiosk ──────────────────────────────────────────────────────────────────
 
 async fn list_kiosk_experiences(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -2123,4 +3082,182 @@ async fn update_kiosk_settings(
     }
 
     Json(json!({ "ok": true, "updated": updated }))
+}
+
+// ─── Cloud Sync Endpoints ──────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct SyncChangesQuery {
+    since: Option<String>,
+    tables: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn sync_changes(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<SyncChangesQuery>,
+) -> Json<Value> {
+    let since = params.since.unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+    let tables: Vec<&str> = params
+        .tables
+        .as_deref()
+        .unwrap_or("drivers,wallets,pricing_tiers,kiosk_experiences")
+        .split(',')
+        .map(|s| s.trim())
+        .collect();
+    let limit = params.limit.unwrap_or(500);
+
+    let mut result = json!({});
+
+    for table in &tables {
+        match *table {
+            "drivers" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'name', name, 'email', email, 'phone', phone,
+                        'steam_guid', steam_guid, 'iracing_id', iracing_id,
+                        'avatar_url', avatar_url, 'total_laps', total_laps,
+                        'total_time_ms', total_time_ms,
+                        'has_used_trial', COALESCE(has_used_trial, 0),
+                        'pin_hash', pin_hash, 'phone_verified', COALESCE(phone_verified, 0),
+                        'dob', dob, 'waiver_signed', COALESCE(waiver_signed, 0),
+                        'waiver_signed_at', waiver_signed_at, 'waiver_version', waiver_version,
+                        'guardian_name', guardian_name, 'guardian_phone', guardian_phone,
+                        'registration_completed', COALESCE(registration_completed, 0),
+                        'signature_data', signature_data,
+                        'created_at', created_at, 'updated_at', updated_at
+                    ) FROM drivers
+                    WHERE updated_at > ? OR (updated_at IS NULL AND created_at > ?)
+                    ORDER BY COALESCE(updated_at, created_at) ASC
+                    LIMIT ?",
+                )
+                .bind(&since)
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["drivers"] = json!(items);
+                }
+            }
+            "wallets" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'driver_id', driver_id, 'balance_paise', balance_paise,
+                        'total_credited_paise', total_credited_paise,
+                        'total_debited_paise', total_debited_paise,
+                        'updated_at', updated_at
+                    ) FROM wallets
+                    WHERE updated_at > ?
+                    ORDER BY updated_at ASC
+                    LIMIT ?",
+                )
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["wallets"] = json!(items);
+                }
+            }
+            "pricing_tiers" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'name', name, 'duration_minutes', duration_minutes,
+                        'price_paise', price_paise, 'is_trial', is_trial,
+                        'is_active', is_active, 'sort_order', sort_order,
+                        'created_at', created_at, 'updated_at', updated_at
+                    ) FROM pricing_tiers
+                    WHERE updated_at > ? OR (updated_at IS NULL AND created_at > ?)
+                    ORDER BY COALESCE(updated_at, created_at) ASC
+                    LIMIT ?",
+                )
+                .bind(&since)
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["pricing_tiers"] = json!(items);
+                }
+            }
+            "kiosk_experiences" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'name', name, 'game', game, 'track', track,
+                        'car', car, 'car_class', car_class,
+                        'duration_minutes', duration_minutes, 'start_type', start_type,
+                        'ac_preset_id', ac_preset_id, 'sort_order', sort_order,
+                        'is_active', is_active,
+                        'created_at', created_at, 'updated_at', updated_at
+                    ) FROM kiosk_experiences
+                    WHERE updated_at > ? OR (updated_at IS NULL AND created_at > ?)
+                    ORDER BY COALESCE(updated_at, created_at) ASC
+                    LIMIT ?",
+                )
+                .bind(&since)
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["kiosk_experiences"] = json!(items);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    result["synced_at"] = json!(chrono::Utc::now().to_rfc3339());
+    Json(result)
+}
+
+async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let driver_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM drivers")
+        .fetch_one(&state.db)
+        .await
+        .map(|r| r.0)
+        .unwrap_or(0);
+
+    let sync_states = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT table_name, last_synced_at, last_sync_count FROM sync_state ORDER BY table_name",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let sync_info: Vec<Value> = sync_states
+        .iter()
+        .map(|(table, last, count)| {
+            json!({ "table": table, "last_synced_at": last, "last_sync_count": count })
+        })
+        .collect();
+
+    Json(json!({
+        "status": "ok",
+        "drivers": driver_count,
+        "cloud_sync_enabled": state.config.cloud.enabled,
+        "cloud_api_url": state.config.cloud.api_url,
+        "sync_state": sync_info,
+    }))
 }

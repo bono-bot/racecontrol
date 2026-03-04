@@ -1,0 +1,398 @@
+//! Cloud sync: pull customer data from cloud rc-core to local.
+//!
+//! Runs as a background task on the local instance.
+//! Calls GET /api/v1/sync/changes?since=<last_sync> on the cloud.
+//! Upserts received records into local SQLite.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde_json::Value;
+
+use crate::state::AppState;
+
+const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,kiosk_experiences";
+
+/// Spawn the cloud sync background task.
+/// Only starts if cloud.enabled = true and cloud.api_url is set.
+pub fn spawn(state: Arc<AppState>) {
+    let cloud = &state.config.cloud;
+    if !cloud.enabled {
+        tracing::info!("Cloud sync disabled");
+        return;
+    }
+
+    let api_url = match &cloud.api_url {
+        Some(url) => url.clone(),
+        None => {
+            tracing::warn!("Cloud sync enabled but no api_url configured");
+            return;
+        }
+    };
+
+    let interval_secs = cloud.sync_interval_secs;
+    tracing::info!(
+        "Cloud sync enabled: {} (every {}s)",
+        api_url,
+        interval_secs
+    );
+
+    tokio::spawn(async move {
+        // Wait 5s on startup before first sync
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        loop {
+            interval.tick().await;
+            if let Err(e) = sync_once(&state, &api_url).await {
+                tracing::error!("Cloud sync failed: {}", e);
+            }
+        }
+    });
+}
+
+/// Perform a single sync cycle.
+async fn sync_once(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
+    let last_synced = get_last_sync_time(state).await;
+
+    let url = format!("{}/sync/changes", cloud_url);
+
+    tracing::debug!("Cloud sync: fetching since {}", last_synced);
+
+    let resp = state
+        .http_client
+        .get(&url)
+        .query(&[
+            ("since", last_synced.as_str()),
+            ("tables", SYNC_TABLES),
+        ])
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Cloud returned status {}", resp.status());
+    }
+
+    let body: Value = resp.json().await?;
+    let mut total_upserted = 0u64;
+
+    // Upsert drivers
+    if let Some(drivers) = body.get("drivers").and_then(|v| v.as_array()) {
+        for driver in drivers {
+            if let Err(e) = upsert_driver(state, driver).await {
+                tracing::warn!("Failed to upsert driver: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert wallets
+    if let Some(wallets) = body.get("wallets").and_then(|v| v.as_array()) {
+        for wallet in wallets {
+            if let Err(e) = upsert_wallet(state, wallet).await {
+                tracing::warn!("Failed to upsert wallet: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert pricing_tiers
+    if let Some(tiers) = body.get("pricing_tiers").and_then(|v| v.as_array()) {
+        for tier in tiers {
+            if let Err(e) = upsert_pricing_tier(state, tier).await {
+                tracing::warn!("Failed to upsert pricing tier: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert kiosk_experiences
+    if let Some(experiences) = body.get("kiosk_experiences").and_then(|v| v.as_array()) {
+        for exp in experiences {
+            if let Err(e) = upsert_kiosk_experience(state, exp).await {
+                tracing::warn!("Failed to upsert kiosk experience: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Update sync timestamp
+    let fallback_ts = chrono::Utc::now().to_rfc3339();
+    let synced_at = body
+        .get("synced_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&fallback_ts);
+
+    update_sync_state(state, synced_at, total_upserted).await;
+
+    if total_upserted > 0 {
+        tracing::info!("Cloud sync: upserted {} records", total_upserted);
+    } else {
+        tracing::debug!("Cloud sync: no new changes");
+    }
+
+    Ok(())
+}
+
+async fn get_last_sync_time(state: &Arc<AppState>) -> String {
+    let row = sqlx::query_as::<_, (String,)>(
+        "SELECT MIN(last_synced_at) FROM sync_state",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    row.map(|r| r.0)
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
+}
+
+async fn update_sync_state(state: &Arc<AppState>, synced_at: &str, count: u64) {
+    for table in SYNC_TABLES.split(',') {
+        let _ = sqlx::query(
+            "INSERT INTO sync_state (table_name, last_synced_at, last_sync_count, updated_at)
+             VALUES (?, ?, ?, datetime('now'))
+             ON CONFLICT(table_name) DO UPDATE SET
+                last_synced_at = excluded.last_synced_at,
+                last_sync_count = excluded.last_sync_count,
+                updated_at = datetime('now')",
+        )
+        .bind(table)
+        .bind(synced_at)
+        .bind(count as i64)
+        .execute(&state.db)
+        .await;
+    }
+}
+
+async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<()> {
+    let id = driver
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Driver missing id"))?;
+
+    // Check if local row exists and compare updated_at
+    let local_updated = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT updated_at FROM drivers WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let cloud_updated = driver
+        .get("updated_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Skip if local is newer or equal
+    if let Some((Some(ref local_ts),)) = local_updated {
+        if local_ts.as_str() >= cloud_updated {
+            return Ok(());
+        }
+    }
+
+    // Upsert — cloud wins for customer-owned fields, preserve local-only fields (otp_code etc.)
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone, steam_guid, iracing_id, avatar_url,
+            total_laps, total_time_ms, has_used_trial, pin_hash, phone_verified,
+            dob, waiver_signed, waiver_signed_at, waiver_version,
+            guardian_name, guardian_phone, registration_completed, signature_data,
+            created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            email = excluded.email,
+            phone = excluded.phone,
+            steam_guid = COALESCE(excluded.steam_guid, drivers.steam_guid),
+            iracing_id = COALESCE(excluded.iracing_id, drivers.iracing_id),
+            avatar_url = COALESCE(excluded.avatar_url, drivers.avatar_url),
+            has_used_trial = excluded.has_used_trial,
+            pin_hash = COALESCE(excluded.pin_hash, drivers.pin_hash),
+            phone_verified = excluded.phone_verified,
+            dob = excluded.dob,
+            waiver_signed = excluded.waiver_signed,
+            waiver_signed_at = excluded.waiver_signed_at,
+            waiver_version = excluded.waiver_version,
+            guardian_name = excluded.guardian_name,
+            guardian_phone = excluded.guardian_phone,
+            registration_completed = excluded.registration_completed,
+            signature_data = COALESCE(excluded.signature_data, drivers.signature_data),
+            updated_at = excluded.updated_at",
+    )
+    .bind(id)
+    .bind(driver.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"))
+    .bind(driver.get("email").and_then(|v| v.as_str()))
+    .bind(driver.get("phone").and_then(|v| v.as_str()))
+    .bind(driver.get("steam_guid").and_then(|v| v.as_str()))
+    .bind(driver.get("iracing_id").and_then(|v| v.as_str()))
+    .bind(driver.get("avatar_url").and_then(|v| v.as_str()))
+    .bind(driver.get("total_laps").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(driver.get("total_time_ms").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(driver.get("has_used_trial").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(driver.get("pin_hash").and_then(|v| v.as_str()))
+    .bind(driver.get("phone_verified").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(driver.get("dob").and_then(|v| v.as_str()))
+    .bind(driver.get("waiver_signed").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(driver.get("waiver_signed_at").and_then(|v| v.as_str()))
+    .bind(driver.get("waiver_version").and_then(|v| v.as_str()))
+    .bind(driver.get("guardian_name").and_then(|v| v.as_str()))
+    .bind(driver.get("guardian_phone").and_then(|v| v.as_str()))
+    .bind(driver.get("registration_completed").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(driver.get("signature_data").and_then(|v| v.as_str()))
+    .bind(driver.get("created_at").and_then(|v| v.as_str()))
+    .bind(cloud_updated)
+    .execute(&state.db)
+    .await?;
+
+    let name = driver.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+    tracing::debug!("Synced driver: {} ({})", name, id);
+
+    Ok(())
+}
+
+async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<()> {
+    let driver_id = wallet
+        .get("driver_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Wallet missing driver_id"))?;
+
+    let cloud_credited = wallet
+        .get("total_credited_paise")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let cloud_balance = wallet
+        .get("balance_paise")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let cloud_debited = wallet
+        .get("total_debited_paise")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let cloud_updated = wallet
+        .get("updated_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Check if wallet exists locally
+    let local = sqlx::query_as::<_, (i64, i64, i64)>(
+        "SELECT balance_paise, total_credited_paise, total_debited_paise FROM wallets WHERE driver_id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    match local {
+        Some((_local_bal, local_credited, local_debited)) => {
+            // Smart merge: take MAX of credits (cloud top-ups), keep local debits
+            let merged_credited = std::cmp::max(local_credited, cloud_credited);
+            let merged_balance = merged_credited - local_debited;
+
+            sqlx::query(
+                "UPDATE wallets SET
+                    total_credited_paise = ?,
+                    balance_paise = ?,
+                    updated_at = ?
+                 WHERE driver_id = ?",
+            )
+            .bind(merged_credited)
+            .bind(merged_balance)
+            .bind(cloud_updated)
+            .bind(driver_id)
+            .execute(&state.db)
+            .await?;
+        }
+        None => {
+            // Wallet doesn't exist locally — insert from cloud
+            sqlx::query(
+                "INSERT OR IGNORE INTO wallets (driver_id, balance_paise, total_credited_paise, total_debited_paise, updated_at)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(driver_id)
+            .bind(cloud_balance)
+            .bind(cloud_credited)
+            .bind(cloud_debited)
+            .bind(cloud_updated)
+            .execute(&state.db)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn upsert_pricing_tier(state: &Arc<AppState>, tier: &Value) -> anyhow::Result<()> {
+    let id = tier
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Tier missing id"))?;
+
+    sqlx::query(
+        "INSERT INTO pricing_tiers (id, name, duration_minutes, price_paise, is_trial, is_active, sort_order, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            duration_minutes = excluded.duration_minutes,
+            price_paise = excluded.price_paise,
+            is_trial = excluded.is_trial,
+            is_active = excluded.is_active,
+            sort_order = excluded.sort_order,
+            updated_at = excluded.updated_at",
+    )
+    .bind(id)
+    .bind(tier.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"))
+    .bind(tier.get("duration_minutes").and_then(|v| v.as_i64()).unwrap_or(30))
+    .bind(tier.get("price_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(tier.get("is_trial").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(tier.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
+    .bind(tier.get("sort_order").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(tier.get("updated_at").and_then(|v| v.as_str()))
+    .execute(&state.db)
+    .await?;
+
+    Ok(())
+}
+
+async fn upsert_kiosk_experience(state: &Arc<AppState>, exp: &Value) -> anyhow::Result<()> {
+    let id = exp
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Experience missing id"))?;
+
+    sqlx::query(
+        "INSERT INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, is_active, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            game = excluded.game,
+            track = excluded.track,
+            car = excluded.car,
+            car_class = excluded.car_class,
+            duration_minutes = excluded.duration_minutes,
+            start_type = excluded.start_type,
+            ac_preset_id = excluded.ac_preset_id,
+            sort_order = excluded.sort_order,
+            is_active = excluded.is_active,
+            updated_at = excluded.updated_at",
+    )
+    .bind(id)
+    .bind(exp.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"))
+    .bind(exp.get("game").and_then(|v| v.as_str()).unwrap_or("assetto_corsa"))
+    .bind(exp.get("track").and_then(|v| v.as_str()).unwrap_or("spa"))
+    .bind(exp.get("car").and_then(|v| v.as_str()).unwrap_or("ferrari_sf15t"))
+    .bind(exp.get("car_class").and_then(|v| v.as_str()))
+    .bind(exp.get("duration_minutes").and_then(|v| v.as_i64()).unwrap_or(30))
+    .bind(exp.get("start_type").and_then(|v| v.as_str()).unwrap_or("pitlane"))
+    .bind(exp.get("ac_preset_id").and_then(|v| v.as_str()))
+    .bind(exp.get("sort_order").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(exp.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
+    .bind(exp.get("updated_at").and_then(|v| v.as_str()))
+    .execute(&state.db)
+    .await?;
+
+    Ok(())
+}

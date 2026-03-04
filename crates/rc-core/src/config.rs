@@ -49,6 +49,8 @@ pub struct CloudConfig {
     #[serde(default)]
     pub enabled: bool,
     pub turso_url: Option<String>,
+    /// Base URL for the cloud rc-core API (e.g., "https://app.racingpoint.cloud/api/v1")
+    pub api_url: Option<String>,
     #[serde(default = "default_sync_interval")]
     pub sync_interval_secs: u64,
 }

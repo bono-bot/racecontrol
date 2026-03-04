@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::billing;
+use crate::pod_reservation;
 use crate::state::AppState;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 use rc_common::types::AuthTokenInfo;
@@ -30,6 +31,7 @@ pub async fn create_auth_token(
     auth_type: String,
     custom_price_paise: Option<u32>,
     custom_duration_minutes: Option<u32>,
+    experience_id: Option<String>,
 ) -> Result<AuthTokenInfo, String> {
     // Cancel any existing pending token for this pod
     let existing = sqlx::query_as::<_, (String,)>(
@@ -86,8 +88,8 @@ pub async fn create_auth_token(
 
     // Insert into DB
     sqlx::query(
-        "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, custom_price_paise, custom_duration_minutes, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+        "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, custom_price_paise, custom_duration_minutes, experience_id, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)",
     )
     .bind(&token_id)
     .bind(&pod_id)
@@ -97,6 +99,7 @@ pub async fn create_auth_token(
     .bind(&token)
     .bind(custom_price_paise.map(|p| p as i64))
     .bind(custom_duration_minutes.map(|m| m as i64))
+    .bind(&experience_id)
     .bind(now.to_rfc3339())
     .bind(expires_at.to_rfc3339())
     .execute(&state.db)
@@ -157,6 +160,124 @@ pub async fn create_auth_token(
     Ok(info)
 }
 
+// ─── Games That Need Staff Assistance (no auto-spawn) ─────────────────────
+
+fn is_manual_launch_game(game: &str) -> bool {
+    matches!(game, "f1_25" | "f1")
+}
+
+/// After billing starts, link reservation_id + wallet fields to the billing session.
+async fn link_reservation_to_billing(
+    state: &Arc<AppState>,
+    billing_session_id: &str,
+    driver_id: &str,
+) {
+    // Find active reservation for this driver
+    if let Some(reservation) = pod_reservation::get_active_reservation_for_driver(state, driver_id).await {
+        let _ = sqlx::query(
+            "UPDATE billing_sessions SET reservation_id = ? WHERE id = ?",
+        )
+        .bind(&reservation.id)
+        .bind(billing_session_id)
+        .execute(&state.db)
+        .await;
+
+        // Touch reservation activity
+        pod_reservation::touch_reservation(state, &reservation.id).await;
+    }
+}
+
+/// Auto-launch game or show assistance screen depending on game type.
+/// Returns the game name if an experience was linked.
+async fn launch_or_assist(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    billing_session_id: &str,
+    experience_id: &Option<String>,
+    driver_name: &str,
+) -> Option<String> {
+    let exp_id = experience_id.as_ref()?;
+
+    let exp = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT game, track, car FROM kiosk_experiences WHERE id = ?",
+    )
+    .bind(exp_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()?;
+
+    let (game, track, car) = exp;
+
+    let sim_type = match game.as_str() {
+        "assetto_corsa" | "ac" => rc_common::types::SimType::AssettoCorsa,
+        "iracing" => rc_common::types::SimType::IRacing,
+        "f1_25" | "f1" => rc_common::types::SimType::F125,
+        "le_mans_ultimate" | "lmu" => rc_common::types::SimType::LeMansUltimate,
+        "forza" => rc_common::types::SimType::Forza,
+        _ => rc_common::types::SimType::AssettoCorsa,
+    };
+
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(pod_id) {
+        if is_manual_launch_game(&game) {
+            // F1 25 etc — show assistance screen, don't auto-launch
+            let _ = sender
+                .send(CoreToAgentMessage::ShowAssistanceScreen {
+                    driver_name: driver_name.to_string(),
+                    message: "A team member is on the way to set up your session".to_string(),
+                })
+                .await;
+
+            // Broadcast assistance needed to kiosk dashboards
+            let _ = state.dashboard_tx.send(DashboardEvent::AssistanceNeeded {
+                pod_id: pod_id.to_string(),
+                driver_name: driver_name.to_string(),
+                game: game.clone(),
+                reason: format!("{} requires manual launch", game),
+            });
+
+            tracing::info!(
+                "Assistance needed for {} on pod {} (driver: {})",
+                game, pod_id, driver_name
+            );
+        } else {
+            // Auto-spawn game
+            let launch_args = serde_json::json!({
+                "car": car, "track": track, "driver": driver_name
+            })
+            .to_string();
+
+            let _ = sender
+                .send(CoreToAgentMessage::LaunchGame {
+                    sim_type,
+                    launch_args: Some(launch_args),
+                })
+                .await;
+
+            tracing::info!(
+                "Auto-launching {} on pod {} (car: {}, track: {})",
+                game, pod_id, car, track
+            );
+        }
+    }
+    drop(agent_senders);
+
+    // Update billing session with experience info
+    let _ = sqlx::query(
+        "UPDATE billing_sessions SET experience_id = ?, car = ?, track = ?, sim_type = ? WHERE id = ?",
+    )
+    .bind(exp_id)
+    .bind(&car)
+    .bind(&track)
+    .bind(&game)
+    .bind(billing_session_id)
+    .execute(&state.db)
+    .await;
+
+    Some(game)
+}
+
 // ─── Validate PIN ──────────────────────────────────────────────────────────
 
 pub async fn validate_pin(
@@ -165,8 +286,8 @@ pub async fn validate_pin(
     pin: String,
 ) -> Result<String, String> {
     // Find pending token for this pod with matching PIN
-    let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>)>(
-        "SELECT id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes
+    let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>)>(
+        "SELECT id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id
          FROM auth_tokens
          WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
            AND expires_at > datetime('now')
@@ -184,12 +305,13 @@ pub async fn validate_pin(
     let pricing_tier_id = row.2;
     let custom_price_paise = row.3.map(|p| p as u32);
     let custom_duration_minutes = row.4.map(|m| m as u32);
+    let experience_id = row.5;
 
     // Start billing session
     let billing_session_id = billing::start_billing_session(
         state,
         pod_id.clone(),
-        driver_id,
+        driver_id.clone(),
         pricing_tier_id,
         custom_price_paise,
         custom_duration_minutes,
@@ -206,12 +328,27 @@ pub async fn validate_pin(
     .execute(&state.db)
     .await;
 
-    // Clear lock screen on agent
+    // Get driver name for assistance screen
+    let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Driver".to_string());
+
+    // Clear lock screen on agent (unless it'll be replaced by assistance screen)
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
         let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
     }
     drop(agent_senders);
+
+    // Link reservation to billing session
+    link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
+
+    // Auto-launch game or show assistance screen
+    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &driver_name).await;
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -258,11 +395,21 @@ pub async fn validate_qr(
         return Err("QR token is not assigned to this customer".to_string());
     }
 
+    // Fetch experience_id from token
+    let experience_id: Option<String> = sqlx::query_scalar(
+        "SELECT experience_id FROM auth_tokens WHERE id = ?",
+    )
+    .bind(&token_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
     // Start billing session
     let billing_session_id = billing::start_billing_session(
         state,
         pod_id.clone(),
-        driver_id,
+        driver_id.clone(),
         pricing_tier_id,
         custom_price_paise,
         custom_duration_minutes,
@@ -279,12 +426,27 @@ pub async fn validate_qr(
     .execute(&state.db)
     .await;
 
+    // Get driver name for assistance screen
+    let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Driver".to_string());
+
     // Clear lock screen on agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
         let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
     }
     drop(agent_senders);
+
+    // Link reservation to billing session
+    link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
+
+    // Auto-launch game or show assistance screen
+    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &driver_name).await;
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -294,6 +456,89 @@ pub async fn validate_qr(
     });
 
     tracing::info!("QR validated on pod {}, billing session {} started", pod_id, billing_session_id);
+
+    Ok(billing_session_id)
+}
+
+// ─── Start Now (Staff Override) ───────────────────────────────────────────
+
+/// Atomically consume a pending auth token and start billing without requiring PIN/QR.
+/// Used by the kiosk "Start Now" button as a staff override.
+pub async fn start_now(
+    state: &Arc<AppState>,
+    token_id: String,
+) -> Result<String, String> {
+    // Find the pending token
+    let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>)>(
+        "SELECT pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id
+         FROM auth_tokens
+         WHERE id = ? AND status = 'pending'
+         LIMIT 1",
+    )
+    .bind(&token_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?
+    .ok_or_else(|| "Token not found or not pending".to_string())?;
+
+    let pod_id = row.0;
+    let driver_id = row.1;
+    let pricing_tier_id = row.2;
+    let custom_price_paise = row.3.map(|p| p as u32);
+    let custom_duration_minutes = row.4.map(|m| m as u32);
+    let experience_id = row.5;
+
+    // Start billing session
+    let billing_session_id = billing::start_billing_session(
+        state,
+        pod_id.clone(),
+        driver_id.clone(),
+        pricing_tier_id,
+        custom_price_paise,
+        custom_duration_minutes,
+    )
+    .await
+    .ok_or_else(|| "Failed to start billing session".to_string())?;
+
+    // Mark token as consumed
+    let _ = sqlx::query(
+        "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&billing_session_id)
+    .bind(&token_id)
+    .execute(&state.db)
+    .await;
+
+    // Get driver name for assistance screen
+    let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
+        .bind(&driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Driver".to_string());
+
+    // Clear lock screen on agent
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+    }
+    drop(agent_senders);
+
+    // Link reservation to billing session
+    link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
+
+    // Auto-launch game or show assistance screen
+    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &driver_name).await;
+
+    // Broadcast consumed event
+    let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
+        token_id: token_id.clone(),
+        pod_id: pod_id.clone(),
+        billing_session_id: billing_session_id.clone(),
+    });
+
+    tracing::info!("Start Now on pod {}: token {} consumed, billing session {} started", pod_id, token_id, billing_session_id);
 
     Ok(billing_session_id)
 }
@@ -487,7 +732,7 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, Stri
             // Auto-create driver with phone
             let id = Uuid::new_v4().to_string();
             sqlx::query(
-                "INSERT INTO drivers (id, name, phone) VALUES (?, ?, ?)",
+                "INSERT INTO drivers (id, name, phone, updated_at) VALUES (?, ?, ?, datetime('now'))",
             )
             .bind(&id)
             .bind(format!("Customer {}", &phone[phone.len().saturating_sub(4)..]))
@@ -548,7 +793,7 @@ pub async fn verify_otp(state: &Arc<AppState>, phone: &str, otp: &str) -> Result
 
     // Clear OTP and update login timestamp
     sqlx::query(
-        "UPDATE drivers SET otp_code = NULL, otp_expires_at = NULL, phone_verified = 1, last_login_at = datetime('now') WHERE id = ?",
+        "UPDATE drivers SET otp_code = NULL, otp_expires_at = NULL, phone_verified = 1, last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
     )
     .bind(&driver_id)
     .execute(&state.db)
@@ -602,6 +847,7 @@ pub async fn handle_dashboard_command(
                 auth_type,
                 custom_price_paise,
                 custom_duration_minutes,
+                None, // experience_id — set via REST API
             )
             .await
             {
@@ -611,6 +857,14 @@ pub async fn handle_dashboard_command(
         rc_common::protocol::DashboardCommand::CancelAssignment { token_id } => {
             if let Err(e) = cancel_auth_token(state, token_id).await {
                 tracing::error!("Failed to cancel assignment: {}", e);
+            }
+        }
+        rc_common::protocol::DashboardCommand::AcknowledgeAssistance { pod_id } => {
+            tracing::info!("Staff acknowledged assistance for pod {}", pod_id);
+            // Clear the assistance screen on the agent
+            let agent_senders = state.agent_senders.read().await;
+            if let Some(sender) = agent_senders.get(&pod_id) {
+                let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
             }
         }
         _ => {}

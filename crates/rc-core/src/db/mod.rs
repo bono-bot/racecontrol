@@ -566,6 +566,152 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Link experience to billing session ──────────────────────────────────
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN experience_id TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN car TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN track TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN sim_type TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE auth_tokens ADD COLUMN experience_id TEXT")
+        .execute(pool)
+        .await;
+
+    // ─── Session feedback ──────────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS session_feedback (
+            id TEXT PRIMARY KEY,
+            billing_session_id TEXT NOT NULL REFERENCES billing_sessions(id),
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+            comment TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // ─── Wallet tables ──────────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS wallets (
+            driver_id TEXT PRIMARY KEY REFERENCES drivers(id),
+            balance_paise INTEGER NOT NULL DEFAULT 0,
+            total_credited_paise INTEGER NOT NULL DEFAULT 0,
+            total_debited_paise INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS wallet_transactions (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            amount_paise INTEGER NOT NULL,
+            balance_after_paise INTEGER NOT NULL,
+            txn_type TEXT NOT NULL CHECK(txn_type IN (
+                'topup_cash','topup_card','topup_upi','topup_online',
+                'debit_session','refund_session','refund_manual',
+                'bonus','adjustment'
+            )),
+            reference_id TEXT,
+            notes TEXT,
+            staff_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_reservations (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            pod_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active'
+                CHECK(status IN ('active','completed','expired','cancelled')),
+            created_at TEXT DEFAULT (datetime('now')),
+            ended_at TEXT,
+            last_activity_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Wallet indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_wallet_txn_driver ON wallet_transactions(driver_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_pod_res_driver ON pod_reservations(driver_id, status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_pod_res_pod ON pod_reservations(pod_id, status)")
+        .execute(pool)
+        .await?;
+
+    // Add wallet columns to billing_sessions
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN reservation_id TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN wallet_debit_paise INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN wallet_txn_id TEXT")
+        .execute(pool)
+        .await;
+
+    // ─── Cloud sync tables ───────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sync_state (
+            table_name TEXT PRIMARY KEY,
+            last_synced_at TEXT NOT NULL,
+            last_sync_count INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Add updated_at to tables that lack it
+    let _ = sqlx::query("ALTER TABLE pricing_tiers ADD COLUMN updated_at TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE kiosk_experiences ADD COLUMN updated_at TEXT")
+        .execute(pool)
+        .await;
+
+    // Backfill NULL updated_at with created_at
+    let _ = sqlx::query("UPDATE drivers SET updated_at = created_at WHERE updated_at IS NULL")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("UPDATE pricing_tiers SET updated_at = created_at WHERE updated_at IS NULL")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("UPDATE kiosk_experiences SET updated_at = created_at WHERE updated_at IS NULL")
+        .execute(pool)
+        .await;
+
+    // Sync indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_drivers_updated ON drivers(updated_at)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_wallets_updated ON wallets(updated_at)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_pricing_tiers_updated ON pricing_tiers(updated_at)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_kiosk_exp_updated ON kiosk_experiences(updated_at)")
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

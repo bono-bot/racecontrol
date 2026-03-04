@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc, RwLock};
 
+use crate::ac_camera::CameraController;
 use crate::ac_server::AcServerManager;
 use crate::billing::BillingManager;
 use crate::config::Config;
@@ -17,8 +18,11 @@ pub struct AppState {
     pub billing: BillingManager,
     pub game_launcher: GameManager,
     pub ac_server: AcServerManager,
+    pub camera: CameraController,
     /// Map of pod_id -> sender for pushing commands to specific agents
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,
+    /// Shared HTTP client for outbound requests (cloud sync, etc.)
+    pub http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -32,7 +36,12 @@ impl AppState {
             billing: BillingManager::new(),
             game_launcher: GameManager::new(),
             ac_server: AcServerManager::new(),
+            camera: CameraController::new(),
             agent_senders: RwLock::new(HashMap::new()),
+            http_client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("Failed to build HTTP client"),
         }
     }
 }
