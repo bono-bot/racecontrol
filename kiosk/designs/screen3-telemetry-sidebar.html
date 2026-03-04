@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RacingPoint Rig Telemetry Sidebar</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#e00700","background-dark":"#1a1a1a"},fontFamily:{"display":["Space Grotesk","sans-serif"],"mono":["JetBrains Mono","monospace"]}}}}</script>
+<style>.text-mono{font-family:'JetBrains Mono',monospace}</style>
+</head>
+<body class="bg-slate-900 font-display flex justify-end min-h-screen m-0">
+<div class="w-[450px] h-screen overflow-y-auto flex flex-col shadow-2xl border-l border-white/10 bg-[#1e1e1e]/90 backdrop-blur-xl">
+<header class="flex items-center justify-between border-b border-white/10 px-6 py-4 sticky top-0 bg-[#1a1a1a]/90 backdrop-blur-md z-10">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-2xl">speed</span>
+<h2 class="text-slate-100 text-lg font-bold">RIG 01 — TELEMETRY</h2>
+</div>
+<button class="rounded-lg h-8 w-8 bg-white/5 text-slate-300 flex items-center justify-center">
+<span class="material-symbols-outlined text-lg">close</span>
+</button>
+</header>
+<div class="px-6 py-5 border-b border-white/10">
+<div class="flex items-center gap-4">
+<div class="h-16 w-16 rounded-full bg-primary/20 border-2 border-primary flex items-center justify-center"><span class="material-symbols-outlined text-primary text-3xl">person</span></div>
+<div><p class="text-slate-100 text-xl font-bold">Max Verstappen</p><p class="text-slate-400 text-sm">F1 25 | Red Bull Racing</p></div>
+</div>
+</div>
+<div class="p-6 flex flex-col gap-6">
+<div class="flex flex-col gap-4">
+<div class="relative flex justify-center items-center py-6">
+<div class="relative w-48 h-48 rounded-full border-[6px] border-slate-800 flex flex-col items-center justify-center">
+<div class="absolute inset-0 rounded-full border-4 border-transparent border-t-primary border-r-primary border-b-primary opacity-80" style="transform:rotate(-30deg)"></div>
+<span class="text-5xl font-bold text-slate-100 text-mono">287</span>
+<span class="text-slate-400 text-sm mt-1">km/h</span>
+</div>
+</div>
+<div class="bg-black/40 p-4 rounded-xl border border-white/5">
+<div class="flex justify-between items-end mb-1">
+<span class="text-slate-400 text-xs font-bold uppercase">RPM</span>
+<span class="text-slate-100 font-bold text-xl text-mono">11,450</span>
+</div>
+<div class="flex gap-1 h-4">
+<div class="h-full w-full bg-green-500 rounded-l"></div>
+<div class="h-full w-full bg-green-500"></div>
+<div class="h-full w-full bg-green-500"></div>
+<div class="h-full w-full bg-yellow-400"></div>
+<div class="h-full w-full bg-yellow-400"></div>
+<div class="h-full w-full bg-primary"></div>
+<div class="h-full w-full bg-slate-800 rounded-r"></div>
+</div>
+<div class="flex justify-between items-center mt-2">
+<span class="text-slate-400 text-sm">Gear</span>
+<div class="bg-primary/20 border border-primary text-primary px-3 py-1 rounded text-lg font-bold text-mono">6</div>
+</div>
+</div>
+</div>
+<div class="bg-black/40 rounded-xl border border-white/5 p-4 flex flex-col gap-3">
+<div class="flex justify-between items-center">
+<h3 class="text-slate-100 text-sm font-bold uppercase">Inputs (10s Trace)</h3>
+<div class="flex gap-3 text-xs">
+<div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-green-500"></div><span class="text-slate-300">THR</span></div>
+<div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-primary"></div><span class="text-slate-300">BRK</span></div>
+</div>
+</div>
+<div class="relative h-32 w-full mt-2 border-l border-b border-slate-700">
+<div class="absolute inset-0 flex flex-col justify-between">
+<div class="w-full h-px bg-slate-800/50"></div>
+<div class="w-full h-px bg-slate-800/50"></div>
+<div class="w-full h-px bg-slate-800/50"></div>
+<div class="w-full h-px bg-slate-800/50"></div>
+</div>
+<div class="absolute bottom-0 left-0 w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:80%"></div>
+<div class="absolute bottom-0 left-[10%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:100%"></div>
+<div class="absolute bottom-0 left-[20%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:100%"></div>
+<div class="absolute bottom-0 left-[30%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:90%"></div>
+<div class="absolute bottom-0 left-[40%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:0%"></div>
+<div class="absolute bottom-0 left-[50%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:0%"></div>
+<div class="absolute bottom-0 left-[60%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:70%"></div>
+<div class="absolute bottom-0 left-[70%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:100%"></div>
+<div class="absolute bottom-0 left-[80%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:100%"></div>
+<div class="absolute bottom-0 left-[90%] w-[10%] bg-green-500/20 border-t-2 border-green-500" style="height:100%"></div>
+<div class="absolute bottom-0 left-0 w-[10%] border-t-2 border-primary/40" style="height:100%"></div>
+<div class="absolute bottom-0 left-[40%] w-[10%] bg-primary/15 border-t-2 border-primary" style="height:90%"></div>
+<div class="absolute bottom-0 left-[50%] w-[10%] bg-primary/15 border-t-2 border-primary" style="height:100%"></div>
+<div class="absolute -right-8 top-0 h-full flex flex-col justify-between text-[10px] text-slate-500 text-mono">
+<span>100</span><span>75</span><span>50</span><span>25</span><span>0</span>
+</div>
+</div>
+<div class="flex justify-between text-[10px] text-slate-500 text-mono px-1">
+<span>-10s</span><span>-5s</span><span>Live</span>
+</div>
+<div class="flex gap-4 mt-1">
+<div class="flex-1 flex flex-col gap-1">
+<div class="flex justify-between text-xs"><span class="text-slate-400">THR</span><span class="text-green-500 font-bold text-mono">100%</span></div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden"><div class="h-full bg-green-500 w-full"></div></div>
+</div>
+<div class="flex-1 flex flex-col gap-1">
+<div class="flex justify-between text-xs"><span class="text-slate-400">BRK</span><span class="text-primary font-bold text-mono">0%</span></div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden"><div class="h-full bg-primary w-0"></div></div>
+</div>
+</div>
+</div>
+<div class="bg-black/40 rounded-xl border border-white/5 p-4 flex flex-col gap-4">
+<div class="flex justify-between items-center">
+<h3 class="text-slate-100 text-sm font-bold uppercase">Tires and Temps</h3>
+<span class="text-primary text-xs font-bold border border-primary/30 bg-primary/10 px-2 py-0.5 rounded">SOFT</span>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex items-center gap-3"><div class="w-8 h-12 rounded-sm bg-gradient-to-t from-orange-500 to-yellow-400 border border-black"></div><div><span class="text-slate-400 text-xs font-bold block">FL</span><span class="text-slate-100 font-bold text-mono">98C</span></div></div>
+<div class="flex items-center justify-end gap-3"><div><span class="text-slate-400 text-xs font-bold block text-right">FR</span><span class="text-slate-100 font-bold text-mono">102C</span></div><div class="w-8 h-12 rounded-sm bg-gradient-to-t from-red-500 to-orange-500 border border-black"></div></div>
+<div class="flex items-center gap-3"><div class="w-8 h-12 rounded-sm bg-gradient-to-t from-green-500 to-green-400 border border-black"></div><div><span class="text-slate-400 text-xs font-bold block">RL</span><span class="text-slate-100 font-bold text-mono">92C</span></div></div>
+<div class="flex items-center justify-end gap-3"><div><span class="text-slate-400 text-xs font-bold block text-right">RR</span><span class="text-slate-100 font-bold text-mono">94C</span></div><div class="w-8 h-12 rounded-sm bg-gradient-to-t from-green-500 to-yellow-400 border border-black"></div></div>
+</div>
+</div>
+<div class="flex gap-3">
+<div class="flex-1 bg-black/40 rounded-lg border border-white/5 p-3 flex flex-col items-center"><span class="text-slate-500 text-[10px] uppercase font-bold mb-1">DRS</span><div class="w-3 h-3 rounded-full bg-slate-700"></div></div>
+<div class="flex-1 bg-black/40 rounded-lg border border-white/5 p-3 flex flex-col items-center"><span class="text-slate-500 text-[10px] uppercase font-bold mb-1">ERS</span><div class="text-green-400 font-bold text-sm text-mono">74%</div></div>
+<div class="flex-1 bg-black/40 rounded-lg border border-white/5 p-3 flex flex-col items-center"><span class="text-slate-500 text-[10px] uppercase font-bold mb-1">BBAL</span><div class="text-slate-200 font-bold text-sm text-mono">56.5</div></div>
+</div>
+<div class="bg-black/40 rounded-xl border border-white/5 p-4">
+<div class="flex justify-between items-center mb-1"><span class="text-slate-400 text-xs font-bold uppercase">Fuel Remaining</span><span class="text-slate-100 text-sm font-bold text-mono">14.2 Laps</span></div>
+<div class="h-2 w-full bg-slate-800 rounded-full overflow-hidden"><div class="h-full bg-slate-300 w-[65%]"></div></div>
+</div>
+<div class="bg-black/40 rounded-xl border border-white/5 p-4 mb-4">
+<h3 class="text-slate-100 text-sm font-bold uppercase mb-3">Session Timing</h3>
+<div class="flex flex-col gap-2 text-sm">
+<div class="flex justify-between pb-2 border-b border-white/5"><span class="text-slate-400">Current Lap</span><span class="text-slate-100 font-bold text-mono">1:24.305</span></div>
+<div class="flex justify-between pb-2 border-b border-white/5"><span class="text-slate-400">Last Lap</span><span class="text-slate-100 font-bold text-mono">1:23.850</span></div>
+<div class="flex justify-between pt-1"><span class="text-slate-400">Best Lap</span><span class="text-purple-400 font-bold text-mono">1:22.910</span></div>
+</div>
+</div>
+</div>
+</div>
+</body></html>

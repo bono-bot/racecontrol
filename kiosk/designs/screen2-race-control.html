@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RacingPoint Race Control</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#e00700","background-dark":"#230f0f"},fontFamily:{"display":["Space Grotesk"]}}}}</script>
+</head>
+<body class="bg-background-dark text-slate-100 font-display min-h-screen flex flex-col">
+<header class="flex items-center justify-between border-b border-primary/20 px-10 py-4 bg-background-dark/80 backdrop-blur-md sticky top-0 z-50">
+<div class="flex items-center gap-4">
+<div class="w-6 h-6 bg-primary rounded-full"></div>
+<h2 class="text-white text-xl font-bold tracking-wider uppercase">RacingPoint Race Control</h2>
+</div>
+<div class="flex items-center gap-6">
+<div class="px-4 py-2 bg-primary/10 rounded-lg flex items-center gap-3 border border-primary/20">
+<span class="material-symbols-outlined text-primary">timer</span>
+<span class="font-mono text-xl font-bold text-primary tracking-wider">01:42:15</span>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<nav class="flex items-center gap-8">
+<a class="text-primary text-sm font-bold uppercase border-b-2 border-primary pb-1" href="#">Live Timing</a>
+<a class="text-slate-400 text-sm font-medium uppercase" href="#">Track Map</a>
+<a class="text-slate-400 text-sm font-medium uppercase" href="#">Rigs</a>
+<a class="text-slate-400 text-sm font-medium uppercase" href="#">Settings</a>
+</nav>
+<button class="rounded-lg h-10 px-6 bg-primary text-white text-sm font-bold uppercase">End Session</button>
+</div>
+</header>
+<main class="flex-1 flex flex-col lg:flex-row gap-6 p-6">
+<section class="flex-[0.65] flex flex-col gap-6">
+<div class="rounded-xl border border-primary/20 bg-background-dark/50 overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-primary/10 border-b border-primary/20">
+<th class="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Pos</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Driver / Rig</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Game</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Lap</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Last Lap</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Best Lap</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Gap</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-400 uppercase text-center">Status</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-primary/10 font-mono text-sm">
+<tr><td class="px-6 py-4 font-bold text-lg">1</td><td class="px-6 py-4 font-sans font-medium">Rig 4 - Alex</td><td class="px-6 py-4"><div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center"><span class="font-sans text-xs font-bold">F1</span></div></td><td class="px-6 py-4">12</td><td class="px-6 py-4">1:24.532</td><td class="px-6 py-4 text-purple-500 font-bold">1:23.900</td><td class="px-6 py-4 text-slate-500">-</td><td class="px-6 py-4"><div class="flex items-center justify-center gap-2 px-3 py-1 rounded-full bg-green-500/20 text-green-500 border border-green-500/30 font-sans text-xs font-bold"><div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>LIVE</div></td></tr>
+<tr><td class="px-6 py-4 font-bold text-lg">2</td><td class="px-6 py-4 font-sans font-medium">Rig 2 - Sam</td><td class="px-6 py-4"><div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center"><span class="font-sans text-xs font-bold">ACC</span></div></td><td class="px-6 py-4">11</td><td class="px-6 py-4 text-green-500">1:24.201</td><td class="px-6 py-4">1:24.201</td><td class="px-6 py-4">+0.301</td><td class="px-6 py-4"><div class="flex items-center justify-center gap-2 px-3 py-1 rounded-full bg-green-500/20 text-green-500 border border-green-500/30 font-sans text-xs font-bold"><div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>LIVE</div></td></tr>
+<tr><td class="px-6 py-4 font-bold text-lg">3</td><td class="px-6 py-4 font-sans font-medium">Rig 7 - Jordan</td><td class="px-6 py-4"><div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center"><span class="font-sans text-xs font-bold">iR</span></div></td><td class="px-6 py-4">12</td><td class="px-6 py-4">1:25.992</td><td class="px-6 py-4 text-green-500">1:25.000</td><td class="px-6 py-4">+1.100</td><td class="px-6 py-4"><div class="flex items-center justify-center gap-2 px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 font-sans text-xs font-bold">PIT</div></td></tr>
+<tr class="opacity-60"><td class="px-6 py-4 font-bold text-lg">4</td><td class="px-6 py-4 font-sans font-medium">Rig 1 - Chris</td><td class="px-6 py-4"><div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center"><span class="font-sans text-xs font-bold">F1</span></div></td><td class="px-6 py-4">10</td><td class="px-6 py-4">1:27.440</td><td class="px-6 py-4">1:26.550</td><td class="px-6 py-4">+2.650</td><td class="px-6 py-4"><div class="flex items-center justify-center gap-2 px-3 py-1 rounded-full bg-slate-500/20 text-slate-500 border border-slate-500/30 font-sans text-xs font-bold">IDLE</div></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<aside class="flex-[0.35] flex flex-col gap-6">
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-primary/10 border border-primary/20 rounded-xl p-6 flex flex-col items-center text-center">
+<span class="text-slate-400 text-sm font-bold uppercase mb-2">Active Rigs</span>
+<div class="text-4xl font-mono font-bold"><span class="text-primary">8</span>/10</div>
+</div>
+<div class="bg-primary/5 border border-primary/10 rounded-xl p-6 flex flex-col items-center text-center">
+<span class="text-slate-400 text-sm font-bold uppercase mb-2">Total Laps</span>
+<div class="text-4xl font-mono font-bold">142</div>
+</div>
+</div>
+<div class="bg-purple-500/10 border border-purple-500/20 rounded-xl p-6 relative overflow-hidden">
+<span class="text-purple-500 text-sm font-bold uppercase mb-2 block">Fastest Lap Overall</span>
+<div class="text-4xl font-mono font-bold">1:23.900</div>
+<div class="text-sm text-slate-400 mt-2 font-medium">Rig 4 (Alex) - F1 25</div>
+</div>
+<div class="flex-1 bg-background-dark/50 border border-primary/20 rounded-xl flex flex-col overflow-hidden">
+<div class="px-6 py-4 border-b border-primary/10 bg-primary/5">
+<h3 class="text-sm font-bold uppercase text-white">Recent Activity</h3>
+</div>
+<div class="p-6 flex-1">
+<div class="relative border-l-2 border-primary/20 ml-3 space-y-8">
+<div class="relative pl-6"><div class="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-purple-500 border-4 border-background-dark"></div><p class="text-sm font-medium">Rig 4 set overall fastest lap</p><span class="text-xs text-slate-500 font-mono mt-1 block">1 min ago</span></div>
+<div class="relative pl-6"><div class="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-green-500 border-4 border-background-dark"></div><p class="text-sm font-medium">Rig 2 joined session</p><span class="text-xs text-slate-500 font-mono mt-1 block">5 mins ago</span></div>
+<div class="relative pl-6"><div class="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-yellow-500 border-4 border-background-dark"></div><p class="text-sm font-medium">Rig 7 entered pits</p><span class="text-xs text-slate-500 font-mono mt-1 block">8 mins ago</span></div>
+<div class="relative pl-6"><div class="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-primary border-4 border-background-dark"></div><p class="text-sm font-medium">Rig 3 disconnected</p><span class="text-xs text-slate-500 font-mono mt-1 block">12 mins ago</span></div>
+</div>
+</div>
+</div>
+</aside>
+</main>
+</body></html>
