@@ -163,6 +163,23 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/scheduler/status", get(scheduler::get_status))
         .route("/scheduler/settings", put(scheduler::update_settings))
         .route("/scheduler/analytics", get(scheduler::get_analytics))
+        // Session share report (PWA)
+        .route("/customer/sessions/{id}/share", get(customer_session_share))
+        // Referrals (PWA)
+        .route("/customer/referral-code", get(customer_referral_code))
+        .route("/customer/referral-code/generate", post(customer_generate_referral_code))
+        .route("/customer/redeem-referral", post(customer_redeem_referral))
+        // Coupons (PWA)
+        .route("/customer/apply-coupon", post(customer_apply_coupon))
+        // Packages (PWA)
+        .route("/customer/packages", get(customer_list_packages))
+        // Memberships (PWA)
+        .route("/customer/membership", get(customer_membership))
+        .route("/customer/membership/subscribe", post(customer_subscribe_membership))
+        // Public (no auth)
+        .route("/public/leaderboard", get(public_leaderboard))
+        .route("/public/leaderboard/{track}", get(public_track_leaderboard))
+        .route("/public/time-trial", get(public_time_trial))
 }
 
 async fn health() -> Json<Value> {
@@ -4064,4 +4081,789 @@ async fn customer_telemetry(
         }
         None => Json(json!({ "pod_id": pod_id, "telemetry": null })),
     }
+}
+
+// ─── Shareable Session Report ────────────────────────────────────────────────
+
+async fn customer_session_share(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Fetch billing session
+    let session = sqlx::query_as::<_, (
+        String, String, String, i64, i64, String, i64,
+        Option<String>, Option<String>, Option<String>, Option<String>,
+    )>(
+        "SELECT bs.id, bs.pod_id, pt.name, bs.allocated_seconds, bs.driving_seconds,
+                bs.status, COALESCE(bs.custom_price_paise, pt.price_paise),
+                bs.started_at, bs.ended_at, bs.car, bs.track
+         FROM billing_sessions bs
+         JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
+         WHERE bs.id = ? AND bs.driver_id = ?",
+    )
+    .bind(&id)
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let session = match session {
+        Ok(Some(s)) => s,
+        Ok(None) => return Json(json!({ "error": "Session not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    // Get driver name
+    let driver_name: String = sqlx::query_as::<_, (String,)>(
+        "SELECT name FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| r.0)
+    .unwrap_or_else(|| "Driver".to_string());
+
+    // Get laps
+    let laps = sqlx::query_as::<_, (i64, i64, Option<i64>, Option<i64>, Option<i64>, bool, String, String)>(
+        "SELECT lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, track, car
+         FROM laps WHERE session_id = ? AND driver_id = ?
+         ORDER BY lap_number ASC",
+    )
+    .bind(&id)
+    .bind(&driver_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let total_laps = laps.len();
+    let valid_laps: Vec<_> = laps.iter().filter(|l| l.5).collect();
+    let best_lap_ms = valid_laps.iter().map(|l| l.1).min();
+    let avg_lap_ms = if !valid_laps.is_empty() {
+        Some(valid_laps.iter().map(|l| l.1).sum::<i64>() / valid_laps.len() as i64)
+    } else {
+        None
+    };
+    let consistency = if valid_laps.len() >= 3 {
+        let mean = valid_laps.iter().map(|l| l.1 as f64).sum::<f64>() / valid_laps.len() as f64;
+        let variance = valid_laps.iter().map(|l| {
+            let diff = l.1 as f64 - mean;
+            diff * diff
+        }).sum::<f64>() / valid_laps.len() as f64;
+        let std_dev = variance.sqrt();
+        let cv = std_dev / mean * 100.0;
+        // Lower CV = more consistent. <2% = excellent, <5% = good, <10% = average
+        Some(json!({
+            "std_dev_ms": std_dev.round() as i64,
+            "coefficient_of_variation": (cv * 100.0).round() / 100.0,
+            "rating": if cv < 2.0 { "Excellent" } else if cv < 5.0 { "Good" } else if cv < 10.0 { "Average" } else { "Inconsistent" },
+        }))
+    } else {
+        None
+    };
+
+    // Determine track/car from laps or session
+    let track = laps.first().map(|l| l.6.clone()).or(session.10.clone()).unwrap_or_default();
+    let car = laps.first().map(|l| l.7.clone()).or(session.9.clone()).unwrap_or_default();
+
+    // Percentile ranking: how does this best lap compare to all laps on this track+car?
+    let percentile = if let Some(best) = best_lap_ms {
+        if !track.is_empty() && !car.is_empty() {
+            let total_count: Option<(i64,)> = sqlx::query_as(
+                "SELECT COUNT(DISTINCT driver_id) FROM laps WHERE track = ? AND car = ? AND valid = 1",
+            )
+            .bind(&track)
+            .bind(&car)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let faster_count: Option<(i64,)> = sqlx::query_as(
+                "SELECT COUNT(DISTINCT driver_id) FROM (
+                    SELECT driver_id, MIN(lap_time_ms) as best
+                    FROM laps WHERE track = ? AND car = ? AND valid = 1
+                    GROUP BY driver_id
+                ) WHERE best < ?",
+            )
+            .bind(&track)
+            .bind(&car)
+            .bind(best)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            match (total_count, faster_count) {
+                (Some((total,)), Some((faster,))) if total > 1 => {
+                    Some(((total - faster) as f64 / total as f64 * 100.0).round() as u32)
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Track record for comparison
+    let track_record: Option<(i64, String)> = if !track.is_empty() && !car.is_empty() {
+        sqlx::query_as(
+            "SELECT tr.best_lap_ms, d.name FROM track_records tr
+             JOIN drivers d ON tr.driver_id = d.id
+             WHERE tr.track = ? AND tr.car = ?",
+        )
+        .bind(&track)
+        .bind(&car)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+    } else {
+        None
+    };
+
+    // Personal best for this track+car
+    let personal_best: Option<(i64,)> = if !track.is_empty() && !car.is_empty() {
+        sqlx::query_as(
+            "SELECT best_lap_ms FROM personal_bests WHERE driver_id = ? AND track = ? AND car = ?",
+        )
+        .bind(&driver_id)
+        .bind(&track)
+        .bind(&car)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+    } else {
+        None
+    };
+
+    // Improvement: compare first valid lap to best valid lap
+    let improvement_ms = if valid_laps.len() >= 2 {
+        let first = valid_laps.first().unwrap().1;
+        let best = best_lap_ms.unwrap();
+        Some(first - best)
+    } else {
+        None
+    };
+
+    // Build share card data
+    let driving_minutes = session.4 / 60;
+
+    Json(json!({
+        "share_report": {
+            "driver_name": driver_name,
+            "track": track,
+            "car": car,
+            "date": session.7,
+            "driving_time_seconds": session.4,
+            "driving_time_display": format!("{}m {}s", driving_minutes, session.4 % 60),
+            "total_laps": total_laps,
+            "valid_laps": valid_laps.len(),
+            "best_lap_ms": best_lap_ms,
+            "best_lap_display": best_lap_ms.map(|ms| format!("{}:{:02}.{:03}", ms / 60000, (ms % 60000) / 1000, ms % 1000)),
+            "average_lap_ms": avg_lap_ms,
+            "improvement_ms": improvement_ms,
+            "consistency": consistency,
+            "percentile_rank": percentile,
+            "percentile_text": percentile.map(|p| format!("Top {}% of drivers", 100 - p.min(99))),
+            "track_record": track_record.as_ref().map(|(ms, name)| json!({
+                "time_ms": ms,
+                "holder": name,
+                "gap_ms": best_lap_ms.map(|b| b - ms),
+            })),
+            "personal_best_ms": personal_best.map(|pb| pb.0),
+            "is_new_pb": personal_best.map(|pb| best_lap_ms == Some(pb.0)).unwrap_or(false),
+            "laps": laps.iter().map(|l| json!({
+                "lap": l.0, "time_ms": l.1,
+                "s1": l.2, "s2": l.3, "s3": l.4,
+                "valid": l.5,
+            })).collect::<Vec<_>>(),
+            "venue": "RacingPoint",
+            "tagline": "May the Fastest Win.",
+        }
+    }))
+}
+
+// ─── Referral System ─────────────────────────────────────────────────────────
+
+async fn customer_referral_code(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let code: Option<(String,)> = sqlx::query_as(
+        "SELECT referral_code FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let referral_count: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM referrals WHERE referrer_id = ? AND reward_credited = 1",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    Json(json!({
+        "referral_code": code.and_then(|c| if c.0.is_empty() { None } else { Some(c.0) }),
+        "successful_referrals": referral_count.map(|c| c.0).unwrap_or(0),
+    }))
+}
+
+async fn customer_generate_referral_code(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Check if already has a code
+    let existing: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT referral_code FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((Some(code),)) = &existing {
+        if !code.is_empty() {
+            return Json(json!({ "referral_code": code }));
+        }
+    }
+
+    // Generate 6-char alphanumeric code
+    use std::fmt::Write;
+    let mut code = String::with_capacity(6);
+    let chars = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    for _ in 0..6 {
+        let idx = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos() as usize) % chars.len();
+        let _ = write!(code, "{}", chars[idx] as char);
+        // tiny spin to get different nanos
+        std::hint::spin_loop();
+    }
+
+    let code = format!("RP{}", code);
+
+    let _ = sqlx::query("UPDATE drivers SET referral_code = ? WHERE id = ?")
+        .bind(&code)
+        .bind(&driver_id)
+        .execute(&state.db)
+        .await;
+
+    Json(json!({ "referral_code": code }))
+}
+
+async fn customer_redeem_referral(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let code = match body.get("code").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return Json(json!({ "error": "code required" })),
+    };
+
+    // Find referrer
+    let referrer: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM drivers WHERE referral_code = ?",
+    )
+    .bind(code)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let referrer_id = match referrer {
+        Some((id,)) => {
+            if id == driver_id {
+                return Json(json!({ "error": "Cannot redeem your own code" }));
+            }
+            id
+        }
+        None => return Json(json!({ "error": "Invalid referral code" })),
+    };
+
+    // Check not already referred
+    let existing: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM referrals WHERE referee_id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if existing.map(|e| e.0 > 0).unwrap_or(false) {
+        return Json(json!({ "error": "Already used a referral code" }));
+    }
+
+    let referral_id = uuid::Uuid::new_v4().to_string();
+    let _ = sqlx::query(
+        "INSERT INTO referrals (id, referrer_id, referee_id, code, reward_credited)
+         VALUES (?, ?, ?, ?, 0)",
+    )
+    .bind(&referral_id)
+    .bind(&referrer_id)
+    .bind(&driver_id)
+    .bind(code)
+    .execute(&state.db)
+    .await;
+
+    Json(json!({ "ok": true, "message": "Referral code applied! Rewards will be credited after your first session." }))
+}
+
+// ─── Coupons ─────────────────────────────────────────────────────────────────
+
+async fn customer_apply_coupon(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let code = match body.get("code").and_then(|v| v.as_str()) {
+        Some(c) => c.to_uppercase(),
+        None => return Json(json!({ "error": "code required" })),
+    };
+
+    // Find coupon
+    let coupon: Option<(String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool)> = sqlx::query_as(
+        "SELECT id, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only
+         FROM coupons WHERE code = ? AND active = 1",
+    )
+    .bind(&code)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let coupon = match coupon {
+        Some(c) => c,
+        None => return Json(json!({ "error": "Invalid or expired coupon code" })),
+    };
+
+    // Check usage count
+    let used: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM coupon_redemptions WHERE coupon_id = ?",
+    )
+    .bind(&coupon.0)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if used.map(|u| u.0 >= coupon.3).unwrap_or(false) {
+        return Json(json!({ "error": "Coupon has reached maximum uses" }));
+    }
+
+    // Check if already used by this driver
+    let driver_used: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM coupon_redemptions WHERE coupon_id = ? AND driver_id = ?",
+    )
+    .bind(&coupon.0)
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if driver_used.map(|u| u.0 > 0).unwrap_or(false) {
+        return Json(json!({ "error": "You have already used this coupon" }));
+    }
+
+    // Return coupon details for the client to apply at checkout
+    let discount_description = match coupon.1.as_str() {
+        "percent" => format!("{}% off", coupon.2),
+        "flat" => format!("₹{} off", coupon.2 as i64 / 100),
+        "free_minutes" => format!("{} free minutes", coupon.2 as i64),
+        _ => "Discount".to_string(),
+    };
+
+    Json(json!({
+        "valid": true,
+        "coupon_id": coupon.0,
+        "coupon_type": coupon.1,
+        "value": coupon.2,
+        "description": discount_description,
+        "min_spend_paise": coupon.6,
+        "first_session_only": coupon.7,
+    }))
+}
+
+// ─── Packages ────────────────────────────────────────────────────────────────
+
+async fn customer_list_packages(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, i64, i64, i64, bool, Option<String>, Option<String>)>(
+        "SELECT id, name, description, num_rigs, duration_minutes, price_paise,
+                includes_cafe, day_restriction, hour_restriction
+         FROM packages WHERE active = 1
+         ORDER BY price_paise ASC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(packages) => {
+            let list: Vec<Value> = packages.iter().map(|p| json!({
+                "id": p.0,
+                "name": p.1,
+                "description": p.2,
+                "num_rigs": p.3,
+                "duration_minutes": p.4,
+                "price_paise": p.5,
+                "price_display": format!("₹{}", p.5 / 100),
+                "includes_cafe": p.6,
+                "day_restriction": p.7,
+                "hour_restriction": p.8,
+            })).collect();
+            Json(json!({ "packages": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+// ─── Memberships ─────────────────────────────────────────────────────────────
+
+async fn customer_membership(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Get active membership
+    let membership: Option<(String, String, String, f64, f64, String, bool, String)> = sqlx::query_as(
+        "SELECT m.id, mt.name, mt.perks, m.hours_used, mt.hours_included,
+                m.expires_at, m.auto_renew, m.status
+         FROM memberships m
+         JOIN membership_tiers mt ON m.tier_id = mt.id
+         WHERE m.driver_id = ? AND m.status = 'active'
+         ORDER BY m.created_at DESC LIMIT 1",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    // Get available tiers
+    let tiers = sqlx::query_as::<_, (String, String, f64, i64, String)>(
+        "SELECT id, name, hours_included, price_paise, perks
+         FROM membership_tiers WHERE active = 1
+         ORDER BY price_paise ASC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let tiers_json: Vec<Value> = tiers.iter().map(|t| {
+        let perks: Value = serde_json::from_str(&t.4).unwrap_or(json!([]));
+        json!({
+            "id": t.0,
+            "name": t.1,
+            "hours_included": t.2,
+            "price_paise": t.3,
+            "price_display": format!("₹{}/month", t.3 / 100),
+            "perks": perks,
+        })
+    }).collect();
+
+    Json(json!({
+        "membership": membership.map(|m| {
+            let perks: Value = serde_json::from_str(&m.2).unwrap_or(json!([]));
+            json!({
+                "id": m.0,
+                "tier_name": m.1,
+                "perks": perks,
+                "hours_used": m.3,
+                "hours_included": m.4,
+                "hours_remaining": (m.4 - m.3).max(0.0),
+                "expires_at": m.5,
+                "auto_renew": m.6,
+                "status": m.7,
+            })
+        }),
+        "available_tiers": tiers_json,
+    }))
+}
+
+async fn customer_subscribe_membership(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let tier_id = match body.get("tier_id").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return Json(json!({ "error": "tier_id required" })),
+    };
+
+    // Check tier exists
+    let tier: Option<(String, i64)> = sqlx::query_as(
+        "SELECT name, price_paise FROM membership_tiers WHERE id = ? AND active = 1",
+    )
+    .bind(tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let tier = match tier {
+        Some(t) => t,
+        None => return Json(json!({ "error": "Invalid membership tier" })),
+    };
+
+    // Check no active membership
+    let active: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM memberships WHERE driver_id = ? AND status = 'active'",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if active.map(|a| a.0 > 0).unwrap_or(false) {
+        return Json(json!({ "error": "You already have an active membership" }));
+    }
+
+    let membership_id = uuid::Uuid::new_v4().to_string();
+    let _ = sqlx::query(
+        "INSERT INTO memberships (id, driver_id, tier_id, hours_used, expires_at, auto_renew, status)
+         VALUES (?, ?, ?, 0, datetime('now', '+30 days'), 0, 'active')",
+    )
+    .bind(&membership_id)
+    .bind(&driver_id)
+    .bind(tier_id)
+    .execute(&state.db)
+    .await;
+
+    Json(json!({
+        "ok": true,
+        "membership_id": membership_id,
+        "tier_name": tier.0,
+        "message": format!("Welcome to {} membership!", tier.0),
+    }))
+}
+
+// ─── Public Leaderboard (No Auth Required) ───────────────────────────────────
+
+async fn public_leaderboard(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    // All-time track records across all tracks
+    let records = sqlx::query_as::<_, (String, String, String, i64, String)>(
+        "SELECT tr.track, tr.car, d.name, tr.best_lap_ms, tr.achieved_at
+         FROM track_records tr
+         JOIN drivers d ON tr.driver_id = d.id
+         ORDER BY tr.achieved_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    // Available tracks
+    let tracks = sqlx::query_as::<_, (String, i64)>(
+        "SELECT DISTINCT track, COUNT(*) as laps
+         FROM laps WHERE valid = 1
+         GROUP BY track
+         ORDER BY laps DESC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // Top drivers by total valid laps
+    let top_drivers = sqlx::query_as::<_, (String, i64, Option<i64>)>(
+        "SELECT d.name, COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest
+         FROM laps l
+         JOIN drivers d ON l.driver_id = d.id
+         WHERE l.valid = 1
+         GROUP BY l.driver_id
+         ORDER BY lap_count DESC
+         LIMIT 20",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // Active time trial
+    let time_trial = sqlx::query_as::<_, (String, String, String, String, String)>(
+        "SELECT id, track, car, week_start, week_end
+         FROM time_trials
+         WHERE date('now') BETWEEN week_start AND week_end
+         LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    Json(json!({
+        "records": records.unwrap_or_default().iter().map(|r| json!({
+            "track": r.0, "car": r.1, "driver": r.2,
+            "best_lap_ms": r.3,
+            "best_lap_display": format!("{}:{:02}.{:03}", r.3 / 60000, (r.3 % 60000) / 1000, r.3 % 1000),
+            "achieved_at": r.4,
+        })).collect::<Vec<_>>(),
+        "tracks": tracks.iter().map(|t| json!({
+            "name": t.0, "total_laps": t.1,
+        })).collect::<Vec<_>>(),
+        "top_drivers": top_drivers.iter().enumerate().map(|(i, d)| json!({
+            "position": i + 1,
+            "name": d.0,
+            "total_laps": d.1,
+            "fastest_lap_ms": d.2,
+        })).collect::<Vec<_>>(),
+        "time_trial": time_trial.map(|tt| json!({
+            "id": tt.0, "track": tt.1, "car": tt.2,
+            "week_start": tt.3, "week_end": tt.4,
+        })),
+        "venue": "RacingPoint",
+        "tagline": "May the Fastest Win.",
+    }))
+}
+
+async fn public_track_leaderboard(
+    State(state): State<Arc<AppState>>,
+    Path(track): Path<String>,
+) -> Json<Value> {
+    // Top 50 fastest laps on this track (best per driver per car)
+    let records = sqlx::query_as::<_, (String, String, i64, String)>(
+        "SELECT d.name, l.car, MIN(l.lap_time_ms), MAX(l.created_at)
+         FROM laps l
+         JOIN drivers d ON l.driver_id = d.id
+         WHERE l.track = ? AND l.valid = 1
+         GROUP BY l.driver_id, l.car
+         ORDER BY MIN(l.lap_time_ms) ASC
+         LIMIT 50",
+    )
+    .bind(&track)
+    .fetch_all(&state.db)
+    .await;
+
+    // Track stats
+    let stats: Option<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT COUNT(*) as total_laps, COUNT(DISTINCT driver_id) as drivers, COUNT(DISTINCT car) as cars
+         FROM laps WHERE track = ? AND valid = 1",
+    )
+    .bind(&track)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    Json(json!({
+        "track": track,
+        "stats": stats.map(|s| json!({
+            "total_laps": s.0,
+            "unique_drivers": s.1,
+            "unique_cars": s.2,
+        })),
+        "leaderboard": records.unwrap_or_default().iter().enumerate().map(|(i, r)| json!({
+            "position": i + 1,
+            "driver": r.0,
+            "car": r.1,
+            "best_lap_ms": r.2,
+            "best_lap_display": format!("{}:{:02}.{:03}", r.2 / 60000, (r.2 % 60000) / 1000, r.2 % 1000),
+            "achieved_at": r.3,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+async fn public_time_trial(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    // Current week's time trial
+    let trial = sqlx::query_as::<_, (String, String, String, String, String)>(
+        "SELECT id, track, car, week_start, week_end
+         FROM time_trials
+         WHERE date('now') BETWEEN week_start AND week_end
+         LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let trial = match trial {
+        Some(t) => t,
+        None => return Json(json!({ "time_trial": null, "message": "No active time trial this week" })),
+    };
+
+    // Leaderboard for this time trial (laps on this track+car this week)
+    let entries = sqlx::query_as::<_, (String, i64, i64)>(
+        "SELECT d.name, MIN(l.lap_time_ms), COUNT(l.id)
+         FROM laps l
+         JOIN drivers d ON l.driver_id = d.id
+         WHERE l.track = ? AND l.car = ? AND l.valid = 1
+           AND l.created_at >= ? AND l.created_at < datetime(?, '+1 day')
+         GROUP BY l.driver_id
+         ORDER BY MIN(l.lap_time_ms) ASC
+         LIMIT 20",
+    )
+    .bind(&trial.1)
+    .bind(&trial.2)
+    .bind(&trial.3)
+    .bind(&trial.4)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    Json(json!({
+        "time_trial": {
+            "id": trial.0,
+            "track": trial.1,
+            "car": trial.2,
+            "week_start": trial.3,
+            "week_end": trial.4,
+        },
+        "leaderboard": entries.iter().enumerate().map(|(i, e)| json!({
+            "position": i + 1,
+            "driver": e.0,
+            "best_lap_ms": e.1,
+            "best_lap_display": format!("{}:{:02}.{:03}", e.1 / 60000, (e.1 % 60000) / 1000, e.1 % 1000),
+            "attempts": e.2,
+        })).collect::<Vec<_>>(),
+    }))
 }

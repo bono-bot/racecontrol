@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
-import type { SessionDetailSession, LapRecord } from "@/lib/api";
+import type { SessionDetailSession, LapRecord, ShareReport } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
@@ -102,6 +102,9 @@ export default function SessionDetailPage() {
   const [laps, setLaps] = useState<LapRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shareReport, setShareReport] = useState<ShareReport | null>(null);
+  const [showShare, setShowShare] = useState(false);
+  const [shareLoading, setShareLoading] = useState(false);
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -125,6 +128,42 @@ export default function SessionDetailPage() {
         setLoading(false);
       });
   }, [router, sessionId]);
+
+  const handleShare = async () => {
+    setShareLoading(true);
+    try {
+      const res = await api.sessionShare(sessionId);
+      if (res.share_report) {
+        setShareReport(res.share_report);
+        setShowShare(true);
+
+        // Try native share
+        if (navigator.share) {
+          const r = res.share_report;
+          const text = [
+            `${r.driver_name} at RacingPoint`,
+            r.track ? `Track: ${r.track}` : null,
+            r.car ? `Car: ${r.car}` : null,
+            r.best_lap_display ? `Best Lap: ${r.best_lap_display}` : null,
+            r.total_laps ? `Laps: ${r.total_laps}` : null,
+            r.percentile_text || null,
+            r.is_new_pb ? "NEW PERSONAL BEST!" : null,
+            "",
+            "May the Fastest Win.",
+          ].filter(Boolean).join("\n");
+
+          try {
+            await navigator.share({ title: "My RacingPoint Session", text });
+          } catch {
+            // User cancelled share — that's fine
+          }
+        }
+      }
+    } catch {
+      // Silently fail
+    }
+    setShareLoading(false);
+  };
 
   // ─── Loading state ───────────────────────────────────────────────────────
 
@@ -237,6 +276,85 @@ export default function SessionDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Share Button ─────────────────────────────────────────────── */}
+        {session.status === "completed" && laps.length > 0 && (
+          <button
+            onClick={handleShare}
+            disabled={shareLoading}
+            className="w-full bg-rp-red hover:bg-rp-red/90 text-white font-semibold py-3 rounded-xl mb-4 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
+              <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {shareLoading ? "Loading..." : "Share Session Report"}
+          </button>
+        )}
+
+        {/* ── Share Card Modal ────────────────────────────────────────── */}
+        {showShare && shareReport && (
+          <div className="bg-rp-card border border-rp-red/30 rounded-xl p-5 mb-4">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-white font-bold text-lg">Session Report</h3>
+              <button onClick={() => setShowShare(false)} className="text-rp-grey hover:text-white">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
+                  <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {shareReport.percentile_text && (
+                <div className="bg-rp-red/10 border border-rp-red/20 rounded-lg p-3 text-center">
+                  <p className="text-rp-red font-bold text-lg">{shareReport.percentile_text}</p>
+                </div>
+              )}
+
+              {shareReport.is_new_pb && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-center">
+                  <p className="text-yellow-400 font-bold">NEW PERSONAL BEST!</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-[#1A1A1A] rounded-lg p-3">
+                  <p className="text-rp-grey text-xs">Best Lap</p>
+                  <p className="text-white font-mono font-bold">{shareReport.best_lap_display || "\u2014"}</p>
+                </div>
+                <div className="bg-[#1A1A1A] rounded-lg p-3">
+                  <p className="text-rp-grey text-xs">Total Laps</p>
+                  <p className="text-white font-bold">{shareReport.total_laps}</p>
+                </div>
+                {shareReport.improvement_ms && shareReport.improvement_ms > 0 && (
+                  <div className="bg-[#1A1A1A] rounded-lg p-3">
+                    <p className="text-rp-grey text-xs">Improved By</p>
+                    <p className="text-emerald-400 font-mono font-bold">-{formatLapTime(shareReport.improvement_ms)}</p>
+                  </div>
+                )}
+                {shareReport.consistency && (
+                  <div className="bg-[#1A1A1A] rounded-lg p-3">
+                    <p className="text-rp-grey text-xs">Consistency</p>
+                    <p className="text-white font-bold">{shareReport.consistency.rating}</p>
+                  </div>
+                )}
+              </div>
+
+              {shareReport.track_record && (
+                <div className="bg-[#1A1A1A] rounded-lg p-3">
+                  <p className="text-rp-grey text-xs mb-1">Track Record</p>
+                  <p className="text-white text-sm">
+                    {formatLapTime(shareReport.track_record.time_ms)} by {shareReport.track_record.holder}
+                    {shareReport.track_record.gap_ms != null && shareReport.track_record.gap_ms > 0 && (
+                      <span className="text-rp-grey text-xs ml-2">
+                        (+{formatLapTime(shareReport.track_record.gap_ms)} gap)
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── 2. Receipt / Billing Info ───────────────────────────────────── */}
         <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">

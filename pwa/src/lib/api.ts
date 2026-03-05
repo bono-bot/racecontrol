@@ -293,6 +293,68 @@ export interface GroupMemberInfo {
   pod_number: number | null;
 }
 
+// ─── Share Report Types ───────────────────────────────────────────────────
+
+export interface ShareReport {
+  driver_name: string;
+  track: string;
+  car: string;
+  date: string | null;
+  driving_time_seconds: number;
+  driving_time_display: string;
+  total_laps: number;
+  valid_laps: number;
+  best_lap_ms: number | null;
+  best_lap_display: string | null;
+  average_lap_ms: number | null;
+  improvement_ms: number | null;
+  consistency: { std_dev_ms: number; coefficient_of_variation: number; rating: string } | null;
+  percentile_rank: number | null;
+  percentile_text: string | null;
+  track_record: { time_ms: number; holder: string; gap_ms: number | null } | null;
+  personal_best_ms: number | null;
+  is_new_pb: boolean;
+  laps: { lap: number; time_ms: number; s1: number | null; s2: number | null; s3: number | null; valid: boolean }[];
+  venue: string;
+  tagline: string;
+}
+
+// ─── Package & Membership Types ──────────────────────────────────────────
+
+export interface PackageInfo {
+  id: string;
+  name: string;
+  description: string | null;
+  num_rigs: number;
+  duration_minutes: number;
+  price_paise: number;
+  price_display: string;
+  includes_cafe: boolean;
+  day_restriction: string | null;
+  hour_restriction: string | null;
+}
+
+export interface MembershipTier {
+  id: string;
+  name: string;
+  hours_included: number;
+  price_paise: number;
+  price_display: string;
+  perks: string[];
+}
+
+export interface MembershipInfo {
+  id: string;
+  tier_name: string;
+  perks: string[];
+  hours_used: number;
+  hours_included: number;
+  hours_remaining: number;
+  expires_at: string;
+  auto_renew: boolean;
+  status: string;
+}
+
 // ─── API calls ─────────────────────────────────────────────────────────────
 
 export const api = {
@@ -569,6 +631,68 @@ export const api = {
       `/customer/group-session/${encodeURIComponent(groupSessionId)}/decline`,
       { method: "POST" }
     ),
+
+  // Session share report
+  sessionShare: (id: string) =>
+    fetchApi<{ share_report?: ShareReport; error?: string }>(
+      `/customer/sessions/${encodeURIComponent(id)}/share`
+    ),
+
+  // Referrals
+  referralCode: () =>
+    fetchApi<{ referral_code?: string | null; successful_referrals?: number; error?: string }>(
+      "/customer/referral-code"
+    ),
+
+  generateReferralCode: () =>
+    fetchApi<{ referral_code?: string; error?: string }>(
+      "/customer/referral-code/generate",
+      { method: "POST" }
+    ),
+
+  redeemReferral: (code: string) =>
+    fetchApi<{ ok?: boolean; message?: string; error?: string }>(
+      "/customer/redeem-referral",
+      { method: "POST", body: JSON.stringify({ code }) }
+    ),
+
+  // Coupons
+  applyCoupon: (code: string) =>
+    fetchApi<{ valid?: boolean; coupon_id?: string; coupon_type?: string; value?: number; description?: string; error?: string }>(
+      "/customer/apply-coupon",
+      { method: "POST", body: JSON.stringify({ code }) }
+    ),
+
+  // Packages
+  packages: () =>
+    fetchApi<{ packages?: PackageInfo[]; error?: string }>("/customer/packages"),
+
+  // Memberships
+  membership: () =>
+    fetchApi<{ membership?: MembershipInfo | null; available_tiers?: MembershipTier[]; error?: string }>(
+      "/customer/membership"
+    ),
+
+  subscribeMembership: (tier_id: string) =>
+    fetchApi<{ ok?: boolean; membership_id?: string; tier_name?: string; message?: string; error?: string }>(
+      "/customer/membership/subscribe",
+      { method: "POST", body: JSON.stringify({ tier_id }) }
+    ),
+};
+
+// ─── Public API (no auth) ─────────────────────────────────────────────────
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
+
+export const publicApi = {
+  leaderboard: () =>
+    fetch(`${API_BASE_URL}/public/leaderboard`).then(r => r.json()),
+
+  trackLeaderboard: (track: string) =>
+    fetch(`${API_BASE_URL}/public/leaderboard/${encodeURIComponent(track)}`).then(r => r.json()),
+
+  timeTrial: () =>
+    fetch(`${API_BASE_URL}/public/time-trial`).then(r => r.json()),
 };
 
 export interface TerminalCommand {

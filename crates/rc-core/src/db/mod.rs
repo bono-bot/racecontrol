@@ -932,6 +932,228 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Referral system ─────────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS referrals (
+            id TEXT PRIMARY KEY,
+            referrer_id TEXT NOT NULL,
+            referee_id TEXT,
+            code TEXT NOT NULL UNIQUE,
+            reward_credited INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            redeemed_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals(code)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)")
+        .execute(pool)
+        .await?;
+
+    // Add referral_code column to drivers
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN referral_code TEXT")
+        .execute(pool)
+        .await;
+
+    // ─── Coupons & Promo Codes ───────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS coupons (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            coupon_type TEXT NOT NULL DEFAULT 'flat' CHECK(coupon_type IN ('percent', 'flat', 'free_minutes')),
+            value INTEGER NOT NULL,
+            max_uses INTEGER,
+            used_count INTEGER DEFAULT 0,
+            valid_from TEXT,
+            valid_until TEXT,
+            min_spend_paise INTEGER DEFAULT 0,
+            first_session_only INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)")
+        .execute(pool)
+        .await?;
+
+    // ─── Coupon redemptions ──────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS coupon_redemptions (
+            id TEXT PRIMARY KEY,
+            coupon_id TEXT NOT NULL REFERENCES coupons(id),
+            driver_id TEXT NOT NULL,
+            billing_session_id TEXT,
+            discount_paise INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_driver ON coupon_redemptions(driver_id)")
+        .execute(pool)
+        .await?;
+
+    // ─── Dynamic Pricing Rules ───────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pricing_rules (
+            id TEXT PRIMARY KEY,
+            rule_name TEXT NOT NULL,
+            rule_type TEXT NOT NULL CHECK(rule_type IN ('peak', 'off_peak', 'group', 'custom')),
+            day_of_week TEXT,
+            hour_start INTEGER,
+            hour_end INTEGER,
+            multiplier REAL DEFAULT 1.0,
+            flat_adjustment_paise INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed default pricing rules
+    sqlx::query(
+        "INSERT OR IGNORE INTO pricing_rules (id, rule_name, rule_type, day_of_week, hour_start, hour_end, multiplier)
+         VALUES
+            ('rule_weekday_offpeak', 'Weekday Off-Peak', 'off_peak', '1,2,3,4,5', 10, 15, 0.78),
+            ('rule_weekend_peak', 'Weekend Peak', 'peak', '0,6', 0, 24, 1.22),
+            ('rule_group_4plus', 'Group 4+', 'group', NULL, NULL, NULL, 0.89)"
+    )
+    .execute(pool)
+    .await?;
+
+    // ─── Packages (occasion-based) ───────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS packages (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            num_rigs INTEGER NOT NULL,
+            duration_minutes INTEGER NOT NULL,
+            price_paise INTEGER NOT NULL,
+            includes_cafe INTEGER DEFAULT 0,
+            cafe_budget_paise INTEGER DEFAULT 0,
+            day_restriction TEXT,
+            hour_start INTEGER,
+            hour_end INTEGER,
+            is_active INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed default packages
+    sqlx::query(
+        "INSERT OR IGNORE INTO packages (id, name, description, num_rigs, duration_minutes, price_paise, includes_cafe, cafe_budget_paise, sort_order)
+         VALUES
+            ('pkg_date', 'Date Night', '2 rigs + 2 drinks from cafe', 2, 60, 180000, 1, 20000, 1),
+            ('pkg_squad', 'Squad (4 Friends)', '4 rigs, group discount applied', 4, 60, 320000, 0, 0, 2),
+            ('pkg_birthday', 'Birthday Bash', '6 rigs + cake + drinks for 2 hours', 6, 120, 800000, 1, 100000, 3),
+            ('pkg_corporate', 'Corporate Team Building', '8 rigs + tournament + lunch for 2 hours', 8, 120, 1500000, 1, 200000, 4),
+            ('pkg_student', 'Student Special', '1 rig, weekday 10am-3pm only', 1, 60, 60000, 0, 0, 5)"
+    )
+    .execute(pool)
+    .await?;
+
+    // ─── Membership tiers & subscriptions ────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS membership_tiers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            hours_included INTEGER NOT NULL,
+            price_paise INTEGER NOT NULL,
+            perks TEXT,
+            is_active INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO membership_tiers (id, name, hours_included, price_paise, perks, sort_order)
+         VALUES
+            ('mem_rookie', 'Rookie', 4, 300000, '{\"priority_booking\":true}', 1),
+            ('mem_pro', 'Pro', 8, 500000, '{\"priority_booking\":true,\"league_entry\":true,\"telemetry_coaching\":true}', 2),
+            ('mem_champion', 'Champion', 0, 800000, '{\"unlimited_offpeak\":true,\"all_leagues\":true,\"merch\":true}', 3)"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS memberships (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            tier_id TEXT NOT NULL REFERENCES membership_tiers(id),
+            hours_used_minutes INTEGER DEFAULT 0,
+            price_paise INTEGER NOT NULL,
+            started_at TEXT NOT NULL DEFAULT (datetime('now')),
+            expires_at TEXT NOT NULL,
+            auto_renew INTEGER DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'expired', 'cancelled')),
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_memberships_driver ON memberships(driver_id, status)")
+        .execute(pool)
+        .await?;
+
+    // ─── Session highlights (clip URLs) ──────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS session_highlights (
+            id TEXT PRIMARY KEY,
+            billing_session_id TEXT NOT NULL,
+            driver_id TEXT NOT NULL,
+            clip_type TEXT DEFAULT 'best_lap',
+            file_path TEXT,
+            cloud_url TEXT,
+            duration_secs INTEGER,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_highlights_session ON session_highlights(billing_session_id)")
+        .execute(pool)
+        .await?;
+
+    // ─── Time trials (weekly challenges) ─────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS time_trials (
+            id TEXT PRIMARY KEY,
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            week_start TEXT NOT NULL,
+            week_end TEXT NOT NULL,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // ─── Google review tracking ──────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS review_nudges (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL,
+            billing_session_id TEXT NOT NULL,
+            sent_at TEXT DEFAULT (datetime('now')),
+            review_credited INTEGER DEFAULT 0
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
