@@ -1912,13 +1912,14 @@ async fn customer_session_detail(
         String, String, String, i64, i64, String, i64,
         Option<String>, Option<String>,
         Option<String>, Option<String>, Option<String>, Option<String>,
-        Option<String>,
+        Option<String>, Option<i64>,
     )>(
         "SELECT bs.id, bs.pod_id, pt.name, bs.allocated_seconds, bs.driving_seconds,
                 bs.status, COALESCE(bs.custom_price_paise, pt.price_paise),
                 bs.started_at, bs.ended_at,
                 bs.experience_id, ke.name,
-                bs.car, bs.track, bs.sim_type
+                bs.car, bs.track, bs.sim_type,
+                bs.wallet_debit_paise
          FROM billing_sessions bs
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
          LEFT JOIN kiosk_experiences ke ON bs.experience_id = ke.id
@@ -1934,6 +1935,17 @@ async fn customer_session_detail(
         Ok(None) => return Json(json!({ "error": "Session not found" })),
         Err(e) => return Json(json!({ "error": e.to_string() })),
     };
+
+    // Look up any refund for this session
+    let refund_paise: Option<(i64,)> = sqlx::query_as(
+        "SELECT COALESCE(SUM(amount_paise), 0) FROM wallet_transactions
+         WHERE reference_id = ? AND txn_type = 'refund'",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
 
     // Get all laps for this session
     let laps = sqlx::query_as::<_, (
@@ -1993,6 +2005,8 @@ async fn customer_session_detail(
             "car": session.11,
             "track": session.12,
             "sim_type": session.13,
+            "wallet_debit_paise": session.14,
+            "refund_paise": refund_paise.map(|r| r.0).filter(|&r| r > 0),
             "total_laps": total_laps,
             "best_lap_ms": best_lap_ms,
             "average_lap_ms": avg_lap_ms,
