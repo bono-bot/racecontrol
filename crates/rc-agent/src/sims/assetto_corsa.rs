@@ -235,12 +235,7 @@ impl SimAdapter for AssettoCorsaAdapter {
             sector1_ms: None,
             sector2_ms: None,
             sector3_ms: None,
-        };
-
-        // Track lap count for lap completion detection
-        self.last_lap_count = lap_count;
-
-        Ok(Some(frame))
+        }))
     }
 }
 
