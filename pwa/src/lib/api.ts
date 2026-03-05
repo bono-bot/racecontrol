@@ -355,6 +355,34 @@ export interface MembershipInfo {
   status: string;
 }
 
+// ─── Tournament Types ─────────────────────────────────────────────────────
+
+export interface TournamentInfo {
+  id: string;
+  name: string;
+  description: string | null;
+  track: string;
+  car: string;
+  format: string;
+  max_participants: number;
+  entry_fee_display: string;
+  prize_pool_display: string;
+  status: string;
+  event_date: string | null;
+  is_registered: boolean;
+}
+
+export interface CompareLapsResult {
+  track: string;
+  car: string;
+  my_best: { time_ms: number; s1_ms: number | null; s2_ms: number | null; s3_ms: number | null };
+  reference: { driver: string; time_ms: number; s1_ms: number | null; s2_ms: number | null; s3_ms: number | null } | null;
+  sector_analysis: { s1_delta_ms: number | null; s2_delta_ms: number | null; s3_delta_ms: number | null; weakest_sector: string | null; total_delta_ms: number } | null;
+  recent_trend: number[];
+  improving: boolean | null;
+  tip: string | null;
+}
+
 // ─── API calls ─────────────────────────────────────────────────────────────
 
 export const api = {
@@ -677,6 +705,22 @@ export const api = {
     fetchApi<{ ok?: boolean; membership_id?: string; tier_name?: string; message?: string; error?: string }>(
       "/customer/membership/subscribe",
       { method: "POST", body: JSON.stringify({ tier_id }) }
+    ),
+
+  // Tournaments
+  tournaments: () =>
+    fetchApi<{ tournaments?: TournamentInfo[]; error?: string }>("/customer/tournaments"),
+
+  registerTournament: (id: string) =>
+    fetchApi<{ ok?: boolean; registration_id?: string; error?: string }>(
+      `/customer/tournaments/${encodeURIComponent(id)}/register`,
+      { method: "POST" }
+    ),
+
+  // Coaching / Compare
+  compareLaps: (track: string, car: string, compareTo?: string) =>
+    fetchApi<CompareLapsResult & { error?: string }>(
+      `/customer/compare-laps?track=${encodeURIComponent(track)}&car=${encodeURIComponent(car)}${compareTo ? `&compare_to=${encodeURIComponent(compareTo)}` : ""}`
     ),
 };
 

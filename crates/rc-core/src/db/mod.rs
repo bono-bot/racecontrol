@@ -1154,6 +1154,65 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Tournaments ─────────────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS tournaments (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            format TEXT NOT NULL DEFAULT 'time_attack' CHECK(format IN ('time_attack', 'bracket', 'round_robin')),
+            max_participants INTEGER DEFAULT 16,
+            entry_fee_paise INTEGER DEFAULT 0,
+            prize_pool_paise INTEGER DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'upcoming' CHECK(status IN ('upcoming', 'registration', 'in_progress', 'completed', 'cancelled')),
+            registration_start TEXT,
+            registration_end TEXT,
+            event_date TEXT,
+            rules TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS tournament_registrations (
+            id TEXT PRIMARY KEY,
+            tournament_id TEXT NOT NULL REFERENCES tournaments(id),
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            seed INTEGER,
+            status TEXT DEFAULT 'registered' CHECK(status IN ('registered', 'checked_in', 'eliminated', 'winner')),
+            best_time_ms INTEGER,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(tournament_id, driver_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_tourney_reg ON tournament_registrations(tournament_id, driver_id)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS tournament_matches (
+            id TEXT PRIMARY KEY,
+            tournament_id TEXT NOT NULL REFERENCES tournaments(id),
+            round INTEGER NOT NULL,
+            match_number INTEGER NOT NULL,
+            driver_a TEXT REFERENCES drivers(id),
+            driver_b TEXT REFERENCES drivers(id),
+            time_a_ms INTEGER,
+            time_b_ms INTEGER,
+            winner_id TEXT REFERENCES drivers(id),
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed')),
+            completed_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
