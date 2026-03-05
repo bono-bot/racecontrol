@@ -159,6 +159,14 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Employee
         .route("/employee/daily-pin", get(employee_daily_pin))
         .route("/employee/debug-unlock", post(employee_debug_unlock))
+        // Dynamic Pricing & Coupons (admin)
+        .route("/pricing/rules", get(list_pricing_rules).post(create_pricing_rule))
+        .route("/pricing/rules/{id}", put(update_pricing_rule).delete(delete_pricing_rule))
+        .route("/coupons", get(list_coupons).post(create_coupon))
+        .route("/coupons/{id}", put(update_coupon).delete(delete_coupon))
+        // Review Nudges (admin)
+        .route("/review-nudges/pending", get(pending_review_nudges))
+        .route("/review-nudges/{id}/sent", post(mark_nudge_sent))
         // Smart Scheduler
         .route("/scheduler/status", get(scheduler::get_status))
         .route("/scheduler/settings", put(scheduler::update_settings))
@@ -4866,4 +4874,271 @@ async fn public_time_trial(
             "attempts": e.2,
         })).collect::<Vec<_>>(),
     }))
+}
+
+// ─── Dynamic Pricing Admin ───────────────────────────────────────────────────
+
+async fn list_pricing_rules(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>, Option<i64>, f64, i64, bool)>(
+        "SELECT id, rule_type, day_of_week, hour_start, hour_end, multiplier, flat_adjustment_paise, active
+         FROM pricing_rules ORDER BY rule_type, day_of_week, hour_start",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rules) => {
+            let list: Vec<Value> = rules.iter().map(|r| json!({
+                "id": r.0, "rule_type": r.1,
+                "day_of_week": r.2, "hour_start": r.3, "hour_end": r.4,
+                "multiplier": r.5, "flat_adjustment_paise": r.6, "active": r.7,
+            })).collect();
+            Json(json!({ "rules": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn create_pricing_rule(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let rule_type = body.get("rule_type").and_then(|v| v.as_str()).unwrap_or("custom");
+    let multiplier = body.get("multiplier").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let flat_adj = body.get("flat_adjustment_paise").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    let result = sqlx::query(
+        "INSERT INTO pricing_rules (id, rule_type, day_of_week, hour_start, hour_end, multiplier, flat_adjustment_paise, active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+    )
+    .bind(&id)
+    .bind(rule_type)
+    .bind(body.get("day_of_week").and_then(|v| v.as_i64()))
+    .bind(body.get("hour_start").and_then(|v| v.as_i64()))
+    .bind(body.get("hour_end").and_then(|v| v.as_i64()))
+    .bind(multiplier)
+    .bind(flat_adj)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => Json(json!({ "id": id })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn update_pricing_rule(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let result = sqlx::query(
+        "UPDATE pricing_rules SET
+            rule_type = COALESCE(?, rule_type),
+            day_of_week = ?,
+            hour_start = ?,
+            hour_end = ?,
+            multiplier = COALESCE(?, multiplier),
+            flat_adjustment_paise = COALESCE(?, flat_adjustment_paise),
+            active = COALESCE(?, active)
+         WHERE id = ?",
+    )
+    .bind(body.get("rule_type").and_then(|v| v.as_str()))
+    .bind(body.get("day_of_week").and_then(|v| v.as_i64()))
+    .bind(body.get("hour_start").and_then(|v| v.as_i64()))
+    .bind(body.get("hour_end").and_then(|v| v.as_i64()))
+    .bind(body.get("multiplier").and_then(|v| v.as_f64()))
+    .bind(body.get("flat_adjustment_paise").and_then(|v| v.as_i64()))
+    .bind(body.get("active").and_then(|v| v.as_bool()))
+    .bind(&id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn delete_pricing_rule(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let _ = sqlx::query("DELETE FROM pricing_rules WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await;
+    Json(json!({ "ok": true }))
+}
+
+// ─── Coupons Admin ───────────────────────────────────────────────────────────
+
+async fn list_coupons(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool, bool)>(
+        "SELECT id, code, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only, active
+         FROM coupons ORDER BY created_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(coupons) => {
+            let list: Vec<Value> = coupons.iter().map(|c| json!({
+                "id": c.0, "code": c.1, "coupon_type": c.2, "value": c.3,
+                "max_uses": c.4, "valid_from": c.5, "valid_until": c.6,
+                "min_spend_paise": c.7, "first_session_only": c.8, "active": c.9,
+            })).collect();
+            Json(json!({ "coupons": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn create_coupon(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let code = body.get("code").and_then(|v| v.as_str()).unwrap_or("").to_uppercase();
+    if code.is_empty() {
+        return Json(json!({ "error": "code required" }));
+    }
+
+    let result = sqlx::query(
+        "INSERT INTO coupons (id, code, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only, active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+    )
+    .bind(&id)
+    .bind(&code)
+    .bind(body.get("coupon_type").and_then(|v| v.as_str()).unwrap_or("percent"))
+    .bind(body.get("value").and_then(|v| v.as_f64()).unwrap_or(10.0))
+    .bind(body.get("max_uses").and_then(|v| v.as_i64()).unwrap_or(100))
+    .bind(body.get("valid_from").and_then(|v| v.as_str()))
+    .bind(body.get("valid_until").and_then(|v| v.as_str()))
+    .bind(body.get("min_spend_paise").and_then(|v| v.as_i64()))
+    .bind(body.get("first_session_only").and_then(|v| v.as_bool()).unwrap_or(false))
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => Json(json!({ "id": id, "code": code })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn update_coupon(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let result = sqlx::query(
+        "UPDATE coupons SET
+            code = COALESCE(?, code),
+            coupon_type = COALESCE(?, coupon_type),
+            value = COALESCE(?, value),
+            max_uses = COALESCE(?, max_uses),
+            valid_from = ?,
+            valid_until = ?,
+            min_spend_paise = ?,
+            first_session_only = COALESCE(?, first_session_only),
+            active = COALESCE(?, active)
+         WHERE id = ?",
+    )
+    .bind(body.get("code").and_then(|v| v.as_str()))
+    .bind(body.get("coupon_type").and_then(|v| v.as_str()))
+    .bind(body.get("value").and_then(|v| v.as_f64()))
+    .bind(body.get("max_uses").and_then(|v| v.as_i64()))
+    .bind(body.get("valid_from").and_then(|v| v.as_str()))
+    .bind(body.get("valid_until").and_then(|v| v.as_str()))
+    .bind(body.get("min_spend_paise").and_then(|v| v.as_i64()))
+    .bind(body.get("first_session_only").and_then(|v| v.as_bool()))
+    .bind(body.get("active").and_then(|v| v.as_bool()))
+    .bind(&id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn delete_coupon(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let _ = sqlx::query("DELETE FROM coupons WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await;
+    Json(json!({ "ok": true }))
+}
+
+// ─── Review Nudges ───────────────────────────────────────────────────────────
+
+async fn pending_review_nudges(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT rn.id, rn.driver_id, d.name, d.phone
+         FROM review_nudges rn
+         JOIN drivers d ON rn.driver_id = d.id
+         WHERE rn.sent_at IS NULL
+         ORDER BY rn.created_at ASC
+         LIMIT 50",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(nudges) => {
+            let list: Vec<Value> = nudges.iter().map(|n| json!({
+                "id": n.0, "driver_id": n.1, "driver_name": n.2, "phone": n.3,
+            })).collect();
+            Json(json!({ "nudges": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn mark_nudge_sent(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let review_credited = body.get("review_credited").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let _ = sqlx::query(
+        "UPDATE review_nudges SET sent_at = datetime('now'), review_credited = ? WHERE id = ?",
+    )
+    .bind(review_credited)
+    .bind(&id)
+    .execute(&state.db)
+    .await;
+
+    // If they left a review, credit 50 credits (₹50)
+    if review_credited {
+        let driver: Option<(String,)> = sqlx::query_as(
+            "SELECT driver_id FROM review_nudges WHERE id = ?",
+        )
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        if let Some((driver_id,)) = driver {
+            let _ = crate::wallet::credit(
+                &state,
+                &driver_id,
+                5000,
+                "review_reward",
+                Some(&id),
+                Some("Thank you for your Google review!"),
+                None,
+            )
+            .await;
+        }
+    }
+
+    Json(json!({ "ok": true }))
 }

@@ -1,13 +1,54 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use tokio::sync::RwLock;
 
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 
 use crate::state::AppState;
+
+/// Look up dynamic pricing rules and compute an adjusted price.
+/// Returns the final price in paise, or None if no adjustment (use base price).
+pub async fn compute_dynamic_price(
+    state: &Arc<AppState>,
+    base_price_paise: i64,
+) -> i64 {
+    let now = chrono::Local::now();
+    let dow = now.weekday().num_days_from_monday() as i64; // 0=Mon .. 6=Sun
+    let hour = now.hour() as i64;
+
+    // Fetch matching rules (time-of-day rules)
+    let rules = sqlx::query_as::<_, (String, f64, i64)>(
+        "SELECT rule_type, multiplier, flat_adjustment_paise
+         FROM pricing_rules
+         WHERE active = 1
+           AND (day_of_week IS NULL OR day_of_week = ?)
+           AND (hour_start IS NULL OR ? >= hour_start)
+           AND (hour_end IS NULL OR ? < hour_end)
+           AND rule_type IN ('peak', 'off_peak', 'custom')
+         ORDER BY
+           CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END,
+           CASE WHEN hour_start IS NOT NULL THEN 0 ELSE 1 END
+         LIMIT 1",
+    )
+    .bind(dow)
+    .bind(hour)
+    .bind(hour)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    match rules {
+        Some((_rule_type, multiplier, flat_adj)) => {
+            let adjusted = (base_price_paise as f64 * multiplier).round() as i64 + flat_adj;
+            adjusted.max(0)
+        }
+        None => base_price_paise,
+    }
+}
 
 // ─── BillingTimer ───────────────────────────────────────────────────────────
 
@@ -470,6 +511,24 @@ pub async fn start_billing_session(
         .map(|m| m * 60)
         .unwrap_or(tier.2 as u32 * 60);
 
+    // Apply dynamic pricing if no custom price override
+    let final_price_paise = if let Some(custom) = custom_price_paise {
+        Some(custom as i64)
+    } else if !is_trial {
+        let dynamic = compute_dynamic_price(state, tier.3).await;
+        if dynamic != tier.3 {
+            tracing::info!(
+                "Dynamic pricing applied: base={}p -> adjusted={}p",
+                tier.3, dynamic
+            );
+            Some(dynamic)
+        } else {
+            None // Use base tier price
+        }
+    } else {
+        None
+    };
+
     // Create billing session in DB
     let session_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now();
@@ -483,7 +542,7 @@ pub async fn start_billing_session(
     .bind(&pod_id)
     .bind(&pricing_tier_id)
     .bind(allocated_seconds as i64)
-    .bind(custom_price_paise.map(|p| p as i64))
+    .bind(final_price_paise)
     .bind(now.to_rfc3339())
     .execute(&state.db)
     .await;
@@ -760,10 +819,110 @@ async fn end_billing_session(
 
             let _ = state
                 .dashboard_tx
-                .send(DashboardEvent::BillingSessionChanged(info));
+                .send(DashboardEvent::BillingSessionChanged(info.clone()));
 
             tracing::info!("Billing session {} ended ({})", session_id, status_str);
+
+            // Post-session hooks (fire-and-forget)
+            if end_status != BillingSessionStatus::Cancelled {
+                let state_clone = state.clone();
+                let session_id_clone = session_id.to_string();
+                let driver_id_clone = info.driver_id.clone();
+                tokio::spawn(async move {
+                    post_session_hooks(&state_clone, &session_id_clone, &driver_id_clone).await;
+                });
+            }
         }
+    }
+}
+
+/// Post-session hooks: credit referral rewards, schedule review nudge.
+async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: &str) {
+    // 1. Credit referral reward if this is the referee's first completed session
+    let pending_referral: Option<(String, String)> = sqlx::query_as(
+        "SELECT r.id, r.referrer_id FROM referrals r
+         WHERE r.referee_id = ? AND r.reward_credited = 0",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((referral_id, referrer_id)) = pending_referral {
+        // Credit 100 credits (₹100 = 10000 paise) to referrer
+        let _ = crate::wallet::credit(
+            state,
+            &referrer_id,
+            10000,
+            "referral_reward",
+            Some(&referral_id),
+            Some("Referral reward — friend completed first session"),
+            None,
+        )
+        .await;
+        // Credit 50 credits to referee
+        let _ = crate::wallet::credit(
+            state,
+            driver_id,
+            5000,
+            "referral_bonus",
+            Some(&referral_id),
+            Some("Welcome reward — referred by a friend"),
+            None,
+        )
+        .await;
+        let _ = sqlx::query("UPDATE referrals SET reward_credited = 1 WHERE id = ?")
+            .bind(&referral_id)
+            .execute(&state.db)
+            .await;
+        tracing::info!("Referral reward credited: referrer={}, referee={}", referrer_id, driver_id);
+    }
+
+    // 2. Schedule review nudge (record for WhatsApp bot to pick up)
+    let already_nudged: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM review_nudges WHERE driver_id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    // Only nudge once per driver
+    if already_nudged.map(|c| c.0 == 0).unwrap_or(true) {
+        let _ = sqlx::query(
+            "INSERT INTO review_nudges (id, driver_id, billing_session_id, sent_at) VALUES (?, ?, ?, NULL)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(driver_id)
+        .bind(session_id)
+        .execute(&state.db)
+        .await;
+    }
+
+    // 3. Update membership hours if member
+    let membership: Option<(String, f64)> = sqlx::query_as(
+        "SELECT m.id, bs.driving_seconds / 3600.0
+         FROM memberships m
+         JOIN billing_sessions bs ON bs.driver_id = m.driver_id AND bs.id = ?
+         WHERE m.driver_id = ? AND m.status = 'active'",
+    )
+    .bind(session_id)
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((membership_id, hours_used)) = membership {
+        let _ = sqlx::query(
+            "UPDATE memberships SET hours_used = hours_used + ? WHERE id = ?",
+        )
+        .bind(hours_used)
+        .bind(&membership_id)
+        .execute(&state.db)
+        .await;
     }
 }
 
