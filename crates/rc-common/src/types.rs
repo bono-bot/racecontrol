@@ -130,6 +130,26 @@ pub struct TelemetryFrame {
     pub rpm: u32,
     pub position: Option<Position3D>,
     pub session_time_ms: u32,
+
+    // F1-specific telemetry (optional — only populated by F1 adapter)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drs_active: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drs_available: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ers_deploy_mode: Option<u8>, // 0=none, 1=medium, 2=hotlap, 3=overtake
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ers_store_percent: Option<f32>, // 0.0–100.0
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best_lap_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_lap_invalid: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sector1_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sector2_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sector3_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -554,4 +574,48 @@ pub struct AiDebugSuggestion {
     pub suggestion: String,
     pub model: String,
     pub created_at: DateTime<Utc>,
+}
+
+// ─── Friends & Multiplayer Types ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendInfo {
+    pub driver_id: String,
+    pub name: String,
+    pub customer_id: Option<String>,
+    pub is_online: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendRequestInfo {
+    pub id: String,
+    pub driver_id: String,
+    pub driver_name: String,
+    pub customer_id: Option<String>,
+    pub direction: String, // "incoming" or "outgoing"
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupSessionInfo {
+    pub id: String,
+    pub host_driver_id: String,
+    pub host_name: String,
+    pub experience_name: String,
+    pub pricing_tier_name: String,
+    pub shared_pin: String,
+    pub status: String,
+    pub members: Vec<GroupMemberInfo>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupMemberInfo {
+    pub driver_id: String,
+    pub driver_name: String,
+    pub customer_id: Option<String>,
+    pub role: String,   // "host" or "invitee"
+    pub status: String, // pending/accepted/declined/validated/completed/cancelled
+    pub pod_id: Option<String>,
+    pub pod_number: Option<u32>,
 }

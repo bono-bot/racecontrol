@@ -15,7 +15,9 @@ use crate::auth;
 use crate::billing;
 use crate::game_launcher;
 use crate::state::AppState;
-use rc_common::protocol::{AgentMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent};
+use rc_common::protocol::{
+    AgentMessage, AiChannelMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent,
+};
 use rc_common::types::GameState;
 
 /// WebSocket endpoint for pod agents
@@ -355,4 +357,204 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
 
     send_task.abort();
     tracing::info!("Dashboard client disconnected");
+}
+
+/// WebSocket endpoint for AI-to-AI messaging (Bono ↔ James)
+pub async fn ai_ws(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_ai(socket, state))
+}
+
+async fn handle_ai(socket: WebSocket, state: Arc<AppState>) {
+    let (mut ws_sender, mut ws_receiver) = socket.split();
+
+    tracing::info!("AI channel: connection attempt");
+
+    // First message must be Auth
+    let identity = match ws_receiver.next().await {
+        Some(Ok(Message::Text(text))) => {
+            match serde_json::from_str::<AiChannelMessage>(&text) {
+                Ok(AiChannelMessage::Auth { secret, identity }) => {
+                    let expected = state.config.cloud.terminal_secret.as_deref();
+                    if expected.is_some() && expected != Some(&secret) {
+                        let fail = AiChannelMessage::AuthFailed {
+                            reason: "Invalid secret".to_string(),
+                        };
+                        if let Ok(json) = serde_json::to_string(&fail) {
+                            let _ = ws_sender.send(Message::Text(json.into())).await;
+                        }
+                        tracing::warn!("AI channel: auth failed for {}", identity);
+                        return;
+                    }
+                    identity
+                }
+                _ => {
+                    tracing::warn!("AI channel: first message was not Auth");
+                    return;
+                }
+            }
+        }
+        _ => {
+            tracing::warn!("AI channel: connection closed before auth");
+            return;
+        }
+    };
+
+    // Send AuthOk
+    let auth_ok = AiChannelMessage::AuthOk {
+        identity: identity.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&auth_ok) {
+        if ws_sender.send(Message::Text(json.into())).await.is_err() {
+            return;
+        }
+    }
+
+    tracing::info!("AI channel: {} authenticated", identity);
+
+    // Create mpsc channel for sending messages to this peer
+    let (msg_tx, mut msg_rx) = mpsc::channel::<AiChannelMessage>(256);
+
+    // Store sender so HTTP endpoints can push via WS
+    *state.ai_peer_tx.write().await = Some(msg_tx.clone());
+
+    // Deliver any pending messages from DB
+    let pending: Vec<(String, String, String, String, Option<String>, Option<String>, String)> =
+        sqlx::query_as(
+            "SELECT id, sender, content, message_type, metadata, in_reply_to, created_at
+             FROM ai_messages WHERE recipient = ? AND status = 'pending'
+             ORDER BY created_at ASC",
+        )
+        .bind(&identity)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    for (id, sender, content, msg_type, metadata, in_reply_to, created_at) in &pending {
+        let msg = AiChannelMessage::Message {
+            id: id.clone(),
+            sender: sender.clone(),
+            content: content.clone(),
+            message_type: msg_type.clone(),
+            metadata: metadata.as_ref().and_then(|m| serde_json::from_str(m).ok()),
+            in_reply_to: in_reply_to.clone(),
+            created_at: created_at.clone(),
+        };
+        if let Ok(json) = serde_json::to_string(&msg) {
+            if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                break;
+            }
+            // Mark as delivered
+            let _ = sqlx::query(
+                "UPDATE ai_messages SET status = 'delivered', channel = 'ws',
+                 delivered_at = datetime('now') WHERE id = ?",
+            )
+            .bind(id)
+            .execute(&state.db)
+            .await;
+        }
+    }
+
+    if !pending.is_empty() {
+        tracing::info!("AI channel: delivered {} pending messages to {}", pending.len(), identity);
+    }
+
+    // Spawn task to forward mpsc messages to WebSocket
+    let send_task = tokio::spawn(async move {
+        while let Some(msg) = msg_rx.recv().await {
+            if let Ok(json) = serde_json::to_string(&msg) {
+                if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    // Listen for incoming messages from peer
+    while let Some(Ok(msg)) = ws_receiver.next().await {
+        match msg {
+            Message::Text(text) => {
+                match serde_json::from_str::<AiChannelMessage>(&text) {
+                    Ok(ai_msg) => match &ai_msg {
+                        AiChannelMessage::Message {
+                            id,
+                            sender,
+                            content,
+                            message_type,
+                            metadata,
+                            in_reply_to,
+                            created_at,
+                        } => {
+                            let recipient = if sender == "james" { "bono" } else { "james" };
+                            let meta_str = metadata.as_ref().map(|v| v.to_string());
+                            let _ = sqlx::query(
+                                "INSERT OR IGNORE INTO ai_messages
+                                 (id, sender, recipient, content, message_type, metadata, channel, status, in_reply_to, created_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, 'ws', 'delivered', ?, ?)",
+                            )
+                            .bind(id)
+                            .bind(sender)
+                            .bind(recipient)
+                            .bind(content)
+                            .bind(message_type)
+                            .bind(&meta_str)
+                            .bind(in_reply_to)
+                            .bind(created_at)
+                            .execute(&state.db)
+                            .await;
+
+                            let _ = state.dashboard_tx.send(DashboardEvent::AiMessage {
+                                id: id.clone(),
+                                sender: sender.clone(),
+                                recipient: recipient.to_string(),
+                                content: content.clone(),
+                                message_type: message_type.clone(),
+                                created_at: created_at.clone(),
+                            });
+
+                            // Send Ack
+                            let _ = msg_tx
+                                .send(AiChannelMessage::Ack {
+                                    message_id: id.clone(),
+                                })
+                                .await;
+                        }
+                        AiChannelMessage::Ack { message_id } => {
+                            let _ = sqlx::query(
+                                "UPDATE ai_messages SET status = 'delivered', delivered_at = datetime('now')
+                                 WHERE id = ? AND status = 'pending'",
+                            )
+                            .bind(message_id)
+                            .execute(&state.db)
+                            .await;
+                        }
+                        AiChannelMessage::MarkRead { message_id } => {
+                            let _ = sqlx::query(
+                                "UPDATE ai_messages SET status = 'read', read_at = datetime('now') WHERE id = ?",
+                            )
+                            .bind(message_id)
+                            .execute(&state.db)
+                            .await;
+                        }
+                        AiChannelMessage::Ping => {
+                            let _ = msg_tx.send(AiChannelMessage::Pong).await;
+                        }
+                        _ => {}
+                    },
+                    Err(e) => {
+                        tracing::warn!("AI channel: invalid message: {}", e);
+                    }
+                }
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+
+    // Cleanup
+    *state.ai_peer_tx.write().await = None;
+    send_task.abort();
+    tracing::info!("AI channel: {} disconnected", identity);
 }

@@ -1,27 +1,41 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import type { DriverProfile, CustomerStats, BillingSession } from "@/lib/api";
+import type { DriverProfile, CustomerStats, BillingSession, GroupSessionInfo } from "@/lib/api";
 import SessionCard from "@/components/SessionCard";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [stats, setStats] = useState<CustomerStats | null>(null);
   const [recentSessions, setRecentSessions] = useState<BillingSession[]>([]);
+  const [groupInvite, setGroupInvite] = useState<GroupSessionInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const [pRes, sRes, sessRes] = await Promise.all([
+        const [pRes, sRes, sessRes, gRes] = await Promise.all([
           api.profile(),
           api.stats(),
           api.sessions(),
+          api.groupSession(),
         ]);
         if (pRes.driver) setProfile(pRes.driver);
         if (sRes.stats) setStats(sRes.stats);
         if (sessRes.sessions) setRecentSessions(sessRes.sessions.slice(0, 3));
+        if (gRes.group_session) {
+          // Only show banner if user is a pending invitee
+          const me = pRes.driver;
+          const myMember = gRes.group_session.members.find(
+            (m) => m.driver_id === me?.id
+          );
+          if (myMember?.status === "pending") {
+            setGroupInvite(gRes.group_session);
+          }
+        }
       } catch {
         // network error
       } finally {
@@ -113,6 +127,29 @@ export default function DashboardPage() {
                 remaining
               </p>
             ))}
+        </div>
+      )}
+
+      {/* Group invite banner */}
+      {groupInvite && (
+        <div className="bg-rp-red/10 border border-rp-red/30 rounded-xl p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-rp-red font-semibold text-sm">
+                {groupInvite.host_name} invited you to race!
+              </p>
+              <p className="text-neutral-400 text-xs mt-0.5">
+                {groupInvite.experience_name} &middot;{" "}
+                {groupInvite.pricing_tier_name}
+              </p>
+            </div>
+            <button
+              onClick={() => router.push("/book/group")}
+              className="bg-rp-red text-white font-semibold px-4 py-2 rounded-lg text-sm"
+            >
+              View
+            </button>
+          </div>
         </div>
       )}
 

@@ -3,6 +3,8 @@ const API_BASE =
 
 // ─── Auth helpers ──────────────────────────────────────────────────────────
 
+let _redirecting = false;
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("rp_token");
@@ -18,6 +20,15 @@ export function clearToken() {
 
 export function isLoggedIn(): boolean {
   return !!getToken();
+}
+
+function forceLogout() {
+  if (_redirecting) return;
+  _redirecting = true;
+  clearToken();
+  if (typeof window !== "undefined") {
+    window.location.replace("/login");
+  }
 }
 
 // ─── Fetch wrapper ─────────────────────────────────────────────────────────
@@ -41,7 +52,24 @@ async function fetchApi<T>(
     headers,
   });
 
-  return res.json();
+  const data = await res.json();
+
+  // Auto-logout on JWT auth errors
+  if (
+    data &&
+    typeof data === "object" &&
+    "error" in data &&
+    typeof (data as Record<string, unknown>).error === "string"
+  ) {
+    const err = (data as Record<string, unknown>).error as string;
+    const hasRedirect = "_clear" in (data as Record<string, unknown>);
+    if (err.includes("JWT decode error") || err.includes("Missing Authorization") || err === "session_expired" || hasRedirect) {
+      forceLogout();
+      return {} as T;
+    }
+  }
+
+  return data as T;
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -143,14 +171,126 @@ export interface CustomerStats {
   personal_bests: number;
 }
 
-export interface SessionDetail {
-  session: BillingSession;
-  laps: LapRecord[];
-  track: string | null;
+export interface SessionDetailSession {
+  id: string;
+  pod_id: string;
+  pricing_tier_name: string;
+  allocated_seconds: number;
+  driving_seconds: number;
+  status: string;
+  price_paise: number;
+  started_at: string | null;
+  ended_at: string | null;
+  experience_id: string | null;
+  experience_name: string | null;
   car: string | null;
+  track: string | null;
+  sim_type: string | null;
+  wallet_debit_paise: number | null;
+  refund_paise: number | null;
   total_laps: number;
   best_lap_ms: number | null;
-  avg_lap_ms: number | null;
+  average_lap_ms: number | null;
+}
+
+export interface SessionDetail {
+  session: SessionDetailSession;
+  laps: LapRecord[];
+}
+
+export interface TelemetryFrame {
+  pod_id: string;
+  driver_name: string;
+  car: string;
+  track: string;
+  lap_number: number;
+  lap_time_ms: number;
+  sector: number;
+  speed_kmh: number;
+  throttle: number;
+  brake: number;
+  steering: number;
+  gear: number;
+  rpm: number;
+  drs_active?: boolean;
+  drs_available?: boolean;
+  ers_deploy_mode?: number;
+  ers_store_percent?: number;
+  best_lap_ms?: number;
+  current_lap_invalid?: boolean;
+  sector1_ms?: number;
+  sector2_ms?: number;
+  sector3_ms?: number;
+}
+
+// ─── AC Catalog Types ─────────────────────────────────────────────────────
+
+export interface CatalogTrack {
+  id: string;
+  name: string;
+  category: string;
+  country?: string;
+}
+
+export interface CatalogCar {
+  id: string;
+  name: string;
+  category: string;
+}
+
+export interface ACCatalog {
+  tracks: { featured: CatalogTrack[]; all: CatalogTrack[] };
+  cars: { featured: CatalogCar[]; all: CatalogCar[] };
+  categories: { tracks: string[]; cars: string[] };
+}
+
+export interface CustomBookingPayload {
+  game: string;
+  game_mode: string;
+  track: string;
+  car: string;
+  difficulty: string;
+  transmission: string;
+}
+
+// ─── Friends & Multiplayer Types ──────────────────────────────────────────
+
+export interface FriendInfo {
+  driver_id: string;
+  name: string;
+  customer_id: string | null;
+  is_online: boolean;
+}
+
+export interface FriendRequestInfo {
+  id: string;
+  driver_id: string;
+  driver_name: string;
+  customer_id: string | null;
+  direction: string;
+  created_at: string;
+}
+
+export interface GroupSessionInfo {
+  id: string;
+  host_driver_id: string;
+  host_name: string;
+  experience_name: string;
+  pricing_tier_name: string;
+  shared_pin: string;
+  status: string;
+  members: GroupMemberInfo[];
+  created_at: string;
+}
+
+export interface GroupMemberInfo {
+  driver_id: string;
+  driver_name: string;
+  customer_id: string | null;
+  role: string;
+  status: string;
+  pod_id: string | null;
+  pod_number: number | null;
 }
 
 // ─── API calls ─────────────────────────────────────────────────────────────
@@ -247,6 +387,9 @@ export const api = {
       error?: string;
     }>("/customer/experiences"),
 
+  acCatalog: () =>
+    fetchApi<ACCatalog & { error?: string }>("/customer/ac/catalog"),
+
   bookSession: (experience_id: string, pricing_tier_id: string) =>
     fetchApi<{
       status?: string;
@@ -261,6 +404,21 @@ export const api = {
     }>("/customer/book", {
       method: "POST",
       body: JSON.stringify({ experience_id, pricing_tier_id }),
+    }),
+
+  bookCustom: (pricing_tier_id: string, custom: CustomBookingPayload) =>
+    fetchApi<{
+      status?: string;
+      reservation_id?: string;
+      pod_id?: string;
+      pod_number?: number;
+      wallet_debit_paise?: number;
+      error?: string;
+      balance_paise?: number;
+      required_paise?: number;
+    }>("/customer/book", {
+      method: "POST",
+      body: JSON.stringify({ pricing_tier_id, custom }),
     }),
 
   activeReservation: () =>
@@ -287,6 +445,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ experience_id, pricing_tier_id }),
     }),
+
+  // Telemetry
+  telemetry: () =>
+    fetchApi<{ frame?: TelemetryFrame; error?: string }>("/customer/telemetry"),
 
   // AI Chat
   aiChat: (message: string, history: { role: string; content: string }[]) =>
@@ -328,6 +490,84 @@ export const api = {
           ? { "x-terminal-session": session }
           : { "x-terminal-secret": "rp-terminal-2026" },
       }
+    ),
+
+  // Friends
+  friends: () =>
+    fetchApi<{ friends?: FriendInfo[]; error?: string }>("/customer/friends"),
+
+  friendRequests: () =>
+    fetchApi<{
+      incoming?: FriendRequestInfo[];
+      outgoing?: FriendRequestInfo[];
+      error?: string;
+    }>("/customer/friends/requests"),
+
+  sendFriendRequest: (identifier: string) =>
+    fetchApi<{ request_id?: string; error?: string }>(
+      "/customer/friends/request",
+      {
+        method: "POST",
+        body: JSON.stringify({ identifier }),
+      }
+    ),
+
+  acceptFriendRequest: (requestId: string) =>
+    fetchApi<{ status?: string; error?: string }>(
+      `/customer/friends/request/${encodeURIComponent(requestId)}/accept`,
+      { method: "POST" }
+    ),
+
+  rejectFriendRequest: (requestId: string) =>
+    fetchApi<{ status?: string; error?: string }>(
+      `/customer/friends/request/${encodeURIComponent(requestId)}/reject`,
+      { method: "POST" }
+    ),
+
+  removeFriend: (friendDriverId: string) =>
+    fetchApi<{ status?: string; error?: string }>(
+      `/customer/friends/${encodeURIComponent(friendDriverId)}`,
+      { method: "DELETE" }
+    ),
+
+  setPresence: (presence: string) =>
+    fetchApi<{ status?: string; error?: string }>("/customer/presence", {
+      method: "PUT",
+      body: JSON.stringify({ presence }),
+    }),
+
+  // Multiplayer
+  bookMultiplayer: (
+    experience_id: string,
+    pricing_tier_id: string,
+    friend_ids: string[]
+  ) =>
+    fetchApi<{ group_session?: GroupSessionInfo; error?: string }>(
+      "/customer/book-multiplayer",
+      {
+        method: "POST",
+        body: JSON.stringify({ experience_id, pricing_tier_id, friend_ids }),
+      }
+    ),
+
+  groupSession: () =>
+    fetchApi<{ group_session?: GroupSessionInfo | null; error?: string }>(
+      "/customer/group-session"
+    ),
+
+  acceptGroupInvite: (groupSessionId: string) =>
+    fetchApi<{
+      status?: string;
+      member?: GroupMemberInfo;
+      error?: string;
+    }>(`/customer/group-session/${encodeURIComponent(groupSessionId)}/accept`, {
+      method: "POST",
+    }),
+
+  declineGroupInvite: (groupSessionId: string) =>
+    fetchApi<{ status?: string; error?: string }>(
+      `/customer/group-session/${encodeURIComponent(groupSessionId)}/decline`,
+      { method: "POST" }
     ),
 };
 

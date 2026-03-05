@@ -1,4 +1,5 @@
 pub mod assetto_corsa;
+pub mod f1_25;
 
 use anyhow::Result;
 use rc_common::types::{SimType, TelemetryFrame, SessionInfo, LapData};

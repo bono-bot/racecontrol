@@ -22,8 +22,9 @@ RUN mkdir -p crates/rc-common/src && echo "// dummy" > crates/rc-common/src/lib.
 # Build deps only (cached layer)
 RUN cargo build --release --package rc-core 2>/dev/null || true
 
-# Copy real source
+# Copy real source and assets
 COPY crates/ crates/
+COPY assets/ assets/
 
 # Touch source files to invalidate cache for real build
 RUN touch crates/rc-common/src/lib.rs crates/rc-core/src/main.rs

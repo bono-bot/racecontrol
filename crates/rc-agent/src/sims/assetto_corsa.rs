@@ -226,7 +226,55 @@ impl SimAdapter for AssettoCorsaAdapter {
             rpm,
             position: None,
             session_time_ms: lap_time_ms,
-        }))
+            drs_active: None,
+            drs_available: None,
+            ers_deploy_mode: None,
+            ers_store_percent: None,
+            best_lap_ms: None,
+            current_lap_invalid: None,
+            sector1_ms: None,
+            sector2_ms: None,
+            sector3_ms: None,
+        };
+
+        // Track lap count for lap completion detection
+        self.last_lap_count = lap_count;
+
+        Ok(Some(frame))
+    }
+}
+
+impl SimAdapter for AssettoCorsaAdapter {
+    fn sim_type(&self) -> SimType {
+        SimType::AssettocCorsa
+    }
+
+    fn connect(&mut self) -> Result<()> {
+        let socket = UdpSocket::bind("0.0.0.0:0")?;
+        socket.set_read_timeout(Some(Duration::from_millis(100)))?;
+        socket.set_nonblocking(false)?;
+
+        self.socket = Some(socket);
+        self.send_handshake()?;
+
+        // Wait for handshake response
+        let mut buf = [0u8; 1024];
+        let socket = self.socket.as_ref().unwrap();
+        match socket.recv_from(&mut buf) {
+            Ok((len, _)) => {
+                self.parse_handshake_response(&buf[..len])?;
+                self.connected = true;
+                self.subscribe_updates()?;
+                Ok(())
+            }
+            Err(e) => {
+                anyhow::bail!("AC handshake timeout: {}", e);
+            }
+        }
+    }
+
+    fn is_connected(&self) -> bool {
+        self.connected
     }
 
     #[cfg(not(windows))]

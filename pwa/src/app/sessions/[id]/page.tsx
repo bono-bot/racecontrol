@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
-import type { BillingSession, LapRecord } from "@/lib/api";
+import type { SessionDetailSession, LapRecord } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function formatPrice(paise: number | null): string {
+function formatCredits(paise: number | null | undefined): string {
   if (!paise) return "\u2014";
   return `${(paise / 100).toFixed(0)} credits`;
 }
@@ -79,6 +79,18 @@ function statusLabel(status: string): string {
   }
 }
 
+function formatGameName(game: string | null): string {
+  if (!game) return "\u2014";
+  const names: Record<string, string> = {
+    assetto_corsa: "Assetto Corsa",
+    iracing: "iRacing",
+    f1_25: "F1 25",
+    le_mans_ultimate: "LMU",
+    forza: "Forza",
+  };
+  return names[game] || game;
+}
+
 // ─── Page component ──────────────────────────────────────────────────────────
 
 export default function SessionDetailPage() {
@@ -86,13 +98,8 @@ export default function SessionDetailPage() {
   const params = useParams();
   const sessionId = params.id as string;
 
-  const [session, setSession] = useState<BillingSession | null>(null);
+  const [session, setSession] = useState<SessionDetailSession | null>(null);
   const [laps, setLaps] = useState<LapRecord[]>([]);
-  const [track, setTrack] = useState<string | null>(null);
-  const [car, setCar] = useState<string | null>(null);
-  const [totalLaps, setTotalLaps] = useState(0);
-  const [bestLapMs, setBestLapMs] = useState<number | null>(null);
-  const [avgLapMs, setAvgLapMs] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,11 +117,6 @@ export default function SessionDetailPage() {
         } else {
           setSession(res.session);
           setLaps(res.laps || []);
-          setTrack(res.track ?? null);
-          setCar(res.car ?? null);
-          setTotalLaps(res.total_laps ?? 0);
-          setBestLapMs(res.best_lap_ms ?? null);
-          setAvgLapMs(res.avg_lap_ms ?? null);
         }
         setLoading(false);
       })
@@ -140,25 +142,7 @@ export default function SessionDetailPage() {
     return (
       <div className="min-h-screen pb-20">
         <div className="px-4 pt-12 max-w-lg mx-auto">
-          <button
-            onClick={() => router.push("/sessions")}
-            className="text-rp-red text-sm mb-4 flex items-center gap-1"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              className="w-4 h-4"
-            >
-              <path
-                d="M19 12H5M12 19l-7-7 7-7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            Back to Sessions
-          </button>
+          <BackButton onClick={() => router.push("/sessions")} />
           <p className="text-rp-grey">{error || "Session not found"}</p>
         </div>
         <BottomNav />
@@ -176,39 +160,24 @@ export default function SessionDetailPage() {
   );
 
   const validLaps = laps.filter((l) => l.valid);
-  const maxLapMs = validLaps.length > 0
-    ? Math.max(...validLaps.map((l) => l.lap_time_ms))
-    : 0;
+  const maxLapMs =
+    validLaps.length > 0
+      ? Math.max(...validLaps.map((l) => l.lap_time_ms))
+      : 0;
+
+  const netCharged =
+    (session.wallet_debit_paise || 0) - (session.refund_paise || 0);
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen pb-20">
       <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
-        {/* Back button */}
-        <button
-          onClick={() => router.push("/sessions")}
-          className="text-rp-red text-sm mb-4 flex items-center gap-1"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            className="w-4 h-4"
-          >
-            <path
-              d="M19 12H5M12 19l-7-7 7-7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Back to Sessions
-        </button>
+        <BackButton onClick={() => router.push("/sessions")} />
 
         {/* ── 1. Session Summary Header ─────────────────────────────────── */}
         <div className="bg-rp-card border border-rp-border rounded-xl p-5 mb-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <span className="text-lg font-bold text-white">
                 Pod {session.pod_id.replace("pod_", "#")}
@@ -223,6 +192,23 @@ export default function SessionDetailPage() {
             </div>
           </div>
 
+          {/* Experience & game */}
+          {(session.experience_name || session.sim_type) && (
+            <div className="mb-3">
+              {session.experience_name && (
+                <p className="text-white font-semibold text-sm">
+                  {session.experience_name}
+                </p>
+              )}
+              <p className="text-xs text-rp-grey">
+                {formatGameName(session.sim_type)}
+                {session.track ? ` \u00B7 ${session.track}` : ""}
+                {session.car ? ` \u00B7 ${session.car}` : ""}
+              </p>
+            </div>
+          )}
+
+          {/* Time usage */}
           <div className="flex items-end justify-between">
             <div>
               <p className="text-2xl font-bold text-white">
@@ -250,40 +236,69 @@ export default function SessionDetailPage() {
               />
             </div>
           </div>
-
-          {session.custom_price_paise && (
-            <div className="mt-4 pt-3 border-t border-rp-border flex justify-between items-center">
-              <span className="text-sm text-rp-grey">Amount Charged</span>
-              <span className="text-sm font-bold text-white">
-                {formatPrice(session.custom_price_paise)}
-              </span>
-            </div>
-          )}
         </div>
 
-        {/* ── 2. Session Stats ──────────────────────────────────────────── */}
+        {/* ── 2. Receipt / Billing Info ───────────────────────────────────── */}
+        <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
+          <h2 className="text-sm font-medium text-rp-grey mb-3">Receipt</h2>
+          <div className="space-y-2">
+            <ReceiptRow
+              label="Plan"
+              value={session.pricing_tier_name || "\u2014"}
+            />
+            <ReceiptRow
+              label="Charged"
+              value={formatCredits(session.wallet_debit_paise)}
+            />
+            {session.refund_paise && session.refund_paise > 0 ? (
+              <ReceiptRow
+                label="Refund"
+                value={`+${formatCredits(session.refund_paise)}`}
+                accent="green"
+              />
+            ) : null}
+            <div className="border-t border-rp-border pt-2 mt-2">
+              <ReceiptRow
+                label="Net Cost"
+                value={formatCredits(netCharged > 0 ? netCharged : session.price_paise)}
+                bold
+              />
+            </div>
+            {session.ended_at && (
+              <ReceiptRow
+                label="Ended"
+                value={formatDate(session.ended_at)}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* ── 3. Session Stats ──────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-3 mb-4">
-          <StatTile label="Total Laps" value={totalLaps.toString()} />
+          <StatTile label="Total Laps" value={session.total_laps.toString()} />
           <StatTile
             label="Best Lap"
-            value={bestLapMs ? formatLapTime(bestLapMs) : "\u2014"}
+            value={
+              session.best_lap_ms ? formatLapTime(session.best_lap_ms) : "\u2014"
+            }
             accent
           />
           <StatTile
             label="Avg Lap"
-            value={avgLapMs ? formatLapTime(avgLapMs) : "\u2014"}
+            value={
+              session.average_lap_ms
+                ? formatLapTime(session.average_lap_ms)
+                : "\u2014"
+            }
           />
-          <StatTile label="Track" value={track || "\u2014"} small />
+          <StatTile
+            label="Game"
+            value={formatGameName(session.sim_type)}
+            small
+          />
         </div>
 
-        {car && (
-          <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
-            <p className="text-xs text-rp-grey mb-1">Car</p>
-            <p className="text-sm font-semibold text-white">{car}</p>
-          </div>
-        )}
-
-        {/* ── 3. Telemetry Chart (CSS bar chart) ────────────────────────── */}
+        {/* ── 4. Telemetry Chart (CSS bar chart) ────────────────────────── */}
         {validLaps.length > 0 && (
           <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
             <h2 className="text-sm font-medium text-rp-grey mb-3">
@@ -315,7 +330,7 @@ export default function SessionDetailPage() {
                     </div>
                   );
                 }
-                const isBest = lap.lap_time_ms === bestLapMs;
+                const isBest = lap.lap_time_ms === session.best_lap_ms;
                 return (
                   <div
                     key={lap.id}
@@ -346,21 +361,19 @@ export default function SessionDetailPage() {
                 );
               })}
             </div>
-            {bestLapMs && (
+            {session.best_lap_ms && (
               <p className="text-[10px] text-rp-grey mt-2 text-center">
-                Best: {formatLapTime(bestLapMs)} (highlighted)
+                Best: {formatLapTime(session.best_lap_ms)} (highlighted)
               </p>
             )}
           </div>
         )}
 
-        {/* ── 4. Lap-by-Lap Table ───────────────────────────────────────── */}
+        {/* ── 5. Lap-by-Lap Table ───────────────────────────────────────── */}
         {laps.length > 0 && (
           <div className="bg-rp-card border border-rp-border rounded-xl overflow-hidden mb-4">
             <div className="px-4 py-3 border-b border-rp-border">
-              <h2 className="text-sm font-medium text-rp-grey">
-                Lap Details
-              </h2>
+              <h2 className="text-sm font-medium text-rp-grey">Lap Details</h2>
             </div>
 
             {/* Table header */}
@@ -375,7 +388,7 @@ export default function SessionDetailPage() {
 
             {/* Lap rows */}
             {laps.map((lap, i) => {
-              const isBest = lap.valid && lap.lap_time_ms === bestLapMs;
+              const isBest = lap.valid && lap.lap_time_ms === session.best_lap_ms;
               const isInvalid = !lap.valid;
 
               return (
@@ -414,47 +427,11 @@ export default function SessionDetailPage() {
                   </span>
                   <span className="flex items-center justify-center">
                     {isInvalid ? (
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        className="w-3.5 h-3.5 text-red-400"
-                      >
-                        <path
-                          d="M18 6L6 18M6 6l12 12"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
+                      <XIcon />
                     ) : isBest ? (
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2.5}
-                        className="w-3.5 h-3.5 text-rp-red"
-                      >
-                        <path
-                          d="M5 13l4 4L19 7"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
+                      <CheckIcon accent />
                     ) : (
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        className="w-3.5 h-3.5 text-emerald-400"
-                      >
-                        <path
-                          d="M5 13l4 4L19 7"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
+                      <CheckIcon />
                     )}
                   </span>
                 </div>
@@ -475,7 +452,7 @@ export default function SessionDetailPage() {
 
         {/* Session ID footer */}
         <p className="text-center text-rp-grey text-xs">
-          Session ID: {session.id.slice(0, 8)}...
+          Session {session.id.slice(0, 8)}
         </p>
       </div>
       <BottomNav />
@@ -484,6 +461,61 @@ export default function SessionDetailPage() {
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-rp-red text-sm mb-4 flex items-center gap-1"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        className="w-4 h-4"
+      >
+        <path
+          d="M19 12H5M12 19l-7-7 7-7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      Back to Sessions
+    </button>
+  );
+}
+
+function ReceiptRow({
+  label,
+  value,
+  bold = false,
+  accent,
+}: {
+  label: string;
+  value: string;
+  bold?: boolean;
+  accent?: string;
+}) {
+  return (
+    <div className="flex justify-between items-center">
+      <span className={`text-sm ${bold ? "text-neutral-200 font-medium" : "text-rp-grey"}`}>
+        {label}
+      </span>
+      <span
+        className={`text-sm ${
+          bold
+            ? "font-bold text-white"
+            : accent === "green"
+            ? "text-emerald-400"
+            : "text-neutral-200"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
 
 function StatTile({
   label,
@@ -500,12 +532,44 @@ function StatTile({
     <div className="bg-rp-card border border-rp-border rounded-xl p-4">
       <p className="text-xs text-rp-grey mb-1">{label}</p>
       <p
-        className={`font-bold ${
-          accent ? "text-rp-red" : "text-white"
-        } ${small ? "text-sm truncate" : "text-lg font-mono"}`}
+        className={`font-bold ${accent ? "text-rp-red" : "text-white"} ${
+          small ? "text-sm truncate" : "text-lg font-mono"
+        }`}
       >
         {value}
       </p>
     </div>
+  );
+}
+
+function CheckIcon({ accent }: { accent?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={accent ? 2.5 : 2}
+      className={`w-3.5 h-3.5 ${accent ? "text-rp-red" : "text-emerald-400"}`}
+    >
+      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      className="w-3.5 h-3.5 text-red-400"
+    >
+      <path
+        d="M18 6L6 18M6 6l12 12"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

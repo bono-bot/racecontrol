@@ -781,6 +781,157 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Friends & Social ────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS friend_requests (
+            id TEXT PRIMARY KEY,
+            sender_id TEXT NOT NULL,
+            receiver_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now')),
+            resolved_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_friend_requests_sender ON friend_requests(sender_id, status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver ON friend_requests(receiver_id, status)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS friendships (
+            id TEXT PRIMARY KEY,
+            driver_a_id TEXT NOT NULL,
+            driver_b_id TEXT NOT NULL,
+            request_id TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(driver_a_id, driver_b_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_friendships_a ON friendships(driver_a_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_friendships_b ON friendships(driver_b_id)")
+        .execute(pool)
+        .await?;
+
+    // ─── Multiplayer Group Sessions ───────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS group_sessions (
+            id TEXT PRIMARY KEY,
+            host_driver_id TEXT NOT NULL,
+            experience_id TEXT NOT NULL,
+            pricing_tier_id TEXT NOT NULL,
+            shared_pin TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'forming',
+            ac_session_id TEXT,
+            total_members INTEGER NOT NULL DEFAULT 1,
+            validated_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            started_at TEXT,
+            completed_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_group_sessions_host ON group_sessions(host_driver_id, status)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS group_session_members (
+            id TEXT PRIMARY KEY,
+            group_session_id TEXT NOT NULL,
+            driver_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'invitee',
+            status TEXT NOT NULL DEFAULT 'pending',
+            pod_id TEXT,
+            reservation_id TEXT,
+            auth_token_id TEXT,
+            billing_session_id TEXT,
+            wallet_txn_id TEXT,
+            invited_at TEXT DEFAULT (datetime('now')),
+            accepted_at TEXT,
+            validated_at TEXT,
+            UNIQUE(group_session_id, driver_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_group_session_members_driver ON group_session_members(driver_id, status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_group_session_members_group ON group_session_members(group_session_id)")
+        .execute(pool)
+        .await?;
+
+    // Add presence column to drivers (idempotent)
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN presence TEXT DEFAULT 'hidden'")
+        .execute(pool)
+        .await;
+
+    // ─── AI messaging table (Bono ↔ James) ───────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ai_messages (
+            id TEXT PRIMARY KEY,
+            sender TEXT NOT NULL,
+            recipient TEXT NOT NULL,
+            content TEXT NOT NULL,
+            message_type TEXT NOT NULL DEFAULT 'text',
+            metadata TEXT,
+            channel TEXT NOT NULL DEFAULT 'http',
+            status TEXT NOT NULL DEFAULT 'pending',
+            in_reply_to TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            delivered_at TEXT,
+            read_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ai_msg_recipient_status ON ai_messages(recipient, status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ai_msg_created ON ai_messages(created_at)")
+        .execute(pool)
+        .await?;
+
+    // ─── Smart Scheduler events table ──────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS scheduler_events (
+            id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            pod_id TEXT,
+            details TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_scheduler_events_type ON scheduler_events(event_type)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_scheduler_events_created ON scheduler_events(created_at)")
+        .execute(pool)
+        .await?;
+
+    // Seed default scheduler settings
+    sqlx::query(
+        "INSERT OR IGNORE INTO settings (key, value)
+         VALUES
+            ('scheduler_enabled', 'true'),
+            ('scheduler_pre_wake_minutes', '15'),
+            ('scheduler_pre_open_minutes', '10'),
+            ('scheduler_post_close_minutes', '15')",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

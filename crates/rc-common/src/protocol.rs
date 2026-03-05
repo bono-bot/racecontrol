@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::types::{
     AcLanSessionConfig, AcPresetSummary, AcServerInfo,
     AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DrivingState, GameLaunchInfo,
-    Leaderboard, LapData, PodInfo, SessionInfo, SimType, TelemetryFrame,
+    GroupSessionInfo, Leaderboard, LapData, PodInfo, SessionInfo, SimType, TelemetryFrame,
 };
 
 /// Messages sent from Pod Agent → Core Server
@@ -235,6 +235,74 @@ pub enum DashboardEvent {
         driver_name: String,
         reason: String,
     },
+
+    /// AI-to-AI message (Bono ↔ James) — visible in admin dashboard
+    AiMessage {
+        id: String,
+        sender: String,
+        recipient: String,
+        content: String,
+        message_type: String,
+        created_at: String,
+    },
+
+    /// Multiplayer group session created
+    GroupSessionCreated(GroupSessionInfo),
+
+    /// Group session member status changed
+    GroupMemberUpdate {
+        group_session_id: String,
+        driver_id: String,
+        status: String,
+        pod_id: Option<String>,
+    },
+
+    /// All group members validated — AC LAN starting
+    GroupSessionAllValidated {
+        group_session_id: String,
+        ac_session_id: String,
+        pod_ids: Vec<String>,
+    },
+}
+
+/// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "snake_case")]
+pub enum AiChannelMessage {
+    /// Authenticate on connect
+    Auth { secret: String, identity: String },
+
+    /// Server acknowledges auth
+    AuthOk { identity: String },
+
+    /// Auth failed
+    AuthFailed { reason: String },
+
+    /// A message from one AI to another
+    Message {
+        id: String,
+        sender: String,
+        content: String,
+        message_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        metadata: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        in_reply_to: Option<String>,
+        created_at: String,
+    },
+
+    /// Acknowledge receipt of a message
+    Ack { message_id: String },
+
+    /// Mark message as read
+    MarkRead { message_id: String },
+
+    /// Keepalive ping
+    Ping,
+
+    /// Keepalive pong
+    Pong,
 }
 
 /// Messages sent from Web Dashboard → Core Server

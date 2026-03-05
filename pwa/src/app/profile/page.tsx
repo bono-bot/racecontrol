@@ -87,6 +87,13 @@ export default function ProfilePage() {
             {/* Links */}
             <div className="space-y-2 mb-8">
               <button
+                onClick={() => router.push("/friends")}
+                className="w-full bg-rp-card border border-rp-border rounded-xl p-4 text-left text-sm text-neutral-300 active:bg-rp-card transition-colors flex items-center justify-between"
+              >
+                <span>Friends</span>
+                <span className="text-rp-grey text-xs">Manage</span>
+              </button>
+              <button
                 onClick={() => router.push("/leaderboard")}
                 className="w-full bg-rp-card border border-rp-border rounded-xl p-4 text-left text-sm text-neutral-300 active:bg-rp-card transition-colors"
               >

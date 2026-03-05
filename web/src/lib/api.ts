@@ -288,11 +288,24 @@ export interface TelemetryFrame {
   track: string;
   lap_number: number;
   lap_time_ms: number;
+  sector: number;
   speed_kmh: number;
   throttle: number;
   brake: number;
+  steering: number;
   gear: number;
   rpm: number;
+  session_time_ms: number;
+  // F1-specific (optional — only present for F1 25)
+  drs_active?: boolean;
+  drs_available?: boolean;
+  ers_deploy_mode?: number;
+  ers_store_percent?: number;
+  best_lap_ms?: number;
+  current_lap_invalid?: boolean;
+  sector1_ms?: number;
+  sector2_ms?: number;
+  sector3_ms?: number;
 }
 
 // ─── Billing Types ──────────────────────────────────────────────────────────

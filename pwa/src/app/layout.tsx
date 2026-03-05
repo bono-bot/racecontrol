@@ -34,6 +34,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `
+          try {
+            if (localStorage.getItem("rp_auth_v") !== "2") {
+              localStorage.removeItem("rp_token");
+              localStorage.setItem("rp_auth_v", "2");
+            }
+          } catch(e) {}
+        `}} />
+      </head>
       <body className={`${montserrat.variable} min-h-screen bg-rp-dark text-white antialiased font-sans`}>
         {children}
       </body>

@@ -43,3 +43,6 @@ rand = { workspace = true }
 
 # AI/HTTP client
 reqwest = { version = "0.12", features = ["json"] }
+
+# URL encoding (for Evolution API instance names)
+urlencoding = "2"

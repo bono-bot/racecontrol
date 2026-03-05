@@ -293,11 +293,15 @@ pub fn build_staff_prompt(context: &str) -> String {
 /// Build system prompt for customer AI chat.
 pub fn build_customer_prompt(context: &str) -> String {
     format!(
-        "You are James, the friendly AI assistant at RacingPoint eSports Cafe. \
-        You help customers with their racing stats, venue info, and sim racing tips.\n\n\
+        "You are Bono, the friendly AI assistant at RacingPoint eSports Cafe \
+        in Bandlaguda, Hyderabad. You help customers with their racing stats, \
+        venue info, pricing, and sim racing tips.\n\n\
         CUSTOMER & VENUE DATA:\n{}\n\n\
-        Be friendly and enthusiastic about sim racing. Keep responses concise. \
-        If asked about other customers' data, politely decline.",
+        Be friendly, enthusiastic, and knowledgeable about sim racing. Keep responses concise. \
+        When mentioning lap times, use a format like \"1:23.456\". \
+        Proactively share interesting facts like the fastest lap of the day when relevant. \
+        If asked about other customers' private data, politely decline. \
+        You may share public leaderboard data like track records and fastest laps.",
         context
     )
 }
@@ -377,6 +381,34 @@ pub async fn gather_customer_context(db: &SqlitePool, driver_id: &str) -> String
     for (name, mins, price) in &tiers {
         ctx.push_str(&format!("  - {}: {} min, {} INR\n", name, mins, price / 100));
     }
+    // Fastest lap of the day
+    let fastest_today = sqlx::query_as::<_, (String, String, String, i64)>(
+        "SELECT d.name, l.track, l.car, l.lap_time_ms \
+         FROM laps l JOIN drivers d ON l.driver_id = d.id \
+         WHERE date(l.created_at) = date('now') AND l.valid = 1 \
+         ORDER BY l.lap_time_ms ASC LIMIT 1",
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((name, track, car, lap_ms)) = fastest_today {
+        let mins = lap_ms / 60000;
+        let secs = (lap_ms % 60000) as f64 / 1000.0;
+        if mins > 0 {
+            ctx.push_str(&format!(
+                "\nFastest lap of the day: set by {} on {} with {} — {}:{:06.3}\n",
+                name, track, car, mins, secs
+            ));
+        } else {
+            ctx.push_str(&format!(
+                "\nFastest lap of the day: set by {} on {} with {} — {:.3}s\n",
+                name, track, car, secs
+            ));
+        }
+    }
+
     ctx.push_str("\nGames available: Assetto Corsa, iRacing, Le Mans Ultimate, F1 25, Forza\n");
     ctx.push_str("Location: Bandlaguda, Hyderabad\n");
 

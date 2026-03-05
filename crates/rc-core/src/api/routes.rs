@@ -13,6 +13,7 @@ use crate::billing;
 use crate::catalog;
 use crate::game_launcher;
 use crate::pod_reservation;
+use crate::scheduler;
 use crate::wallet;
 use crate::state::AppState;
 use crate::wol;
@@ -141,6 +142,10 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Employee
         .route("/employee/daily-pin", get(employee_daily_pin))
         .route("/employee/debug-unlock", post(employee_debug_unlock))
+        // Smart Scheduler
+        .route("/scheduler/status", get(scheduler::get_status))
+        .route("/scheduler/settings", put(scheduler::update_settings))
+        .route("/scheduler/analytics", get(scheduler::get_analytics))
 }
 
 async fn health() -> Json<Value> {

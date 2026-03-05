@@ -15,7 +15,7 @@ enabled = true
 api_url = "https://app.racingpoint.cloud/api/v1"
 sync_interval_secs = 30
 terminal_secret = "rp-terminal-2026"
-terminal_pin = "2026"
+terminal_pin = "261121"
 
 [watchdog]
 enabled = true
@@ -43,6 +43,12 @@ proactive_analysis = true
 acserver_path = "/opt/ac-server/acServer"
 data_dir = "./data/ac_servers"
 # lan_ip = "192.168.1.100"  # Auto-detected if not set
+
+[auth]
+# jwt_secret = "change-me-in-production"
+evolution_url = "http://localhost:53622"
+evolution_api_key = "zNAKEHsXudyqL3dFngyBJAZWw9W4hWN0"
+evolution_instance = "Racing Point Reception"
 
 [integrations.discord]
 results_channel = "race-results"

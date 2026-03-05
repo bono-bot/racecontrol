@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { PodReservation, BillingSession } from "@/lib/api";
@@ -12,6 +12,7 @@ export default function ActiveSessionPage() {
   const [podNumber, setPodNumber] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [ending, setEnding] = useState(false);
+  const groupChecked = useRef(false);
 
   const loadState = useCallback(async () => {
     try {
@@ -23,6 +24,16 @@ export default function ActiveSessionPage() {
       setReservation(res.reservation);
       setPodNumber(res.pod_number || 0);
       setBilling(res.active_billing || null);
+
+      // Check for group session (only once)
+      if (!groupChecked.current) {
+        groupChecked.current = true;
+        const gRes = await api.groupSession();
+        if (gRes.group_session && ["forming", "ready", "active", "all_validated"].includes(gRes.group_session.status)) {
+          router.push("/book/group");
+          return;
+        }
+      }
     } catch {
       // network error — keep trying
     } finally {

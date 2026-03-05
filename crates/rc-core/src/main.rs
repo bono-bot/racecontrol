@@ -9,11 +9,14 @@ mod cloud_sync;
 mod config;
 mod db;
 mod error_aggregator;
+mod friends;
 mod game_launcher;
+mod multiplayer;
 mod lap_tracker;
 mod pod_monitor;
 mod pod_reservation;
 mod remote_terminal;
+mod scheduler;
 mod state;
 mod wallet;
 mod wol;
@@ -21,6 +24,7 @@ mod ws;
 
 use axum::Router;
 use axum::routing::get;
+use axum::middleware as axum_mw;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::CorsLayer;
@@ -28,6 +32,33 @@ use tower_http::trace::TraceLayer;
 
 use config::Config;
 use state::AppState;
+
+/// Middleware: if a JSON response body contains "JWT decode error", set status to 401
+async fn jwt_error_to_401(
+    req: axum::extract::Request,
+    next: axum_mw::Next,
+) -> axum::response::Response {
+    let res = next.run(req).await;
+    let (mut parts, body) = res.into_parts();
+
+    // Only check 200 JSON responses
+    let is_json = parts.headers.get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.contains("json"))
+        .unwrap_or(false);
+
+    if parts.status == axum::http::StatusCode::OK && is_json {
+        let body_bytes = axum::body::to_bytes(body, 1024 * 64).await.unwrap_or_default();
+        if let Ok(s) = std::str::from_utf8(&body_bytes) {
+            if s.contains("JWT decode error") || s.contains("Missing Authorization") {
+                parts.status = axum::http::StatusCode::UNAUTHORIZED;
+            }
+        }
+        return axum::response::Response::from_parts(parts, axum::body::Body::from(body_bytes));
+    }
+
+    axum::response::Response::from_parts(parts, body)
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -147,6 +178,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn pod monitor (Tier 2: detect stale pods, auto-restart via pod-agent)
     pod_monitor::spawn(state.clone());
 
+    // Spawn smart scheduler (auto-wake/shutdown pods, peak hour tracking)
+    scheduler::spawn(state.clone());
+
     // Build router
     let app = Router::new()
         // API routes
@@ -154,6 +188,11 @@ async fn main() -> anyhow::Result<()> {
         // WebSocket endpoints
         .route("/ws/agent", get(ws::agent_ws))
         .route("/ws/dashboard", get(ws::dashboard_ws))
+        .route("/ws/ai", get(ws::ai_ws))
+        // Registration page (standalone HTML for QR code walk-in flow)
+        .route("/register", get(|| async {
+            axum::response::Html(include_str!("../../../assets/register.html"))
+        }))
         // Health check at root
         .route("/", get(|| async {
             axum::Json(serde_json::json!({
@@ -162,6 +201,7 @@ async fn main() -> anyhow::Result<()> {
                 "version": env!("CARGO_PKG_VERSION"),
             }))
         }))
+        .layer(axum_mw::from_fn(jwt_error_to_401))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -173,6 +213,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("API:         http://{}/api/v1/health", bind_addr);
     tracing::info!("Agent WS:    ws://{}/ws/agent", bind_addr);
     tracing::info!("Dashboard WS: ws://{}/ws/dashboard", bind_addr);
+    tracing::info!("AI WS:        ws://{}/ws/ai", bind_addr);
 
     axum::serve(listener, app).await?;
 
