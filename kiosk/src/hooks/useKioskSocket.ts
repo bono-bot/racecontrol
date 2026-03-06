@@ -11,7 +11,11 @@ import type {
   AuthTokenInfo,
 } from "@/lib/types";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/dashboard";
+const WS_URL =
+  process.env.NEXT_PUBLIC_WS_URL ||
+  (typeof window !== "undefined"
+    ? `ws://${window.location.hostname}:8080/ws/dashboard`
+    : "ws://localhost:8080/ws/dashboard");
 
 interface DashboardEvent {
   event: string;

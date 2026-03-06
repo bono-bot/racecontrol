@@ -180,6 +180,30 @@ export interface BillingWarning {
   timestamp: number;
 }
 
+// ─── AC Catalog ──────────────────────────────────────────────────────────
+
+export interface CatalogItem {
+  id: string;
+  name: string;
+  category: string;
+  country?: string;
+}
+
+export interface AcCatalog {
+  tracks: {
+    featured: CatalogItem[];
+    all: CatalogItem[];
+  };
+  cars: {
+    featured: CatalogItem[];
+    all: CatalogItem[];
+  };
+  categories: {
+    tracks: string[];
+    cars: string[];
+  };
+}
+
 // ─── Kiosk Pod Card State ─────────────────────────────────────────────────
 
 export type KioskPodState =
