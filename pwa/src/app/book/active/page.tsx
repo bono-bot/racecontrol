@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, isLoggedIn } from "@/lib/api";
 import type { PodReservation, BillingSession } from "@/lib/api";
 
 export default function ActiveSessionPage() {
@@ -42,10 +42,14 @@ export default function ActiveSessionPage() {
   }, [router]);
 
   useEffect(() => {
+    if (!isLoggedIn()) {
+      router.replace("/login");
+      return;
+    }
     loadState();
     const interval = setInterval(loadState, 3000);
     return () => clearInterval(interval);
-  }, [loadState]);
+  }, [loadState, router]);
 
   async function handleEnd() {
     setEnding(true);

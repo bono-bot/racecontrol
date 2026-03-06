@@ -20,7 +20,7 @@ export default function SessionsPage() {
     api.sessions().then((res) => {
       if (res.sessions) setSessions(res.sessions);
       setLoading(false);
-    });
+    }).catch(() => setLoading(false));
   }, [router]);
 
   return (

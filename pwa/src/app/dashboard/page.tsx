@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, isLoggedIn } from "@/lib/api";
 import type { DriverProfile, CustomerStats, BillingSession, GroupSessionInfo } from "@/lib/api";
 import SessionCard from "@/components/SessionCard";
 
@@ -15,6 +15,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!isLoggedIn()) {
+      router.replace("/login");
+      return;
+    }
     async function load() {
       try {
         const [pRes, sRes, sessRes, gRes] = await Promise.all([

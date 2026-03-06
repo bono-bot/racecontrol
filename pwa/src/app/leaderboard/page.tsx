@@ -48,14 +48,14 @@ export default function LeaderboardPage() {
     setLoading(true);
     api.leaderboard(selectedTrack).then((res) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lb = res.leaderboard as any;
-      if (lb?.entries) {
-        setEntries(lb.entries);
+      const data = res as any;
+      if (Array.isArray(data?.records)) {
+        setEntries(data.records);
       } else {
         setEntries([]);
       }
       setLoading(false);
-    });
+    }).catch(() => setLoading(false));
   }, [router, selectedTrack]);
 
   return (

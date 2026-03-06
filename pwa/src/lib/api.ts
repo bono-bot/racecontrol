@@ -52,7 +52,12 @@ async function fetchApi<T>(
     headers,
   });
 
-  const data = await res.json();
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`HTTP ${res.status}: non-JSON response`);
+  }
 
   // Auto-logout on JWT auth errors
   if (

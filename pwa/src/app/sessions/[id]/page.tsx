@@ -37,7 +37,7 @@ function formatDate(iso: string | null): string {
 }
 
 function formatCredits(paise: number | null | undefined): string {
-  if (!paise) return "\u2014";
+  if (paise === null || paise === undefined) return "\u2014";
   return `${(paise / 100).toFixed(0)} credits`;
 }
 

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, isLoggedIn } from "@/lib/api";
 import type {
   PricingTier,
   DriverProfile,
@@ -90,6 +90,10 @@ function BookWizard() {
 
   // ── Load initial data
   useEffect(() => {
+    if (!isLoggedIn()) {
+      router.replace("/login");
+      return;
+    }
     async function load() {
       try {
         const [pRes, eRes] = await Promise.all([

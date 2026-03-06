@@ -38,7 +38,7 @@ export default function StatsPage() {
       if (sRes.stats) setStats(sRes.stats);
       if (lRes.laps) setRecentLaps(lRes.laps.slice(0, 20));
       setLoading(false);
-    });
+    }).catch(() => setLoading(false));
   }, [router]);
 
   if (loading) {

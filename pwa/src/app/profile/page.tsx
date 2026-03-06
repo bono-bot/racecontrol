@@ -29,7 +29,7 @@ export default function ProfilePage() {
         setShowNickname(res.driver.show_nickname_on_leaderboard || false);
       }
       setLoading(false);
-    });
+    }).catch(() => setLoading(false));
   }, [router]);
 
   const handleLogout = () => {
