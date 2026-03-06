@@ -1,5 +1,6 @@
 mod ac_launcher;
 mod ai_debugger;
+mod debug_server;
 mod driving_detector;
 mod game_process;
 mod kiosk;
@@ -282,6 +283,9 @@ async fn main() -> Result<()> {
     let mut lock_screen = LockScreenManager::new(lock_event_tx);
     lock_screen.start_server();
     tracing::info!("Lock screen server started on port 18923");
+
+    // Debug server for remote diagnostics (LAN-accessible on port 18924)
+    debug_server::spawn(lock_screen.state_handle(), config.pod.name.clone(), config.pod.number);
 
     // Main loop
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(5));

@@ -222,6 +222,11 @@ impl LockScreenManager {
     }
 
     /// Returns true if the screen is idle (Hidden) or already blanked.
+    /// Get a clone of the state handle for external use (e.g., debug server).
+    pub fn state_handle(&self) -> Arc<Mutex<LockScreenState>> {
+        self.state.clone()
+    }
+
     pub fn is_idle_or_blanked(&self) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked)
@@ -397,6 +402,11 @@ async fn serve_lock_screen(
 }
 
 // ─── HTML Rendering ──────────────────────────────────────────────────────────
+
+/// Public wrapper for debug server to render lock screen HTML.
+pub fn render_page_public(state: &LockScreenState) -> String {
+    render_page(state)
+}
 
 fn render_page(state: &LockScreenState) -> String {
     match state {
