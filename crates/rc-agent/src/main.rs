@@ -722,7 +722,13 @@ async fn main() -> Result<()> {
                                     }
                                     if let Some(v) = settings.get("screen_blanking_enabled") {
                                         tracing::info!("Screen blanking set to: {}", v);
-                                        // Screen blanking is enforced by lock_screen based on this flag
+                                        if v == "true" && lock_screen.is_idle_or_blanked() {
+                                            lock_screen.show_blank_screen();
+                                            tracing::info!("Screen blanking ENABLED — screen blanked");
+                                        } else if v == "false" && lock_screen.is_blanked() {
+                                            lock_screen.clear();
+                                            tracing::info!("Screen blanking DISABLED — screen restored");
+                                        }
                                     }
                                 }
                                 _ => {}

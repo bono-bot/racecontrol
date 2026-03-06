@@ -56,6 +56,8 @@ pub enum LockScreenState {
         driver_name: String,
         message: String,
     },
+    /// Screen blanked — pure black screen between sessions.
+    ScreenBlanked,
 }
 
 /// Events emitted by the lock screen to the agent main loop.
@@ -215,6 +217,27 @@ impl LockScreenManager {
                 driver_name,
                 message,
             };
+        }
+        self.launch_browser();
+    }
+
+    /// Returns true if the screen is idle (Hidden) or already blanked.
+    pub fn is_idle_or_blanked(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked)
+    }
+
+    /// Returns true if the screen is currently blanked.
+    pub fn is_blanked(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        matches!(*state, LockScreenState::ScreenBlanked)
+    }
+
+    /// Show a blank (black) screen — used between sessions when screen blanking is enabled.
+    pub fn show_blank_screen(&mut self) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::ScreenBlanked;
         }
         self.launch_browser();
     }
@@ -391,6 +414,7 @@ fn render_page(state: &LockScreenState) -> String {
             driver_name,
             message,
         } => render_assistance_page(driver_name, message),
+        LockScreenState::ScreenBlanked => render_blank_page(),
     }
 }
 
@@ -405,6 +429,12 @@ fn page_shell(title: &str, content: &str) -> String {
     PAGE_SHELL
         .replace("{{TITLE}}", title)
         .replace("{{CONTENT}}", content)
+}
+
+fn render_blank_page() -> String {
+    r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>RacingPoint</title>
+<style>*{margin:0;padding:0}body{background:#000;width:100vw;height:100vh;cursor:none}</style>
+</head><body><script>setTimeout(function(){location.reload()},10000)</script></body></html>"#.to_string()
 }
 
 fn render_idle_page() -> String {
