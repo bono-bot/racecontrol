@@ -81,8 +81,18 @@ export default function StaffTerminal() {
     pricing_tier_id: string;
     auth_type: string;
   }) => {
-    await api.assignCustomer(data);
+    // Assign customer (creates auth token)
+    const assignResult = await api.assignCustomer(data);
     setRegisterPodId(null);
+
+    // Direct launch: immediately start billing (skip PIN waiting)
+    const token = assignResult.token as { id?: string } | undefined;
+    if (token?.id) {
+      const startResult = await api.startNow(token.id);
+      if (!startResult.error) {
+        setGamePodId(data.pod_id);
+      }
+    }
   };
 
   const handleGameLaunch = async (simType: string, launchArgs: string) => {
