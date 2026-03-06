@@ -27,7 +27,8 @@ use axum::routing::get;
 use axum::middleware as axum_mw;
 use std::sync::Arc;
 use std::time::Duration;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{CorsLayer, AllowOrigin};
+use axum::http::{HeaderValue, Method};
 use tower_http::trace::TraceLayer;
 
 use config::Config;
@@ -83,6 +84,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Load config
     let config = Config::load_or_default();
+
+    // Warn if default JWT secret is unchanged
+    if config.auth.jwt_secret == "racingpoint-jwt-change-me-in-production" {
+        tracing::warn!("Using default JWT secret! Set auth.jwt_secret in racecontrol.toml for production.");
+    }
     tracing::info!("Venue: {} ({})", config.venue.name, config.venue.location);
     tracing::info!("Server: {}:{}", config.server.host, config.server.port);
 
@@ -202,7 +208,19 @@ async fn main() -> anyhow::Result<()> {
             }))
         }))
         .layer(axum_mw::from_fn(jwt_error_to_401))
-        .layer(CorsLayer::permissive())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+                    let origin = origin.to_str().unwrap_or("");
+                    origin.starts_with("http://localhost:")
+                        || origin.starts_with("http://127.0.0.1:")
+                        || origin.starts_with("http://192.168.31.")
+                        || origin.contains("racingpoint.cloud")
+                }))
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE, Method::OPTIONS])
+                .allow_headers(tower_http::cors::Any)
+                .allow_credentials(false)
+        )
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

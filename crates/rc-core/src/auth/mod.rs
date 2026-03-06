@@ -304,13 +304,16 @@ pub async fn validate_pin(
         return validate_employee_pin(state, pod_id, pin).await;
     }
 
-    // Find pending token for this pod with matching PIN
+    // Atomically find and consume pending token (prevents double-spend race condition)
     let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
-        "SELECT id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args
-         FROM auth_tokens
-         WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
-           AND expires_at > datetime('now')
-         LIMIT 1",
+        "UPDATE auth_tokens SET status = 'consuming'
+         WHERE id = (
+             SELECT id FROM auth_tokens
+             WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
+               AND expires_at > datetime('now')
+             LIMIT 1
+         ) AND status = 'pending'
+         RETURNING id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
     )
     .bind(&pod_id)
     .bind(&pin)
@@ -339,14 +342,17 @@ pub async fn validate_pin(
     .await
     .ok_or_else(|| "Failed to start billing session".to_string())?;
 
-    // Mark token as consumed
-    let _ = sqlx::query(
+    // Finalize token as consumed with billing session ID
+    if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
     .bind(&billing_session_id)
     .bind(&token_id)
     .execute(&state.db)
-    .await;
+    .await
+    {
+        tracing::error!("Failed to mark token {} as consumed: {}", token_id, e);
+    }
 
     // Get driver name for assistance screen
     let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
@@ -389,13 +395,16 @@ pub async fn validate_qr(
     qr_token: String,
     driver_id: String,
 ) -> Result<String, String> {
-    // Find pending token with matching UUID
-    let row = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>)>(
-        "SELECT id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes
-         FROM auth_tokens
-         WHERE token = ? AND auth_type = 'qr' AND status = 'pending'
-           AND expires_at > datetime('now')
-         LIMIT 1",
+    // Atomically find and consume pending QR token (prevents double-spend)
+    let row = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+        "UPDATE auth_tokens SET status = 'consuming'
+         WHERE id = (
+             SELECT id FROM auth_tokens
+             WHERE token = ? AND auth_type = 'qr' AND status = 'pending'
+               AND expires_at > datetime('now')
+             LIMIT 1
+         ) AND status = 'pending'
+         RETURNING id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
     )
     .bind(&qr_token)
     .fetch_optional(&state.db)
@@ -409,24 +418,15 @@ pub async fn validate_qr(
     let pricing_tier_id = row.3;
     let custom_price_paise = row.4.map(|p| p as u32);
     let custom_duration_minutes = row.5.map(|m| m as u32);
+    let experience_id = row.6;
+    let custom_launch_args = row.7;
 
     // Verify driver matches the assignment
     if token_driver_id != driver_id {
+        let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ?")
+            .bind(&token_id).execute(&state.db).await;
         return Err("QR token is not assigned to this customer".to_string());
     }
-
-    // Fetch experience_id and custom_launch_args from token
-    let token_extra = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        "SELECT experience_id, custom_launch_args FROM auth_tokens WHERE id = ?",
-    )
-    .bind(&token_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
-
-    let experience_id = token_extra.as_ref().and_then(|r| r.0.clone());
-    let custom_launch_args = token_extra.as_ref().and_then(|r| r.1.clone());
 
     // Start billing session
     let billing_session_id = billing::start_billing_session(
@@ -440,14 +440,17 @@ pub async fn validate_qr(
     .await
     .ok_or_else(|| "Failed to start billing session".to_string())?;
 
-    // Mark token as consumed
-    let _ = sqlx::query(
+    // Finalize token as consumed with billing session ID
+    if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
     .bind(&billing_session_id)
     .bind(&token_id)
     .execute(&state.db)
-    .await;
+    .await
+    {
+        tracing::error!("Failed to mark token {} as consumed: {}", token_id, e);
+    }
 
     // Get driver name for assistance screen
     let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
@@ -491,12 +494,11 @@ pub async fn start_now(
     state: &Arc<AppState>,
     token_id: String,
 ) -> Result<String, String> {
-    // Find the pending token
+    // Atomically find and consume the pending token (prevents double-spend)
     let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
-        "SELECT pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args
-         FROM auth_tokens
+        "UPDATE auth_tokens SET status = 'consuming'
          WHERE id = ? AND status = 'pending'
-         LIMIT 1",
+         RETURNING pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
     )
     .bind(&token_id)
     .fetch_optional(&state.db)
@@ -524,14 +526,17 @@ pub async fn start_now(
     .await
     .ok_or_else(|| "Failed to start billing session".to_string())?;
 
-    // Mark token as consumed
-    let _ = sqlx::query(
+    // Finalize token as consumed with billing session ID
+    if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
     .bind(&billing_session_id)
     .bind(&token_id)
     .execute(&state.db)
-    .await;
+    .await
+    {
+        tracing::error!("Failed to mark token {} as consumed: {}", token_id, e);
+    }
 
     // Get driver name for assistance screen
     let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
@@ -756,16 +761,15 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, Stri
             // Auto-create driver with phone + generate customer_id
             let id = Uuid::new_v4().to_string();
 
-            // Get next customer_id sequence number
-            let max_num = sqlx::query_as::<_, (Option<String>,)>(
-                "SELECT MAX(customer_id) FROM drivers WHERE customer_id IS NOT NULL",
+            // Get next customer_id sequence number (numeric MAX to avoid lexicographic issues)
+            let max_num = sqlx::query_as::<_, (Option<i64>,)>(
+                "SELECT MAX(CAST(REPLACE(customer_id, 'RP', '') AS INTEGER)) FROM drivers WHERE customer_id IS NOT NULL AND customer_id LIKE 'RP%'",
             )
             .fetch_one(&state.db)
             .await
             .ok()
             .and_then(|r| r.0)
-            .and_then(|s| s.strip_prefix("RP").and_then(|n| n.parse::<u32>().ok()))
-            .unwrap_or(0);
+            .unwrap_or(0) as u32;
             let customer_id = format!("RP{:03}", max_num + 1);
 
             sqlx::query(
@@ -944,13 +948,16 @@ pub async fn validate_pin_kiosk(
     state: &Arc<AppState>,
     pin: String,
 ) -> Result<KioskPinResult, String> {
-    // Find ANY pending pin token matching this PIN (across all pods)
+    // Atomically find and consume ANY pending pin token matching this PIN (prevents double-spend)
     let row = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
-        "SELECT id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args
-         FROM auth_tokens
-         WHERE token = ? AND auth_type = 'pin' AND status = 'pending'
-           AND expires_at > datetime('now')
-         LIMIT 1",
+        "UPDATE auth_tokens SET status = 'consuming'
+         WHERE id = (
+             SELECT id FROM auth_tokens
+             WHERE token = ? AND auth_type = 'pin' AND status = 'pending'
+               AND expires_at > datetime('now')
+             LIMIT 1
+         ) AND status = 'pending'
+         RETURNING id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
     )
     .bind(&pin)
     .fetch_optional(&state.db)
@@ -979,14 +986,17 @@ pub async fn validate_pin_kiosk(
     .await
     .ok_or_else(|| "Failed to start billing session".to_string())?;
 
-    // Mark token as consumed
-    let _ = sqlx::query(
+    // Finalize token as consumed with billing session ID
+    if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
     .bind(&billing_session_id)
     .bind(&token_id)
     .execute(&state.db)
-    .await;
+    .await
+    {
+        tracing::error!("Failed to mark token {} as consumed: {}", token_id, e);
+    }
 
     // Get driver name
     let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")

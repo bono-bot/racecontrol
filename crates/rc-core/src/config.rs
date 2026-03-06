@@ -287,7 +287,7 @@ fn default_timezone() -> String { "Asia/Kolkata".to_string() }
 fn default_sync_interval() -> u64 { 30 }
 fn default_pod_count() -> u32 { 16 }
 fn default_true() -> bool { true }
-fn default_color() -> String { "#FF4400".to_string() }
+fn default_color() -> String { "#E10600".to_string() }
 fn default_theme() -> String { "dark".to_string() }
 fn default_acserver_path() -> String { "/opt/ac-server/acServer".to_string() }
 fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }

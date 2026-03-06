@@ -278,9 +278,9 @@ async fn serve_lock_screen(
     state: Arc<Mutex<LockScreenState>>,
     event_tx: mpsc::Sender<LockScreenEvent>,
 ) {
-    let listener = match TcpListener::bind(format!("0.0.0.0:{}", port)).await {
+    let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)).await {
         Ok(l) => {
-            tracing::info!("Lock screen server listening on http://0.0.0.0:{}", port);
+            tracing::info!("Lock screen server listening on http://127.0.0.1:{}", port);
             l
         }
         Err(e) => {

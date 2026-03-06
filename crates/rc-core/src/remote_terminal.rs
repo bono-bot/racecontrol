@@ -46,6 +46,10 @@ pub fn spawn(state: Arc<AppState>) {
 
     let secret = cloud.terminal_secret.clone().unwrap_or_default();
 
+    if !api_url.starts_with("https://") {
+        tracing::warn!("Remote terminal polling over HTTP (not HTTPS) — commands and secrets are transmitted in plaintext: {}", api_url);
+    }
+
     tracing::info!("Remote terminal enabled: polling {}", api_url);
 
     tokio::spawn(async move {

@@ -135,13 +135,13 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         let remaining = timer.remaining_seconds();
 
         // Check 5-minute warning
-        if remaining <= 300 && remaining > 298 && !timer.warning_5min_sent {
+        if remaining <= 300 && !timer.warning_5min_sent {
             timer.warning_5min_sent = true;
             warnings.push((timer.session_id.clone(), pod_id.clone(), remaining));
         }
 
         // Check 1-minute warning
-        if remaining <= 60 && remaining > 58 && !timer.warning_1min_sent {
+        if remaining <= 60 && !timer.warning_1min_sent {
             timer.warning_1min_sent = true;
             warnings.push((timer.session_id.clone(), pod_id.clone(), remaining));
         }
@@ -1054,16 +1054,16 @@ mod tests {
         assert!(!timer.tick());
         assert_eq!(timer.driving_seconds, 1);
 
-        // Should NOT count when idle
+        // Timer counts regardless of driving state (always-on billing)
         timer.driving_state = DrivingState::Idle;
         assert!(!timer.tick());
-        assert_eq!(timer.driving_seconds, 1); // Still 1
+        assert_eq!(timer.driving_seconds, 2); // Still counts
 
         // Should NOT count when paused
         timer.driving_state = DrivingState::Active;
         timer.status = BillingSessionStatus::PausedManual;
         assert!(!timer.tick());
-        assert_eq!(timer.driving_seconds, 1); // Still 1
+        assert_eq!(timer.driving_seconds, 2); // Paused stops counting
     }
 
     #[test]

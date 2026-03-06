@@ -237,45 +237,6 @@ impl SimAdapter for AssettoCorsaAdapter {
             sector3_ms: None,
         }))
     }
-}
-
-impl SimAdapter for AssettoCorsaAdapter {
-    fn sim_type(&self) -> SimType {
-        SimType::AssettocCorsa
-    }
-
-    fn connect(&mut self) -> Result<()> {
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
-        socket.set_read_timeout(Some(Duration::from_millis(100)))?;
-        socket.set_nonblocking(false)?;
-
-        self.socket = Some(socket);
-        self.send_handshake()?;
-
-        // Wait for handshake response
-        let mut buf = [0u8; 1024];
-        let socket = self.socket.as_ref().unwrap();
-        match socket.recv_from(&mut buf) {
-            Ok((len, _)) => {
-                self.parse_handshake_response(&buf[..len])?;
-                self.connected = true;
-                self.subscribe_updates()?;
-                Ok(())
-            }
-            Err(e) => {
-                anyhow::bail!("AC handshake timeout: {}", e);
-            }
-        }
-    }
-
-    fn is_connected(&self) -> bool {
-        self.connected
-    }
-
-    #[cfg(not(windows))]
-    fn read_telemetry(&mut self) -> Result<Option<TelemetryFrame>> {
-        Ok(None)
-    }
 
     fn poll_lap_completed(&mut self) -> Result<Option<LapData>> {
         Ok(None)
@@ -287,11 +248,11 @@ impl SimAdapter for AssettoCorsaAdapter {
         }
         Ok(Some(SessionInfo {
             id: String::new(),
-            session_type: SessionType::Practice,
+            session_type: rc_common::types::SessionType::Practice,
             sim_type: SimType::AssettoCorsa,
             track: self.current_track.clone(),
             car_class: None,
-            status: SessionStatus::Active,
+            status: rc_common::types::SessionStatus::Active,
             max_drivers: None,
             laps_or_minutes: None,
             started_at: None,
@@ -302,7 +263,6 @@ impl SimAdapter for AssettoCorsaAdapter {
     fn disconnect(&mut self) {
         #[cfg(windows)]
         {
-            // Drop handles — MapViewOfFile and CloseHandle cleanup
             if let Some(h) = self.physics_handle.take() {
                 unsafe {
                     winapi::um::memoryapi::UnmapViewOfFile(h.ptr as *const _);

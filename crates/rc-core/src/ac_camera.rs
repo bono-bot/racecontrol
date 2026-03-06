@@ -209,7 +209,7 @@ impl CameraController {
         let leader = active
             .iter()
             .filter(|p| p.best_lap_ms.is_some())
-            .min_by_key(|p| p.best_lap_ms.unwrap());
+            .min_by_key(|p| p.best_lap_ms.unwrap_or(u32::MAX));
 
         // If no one has set a best lap, pick the one on the highest lap number
         let leader = leader.or_else(|| active.iter().max_by_key(|p| p.lap_number));

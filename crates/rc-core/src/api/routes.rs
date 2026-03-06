@@ -2326,14 +2326,15 @@ async fn check_waiver(
         .bind(last10)
         .fetch_optional(&state.db)
         .await
-    } else {
-        let email = email.unwrap();
+    } else if let Some(email) = email {
         sqlx::query_as::<_, (String, String, Option<String>, bool)>(
             "SELECT id, name, phone, COALESCE(waiver_signed, 0) FROM drivers WHERE LOWER(email) = LOWER(?)",
         )
         .bind(email)
         .fetch_optional(&state.db)
         .await
+    } else {
+        return Json(json!({ "error": "Provide phone or email parameter" }));
     };
 
     match row {
@@ -3416,8 +3417,16 @@ struct SyncChangesQuery {
 
 async fn sync_changes(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<SyncChangesQuery>,
 ) -> Json<Value> {
+    // Require terminal secret for sync endpoint (exposes customer PII)
+    if let Some(secret) = state.config.cloud.terminal_secret.as_deref() {
+        let provided = headers.get("x-terminal-secret").and_then(|v| v.to_str().ok());
+        if provided != Some(secret) {
+            return Json(serde_json::json!({ "error": "Unauthorized" }));
+        }
+    }
     let since = params.since.unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
     let tables: Vec<&str> = params
         .tables
