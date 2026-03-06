@@ -3622,6 +3622,22 @@ async fn sync_changes(
                     result["kiosk_experiences"] = json!(items);
                 }
             }
+            "kiosk_settings" => {
+                // kiosk_settings is a key-value table, return as a flat object
+                let rows = sqlx::query_as::<_, (String, String)>(
+                    "SELECT key, value FROM kiosk_settings",
+                )
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let mut settings = json!({});
+                    for (key, value) in &rows {
+                        settings[key] = json!(value);
+                    }
+                    result["kiosk_settings"] = settings;
+                }
+            }
             _ => {}
         }
     }

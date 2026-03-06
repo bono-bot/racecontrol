@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::state::AppState;
 
-const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,kiosk_experiences";
+const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,kiosk_experiences,kiosk_settings";
 
 /// Spawn the cloud sync background task.
 /// Only starts if cloud.enabled = true and cloud.api_url is set.
@@ -118,6 +118,54 @@ async fn sync_once(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()>
             } else {
                 total_upserted += 1;
             }
+        }
+    }
+
+    // Upsert kiosk_settings and broadcast to agents if changed
+    if let Some(settings) = body.get("kiosk_settings").and_then(|v| v.as_object()) {
+        let mut changed = false;
+        for (key, value) in settings {
+            let val_str = value.as_str().unwrap_or(&value.to_string()).to_string();
+            let local = sqlx::query_as::<_, (String,)>(
+                "SELECT value FROM kiosk_settings WHERE key = ?",
+            )
+            .bind(key)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let needs_update = match &local {
+                Some((v,)) => v != &val_str,
+                None => true,
+            };
+
+            if needs_update {
+                let _ = sqlx::query(
+                    "INSERT INTO kiosk_settings (key, value) VALUES (?, ?)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                )
+                .bind(key)
+                .bind(&val_str)
+                .execute(&state.db)
+                .await;
+                changed = true;
+                total_upserted += 1;
+            }
+        }
+
+        // Broadcast to connected agents so pods react immediately
+        if changed {
+            let settings_map: std::collections::HashMap<String, String> = settings
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or(&v.to_string()).to_string()))
+                .collect();
+            let msg = rc_common::protocol::CoreToAgentMessage::SettingsUpdated { settings: settings_map };
+            let agent_senders = state.agent_senders.read().await;
+            for sender in agent_senders.values() {
+                let _ = sender.send(msg.clone()).await;
+            }
+            tracing::info!("Cloud sync: kiosk settings updated and broadcast to {} agents", agent_senders.len());
         }
     }
 
