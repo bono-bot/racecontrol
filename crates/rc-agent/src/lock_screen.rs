@@ -276,7 +276,26 @@ impl LockScreenManager {
 
     #[cfg(not(windows))]
     fn launch_browser(&mut self) {
-        tracing::info!("Lock screen: browser launch not supported on this platform");
+        self.close_browser();
+        let url = format!("http://127.0.0.1:{}", self.port);
+        // Try browsers in order: Edge, Chromium, Chrome, Firefox
+        let browsers = [
+            ("microsoft-edge", vec!["--kiosk", &url, "--no-first-run"]),
+            ("chromium-browser", vec!["--kiosk", &url, "--no-first-run", "--noerrdialogs"]),
+            ("chromium", vec!["--kiosk", &url, "--no-first-run", "--noerrdialogs"]),
+            ("google-chrome", vec!["--kiosk", &url, "--no-first-run", "--noerrdialogs"]),
+            ("firefox", vec!["--kiosk", &url]),
+        ];
+        for (browser, args) in &browsers {
+            match std::process::Command::new(browser).args(args).spawn() {
+                Ok(_child) => {
+                    tracing::info!("Lock screen browser launched ({}) at {}", browser, url);
+                    return;
+                }
+                Err(_) => continue,
+            }
+        }
+        tracing::error!("Lock screen: no browser found. Install chromium or microsoft-edge.");
     }
 
     #[cfg(windows)]
@@ -290,7 +309,10 @@ impl LockScreenManager {
     }
 
     #[cfg(not(windows))]
-    fn close_browser(&mut self) {}
+    fn close_browser(&mut self) {
+        // Kill any kiosk browser we may have spawned
+        let _ = std::process::Command::new("pkill").args(["-f", &format!("127.0.0.1:{}", self.port)]).spawn();
+    }
 }
 
 // ─── HTTP Server ─────────────────────────────────────────────────────────────
