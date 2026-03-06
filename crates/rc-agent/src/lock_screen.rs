@@ -613,16 +613,17 @@ fn generate_qr_svg(data: &str) -> String {
 
     match QrCode::new(data) {
         Ok(code) => code
-            .render()
+            .render::<svg::Color>()
             .min_dimensions(250, 250)
             .dark_color(svg::Color("#000000"))
             .light_color(svg::Color("#ffffff"))
             .build(),
         Err(e) => {
-            tracing::error!("QR code generation failed: {}", e);
+            let msg: String = e.to_string();
+            tracing::error!("QR code generation failed: {}", msg);
             format!(
                 "<p style=\"color:#000;font-size:14px\">QR Error: {}</p>",
-                html_escape(&e.to_string())
+                html_escape(&msg)
             )
         }
     }

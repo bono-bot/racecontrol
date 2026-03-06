@@ -238,6 +238,11 @@ impl SimAdapter for AssettoCorsaAdapter {
         }))
     }
 
+    #[cfg(not(windows))]
+    fn read_telemetry(&mut self) -> Result<Option<TelemetryFrame>> {
+        Ok(None)
+    }
+
     fn poll_lap_completed(&mut self) -> Result<Option<LapData>> {
         Ok(None)
     }
