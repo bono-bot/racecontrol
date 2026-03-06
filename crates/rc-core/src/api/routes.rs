@@ -156,6 +156,9 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/terminal/commands", get(terminal_list).post(terminal_submit))
         .route("/terminal/commands/pending", get(terminal_pending))
         .route("/terminal/commands/{id}/result", post(terminal_result))
+        // Staff
+        .route("/staff/validate-pin", post(staff_validate_pin))
+        .route("/staff", get(list_staff).post(create_staff))
         // Employee
         .route("/employee/daily-pin", get(employee_daily_pin))
         .route("/employee/debug-unlock", post(employee_debug_unlock))
@@ -3948,6 +3951,99 @@ async fn employee_debug_unlock(
         })),
         Err(e) => Json(json!({ "error": e })),
     }
+}
+
+// ─── Staff ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct StaffValidatePinRequest {
+    pin: String,
+}
+
+async fn staff_validate_pin(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<StaffValidatePinRequest>,
+) -> Json<Value> {
+    let result = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, name FROM staff_members WHERE pin = ? AND is_active = 1",
+    )
+    .bind(&req.pin)
+    .fetch_optional(&state.db)
+    .await;
+
+    match result {
+        Ok(Some((id, name))) => {
+            let _ = sqlx::query(
+                "UPDATE staff_members SET last_login_at = datetime('now') WHERE id = ?",
+            )
+            .bind(&id)
+            .execute(&state.db)
+            .await;
+
+            Json(json!({
+                "status": "ok",
+                "staff_id": id,
+                "staff_name": name,
+            }))
+        }
+        Ok(None) => Json(json!({ "error": "Invalid staff PIN" })),
+        Err(e) => Json(json!({ "error": format!("Database error: {}", e) })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateStaffRequest {
+    name: String,
+    phone: String,
+    pin: String,
+}
+
+async fn create_staff(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateStaffRequest>,
+) -> Json<Value> {
+    let id = format!("staff_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
+
+    match sqlx::query(
+        "INSERT INTO staff_members (id, name, phone, pin) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(&req.name)
+    .bind(&req.phone)
+    .bind(&req.pin)
+    .execute(&state.db)
+    .await
+    {
+        Ok(_) => Json(json!({ "status": "ok", "id": id, "name": req.name })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn list_staff(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, bool, Option<String>)>(
+        "SELECT id, name, phone, pin, is_active, last_login_at FROM staff_members ORDER BY name",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let staff: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, name, phone, pin, active, last_login)| {
+            json!({
+                "id": id,
+                "name": name,
+                "phone": phone,
+                "pin": pin,
+                "is_active": active,
+                "last_login_at": last_login,
+            })
+        })
+        .collect();
+
+    Json(json!({ "staff": staff }))
 }
 
 // ─── Friends ──────────────────────────────────────────────────────────────

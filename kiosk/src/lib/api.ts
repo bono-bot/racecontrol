@@ -114,6 +114,18 @@ export const api = {
       body: JSON.stringify({ pin }),
     }),
 
+  // Staff Auth
+  validateStaffPin: (pin: string) =>
+    fetchApi<{
+      status?: string;
+      error?: string;
+      staff_id?: string;
+      staff_name?: string;
+    }>("/staff/validate-pin", {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
+
   // Kiosk Settings
   getSettings: () => fetchApi<{ settings: KioskSettings }>("/kiosk/settings"),
   updateSettings: (data: Partial<KioskSettings>) =>

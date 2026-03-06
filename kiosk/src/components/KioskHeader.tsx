@@ -7,9 +7,11 @@ interface KioskHeaderProps {
   connected: boolean;
   pods: Map<string, Pod>;
   venueName?: string;
+  staffName?: string;
+  onSignOut?: () => void;
 }
 
-export function KioskHeader({ connected, pods, venueName = "Racing Point" }: KioskHeaderProps) {
+export function KioskHeader({ connected, pods, venueName = "Racing Point", staffName, onSignOut }: KioskHeaderProps) {
   const [clock, setClock] = useState("");
 
   useEffect(() => {
@@ -64,8 +66,23 @@ export function KioskHeader({ connected, pods, venueName = "Racing Point" }: Kio
         </div>
       </div>
 
-      {/* Right: Clock + Connection */}
+      {/* Right: Staff + Clock + Connection */}
       <div className="flex items-center gap-4">
+        {staffName && (
+          <div className="flex items-center gap-3 border-r border-rp-border pr-4">
+            <span className="text-sm text-rp-grey">
+              Staff: <span className="text-white font-medium">{staffName}</span>
+            </span>
+            {onSignOut && (
+              <button
+                onClick={onSignOut}
+                className="text-xs text-rp-grey hover:text-rp-red transition-colors"
+              >
+                Sign Out
+              </button>
+            )}
+          </div>
+        )}
         <span className="text-2xl font-semibold tabular-nums text-white">
           {clock}
         </span>

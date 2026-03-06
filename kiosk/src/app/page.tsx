@@ -5,13 +5,16 @@ import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { KioskHeader } from "@/components/KioskHeader";
 import { KioskPodCard } from "@/components/KioskPodCard";
 import { DriverRegistration } from "@/components/DriverRegistration";
-import { ExperienceSelector } from "@/components/ExperienceSelector";
+import { GameConfigurator } from "@/components/GameConfigurator";
+import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { AssistanceAlert } from "@/components/AssistanceAlert";
 import WalletTopup from "@/components/WalletTopup";
 import { api } from "@/lib/api";
-import type { KioskExperience, AuthTokenInfo } from "@/lib/types";
+import type { AuthTokenInfo } from "@/lib/types";
 
 export default function StaffTerminal() {
+  const [staffName, setStaffName] = useState<string | null>(null);
+
   const {
     connected,
     pods,
@@ -27,7 +30,7 @@ export default function StaffTerminal() {
 
   // Modal state
   const [registerPodId, setRegisterPodId] = useState<string | null>(null);
-  const [experiencePodId, setExperiencePodId] = useState<string | null>(null);
+  const [gamePodId, setGamePodId] = useState<string | null>(null);
   const [topUpDriverId, setTopUpDriverId] = useState<string | null>(null);
   const [topUpDriverName, setTopUpDriverName] = useState("");
   const [topUpBalance, setTopUpBalance] = useState(0);
@@ -82,17 +85,10 @@ export default function StaffTerminal() {
     setRegisterPodId(null);
   };
 
-  const handleSelectExperience = async (experience: KioskExperience) => {
-    if (!experiencePodId) return;
-    const launchArgs = JSON.stringify({
-      car: experience.car,
-      track: experience.track,
-      driver: billingTimers.get(experiencePodId)?.driver_name || "Driver",
-      track_config: "",
-      skin: "00_default",
-    });
-    await api.launchGame(experiencePodId, experience.game, launchArgs);
-    setExperiencePodId(null);
+  const handleGameLaunch = async (simType: string, launchArgs: string) => {
+    if (!gamePodId) return;
+    await api.launchGame(gamePodId, simType, launchArgs);
+    setGamePodId(null);
   };
 
   const handleEndSession = (billingSessionId: string) => {
@@ -124,7 +120,7 @@ export default function StaffTerminal() {
       console.error("Start Now failed:", result.error);
       return;
     }
-    setExperiencePodId(authToken.pod_id);
+    setGamePodId(authToken.pod_id);
   };
 
   const handleAcknowledgeAssistance = (podId: string) => {
@@ -158,9 +154,18 @@ export default function StaffTerminal() {
     setTopUpDriverId(null);
   };
 
+  const handleSignOut = () => {
+    setStaffName(null);
+  };
+
+  // ─── Auth Gate ──────────────────────────────────────────────────────────
+  if (!staffName) {
+    return <StaffLoginScreen onAuthenticated={setStaffName} />;
+  }
+
   return (
     <div className="h-screen flex flex-col">
-      <KioskHeader connected={connected} pods={pods} />
+      <KioskHeader connected={connected} pods={pods} staffName={staffName} onSignOut={handleSignOut} />
 
       {/* Assistance Alert Banner */}
       <AssistanceAlert
@@ -198,7 +203,7 @@ export default function StaffTerminal() {
                   onResumeSession={handleResumeSession}
                   onExtendSession={handleExtendSession}
                   onCancelAssignment={handleCancelAssignment}
-                  onLaunchGame={(podId) => setExperiencePodId(podId)}
+                  onLaunchGame={(podId) => setGamePodId(podId)}
                   onStartNow={handleStartNow}
                   onTopUp={handleTopUp}
                 />
@@ -217,12 +222,14 @@ export default function StaffTerminal() {
         />
       )}
 
-      {/* Experience Selector Modal */}
-      {experiencePodId && (
-        <ExperienceSelector
-          podId={experiencePodId}
-          onSelect={handleSelectExperience}
-          onCancel={() => setExperiencePodId(null)}
+      {/* Game Configurator Modal */}
+      {gamePodId && (
+        <GameConfigurator
+          podId={gamePodId}
+          podNumber={pods.get(gamePodId)?.number || 0}
+          driverName={billingTimers.get(gamePodId)?.driver_name || "Driver"}
+          onLaunch={handleGameLaunch}
+          onCancel={() => setGamePodId(null)}
         />
       )}
 
