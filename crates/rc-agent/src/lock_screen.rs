@@ -432,9 +432,7 @@ fn page_shell(title: &str, content: &str) -> String {
 }
 
 fn render_blank_page() -> String {
-    r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>RacingPoint</title>
-<style>*{margin:0;padding:0}body{background:#000;width:100vw;height:100vh;cursor:none}</style>
-</head><body><script>setTimeout(function(){location.reload()},10000)</script></body></html>"#.to_string()
+    page_shell("Racing Point", BLANK_PIN_PAGE)
 }
 
 fn render_idle_page() -> String {
@@ -786,6 +784,125 @@ const PIN_PAGE: &str = r#"<div class="welcome">Welcome, {{DRIVER_NAME}}!</div>
             });
         })(i);
     }
+})();
+</script>"#;
+
+const BLANK_PIN_PAGE: &str = r#"<style>
+.blank-pin-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.blank-pin-wrap .welcome {
+    font-size: 1.4em;
+    font-weight: 400;
+    margin-bottom: 8px;
+    color: #aaa;
+}
+.numpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    max-width: 340px;
+    width: 100%;
+    margin-top: 24px;
+}
+.numpad button {
+    height: 72px;
+    font-size: 2em;
+    font-weight: 700;
+    font-family: 'Montserrat', sans-serif;
+    border: 2px solid #333;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.05);
+    color: #fff;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+}
+.numpad button:active {
+    background: rgba(225,6,0,0.15);
+    border-color: #E10600;
+}
+.numpad .fn-key {
+    font-size: 0.9em;
+    font-weight: 600;
+    color: #888;
+}
+</style>
+<div class="blank-pin-wrap">
+  <div class="welcome">Have a PIN? Enter it below</div>
+  <form method="POST" action="/pin" id="pinForm">
+    <div class="pin-row">
+      <input class="pin-box" type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" readonly>
+      <input class="pin-box" type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" readonly>
+      <input class="pin-box" type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" readonly>
+      <input class="pin-box" type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" readonly>
+    </div>
+    <input type="hidden" name="pin" id="pinValue">
+  </form>
+  <div class="numpad" id="numpad">
+    <button type="button" data-digit="1">1</button>
+    <button type="button" data-digit="2">2</button>
+    <button type="button" data-digit="3">3</button>
+    <button type="button" data-digit="4">4</button>
+    <button type="button" data-digit="5">5</button>
+    <button type="button" data-digit="6">6</button>
+    <button type="button" data-digit="7">7</button>
+    <button type="button" data-digit="8">8</button>
+    <button type="button" data-digit="9">9</button>
+    <button type="button" class="fn-key" id="clearBtn">CLEAR</button>
+    <button type="button" data-digit="0">0</button>
+    <button type="button" class="fn-key" id="bkspBtn">&larr;</button>
+  </div>
+  <div class="hint">Book on the Racing Point app to get your PIN</div>
+</div>
+<script>
+(function() {
+    var boxes = document.querySelectorAll('.pin-box');
+    var hidden = document.getElementById('pinValue');
+    var pos = 0;
+
+    function setDigit(d) {
+        if (pos >= 4) return;
+        boxes[pos].value = d;
+        pos++;
+        updateHidden();
+        if (pos === 4) {
+            setTimeout(function(){ document.getElementById('pinForm').submit(); }, 150);
+        }
+    }
+
+    function backspace() {
+        if (pos <= 0) return;
+        pos--;
+        boxes[pos].value = '';
+        updateHidden();
+    }
+
+    function clearAll() {
+        for (var i = 0; i < 4; i++) boxes[i].value = '';
+        pos = 0;
+        updateHidden();
+    }
+
+    function updateHidden() {
+        var p = '';
+        for (var i = 0; i < boxes.length; i++) p += boxes[i].value;
+        hidden.value = p;
+    }
+
+    document.getElementById('numpad').addEventListener('click', function(e) {
+        var btn = e.target.closest('button');
+        if (!btn) return;
+        var digit = btn.getAttribute('data-digit');
+        if (digit !== null) setDigit(digit);
+    });
+    document.getElementById('clearBtn').addEventListener('click', clearAll);
+    document.getElementById('bkspBtn').addEventListener('click', backspace);
+
+    // Auto-reload if idle for 30s (keeps page fresh if state changes)
+    setTimeout(function(){ location.reload(); }, 30000);
 })();
 </script>"#;
 
