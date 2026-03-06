@@ -34,6 +34,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/pods/{id}/shutdown", post(shutdown_pod))
         .route("/pods/{id}/enable", post(enable_pod))
         .route("/pods/{id}/disable", post(disable_pod))
+        .route("/pods/{id}/screen", post(set_pod_screen))
         .route("/pods/wake-all", post(wake_all_pods))
         .route("/pods/shutdown-all", post(shutdown_all_pods))
         // Drivers
@@ -399,6 +400,29 @@ async fn disable_pod(
             Json(json!({ "status": "disabled", "pod_id": id }))
         }
         None => Json(json!({ "error": format!("Pod {} not found", id) })),
+    }
+}
+
+// POST /pods/:id/screen — Blank or unblank a specific pod's screen
+async fn set_pod_screen(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let blank = body.get("blank").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let agent_senders = state.agent_senders.read().await;
+    match agent_senders.get(&id) {
+        Some(sender) => {
+            let msg = if blank {
+                CoreToAgentMessage::BlankScreen
+            } else {
+                CoreToAgentMessage::ClearLockScreen
+            };
+            let _ = sender.send(msg).await;
+            Json(json!({ "ok": true, "pod_id": id, "blank": blank }))
+        }
+        None => Json(json!({ "error": format!("Pod {} not connected", id) })),
     }
 }
 

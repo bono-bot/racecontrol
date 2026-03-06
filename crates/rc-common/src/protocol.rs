@@ -107,6 +107,9 @@ pub enum CoreToAgentMessage {
     /// Clear/dismiss the lock screen
     ClearLockScreen,
 
+    /// Blank the screen (show black screen)
+    BlankScreen,
+
     /// Billing timer tick — sent every second to update pod lock screen countdown
     BillingTick {
         remaining_seconds: u32,

@@ -687,6 +687,10 @@ async fn main() -> Result<()> {
                                     tracing::info!("Lock screen cleared");
                                     lock_screen.clear();
                                 }
+                                rc_common::protocol::CoreToAgentMessage::BlankScreen => {
+                                    tracing::info!("Screen blanked via direct command");
+                                    lock_screen.show_blank_screen();
+                                }
                                 rc_common::protocol::CoreToAgentMessage::SubSessionEnded {
                                     billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
                                 } => {
@@ -729,7 +733,7 @@ async fn main() -> Result<()> {
                                         if v == "true" && lock_screen.is_idle_or_blanked() {
                                             lock_screen.show_blank_screen();
                                             tracing::info!("Screen blanking ENABLED — screen blanked");
-                                        } else if v == "false" && lock_screen.is_blanked() {
+                                        } else if v == "false" {
                                             lock_screen.clear();
                                             tracing::info!("Screen blanking DISABLED — screen restored");
                                         }
