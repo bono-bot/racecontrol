@@ -260,23 +260,33 @@ impl LockScreenManager {
     fn launch_browser(&mut self) {
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
-        match std::process::Command::new("msedge.exe")
-            .args([
-                "--kiosk",
-                &url,
-                "--edge-kiosk-type=fullscreen",
-                "--no-first-run",
-            ])
-            .spawn()
-        {
-            Ok(child) => {
-                self.browser_process = Some(child);
-                tracing::info!("Lock screen browser launched at {}", url);
-            }
-            Err(e) => {
-                tracing::error!("Failed to launch lock screen browser: {}", e);
+        // Try common Edge install paths, then fall back to PATH lookup
+        let edge_paths = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            "msedge.exe",
+        ];
+        for edge_path in &edge_paths {
+            match std::process::Command::new(edge_path)
+                .args([
+                    "--kiosk",
+                    &url,
+                    "--edge-kiosk-type=fullscreen",
+                    "--no-first-run",
+                ])
+                .spawn()
+            {
+                Ok(child) => {
+                    self.browser_process = Some(child);
+                    tracing::info!("Lock screen browser launched at {} using {}", url, edge_path);
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to launch Edge from {}: {}", edge_path, e);
+                }
             }
         }
+        tracing::error!("Could not launch Edge from any known path");
     }
 
     #[cfg(not(windows))]
