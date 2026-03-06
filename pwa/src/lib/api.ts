@@ -500,7 +500,8 @@ export const api = {
       reservation_id?: string;
       pod_id?: string;
       pod_number?: number;
-      qr_token?: string;
+      pin?: string;
+      allocated_seconds?: number;
       wallet_debit_paise?: number;
       error?: string;
       balance_paise?: number;
@@ -516,6 +517,8 @@ export const api = {
       reservation_id?: string;
       pod_id?: string;
       pod_number?: number;
+      pin?: string;
+      allocated_seconds?: number;
       wallet_debit_paise?: number;
       error?: string;
       balance_paise?: number;

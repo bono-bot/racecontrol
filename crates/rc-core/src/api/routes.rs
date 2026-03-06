@@ -2921,14 +2921,14 @@ async fn customer_book_session(
         None
     };
 
-    // Create auth token (QR type) for this pod
+    // Create auth token (PIN type) for this pod
     let experience_id = req.experience_id.clone();
-    let qr_token = match auth::create_auth_token(
+    let auth_token = match auth::create_auth_token(
         &state,
         pod_id.clone(),
         driver_id.clone(),
         req.pricing_tier_id.clone(),
-        "qr".to_string(),
+        "pin".to_string(),
         None, // custom_price_paise
         None, // custom_duration_minutes
         experience_id,
@@ -2936,7 +2936,7 @@ async fn customer_book_session(
     )
     .await
     {
-        Ok(token_info) => token_info.token,
+        Ok(token_info) => token_info,
         Err(e) => {
             // Cleanup: end reservation + refund
             let _ = pod_reservation::end_reservation(&state, &reservation_id).await;
@@ -2952,7 +2952,8 @@ async fn customer_book_session(
         "reservation_id": reservation_id,
         "pod_id": pod_id,
         "pod_number": pod_number,
-        "qr_token": qr_token,
+        "pin": auth_token.token,
+        "allocated_seconds": auth_token.allocated_seconds,
         "wallet_debit_paise": wallet_debit,
         "wallet_txn_id": wallet_txn_id,
     }))

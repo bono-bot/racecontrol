@@ -84,7 +84,7 @@ export default function ActiveSessionPage() {
         <div className="text-7xl font-bold text-white mb-2">{podNumber}</div>
         {!isSessionActive && (
           <p className="text-rp-grey">
-            Walk to Pod {podNumber} and scan the QR code on the screen
+            Enter your PIN at the kiosk terminal
           </p>
         )}
       </div>
@@ -120,7 +120,7 @@ export default function ActiveSessionPage() {
           <div className="flex items-center justify-center gap-2">
             <div className="w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
             <span className="text-amber-400 font-semibold">
-              Waiting for QR scan
+              Waiting for PIN entry
             </span>
           </div>
         )}

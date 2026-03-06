@@ -1,6 +1,10 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined"
+    ? `http://${window.location.hostname}:8080`
+    : "http://localhost:8080");
 
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
@@ -90,6 +94,25 @@ export const api = {
     }),
   deleteExperience: (id: string) =>
     fetchApi<{ ok: boolean }>(`/kiosk/experiences/${id}`, { method: "DELETE" }),
+
+  // AC Catalog
+  getAcCatalog: () => fetchApi<AcCatalog>("/customer/ac/catalog"),
+
+  // Kiosk PIN Validation
+  validateKioskPin: (pin: string) =>
+    fetchApi<{
+      status?: string;
+      error?: string;
+      billing_session_id?: string;
+      pod_id?: string;
+      pod_number?: number;
+      driver_name?: string;
+      pricing_tier_name?: string;
+      allocated_seconds?: number;
+    }>("/auth/kiosk/validate-pin", {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
 
   // Kiosk Settings
   getSettings: () => fetchApi<{ settings: KioskSettings }>("/kiosk/settings"),

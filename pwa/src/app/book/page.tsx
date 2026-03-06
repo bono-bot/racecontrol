@@ -70,7 +70,7 @@ function BookWizard() {
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
 
-  // ── Wizard state
+  // ── Wizard state (step 9 = "booked" confirmation showing PIN)
   const [step, setStep] = useState(1);
   const [tier, setTier] = useState<PricingTier | null>(null);
   const [game] = useState("assetto_corsa");
@@ -79,6 +79,11 @@ function BookWizard() {
   const [car, setCar] = useState<CatalogCar | null>(null);
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("easy");
   const [transmission, setTransmission] = useState<"auto" | "manual">("auto");
+
+  // ── Booking result (PIN + pod)
+  const [bookedPin, setBookedPin] = useState<string | null>(null);
+  const [bookedPodNumber, setBookedPodNumber] = useState<number>(0);
+  const [bookedSeconds, setBookedSeconds] = useState<number>(0);
 
   // ── Search state for track/car steps
   const [trackSearch, setTrackSearch] = useState("");
@@ -178,8 +183,11 @@ function BookWizard() {
 
     try {
       const res = await api.bookCustom(tier.id, custom);
-      if (res.status === "booked") {
-        router.push("/book/active");
+      if (res.status === "booked" && res.pin) {
+        setBookedPin(res.pin);
+        setBookedPodNumber(res.pod_number || 0);
+        setBookedSeconds(res.allocated_seconds || 0);
+        setStep(9); // Show PIN confirmation screen
       } else {
         setError(res.error || "Booking failed");
       }
@@ -195,6 +203,20 @@ function BookWizard() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="w-8 h-8 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Step 9 = booked confirmation — full-screen, no wizard header
+  if (step === 9 && bookedPin) {
+    return (
+      <div className="min-h-screen pb-24 px-4">
+        <BookedPinScreen
+          pin={bookedPin}
+          podNumber={bookedPodNumber}
+          allocatedSeconds={bookedSeconds}
+          onContinue={() => router.push("/book/active")}
+        />
       </div>
     );
   }
@@ -905,6 +927,65 @@ function ConfirmStep({
           : tier?.is_trial
           ? "Start Free Trial"
           : `Debit ${(price / 100).toFixed(0)} credits & Race`}
+      </button>
+    </div>
+  );
+}
+
+function BookedPinScreen({
+  pin,
+  podNumber,
+  allocatedSeconds,
+  onContinue,
+}: {
+  pin: string;
+  podNumber: number;
+  allocatedSeconds: number;
+  onContinue: () => void;
+}) {
+  const minutes = Math.floor(allocatedSeconds / 60);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[80vh] text-center">
+      {/* Checkmark */}
+      <div className="w-16 h-16 rounded-full bg-emerald-900/30 flex items-center justify-center mb-6">
+        <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+
+      <h1 className="text-2xl font-bold text-white mb-2">Booked!</h1>
+      <p className="text-rp-grey mb-8">Enter this PIN at the kiosk terminal</p>
+
+      {/* Large PIN display */}
+      <div className="flex gap-3 justify-center mb-8">
+        {pin.split("").map((digit, i) => (
+          <div
+            key={i}
+            className="w-16 h-20 bg-rp-card border-2 border-rp-red rounded-xl flex items-center justify-center"
+          >
+            <span className="text-4xl font-bold text-white">{digit}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Info */}
+      <div className="bg-rp-card border border-rp-border rounded-xl p-4 w-full max-w-xs space-y-2 mb-8">
+        <div className="flex justify-between">
+          <span className="text-rp-grey text-sm">Rig</span>
+          <span className="text-white font-bold text-sm">#{podNumber}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-rp-grey text-sm">Duration</span>
+          <span className="text-white font-bold text-sm">{minutes} min</span>
+        </div>
+      </div>
+
+      <button
+        onClick={onContinue}
+        className="w-full max-w-xs bg-rp-red text-white font-semibold py-4 rounded-xl text-lg"
+      >
+        View Session
       </button>
     </div>
   );
