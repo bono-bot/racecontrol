@@ -82,6 +82,21 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             let _ = state
                                 .dashboard_tx
                                 .send(DashboardEvent::PodUpdate(pod_info.clone()));
+
+                            // Send current kiosk settings to newly connected agent
+                            if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
+                                "SELECT key, value FROM kiosk_settings",
+                            )
+                            .fetch_all(&state.db)
+                            .await
+                            {
+                                if !rows.is_empty() {
+                                    let settings: std::collections::HashMap<String, String> =
+                                        rows.into_iter().collect();
+                                    let _ = cmd_tx.send(CoreToAgentMessage::SettingsUpdated { settings }).await;
+                                    tracing::info!("Sent initial kiosk settings to pod {}", pod_info.number);
+                                }
+                            }
                         }
                         AgentMessage::Heartbeat(pod_info) => {
                             state
