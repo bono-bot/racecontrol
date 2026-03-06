@@ -801,9 +801,41 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, Stri
         .await
         .map_err(|e| format!("DB error storing OTP: {}", e))?;
 
-    // TODO: Send via WhatsApp (Evolution API) when reqwest is added to rc-core
-    // For now, OTP is logged so staff can relay it verbally
-    tracing::info!("OTP for phone {}: {} (staff can relay verbally)", phone, otp_str);
+    // Send OTP via WhatsApp (Evolution API)
+    if let (Some(evo_url), Some(evo_key), Some(evo_instance)) = (
+        &state.config.auth.evolution_url,
+        &state.config.auth.evolution_api_key,
+        &state.config.auth.evolution_instance,
+    ) {
+        let wa_phone = if phone.starts_with('+') {
+            phone[1..].to_string()
+        } else if phone.len() == 10 {
+            format!("91{}", phone)
+        } else {
+            phone.to_string()
+        };
+
+        let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
+        let body = serde_json::json!({
+            "number": wa_phone,
+            "text": format!("🏎️ *RacingPoint*\n\nYour login code is: *{}*\n\nValid for {} minutes.", otp_str, state.config.auth.otp_expiry_secs / 60)
+        });
+
+        let client = reqwest::Client::new();
+        match client.post(&url).header("apikey", evo_key).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!("OTP sent via WhatsApp to {}", wa_phone);
+            }
+            Ok(resp) => {
+                tracing::warn!("Evolution API returned {}: OTP for {} is {}", resp.status(), phone, otp_str);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to send OTP via WhatsApp: {}. OTP for {} is {}", e, phone, otp_str);
+            }
+        }
+    } else {
+        tracing::info!("OTP for phone {}: {} (Evolution API not configured)", phone, otp_str);
+    }
 
     Ok(driver_id)
 }

@@ -126,7 +126,7 @@ export default function FriendsPage() {
               type="text"
               value={addInput}
               onChange={(e) => setAddInput(e.target.value)}
-              placeholder="Phone or ID (e.g. RP002)"
+              placeholder="Phone, nickname, or ID (e.g. RP002)"
               className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 outline-none focus:border-rp-red"
             />
             <button

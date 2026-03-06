@@ -958,6 +958,19 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // Nickname & leaderboard display preference
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN nickname TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN show_nickname_on_leaderboard BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+
+    // Unique constraint on (name, dob) to prevent duplicate registrations
+    let _ = sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_name_dob ON drivers(name, dob) WHERE registration_completed = 1")
+        .execute(pool)
+        .await;
+
     // ─── Coupons & Promo Codes ───────────────────────────────────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS coupons (

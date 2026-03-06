@@ -11,13 +11,23 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Nickname editing
+  const [editingNickname, setEditingNickname] = useState(false);
+  const [nicknameInput, setNicknameInput] = useState("");
+  const [showNickname, setShowNickname] = useState(false);
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     if (!isLoggedIn()) {
       router.replace("/login");
       return;
     }
     api.profile().then((res) => {
-      if (res.driver) setProfile(res.driver);
+      if (res.driver) {
+        setProfile(res.driver);
+        setNicknameInput(res.driver.nickname || "");
+        setShowNickname(res.driver.show_nickname_on_leaderboard || false);
+      }
       setLoading(false);
     });
   }, [router]);
@@ -25,6 +35,21 @@ export default function ProfilePage() {
   const handleLogout = () => {
     clearToken();
     router.replace("/login");
+  };
+
+  const handleSaveNickname = async () => {
+    setSaving(true);
+    await api.updateProfile({ nickname: nicknameInput.trim() || undefined });
+    if (profile) setProfile({ ...profile, nickname: nicknameInput.trim() || null });
+    setEditingNickname(false);
+    setSaving(false);
+  };
+
+  const handleToggleLeaderboard = async () => {
+    const newVal = !showNickname;
+    setShowNickname(newVal);
+    await api.updateProfile({ show_nickname_on_leaderboard: newVal });
+    if (profile) setProfile({ ...profile, show_nickname_on_leaderboard: newVal });
   };
 
   if (loading) {
@@ -46,13 +71,16 @@ export default function ProfilePage() {
             <div className="flex items-center gap-4 mb-8">
               <div className="w-16 h-16 rounded-full bg-rp-red/20 flex items-center justify-center">
                 <span className="text-2xl font-bold text-rp-red">
-                  {profile.name.charAt(0).toUpperCase()}
+                  {(profile.nickname || profile.name).charAt(0).toUpperCase()}
                 </span>
               </div>
               <div>
                 <h2 className="text-xl font-bold text-white">
-                  {profile.name}
+                  {profile.nickname || profile.name}
                 </h2>
+                {profile.nickname && (
+                  <p className="text-xs text-rp-grey">{profile.name}</p>
+                )}
                 {profile.customer_id && (
                   <p className="text-xs font-mono text-rp-red">{profile.customer_id}</p>
                 )}
@@ -73,8 +101,61 @@ export default function ProfilePage() {
             </div>
 
             {/* Info cards */}
-            <div className="space-y-3 mb-8">
+            <div className="space-y-3 mb-6">
               <InfoRow label="Name" value={profile.name} />
+
+              {/* Nickname row */}
+              <div className="bg-rp-card border border-rp-border rounded-xl p-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-rp-grey">Nickname</span>
+                  {!editingNickname ? (
+                    <button
+                      onClick={() => setEditingNickname(true)}
+                      className="text-sm text-rp-red font-medium"
+                    >
+                      {profile.nickname || "Set nickname"}
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={nicknameInput}
+                        onChange={(e) => setNicknameInput(e.target.value)}
+                        placeholder="Gamertag"
+                        className="bg-rp-bg border border-rp-border rounded-lg px-3 py-1.5 text-sm text-white w-32 focus:outline-none focus:border-rp-red"
+                        autoFocus
+                      />
+                      <button
+                        onClick={handleSaveNickname}
+                        disabled={saving}
+                        className="text-xs text-rp-red font-medium"
+                      >
+                        {saving ? "..." : "Save"}
+                      </button>
+                      <button
+                        onClick={() => { setEditingNickname(false); setNicknameInput(profile.nickname || ""); }}
+                        className="text-xs text-rp-grey"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Leaderboard display toggle */}
+              {profile.nickname && (
+                <div className="bg-rp-card border border-rp-border rounded-xl p-4 flex justify-between items-center">
+                  <span className="text-sm text-rp-grey">Show nickname on leaderboard</span>
+                  <button
+                    onClick={handleToggleLeaderboard}
+                    className={`w-11 h-6 rounded-full transition-colors relative ${showNickname ? "bg-rp-red" : "bg-zinc-700"}`}
+                  >
+                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${showNickname ? "left-[22px]" : "left-0.5"}`} />
+                  </button>
+                </div>
+              )}
+
               <InfoRow label="Phone" value={profile.phone || "Not set"} />
               <InfoRow label="Email" value={profile.email || "Not set"} />
               <InfoRow label="Total Laps" value={profile.total_laps.toString()} />

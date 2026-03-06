@@ -78,6 +78,8 @@ export interface DriverProfile {
   id: string;
   customer_id: string | null;
   name: string;
+  nickname: string | null;
+  show_nickname_on_leaderboard: boolean;
   email: string | null;
   phone: string | null;
   total_laps: number;
@@ -436,6 +438,7 @@ export const api = {
   // Registration
   register: (data: {
     name: string;
+    nickname?: string;
     dob: string;
     email?: string;
     waiver_consent: boolean;
@@ -450,6 +453,12 @@ export const api = {
         body: JSON.stringify(data),
       }
     ),
+
+  updateProfile: (data: { nickname?: string; show_nickname_on_leaderboard?: boolean }) =>
+    fetchApi<{ status?: string; error?: string }>("/customer/profile", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
 
   // Leaderboard (public)
   leaderboard: (track: string) =>

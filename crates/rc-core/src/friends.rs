@@ -9,10 +9,11 @@ pub async fn send_friend_request(
     sender_id: &str,
     identifier: &str,
 ) -> Result<String, String> {
-    // Look up receiver by phone or customer_id
+    // Look up receiver by phone, customer_id, or nickname
     let receiver: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM drivers WHERE phone = ? OR customer_id = ? LIMIT 1",
+        "SELECT id FROM drivers WHERE phone = ? OR customer_id = ? OR nickname = ? LIMIT 1",
     )
+    .bind(identifier)
     .bind(identifier)
     .bind(identifier)
     .fetch_optional(&state.db)

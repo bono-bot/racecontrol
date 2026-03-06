@@ -106,7 +106,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/customer/verify-otp", post(customer_verify_otp))
         .route("/customer/register", post(customer_register))
         .route("/customer/waiver-status", get(customer_waiver_status))
-        .route("/customer/profile", get(customer_profile))
+        .route("/customer/profile", get(customer_profile).put(customer_update_profile))
         .route("/customer/sessions", get(customer_sessions))
         .route("/customer/sessions/{id}", get(customer_session_detail))
         .route("/customer/laps", get(customer_laps))
@@ -711,7 +711,7 @@ async fn session_laps(State(state): State<Arc<AppState>>, Path(id): Path<String>
 
 async fn track_leaderboard(State(state): State<Arc<AppState>>, Path(track): Path<String>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, String, i64, String)>(
-        "SELECT tr.track, tr.car, d.name, tr.best_lap_ms, tr.achieved_at
+        "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at
          FROM track_records tr JOIN drivers d ON tr.driver_id = d.id
          WHERE tr.track = ? ORDER BY tr.best_lap_ms ASC"
     )
@@ -1822,8 +1822,8 @@ async fn customer_profile(
         Err(e) => return Json(json!({ "error": e })),
     };
 
-    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, bool, Option<String>)>(
-        "SELECT id, name, email, phone, total_laps, total_time_ms, COALESCE(has_used_trial, 0), customer_id FROM drivers WHERE id = ?",
+    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, bool, Option<String>, Option<String>, bool)>(
+        "SELECT id, name, email, phone, total_laps, total_time_ms, COALESCE(has_used_trial, 0), customer_id, nickname, COALESCE(show_nickname_on_leaderboard, 0) FROM drivers WHERE id = ?",
     )
     .bind(&driver_id)
     .fetch_optional(&state.db)
@@ -1839,6 +1839,8 @@ async fn customer_profile(
                     "id": d.0,
                     "customer_id": d.7,
                     "name": d.1,
+                    "nickname": d.8,
+                    "show_nickname_on_leaderboard": d.9,
                     "email": d.2,
                     "phone": d.3,
                     "total_laps": d.4,
@@ -1852,6 +1854,38 @@ async fn customer_profile(
         Ok(None) => Json(json!({ "error": "Driver not found" })),
         Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
     }
+}
+
+async fn customer_update_profile(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    if let Some(nickname) = body.get("nickname") {
+        let nick = nickname.as_str().map(|s| s.trim()).unwrap_or("");
+        let nick_val: Option<&str> = if nick.is_empty() { None } else { Some(nick) };
+        let _ = sqlx::query("UPDATE drivers SET nickname = ?, updated_at = datetime('now') WHERE id = ?")
+            .bind(nick_val)
+            .bind(&driver_id)
+            .execute(&state.db)
+            .await;
+    }
+
+    if let Some(show) = body.get("show_nickname_on_leaderboard") {
+        let val = show.as_bool().unwrap_or(false);
+        let _ = sqlx::query("UPDATE drivers SET show_nickname_on_leaderboard = ?, updated_at = datetime('now') WHERE id = ?")
+            .bind(val)
+            .bind(&driver_id)
+            .execute(&state.db)
+            .await;
+    }
+
+    Json(json!({ "status": "updated" }))
 }
 
 async fn customer_sessions(
@@ -2137,6 +2171,7 @@ async fn customer_stats(
 #[derive(Debug, Deserialize)]
 struct CustomerRegisterRequest {
     name: String,
+    nickname: Option<String>,
     email: Option<String>,
     dob: String,
     waiver_consent: bool,
@@ -2184,10 +2219,27 @@ async fn customer_register(
         }
     }
 
+    // Check for duplicate name + DOB (same person already registered)
+    let duplicate: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM drivers WHERE name = ? AND dob = ? AND registration_completed = 1 AND id != ?",
+    )
+    .bind(&name)
+    .bind(&req.dob)
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    if duplicate.is_some() {
+        return Json(json!({ "error": "An account with this name and date of birth already exists. Please sign in with your registered phone number." }));
+    }
+
+    let nickname = req.nickname.as_ref().map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+
     // Update driver record
     let result = sqlx::query(
         "UPDATE drivers SET
-            name = ?, email = ?, dob = ?,
+            name = ?, nickname = ?, email = ?, dob = ?,
             waiver_signed = 1, waiver_signed_at = datetime('now'),
             waiver_version = 'v1.0',
             signature_data = ?,
@@ -2197,6 +2249,7 @@ async fn customer_register(
          WHERE id = ?",
     )
     .bind(&name)
+    .bind(&nickname)
     .bind(&req.email)
     .bind(&req.dob)
     .bind(&req.signature_data)
@@ -4740,7 +4793,7 @@ async fn public_leaderboard(
 ) -> Json<Value> {
     // All-time track records across all tracks
     let records = sqlx::query_as::<_, (String, String, String, i64, String)>(
-        "SELECT tr.track, tr.car, d.name, tr.best_lap_ms, tr.achieved_at
+        "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at
          FROM track_records tr
          JOIN drivers d ON tr.driver_id = d.id
          ORDER BY tr.achieved_at DESC",
@@ -4761,7 +4814,7 @@ async fn public_leaderboard(
 
     // Top drivers by total valid laps
     let top_drivers = sqlx::query_as::<_, (String, i64, Option<i64>)>(
-        "SELECT d.name, COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest
+        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest
          FROM laps l
          JOIN drivers d ON l.driver_id = d.id
          WHERE l.valid = 1
@@ -4816,7 +4869,7 @@ async fn public_track_leaderboard(
 ) -> Json<Value> {
     // Top 50 fastest laps on this track (best per driver per car)
     let records = sqlx::query_as::<_, (String, String, i64, String)>(
-        "SELECT d.name, l.car, MIN(l.lap_time_ms), MAX(l.created_at)
+        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, l.car, MIN(l.lap_time_ms), MAX(l.created_at)
          FROM laps l
          JOIN drivers d ON l.driver_id = d.id
          WHERE l.track = ? AND l.valid = 1
@@ -4879,7 +4932,7 @@ async fn public_time_trial(
 
     // Leaderboard for this time trial (laps on this track+car this week)
     let entries = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT d.name, MIN(l.lap_time_ms), COUNT(l.id)
+        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, MIN(l.lap_time_ms), COUNT(l.id)
          FROM laps l
          JOIN drivers d ON l.driver_id = d.id
          WHERE l.track = ? AND l.car = ? AND l.valid = 1
