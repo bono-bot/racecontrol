@@ -134,6 +134,11 @@ pub enum CoreToAgentMessage {
     EnterDebugMode {
         employee_name: String,
     },
+
+    /// Kiosk settings updated — broadcast to all agents
+    SettingsUpdated {
+        settings: std::collections::HashMap<String, String>,
+    },
 }
 
 /// Messages sent from Core Server → Web Dashboard

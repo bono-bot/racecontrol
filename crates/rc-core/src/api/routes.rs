@@ -20,7 +20,7 @@ use crate::wallet;
 use crate::state::AppState;
 use crate::wol;
 use rc_common::types::*;
-use rc_common::protocol::DashboardEvent;
+use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 
 pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -3453,6 +3453,19 @@ async fn update_kiosk_settings(
 
         if result.is_ok() {
             updated += 1;
+        }
+    }
+
+    // Broadcast updated settings to all connected agents
+    if updated > 0 {
+        let settings_map: std::collections::HashMap<String, String> = obj
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or(&v.to_string()).to_string()))
+            .collect();
+        let msg = CoreToAgentMessage::SettingsUpdated { settings: settings_map };
+        let agent_senders = state.agent_senders.read().await;
+        for sender in agent_senders.values() {
+            let _ = sender.send(msg.clone()).await;
         }
     }
 

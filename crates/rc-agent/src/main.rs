@@ -709,6 +709,22 @@ async fn main() -> Result<()> {
                                     kiosk.enter_debug_mode();
                                     lock_screen.clear();
                                 }
+                                rc_common::protocol::CoreToAgentMessage::SettingsUpdated { settings } => {
+                                    tracing::info!("Kiosk settings updated: {:?}", settings);
+                                    if let Some(v) = settings.get("kiosk_lockdown_enabled") {
+                                        if v == "true" && !kiosk.is_active() && !kiosk.is_debug_mode() {
+                                            kiosk.activate();
+                                            tracing::info!("Kiosk lockdown ENABLED via remote settings");
+                                        } else if v == "false" && kiosk.is_active() {
+                                            kiosk.deactivate();
+                                            tracing::info!("Kiosk lockdown DISABLED via remote settings");
+                                        }
+                                    }
+                                    if let Some(v) = settings.get("screen_blanking_enabled") {
+                                        tracing::info!("Screen blanking set to: {}", v);
+                                        // Screen blanking is enforced by lock_screen based on this flag
+                                    }
+                                }
                                 _ => {}
                             }
                         }
