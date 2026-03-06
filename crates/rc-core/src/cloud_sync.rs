@@ -59,16 +59,21 @@ async fn sync_once(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()>
 
     tracing::debug!("Cloud sync: fetching since {}", last_synced);
 
-    let resp = state
+    let mut req = state
         .http_client
         .get(&url)
         .query(&[
             ("since", last_synced.as_str()),
             ("tables", SYNC_TABLES),
         ])
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await?;
+        .timeout(Duration::from_secs(15));
+
+    // Send terminal secret for authentication
+    if let Some(secret) = &state.config.cloud.terminal_secret {
+        req = req.header("x-terminal-secret", secret);
+    }
+
+    let resp = req.send().await?;
 
     if !resp.status().is_success() {
         anyhow::bail!("Cloud returned status {}", resp.status());
