@@ -372,7 +372,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             pricing_tier_id TEXT NOT NULL REFERENCES pricing_tiers(id),
             auth_type TEXT NOT NULL CHECK(auth_type IN ('pin', 'qr')),
             token TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'consumed', 'expired', 'cancelled')),
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'consuming', 'consumed', 'expired', 'cancelled')),
             billing_session_id TEXT,
             custom_price_paise INTEGER,
             custom_duration_minutes INTEGER,
@@ -583,6 +583,61 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
     let _ = sqlx::query("ALTER TABLE auth_tokens ADD COLUMN custom_launch_args TEXT")
+        .execute(pool)
+        .await;
+
+    // Migration: add 'consuming' to auth_tokens status CHECK constraint
+    // SQLite can't ALTER CHECK constraints, so we rebuild the table
+    let needs_rebuild: bool = sqlx::query_scalar::<_, String>(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='auth_tokens'"
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|sql| !sql.contains("consuming"))
+    .unwrap_or(false);
+
+    if needs_rebuild {
+        tracing::info!("Migrating auth_tokens table to add 'consuming' status");
+        sqlx::query("ALTER TABLE auth_tokens RENAME TO auth_tokens_old")
+            .execute(pool).await.map_err(|e| anyhow::anyhow!("rename: {}", e))?;
+        sqlx::query(
+            "CREATE TABLE auth_tokens (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                driver_id TEXT NOT NULL REFERENCES drivers(id),
+                pricing_tier_id TEXT NOT NULL REFERENCES pricing_tiers(id),
+                auth_type TEXT NOT NULL CHECK(auth_type IN ('pin', 'qr')),
+                token TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'consuming', 'consumed', 'expired', 'cancelled')),
+                billing_session_id TEXT,
+                custom_price_paise INTEGER,
+                custom_duration_minutes INTEGER,
+                created_at TEXT DEFAULT (datetime('now')),
+                expires_at TEXT NOT NULL DEFAULT '2099-01-01T00:00:00',
+                consumed_at TEXT,
+                experience_id TEXT,
+                custom_launch_args TEXT
+            )"
+        ).execute(pool).await.map_err(|e| anyhow::anyhow!("create: {}", e))?;
+        sqlx::query(
+            "INSERT INTO auth_tokens SELECT id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, billing_session_id, custom_price_paise, custom_duration_minutes, created_at, expires_at, consumed_at, experience_id, custom_launch_args FROM auth_tokens_old"
+        ).execute(pool).await.map_err(|e| anyhow::anyhow!("copy: {}", e))?;
+        sqlx::query("DROP TABLE auth_tokens_old")
+            .execute(pool).await.map_err(|e| anyhow::anyhow!("drop old: {}", e))?;
+        // Recreate indexes
+        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_auth_tokens_pod ON auth_tokens(pod_id, status)")
+            .execute(pool).await;
+        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_auth_tokens_token ON auth_tokens(token, status)")
+            .execute(pool).await;
+        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_auth_tokens_driver ON auth_tokens(driver_id)")
+            .execute(pool).await;
+        tracing::info!("auth_tokens migration complete");
+    }
+
+    // Fixup: ensure expires_at column exists (may be missing from earlier migration)
+    let _ = sqlx::query("ALTER TABLE auth_tokens ADD COLUMN expires_at TEXT NOT NULL DEFAULT '2099-01-01T00:00:00'")
         .execute(pool)
         .await;
 
