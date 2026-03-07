@@ -239,6 +239,9 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                             driving_seconds: *driving_seconds,
                         })
                         .await;
+
+                    // Auto-blank: re-engage lock screen after session expires
+                    let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
                 }
             }
 
@@ -602,6 +605,9 @@ pub async fn start_billing_session(
                 allocated_seconds,
             })
             .await;
+
+        // Auto-unblank: clear lock screen so customer can use the pod
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
     }
 
     // Broadcast to dashboards
@@ -808,6 +814,9 @@ async fn end_billing_session(
                             driving_seconds,
                         })
                         .await;
+
+                    // Auto-blank: re-engage lock screen after manual session end
+                    let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
                 }
             }
 
