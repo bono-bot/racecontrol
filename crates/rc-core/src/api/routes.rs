@@ -966,6 +966,66 @@ async fn start_billing(
         return Json(json!({ "error": format!("Driver '{}' not found", driver_id) }));
     }
 
+    // Look up tier price to determine wallet debit amount
+    let tier_info = sqlx::query_as::<_, (i64, bool)>(
+        "SELECT price_paise, is_trial FROM pricing_tiers WHERE id = ? AND is_active = 1",
+    )
+    .bind(pricing_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let (tier_price_paise, is_trial) = match tier_info {
+        Some(t) => (t.0, t.1),
+        None => return Json(json!({ "error": "Pricing tier lookup failed" })),
+    };
+
+    // Determine the actual price (custom override or tier price)
+    let price_paise = custom_price_paise.map(|p| p as i64).unwrap_or(tier_price_paise);
+
+    // Wallet balance check and debit (skip for trial or zero-price)
+    let wallet_debit: Option<i64> = if !is_trial && price_paise > 0 {
+        // Check balance first
+        let balance = match wallet::get_balance(&state, driver_id).await {
+            Ok(b) => b,
+            Err(e) => return Json(json!({ "error": format!("Wallet error: {}", e) })),
+        };
+        if balance < price_paise {
+            return Json(json!({
+                "error": format!("Insufficient credits: have {} credits, need {} credits", balance / 100, price_paise / 100),
+                "balance_paise": balance,
+                "required_paise": price_paise,
+            }));
+        }
+
+        // Debit wallet
+        let pod_num = sqlx::query_as::<_, (i64,)>("SELECT number FROM pods WHERE id = ?")
+            .bind(pod_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.0)
+            .unwrap_or(0);
+
+        match wallet::debit(
+            &state,
+            driver_id,
+            price_paise,
+            "debit_session",
+            None,
+            Some(&format!("Session on Pod {} (staff)", pod_num)),
+        )
+        .await
+        {
+            Ok((_, _txn_id)) => Some(price_paise),
+            Err(e) => return Json(json!({ "error": e })),
+        }
+    } else {
+        None
+    };
+
     // Now start billing (should succeed since we pre-validated)
     let session_id = billing::start_billing_session(
         &state,
@@ -979,8 +1039,24 @@ async fn start_billing(
     .await;
 
     match session_id {
-        Ok(id) => Json(json!({ "ok": true, "billing_session_id": id })),
+        Ok(id) => {
+            // Record wallet debit on the billing session
+            if let Some(debit) = wallet_debit {
+                let _ = sqlx::query(
+                    "UPDATE billing_sessions SET wallet_debit_paise = ? WHERE id = ?",
+                )
+                .bind(debit)
+                .bind(&id)
+                .execute(&state.db)
+                .await;
+            }
+            Json(json!({ "ok": true, "billing_session_id": id, "wallet_debit_paise": wallet_debit }))
+        }
         Err(reason) => {
+            // Refund wallet if billing failed
+            if let Some(debit) = wallet_debit {
+                let _ = wallet::refund(&state, driver_id, debit, None, Some("Billing start failed — auto-refund")).await;
+            }
             state.record_api_error("billing/start");
             Json(json!({ "error": reason }))
         }
