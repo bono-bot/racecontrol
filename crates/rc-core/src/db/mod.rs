@@ -700,7 +700,8 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             balance_after_paise INTEGER NOT NULL,
             txn_type TEXT NOT NULL CHECK(txn_type IN (
                 'topup_cash','topup_card','topup_upi','topup_online',
-                'debit_session','refund_session','refund_manual',
+                'debit_session','debit_cafe','debit_merchandise','debit_penalty',
+                'refund_session','refund_manual',
                 'bonus','adjustment'
             )),
             reference_id TEXT,
@@ -1315,6 +1316,22 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             is_active INTEGER DEFAULT 1,
             created_at TEXT DEFAULT (datetime('now')),
             last_login_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Action queue — cloud queues actions for venue to pick up
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS action_queue (
+            id TEXT PRIMARY KEY,
+            action_type TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','completed','failed')),
+            error TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            processed_at TEXT,
+            acked_at TEXT
         )",
     )
     .execute(pool)

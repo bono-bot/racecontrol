@@ -101,6 +101,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/wallet/{driver_id}", get(get_wallet))
         .route("/wallet/{driver_id}/topup", post(topup_wallet))
         .route("/wallet/{driver_id}/transactions", get(wallet_transactions))
+        .route("/wallet/{driver_id}/debit", post(debit_wallet_manual))
         .route("/wallet/{driver_id}/refund", post(refund_wallet))
         // Customer (PWA endpoints)
         .route("/customer/login", post(customer_login))
@@ -155,6 +156,11 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/ai/training/stats", get(ai_training_stats))
         .route("/ai/training/pairs", get(ai_training_pairs))
         .route("/ai/training/import", post(ai_training_import))
+        // Cloud action queue
+        .route("/actions", post(create_action))
+        .route("/actions/pending", get(pending_actions))
+        .route("/actions/{id}/ack", post(ack_action))
+        .route("/actions/history", get(action_history))
         // Cloud sync
         .route("/sync/changes", get(sync_changes))
         .route("/sync/push", post(sync_push))
@@ -3051,6 +3057,40 @@ async fn topup_wallet(
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct DebitRequest {
+    amount_paise: i64,
+    reason: String, // cafe, merchandise, penalty, etc.
+    reference_id: Option<String>,
+    notes: Option<String>,
+}
+
+async fn debit_wallet_manual(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    Json(req): Json<DebitRequest>,
+) -> Json<Value> {
+    let txn_type = format!("debit_{}", req.reason);
+
+    match wallet::debit(
+        &state,
+        &driver_id,
+        req.amount_paise,
+        &txn_type,
+        req.reference_id.as_deref(),
+        req.notes.as_deref(),
+    )
+    .await
+    {
+        Ok((new_balance, txn_id)) => Json(json!({
+            "status": "ok",
+            "new_balance_paise": new_balance,
+            "txn_id": txn_id,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
 async fn wallet_transactions(
     State(state): State<Arc<AppState>>,
     Path(driver_id): Path<String>,
@@ -3875,6 +3915,188 @@ async fn update_kiosk_settings(
     }
 
     Json(json!({ "ok": true, "updated": updated }))
+}
+
+// ─── Cloud Action Queue Endpoints ─────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct CreateActionRequest {
+    action_type: String,
+    payload: Value,
+}
+
+/// POST /actions — create a new action for the venue to pick up.
+/// Auth: x-terminal-secret header (same as sync endpoints).
+async fn create_action(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<CreateActionRequest>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let payload_str = serde_json::to_string(&body.payload).unwrap_or_else(|_| "{}".to_string());
+
+    let result = sqlx::query(
+        "INSERT INTO action_queue (id, action_type, payload, status, created_at)
+         VALUES (?, ?, ?, 'pending', datetime('now'))",
+    )
+    .bind(&id)
+    .bind(&body.action_type)
+    .bind(&payload_str)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            tracing::info!("Action queue: created {} ({})", id, body.action_type);
+            Json(json!({ "ok": true, "id": id, "action_type": body.action_type }))
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to create action: {}", e) })),
+    }
+}
+
+/// GET /actions/pending — returns all pending actions for the venue to process.
+/// Auth: x-terminal-secret header.
+async fn pending_actions(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let rows = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT id, action_type, payload, created_at
+         FROM action_queue
+         WHERE status = 'pending'
+         ORDER BY created_at ASC
+         LIMIT 50",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let actions: Vec<Value> = rows
+                .iter()
+                .map(|(id, action_type, payload, created_at)| {
+                    let payload_val: Value =
+                        serde_json::from_str(payload).unwrap_or(json!({}));
+                    // Build the PendingCloudAction format expected by venue action_queue.rs
+                    json!({
+                        "id": id,
+                        "action": {
+                            "action_type": action_type,
+                            "payload": payload_val,
+                        },
+                        "created_at": created_at,
+                    })
+                })
+                .collect();
+
+            // Mark returned actions as processing to avoid re-delivery
+            for (id, _, _, _) in &rows {
+                let _ = sqlx::query(
+                    "UPDATE action_queue SET status = 'processing', processed_at = datetime('now') WHERE id = ?",
+                )
+                .bind(id)
+                .execute(&state.db)
+                .await;
+            }
+
+            Json(json!({ "actions": actions }))
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to fetch actions: {}", e) })),
+    }
+}
+
+/// POST /actions/{id}/ack — venue acknowledges a processed action.
+/// Auth: x-terminal-secret header.
+async fn ack_action(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let status = body
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("completed");
+    let error = body.get("error").and_then(|v| v.as_str());
+
+    let result = sqlx::query(
+        "UPDATE action_queue SET status = ?, error = ?, acked_at = datetime('now') WHERE id = ?",
+    )
+    .bind(status)
+    .bind(error)
+    .bind(&id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() > 0 => {
+            tracing::info!("Action queue: acked {} → {}", id, status);
+            Json(json!({ "ok": true, "id": id, "status": status }))
+        }
+        Ok(_) => Json(json!({ "error": "Action not found" })),
+        Err(e) => Json(json!({ "error": format!("Failed to ack: {}", e) })),
+    }
+}
+
+/// GET /actions/history — recent action history for debugging.
+/// Auth: x-terminal-secret header.
+async fn action_history(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
+
+    let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, String, Option<String>, Option<String>)>(
+        "SELECT id, action_type, payload, status, error, created_at, processed_at, acked_at
+         FROM action_queue
+         ORDER BY created_at DESC
+         LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let actions: Vec<Value> = rows
+                .iter()
+                .map(|(id, action_type, payload, status, error, created_at, processed_at, acked_at)| {
+                    json!({
+                        "id": id,
+                        "action_type": action_type,
+                        "payload": serde_json::from_str::<Value>(payload).unwrap_or(json!({})),
+                        "status": status,
+                        "error": error,
+                        "created_at": created_at,
+                        "processed_at": processed_at,
+                        "acked_at": acked_at,
+                    })
+                })
+                .collect();
+            Json(json!({ "actions": actions, "total": actions.len() }))
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to fetch history: {}", e) })),
+    }
 }
 
 // ─── Cloud Sync Endpoints ──────────────────────────────────────────────────

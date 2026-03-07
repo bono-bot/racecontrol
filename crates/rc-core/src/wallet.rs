@@ -144,26 +144,9 @@ pub async fn debit(
     }
 
     let txn_id = Uuid::new_v4().to_string();
+    let new_balance = current - amount_paise;
 
-    // Update wallet balance
-    sqlx::query(
-        "UPDATE wallets SET
-            balance_paise = balance_paise - ?,
-            total_debited_paise = total_debited_paise + ?,
-            updated_at = datetime('now')
-         WHERE driver_id = ?",
-    )
-    .bind(amount_paise)
-    .bind(amount_paise)
-    .bind(driver_id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| format!("DB error updating wallet: {}", e))?;
-
-    // Get new balance
-    let new_balance = get_balance(state, driver_id).await?;
-
-    // Record transaction (negative amount for debits)
+    // Record transaction first (validates txn_type via CHECK constraint)
     sqlx::query(
         "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -178,6 +161,21 @@ pub async fn debit(
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
+
+    // Then update wallet balance (safe: if insert succeeded, txn_type is valid)
+    sqlx::query(
+        "UPDATE wallets SET
+            balance_paise = ?,
+            total_debited_paise = total_debited_paise + ?,
+            updated_at = datetime('now')
+         WHERE driver_id = ?",
+    )
+    .bind(new_balance)
+    .bind(amount_paise)
+    .bind(driver_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("DB error updating wallet: {}", e))?;
 
     tracing::info!(
         "Wallet debit: {} -{}p = {}p ({})",
