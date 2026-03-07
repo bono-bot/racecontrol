@@ -520,20 +520,22 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
     .await?;
 
     match local {
-        Some((_local_bal, local_credited, local_debited)) => {
-            // Smart merge: take MAX of credits (cloud top-ups), keep local debits
-            let merged_credited = std::cmp::max(local_credited, cloud_credited);
-            let merged_balance = merged_credited - local_debited;
-
+        Some((_local_bal, _local_credited, _local_debited)) => {
+            // Cloud is authoritative for wallet balance.
+            // Topups happen on cloud/dashboard, debits happen at venue but are
+            // pushed back to cloud via push_to_cloud(). Cloud balance already
+            // reflects all transactions from both sides.
             sqlx::query(
                 "UPDATE wallets SET
-                    total_credited_paise = ?,
                     balance_paise = ?,
+                    total_credited_paise = ?,
+                    total_debited_paise = ?,
                     updated_at = ?
                  WHERE driver_id = ?",
             )
-            .bind(merged_credited)
-            .bind(merged_balance)
+            .bind(cloud_balance)
+            .bind(cloud_credited)
+            .bind(cloud_debited)
             .bind(cloud_updated)
             .bind(driver_id)
             .execute(&state.db)
