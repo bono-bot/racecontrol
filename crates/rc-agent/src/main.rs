@@ -5,6 +5,7 @@ mod driving_detector;
 mod game_process;
 mod kiosk;
 mod lock_screen;
+mod overlay;
 mod sims;
 mod udp_heartbeat;
 
@@ -29,6 +30,7 @@ use sims::SimAdapter;
 use sims::assetto_corsa::AssettoCorsaAdapter;
 use kiosk::KioskManager;
 use lock_screen::{LockScreenEvent, LockScreenManager};
+use overlay::OverlayManager;
 
 #[derive(Debug, Deserialize)]
 struct AgentConfig {
@@ -286,6 +288,11 @@ async fn main() -> Result<()> {
     lock_screen.start_server();
     tracing::info!("Lock screen server started on port 18923");
 
+    // Racing HUD overlay for in-session display
+    let mut overlay = OverlayManager::new();
+    overlay.start_server();
+    tracing::info!("Overlay server started on port 18925");
+
     // Debug server for remote diagnostics (LAN-accessible on port 18924)
     debug_server::spawn(lock_screen.state_handle(), config.pod.name.clone(), config.pod.number);
 
@@ -372,7 +379,7 @@ async fn main() -> Result<()> {
         let mut detector_interval = tokio::time::interval(Duration::from_millis(100));
         let mut game_check_interval = tokio::time::interval(Duration::from_secs(2));
         let mut kiosk_interval = tokio::time::interval(Duration::from_secs(5));
-        let mut last_lap_count: u32 = 0;
+        let mut overlay_topmost_interval = tokio::time::interval(Duration::from_secs(10));
         // Auto-blank timer: set when session summary is shown, fires after 15s
         let mut blank_timer: std::pin::Pin<Box<tokio::time::Sleep>> =
             Box::pin(tokio::time::sleep(Duration::from_secs(86400))); // dormant
@@ -404,29 +411,16 @@ async fn main() -> Result<()> {
 
                 match adapter.read_telemetry() {
                     Ok(Some(frame)) => {
-                        // Check for lap completion
-                        if frame.lap_number > last_lap_count && last_lap_count > 0 {
-                            let lap = LapData {
-                                id: uuid::Uuid::new_v4().to_string(),
-                                session_id: String::new(),
-                                driver_id: String::new(),
-                                pod_id: pod_id.clone(),
-                                sim_type,
-                                track: frame.track.clone(),
-                                car: frame.car.clone(),
-                                lap_number: last_lap_count,
-                                lap_time_ms: frame.lap_time_ms,
-                                sector1_ms: None,
-                                sector2_ms: None,
-                                sector3_ms: None,
-                                valid: true,
-                                created_at: Utc::now(),
-                            };
+                        // Update overlay with live telemetry
+                        overlay.update_telemetry(&frame);
+
+                        // Check for completed laps via adapter (has proper sector splits)
+                        if let Ok(Some(lap)) = adapter.poll_lap_completed() {
+                            overlay.on_lap_completed(&lap);
                             let msg = AgentMessage::LapCompleted(lap);
                             let json = serde_json::to_string(&msg)?;
                             let _ = ws_tx.send(Message::Text(json.into())).await;
                         }
-                        last_lap_count = frame.lap_number;
 
                         // Send telemetry frame
                         let msg = AgentMessage::Telemetry(frame);
@@ -541,6 +535,10 @@ async fn main() -> Result<()> {
                     kiosk.enforce_process_whitelist();
                 }
             }
+            // Re-enforce overlay TOPMOST every 10s (survives game focus changes)
+            _ = overlay_topmost_interval.tick() => {
+                overlay.enforce_topmost();
+            }
             // Auto-blank after session summary (15s delay)
             _ = &mut blank_timer, if blank_timer_armed => {
                 tracing::info!("Auto-blanking screen after session summary");
@@ -591,13 +589,16 @@ async fn main() -> Result<()> {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
                                     heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
                                     blank_timer_armed = false; // cancel any pending auto-blank
+                                    overlay.activate(driver_name.clone(), allocated_seconds);
                                     lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingTick { remaining_seconds, allocated_seconds: _, driver_name: _ } => {
                                     lock_screen.update_remaining(remaining_seconds);
+                                    overlay.update_billing(remaining_seconds);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingStopped { billing_session_id } => {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
+                                    overlay.deactivate();
                                     // Fallback — SessionEnded is the preferred message with summary data
                                     lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
                                 }
@@ -609,6 +610,7 @@ async fn main() -> Result<()> {
                                         billing_session_id, total_laps, best_lap_ms, driving_seconds
                                     );
                                     heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    overlay.deactivate();
                                     // Stop the game if still running
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
@@ -826,10 +828,12 @@ async fn main() -> Result<()> {
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ClearLockScreen => {
                                     tracing::info!("Lock screen cleared");
+                                    overlay.deactivate();
                                     lock_screen.clear();
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BlankScreen => {
                                     tracing::info!("Screen blanked via direct command");
+                                    overlay.deactivate();
                                     lock_screen.show_blank_screen();
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SubSessionEnded {
@@ -839,6 +843,7 @@ async fn main() -> Result<()> {
                                         "Sub-session ended: {} — {} laps, wallet: {}p",
                                         billing_session_id, total_laps, wallet_balance_paise
                                     );
+                                    overlay.deactivate();
                                     // Stop the game
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
