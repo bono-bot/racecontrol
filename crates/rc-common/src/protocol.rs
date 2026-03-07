@@ -313,6 +313,56 @@ pub enum AiChannelMessage {
     Pong,
 }
 
+/// Actions pushed from cloud → local rc-core via action queue.
+/// Cloud inserts these; rc-core polls and processes them every 3 seconds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action_type", content = "payload")]
+#[serde(rename_all = "snake_case")]
+pub enum CloudAction {
+    /// Customer booked a session via PWA
+    BookingCreated {
+        booking_id: String,
+        driver_id: String,
+        pricing_tier_id: String,
+        experience_id: Option<String>,
+        pod_id: Option<String>,
+    },
+    /// Customer topped up wallet via PWA
+    WalletTopUp {
+        driver_id: String,
+        amount_paise: i64,
+        transaction_id: String,
+    },
+    /// Customer cancelled a booking via PWA
+    BookingCancelled {
+        booking_id: String,
+    },
+    /// Customer confirmed QR code on PWA
+    QrConfirmed {
+        token_id: String,
+        driver_id: String,
+    },
+    /// Admin changed a setting via cloud dashboard
+    SettingsChanged {
+        key: String,
+        value: String,
+    },
+    /// Push notification to staff/pod
+    Notification {
+        title: String,
+        body: String,
+        target: String,
+    },
+}
+
+/// Wrapper for a pending cloud action with its ID and timestamp.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingCloudAction {
+    pub id: String,
+    pub action: CloudAction,
+    pub created_at: String,
+}
+
 /// Messages sent from Web Dashboard → Core Server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "command", content = "data")]
@@ -397,4 +447,148 @@ pub enum DashboardCommand {
         mode: String,
         enabled: Option<bool>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_cloud_action_booking_roundtrip() {
+        let action = CloudAction::BookingCreated {
+            booking_id: "book-123".to_string(),
+            driver_id: "drv-456".to_string(),
+            pricing_tier_id: "tier-30min".to_string(),
+            experience_id: Some("exp-nurburgring".to_string()),
+            pod_id: Some("pod_3".to_string()),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("booking_created"));
+        let parsed: CloudAction = serde_json::from_str(&json).unwrap();
+        if let CloudAction::BookingCreated { booking_id, .. } = parsed {
+            assert_eq!(booking_id, "book-123");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_cloud_action_wallet_roundtrip() {
+        let action = CloudAction::WalletTopUp {
+            driver_id: "drv-1".to_string(),
+            amount_paise: 90000,
+            transaction_id: "txn-abc".to_string(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let parsed: CloudAction = serde_json::from_str(&json).unwrap();
+        if let CloudAction::WalletTopUp { amount_paise, .. } = parsed {
+            assert_eq!(amount_paise, 90000);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_cloud_action_notification() {
+        let action = CloudAction::Notification {
+            title: "New Booking".to_string(),
+            body: "Customer booked Pod 3".to_string(),
+            target: "dashboard".to_string(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("notification"));
+        let parsed: CloudAction = serde_json::from_str(&json).unwrap();
+        if let CloudAction::Notification { title, .. } = parsed {
+            assert_eq!(title, "New Booking");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_pending_cloud_action_serde() {
+        let pending = PendingCloudAction {
+            id: "act-1".to_string(),
+            action: CloudAction::BookingCancelled {
+                booking_id: "book-999".to_string(),
+            },
+            created_at: "2026-03-07T12:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&pending).unwrap();
+        let parsed: PendingCloudAction = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "act-1");
+        if let CloudAction::BookingCancelled { booking_id } = parsed.action {
+            assert_eq!(booking_id, "book-999");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_agent_message_roundtrip() {
+        let msg = AgentMessage::PinEntered {
+            pod_id: "pod_1".to_string(),
+            pin: "1234".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("pin_entered"));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::PinEntered { pod_id, pin } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(pin, "1234");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_core_to_agent_billing_tick() {
+        let msg = CoreToAgentMessage::BillingTick {
+            remaining_seconds: 1500,
+            allocated_seconds: 1800,
+            driver_name: "Test Driver".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("billing_tick"));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::BillingTick { remaining_seconds, .. } = parsed {
+            assert_eq!(remaining_seconds, 1500);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_cloud_action_qr_confirmed() {
+        let action = CloudAction::QrConfirmed {
+            token_id: "tok-abc".to_string(),
+            driver_id: "drv-xyz".to_string(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("qr_confirmed"));
+        let parsed: CloudAction = serde_json::from_str(&json).unwrap();
+        if let CloudAction::QrConfirmed { token_id, driver_id } = parsed {
+            assert_eq!(token_id, "tok-abc");
+            assert_eq!(driver_id, "drv-xyz");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_cloud_action_settings_changed() {
+        let action = CloudAction::SettingsChanged {
+            key: "screen_blanking_enabled".to_string(),
+            value: "true".to_string(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let parsed: CloudAction = serde_json::from_str(&json).unwrap();
+        if let CloudAction::SettingsChanged { key, value } = parsed {
+            assert_eq!(key, "screen_blanking_enabled");
+            assert_eq!(value, "true");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
 }

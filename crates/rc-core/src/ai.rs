@@ -287,6 +287,7 @@ const STOP_WORDS: &[&str] = &[
 ];
 
 /// Extract significant keywords from text for similarity matching.
+/// (Private version used internally)
 fn extract_keywords(text: &str) -> String {
     let stop: HashSet<&str> = STOP_WORDS.iter().copied().collect();
     text.to_lowercase()
@@ -294,6 +295,11 @@ fn extract_keywords(text: &str) -> String {
         .filter(|w| w.len() >= 2 && !stop.contains(w))
         .collect::<Vec<&str>>()
         .join(" ")
+}
+
+/// Public wrapper for extract_keywords — used by training import endpoint.
+pub fn extract_keywords_pub(text: &str) -> String {
+    extract_keywords(text)
 }
 
 /// Extract the user's query text from a messages array.
@@ -785,4 +791,99 @@ pub async fn gather_customer_context(db: &SqlitePool, driver_id: &str) -> String
     ctx.push_str("Location: Bandlaguda, Hyderabad\n");
 
     ctx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_keywords_basic() {
+        let kw = extract_keywords("How does billing work in RaceControl?");
+        assert!(kw.contains("billing"));
+        assert!(kw.contains("racecontrol"));
+        assert!(kw.contains("work"));
+        // Stop words should be removed
+        assert!(!kw.contains(" how "));
+        assert!(!kw.contains(" does "));
+        assert!(!kw.contains(" in "));
+    }
+
+    #[test]
+    fn test_extract_keywords_preserves_underscores_dots() {
+        let kw = extract_keywords("check pod_agent on 192.168.31.91");
+        assert!(kw.contains("pod_agent"));
+        assert!(kw.contains("192.168.31.91"));
+    }
+
+    #[test]
+    fn test_extract_keywords_filters_short_words() {
+        let kw = extract_keywords("a b c de xyz billing");
+        // 'a', 'b', 'c' are <2 chars, filtered out. 'de' is 2 chars, kept.
+        assert!(!kw.split_whitespace().any(|w| w.len() < 2));
+        assert!(kw.contains("billing"));
+    }
+
+    #[test]
+    fn test_extract_keywords_empty() {
+        let kw = extract_keywords("");
+        assert!(kw.is_empty());
+    }
+
+    #[test]
+    fn test_build_domain_context_not_empty() {
+        let ctx = build_domain_context();
+        assert!(!ctx.is_empty());
+        assert!(ctx.contains("RacingPoint"));
+        assert!(ctx.contains("192.168.31"));
+        assert!(ctx.contains("Ollama") || ctx.contains("pod") || ctx.contains("billing"));
+    }
+
+    #[test]
+    fn test_extract_user_query() {
+        let messages = vec![
+            json!({"role": "system", "content": "You are James"}),
+            json!({"role": "user", "content": "Hello there"}),
+            json!({"role": "assistant", "content": "Hi!"}),
+            json!({"role": "user", "content": "How are you?"}),
+        ];
+        let query = extract_user_query(&messages);
+        assert!(query.contains("Hello there"));
+        assert!(query.contains("How are you?"));
+        assert!(!query.contains("You are James"));
+        assert!(!query.contains("Hi!"));
+    }
+
+    #[test]
+    fn test_messages_to_prompt() {
+        let messages = vec![
+            json!({"role": "system", "content": "System msg"}),
+            json!({"role": "user", "content": "User msg"}),
+        ];
+        let prompt = messages_to_prompt(&messages);
+        assert!(prompt.contains("[System]"));
+        assert!(prompt.contains("System msg"));
+        assert!(prompt.contains("User msg"));
+    }
+
+    #[test]
+    fn test_build_enhanced_messages_with_few_shot() {
+        let messages = vec![
+            json!({"role": "system", "content": "Base system"}),
+            json!({"role": "user", "content": "What is billing?"}),
+        ];
+        let pairs = vec![
+            TrainingPair {
+                id: "1".to_string(),
+                query_text: "How does billing work?".to_string(),
+                response_text: "Billing starts when...".to_string(),
+            },
+        ];
+        let enhanced = build_enhanced_messages(&messages, &pairs);
+        // Should have: system, few-shot user, few-shot assistant, original user
+        assert!(enhanced.len() >= 4);
+        // System should contain domain context
+        let sys = enhanced[0]["content"].as_str().unwrap();
+        assert!(sys.contains("RacingPoint"));
+    }
 }

@@ -55,6 +55,9 @@ pub struct CloudConfig {
     pub api_url: Option<String>,
     #[serde(default = "default_sync_interval")]
     pub sync_interval_secs: u64,
+    /// How often to poll for cloud actions (default: 3 seconds)
+    #[serde(default = "default_action_poll_interval")]
+    pub action_poll_interval_secs: u64,
     /// Shared secret for terminal command access
     pub terminal_secret: Option<String>,
     /// PIN for terminal web UI authentication (only Uday knows this)
@@ -297,6 +300,7 @@ fn default_db_path() -> String { "./data/racecontrol.db".to_string() }
 fn default_location() -> String { "Bandlaguda, Hyderabad".to_string() }
 fn default_timezone() -> String { "Asia/Kolkata".to_string() }
 fn default_sync_interval() -> u64 { 30 }
+fn default_action_poll_interval() -> u64 { 3 }
 fn default_pod_count() -> u32 { 16 }
 fn default_true() -> bool { true }
 fn default_color() -> String { "#E10600".to_string() }

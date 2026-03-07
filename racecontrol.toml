@@ -24,13 +24,13 @@ enabled = true
 # restart_cooldown_secs = 120
 
 [pods]
-count = 16
+count = 8
 discovery = true
 healer_enabled = true
 healer_interval_secs = 120
 
 [branding]
-primary_color = "#FF4400"
+primary_color = "#E10600"
 theme = "dark"
 
 [ai_debugger]
@@ -44,12 +44,13 @@ proactive_analysis = true
 # anthropic_api_key = "sk-ant-..."  # Optional fallback when Ollama is unavailable
 
 [ac_server]
-acserver_path = "/opt/ac-server/acServer"
+# AC server runs on Racing-Point-Server (192.168.31.51)
+acserver_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\assettocorsa\\server\\acServer.exe"
 data_dir = "./data/ac_servers"
 # lan_ip = "192.168.1.100"  # Auto-detected if not set
 
 [auth]
-# jwt_secret = "change-me-in-production"
+jwt_secret = "UKLvoxSUMRPsKckeN17vJ-ORNgkTpfVO2MvS_JA5TMo"
 evolution_url = "http://localhost:53622"
 evolution_api_key = "zNAKEHsXudyqL3dFngyBJAZWw9W4hWN0"
 evolution_instance = "Racing Point Reception"

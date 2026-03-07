@@ -1,5 +1,6 @@
 mod ac_camera;
 mod ac_server;
+mod action_queue;
 mod ai;
 mod api;
 mod auth;
@@ -181,6 +182,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn remote terminal (polls cloud for commands to execute locally)
     remote_terminal::spawn(state.clone());
+
+    // Spawn action queue (polls cloud for pending actions — bookings, wallet, QR, etc.)
+    action_queue::spawn(state.clone());
 
     // Spawn pod monitor (Tier 2: detect stale pods, auto-restart via pod-agent)
     pod_monitor::spawn(state.clone());
