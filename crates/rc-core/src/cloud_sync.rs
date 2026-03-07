@@ -184,12 +184,191 @@ async fn sync_once(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()>
     update_sync_state(state, synced_at, total_upserted).await;
 
     if total_upserted > 0 {
-        tracing::info!("Cloud sync: upserted {} records", total_upserted);
+        tracing::info!("Cloud sync pull: upserted {} records", total_upserted);
     } else {
-        tracing::debug!("Cloud sync: no new changes");
+        tracing::debug!("Cloud sync pull: no new changes");
+    }
+
+    // Phase 2: Push venue data to cloud
+    if let Err(e) = push_to_cloud(state, cloud_url).await {
+        tracing::error!("Cloud sync push failed: {}", e);
     }
 
     Ok(())
+}
+
+/// Push venue-generated data (laps, billing, pods, leaderboard) to cloud.
+async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
+    let last_push = get_last_push_time(state).await;
+    let mut payload = serde_json::json!({});
+    let mut has_data = false;
+
+    // Collect laps since last push
+    let laps = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'session_id', session_id, 'driver_id', driver_id,
+            'pod_id', pod_id, 'sim_type', sim_type, 'track', track, 'car', car,
+            'lap_number', lap_number, 'lap_time_ms', lap_time_ms,
+            'sector1_ms', sector1_ms, 'sector2_ms', sector2_ms, 'sector3_ms', sector3_ms,
+            'valid', valid, 'created_at', created_at
+        ) FROM laps WHERE created_at > ? ORDER BY created_at ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !laps.is_empty() {
+        let items: Vec<serde_json::Value> = laps.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} laps", items.len());
+        payload["laps"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Collect track records (always push all — small table)
+    let records = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'track', track, 'car', car, 'driver_id', driver_id,
+            'best_lap_ms', best_lap_ms, 'lap_id', lap_id, 'achieved_at', achieved_at
+        ) FROM track_records",
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    if !records.is_empty() {
+        let items: Vec<serde_json::Value> = records.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        payload["track_records"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Collect personal bests (always push all — small table)
+    let pbs = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'driver_id', driver_id, 'track', track, 'car', car,
+            'best_lap_ms', best_lap_ms, 'lap_id', lap_id, 'achieved_at', achieved_at
+        ) FROM personal_bests",
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    if !pbs.is_empty() {
+        let items: Vec<serde_json::Value> = pbs.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        payload["personal_bests"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Collect billing sessions since last push
+    let sessions = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'driver_id', driver_id, 'pod_id', pod_id,
+            'pricing_tier_id', pricing_tier_id, 'allocated_seconds', allocated_seconds,
+            'driving_seconds', driving_seconds, 'status', status,
+            'custom_price_paise', custom_price_paise, 'notes', notes,
+            'started_at', started_at, 'ended_at', ended_at, 'created_at', created_at,
+            'experience_id', experience_id, 'car', car, 'track', track, 'sim_type', sim_type
+        ) FROM billing_sessions WHERE created_at > ? OR ended_at > ?
+        ORDER BY created_at ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !sessions.is_empty() {
+        let items: Vec<serde_json::Value> = sessions.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} billing sessions", items.len());
+        payload["billing_sessions"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Push live pod status from in-memory state
+    let pods = state.pods.read().await;
+    if !pods.is_empty() {
+        let pod_list: Vec<serde_json::Value> = pods.values().map(|p| {
+            serde_json::json!({
+                "id": p.id,
+                "number": p.number,
+                "name": p.name,
+                "ip_address": p.ip_address,
+                "mac_address": p.mac_address,
+                "sim_type": p.sim_type,
+                "status": p.status,
+                "current_driver": p.current_driver,
+                "current_session_id": p.current_session_id,
+                "billing_session_id": p.billing_session_id,
+            })
+        }).collect();
+        payload["pods"] = serde_json::json!(pod_list);
+        has_data = true;
+    }
+    drop(pods);
+
+    if !has_data {
+        tracing::debug!("Cloud sync push: nothing to push");
+        return Ok(());
+    }
+
+    // POST to cloud
+    let push_url = format!("{}/sync/push", cloud_url);
+    let mut req = state.http_client
+        .post(&push_url)
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(30));
+
+    if let Some(secret) = &state.config.cloud.terminal_secret {
+        req = req.header("x-terminal-secret", secret);
+    }
+
+    let resp = req.send().await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("Cloud push returned status {}", resp.status());
+    }
+
+    let result: serde_json::Value = resp.json().await?;
+    let upserted = result.get("upserted").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    if upserted > 0 {
+        tracing::info!("Cloud sync push: cloud accepted {} records", upserted);
+    }
+
+    // Update push timestamp
+    update_push_state(state).await;
+
+    Ok(())
+}
+
+async fn get_last_push_time(state: &Arc<AppState>) -> String {
+    let row = sqlx::query_as::<_, (String,)>(
+        "SELECT last_synced_at FROM sync_state WHERE table_name = '_push'",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    row.map(|r| r.0)
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
+}
+
+async fn update_push_state(state: &Arc<AppState>) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = sqlx::query(
+        "INSERT INTO sync_state (table_name, last_synced_at, last_sync_count, updated_at)
+         VALUES ('_push', ?, 0, datetime('now'))
+         ON CONFLICT(table_name) DO UPDATE SET
+            last_synced_at = excluded.last_synced_at,
+            updated_at = datetime('now')",
+    )
+    .bind(&now)
+    .execute(&state.db)
+    .await;
 }
 
 async fn get_last_sync_time(state: &Arc<AppState>) -> String {

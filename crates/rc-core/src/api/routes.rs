@@ -151,6 +151,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/ai/suggestions/{id}/dismiss", post(dismiss_ai_suggestion))
         // Cloud sync
         .route("/sync/changes", get(sync_changes))
+        .route("/sync/push", post(sync_push))
         .route("/sync/health", get(sync_health))
         // Terminal (remote command execution)
         .route("/terminal/auth", post(terminal_auth))
@@ -3671,6 +3672,206 @@ async fn sync_changes(
 
     result["synced_at"] = json!(chrono::Utc::now().to_rfc3339());
     Json(result)
+}
+
+/// POST /sync/push — venue pushes data to cloud
+async fn sync_push(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    // Auth check
+    if let Some(secret) = state.config.cloud.terminal_secret.as_deref() {
+        let provided = headers.get("x-terminal-secret").and_then(|v| v.to_str().ok());
+        if provided != Some(secret) {
+            return Json(json!({ "error": "Unauthorized" }));
+        }
+    }
+
+    let mut total = 0u64;
+
+    // Upsert laps
+    if let Some(laps) = body.get("laps").and_then(|v| v.as_array()) {
+        for lap in laps {
+            let id = lap.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car,
+                    lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, created_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+                 ON CONFLICT(id) DO NOTHING",
+            )
+            .bind(id)
+            .bind(lap.get("session_id").and_then(|v| v.as_str()))
+            .bind(lap.get("driver_id").and_then(|v| v.as_str()))
+            .bind(lap.get("pod_id").and_then(|v| v.as_str()))
+            .bind(lap.get("sim_type").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(lap.get("track").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(lap.get("car").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(lap.get("lap_number").and_then(|v| v.as_i64()))
+            .bind(lap.get("lap_time_ms").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(lap.get("sector1_ms").and_then(|v| v.as_i64()))
+            .bind(lap.get("sector2_ms").and_then(|v| v.as_i64()))
+            .bind(lap.get("sector3_ms").and_then(|v| v.as_i64()))
+            .bind(lap.get("valid").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(lap.get("created_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total += 1; }
+        }
+    }
+
+    // Upsert track_records (best lap per track+car)
+    if let Some(records) = body.get("track_records").and_then(|v| v.as_array()) {
+        for rec in records {
+            let track = rec.get("track").and_then(|v| v.as_str()).unwrap_or_default();
+            let car = rec.get("car").and_then(|v| v.as_str()).unwrap_or_default();
+            if track.is_empty() || car.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO track_records (track, car, driver_id, best_lap_ms, lap_id, achieved_at)
+                 VALUES (?1,?2,?3,?4,?5,?6)
+                 ON CONFLICT(track, car) DO UPDATE SET
+                    driver_id = CASE WHEN excluded.best_lap_ms < track_records.best_lap_ms
+                        THEN excluded.driver_id ELSE track_records.driver_id END,
+                    best_lap_ms = MIN(excluded.best_lap_ms, track_records.best_lap_ms),
+                    lap_id = CASE WHEN excluded.best_lap_ms < track_records.best_lap_ms
+                        THEN excluded.lap_id ELSE track_records.lap_id END,
+                    achieved_at = CASE WHEN excluded.best_lap_ms < track_records.best_lap_ms
+                        THEN excluded.achieved_at ELSE track_records.achieved_at END",
+            )
+            .bind(track)
+            .bind(car)
+            .bind(rec.get("driver_id").and_then(|v| v.as_str()))
+            .bind(rec.get("best_lap_ms").and_then(|v| v.as_i64()).unwrap_or(i64::MAX))
+            .bind(rec.get("lap_id").and_then(|v| v.as_str()))
+            .bind(rec.get("achieved_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total += 1; }
+        }
+    }
+
+    // Upsert personal_bests
+    if let Some(pbs) = body.get("personal_bests").and_then(|v| v.as_array()) {
+        for pb in pbs {
+            let driver_id = pb.get("driver_id").and_then(|v| v.as_str()).unwrap_or_default();
+            let track = pb.get("track").and_then(|v| v.as_str()).unwrap_or_default();
+            let car = pb.get("car").and_then(|v| v.as_str()).unwrap_or_default();
+            if driver_id.is_empty() || track.is_empty() || car.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO personal_bests (driver_id, track, car, best_lap_ms, lap_id, achieved_at)
+                 VALUES (?1,?2,?3,?4,?5,?6)
+                 ON CONFLICT(driver_id, track, car) DO UPDATE SET
+                    best_lap_ms = MIN(excluded.best_lap_ms, personal_bests.best_lap_ms),
+                    lap_id = CASE WHEN excluded.best_lap_ms < personal_bests.best_lap_ms
+                        THEN excluded.lap_id ELSE personal_bests.lap_id END,
+                    achieved_at = CASE WHEN excluded.best_lap_ms < personal_bests.best_lap_ms
+                        THEN excluded.achieved_at ELSE personal_bests.achieved_at END",
+            )
+            .bind(driver_id)
+            .bind(track)
+            .bind(car)
+            .bind(pb.get("best_lap_ms").and_then(|v| v.as_i64()).unwrap_or(i64::MAX))
+            .bind(pb.get("lap_id").and_then(|v| v.as_str()))
+            .bind(pb.get("achieved_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total += 1; }
+        }
+    }
+
+    // Upsert billing_sessions
+    if let Some(sessions) = body.get("billing_sessions").and_then(|v| v.as_array()) {
+        for s in sessions {
+            let id = s.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id,
+                    allocated_seconds, driving_seconds, status, custom_price_paise, notes,
+                    started_at, ended_at, created_at, experience_id, car, track, sim_type)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+                 ON CONFLICT(id) DO UPDATE SET
+                    driving_seconds = excluded.driving_seconds,
+                    status = excluded.status,
+                    ended_at = excluded.ended_at",
+            )
+            .bind(id)
+            .bind(s.get("driver_id").and_then(|v| v.as_str()))
+            .bind(s.get("pod_id").and_then(|v| v.as_str()))
+            .bind(s.get("pricing_tier_id").and_then(|v| v.as_str()))
+            .bind(s.get("allocated_seconds").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(s.get("driving_seconds").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(s.get("status").and_then(|v| v.as_str()).unwrap_or("pending"))
+            .bind(s.get("custom_price_paise").and_then(|v| v.as_i64()))
+            .bind(s.get("notes").and_then(|v| v.as_str()))
+            .bind(s.get("started_at").and_then(|v| v.as_str()))
+            .bind(s.get("ended_at").and_then(|v| v.as_str()))
+            .bind(s.get("created_at").and_then(|v| v.as_str()))
+            .bind(s.get("experience_id").and_then(|v| v.as_str()))
+            .bind(s.get("car").and_then(|v| v.as_str()))
+            .bind(s.get("track").and_then(|v| v.as_str()))
+            .bind(s.get("sim_type").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total += 1; }
+        }
+    }
+
+    // Upsert pods (static config + live status)
+    if let Some(pods) = body.get("pods").and_then(|v| v.as_array()) {
+        for pod in pods {
+            let id = pod.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let number = pod.get("number").and_then(|v| v.as_i64()).unwrap_or(0);
+            let name = pod.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            let status = pod.get("status").and_then(|v| v.as_str()).unwrap_or("offline");
+
+            // Update DB
+            let _ = sqlx::query(
+                "INSERT INTO pods (id, number, name, ip_address, sim_type, status, last_seen)
+                 VALUES (?1,?2,?3,?4,?5,?6,datetime('now'))
+                 ON CONFLICT(id) DO UPDATE SET
+                    status = excluded.status,
+                    ip_address = excluded.ip_address,
+                    last_seen = datetime('now')",
+            )
+            .bind(id)
+            .bind(number)
+            .bind(name)
+            .bind(pod.get("ip_address").and_then(|v| v.as_str()))
+            .bind(pod.get("sim_type").and_then(|v| v.as_str()).unwrap_or("assetto_corsa"))
+            .bind(status)
+            .execute(&state.db)
+            .await;
+
+            // Update in-memory pod map so PWA/dashboard sees live status
+            let pod_info = rc_common::types::PodInfo {
+                id: id.to_string(),
+                number: number as u32,
+                name: name.to_string(),
+                ip_address: pod.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                mac_address: pod.get("mac_address").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                sim_type: pod.get("sim_type").and_then(|v| v.as_str())
+                    .and_then(|s| serde_json::from_value(json!(s)).ok())
+                    .unwrap_or(rc_common::types::SimType::AssettoCorsa),
+                status: serde_json::from_value(json!(status))
+                    .unwrap_or(rc_common::types::PodStatus::Offline),
+                current_driver: pod.get("current_driver").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                current_session_id: pod.get("current_session_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                last_seen: Some(chrono::Utc::now()),
+                driving_state: None,
+                billing_session_id: pod.get("billing_session_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                game_state: None,
+                current_game: None,
+            };
+            state.pods.write().await.insert(id.to_string(), pod_info.clone());
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod_info));
+            total += 1;
+        }
+    }
+
+    tracing::info!("Sync push: upserted {} records", total);
+    Json(json!({ "ok": true, "upserted": total }))
 }
 
 async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
