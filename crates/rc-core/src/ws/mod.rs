@@ -116,6 +116,29 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 }
                             }
 
+                            // Resync active billing session to reconnected agent
+                            {
+                                let timers = state.billing.active_timers.read().await;
+                                if let Some(timer) = timers.get(&pod_info.id) {
+                                    let remaining = timer.remaining_seconds();
+                                    let _ = cmd_tx.send(CoreToAgentMessage::BillingStarted {
+                                        billing_session_id: timer.session_id.clone(),
+                                        driver_name: timer.driver_name.clone(),
+                                        allocated_seconds: timer.allocated_seconds,
+                                    }).await;
+                                    // Also send current tick so timer shows correct remaining time
+                                    let _ = cmd_tx.send(CoreToAgentMessage::BillingTick {
+                                        remaining_seconds: remaining,
+                                        allocated_seconds: timer.allocated_seconds,
+                                        driver_name: timer.driver_name.clone(),
+                                    }).await;
+                                    tracing::info!(
+                                        "Resynced billing session {} to pod {} ({}s remaining)",
+                                        timer.session_id, pod_info.number, remaining
+                                    );
+                                }
+                            }
+
                             // Send current kiosk settings to newly connected agent
                             if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
                                 "SELECT key, value FROM kiosk_settings",
