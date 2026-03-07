@@ -5,7 +5,6 @@
 
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -429,13 +428,27 @@ async fn serve_lock_screen(
     state: Arc<Mutex<LockScreenState>>,
     event_tx: mpsc::Sender<LockScreenEvent>,
 ) {
-    let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)).await {
+    // Use SO_REUSEADDR to bind even if port is in TIME_WAIT from previous Edge connections
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+    let socket = match tokio::net::TcpSocket::new_v4() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Lock screen: failed to create socket: {}", e);
+            return;
+        }
+    };
+    let _ = socket.set_reuseaddr(true);
+    if let Err(e) = socket.bind(addr) {
+        tracing::error!("Lock screen server failed to bind port {}: {}", port, e);
+        return;
+    }
+    let listener = match socket.listen(128) {
         Ok(l) => {
             tracing::info!("Lock screen server listening on http://127.0.0.1:{}", port);
             l
         }
         Err(e) => {
-            tracing::error!("Lock screen server failed to bind port {}: {}", port, e);
+            tracing::error!("Lock screen server failed to listen on port {}: {}", port, e);
             return;
         }
     };
