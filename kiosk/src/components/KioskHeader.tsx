@@ -76,9 +76,9 @@ export function KioskHeader({ connected, pods, venueName = "Racing Point", staff
             {onSignOut && (
               <button
                 onClick={onSignOut}
-                className="text-xs text-rp-grey hover:text-rp-red transition-colors"
+                className="px-3 py-1.5 text-sm font-medium border border-rp-border rounded-lg text-rp-grey hover:text-white hover:border-rp-red hover:bg-rp-red/10 transition-colors"
               >
-                Sign Out
+                Logout
               </button>
             )}
           </div>

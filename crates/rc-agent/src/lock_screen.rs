@@ -149,12 +149,21 @@ impl LockScreenManager {
         remaining_seconds: u32,
         allocated_seconds: u32,
     ) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        *state = LockScreenState::ActiveSession {
-            driver_name,
-            remaining_seconds,
-            allocated_seconds,
-        };
+        let was_blanked = self.is_blanked();
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::ActiveSession {
+                driver_name,
+                remaining_seconds,
+                allocated_seconds,
+            };
+        }
+        // If screen was blanked, relaunch browser so session page shows immediately
+        if was_blanked {
+            self.launch_browser();
+            #[cfg(windows)]
+            suppress_notifications(false);
+        }
     }
 
     /// Update remaining seconds on the active session screen.

@@ -681,9 +681,10 @@ pub async fn start_billing_session(
                 allocated_seconds,
             })
             .await;
-
-        // Auto-unblank: clear lock screen so customer can use the pod
-        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        // Note: BillingStarted sets agent state to ActiveSession, which
+        // prevents is_idle_or_blanked() from returning true. Do NOT send
+        // ClearLockScreen here — it would reset state to Hidden and allow
+        // screen blanking to re-engage during the session.
     }
 
     // Broadcast to dashboards
