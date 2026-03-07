@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import type {
   Pod,
   TelemetryFrame,
@@ -86,6 +87,19 @@ export function KioskPodCard({
   const state = derivePodState(pod, billing, authToken, gameInfo);
   const isOffline = pod.status === "offline";
   const hasWarning = !!warning;
+
+  // Stabilize car/track display — AC shared memory can flicker between cars
+  const stableCarRef = useRef<{ sessionId: string; car: string; track: string } | null>(null);
+  if (billing && telemetry?.car) {
+    if (!stableCarRef.current || stableCarRef.current.sessionId !== billing.id) {
+      // New session or first telemetry — lock in the car
+      stableCarRef.current = { sessionId: billing.id, car: telemetry.car, track: telemetry.track };
+    }
+  }
+  if (!billing) {
+    stableCarRef.current = null;
+  }
+  const stableCar = stableCarRef.current;
 
   return (
     <div
@@ -193,7 +207,7 @@ export function KioskPodCard({
                   {billing.driver_name}
                 </p>
                 <p className="text-rp-grey text-xs truncate">
-                  {telemetry ? `${telemetry.track} — ${telemetry.car}` : billing.pricing_tier_name}
+                  {stableCar ? `${stableCar.track} — ${stableCar.car}` : billing.pricing_tier_name}
                 </p>
               </div>
               {walletBalance !== undefined && (
@@ -204,7 +218,7 @@ export function KioskPodCard({
                 >
                   <p className="text-[10px] text-rp-grey">Balance</p>
                   <p className="text-xs font-bold text-white group-hover:text-rp-red transition-colors">
-                    {"\u20B9"}{(walletBalance / 100).toFixed(0)}
+                    {(walletBalance / 100).toFixed(0)} credits
                   </p>
                 </button>
               )}
