@@ -131,6 +131,29 @@ fn default_telemetry_ports() -> Vec<u16> { vec![9996, 20777, 5300, 6789, 5555] }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Single-instance guard: prevent zombie rc-agent processes
+    #[cfg(windows)]
+    let _mutex_guard = {
+        use std::ffi::CString;
+        let name = CString::new("Global\\RacingPoint_RCAgent_SingleInstance").unwrap();
+        let handle = unsafe {
+            winapi::um::synchapi::CreateMutexA(
+                std::ptr::null_mut(),
+                1, // bInitialOwner = TRUE
+                name.as_ptr(),
+            )
+        };
+        if handle.is_null() || unsafe { winapi::um::errhandlingapi::GetLastError() } == 183 {
+            // ERROR_ALREADY_EXISTS = 183
+            eprintln!("rc-agent is already running. Exiting to prevent zombie.");
+            if !handle.is_null() {
+                unsafe { winapi::um::handleapi::CloseHandle(handle); }
+            }
+            std::process::exit(0);
+        }
+        handle // held until process exits → mutex released automatically
+    };
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

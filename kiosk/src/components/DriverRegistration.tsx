@@ -161,7 +161,7 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
                       <p className="text-xs text-rp-grey">{tier.duration_minutes} min</p>
                     </div>
                     <span className="text-sm font-bold text-rp-red">
-                      {tier.is_trial ? "Free" : `₹${(tier.price_paise / 100).toFixed(0)}`}
+                      {tier.is_trial ? "Free" : `${(tier.price_paise / 100).toFixed(0)} credits`}
                     </span>
                   </button>
                 ))}
