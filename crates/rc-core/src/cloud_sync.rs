@@ -309,6 +309,28 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
     }
     drop(pods);
 
+    // Push wallet balances (venue is authoritative for debits)
+    let wallets = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'driver_id', driver_id, 'balance_paise', balance_paise,
+            'total_credited_paise', total_credited_paise,
+            'total_debited_paise', total_debited_paise,
+            'updated_at', updated_at
+        ) FROM wallets WHERE updated_at > ?",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !wallets.is_empty() {
+        let items: Vec<serde_json::Value> = wallets.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} wallets", items.len());
+        payload["wallets"] = serde_json::json!(items);
+        has_data = true;
+    }
+
     if !has_data {
         tracing::debug!("Cloud sync push: nothing to push");
         return Ok(());

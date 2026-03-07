@@ -23,6 +23,7 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [tiers, setTiers] = useState<PricingTier[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [walletCache, setWalletCache] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
     api.listDrivers().then((res) => setDrivers(res.drivers || []));
@@ -36,6 +37,19 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
           (d.phone && d.phone.includes(searchQuery))
       )
     : [];
+
+  // Fetch wallet balances for filtered search results
+  useEffect(() => {
+    for (const d of filteredDrivers) {
+      if (!walletCache.has(d.id)) {
+        api.getWallet(d.id).then((res) => {
+          if (res.wallet) {
+            setWalletCache((prev) => new Map(prev).set(d.id, res.wallet!.balance_paise));
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [filteredDrivers.map(d => d.id).join(",")]);
 
   async function handleCreateDriver() {
     if (!driverName.trim()) return;
@@ -92,17 +106,26 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
                   className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
                 />
                 {filteredDrivers.length > 0 && (
-                  <div className="mt-1 max-h-32 overflow-y-auto border border-rp-border rounded bg-rp-surface">
-                    {filteredDrivers.slice(0, 5).map((d) => (
-                      <button
-                        key={d.id}
-                        onClick={() => handleSelectDriver(d)}
-                        className="w-full text-left px-3 py-2 hover:bg-rp-red/10 text-sm flex justify-between"
-                      >
-                        <span>{d.name}</span>
-                        <span className="text-rp-grey text-xs">{d.total_laps} laps</span>
-                      </button>
-                    ))}
+                  <div className="mt-1 max-h-40 overflow-y-auto border border-rp-border rounded bg-rp-surface">
+                    {filteredDrivers.slice(0, 5).map((d) => {
+                      const bal = walletCache.get(d.id);
+                      const last4 = d.phone ? d.phone.slice(-4) : null;
+                      return (
+                        <button
+                          key={d.id}
+                          onClick={() => handleSelectDriver(d)}
+                          className="w-full text-left px-3 py-2 hover:bg-rp-red/10 text-sm flex items-center justify-between"
+                        >
+                          <div>
+                            <span className="text-white">{d.name}</span>
+                            {last4 && <span className="text-rp-grey text-xs ml-2">****{last4}</span>}
+                          </div>
+                          <span className={`text-xs font-medium ${bal !== undefined && bal > 0 ? "text-emerald-400" : "text-rp-grey"}`}>
+                            {bal !== undefined ? `${(bal / 100).toFixed(0)} cr` : "—"}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>

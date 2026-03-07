@@ -4603,6 +4603,30 @@ async fn sync_push(
         }
     }
 
+    // Upsert wallets (venue pushes balances after billing debits)
+    if let Some(wallets) = body.get("wallets").and_then(|v| v.as_array()) {
+        for w in wallets {
+            let driver_id = w.get("driver_id").and_then(|v| v.as_str()).unwrap_or_default();
+            if driver_id.is_empty() { continue; }
+            let r = sqlx::query(
+                "UPDATE wallets SET
+                    balance_paise = ?,
+                    total_credited_paise = ?,
+                    total_debited_paise = ?,
+                    updated_at = ?
+                 WHERE driver_id = ?",
+            )
+            .bind(w.get("balance_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(w.get("total_credited_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(w.get("total_debited_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(w.get("updated_at").and_then(|v| v.as_str()))
+            .bind(driver_id)
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total += 1; }
+        }
+    }
+
     tracing::info!("Sync push: upserted {} records", total);
     Json(json!({ "ok": true, "upserted": total }))
 }
