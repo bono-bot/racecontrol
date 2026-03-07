@@ -552,7 +552,7 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
 }
 
 async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<()> {
-    let driver_id = wallet
+    let cloud_driver_id = wallet
         .get("driver_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Wallet missing driver_id"))?;
@@ -574,11 +574,72 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // Check if wallet exists locally
+    // Resolve the local driver_id — cloud and local may have different UUIDs
+    // for the same person. Try direct match first, then phone, then email.
+    let local_driver_id = {
+        // Direct match: does this driver_id exist locally?
+        let exists = sqlx::query_as::<_, (String,)>(
+            "SELECT id FROM drivers WHERE id = ?",
+        )
+        .bind(cloud_driver_id)
+        .fetch_optional(&state.db)
+        .await?;
+
+        if let Some((id,)) = exists {
+            id
+        } else {
+            // ID mismatch — resolve by phone or email
+            let phone = wallet.get("phone").and_then(|v| v.as_str()).unwrap_or("");
+            let email = wallet.get("email").and_then(|v| v.as_str()).unwrap_or("");
+
+            let resolved = if !phone.is_empty() {
+                sqlx::query_as::<_, (String,)>(
+                    "SELECT id FROM drivers WHERE phone = ?",
+                )
+                .bind(phone)
+                .fetch_optional(&state.db)
+                .await?
+            } else {
+                None
+            };
+
+            let resolved = if resolved.is_none() && !email.is_empty() {
+                sqlx::query_as::<_, (String,)>(
+                    "SELECT id FROM drivers WHERE email = ?",
+                )
+                .bind(email)
+                .fetch_optional(&state.db)
+                .await?
+            } else {
+                resolved
+            };
+
+            match resolved {
+                Some((local_id,)) => {
+                    tracing::info!(
+                        "Wallet sync: resolved cloud driver {} → local {} via phone/email",
+                        cloud_driver_id, local_id
+                    );
+                    local_id
+                }
+                None => {
+                    tracing::debug!(
+                        "Wallet sync: no local driver for cloud {} (phone={}, email={}), skipping",
+                        cloud_driver_id,
+                        wallet.get("phone").and_then(|v| v.as_str()).unwrap_or(""),
+                        wallet.get("email").and_then(|v| v.as_str()).unwrap_or(""),
+                    );
+                    return Ok(());
+                }
+            }
+        }
+    };
+
+    // Check if wallet exists locally for the resolved driver
     let local = sqlx::query_as::<_, (i64, i64, i64)>(
         "SELECT balance_paise, total_credited_paise, total_debited_paise FROM wallets WHERE driver_id = ?",
     )
-    .bind(driver_id)
+    .bind(&local_driver_id)
     .fetch_optional(&state.db)
     .await?;
 
@@ -600,17 +661,17 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
             .bind(cloud_credited)
             .bind(cloud_debited)
             .bind(cloud_updated)
-            .bind(driver_id)
+            .bind(&local_driver_id)
             .execute(&state.db)
             .await?;
         }
         None => {
-            // Wallet doesn't exist locally — insert from cloud
+            // Wallet doesn't exist locally — create it for the resolved driver
             sqlx::query(
                 "INSERT OR IGNORE INTO wallets (driver_id, balance_paise, total_credited_paise, total_debited_paise, updated_at)
                  VALUES (?, ?, ?, ?, ?)",
             )
-            .bind(driver_id)
+            .bind(&local_driver_id)
             .bind(cloud_balance)
             .bind(cloud_credited)
             .bind(cloud_debited)

@@ -4307,13 +4307,15 @@ async fn sync_changes(
             "wallets" => {
                 let rows = sqlx::query_as::<_, (String,)>(
                     "SELECT json_object(
-                        'driver_id', driver_id, 'balance_paise', balance_paise,
-                        'total_credited_paise', total_credited_paise,
-                        'total_debited_paise', total_debited_paise,
-                        'updated_at', updated_at
-                    ) FROM wallets
-                    WHERE updated_at > ?
-                    ORDER BY updated_at ASC
+                        'driver_id', w.driver_id, 'balance_paise', w.balance_paise,
+                        'total_credited_paise', w.total_credited_paise,
+                        'total_debited_paise', w.total_debited_paise,
+                        'updated_at', w.updated_at,
+                        'phone', d.phone, 'email', d.email
+                    ) FROM wallets w
+                    LEFT JOIN drivers d ON d.id = w.driver_id
+                    WHERE w.updated_at > ?
+                    ORDER BY w.updated_at ASC
                     LIMIT ?",
                 )
                 .bind(&since)
