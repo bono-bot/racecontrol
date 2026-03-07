@@ -15,6 +15,46 @@ use crate::config::AiDebuggerConfig;
 use crate::game_launcher::GameManager;
 use rc_common::types::PodInfo;
 
+// ─── Claude CLI Call ─────────────────────────────────────────────────────────
+
+/// Query Claude CLI in non-interactive print mode. Prompt is piped via stdin.
+pub async fn query_claude_cli(prompt: &str, timeout_secs: u32) -> anyhow::Result<String> {
+    use tokio::io::AsyncWriteExt;
+
+    let mut child = tokio::process::Command::new("claude")
+        .args(["-p", "--output-format", "text"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("Claude CLI not found or failed to spawn: {}", e))?;
+
+    // Write prompt to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(prompt.as_bytes()).await?;
+        stdin.shutdown().await?;
+    }
+
+    // Wait with timeout
+    let output = tokio::time::timeout(
+        Duration::from_secs(timeout_secs as u64),
+        child.wait_with_output(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Claude CLI timed out after {}s", timeout_secs))??;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Claude CLI exited with {}: {}", output.status, stderr.trim());
+    }
+
+    let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if result.is_empty() {
+        anyhow::bail!("Claude CLI returned empty response");
+    }
+    Ok(result)
+}
+
 // ─── Ollama + Anthropic Calls ────────────────────────────────────────────────
 
 /// Query Ollama's /api/chat endpoint with a message array.
@@ -110,28 +150,72 @@ pub async fn query_anthropic(
         .unwrap_or_default())
 }
 
-/// Try Ollama first, fall back to Anthropic. Returns (response, model_used).
+/// Try Claude CLI → Ollama → Anthropic API. Returns (response, model_used).
 pub async fn query_ai(
     config: &AiDebuggerConfig,
     messages: &[Value],
 ) -> anyhow::Result<(String, String)> {
-    // Try Ollama
+    // 1. Try Claude CLI (best quality when online)
+    if config.claude_cli_enabled {
+        // Flatten messages into a single prompt for Claude CLI
+        let prompt = messages_to_prompt(messages);
+        match query_claude_cli(&prompt, config.claude_cli_timeout_secs).await {
+            Ok(reply) => {
+                return Ok((reply, "claude-cli".to_string()));
+            }
+            Err(e) => {
+                tracing::warn!("Claude CLI failed: {}. Trying Ollama...", e);
+            }
+        }
+    }
+
+    // 2. Try Ollama (always available locally)
     match query_ollama(&config.ollama_url, &config.ollama_model, messages).await {
         Ok(reply) => {
             return Ok((reply, format!("ollama/{}", config.ollama_model)));
         }
         Err(e) => {
-            tracing::warn!("Ollama failed: {}. Trying Anthropic...", e);
+            tracing::warn!("Ollama failed: {}. Trying Anthropic API...", e);
         }
     }
 
-    // Fallback to Anthropic
+    // 3. Fallback to Anthropic API
     if let Some(api_key) = &config.anthropic_api_key {
         let reply = query_anthropic(api_key, &config.anthropic_model, messages).await?;
         Ok((reply, format!("anthropic/{}", config.anthropic_model)))
     } else {
-        anyhow::bail!("Ollama unavailable and no Anthropic API key configured")
+        anyhow::bail!("All AI providers failed (Claude CLI, Ollama, Anthropic API)")
     }
+}
+
+/// Flatten a messages array into a single prompt string for Claude CLI.
+fn messages_to_prompt(messages: &[Value]) -> String {
+    let mut prompt = String::new();
+    for msg in messages {
+        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+        let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("");
+        match role {
+            "system" => {
+                prompt.push_str("[System]\n");
+                prompt.push_str(content);
+                prompt.push_str("\n\n");
+            }
+            "user" => {
+                prompt.push_str(content);
+                prompt.push('\n');
+            }
+            "assistant" => {
+                prompt.push_str("[Previous response]\n");
+                prompt.push_str(content);
+                prompt.push_str("\n\n");
+            }
+            _ => {
+                prompt.push_str(content);
+                prompt.push('\n');
+            }
+        }
+    }
+    prompt
 }
 
 // ─── Business Context ────────────────────────────────────────────────────────

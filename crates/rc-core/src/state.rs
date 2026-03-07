@@ -1,5 +1,6 @@
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -45,6 +46,10 @@ pub struct AppState {
     pub otp_failed_attempts: Mutex<HashMap<String, OtpFailedAttempts>>,
     /// Sender for pushing messages to AI peer via WebSocket (None if not connected)
     pub ai_peer_tx: RwLock<Option<mpsc::Sender<AiChannelMessage>>>,
+    /// Per-endpoint API error counts (endpoint -> count), reset every 5 min by error aggregator
+    pub api_error_counts: Mutex<HashMap<String, AtomicU32>>,
+    /// When the API error counts were last reset
+    pub api_error_counts_reset: Mutex<Instant>,
 }
 
 impl AppState {
@@ -68,6 +73,121 @@ impl AppState {
             otp_rate_limits: Mutex::new(HashMap::new()),
             otp_failed_attempts: Mutex::new(HashMap::new()),
             ai_peer_tx: RwLock::new(None),
+            api_error_counts: Mutex::new(HashMap::new()),
+            api_error_counts_reset: Mutex::new(Instant::now()),
         }
+    }
+
+    /// Broadcast settings to all agents, applying per-pod screen_blanking override.
+    /// If `screen_blanking_pods` is set (comma-separated pod numbers), only those pods
+    /// get `screen_blanking_enabled=true`; all others get `false`.
+    pub async fn broadcast_settings(&self, settings: &HashMap<String, String>) {
+        let blanking_pods = settings.get("screen_blanking_pods")
+            .or_else(|| None) // check DB value below
+            .cloned();
+
+        // If not in the provided settings, check DB
+        let blanking_pods = if blanking_pods.is_some() {
+            blanking_pods
+        } else {
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM kiosk_settings WHERE key = 'screen_blanking_pods'"
+            )
+            .fetch_optional(&self.db)
+            .await
+            .ok()
+            .flatten()
+        };
+
+        let blanking_enabled = settings.get("screen_blanking_enabled")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        let pods = self.pods.read().await;
+        let agent_senders = self.agent_senders.read().await;
+
+        for (pod_id, sender) in agent_senders.iter() {
+            let mut pod_settings = settings.clone();
+
+            // Apply per-pod blanking override
+            if let Some(ref pod_list) = blanking_pods {
+                if !pod_list.trim().is_empty() {
+                    let pod_number = pods.get(pod_id).map(|p| p.number);
+                    let is_blanking_pod = pod_number.map(|n| {
+                        pod_list.split(',')
+                            .any(|s| s.trim().parse::<u32>().ok() == Some(n))
+                    }).unwrap_or(false);
+
+                    if blanking_enabled && !is_blanking_pod {
+                        pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
+                    }
+                }
+            }
+
+            let msg = CoreToAgentMessage::SettingsUpdated { settings: pod_settings };
+            let _ = sender.send(msg).await;
+        }
+    }
+
+    /// Get settings for a specific pod, applying per-pod screen_blanking override.
+    pub async fn settings_for_pod(&self, settings: &HashMap<String, String>, pod_number: u32) -> HashMap<String, String> {
+        let mut pod_settings = settings.clone();
+
+        let blanking_pods = settings.get("screen_blanking_pods").cloned()
+            .or_else(|| {
+                // We can't do async in or_else, so just return None
+                None
+            });
+
+        // Check DB for screen_blanking_pods if not in settings
+        let blanking_pods = if blanking_pods.is_some() {
+            blanking_pods
+        } else {
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM kiosk_settings WHERE key = 'screen_blanking_pods'"
+            )
+            .fetch_optional(&self.db)
+            .await
+            .ok()
+            .flatten()
+        };
+
+        let blanking_enabled = settings.get("screen_blanking_enabled")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        if let Some(ref pod_list) = blanking_pods {
+            if !pod_list.trim().is_empty() {
+                let is_blanking_pod = pod_list.split(',')
+                    .any(|s| s.trim().parse::<u32>().ok() == Some(pod_number));
+
+                if blanking_enabled && !is_blanking_pod {
+                    pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
+                }
+            }
+        }
+
+        pod_settings
+    }
+
+    /// Increment the API error counter for a given endpoint.
+    pub fn record_api_error(&self, endpoint: &str) {
+        let mut counts = self.api_error_counts.lock().unwrap();
+        counts
+            .entry(endpoint.to_string())
+            .or_insert_with(|| AtomicU32::new(0))
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Get a snapshot of API error counts and reset them.
+    pub fn drain_api_error_counts(&self) -> HashMap<String, u32> {
+        let mut counts = self.api_error_counts.lock().unwrap();
+        let snapshot: HashMap<String, u32> = counts
+            .drain()
+            .map(|(k, v)| (k, v.load(Ordering::Relaxed)))
+            .filter(|(_, v)| *v > 0)
+            .collect();
+        *self.api_error_counts_reset.lock().unwrap() = Instant::now();
+        snapshot
     }
 }

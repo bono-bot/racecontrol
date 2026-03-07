@@ -146,6 +146,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // AI Chat
         .route("/ai/chat", post(ai_chat))
         .route("/customer/ai/chat", post(customer_ai_chat))
+        // AI Diagnose (on-demand analysis)
+        .route("/ai/diagnose", post(ai_diagnose))
         // AI Suggestions (history)
         .route("/ai/suggestions", get(list_ai_suggestions))
         .route("/ai/suggestions/{id}/dismiss", post(dismiss_ai_suggestion))
@@ -914,16 +916,58 @@ async fn start_billing(
         return Json(json!({ "error": "pod_id, driver_id, and pricing_tier_id are required" }));
     }
 
-    let cmd = rc_common::protocol::DashboardCommand::StartBilling {
-        pod_id: pod_id.to_string(),
-        driver_id: driver_id.to_string(),
-        pricing_tier_id: pricing_tier_id.to_string(),
+    // Pre-validate to return useful errors instead of silent failures
+    {
+        let timers = state.billing.active_timers.read().await;
+        if timers.contains_key(pod_id) {
+            return Json(json!({ "error": format!("Pod {} already has an active billing session", pod_id) }));
+        }
+    }
+
+    let tier_exists = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM pricing_tiers WHERE id = ? AND is_active = 1",
+    )
+    .bind(pricing_tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if tier_exists.is_none() {
+        return Json(json!({ "error": format!("Pricing tier '{}' not found or inactive", pricing_tier_id) }));
+    }
+
+    let driver_exists = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM drivers WHERE id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if driver_exists.is_none() {
+        return Json(json!({ "error": format!("Driver '{}' not found", driver_id) }));
+    }
+
+    // Now start billing (should succeed since we pre-validated)
+    let session_id = billing::start_billing_session(
+        &state,
+        pod_id.to_string(),
+        driver_id.to_string(),
+        pricing_tier_id.to_string(),
         custom_price_paise,
         custom_duration_minutes,
-    };
+    )
+    .await;
 
-    billing::handle_dashboard_command(&state, cmd).await;
-    Json(json!({ "ok": true }))
+    match session_id {
+        Some(id) => Json(json!({ "ok": true, "billing_session_id": id })),
+        None => {
+            state.record_api_error("billing/start");
+            Json(json!({ "error": "Failed to start billing session (check server logs)" }))
+        }
+    }
 }
 
 async fn stop_billing(
@@ -1277,7 +1321,7 @@ async fn launch_game(
 ) -> Json<Value> {
     let pod_id = body.get("pod_id").and_then(|v| v.as_str()).unwrap_or("");
     let sim_type_str = body.get("sim_type").and_then(|v| v.as_str()).unwrap_or("");
-    let launch_args = body
+    let launch_args_raw = body
         .get("launch_args")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
@@ -1285,6 +1329,26 @@ async fn launch_game(
     if pod_id.is_empty() || sim_type_str.is_empty() {
         return Json(json!({ "error": "pod_id and sim_type are required" }));
     }
+
+    // Inject duration_minutes from active billing session into launch_args
+    let launch_args = if let Some(args) = launch_args_raw {
+        let duration_minutes: u32 = sqlx::query_as::<_, (i64,)>(
+            "SELECT allocated_seconds FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+        )
+        .bind(pod_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .map(|(secs,)| (secs as u32) / 60)
+        .unwrap_or(60);
+
+        let mut parsed: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+        parsed["duration_minutes"] = serde_json::json!(duration_minutes);
+        Some(parsed.to_string())
+    } else {
+        None
+    };
 
     let sim_type: SimType = match serde_json::from_value(serde_json::Value::String(
         sim_type_str.to_string(),
@@ -1712,7 +1776,10 @@ async fn validate_pin(
             "status": "ok",
             "billing_session_id": billing_session_id,
         })),
-        Err(e) => Json(json!({ "error": e })),
+        Err(e) => {
+            state.record_api_error("auth/validate-pin");
+            Json(json!({ "error": e }))
+        }
     }
 }
 
@@ -1735,7 +1802,10 @@ async fn kiosk_validate_pin(
             "pricing_tier_name": result.pricing_tier_name,
             "allocated_seconds": result.allocated_seconds,
         })),
-        Err(e) => Json(json!({ "error": e })),
+        Err(e) => {
+            state.record_api_error("auth/kiosk-validate-pin");
+            Json(json!({ "error": e }))
+        }
     }
 }
 
@@ -2542,6 +2612,165 @@ async fn customer_ai_chat(
         })),
         Err(e) => Json(json!({
             "error": format!("AI query failed: {}", e),
+        })),
+    }
+}
+
+// ─── AI Diagnose (on-demand) ────────────────────────────────────────────────
+
+/// Staff-triggered on-demand AI analysis of recent operational errors.
+async fn ai_diagnose(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    if !state.config.ai_debugger.enabled {
+        return Json(json!({ "error": "AI debugger is not enabled" }));
+    }
+
+    let db = &state.db;
+    let mut context_parts: Vec<String> = Vec::new();
+
+    // Recent crashes (last 10 minutes)
+    let crashes = sqlx::query_as::<_, (String, String, Option<String>, String)>(
+        "SELECT pod_id, sim_type, error_message, created_at FROM game_launch_events \
+         WHERE event_type = 'crash' AND created_at > datetime('now', '-10 minutes') \
+         ORDER BY created_at DESC LIMIT 10",
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    if !crashes.is_empty() {
+        let mut s = format!("RECENT CRASHES ({} in last 10 min):\n", crashes.len());
+        for (pod, sim, err, time) in &crashes {
+            s.push_str(&format!(
+                "  - {} on pod {} at {} ({})\n",
+                sim, pod, time,
+                err.as_deref().unwrap_or("no details")
+            ));
+        }
+        context_parts.push(s);
+    }
+
+    // Billing anomalies
+    let stuck = sqlx::query_as::<_, (String, String)>(
+        "SELECT pod_id, created_at FROM billing_sessions \
+         WHERE status = 'pending' AND created_at < datetime('now', '-60 seconds') \
+         AND created_at > datetime('now', '-10 minutes')",
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    if !stuck.is_empty() {
+        context_parts.push(format!(
+            "STUCK BILLING: {} session(s) stuck in 'pending' state",
+            stuck.len()
+        ));
+    }
+
+    let stale = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM billing_sessions \
+         WHERE status = 'active' \
+         AND datetime(started_at, '+' || allocated_seconds || ' seconds') < datetime('now', '-30 seconds')",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(0);
+
+    if stale > 0 {
+        context_parts.push(format!(
+            "STALE BILLING: {} session(s) still 'active' past allocated time",
+            stale
+        ));
+    }
+
+    // API error counts
+    let api_errors = state.drain_api_error_counts();
+    let high_errors: Vec<_> = api_errors.iter().filter(|(_, v)| **v >= 2).collect();
+    if !high_errors.is_empty() {
+        let mut s = String::from("API ERRORS (recent):\n");
+        for (endpoint, count) in &high_errors {
+            s.push_str(&format!("  {} — {} errors\n", endpoint, count));
+        }
+        context_parts.push(s);
+    }
+
+    // Pod connectivity
+    let pods = state.pods.read().await;
+    let connected = pods.len();
+    let expected = state.config.pods.count as usize;
+    if connected < expected {
+        context_parts.push(format!(
+            "POD CONNECTIVITY: {}/{} pods connected",
+            connected, expected
+        ));
+    }
+    drop(pods);
+
+    if context_parts.is_empty() {
+        return Json(json!({
+            "status": "healthy",
+            "message": "No operational issues detected in the last 10 minutes"
+        }));
+    }
+
+    // Gather additional business context
+    let biz_context = crate::ai::gather_business_context(
+        &state.db,
+        &state.pods,
+        &state.billing,
+        &state.game_launcher,
+    )
+    .await;
+
+    let full_context = format!(
+        "OPERATIONAL ISSUES:\n{}\n\nVENUE STATE:\n{}",
+        context_parts.join("\n\n"),
+        biz_context
+    );
+
+    let messages = vec![
+        json!({
+            "role": "system",
+            "content": "You are James, AI operations assistant for RacingPoint eSports. \
+                        Analyze the operational issues below alongside the current venue state. \
+                        Provide root cause analysis, severity assessment, and specific actionable steps. \
+                        Be concise but thorough."
+        }),
+        json!({
+            "role": "user",
+            "content": full_context
+        }),
+    ];
+
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
+        Ok((suggestion, model)) => {
+            // Persist to ai_suggestions table
+            let id = uuid::Uuid::new_v4().to_string();
+            let _ = sqlx::query(
+                "INSERT INTO ai_suggestions (id, pod_id, sim_type, error_context, suggestion, model, source) \
+                 VALUES (?, 'venue', 'diagnostic', ?, ?, ?, 'diagnose')"
+            )
+            .bind(&id)
+            .bind(&context_parts.join("\n"))
+            .bind(&suggestion)
+            .bind(&model)
+            .execute(db)
+            .await;
+
+            Json(json!({
+                "status": "analyzed",
+                "issues_found": context_parts.len(),
+                "suggestion": suggestion,
+                "model": model,
+                "suggestion_id": id,
+            }))
+        }
+        Err(e) => Json(json!({
+            "status": "error",
+            "issues_found": context_parts.len(),
+            "issues": context_parts,
+            "error": format!("AI analysis failed: {}", e),
         })),
     }
 }
@@ -3485,17 +3714,13 @@ async fn update_kiosk_settings(
         }
     }
 
-    // Broadcast updated settings to all connected agents
+    // Broadcast updated settings to all connected agents (with per-pod blanking override)
     if updated > 0 {
         let settings_map: std::collections::HashMap<String, String> = obj
             .iter()
             .map(|(k, v)| (k.clone(), v.as_str().unwrap_or(&v.to_string()).to_string()))
             .collect();
-        let msg = CoreToAgentMessage::SettingsUpdated { settings: settings_map };
-        let agent_senders = state.agent_senders.read().await;
-        for sender in agent_senders.values() {
-            let _ = sender.send(msg.clone()).await;
-        }
+        state.broadcast_settings(&settings_map).await;
     }
 
     Json(json!({ "ok": true, "updated": updated }))

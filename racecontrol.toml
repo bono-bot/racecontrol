@@ -33,6 +33,8 @@ theme = "dark"
 
 [ai_debugger]
 enabled = true
+claude_cli_enabled = true
+claude_cli_timeout_secs = 30
 ollama_url = "http://localhost:11434"
 ollama_model = "llama3.1:8b"
 chat_enabled = true

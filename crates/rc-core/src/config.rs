@@ -123,6 +123,10 @@ pub struct WhatsAppConfig {
 pub struct AiDebuggerConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub claude_cli_enabled: bool,
+    #[serde(default = "default_claude_cli_timeout")]
+    pub claude_cli_timeout_secs: u32,
     #[serde(default = "default_ollama_url")]
     pub ollama_url: String,
     #[serde(default = "default_ollama_model")]
@@ -140,6 +144,8 @@ impl Default for AiDebuggerConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            claude_cli_enabled: true,
+            claude_cli_timeout_secs: default_claude_cli_timeout(),
             ollama_url: default_ollama_url(),
             ollama_model: default_ollama_model(),
             anthropic_api_key: None,
@@ -297,6 +303,7 @@ fn default_otp_expiry() -> u64 { 300 }
 fn default_watchdog_interval() -> u64 { 10 }
 fn default_heartbeat_timeout() -> i64 { 30 }
 fn default_restart_cooldown() -> i64 { 120 }
+fn default_claude_cli_timeout() -> u32 { 30 }
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_ollama_model() -> String { "llama3.1:8b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }
