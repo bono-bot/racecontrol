@@ -438,13 +438,12 @@ pub async fn start_billing_session(
     pricing_tier_id: String,
     custom_price_paise: Option<u32>,
     custom_duration_minutes: Option<u32>,
-) -> Option<String> {
+) -> Result<String, String> {
     // Check no active session on this pod
     {
         let timers = state.billing.active_timers.read().await;
         if timers.contains_key(&pod_id) {
-            tracing::warn!("Pod {} already has an active billing session", pod_id);
-            return None;
+            return Err(format!("Pod {} already has an active billing session", pod_id));
         }
     }
 
@@ -459,12 +458,10 @@ pub async fn start_billing_session(
     let tier = match tier {
         Ok(Some(t)) => t,
         Ok(None) => {
-            tracing::warn!("Pricing tier {} not found or inactive", pricing_tier_id);
-            return None;
+            return Err(format!("Pricing tier '{}' not found or inactive", pricing_tier_id));
         }
         Err(e) => {
-            tracing::error!("DB error looking up tier: {}", e);
-            return None;
+            return Err(format!("DB error looking up tier: {}", e));
         }
     };
 
@@ -481,16 +478,13 @@ pub async fn start_billing_session(
 
         match has_used {
             Ok(Some((true,))) => {
-                tracing::warn!("Driver {} has already used their free trial", driver_id);
-                return None;
+                return Err("Driver has already used their free trial".to_string());
             }
             Ok(None) => {
-                tracing::warn!("Driver {} not found", driver_id);
-                return None;
+                return Err(format!("Driver '{}' not found", driver_id));
             }
             Err(e) => {
-                tracing::error!("DB error checking trial: {}", e);
-                return None;
+                return Err(format!("DB error checking trial: {}", e));
             }
             _ => {} // OK, hasn't used trial
         }
@@ -624,7 +618,7 @@ pub async fn start_billing_session(
         tier.1
     );
 
-    Some(session_id)
+    Ok(session_id)
 }
 
 async fn set_billing_status(

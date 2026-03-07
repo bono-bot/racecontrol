@@ -962,10 +962,10 @@ async fn start_billing(
     .await;
 
     match session_id {
-        Some(id) => Json(json!({ "ok": true, "billing_session_id": id })),
-        None => {
+        Ok(id) => Json(json!({ "ok": true, "billing_session_id": id })),
+        Err(reason) => {
             state.record_api_error("billing/start");
-            Json(json!({ "error": "Failed to start billing session (check server logs)" }))
+            Json(json!({ "error": reason }))
         }
     }
 }
@@ -3400,13 +3400,13 @@ async fn customer_continue_session(
     )
     .await
     {
-        Some(id) => id,
-        None => {
+        Ok(id) => id,
+        Err(reason) => {
             // Refund on failure
             if price_paise > 0 {
                 let _ = wallet::refund(&state, &driver_id, price_paise, None, Some("Continue failed — auto-refund")).await;
             }
-            return Json(json!({ "error": "Failed to start billing session" }));
+            return Json(json!({ "error": reason }));
         }
     };
 

@@ -358,8 +358,7 @@ pub async fn validate_pin(
         custom_price_paise,
         custom_duration_minutes,
     )
-    .await
-    .ok_or_else(|| "Failed to start billing session".to_string())?;
+    .await?;
 
     // Finalize token as consumed with billing session ID
     if let Err(e) = sqlx::query(
@@ -456,8 +455,7 @@ pub async fn validate_qr(
         custom_price_paise,
         custom_duration_minutes,
     )
-    .await
-    .ok_or_else(|| "Failed to start billing session".to_string())?;
+    .await?;
 
     // Finalize token as consumed with billing session ID
     if let Err(e) = sqlx::query(
@@ -542,8 +540,7 @@ pub async fn start_now(
         custom_price_paise,
         custom_duration_minutes,
     )
-    .await
-    .ok_or_else(|| "Failed to start billing session".to_string())?;
+    .await?;
 
     // Finalize token as consumed with billing session ID
     if let Err(e) = sqlx::query(
@@ -1034,8 +1031,7 @@ pub async fn validate_pin_kiosk(
         custom_price_paise,
         custom_duration_minutes,
     )
-    .await
-    .ok_or_else(|| "Failed to start billing session".to_string())?;
+    .await?;
 
     // Finalize token as consumed with billing session ID
     if let Err(e) = sqlx::query(
