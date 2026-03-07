@@ -13,8 +13,14 @@ import { api } from "@/lib/api";
 import type { AuthTokenInfo } from "@/lib/types";
 
 export default function StaffTerminal() {
-  const [staffName, setStaffName] = useState<string | null>(null);
-  const [staffId, setStaffId] = useState<string | null>(null);
+  const [staffName, setStaffName] = useState<string | null>(() => {
+    if (typeof window !== "undefined") return sessionStorage.getItem("kiosk_staff_name");
+    return null;
+  });
+  const [staffId, setStaffId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") return sessionStorage.getItem("kiosk_staff_id");
+    return null;
+  });
 
   const {
     connected,
@@ -175,11 +181,18 @@ export default function StaffTerminal() {
   const handleSignOut = () => {
     setStaffName(null);
     setStaffId(null);
+    sessionStorage.removeItem("kiosk_staff_name");
+    sessionStorage.removeItem("kiosk_staff_id");
   };
 
   // ─── Auth Gate ──────────────────────────────────────────────────────────
   if (!staffName) {
-    return <StaffLoginScreen onAuthenticated={(id, name) => { setStaffId(id); setStaffName(name); }} />;
+    return <StaffLoginScreen onAuthenticated={(id, name) => {
+      setStaffId(id);
+      setStaffName(name);
+      sessionStorage.setItem("kiosk_staff_id", id);
+      sessionStorage.setItem("kiosk_staff_name", name);
+    }} />;
   }
 
   return (
