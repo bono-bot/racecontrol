@@ -926,6 +926,7 @@ async fn start_billing(
     let pricing_tier_id = body.get("pricing_tier_id").and_then(|v| v.as_str()).unwrap_or("");
     let custom_price_paise = body.get("custom_price_paise").and_then(|v| v.as_u64()).map(|v| v as u32);
     let custom_duration_minutes = body.get("custom_duration_minutes").and_then(|v| v.as_u64()).map(|v| v as u32);
+    let staff_id = body.get("staff_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     if pod_id.is_empty() || driver_id.is_empty() || pricing_tier_id.is_empty() {
         return Json(json!({ "error": "pod_id, driver_id, and pricing_tier_id are required" }));
@@ -973,6 +974,7 @@ async fn start_billing(
         pricing_tier_id.to_string(),
         custom_price_paise,
         custom_duration_minutes,
+        staff_id,
     )
     .await;
 
@@ -1279,13 +1281,14 @@ async fn daily_billing_report(
         .date
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
 
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, Option<String>, Option<String>)>(
         "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, pt.name, bs.allocated_seconds,
                 bs.driving_seconds, bs.status, COALESCE(bs.custom_price_paise, pt.price_paise),
-                bs.started_at, bs.ended_at
+                bs.started_at, bs.ended_at, bs.staff_id, sm.name
          FROM billing_sessions bs
          JOIN drivers d ON bs.driver_id = d.id
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
+         LEFT JOIN staff_members sm ON bs.staff_id = sm.id
          WHERE date(bs.started_at) = ?
          ORDER BY bs.started_at ASC",
     )
@@ -1303,6 +1306,23 @@ async fn daily_billing_report(
                 .sum();
             let total_driving_seconds: i64 = sessions.iter().map(|s| s.6).sum();
 
+            // Build staff summary
+            let mut staff_map: std::collections::HashMap<String, (String, usize, i64)> = std::collections::HashMap::new();
+            for s in &sessions {
+                if s.7 == "cancelled" { continue; }
+                let staff_key = s.11.clone().unwrap_or_default();
+                let staff_name = s.12.clone().unwrap_or_else(|| "Walk-in / Self".to_string());
+                let entry = staff_map.entry(staff_key).or_insert((staff_name, 0, 0));
+                entry.1 += 1;
+                entry.2 += s.8;
+            }
+            let staff_summary: Vec<Value> = staff_map
+                .into_iter()
+                .map(|(id, (name, count, revenue))| {
+                    json!({ "staff_id": id, "staff_name": name, "sessions": count, "revenue_paise": revenue })
+                })
+                .collect();
+
             let list: Vec<Value> = sessions
                 .iter()
                 .map(|s| {
@@ -1312,6 +1332,7 @@ async fn daily_billing_report(
                         "allocated_seconds": s.5, "driving_seconds": s.6,
                         "status": s.7, "price_paise": s.8,
                         "started_at": s.9, "ended_at": s.10,
+                        "staff_id": s.11, "staff_name": s.12,
                     })
                 })
                 .collect();
@@ -1321,6 +1342,7 @@ async fn daily_billing_report(
                 "total_sessions": total_sessions,
                 "total_revenue_paise": total_revenue_paise,
                 "total_driving_seconds": total_driving_seconds,
+                "staff_summary": staff_summary,
                 "sessions": list,
             }))
         }
@@ -3624,6 +3646,7 @@ async fn customer_continue_session(
         req.pricing_tier_id.clone(),
         None,
         None,
+        None, // customer-initiated continue
     )
     .await
     {

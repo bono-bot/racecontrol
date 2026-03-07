@@ -357,6 +357,7 @@ pub async fn validate_pin(
         pricing_tier_id,
         custom_price_paise,
         custom_duration_minutes,
+        None, // customer PIN auth
     )
     .await?;
 
@@ -454,6 +455,7 @@ pub async fn validate_qr(
         pricing_tier_id,
         custom_price_paise,
         custom_duration_minutes,
+        None, // customer QR auth
     )
     .await?;
 
@@ -539,6 +541,7 @@ pub async fn start_now(
         pricing_tier_id,
         custom_price_paise,
         custom_duration_minutes,
+        None, // PWA token auth
     )
     .await?;
 
@@ -1030,6 +1033,7 @@ pub async fn validate_pin_kiosk(
         pricing_tier_id.clone(),
         custom_price_paise,
         custom_duration_minutes,
+        None, // kiosk PIN validation
     )
     .await?;
 

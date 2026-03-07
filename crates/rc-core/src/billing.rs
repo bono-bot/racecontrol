@@ -466,6 +466,7 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
             pricing_tier_id,
             custom_price_paise,
             custom_duration_minutes,
+            staff_id,
         } => {
             let _ = start_billing_session(
                 state,
@@ -474,6 +475,7 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
                 pricing_tier_id,
                 custom_price_paise,
                 custom_duration_minutes,
+                staff_id,
             )
             .await;
         }
@@ -516,6 +518,7 @@ pub async fn start_billing_session(
     pricing_tier_id: String,
     custom_price_paise: Option<u32>,
     custom_duration_minutes: Option<u32>,
+    staff_id: Option<String>,
 ) -> Result<String, String> {
     // Check no active session on this pod
     {
@@ -606,8 +609,8 @@ pub async fn start_billing_session(
     let now = Utc::now();
 
     let _ = sqlx::query(
-        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at)
-         VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at, staff_id)
+         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)",
     )
     .bind(&session_id)
     .bind(&driver_id)
@@ -616,6 +619,7 @@ pub async fn start_billing_session(
     .bind(allocated_seconds as i64)
     .bind(final_price_paise)
     .bind(now.to_rfc3339())
+    .bind(&staff_id)
     .execute(&state.db)
     .await;
 

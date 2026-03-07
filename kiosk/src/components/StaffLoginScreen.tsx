@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 
 interface StaffLoginScreenProps {
-  onAuthenticated: (staffName: string) => void;
+  onAuthenticated: (staffId: string, staffName: string) => void;
 }
 
 type LoginStep = "idle" | "pin_entry" | "validating" | "error";
@@ -40,7 +40,7 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
         setStep("error");
         return;
       }
-      onAuthenticated(res.staff_name || "Staff");
+      onAuthenticated(res.staff_id || "", res.staff_name || "Staff");
     } catch {
       setErrorMsg("Network error - please try again");
       setStep("error");

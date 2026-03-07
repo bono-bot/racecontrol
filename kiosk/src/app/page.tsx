@@ -14,6 +14,7 @@ import type { AuthTokenInfo } from "@/lib/types";
 
 export default function StaffTerminal() {
   const [staffName, setStaffName] = useState<string | null>(null);
+  const [staffId, setStaffId] = useState<string | null>(null);
 
   const {
     connected,
@@ -87,6 +88,7 @@ export default function StaffTerminal() {
         pod_id: data.pod_id,
         driver_id: data.driver_id,
         pricing_tier_id: data.pricing_tier_id,
+        staff_id: staffId || undefined,
       });
 
       if (result.error) {
@@ -172,11 +174,12 @@ export default function StaffTerminal() {
 
   const handleSignOut = () => {
     setStaffName(null);
+    setStaffId(null);
   };
 
   // ─── Auth Gate ──────────────────────────────────────────────────────────
   if (!staffName) {
-    return <StaffLoginScreen onAuthenticated={setStaffName} />;
+    return <StaffLoginScreen onAuthenticated={(id, name) => { setStaffId(id); setStaffName(name); }} />;
   }
 
   return (

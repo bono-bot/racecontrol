@@ -38,6 +38,7 @@ export const api = {
     pod_id: string;
     driver_id: string;
     pricing_tier_id: string;
+    staff_id?: string;
   }) =>
     fetchApi<{ ok?: boolean; error?: string; billing_session_id?: string }>("/billing/start", {
       method: "POST",

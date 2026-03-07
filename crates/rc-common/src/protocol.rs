@@ -375,6 +375,7 @@ pub enum DashboardCommand {
         pricing_tier_id: String,
         custom_price_paise: Option<u32>,
         custom_duration_minutes: Option<u32>,
+        staff_id: Option<String>,
     },
 
     /// Manually pause billing (staff-initiated)

@@ -749,6 +749,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN wallet_txn_id TEXT")
         .execute(pool)
         .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN staff_id TEXT")
+        .execute(pool)
+        .await;
 
     // ─── Cloud sync tables ───────────────────────────────────────────────────
     sqlx::query(
