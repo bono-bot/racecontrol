@@ -310,13 +310,16 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
     drop(pods);
 
     // Push wallet balances (venue is authoritative for debits)
+    // Include driver phone/email so cloud can match by identity when IDs differ
     let wallets = sqlx::query_as::<_, (String,)>(
         "SELECT json_object(
-            'driver_id', driver_id, 'balance_paise', balance_paise,
-            'total_credited_paise', total_credited_paise,
-            'total_debited_paise', total_debited_paise,
-            'updated_at', updated_at
-        ) FROM wallets WHERE updated_at > ?",
+            'driver_id', w.driver_id, 'balance_paise', w.balance_paise,
+            'total_credited_paise', w.total_credited_paise,
+            'total_debited_paise', w.total_debited_paise,
+            'updated_at', w.updated_at,
+            'phone', d.phone, 'email', d.email
+        ) FROM wallets w JOIN drivers d ON d.id = w.driver_id
+        WHERE w.updated_at > ?",
     )
     .bind(&last_push)
     .fetch_all(&state.db)

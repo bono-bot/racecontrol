@@ -4604,26 +4604,73 @@ async fn sync_push(
     }
 
     // Upsert wallets (venue pushes balances after billing debits)
+    // Handles ID mismatch: if direct driver_id doesn't match, resolve by phone/email
     if let Some(wallets) = body.get("wallets").and_then(|v| v.as_array()) {
         for w in wallets {
             let driver_id = w.get("driver_id").and_then(|v| v.as_str()).unwrap_or_default();
             if driver_id.is_empty() { continue; }
+
+            let balance = w.get("balance_paise").and_then(|v| v.as_i64()).unwrap_or(0);
+            let credited = w.get("total_credited_paise").and_then(|v| v.as_i64()).unwrap_or(0);
+            let debited = w.get("total_debited_paise").and_then(|v| v.as_i64()).unwrap_or(0);
+            let updated = w.get("updated_at").and_then(|v| v.as_str()).unwrap_or("");
+
+            // Try direct driver_id match first
             let r = sqlx::query(
                 "UPDATE wallets SET
-                    balance_paise = ?,
-                    total_credited_paise = ?,
-                    total_debited_paise = ?,
-                    updated_at = ?
+                    balance_paise = ?, total_credited_paise = ?,
+                    total_debited_paise = ?, updated_at = ?
                  WHERE driver_id = ?",
             )
-            .bind(w.get("balance_paise").and_then(|v| v.as_i64()).unwrap_or(0))
-            .bind(w.get("total_credited_paise").and_then(|v| v.as_i64()).unwrap_or(0))
-            .bind(w.get("total_debited_paise").and_then(|v| v.as_i64()).unwrap_or(0))
-            .bind(w.get("updated_at").and_then(|v| v.as_str()))
+            .bind(balance).bind(credited).bind(debited).bind(updated)
             .bind(driver_id)
             .execute(&state.db)
             .await;
-            if r.is_ok() { total += 1; }
+
+            let rows = r.as_ref().map(|r| r.rows_affected()).unwrap_or(0);
+            if rows > 0 {
+                total += 1;
+                continue;
+            }
+
+            // ID didn't match — try to find local driver by phone or email
+            let phone = w.get("phone").and_then(|v| v.as_str()).unwrap_or("");
+            let email = w.get("email").and_then(|v| v.as_str()).unwrap_or("");
+
+            let resolved: Option<(String,)> = if !phone.is_empty() {
+                sqlx::query_as("SELECT id FROM drivers WHERE phone = ?")
+                    .bind(phone)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+            } else if !email.is_empty() {
+                sqlx::query_as("SELECT id FROM drivers WHERE email = ?")
+                    .bind(email)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+
+            if let Some((local_id,)) = resolved {
+                let r2 = sqlx::query(
+                    "UPDATE wallets SET
+                        balance_paise = ?, total_credited_paise = ?,
+                        total_debited_paise = ?, updated_at = ?
+                     WHERE driver_id = ?",
+                )
+                .bind(balance).bind(credited).bind(debited).bind(updated)
+                .bind(&local_id)
+                .execute(&state.db)
+                .await;
+                if r2.is_ok() {
+                    tracing::info!("Wallet sync: resolved {} -> {} by phone/email", driver_id, local_id);
+                    total += 1;
+                }
+            }
         }
     }
 
