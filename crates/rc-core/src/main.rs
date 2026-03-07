@@ -13,6 +13,7 @@ mod friends;
 mod game_launcher;
 mod multiplayer;
 mod lap_tracker;
+mod pod_healer;
 mod pod_monitor;
 mod pod_reservation;
 mod remote_terminal;
@@ -183,6 +184,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn pod monitor (Tier 2: detect stale pods, auto-restart via pod-agent)
     pod_monitor::spawn(state.clone());
+
+    // Spawn pod healer (Tier 3: deep diagnostics, auto-fix zombies, AI escalation)
+    pod_healer::spawn(state.clone());
 
     // Spawn smart scheduler (auto-wake/shutdown pods, peak hour tracking)
     scheduler::spawn(state.clone());

@@ -26,6 +26,8 @@ enabled = true
 [pods]
 count = 16
 discovery = true
+healer_enabled = true
+healer_interval_secs = 120
 
 [branding]
 primary_color = "#FF4400"

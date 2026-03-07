@@ -69,6 +69,10 @@ pub struct PodsConfig {
     pub discovery: bool,
     #[serde(default, rename = "static")]
     pub static_pods: Vec<StaticPodConfig>,
+    #[serde(default = "default_true")]
+    pub healer_enabled: bool,
+    #[serde(default = "default_healer_interval")]
+    pub healer_interval_secs: u32,
 }
 
 impl Default for PodsConfig {
@@ -77,6 +81,8 @@ impl Default for PodsConfig {
             count: 16,
             discovery: true,
             static_pods: Vec::new(),
+            healer_enabled: true,
+            healer_interval_secs: default_healer_interval(),
         }
     }
 }
@@ -307,3 +313,4 @@ fn default_claude_cli_timeout() -> u32 { 30 }
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_ollama_model() -> String { "llama3.1:8b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }
+fn default_healer_interval() -> u32 { 120 }
