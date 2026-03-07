@@ -23,7 +23,6 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [tiers, setTiers] = useState<PricingTier[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
-  const [authType, setAuthType] = useState<"pin" | "qr">("pin");
 
   useEffect(() => {
     api.listDrivers().then((res) => setDrivers(res.drivers || []));
@@ -61,7 +60,7 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
       pod_id: podId,
       driver_id: selectedDriver.id,
       pricing_tier_id: tier.id,
-      auth_type: authType,
+      auth_type: "pin",
     });
   }
 
@@ -71,7 +70,7 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-rp-border">
           <h2 className="text-sm font-semibold">
-            {step === "driver" ? "Register Driver" : "Select Plan"} — Pod {podId.slice(-4)}
+            {step === "driver" ? "Register Driver" : "Select Plan"} — Pod {podId.replace(/\D/g, "")}
           </h2>
           <button onClick={onCancel} className="text-rp-grey hover:text-white text-lg">&times;</button>
         </div>
@@ -147,30 +146,6 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
               <div className="text-center mb-2">
                 <p className="text-sm text-rp-grey">Driver</p>
                 <p className="text-white font-semibold">{selectedDriver.name}</p>
-              </div>
-
-              {/* Auth Type Toggle */}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setAuthType("pin")}
-                  className={`flex-1 py-2 text-sm rounded border transition-colors ${
-                    authType === "pin"
-                      ? "border-rp-red text-rp-red bg-rp-red/10"
-                      : "border-rp-border text-rp-grey hover:text-white"
-                  }`}
-                >
-                  PIN Code
-                </button>
-                <button
-                  onClick={() => setAuthType("qr")}
-                  className={`flex-1 py-2 text-sm rounded border transition-colors ${
-                    authType === "qr"
-                      ? "border-rp-red text-rp-red bg-rp-red/10"
-                      : "border-rp-border text-rp-grey hover:text-white"
-                  }`}
-                >
-                  QR Code
-                </button>
               </div>
 
               {/* Tiers */}

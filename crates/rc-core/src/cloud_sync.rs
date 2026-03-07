@@ -165,12 +165,9 @@ async fn sync_once(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()>
                 .iter()
                 .map(|(k, v)| (k.clone(), v.as_str().unwrap_or(&v.to_string()).to_string()))
                 .collect();
-            let msg = rc_common::protocol::CoreToAgentMessage::SettingsUpdated { settings: settings_map };
-            let agent_senders = state.agent_senders.read().await;
-            for sender in agent_senders.values() {
-                let _ = sender.send(msg.clone()).await;
-            }
-            tracing::info!("Cloud sync: kiosk settings updated and broadcast to {} agents", agent_senders.len());
+            state.broadcast_settings(&settings_map).await;
+            let agent_count = state.agent_senders.read().await.len();
+            tracing::info!("Cloud sync: kiosk settings updated and broadcast to {} agents", agent_count);
         }
     }
 

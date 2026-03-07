@@ -93,7 +93,8 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 if !rows.is_empty() {
                                     let settings: std::collections::HashMap<String, String> =
                                         rows.into_iter().collect();
-                                    let _ = cmd_tx.send(CoreToAgentMessage::SettingsUpdated { settings }).await;
+                                    let pod_settings = state.settings_for_pod(&settings, pod_info.number).await;
+                                    let _ = cmd_tx.send(CoreToAgentMessage::SettingsUpdated { settings: pod_settings }).await;
                                     tracing::info!("Sent initial kiosk settings to pod {}", pod_info.number);
                                 }
                             }

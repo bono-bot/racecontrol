@@ -98,6 +98,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
   const carCategories = ["Featured", ...(catalog?.categories.cars || []), "All"];
 
   function handleLaunch() {
+    const preset = DIFFICULTY_PRESETS[difficulty];
     const launchArgs = JSON.stringify({
       car: car?.id || "",
       track: track?.id || "",
@@ -106,6 +107,8 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
       transmission,
       game,
       game_mode: gameMode,
+      aids: preset?.aids || { abs: 1, tc: 1, stability: 1, autoclutch: 1, ideal_line: 1 },
+      conditions: { damage: 0 },
     });
     onLaunch(game, launchArgs);
   }

@@ -81,17 +81,23 @@ export default function StaffTerminal() {
     pricing_tier_id: string;
     auth_type: string;
   }) => {
-    // Assign customer (creates auth token)
-    const assignResult = await api.assignCustomer(data);
-    setRegisterPodId(null);
+    // Staff flow: start billing directly (no PIN on pod)
+    try {
+      const result = await api.startBilling({
+        pod_id: data.pod_id,
+        driver_id: data.driver_id,
+        pricing_tier_id: data.pricing_tier_id,
+      });
 
-    // Direct launch: immediately start billing (skip PIN waiting)
-    const token = assignResult.token as { id?: string } | undefined;
-    if (token?.id) {
-      const startResult = await api.startNow(token.id);
-      if (!startResult.error) {
-        setGamePodId(data.pod_id);
+      if (result.error) {
+        alert(`Billing failed: ${result.error}`);
+        return;
       }
+
+      setRegisterPodId(null);
+      setGamePodId(data.pod_id);
+    } catch (err) {
+      alert(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
     }
   };
 

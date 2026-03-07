@@ -226,6 +226,25 @@ async fn launch_or_assist(
         return None;
     };
 
+    // Look up billing session duration and inject into launch args
+    let duration_minutes: u32 = sqlx::query_as::<_, (i64,)>(
+        "SELECT allocated_seconds FROM billing_sessions WHERE id = ?",
+    )
+    .bind(billing_session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|(secs,)| (secs as u32) / 60)
+    .unwrap_or(60);
+
+    // Inject duration_minutes into launch_args JSON
+    let launch_args_json = {
+        let mut parsed: serde_json::Value = serde_json::from_str(&launch_args_json).unwrap_or_default();
+        parsed["duration_minutes"] = serde_json::json!(duration_minutes);
+        parsed.to_string()
+    };
+
     let sim_type = match game.as_str() {
         "assetto_corsa" | "ac" => rc_common::types::SimType::AssettoCorsa,
         "iracing" => rc_common::types::SimType::IRacing,

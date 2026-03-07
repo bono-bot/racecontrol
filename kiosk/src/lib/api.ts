@@ -39,7 +39,7 @@ export const api = {
     driver_id: string;
     pricing_tier_id: string;
   }) =>
-    fetchApi<{ ok: boolean }>("/billing/start", {
+    fetchApi<{ ok?: boolean; error?: string; billing_session_id?: string }>("/billing/start", {
       method: "POST",
       body: JSON.stringify(data),
     }),
