@@ -137,7 +137,8 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     let _ = sqlx::query(
         "UPDATE drivers SET
             total_laps = COALESCE(total_laps, 0) + 1,
-            total_time_ms = COALESCE(total_time_ms, 0) + ?
+            total_time_ms = COALESCE(total_time_ms, 0) + ?,
+            updated_at = datetime('now')
          WHERE id = ?",
     )
     .bind(lap.lap_time_ms as i64)

@@ -4383,6 +4383,27 @@ async fn sync_changes(
                     result["kiosk_experiences"] = json!(items);
                 }
             }
+            "pricing_rules" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'rule_name', rule_name, 'rule_type', rule_type,
+                        'day_of_week', day_of_week, 'hour_start', hour_start,
+                        'hour_end', hour_end, 'multiplier', multiplier,
+                        'flat_adjustment_paise', flat_adjustment_paise,
+                        'is_active', is_active
+                    ) FROM pricing_rules",
+                )
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["pricing_rules"] = json!(items);
+                }
+            }
             "kiosk_settings" => {
                 // kiosk_settings is a key-value table, return as a flat object
                 let rows = sqlx::query_as::<_, (String, String)>(
@@ -4547,6 +4568,61 @@ async fn sync_push(
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
+        }
+    }
+
+    // Merge driver updates from venue (venue-owned fields only)
+    if let Some(drivers) = body.get("drivers").and_then(|v| v.as_array()) {
+        for d in drivers {
+            let id = d.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+
+            // Only update venue-owned fields, never overwrite cloud-owned fields (name, email, phone)
+            let venue_updated = d.get("updated_at").and_then(|v| v.as_str()).unwrap_or("");
+
+            // Check if cloud has a newer update for this driver
+            let cloud_ts: Option<(Option<String>,)> = sqlx::query_as(
+                "SELECT updated_at FROM drivers WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            // Only apply venue fields if venue's updated_at is newer
+            let should_apply = match &cloud_ts {
+                Some((Some(ts),)) => venue_updated > ts.as_str(),
+                Some((None,)) => true,
+                None => false, // Driver doesn't exist on cloud — skip partial update
+            };
+
+            if should_apply {
+                let r = sqlx::query(
+                    "UPDATE drivers SET
+                        has_used_trial = MAX(COALESCE(has_used_trial, 0), ?),
+                        total_laps = MAX(COALESCE(total_laps, 0), ?),
+                        total_time_ms = MAX(COALESCE(total_time_ms, 0), ?),
+                        registration_completed = MAX(COALESCE(registration_completed, 0), ?),
+                        waiver_signed = MAX(COALESCE(waiver_signed, 0), ?),
+                        waiver_signed_at = COALESCE(?, waiver_signed_at),
+                        waiver_version = COALESCE(?, waiver_version),
+                        updated_at = ?
+                     WHERE id = ?",
+                )
+                .bind(d.get("has_used_trial").and_then(|v| v.as_i64()).unwrap_or(0))
+                .bind(d.get("total_laps").and_then(|v| v.as_i64()).unwrap_or(0))
+                .bind(d.get("total_time_ms").and_then(|v| v.as_i64()).unwrap_or(0))
+                .bind(d.get("registration_completed").and_then(|v| v.as_i64()).unwrap_or(0))
+                .bind(d.get("waiver_signed").and_then(|v| v.as_i64()).unwrap_or(0))
+                .bind(d.get("waiver_signed_at").and_then(|v| v.as_str()))
+                .bind(d.get("waiver_version").and_then(|v| v.as_str()))
+                .bind(venue_updated)
+                .bind(id)
+                .execute(&state.db)
+                .await;
+                if r.is_ok() { total += 1; }
+            }
         }
     }
 

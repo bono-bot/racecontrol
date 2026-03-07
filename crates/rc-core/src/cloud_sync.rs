@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::state::AppState;
 
-const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,kiosk_experiences,kiosk_settings";
+const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,kiosk_experiences,kiosk_settings";
 
 /// Spawn the cloud sync background task.
 /// Only starts if cloud.enabled = true and cloud.api_url is set.
@@ -109,6 +109,17 @@ async fn sync_once(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()>
         for tier in tiers {
             if let Err(e) = upsert_pricing_tier(state, tier).await {
                 tracing::warn!("Failed to upsert pricing tier: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert pricing_rules (dynamic pricing multipliers)
+    if let Some(rules) = body.get("pricing_rules").and_then(|v| v.as_array()) {
+        for rule in rules {
+            if let Err(e) = upsert_pricing_rule(state, rule).await {
+                tracing::warn!("Failed to upsert pricing rule: {}", e);
             } else {
                 total_upserted += 1;
             }
@@ -282,6 +293,33 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
             .collect();
         tracing::info!("Cloud sync push: {} billing sessions", items.len());
         payload["billing_sessions"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Push driver changes (has_used_trial, total_laps, total_time_ms, registration)
+    let drivers = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'has_used_trial', COALESCE(has_used_trial, 0),
+            'total_laps', COALESCE(total_laps, 0),
+            'total_time_ms', COALESCE(total_time_ms, 0),
+            'registration_completed', COALESCE(registration_completed, 0),
+            'waiver_signed', COALESCE(waiver_signed, 0),
+            'waiver_signed_at', waiver_signed_at,
+            'waiver_version', waiver_version,
+            'updated_at', updated_at
+        ) FROM drivers WHERE updated_at > ?
+        ORDER BY updated_at ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !drivers.is_empty() {
+        let items: Vec<serde_json::Value> = drivers.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} driver updates", items.len());
+        payload["drivers"] = serde_json::json!(items);
         has_data = true;
     }
 
@@ -651,6 +689,40 @@ async fn upsert_kiosk_experience(state: &Arc<AppState>, exp: &Value) -> anyhow::
     .bind(exp.get("sort_order").and_then(|v| v.as_i64()).unwrap_or(0))
     .bind(exp.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
     .bind(exp.get("updated_at").and_then(|v| v.as_str()))
+    .execute(&state.db)
+    .await?;
+
+    Ok(())
+}
+
+async fn upsert_pricing_rule(state: &Arc<AppState>, rule: &Value) -> anyhow::Result<()> {
+    let id = rule
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Pricing rule missing id"))?;
+
+    sqlx::query(
+        "INSERT INTO pricing_rules (id, rule_name, rule_type, day_of_week, hour_start, hour_end, multiplier, flat_adjustment_paise, is_active)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(id) DO UPDATE SET
+            rule_name = excluded.rule_name,
+            rule_type = excluded.rule_type,
+            day_of_week = excluded.day_of_week,
+            hour_start = excluded.hour_start,
+            hour_end = excluded.hour_end,
+            multiplier = excluded.multiplier,
+            flat_adjustment_paise = excluded.flat_adjustment_paise,
+            is_active = excluded.is_active",
+    )
+    .bind(id)
+    .bind(rule.get("rule_name").and_then(|v| v.as_str()).unwrap_or("Unknown"))
+    .bind(rule.get("rule_type").and_then(|v| v.as_str()).unwrap_or("custom"))
+    .bind(rule.get("day_of_week").and_then(|v| v.as_str()))
+    .bind(rule.get("hour_start").and_then(|v| v.as_i64()))
+    .bind(rule.get("hour_end").and_then(|v| v.as_i64()))
+    .bind(rule.get("multiplier").and_then(|v| v.as_f64()).unwrap_or(1.0))
+    .bind(rule.get("flat_adjustment_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(rule.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
     .execute(&state.db)
     .await?;
 

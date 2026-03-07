@@ -638,7 +638,7 @@ pub async fn start_billing_session(
 
     // Mark trial as used
     if is_trial {
-        let _ = sqlx::query("UPDATE drivers SET has_used_trial = 1 WHERE id = ?")
+        let _ = sqlx::query("UPDATE drivers SET has_used_trial = 1, updated_at = datetime('now') WHERE id = ?")
             .bind(&driver_id)
             .execute(&state.db)
             .await;
