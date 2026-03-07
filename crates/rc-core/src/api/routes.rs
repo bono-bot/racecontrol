@@ -4255,7 +4255,20 @@ async fn sync_changes(
             return Json(serde_json::json!({ "error": "Unauthorized" }));
         }
     }
-    let since = params.since.unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+    // Normalize ISO timestamps (2026-03-07T23:48:38Z) to SQLite format (2026-03-07 23:48:38)
+    // SQLite's datetime('now') uses space, but sync_state stores ISO with 'T'.
+    // String comparison: space (0x20) < 'T' (0x54), so "2026-03-07 23:59" < "2026-03-07T00:00"
+    // Without normalization, updated records are never returned after first sync cycle.
+    let since = params
+        .since
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
+        .replace('T', " ")
+        .trim_end_matches('Z')
+        .trim_end_matches('+')
+        .split('+')
+        .next()
+        .unwrap_or("1970-01-01 00:00:00")
+        .to_string();
     let tables: Vec<&str> = params
         .tables
         .as_deref()

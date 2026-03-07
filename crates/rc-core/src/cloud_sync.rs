@@ -13,6 +13,18 @@ use crate::state::AppState;
 
 const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,kiosk_experiences,kiosk_settings";
 
+/// Normalize ISO timestamps ("2026-03-07T23:48:38.123+00:00") to SQLite format ("2026-03-07 23:48:38").
+/// SQLite's datetime('now') uses space separator, but sync_state stores ISO with 'T'.
+/// String comparison: space (0x20) < 'T' (0x54), causing updated records to be invisible.
+fn normalize_timestamp(ts: &str) -> String {
+    ts.replace('T', " ")
+        .split('+')
+        .next()
+        .unwrap_or("1970-01-01 00:00:00")
+        .trim_end_matches('Z')
+        .to_string()
+}
+
 /// Spawn the cloud sync background task.
 /// Only starts if cloud.enabled = true and cloud.api_url is set.
 pub fn spawn(state: Arc<AppState>) {
@@ -207,7 +219,7 @@ async fn sync_once(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()>
 
 /// Push venue-generated data (laps, billing, pods, leaderboard) to cloud.
 async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
-    let last_push = get_last_push_time(state).await;
+    let last_push = normalize_timestamp(&get_last_push_time(state).await);
     let mut payload = serde_json::json!({});
     let mut has_data = false;
 
