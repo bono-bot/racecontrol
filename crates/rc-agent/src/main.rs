@@ -178,18 +178,6 @@ async fn main() -> Result<()> {
         current_game: None,
     };
 
-    // Connect to core server
-    tracing::info!("Connecting to RaceControl core at {}...", config.core.url);
-    let (ws_stream, _) = connect_async(&config.core.url).await?;
-    let (mut ws_tx, mut ws_rx) = ws_stream.split();
-    tracing::info!("Connected to core server");
-
-    // Register this pod
-    let register_msg = AgentMessage::Register(pod_info.clone());
-    let json = serde_json::to_string(&register_msg)?;
-    ws_tx.send(Message::Text(json.into())).await?;
-    tracing::info!("Registered as Pod #{}", config.pod.number);
-
     // Watchdog: ensure pod-agent.exe stays running
     tokio::spawn(async {
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -199,28 +187,16 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Create sim adapter
-    let mut adapter: Box<dyn SimAdapter> = match sim_type {
-        SimType::AssettoCorsa => Box::new(AssettoCorsaAdapter::new(
+    // Create sim adapter (None for unsupported sims — they still run heartbeats)
+    let mut adapter: Option<Box<dyn SimAdapter>> = match sim_type {
+        SimType::AssettoCorsa => Some(Box::new(AssettoCorsaAdapter::new(
             pod_id.clone(),
             config.pod.sim_ip.clone(),
             config.pod.sim_port,
-        )),
+        ))),
         _ => {
-            tracing::warn!("Sim adapter not yet implemented for {:?}, running in idle mode", sim_type);
-            // Run heartbeat loop only
-            loop {
-                let hb = AgentMessage::Heartbeat(PodInfo {
-                    last_seen: Some(Utc::now()),
-                    ..pod_info.clone()
-                });
-                let json = serde_json::to_string(&hb)?;
-                if ws_tx.send(Message::Text(json.into())).await.is_err() {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-            return Ok(());
+            tracing::warn!("Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
+            None
         }
     };
 
@@ -254,10 +230,12 @@ async fn main() -> Result<()> {
     });
 
     // Try to connect to sim (for telemetry/laps — separate from billing detection)
-    match adapter.connect() {
-        Ok(()) => tracing::info!("Connected to {} telemetry", sim_type),
-        Err(e) => {
-            tracing::warn!("Could not connect to sim: {}. Will retry...", e);
+    if let Some(ref mut adp) = adapter {
+        match adp.connect() {
+            Ok(()) => tracing::info!("Connected to {} telemetry", sim_type),
+            Err(e) => {
+                tracing::warn!("Could not connect to sim: {}. Will retry...", e);
+            }
         }
     }
 
@@ -287,32 +265,85 @@ async fn main() -> Result<()> {
     // Debug server for remote diagnostics (LAN-accessible on port 18924)
     debug_server::spawn(lock_screen.state_handle(), config.pod.name.clone(), config.pod.number);
 
-    // Main loop
-    let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(5));
-    let mut telemetry_interval = tokio::time::interval(Duration::from_millis(100));
-    let mut detector_interval = tokio::time::interval(Duration::from_millis(100));
-    let mut game_check_interval = tokio::time::interval(Duration::from_secs(2));
-    let mut kiosk_interval = tokio::time::interval(Duration::from_secs(5));
-    let mut last_lap_count: u32 = 0;
+    // ─── Reconnection Loop ──────────────────────────────────────────────────
+    // On disconnect, retry with exponential backoff. All local state
+    // (lock screen, kiosk, HID/UDP monitors, game process) persists across
+    // reconnections — only the WebSocket is re-established.
+    let mut reconnect_delay = Duration::from_secs(1);
 
     loop {
-        tokio::select! {
-            _ = heartbeat_interval.tick() => {
-                let hb = AgentMessage::Heartbeat(PodInfo {
-                    status: PodStatus::Idle, // billing state is managed by rc-core, not agent
-                    last_seen: Some(Utc::now()),
-                    driving_state: Some(detector.state()),
-                    game_state: game_process.as_ref().map(|g| g.state),
-                    current_game: game_process.as_ref().map(|g| g.sim_type),
-                    ..pod_info.clone()
-                });
-                let json = serde_json::to_string(&hb)?;
-                if ws_tx.send(Message::Text(json.into())).await.is_err() {
-                    tracing::error!("Lost connection to core server");
-                    break;
-                }
+        // Connect to core server
+        tracing::info!("Connecting to RaceControl core at {}...", config.core.url);
+        let ws_result = tokio::time::timeout(
+            Duration::from_secs(10),
+            connect_async(&config.core.url),
+        ).await;
+
+        let (ws_stream, _) = match ws_result {
+            Ok(Ok(stream)) => {
+                reconnect_delay = Duration::from_secs(1); // Reset backoff on success
+                stream
             }
+            Ok(Err(e)) => {
+                tracing::warn!("Failed to connect to core: {}. Retrying in {:?}...", e, reconnect_delay);
+                lock_screen.show_disconnected();
+                tokio::time::sleep(reconnect_delay).await;
+                reconnect_delay = (reconnect_delay * 2).min(Duration::from_secs(30));
+                continue;
+            }
+            Err(_) => {
+                tracing::warn!("Connection to core timed out. Retrying in {:?}...", reconnect_delay);
+                lock_screen.show_disconnected();
+                tokio::time::sleep(reconnect_delay).await;
+                reconnect_delay = (reconnect_delay * 2).min(Duration::from_secs(30));
+                continue;
+            }
+        };
+        let (mut ws_tx, mut ws_rx) = ws_stream.split();
+
+        // Register this pod (include current game state so core can resync)
+        let register_msg = AgentMessage::Register(PodInfo {
+            last_seen: Some(Utc::now()),
+            driving_state: Some(detector.state()),
+            game_state: game_process.as_ref().map(|g| g.state),
+            current_game: game_process.as_ref().map(|g| g.sim_type),
+            ..pod_info.clone()
+        });
+        let json = serde_json::to_string(&register_msg)?;
+        if ws_tx.send(Message::Text(json.into())).await.is_err() {
+            tracing::warn!("Failed to register with core, reconnecting...");
+            tokio::time::sleep(reconnect_delay).await;
+            continue;
+        }
+        tracing::info!("Connected and registered as Pod #{}", config.pod.number);
+
+        // Main event loop — runs until connection is lost
+        let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(5));
+        let mut telemetry_interval = tokio::time::interval(Duration::from_millis(100));
+        let mut detector_interval = tokio::time::interval(Duration::from_millis(100));
+        let mut game_check_interval = tokio::time::interval(Duration::from_secs(2));
+        let mut kiosk_interval = tokio::time::interval(Duration::from_secs(5));
+        let mut last_lap_count: u32 = 0;
+
+        loop {
+            tokio::select! {
+                _ = heartbeat_interval.tick() => {
+                    let hb = AgentMessage::Heartbeat(PodInfo {
+                        status: PodStatus::Idle, // billing state is managed by rc-core, not agent
+                        last_seen: Some(Utc::now()),
+                        driving_state: Some(detector.state()),
+                        game_state: game_process.as_ref().map(|g| g.state),
+                        current_game: game_process.as_ref().map(|g| g.sim_type),
+                        ..pod_info.clone()
+                    });
+                    let json = serde_json::to_string(&hb)?;
+                    if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                        tracing::error!("Lost connection to core server");
+                        break; // → reconnection loop
+                    }
+                }
             _ = telemetry_interval.tick() => {
+                let Some(ref mut adapter) = adapter else { continue };
                 if !adapter.is_connected() {
                     let _ = adapter.connect();
                     continue;
@@ -508,7 +539,7 @@ async fn main() -> Result<()> {
                                     // AC gets special handling: kill → write race.ini → launch → restart Conspit
                                     if launch_sim == SimType::AssettoCorsa {
                                         // Disconnect telemetry adapter before killing AC
-                                        adapter.disconnect();
+                                        if let Some(ref mut adp) = adapter { adp.disconnect(); }
 
                                         // Parse launch params from JSON
                                         let params: ac_launcher::AcLaunchParams = match &launch_args {
@@ -518,6 +549,10 @@ async fn main() -> Result<()> {
                                                 driver: "Driver".to_string(),
                                                 track_config: String::new(),
                                                 skin: "00_default".to_string(),
+                                                transmission: "manual".to_string(),
+                                                aids: None,
+                                                conditions: None,
+                                                duration_minutes: 60,
                                             }),
                                             None => ac_launcher::AcLaunchParams {
                                                 car: "ks_ferrari_sf15t".to_string(),
@@ -525,6 +560,10 @@ async fn main() -> Result<()> {
                                                 driver: "Driver".to_string(),
                                                 track_config: String::new(),
                                                 skin: "00_default".to_string(),
+                                                transmission: "manual".to_string(),
+                                                aids: None,
+                                                conditions: None,
+                                                duration_minutes: 60,
                                             },
                                         };
 
@@ -577,9 +616,11 @@ async fn main() -> Result<()> {
                                                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
 
                                                 // Reconnect telemetry adapter to new AC instance
-                                                match adapter.connect() {
-                                                    Ok(()) => tracing::info!("Reconnected to AC telemetry"),
-                                                    Err(e) => tracing::warn!("Could not reconnect telemetry: {}", e),
+                                                if let Some(ref mut adp) = adapter {
+                                                    match adp.connect() {
+                                                        Ok(()) => tracing::info!("Reconnected to AC telemetry"),
+                                                        Err(e) => tracing::warn!("Could not reconnect telemetry: {}", e),
+                                                    }
                                                 }
                                             }
                                             Err(e) => {
@@ -745,20 +786,20 @@ async fn main() -> Result<()> {
                     }
                     Some(Ok(Message::Close(_))) | None => {
                         tracing::info!("Core server closed connection");
-                        break;
+                        break; // → reconnection loop
                     }
                     _ => {}
                 }
             }
         }
-    }
+        } // end inner event loop
 
-    if kiosk_enabled {
-        kiosk.deactivate();
-        lock_screen.clear();
-    }
-    adapter.disconnect();
-    Ok(())
+        // Connection lost — show disconnected state and retry
+        tracing::warn!("Disconnected from core server, will reconnect in {:?}...", reconnect_delay);
+        lock_screen.show_disconnected();
+        tokio::time::sleep(reconnect_delay).await;
+        reconnect_delay = (reconnect_delay * 2).min(Duration::from_secs(30));
+    } // end reconnection loop
 }
 
 fn load_config() -> Result<AgentConfig> {

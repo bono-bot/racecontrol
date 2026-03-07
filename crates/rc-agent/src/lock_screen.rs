@@ -58,6 +58,8 @@ pub enum LockScreenState {
     },
     /// Screen blanked — pure black screen between sessions.
     ScreenBlanked,
+    /// Disconnected from core server — shown during reconnection attempts.
+    Disconnected,
 }
 
 /// Events emitted by the lock screen to the agent main loop.
@@ -244,16 +246,29 @@ impl LockScreenManager {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::ScreenBlanked;
         }
+        #[cfg(windows)]
+        suppress_notifications(true);
         self.launch_browser();
     }
 
     /// Clear/dismiss the lock screen.
+    pub fn show_disconnected(&mut self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // Don't override active sessions — customer might still be driving
+        if matches!(*state, LockScreenState::ActiveSession { .. }) {
+            return;
+        }
+        *state = LockScreenState::Disconnected;
+    }
+
     pub fn clear(&mut self) {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::Hidden;
         }
         self.close_browser();
+        #[cfg(windows)]
+        suppress_notifications(false);
     }
 
     #[cfg(windows)]
@@ -273,6 +288,14 @@ impl LockScreenManager {
                     &url,
                     "--edge-kiosk-type=fullscreen",
                     "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-notifications",
+                    "--disable-popup-blocking",
+                    "--disable-infobars",
+                    "--disable-session-crashed-bubble",
+                    "--disable-component-update",
+                    "--autoplay-policy=no-user-gesture-required",
+                    "--suppress-message-center-popups",
                 ])
                 .spawn()
             {
@@ -327,6 +350,65 @@ impl LockScreenManager {
     fn close_browser(&mut self) {
         // Kill any kiosk browser we may have spawned
         let _ = std::process::Command::new("pkill").args(["-f", &format!("127.0.0.1:{}", self.port)]).spawn();
+    }
+}
+
+/// Suppress or restore Windows toast notifications and popups.
+/// When `suppress=true`: enables Focus Assist (Do Not Disturb), kills notification center.
+/// When `suppress=false`: restores normal notification behavior.
+#[cfg(windows)]
+fn suppress_notifications(suppress: bool) {
+    if suppress {
+        // Enable Focus Assist (priority only) via registry — suppresses all toast notifications
+        let _ = std::process::Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings",
+                "/v", "NOC_GLOBAL_SETTING_TOASTS_ENABLED",
+                "/t", "REG_DWORD",
+                "/d", "0",
+                "/f",
+            ])
+            .output();
+        // Disable balloon notifications
+        let _ = std::process::Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Policies\Microsoft\Windows\Explorer",
+                "/v", "DisableNotificationCenter",
+                "/t", "REG_DWORD",
+                "/d", "1",
+                "/f",
+            ])
+            .output();
+        // Kill any active notification toasts / action center
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command",
+                "Get-Process -Name 'ShellExperienceHost' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"])
+            .output();
+        tracing::info!("Notifications suppressed for blanking screen");
+    } else {
+        // Re-enable toast notifications
+        let _ = std::process::Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings",
+                "/v", "NOC_GLOBAL_SETTING_TOASTS_ENABLED",
+                "/t", "REG_DWORD",
+                "/d", "1",
+                "/f",
+            ])
+            .output();
+        // Re-enable notification center
+        let _ = std::process::Command::new("reg")
+            .args([
+                "delete",
+                r"HKCU\Software\Policies\Microsoft\Windows\Explorer",
+                "/v", "DisableNotificationCenter",
+                "/f",
+            ])
+            .output();
+        tracing::info!("Notifications restored after blanking screen cleared");
     }
 }
 
@@ -457,6 +539,7 @@ fn render_page(state: &LockScreenState) -> String {
             message,
         } => render_assistance_page(driver_name, message),
         LockScreenState::ScreenBlanked => render_blank_page(),
+        LockScreenState::Disconnected => render_disconnected_page(),
     }
 }
 
@@ -475,6 +558,18 @@ fn page_shell(title: &str, content: &str) -> String {
 
 fn render_blank_page() -> String {
     page_shell("Racing Point", BLANK_PIN_PAGE)
+}
+
+fn render_disconnected_page() -> String {
+    page_shell(
+        "Racing Point — Reconnecting",
+        r#"<div style="text-align:center;padding-top:30vh">
+<div style="font-family:Enthocentric,sans-serif;font-size:2em;color:#E10600;margin-bottom:20px">CONNECTION LOST</div>
+<div class="msg">Reconnecting to Race Control...</div>
+<div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Your session will continue. Please wait.</div>
+</div>
+<script>setTimeout(function(){location.reload()},3000)</script>"#,
+    )
 }
 
 fn render_idle_page() -> String {

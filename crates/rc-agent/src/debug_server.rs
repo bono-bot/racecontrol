@@ -75,6 +75,7 @@ async fn serve_status(
         LockScreenState::BetweenSessions { .. } => "between_sessions",
         LockScreenState::AwaitingAssistance { .. } => "awaiting_assistance",
         LockScreenState::ScreenBlanked => "screen_blanked",
+        LockScreenState::Disconnected => "disconnected",
     };
 
     let body = format!(
