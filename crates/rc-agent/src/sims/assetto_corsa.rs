@@ -7,6 +7,11 @@ use super::SimAdapter;
 ///
 /// Reads AC's memory-mapped files (acpmf_physics, acpmf_graphics, acpmf_static)
 /// which are always available when AC is running and support multiple readers.
+///
+/// Sector times and lap completion are tracked via the graphics shared memory.
+/// AC exposes `currentSectorIndex` (0/1/2), `lastSectorTime` (ms for the sector
+/// just completed), `iLastTime` (total lap time for last completed lap), and
+/// `completedLaps` (increments each time a lap is finished).
 pub struct AssettoCorsaAdapter {
     connected: bool,
     pod_id: String,
@@ -14,6 +19,12 @@ pub struct AssettoCorsaAdapter {
     current_driver: String,
     current_car: String,
     current_track: String,
+    // Sector tracking: accumulate splits during a lap
+    last_sector_index: i32,
+    sector_times: [Option<u32>; 3], // S1, S2, S3 in ms
+    // Completed lap ready for pickup
+    #[cfg(windows)]
+    pending_lap: Option<LapData>,
     // Windows handles for memory-mapped files
     #[cfg(windows)]
     physics_handle: Option<ShmHandle>,
@@ -39,6 +50,7 @@ unsafe impl Send for ShmHandle {}
 unsafe impl Sync for ShmHandle {}
 
 // AC Shared Memory struct offsets
+// Reference: https://www.assettocorsa.net/forum/index.php?threads/shared-memory-reference.3352/
 // Physics (acpmf_physics) — updates every frame
 mod physics {
     pub const GAS: usize = 4;        // f32, throttle 0.0-1.0
@@ -51,10 +63,17 @@ mod physics {
 
 // Graphics (acpmf_graphics) — updates ~10Hz
 mod graphics {
-    pub const COMPLETED_LAPS: usize = 132; // i32
-    pub const I_CURRENT_TIME: usize = 140; // i32, ms
-    pub const I_LAST_TIME: usize = 144;    // i32, ms
-    pub const I_BEST_TIME: usize = 148;    // i32, ms
+    pub const STATUS: usize = 0;            // i32, AC_STATUS: 0=OFF 1=REPLAY 2=LIVE 3=PAUSE
+    pub const COMPLETED_LAPS: usize = 132;  // i32
+    pub const CURRENT_SECTOR_INDEX: usize = 136; // i32, 0=S1 1=S2 2=S3
+    pub const I_CURRENT_TIME: usize = 140;  // i32, current lap time in ms
+    pub const I_LAST_TIME: usize = 144;     // i32, last completed lap time in ms
+    pub const I_BEST_TIME: usize = 148;     // i32, session best lap time in ms
+    pub const IS_IN_PIT: usize = 160;       // i32, 1 if in pit lane
+    pub const LAST_SECTOR_TIME: usize = 168; // i32, last sector split time in ms
+    pub const IS_VALID_LAP: usize = 180;    // i32, 0 = invalid (cut/off-track)
+    pub const NORMALIZED_CAR_POSITION: usize = 288; // f32, 0.0-1.0 track progress
+    pub const NUMBER_OF_LAPS: usize = 172;  // i32, total laps in session (0 = unlimited)
 }
 
 // Static (acpmf_static) — updates once per session
@@ -62,6 +81,7 @@ mod statics {
     pub const CAR_MODEL: usize = 68;    // wchar[33] = 66 bytes UTF-16LE
     pub const TRACK: usize = 134;       // wchar[33] = 66 bytes UTF-16LE
     pub const PLAYER_NAME: usize = 200; // wchar[33] = 66 bytes UTF-16LE
+    pub const NUM_SECTORS: usize = 268; // i32, number of sectors on this track (usually 3)
 }
 
 impl AssettoCorsaAdapter {
@@ -73,6 +93,10 @@ impl AssettoCorsaAdapter {
             current_driver: String::new(),
             current_car: String::new(),
             current_track: String::new(),
+            last_sector_index: -1,
+            sector_times: [None; 3],
+            #[cfg(windows)]
+            pending_lap: None,
             #[cfg(windows)]
             physics_handle: None,
             #[cfg(windows)]
@@ -162,15 +186,20 @@ impl SimAdapter for AssettoCorsaAdapter {
         self.current_track = Self::read_wchar_string(&static_info, statics::TRACK, 33);
         self.current_driver = Self::read_wchar_string(&static_info, statics::PLAYER_NAME, 33);
 
+        let num_sectors = Self::read_i32(&static_info, statics::NUM_SECTORS);
+
         tracing::info!(
-            "AC shared memory connected: driver={}, car={}, track={}",
-            self.current_driver, self.current_car, self.current_track
+            "AC shared memory connected: driver={}, car={}, track={}, sectors={}",
+            self.current_driver, self.current_car, self.current_track, num_sectors
         );
 
         self.physics_handle = Some(physics);
         self.graphics_handle = Some(graphics);
         self.static_handle = Some(static_info);
         self.connected = true;
+        self.last_lap_count = 0;
+        self.last_sector_index = -1;
+        self.sector_times = [None; 3];
 
         Ok(())
     }
@@ -204,20 +233,74 @@ impl SimAdapter for AssettoCorsaAdapter {
         let raw_gear = Self::read_i32(physics, physics::GEAR);
         let gear = (raw_gear - 1) as i8;
 
-        let lap_number = Self::read_i32(graphics, graphics::COMPLETED_LAPS) as u32;
+        let completed_laps = Self::read_i32(graphics, graphics::COMPLETED_LAPS) as u32;
         let lap_time_ms = Self::read_i32(graphics, graphics::I_CURRENT_TIME) as u32;
+        let last_lap_time_ms = Self::read_i32(graphics, graphics::I_LAST_TIME);
+        let best_lap_ms = Self::read_i32(graphics, graphics::I_BEST_TIME);
+        let current_sector = Self::read_i32(graphics, graphics::CURRENT_SECTOR_INDEX);
+        let last_sector_time = Self::read_i32(graphics, graphics::LAST_SECTOR_TIME);
+        let is_valid = Self::read_i32(graphics, graphics::IS_VALID_LAP);
 
-        self.last_lap_count = lap_number;
+        // Track sector transitions to accumulate split times
+        if current_sector != self.last_sector_index && last_sector_time > 0 {
+            // A sector just completed — store its time
+            let completed_sector = self.last_sector_index;
+            if completed_sector >= 0 && completed_sector < 3 {
+                self.sector_times[completed_sector as usize] = Some(last_sector_time as u32);
+            }
+            self.last_sector_index = current_sector;
+        } else if self.last_sector_index < 0 {
+            // First read — initialize sector tracking
+            self.last_sector_index = current_sector;
+        }
 
+        // Detect lap completion: completedLaps incremented
+        if completed_laps > self.last_lap_count && self.last_lap_count > 0 {
+            let lap_ms = if last_lap_time_ms > 0 { last_lap_time_ms as u32 } else { 0 };
+
+            if lap_ms > 0 {
+                let lap_data = LapData {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    session_id: String::new(), // Filled by rc-core from billing session
+                    driver_id: String::new(),  // Filled by rc-core from billing session
+                    pod_id: self.pod_id.clone(),
+                    sim_type: SimType::AssettoCorsa,
+                    track: self.current_track.clone(),
+                    car: self.current_car.clone(),
+                    lap_number: completed_laps,
+                    lap_time_ms: lap_ms,
+                    sector1_ms: self.sector_times[0],
+                    sector2_ms: self.sector_times[1],
+                    sector3_ms: self.sector_times[2],
+                    valid: is_valid != 0,
+                    created_at: Utc::now(),
+                };
+
+                tracing::info!(
+                    "AC lap completed: lap={} time={}ms sectors=[{:?}, {:?}, {:?}] valid={}",
+                    completed_laps, lap_ms,
+                    self.sector_times[0], self.sector_times[1], self.sector_times[2],
+                    is_valid != 0
+                );
+
+                self.pending_lap = Some(lap_data);
+            }
+
+            // Reset sector accumulator for next lap
+            self.sector_times = [None; 3];
+        }
+        self.last_lap_count = completed_laps;
+
+        // Build telemetry frame with sector data
         Ok(Some(TelemetryFrame {
             pod_id: self.pod_id.clone(),
             timestamp: Utc::now(),
             driver_name: self.current_driver.clone(),
             car: self.current_car.clone(),
             track: self.current_track.clone(),
-            lap_number,
+            lap_number: completed_laps,
             lap_time_ms,
-            sector: 0,
+            sector: current_sector as u8,
             speed_kmh,
             throttle,
             brake,
@@ -230,11 +313,11 @@ impl SimAdapter for AssettoCorsaAdapter {
             drs_available: None,
             ers_deploy_mode: None,
             ers_store_percent: None,
-            best_lap_ms: None,
-            current_lap_invalid: None,
-            sector1_ms: None,
-            sector2_ms: None,
-            sector3_ms: None,
+            best_lap_ms: if best_lap_ms > 0 { Some(best_lap_ms as u32) } else { None },
+            current_lap_invalid: Some(is_valid == 0),
+            sector1_ms: self.sector_times[0],
+            sector2_ms: self.sector_times[1],
+            sector3_ms: self.sector_times[2],
         }))
     }
 
@@ -244,7 +327,14 @@ impl SimAdapter for AssettoCorsaAdapter {
     }
 
     fn poll_lap_completed(&mut self) -> Result<Option<LapData>> {
-        Ok(None)
+        #[cfg(windows)]
+        {
+            Ok(self.pending_lap.take())
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(None)
+        }
     }
 
     fn session_info(&self) -> Result<Option<SessionInfo>> {
