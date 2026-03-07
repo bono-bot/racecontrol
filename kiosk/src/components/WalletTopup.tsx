@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { api } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { api, fetchApi } from "@/lib/api";
 
 interface WalletTopupProps {
   driverId: string;
@@ -11,12 +11,19 @@ interface WalletTopupProps {
   onSuccess: (newBalance: number) => void;
 }
 
+interface BonusTier {
+  min_paise: number;
+  bonus_pct: number;
+}
+
 const QUICK_AMOUNTS = [
-  { label: "\u20B9500", paise: 50000 },
-  { label: "\u20B9700", paise: 70000 },
-  { label: "\u20B9900", paise: 90000 },
-  { label: "\u20B91000", paise: 100000 },
-  { label: "\u20B92000", paise: 200000 },
+  { label: "500", paise: 50000 },
+  { label: "700", paise: 70000 },
+  { label: "900", paise: 90000 },
+  { label: "1000", paise: 100000 },
+  { label: "2000", paise: 200000 },
+  { label: "3000", paise: 300000 },
+  { label: "4000", paise: 400000 },
 ];
 
 const PAYMENT_METHODS = [
@@ -24,6 +31,17 @@ const PAYMENT_METHODS = [
   { id: "card", label: "Card" },
   { id: "upi", label: "UPI" },
 ];
+
+function getBonusForAmount(paise: number, tiers: BonusTier[]): { pct: number; bonus_paise: number } {
+  // Tiers sorted descending so we match the highest qualifying tier first
+  const sorted = [...tiers].sort((a, b) => b.min_paise - a.min_paise);
+  for (const tier of sorted) {
+    if (paise >= tier.min_paise) {
+      return { pct: tier.bonus_pct, bonus_paise: paise * tier.bonus_pct / 100 };
+    }
+  }
+  return { pct: 0, bonus_paise: 0 };
+}
 
 export default function WalletTopup({
   driverId,
@@ -37,8 +55,19 @@ export default function WalletTopup({
   const [method, setMethod] = useState("cash");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bonusTiers, setBonusTiers] = useState<BonusTier[]>([]);
 
   const effectiveAmount = amount || (parseInt(customAmount) || 0) * 100;
+  const bonus = getBonusForAmount(effectiveAmount, bonusTiers);
+  const totalCredits = (effectiveAmount + bonus.bonus_paise) / 100;
+
+  useEffect(() => {
+    fetchApi<{ tiers?: BonusTier[] }>("/wallet/bonus-tiers")
+      .then((res) => {
+        if (res.tiers) setBonusTiers(res.tiers);
+      })
+      .catch(() => {});
+  }, []);
 
   async function handleTopup() {
     if (effectiveAmount <= 0) return;
@@ -74,13 +103,13 @@ export default function WalletTopup({
         <div className="bg-[#222] rounded-xl p-4 mb-6">
           <p className="text-sm text-[#5A5A5A]">{driverName}</p>
           <p className="text-2xl font-bold text-white">
-            {"\u20B9"}{(currentBalance / 100).toFixed(0)}
+            {(currentBalance / 100).toFixed(0)} credits
             <span className="text-sm text-[#5A5A5A] ml-2">current balance</span>
           </p>
         </div>
 
         {/* Quick amounts */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="grid grid-cols-4 gap-2 mb-4">
           {QUICK_AMOUNTS.map((qa) => (
             <button
               key={qa.paise}
@@ -97,10 +126,10 @@ export default function WalletTopup({
               {qa.label}
             </button>
           ))}
-          <div className="col-span-3">
+          <div className="col-span-4">
             <input
               type="number"
-              placeholder="Custom amount (\u20B9)"
+              placeholder="Custom amount (credits)"
               value={customAmount}
               onChange={(e) => {
                 setCustomAmount(e.target.value);
@@ -110,6 +139,15 @@ export default function WalletTopup({
             />
           </div>
         </div>
+
+        {/* Bonus badge */}
+        {bonus.pct > 0 && effectiveAmount > 0 && (
+          <div className="bg-green-900/30 border border-green-600/40 rounded-lg px-4 py-2 mb-4 text-center">
+            <span className="text-green-400 font-semibold text-sm">
+              +{bonus.pct}% bonus = {(bonus.bonus_paise / 100).toFixed(0)} extra credits
+            </span>
+          </div>
+        )}
 
         {/* Payment method */}
         <div className="flex gap-2 mb-6">
@@ -141,7 +179,9 @@ export default function WalletTopup({
           {loading
             ? "Processing..."
             : effectiveAmount > 0
-            ? `Add \u20B9${(effectiveAmount / 100).toFixed(0)} via ${method.toUpperCase()}`
+            ? bonus.pct > 0
+              ? `Add ${totalCredits.toFixed(0)} credits (incl. ${(bonus.bonus_paise / 100).toFixed(0)} bonus) via ${method.toUpperCase()}`
+              : `Add ${(effectiveAmount / 100).toFixed(0)} credits via ${method.toUpperCase()}`
             : "Select an amount"}
         </button>
       </div>

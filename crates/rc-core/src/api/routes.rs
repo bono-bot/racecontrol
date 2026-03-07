@@ -98,6 +98,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Auth (PWA-facing)
         .route("/auth/validate-qr", post(validate_qr))
         // Wallet (staff-facing)
+        .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
         .route("/wallet/{driver_id}", get(get_wallet))
         .route("/wallet/{driver_id}/topup", post(topup_wallet))
         .route("/wallet/{driver_id}/transactions", get(wallet_transactions))
@@ -3007,6 +3008,15 @@ async fn ai_training_import(
 
 // ─── Wallet (staff-facing) ───────────────────────────────────────────────────
 
+async fn wallet_bonus_tiers() -> Json<Value> {
+    Json(json!({
+        "tiers": [
+            { "min_paise": 200_000, "bonus_pct": 10 },
+            { "min_paise": 400_000, "bonus_pct": 20 },
+        ]
+    }))
+}
+
 async fn get_wallet(
     State(state): State<Arc<AppState>>,
     Path(driver_id): Path<String>,
@@ -3038,7 +3048,7 @@ async fn topup_wallet(
         _ => "topup_cash",
     };
 
-    match wallet::credit(
+    let mut new_balance = match wallet::credit(
         &state,
         &driver_id,
         req.amount_paise,
@@ -3049,12 +3059,38 @@ async fn topup_wallet(
     )
     .await
     {
-        Ok(new_balance) => Json(json!({
-            "status": "ok",
-            "new_balance_paise": new_balance,
-        })),
-        Err(e) => Json(json!({ "error": e })),
-    }
+        Ok(b) => b,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Bonus credit tiers
+    let bonus_pct = if req.amount_paise >= 400_000 { 20 }
+        else if req.amount_paise >= 200_000 { 10 }
+        else { 0 };
+
+    let bonus_paise = if bonus_pct > 0 {
+        let bp = req.amount_paise * bonus_pct / 100;
+        let _ = wallet::credit(
+            &state,
+            &driver_id,
+            bp,
+            "bonus",
+            None,
+            Some(&format!("{}% topup bonus on {} credits", bonus_pct, req.amount_paise / 100)),
+            req.staff_id.as_deref(),
+        )
+        .await;
+        new_balance = wallet::get_balance(&state, &driver_id).await.unwrap_or(new_balance);
+        bp
+    } else {
+        0
+    };
+
+    Json(json!({
+        "status": "ok",
+        "new_balance_paise": new_balance,
+        "bonus_paise": bonus_paise,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
