@@ -548,7 +548,7 @@ async fn escalate_to_ai(
         }),
     ];
 
-    match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages, Some(&state.db), Some("healer")).await {
         Ok((suggestion, model)) => {
             tracing::info!(
                 "Pod healer AI suggestion for {} (via {}): {}",

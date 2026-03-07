@@ -566,6 +566,30 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── AI training pairs (Ollama learning from Claude CLI) ─────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ai_training_pairs (
+            id TEXT PRIMARY KEY,
+            query_hash TEXT NOT NULL,
+            query_text TEXT NOT NULL,
+            query_keywords TEXT NOT NULL,
+            response_text TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'unknown',
+            model TEXT NOT NULL,
+            quality_score INTEGER NOT NULL DEFAULT 1,
+            use_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_training_hash ON ai_training_pairs(query_hash)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_training_keywords ON ai_training_pairs(query_keywords)")
+        .execute(pool)
+        .await?;
+
     // ─── Link experience to billing session ──────────────────────────────────
     let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN experience_id TEXT")
         .execute(pool)

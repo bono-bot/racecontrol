@@ -2561,7 +2561,7 @@ async fn ai_chat(
         "content": req.message,
     }));
 
-    match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages, Some(&state.db), Some("staff_chat")).await {
         Ok((reply, model)) => Json(json!({
             "reply": reply,
             "model": model,
@@ -2605,7 +2605,7 @@ async fn customer_ai_chat(
         "content": req.message,
     }));
 
-    match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages, Some(&state.db), Some("customer_chat")).await {
         Ok((reply, model)) => Json(json!({
             "reply": reply,
             "model": model,
@@ -2743,7 +2743,7 @@ async fn ai_diagnose(
         }),
     ];
 
-    match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages, Some(&state.db), Some("debug")).await {
         Ok((suggestion, model)) => {
             // Persist to ai_suggestions table
             let id = uuid::Uuid::new_v4().to_string();

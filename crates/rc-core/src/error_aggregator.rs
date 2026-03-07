@@ -87,7 +87,7 @@ async fn detect_patterns(state: &Arc<AppState>) -> anyhow::Result<()> {
         }),
     ];
 
-    match crate::ai::query_ai(&state.config.ai_debugger, &messages).await {
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages, Some(&state.db), Some("aggregator")).await {
         Ok((suggestion, model)) => {
             let debug_suggestion = AiDebugSuggestion {
                 pod_id: "venue".to_string(),

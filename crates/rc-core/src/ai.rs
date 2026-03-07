@@ -1,8 +1,10 @@
 //! Central AI service for RaceControl.
 //!
 //! All AI calls (chat, crash analysis, pattern detection) route through this module.
-//! Uses Ollama (local) as primary, Anthropic API as fallback.
+//! Priority: Ollama (local, with learned context) → Claude CLI → Anthropic API.
+//! Automatically logs Claude CLI responses as training pairs for Ollama to learn from.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -150,45 +152,331 @@ pub async fn query_anthropic(
         .unwrap_or_default())
 }
 
-/// Try Claude CLI → Ollama → Anthropic API. Returns (response, model_used).
+/// Try Ollama (with learned context) → Claude CLI → Anthropic API. Returns (response, model_used).
+/// When `db` is provided, automatically logs Claude CLI responses for Ollama to learn from.
 pub async fn query_ai(
     config: &AiDebuggerConfig,
     messages: &[Value],
+    db: Option<&SqlitePool>,
+    source: Option<&str>,
 ) -> anyhow::Result<(String, String)> {
-    // 1. Try Claude CLI (best quality when online)
-    if config.claude_cli_enabled {
-        // Flatten messages into a single prompt for Claude CLI
-        let prompt = messages_to_prompt(messages);
-        match query_claude_cli(&prompt, config.claude_cli_timeout_secs).await {
-            Ok(reply) => {
-                return Ok((reply, "claude-cli".to_string()));
-            }
-            Err(e) => {
-                tracing::warn!("Claude CLI failed: {}. Trying Ollama...", e);
-            }
-        }
-    }
+    let user_query = extract_user_query(messages);
 
-    // 2. Try Ollama (always available locally)
-    match query_ollama(&config.ollama_url, &config.ollama_model, messages).await {
+    // 1. Find similar past Q&A pairs for few-shot learning
+    let few_shot = if let Some(db) = db {
+        find_similar_pairs(db, &user_query, 3).await
+    } else {
+        vec![]
+    };
+
+    // 2. Build enhanced messages with domain context + few-shot examples
+    let enhanced = build_enhanced_messages(messages, &few_shot);
+
+    // 3. Try Ollama FIRST (local, instant, with learned context)
+    match query_ollama(&config.ollama_url, &config.ollama_model, &enhanced).await {
         Ok(reply) => {
+            let example_count = few_shot.len();
+
+            // Increment use_count on training pairs we used
+            if let Some(db) = db {
+                for pair in &few_shot {
+                    let _ = sqlx::query(
+                        "UPDATE ai_training_pairs SET use_count = use_count + 1 WHERE id = ?",
+                    )
+                    .bind(&pair.id)
+                    .execute(db)
+                    .await;
+                }
+            }
+
+            // If no few-shot context, background-learn from Claude CLI for next time
+            if example_count == 0 && config.claude_cli_enabled {
+                if let Some(db) = db {
+                    let db = db.clone();
+                    let msgs = messages.to_vec();
+                    let src = source.unwrap_or("unknown").to_string();
+                    let timeout = config.claude_cli_timeout_secs;
+                    tokio::spawn(async move {
+                        let prompt = messages_to_prompt(&msgs);
+                        if let Ok(cli_reply) = query_claude_cli(&prompt, timeout).await {
+                            let query = extract_user_query(&msgs);
+                            log_training_pair(&db, &query, &cli_reply, &src, "claude-cli").await;
+                            tracing::info!(
+                                "AI learning: logged Claude CLI response for future Ollama use (source: {})",
+                                src
+                            );
+                        }
+                    });
+                }
+            }
+
+            tracing::info!(
+                "AI query answered by Ollama (with {} examples)",
+                example_count
+            );
             return Ok((reply, format!("ollama/{}", config.ollama_model)));
         }
         Err(e) => {
-            tracing::warn!("Ollama failed: {}. Trying Anthropic API...", e);
+            tracing::warn!("Ollama failed: {}. Trying Claude CLI...", e);
         }
     }
 
-    // 3. Fallback to Anthropic API
+    // 4. Fallback: Claude CLI (and log response for future Ollama learning)
+    if config.claude_cli_enabled {
+        let prompt = messages_to_prompt(messages);
+        match query_claude_cli(&prompt, config.claude_cli_timeout_secs).await {
+            Ok(reply) => {
+                // Log this Q&A pair for Ollama to learn from next time
+                if let Some(db) = db {
+                    log_training_pair(
+                        db,
+                        &user_query,
+                        &reply,
+                        source.unwrap_or("unknown"),
+                        "claude-cli",
+                    )
+                    .await;
+                }
+                return Ok((reply, "claude-cli".to_string()));
+            }
+            Err(e) => {
+                tracing::warn!("Claude CLI failed: {}. Trying Anthropic API...", e);
+            }
+        }
+    }
+
+    // 5. Final fallback: Anthropic API
     if let Some(api_key) = &config.anthropic_api_key {
         let reply = query_anthropic(api_key, &config.anthropic_model, messages).await?;
+        if let Some(db) = db {
+            log_training_pair(
+                db,
+                &user_query,
+                &reply,
+                source.unwrap_or("unknown"),
+                &format!("anthropic/{}", config.anthropic_model),
+            )
+            .await;
+        }
         Ok((reply, format!("anthropic/{}", config.anthropic_model)))
     } else {
-        anyhow::bail!("All AI providers failed (Claude CLI, Ollama, Anthropic API)")
+        anyhow::bail!("All AI providers failed (Ollama, Claude CLI, Anthropic API)")
     }
 }
 
-/// Flatten a messages array into a single prompt string for Claude CLI.
+// ─── Learning System ────────────────────────────────────────────────────────
+
+struct TrainingPair {
+    id: String,
+    query_text: String,
+    response_text: String,
+}
+
+/// Stop words to strip when extracting keywords.
+const STOP_WORDS: &[&str] = &[
+    "the", "is", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "as", "it", "this", "that", "are", "was", "be",
+    "has", "had", "not", "no", "do", "does", "did", "will", "would", "could",
+    "should", "may", "can", "been", "being", "have", "were", "they", "them",
+    "their", "its", "you", "your", "we", "our", "i", "my", "me", "he", "she",
+    "his", "her", "what", "which", "who", "when", "where", "how", "all", "each",
+    "every", "both", "few", "more", "most", "other", "some", "such", "than",
+    "too", "very", "just", "about", "above", "after", "again", "also", "any",
+    "because", "before", "between", "here", "there", "into", "only", "over",
+    "same", "so", "then", "these", "those", "through", "under", "up", "out",
+];
+
+/// Extract significant keywords from text for similarity matching.
+fn extract_keywords(text: &str) -> String {
+    let stop: HashSet<&str> = STOP_WORDS.iter().copied().collect();
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+        .filter(|w| w.len() >= 2 && !stop.contains(w))
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
+/// Extract the user's query text from a messages array.
+fn extract_user_query(messages: &[Value]) -> String {
+    messages
+        .iter()
+        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+        .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
+        .collect::<Vec<&str>>()
+        .join("\n")
+}
+
+/// Find similar past training pairs by keyword overlap.
+async fn find_similar_pairs(
+    db: &SqlitePool,
+    query: &str,
+    limit: usize,
+) -> Vec<TrainingPair> {
+    let keywords = extract_keywords(query);
+    let words: Vec<&str> = keywords.split_whitespace().collect();
+
+    if words.is_empty() {
+        return vec![];
+    }
+
+    // Take top 8 most significant keywords (longer words first, more likely to be specific)
+    let mut sorted_words: Vec<&str> = words.clone();
+    sorted_words.sort_by(|a, b| b.len().cmp(&a.len()));
+    sorted_words.truncate(8);
+
+    // Build SQL with LIKE conditions and count matches for ranking
+    let like_clauses: Vec<String> = sorted_words
+        .iter()
+        .map(|w| format!("(CASE WHEN query_keywords LIKE '%{}%' THEN 1 ELSE 0 END)", w))
+        .collect();
+
+    let score_expr = like_clauses.join(" + ");
+    let sql = format!(
+        "SELECT id, query_text, response_text, ({}) as score \
+         FROM ai_training_pairs \
+         WHERE quality_score > 0 AND score >= 2 \
+         ORDER BY score DESC, use_count DESC \
+         LIMIT ?",
+        score_expr
+    );
+
+    let rows = sqlx::query_as::<_, (String, String, String, i32)>(&sql)
+        .bind(limit as i32)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+
+    rows.into_iter()
+        .map(|(id, query_text, response_text, _score)| TrainingPair {
+            id,
+            query_text,
+            response_text,
+        })
+        .collect()
+}
+
+/// Log a query-response pair for future Ollama learning.
+async fn log_training_pair(
+    db: &SqlitePool,
+    query: &str,
+    response: &str,
+    source: &str,
+    model: &str,
+) {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    // Simple hash for dedup
+    let mut hasher = DefaultHasher::new();
+    query.hash(&mut hasher);
+    let query_hash = format!("{:x}", hasher.finish());
+
+    let keywords = extract_keywords(query);
+    let id = uuid::Uuid::new_v4().to_string();
+
+    let result = sqlx::query(
+        "INSERT INTO ai_training_pairs \
+         (id, query_hash, query_text, query_keywords, response_text, source, model) \
+         SELECT ?, ?, ?, ?, ?, ?, ? \
+         WHERE NOT EXISTS (SELECT 1 FROM ai_training_pairs WHERE query_hash = ?)",
+    )
+    .bind(&id)
+    .bind(&query_hash)
+    .bind(query)
+    .bind(&keywords)
+    .bind(response)
+    .bind(source)
+    .bind(model)
+    .bind(&query_hash)
+    .execute(db)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() > 0 => {
+            tracing::debug!("AI training: logged new pair (source: {}, model: {})", source, model);
+        }
+        Ok(_) => {
+            tracing::debug!("AI training: duplicate query skipped");
+        }
+        Err(e) => {
+            tracing::warn!("AI training: failed to log pair: {}", e);
+        }
+    }
+}
+
+/// Build enhanced messages with domain context and few-shot examples for Ollama.
+fn build_enhanced_messages(messages: &[Value], few_shot: &[TrainingPair]) -> Vec<Value> {
+    let mut enhanced = Vec::new();
+
+    // Inject domain context into the system message
+    let domain_ctx = build_domain_context();
+
+    // Find existing system message or create one
+    let existing_system = messages
+        .iter()
+        .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("system"))
+        .and_then(|m| m.get("content").and_then(|c| c.as_str()))
+        .unwrap_or("");
+
+    let system_content = if existing_system.is_empty() {
+        domain_ctx
+    } else {
+        format!("{}\n\n{}", existing_system, domain_ctx)
+    };
+
+    enhanced.push(json!({"role": "system", "content": system_content}));
+
+    // Add few-shot examples as conversation history
+    for pair in few_shot {
+        let q = if pair.query_text.len() > 500 {
+            format!("{}...", &pair.query_text[..500])
+        } else {
+            pair.query_text.clone()
+        };
+        let a = if pair.response_text.len() > 800 {
+            format!("{}...", &pair.response_text[..800])
+        } else {
+            pair.response_text.clone()
+        };
+        enhanced.push(json!({"role": "user", "content": q}));
+        enhanced.push(json!({"role": "assistant", "content": a}));
+    }
+
+    // Add original non-system messages
+    for msg in messages {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("system") {
+            enhanced.push(msg.clone());
+        }
+    }
+
+    enhanced
+}
+
+/// Build static domain context about RaceControl for Ollama.
+fn build_domain_context() -> String {
+    "\
+You are James, the AI operations assistant for RacingPoint eSports and Cafe (Bandlaguda, Hyderabad).
+
+SYSTEM KNOWLEDGE:
+- 8 sim racing pods on subnet 192.168.31.x (Pod 1-8), each running Windows 11 with rc-agent
+- Wheelbases: Conspit Ares 8Nm (OpenFFBoard USB VID:0x1209 PID:0xFFB0)
+- rc-core server runs on 192.168.31.51:8080 (Rust/Axum), manages billing, pods, games
+- pod-agent runs on port 8090 on each pod for remote management
+- rc-agent lock screen on port 18923, debug on 18924
+- Games: Assetto Corsa (UDP 9996), F1 (20777), Forza (5300), iRacing (6789), LMU (5555)
+- Billing tiers: 5min free trial, 30min/₹700, 60min/₹900, 10s idle threshold
+- Common issues: CLOSE_WAIT zombie sockets (fix: kill stale TCP), USB wheelbase disconnect, \
+  pod-agent freeze after long uptime, Content Manager vs acs.exe launch conflicts
+- Protected processes (never kill): rc-agent, pod-agent, ConspitLink2.0, explorer, dwm, csrss
+- AC launch: acs.exe directly (not Steam), AUTOSPAWN=1 in race.ini, CSP gui.ini FORCE_START=1
+- After AC launch, must restart ConspitLink2.0 for wheel display telemetry
+
+When diagnosing issues, consider: network (DHCP drift, firewall), USB (wheelbase disconnect), \
+process zombies (CLOSE_WAIT), disk space, and Windows updates blocking."
+        .to_string()
+}
+
+/// Flatten messages into a single prompt string for Claude CLI.
 fn messages_to_prompt(messages: &[Value]) -> String {
     let mut prompt = String::new();
     for msg in messages {
