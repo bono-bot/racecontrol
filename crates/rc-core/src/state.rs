@@ -105,21 +105,27 @@ impl AppState {
 
         let pods = self.pods.read().await;
         let agent_senders = self.agent_senders.read().await;
+        let active_timers = self.billing.active_timers.read().await;
 
         for (pod_id, sender) in agent_senders.iter() {
             let mut pod_settings = settings.clone();
 
-            // Apply per-pod blanking override
-            if let Some(ref pod_list) = blanking_pods {
-                if !pod_list.trim().is_empty() {
-                    let pod_number = pods.get(pod_id).map(|p| p.number);
-                    let is_blanking_pod = pod_number.map(|n| {
-                        pod_list.split(',')
-                            .any(|s| s.trim().parse::<u32>().ok() == Some(n))
-                    }).unwrap_or(false);
+            // Pods with active billing sessions must NEVER be blanked
+            if active_timers.contains_key(pod_id) {
+                pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
+            } else {
+                // Apply per-pod blanking override
+                if let Some(ref pod_list) = blanking_pods {
+                    if !pod_list.trim().is_empty() {
+                        let pod_number = pods.get(pod_id).map(|p| p.number);
+                        let is_blanking_pod = pod_number.map(|n| {
+                            pod_list.split(',')
+                                .any(|s| s.trim().parse::<u32>().ok() == Some(n))
+                        }).unwrap_or(false);
 
-                    if blanking_enabled && !is_blanking_pod {
-                        pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
+                        if blanking_enabled && !is_blanking_pod {
+                            pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
+                        }
                     }
                 }
             }
