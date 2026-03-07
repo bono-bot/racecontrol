@@ -158,9 +158,9 @@ impl LockScreenManager {
                 allocated_seconds,
             };
         }
-        // If screen was blanked, relaunch browser so session page shows immediately
+        // Always relaunch browser to ensure blank/pin screen transitions immediately
+        self.launch_browser();
         if was_blanked {
-            self.launch_browser();
             #[cfg(windows)]
             suppress_notifications(false);
         }
@@ -1047,8 +1047,8 @@ const BLANK_PIN_PAGE: &str = r#"<style>
     document.getElementById('clearBtn').addEventListener('click', clearAll);
     document.getElementById('bkspBtn').addEventListener('click', backspace);
 
-    // Auto-reload if idle for 30s (keeps page fresh if state changes)
-    setTimeout(function(){ location.reload(); }, 30000);
+    // Auto-reload every 3s to pick up state changes (e.g. session start)
+    setTimeout(function(){ location.reload(); }, 3000);
 })();
 </script>"#;
 
