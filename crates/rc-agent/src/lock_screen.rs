@@ -142,6 +142,7 @@ impl LockScreenManager {
     }
 
     /// Show the active session screen with countdown timer.
+    /// Closes the lock screen browser so the game is visible during gameplay.
     pub fn show_active_session(
         &mut self,
         driver_name: String,
@@ -157,8 +158,9 @@ impl LockScreenManager {
                 allocated_seconds,
             };
         }
-        // Always relaunch browser to ensure blank/pin screen transitions immediately
-        self.launch_browser();
+        // Close the browser so the game is visible — blanking/lock screen
+        // should not cover the screen during active sessions
+        self.close_browser();
         if was_blanked {
             #[cfg(windows)]
             suppress_notifications(false);
@@ -239,7 +241,7 @@ impl LockScreenManager {
 
     pub fn is_idle_or_blanked(&self) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked)
+        matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked | LockScreenState::Disconnected)
     }
 
     /// Returns true if the screen is currently blanked.

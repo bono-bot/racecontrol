@@ -281,8 +281,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                         })
                         .await;
 
-                    // Auto-blank: re-engage lock screen after session expires
-                    let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
+                    // BlankScreen is handled by rc-agent after showing session summary
                 }
             }
 
@@ -896,8 +895,7 @@ async fn end_billing_session(
                         })
                         .await;
 
-                    // Auto-blank: re-engage lock screen after manual session end
-                    let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
+                    // BlankScreen is handled by rc-agent after showing session summary
                 }
             }
 

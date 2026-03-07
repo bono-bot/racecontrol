@@ -373,6 +373,10 @@ async fn main() -> Result<()> {
         let mut game_check_interval = tokio::time::interval(Duration::from_secs(2));
         let mut kiosk_interval = tokio::time::interval(Duration::from_secs(5));
         let mut last_lap_count: u32 = 0;
+        // Auto-blank timer: set when session summary is shown, fires after 15s
+        let mut blank_timer: std::pin::Pin<Box<tokio::time::Sleep>> =
+            Box::pin(tokio::time::sleep(Duration::from_secs(86400))); // dormant
+        let mut blank_timer_armed = false;
 
         loop {
             tokio::select! {
@@ -537,6 +541,12 @@ async fn main() -> Result<()> {
                     kiosk.enforce_process_whitelist();
                 }
             }
+            // Auto-blank after session summary (15s delay)
+            _ = &mut blank_timer, if blank_timer_armed => {
+                tracing::info!("Auto-blanking screen after session summary");
+                lock_screen.show_blank_screen();
+                blank_timer_armed = false;
+            }
             // Lock screen events (customer submitted PIN)
             Some(event) = lock_event_rx.recv() => {
                 match event {
@@ -580,6 +590,7 @@ async fn main() -> Result<()> {
                                 rc_common::protocol::CoreToAgentMessage::BillingStarted { billing_session_id, driver_name, allocated_seconds } => {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
                                     heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    blank_timer_armed = false; // cancel any pending auto-blank
                                     lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingTick { remaining_seconds, allocated_seconds: _, driver_name: _ } => {
@@ -603,10 +614,12 @@ async fn main() -> Result<()> {
                                         let _ = game.stop();
                                         game_process = None;
                                     }
-                                    // Show session summary (auto-returns to idle after 15s via HTML refresh)
+                                    // Show session summary, then auto-blank after 15s
                                     lock_screen.show_session_summary(
                                         driver_name, total_laps, best_lap_ms, driving_seconds,
                                     );
+                                    blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(15));
+                                    blank_timer_armed = true;
                                 }
                                 rc_common::protocol::CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
                                     tracing::info!("Launching game: {:?} (args: {:?})", launch_sim, launch_args);
