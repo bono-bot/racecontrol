@@ -83,6 +83,39 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 .dashboard_tx
                                 .send(DashboardEvent::PodUpdate(pod_info.clone()));
 
+                            // Reconcile game_launcher.active_games with pod's reported state
+                            {
+                                let mut games = state.game_launcher.active_games.write().await;
+                                let pod_game_state = pod_info.game_state.unwrap_or(GameState::Idle);
+                                match pod_game_state {
+                                    GameState::Running | GameState::Launching => {
+                                        // Pod reports a game is active — ensure tracker exists
+                                        if let Some(tracker) = games.get_mut(&pod_info.id) {
+                                            tracker.game_state = pod_game_state;
+                                        } else if let Some(sim) = pod_info.current_game {
+                                            games.insert(
+                                                pod_info.id.clone(),
+                                                game_launcher::GameTracker {
+                                                    pod_id: pod_info.id.clone(),
+                                                    sim_type: sim,
+                                                    game_state: pod_game_state,
+                                                    pid: None,
+                                                    launched_at: None,
+                                                    error_message: None,
+                                                },
+                                            );
+                                            tracing::info!("Reconciled game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);
+                                        }
+                                    }
+                                    GameState::Idle | GameState::Stopping | GameState::Error => {
+                                        // Pod reports idle — remove any stale tracker
+                                        if games.remove(&pod_info.id).is_some() {
+                                            tracing::info!("Removed stale game tracker for pod {} on reconnect", pod_info.number);
+                                        }
+                                    }
+                                }
+                            }
+
                             // Send current kiosk settings to newly connected agent
                             if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
                                 "SELECT key, value FROM kiosk_settings",
@@ -192,6 +225,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
+                            let has_active_billing = state
+                                .billing
+                                .active_timers
+                                .read()
+                                .await
+                                .contains_key(pod_id.as_str());
+
                             if let Some(pod) = state.pods.write().await.get_mut(pod_id) {
                                 // Don't overwrite Disabled — admin intentionally shut it down
                                 if pod.status == rc_common::types::PodStatus::Disabled {
@@ -199,8 +239,11 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 }
                                 pod.status = rc_common::types::PodStatus::Offline;
                                 pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
-                                pod.game_state = Some(GameState::Idle);
-                                pod.current_game = None;
+                                // Preserve game_state if billing is active — agent will resync on reconnect
+                                if !has_active_billing {
+                                    pod.game_state = Some(GameState::Idle);
+                                    pod.current_game = None;
+                                }
                                 let _ = state
                                     .dashboard_tx
                                     .send(DashboardEvent::PodUpdate(pod.clone()));
@@ -227,6 +270,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
     if let Some(pod_id) = &registered_pod_id {
         state.agent_senders.write().await.remove(pod_id);
 
+        let has_active_billing = state
+            .billing
+            .active_timers
+            .read()
+            .await
+            .contains_key(pod_id.as_str());
+
         // Mark pod offline on ungraceful disconnect (WebSocket dropped without Disconnect message)
         if let Some(pod) = state.pods.write().await.get_mut(pod_id.as_str()) {
             if pod.status != rc_common::types::PodStatus::Offline
@@ -235,8 +285,11 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                 tracing::warn!("Pod {} WebSocket dropped without Disconnect — marking Offline", pod_id);
                 pod.status = rc_common::types::PodStatus::Offline;
                 pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
-                pod.game_state = Some(GameState::Idle);
-                pod.current_game = None;
+                // Preserve game_state if billing is active — agent will resync on reconnect
+                if !has_active_billing {
+                    pod.game_state = Some(GameState::Idle);
+                    pod.current_game = None;
+                }
                 let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
             }
         }

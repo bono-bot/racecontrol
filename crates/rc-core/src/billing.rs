@@ -66,6 +66,8 @@ pub struct BillingTimer {
     pub started_at: Option<DateTime<Utc>>,
     pub warning_5min_sent: bool,
     pub warning_1min_sent: bool,
+    /// When the pod went offline (None if online)
+    pub offline_since: Option<DateTime<Utc>>,
 }
 
 impl BillingTimer {
@@ -125,10 +127,43 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut expired_sessions = Vec::new();
     let mut warnings = Vec::new();
     let mut agent_ticks: Vec<(String, u32, u32, String)> = Vec::new();
+    let mut offline_auto_end: Vec<(String, String, u32)> = Vec::new();
+
+    // Read pod statuses for offline detection
+    let pods = state.pods.read().await;
 
     for (pod_id, timer) in timers.iter_mut() {
         if timer.status != BillingSessionStatus::Active {
             continue;
+        }
+
+        // Track offline_since for stuck billing timer auto-cleanup
+        let pod_is_offline = pods
+            .get(pod_id.as_str())
+            .map(|p| p.status == rc_common::types::PodStatus::Offline)
+            .unwrap_or(true); // No pod info = treat as offline
+
+        if pod_is_offline {
+            if timer.offline_since.is_none() {
+                timer.offline_since = Some(Utc::now());
+            }
+            // Auto-end if offline > 60 seconds
+            if let Some(since) = timer.offline_since {
+                if (Utc::now() - since).num_seconds() > 60 {
+                    tracing::warn!(
+                        "Auto-ending stuck billing session {} on pod {} (offline >60s)",
+                        timer.session_id, pod_id
+                    );
+                    offline_auto_end.push((
+                        pod_id.clone(),
+                        timer.session_id.clone(),
+                        timer.driving_seconds,
+                    ));
+                    continue; // Skip normal tick for this timer
+                }
+            }
+        } else {
+            timer.offline_since = None; // Pod is back online
         }
 
         let expired = timer.tick();
@@ -167,6 +202,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         timers.remove(pod_id);
     }
 
+    // Remove offline auto-end timers
+    for (pod_id, _, _) in &offline_auto_end {
+        timers.remove(pod_id);
+    }
+
+    drop(pods);   // Release pods read lock
     drop(timers); // Release write lock before DB/broadcast
 
     // Broadcast events to dashboards
@@ -298,6 +339,39 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .execute(&state.db)
         .await;
     }
+
+    // Persist offline auto-ended sessions to DB
+    for (pod_id, session_id, driving_seconds) in offline_auto_end {
+        let _ = sqlx::query(
+            "UPDATE billing_sessions SET status = 'ended_early', driving_seconds = ?, ended_at = datetime('now'), notes = 'Auto-ended: pod offline >60s'
+             WHERE id = ?",
+        )
+        .bind(driving_seconds as i64)
+        .bind(&session_id)
+        .execute(&state.db)
+        .await;
+
+        let _ = sqlx::query(
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
+             VALUES (?, ?, 'auto_ended_offline', ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&session_id)
+        .bind(driving_seconds as i64)
+        .execute(&state.db)
+        .await;
+
+        // Clear pod billing reference
+        if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
+            pod.billing_session_id = None;
+        }
+
+        let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
+            billing_session_id: session_id,
+            pod_id,
+            remaining_seconds: 0,
+        });
+    }
 }
 
 /// Called every 5 seconds to persist driving_seconds to database
@@ -363,6 +437,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             started_at,
             warning_5min_sent: (row.5 as u32).saturating_sub(row.6 as u32) <= 300,
             warning_1min_sent: (row.5 as u32).saturating_sub(row.6 as u32) <= 60,
+            offline_since: None,
         };
 
         tracing::info!(
@@ -579,6 +654,7 @@ pub async fn start_billing_session(
         started_at: Some(now),
         warning_5min_sent: false,
         warning_1min_sent: false,
+        offline_since: None,
     };
 
     let info = timer.to_info();
@@ -1051,6 +1127,7 @@ mod tests {
             started_at: Some(Utc::now()),
             warning_5min_sent: false,
             warning_1min_sent: false,
+            offline_since: None,
         };
 
         // Should count when driving
@@ -1084,6 +1161,7 @@ mod tests {
             started_at: Some(Utc::now()),
             warning_5min_sent: false,
             warning_1min_sent: false,
+            offline_since: None,
         };
 
         // One more tick should expire
@@ -1107,6 +1185,7 @@ mod tests {
             started_at: Some(Utc::now()),
             warning_5min_sent: false,
             warning_1min_sent: false,
+            offline_since: None,
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);

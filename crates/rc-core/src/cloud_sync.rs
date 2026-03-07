@@ -297,6 +297,8 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
                 "mac_address": p.mac_address,
                 "sim_type": p.sim_type,
                 "status": p.status,
+                "game_state": p.game_state,
+                "current_game": p.current_game,
                 "current_driver": p.current_driver,
                 "current_session_id": p.current_session_id,
                 "billing_session_id": p.billing_session_id,
