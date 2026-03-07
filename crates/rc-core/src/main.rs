@@ -21,6 +21,7 @@ mod remote_terminal;
 mod scheduler;
 mod state;
 mod wallet;
+mod udp_heartbeat;
 mod wol;
 mod ws;
 
@@ -194,6 +195,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn smart scheduler (auto-wake/shutdown pods, peak hour tracking)
     scheduler::spawn(state.clone());
+
+    // Spawn UDP heartbeat listener (fast liveness detection alongside WebSocket)
+    udp_heartbeat::spawn(state.clone());
 
     // Build router
     let app = Router::new()

@@ -6,6 +6,7 @@ mod game_process;
 mod kiosk;
 mod lock_screen;
 mod sims;
+mod udp_heartbeat;
 
 use std::time::Duration;
 
@@ -265,6 +266,30 @@ async fn main() -> Result<()> {
     // Debug server for remote diagnostics (LAN-accessible on port 18924)
     debug_server::spawn(lock_screen.state_handle(), config.pod.name.clone(), config.pod.number);
 
+    // ─── UDP Heartbeat (fast liveness detection alongside WebSocket) ─────────
+    let heartbeat_status = std::sync::Arc::new(udp_heartbeat::HeartbeatStatus::new());
+    let (heartbeat_event_tx, mut heartbeat_event_rx) = mpsc::channel::<udp_heartbeat::HeartbeatEvent>(16);
+
+    // Parse core IP from WebSocket URL (ws://IP:PORT/path → IP)
+    let core_ip = config.core.url
+        .replace("ws://", "")
+        .replace("wss://", "")
+        .split(':')
+        .next()
+        .unwrap_or("127.0.0.1")
+        .to_string();
+
+    {
+        let hb_status = heartbeat_status.clone();
+        let hb_tx = heartbeat_event_tx.clone();
+        let hb_ip = core_ip.clone();
+        let hb_pod = config.pod.number as u8;
+        tokio::spawn(async move {
+            udp_heartbeat::run(hb_ip, hb_pod, hb_status, hb_tx).await;
+        });
+    }
+    tracing::info!("UDP heartbeat started → {}:{}", core_ip, rc_common::udp_protocol::HEARTBEAT_PORT);
+
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
     // (lock screen, kiosk, HID/UDP monitors, game process) persists across
@@ -316,6 +341,7 @@ async fn main() -> Result<()> {
             continue;
         }
         tracing::info!("Connected and registered as Pod #{}", config.pod.number);
+        heartbeat_status.ws_connected.store(true, std::sync::atomic::Ordering::Relaxed);
 
         // Main event loop — runs until connection is lost
         let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(5));
@@ -391,6 +417,8 @@ async fn main() -> Result<()> {
             Some(signal) = signal_rx.recv() => {
                 let (_, changed) = detector.process_signal(signal);
                 if changed {
+                    let is_active = matches!(detector.state(), DrivingState::Active);
+                    heartbeat_status.driving_active.store(is_active, std::sync::atomic::Ordering::Relaxed);
                     let msg = AgentMessage::DrivingStateUpdate {
                         pod_id: pod_id.clone(),
                         state: detector.state(),
@@ -439,6 +467,8 @@ async fn main() -> Result<()> {
                         let still_alive = game.is_running();
                         if !still_alive && was_active {
                             // Game crashed or exited
+                            heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                            heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
                             let err_msg = "Game process exited unexpectedly".to_string();
                             let info = GameLaunchInfo {
                                 pod_id: pod_id.clone(),
@@ -498,6 +528,26 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+            // UDP heartbeat events (fast liveness detection)
+            Some(hb_event) = heartbeat_event_rx.recv() => {
+                match hb_event {
+                    udp_heartbeat::HeartbeatEvent::CoreDead => {
+                        tracing::warn!("UDP heartbeat: core dead — forcing WebSocket reconnect");
+                        break; // → reconnection loop
+                    }
+                    udp_heartbeat::HeartbeatEvent::ForceReconnect => {
+                        tracing::info!("UDP heartbeat: core requested reconnect");
+                        break; // → reconnection loop
+                    }
+                    udp_heartbeat::HeartbeatEvent::ForceRestart => {
+                        tracing::warn!("UDP heartbeat: core requested restart — exiting");
+                        std::process::exit(0); // Watchdog will restart us
+                    }
+                    udp_heartbeat::HeartbeatEvent::CoreAlive => {
+                        // Informational — core is back after being dead
+                    }
+                }
+            }
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
@@ -506,6 +556,7 @@ async fn main() -> Result<()> {
                             match core_msg {
                                 rc_common::protocol::CoreToAgentMessage::BillingStarted { billing_session_id, driver_name, allocated_seconds } => {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
+                                    heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
                                     lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingTick { remaining_seconds, allocated_seconds: _, driver_name: _ } => {
@@ -523,6 +574,7 @@ async fn main() -> Result<()> {
                                         "Session ended: {} — {} laps, best: {:?}, {}s",
                                         billing_session_id, total_laps, best_lap_ms, driving_seconds
                                     );
+                                    heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
                                     // Stop the game if still running
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
@@ -566,6 +618,16 @@ async fn main() -> Result<()> {
                                                 duration_minutes: 60,
                                             },
                                         };
+
+                                        // Update heartbeat status
+                                        heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        heartbeat_status.game_id.store(match launch_sim {
+                                            SimType::AssettoCorsa => 1,
+                                            SimType::F125 => 2,
+                                            SimType::IRacing => 3,
+                                            SimType::LeMansUltimate => 4,
+                                            SimType::Forza => 5,
+                                        }, std::sync::atomic::Ordering::Relaxed);
 
                                         // Send "launching" state
                                         let info = GameLaunchInfo {
@@ -684,6 +746,8 @@ async fn main() -> Result<()> {
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::StopGame => {
+                                    heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
                                     if let Some(ref mut game) = game_process {
                                         tracing::info!("Stopping game: {:?}", game.sim_type);
                                         let sim = game.sim_type;
@@ -794,7 +858,8 @@ async fn main() -> Result<()> {
         }
         } // end inner event loop
 
-        // Connection lost — show disconnected state and retry
+        // Connection lost — update UDP heartbeat status and show disconnected
+        heartbeat_status.ws_connected.store(false, std::sync::atomic::Ordering::Relaxed);
         tracing::warn!("Disconnected from core server, will reconnect in {:?}...", reconnect_delay);
         lock_screen.show_disconnected();
         tokio::time::sleep(reconnect_delay).await;
