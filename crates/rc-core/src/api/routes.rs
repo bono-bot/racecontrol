@@ -99,6 +99,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/auth/validate-qr", post(validate_qr))
         // Wallet (staff-facing)
         .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
+        .route("/wallet/transactions", get(all_wallet_transactions))
         .route("/wallet/{driver_id}", get(get_wallet))
         .route("/wallet/{driver_id}/topup", post(topup_wallet))
         .route("/wallet/{driver_id}/transactions", get(wallet_transactions))
@@ -3233,6 +3234,65 @@ async fn wallet_transactions(
     let limit = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(50i64);
     let txns = wallet::get_transactions(&state, &driver_id, limit).await;
     Json(json!({ "transactions": txns }))
+}
+
+async fn all_wallet_transactions(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let date = params.get("date").cloned().unwrap_or(today);
+    let limit = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(200i64);
+
+    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>)>(
+        "SELECT wt.id, wt.driver_id, wt.amount_paise, wt.balance_after_paise, wt.txn_type, \
+         wt.reference_id, wt.notes, wt.staff_id, wt.created_at, \
+         COALESCE(d.name, 'Unknown') as driver_name, d.phone as driver_phone \
+         FROM wallet_transactions wt \
+         LEFT JOIN drivers d ON d.id = wt.driver_id \
+         WHERE date(wt.created_at) = ? \
+         ORDER BY wt.created_at DESC LIMIT ?",
+    )
+    .bind(&date)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let mut total_credits: i64 = 0;
+    let mut total_debits: i64 = 0;
+
+    let txns: Vec<Value> = rows.iter().map(|r| {
+        let is_credit = r.4.starts_with("topup") || r.4 == "bonus" || r.4.starts_with("refund");
+        if is_credit {
+            total_credits += r.2;
+        } else {
+            total_debits += r.2;
+        }
+        json!({
+            "id": r.0,
+            "driver_id": r.1,
+            "amount_paise": r.2,
+            "balance_after_paise": r.3,
+            "txn_type": r.4,
+            "reference_id": r.5,
+            "notes": r.6,
+            "staff_id": r.7,
+            "created_at": r.8,
+            "driver_name": r.9,
+            "driver_phone": r.10,
+        })
+    }).collect();
+
+    Json(json!({
+        "transactions": txns,
+        "summary": {
+            "total_credits_paise": total_credits,
+            "total_debits_paise": total_debits,
+            "net_paise": total_credits - total_debits,
+            "count": txns.len(),
+        }
+    }))
 }
 
 #[derive(Debug, Deserialize)]
