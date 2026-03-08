@@ -9,6 +9,7 @@ interface DriverRegistrationProps {
   onAssign: (data: {
     pod_id: string;
     driver_id: string;
+    driver_name: string;
     pricing_tier_id: string;
     auth_type: string;
   }) => void;
@@ -73,6 +74,7 @@ export function DriverRegistration({ podId, onAssign, onCancel }: DriverRegistra
     onAssign({
       pod_id: podId,
       driver_id: selectedDriver.id,
+      driver_name: selectedDriver.name,
       pricing_tier_id: tier.id,
       auth_type: "pin",
     });

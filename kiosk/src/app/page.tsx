@@ -38,6 +38,13 @@ export default function StaffTerminal() {
   // Modal state
   const [registerPodId, setRegisterPodId] = useState<string | null>(null);
   const [gamePodId, setGamePodId] = useState<string | null>(null);
+  // Pending assign: holds driver/pricing data until game is selected, then billing starts
+  const [pendingAssign, setPendingAssign] = useState<{
+    pod_id: string;
+    driver_id: string;
+    pricing_tier_id: string;
+    driver_name: string;
+  } | null>(null);
   const [topUpDriverId, setTopUpDriverId] = useState<string | null>(null);
   const [topUpDriverName, setTopUpDriverName] = useState("");
   const [topUpBalance, setTopUpBalance] = useState(0);
@@ -85,32 +92,45 @@ export default function StaffTerminal() {
   const handleAssignDriver = async (data: {
     pod_id: string;
     driver_id: string;
+    driver_name: string;
     pricing_tier_id: string;
     auth_type: string;
   }) => {
-    // Staff flow: start billing directly (no PIN on pod)
-    try {
-      const result = await api.startBilling({
-        pod_id: data.pod_id,
-        driver_id: data.driver_id,
-        pricing_tier_id: data.pricing_tier_id,
-        staff_id: staffId || undefined,
-      });
-
-      if (result.error) {
-        alert(`Billing failed: ${result.error}`);
-        return;
-      }
-
-      setRegisterPodId(null);
-      setGamePodId(data.pod_id);
-    } catch (err) {
-      alert(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
-    }
+    // Defer billing until game is selected — store assign data, open GameConfigurator
+    setPendingAssign({
+      pod_id: data.pod_id,
+      driver_id: data.driver_id,
+      pricing_tier_id: data.pricing_tier_id,
+      driver_name: data.driver_name,
+    });
+    setRegisterPodId(null);
+    setGamePodId(data.pod_id);
   };
 
   const handleGameLaunch = async (simType: string, launchArgs: string) => {
     if (!gamePodId) return;
+
+    // If we have pending assign data, start billing NOW (right before launch)
+    if (pendingAssign) {
+      try {
+        const result = await api.startBilling({
+          pod_id: pendingAssign.pod_id,
+          driver_id: pendingAssign.driver_id,
+          pricing_tier_id: pendingAssign.pricing_tier_id,
+          staff_id: staffId || undefined,
+        });
+
+        if (result.error) {
+          alert(`Billing failed: ${result.error}`);
+          return;
+        }
+      } catch (err) {
+        alert(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
+        return;
+      }
+      setPendingAssign(null);
+    }
+
     await api.launchGame(gamePodId, simType, launchArgs);
     setGamePodId(null);
   };
@@ -259,9 +279,9 @@ export default function StaffTerminal() {
         <GameConfigurator
           podId={gamePodId}
           podNumber={pods.get(gamePodId)?.number || 0}
-          driverName={billingTimers.get(gamePodId)?.driver_name || "Driver"}
+          driverName={pendingAssign?.driver_name || billingTimers.get(gamePodId)?.driver_name || "Driver"}
           onLaunch={handleGameLaunch}
-          onCancel={() => setGamePodId(null)}
+          onCancel={() => { setGamePodId(null); setPendingAssign(null); }}
         />
       )}
 
