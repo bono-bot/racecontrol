@@ -149,6 +149,11 @@ pub enum CoreToAgentMessage {
         preset: String,
     },
 
+    /// PIN validation failed — agent should show error on lock screen
+    PinFailed {
+        reason: String,
+    },
+
     /// Kiosk settings updated — broadcast to all agents
     SettingsUpdated {
         settings: std::collections::HashMap<String, String>,

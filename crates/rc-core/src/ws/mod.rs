@@ -446,7 +446,7 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                     Ok(cmd) => match &cmd {
                         DashboardCommand::LaunchGame { .. }
                         | DashboardCommand::StopGame { .. } => {
-                            game_launcher::handle_dashboard_command(&cmd_state, cmd).await;
+                            let _ = game_launcher::handle_dashboard_command(&cmd_state, cmd).await;
                         }
                         DashboardCommand::StartAcSession { .. }
                         | DashboardCommand::StopAcSession { .. }

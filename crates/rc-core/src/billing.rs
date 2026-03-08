@@ -173,13 +173,13 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         // Check 5-minute warning
         if remaining <= 300 && !timer.warning_5min_sent {
             timer.warning_5min_sent = true;
-            warnings.push((timer.session_id.clone(), pod_id.clone(), remaining));
+            warnings.push((timer.session_id.clone(), pod_id.clone(), remaining, timer.driving_seconds));
         }
 
         // Check 1-minute warning
         if remaining <= 60 && !timer.warning_1min_sent {
             timer.warning_1min_sent = true;
-            warnings.push((timer.session_id.clone(), pod_id.clone(), remaining));
+            warnings.push((timer.session_id.clone(), pod_id.clone(), remaining, timer.driving_seconds));
         }
 
         // Broadcast tick to dashboards and agents
@@ -299,7 +299,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     }
 
     // Broadcast warnings
-    for (session_id, pod_id, remaining) in warnings {
+    for (session_id, pod_id, remaining, driving_seconds) in warnings {
         let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
             billing_session_id: session_id.clone(),
             pod_id,
@@ -318,7 +318,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         } else {
             "warning_5min"
         })
-        .bind(0i64)
+        .bind(driving_seconds as i64)
         .execute(&state.db)
         .await;
     }
@@ -614,7 +614,7 @@ pub async fn start_billing_session(
     let session_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    let _ = sqlx::query(
+    sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at, staff_id)
          VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)",
     )
@@ -627,7 +627,8 @@ pub async fn start_billing_session(
     .bind(now.to_rfc3339())
     .bind(&staff_id)
     .execute(&state.db)
-    .await;
+    .await
+    .map_err(|e| format!("Failed to persist billing session: {}", e))?;
 
     // Log billing events
     for event_type in ["created", "started"] {
@@ -785,15 +786,15 @@ pub async fn end_billing_session_public(
     state: &Arc<AppState>,
     session_id: &str,
     end_status: BillingSessionStatus,
-) {
-    end_billing_session(state, session_id, end_status).await;
+) -> bool {
+    end_billing_session(state, session_id, end_status).await
 }
 
 async fn end_billing_session(
     state: &Arc<AppState>,
     session_id: &str,
     end_status: BillingSessionStatus,
-) {
+) -> bool {
     let mut timers = state.billing.active_timers.write().await;
 
     let pod_id = timers
@@ -937,8 +938,10 @@ async fn end_billing_session(
                     post_session_hooks(&state_clone, &session_id_clone, &driver_id_clone).await;
                 });
             }
+            return true;
         }
     }
+    false
 }
 
 /// Post-session hooks: credit referral rewards, schedule review nudge.

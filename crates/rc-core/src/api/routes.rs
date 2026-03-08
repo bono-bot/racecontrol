@@ -1275,11 +1275,12 @@ async fn stop_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    let cmd = rc_common::protocol::DashboardCommand::EndBilling {
-        billing_session_id: id,
-    };
-    billing::handle_dashboard_command(&state, cmd).await;
-    Json(json!({ "ok": true }))
+    let found = billing::end_billing_session_public(&state, &id, rc_common::types::BillingSessionStatus::EndedEarly).await;
+    if found {
+        Json(json!({ "ok": true }))
+    } else {
+        Json(json!({ "ok": false, "error": "Session not found or already ended" }))
+    }
 }
 
 async fn pause_billing(
@@ -1348,20 +1349,32 @@ async fn list_billing_sessions(
          WHERE 1=1",
     );
 
+    // Build parameterized query to prevent SQL injection
+    let mut bind_values: Vec<String> = Vec::new();
     if let Some(date) = &params.date {
-        query.push_str(&format!(" AND date(bs.started_at) = '{}'", date));
+        // Validate date format (YYYY-MM-DD only)
+        if date.len() == 10 && date.chars().all(|c| c.is_ascii_digit() || c == '-') {
+            query.push_str(" AND date(bs.started_at) = ?");
+            bind_values.push(date.clone());
+        }
     }
     if let Some(status) = &params.status {
-        query.push_str(&format!(" AND bs.status = '{}'", status));
+        // Validate status is alphanumeric + underscores only
+        if status.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            query.push_str(" AND bs.status = ?");
+            bind_values.push(status.clone());
+        }
     }
 
     query.push_str(" ORDER BY bs.created_at DESC LIMIT 100");
 
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, String)>(
+    let mut q = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, String)>(
         &query,
-    )
-    .fetch_all(&state.db)
-    .await;
+    );
+    for val in &bind_values {
+        q = q.bind(val);
+    }
+    let rows = q.fetch_all(&state.db).await;
 
     match rows {
         Ok(sessions) => {
@@ -1843,8 +1856,10 @@ async fn launch_game(
         launch_args,
     };
 
-    game_launcher::handle_dashboard_command(&state, cmd).await;
-    Json(json!({ "ok": true }))
+    match game_launcher::handle_dashboard_command(&state, cmd).await {
+        Ok(()) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
 }
 
 async fn set_pod_transmission(
@@ -1913,7 +1928,7 @@ async fn stop_game(
         pod_id: pod_id.to_string(),
     };
 
-    game_launcher::handle_dashboard_command(&state, cmd).await;
+    let _ = game_launcher::handle_dashboard_command(&state, cmd).await;
     Json(json!({ "ok": true }))
 }
 

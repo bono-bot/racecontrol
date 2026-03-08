@@ -20,6 +20,7 @@ pub enum LockScreenState {
         driver_name: String,
         pricing_tier_name: String,
         allocated_seconds: u32,
+        pin_error: Option<String>,
     },
     /// QR code display screen.
     QrDisplay {
@@ -114,9 +115,19 @@ impl LockScreenManager {
                 driver_name,
                 pricing_tier_name,
                 allocated_seconds,
+                pin_error: None,
             };
         }
         self.launch_browser();
+    }
+
+    /// Show PIN validation error on lock screen (wrong PIN feedback).
+    pub fn show_pin_error(&self, reason: &str) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let LockScreenState::PinEntry { ref mut pin_error, .. } = *state {
+            *pin_error = Some(reason.to_string());
+        }
+        // The next page poll from the browser will pick up the error
     }
 
     /// Show the QR code lock screen.
@@ -576,8 +587,9 @@ fn render_page(state: &LockScreenState) -> String {
             driver_name,
             pricing_tier_name,
             allocated_seconds,
+            pin_error,
             ..
-        } => render_pin_page(driver_name, pricing_tier_name, *allocated_seconds),
+        } => render_pin_page(driver_name, pricing_tier_name, *allocated_seconds, pin_error.as_deref()),
         LockScreenState::QrDisplay {
             qr_payload,
             driver_name,
@@ -649,12 +661,18 @@ fn render_idle_page() -> String {
     )
 }
 
-fn render_pin_page(driver_name: &str, pricing_tier_name: &str, allocated_seconds: u32) -> String {
+fn render_pin_page(driver_name: &str, pricing_tier_name: &str, allocated_seconds: u32, pin_error: Option<&str>) -> String {
     let minutes = allocated_seconds / 60;
+    let error_html = if let Some(_err) = pin_error {
+        format!(r#"<div style="color:#ff4444;font-size:18px;margin-bottom:16px;font-weight:bold">Invalid PIN — try again</div>"#)
+    } else {
+        String::new()
+    };
     let content = PIN_PAGE
         .replace("{{DRIVER_NAME}}", &html_escape(driver_name))
         .replace("{{TIER_NAME}}", &html_escape(pricing_tier_name))
-        .replace("{{MINUTES}}", &minutes.to_string());
+        .replace("{{MINUTES}}", &minutes.to_string())
+        .replace("{{PIN_ERROR}}", &error_html);
     page_shell("Enter PIN - Racing Point", &content)
 }
 
@@ -950,6 +968,7 @@ body {
 
 const PIN_PAGE: &str = r#"<div class="welcome">Welcome, {{DRIVER_NAME}}!</div>
 <div class="session-info">{{TIER_NAME}} &mdash; {{MINUTES}} minutes</div>
+{{PIN_ERROR}}
 <form method="POST" action="/pin" id="pinForm">
   <div class="pin-row">
     <input class="pin-box" type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" autofocus>

@@ -134,19 +134,37 @@ pub async fn debit(
         return Err("Debit amount must be positive".to_string());
     }
 
-    // Check balance
-    let current = get_balance(state, driver_id).await?;
-    if current < amount_paise {
-        return Err(format!(
-            "Insufficient balance: have {}p, need {}p",
-            current, amount_paise
-        ));
-    }
+    // Atomic debit: UPDATE only if balance is sufficient (prevents TOCTOU race)
+    let result = sqlx::query_as::<_, (i64,)>(
+        "UPDATE wallets SET
+            balance_paise = balance_paise - ?,
+            total_debited_paise = total_debited_paise + ?,
+            updated_at = datetime('now')
+         WHERE driver_id = ? AND balance_paise >= ?
+         RETURNING balance_paise",
+    )
+    .bind(amount_paise)
+    .bind(amount_paise)
+    .bind(driver_id)
+    .bind(amount_paise)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error updating wallet: {}", e))?;
+
+    let new_balance = match result {
+        Some((balance,)) => balance,
+        None => {
+            let current = get_balance(state, driver_id).await.unwrap_or(0);
+            return Err(format!(
+                "Insufficient balance: have {}p, need {}p",
+                current, amount_paise
+            ));
+        }
+    };
 
     let txn_id = Uuid::new_v4().to_string();
-    let new_balance = current - amount_paise;
 
-    // Record transaction first (validates txn_type via CHECK constraint)
+    // Record transaction after successful debit
     sqlx::query(
         "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -161,21 +179,6 @@ pub async fn debit(
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
-
-    // Then update wallet balance (safe: if insert succeeded, txn_type is valid)
-    sqlx::query(
-        "UPDATE wallets SET
-            balance_paise = ?,
-            total_debited_paise = total_debited_paise + ?,
-            updated_at = datetime('now')
-         WHERE driver_id = ?",
-    )
-    .bind(new_balance)
-    .bind(amount_paise)
-    .bind(driver_id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| format!("DB error updating wallet: {}", e))?;
 
     tracing::info!(
         "Wallet debit: {} -{}p = {}p ({})",

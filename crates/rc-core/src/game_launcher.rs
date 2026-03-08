@@ -51,19 +51,20 @@ impl GameManager {
 }
 
 /// Handle dashboard commands for game launching/stopping
-pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardCommand) {
+pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardCommand) -> Result<(), String> {
     match cmd {
         DashboardCommand::LaunchGame {
             pod_id,
             sim_type,
             launch_args,
         } => {
-            launch_game(state, &pod_id, sim_type, launch_args).await;
+            launch_game(state, &pod_id, sim_type, launch_args).await
         }
         DashboardCommand::StopGame { pod_id } => {
             stop_game(state, &pod_id).await;
+            Ok(())
         }
-        _ => {}
+        _ => Ok(()),
     }
 }
 
@@ -72,17 +73,13 @@ async fn launch_game(
     pod_id: &str,
     sim_type: SimType,
     launch_args: Option<String>,
-) {
+) -> Result<(), String> {
     // Check if a game is currently launching (avoid double-launch race)
     {
         let games = state.game_launcher.active_games.read().await;
         if let Some(tracker) = games.get(pod_id) {
             if matches!(tracker.game_state, GameState::Launching) {
-                tracing::warn!(
-                    "Pod {} already launching a game, ignoring",
-                    pod_id
-                );
-                return;
+                return Err(format!("Pod {} already launching a game", pod_id));
             }
         }
     }
@@ -132,16 +129,23 @@ async fn launch_game(
         {
             tracker.game_state = GameState::Error;
             tracker.error_message = Some("No agent connected".to_string());
+            // Re-capture info AFTER updating to Error state so dashboard gets correct state
+            let error_info = tracker.to_info();
+            let _ = state
+                .dashboard_tx
+                .send(DashboardEvent::GameStateChanged(error_info));
         }
+        return Err(format!("No agent connected for pod {}", pod_id));
     }
 
-    // Broadcast to dashboards
+    // Broadcast to dashboards (only reached if agent IS connected)
     let _ = state
         .dashboard_tx
         .send(DashboardEvent::GameStateChanged(info));
 
     // Log event to DB
     log_game_event(state, pod_id, &sim_type.to_string(), "launched", None, None).await;
+    Ok(())
 }
 
 async fn stop_game(state: &Arc<AppState>, pod_id: &str) {

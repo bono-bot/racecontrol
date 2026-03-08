@@ -940,6 +940,10 @@ async fn main() -> Result<()> {
                                         tracing::error!("Failed to set FFB: {}", e);
                                     }
                                 }
+                                rc_common::protocol::CoreToAgentMessage::PinFailed { reason } => {
+                                    tracing::warn!("PIN failed: {}", reason);
+                                    lock_screen.show_pin_error(&reason);
+                                }
                                 _ => {}
                             }
                         }

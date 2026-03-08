@@ -354,8 +354,8 @@ pub async fn validate_pin(
     let experience_id = row.5;
     let custom_launch_args = row.6;
 
-    // Start billing session
-    let billing_session_id = billing::start_billing_session(
+    // Start billing session — rollback token if billing fails
+    let billing_session_id = match billing::start_billing_session(
         state,
         pod_id.clone(),
         driver_id.clone(),
@@ -364,7 +364,19 @@ pub async fn validate_pin(
         custom_duration_minutes,
         None, // customer PIN auth
     )
-    .await?;
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            // Rollback: revert token from 'consuming' back to 'pending'
+            let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
+                .bind(&token_id)
+                .execute(&state.db)
+                .await;
+            tracing::error!("Billing start failed for token {}, rolled back to pending: {}", token_id, e);
+            return Err(e);
+        }
+    };
 
     // Finalize token as consumed with billing session ID
     if let Err(e) = sqlx::query(
@@ -538,8 +550,8 @@ pub async fn start_now(
     let experience_id = row.5;
     let custom_launch_args = row.6;
 
-    // Start billing session
-    let billing_session_id = billing::start_billing_session(
+    // Start billing session — rollback token if billing fails
+    let billing_session_id = match billing::start_billing_session(
         state,
         pod_id.clone(),
         driver_id.clone(),
@@ -548,7 +560,19 @@ pub async fn start_now(
         custom_duration_minutes,
         None, // PWA token auth
     )
-    .await?;
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            // Rollback: revert token from 'consuming' back to 'pending'
+            let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
+                .bind(&token_id)
+                .execute(&state.db)
+                .await;
+            tracing::error!("Billing start failed for token {}, rolled back to pending: {}", token_id, e);
+            return Err(e);
+        }
+    };
 
     // Finalize token as consumed with billing session ID
     if let Err(e) = sqlx::query(
@@ -984,6 +1008,15 @@ pub async fn handle_pin_entered(state: &Arc<AppState>, pod_id: String, pin: Stri
         }
         Err(e) => {
             tracing::warn!("PIN auth failed on pod {}: {}", pod_id, e);
+            // Send failure feedback to agent so lock screen shows error
+            let agent_senders = state.agent_senders.read().await;
+            if let Some(sender) = agent_senders.get(&pod_id) {
+                let _ = sender
+                    .send(CoreToAgentMessage::PinFailed {
+                        reason: e.clone(),
+                    })
+                    .await;
+            }
         }
     }
 }
@@ -1030,8 +1063,8 @@ pub async fn validate_pin_kiosk(
     let experience_id = row.6;
     let custom_launch_args = row.7;
 
-    // Start billing session
-    let billing_session_id = billing::start_billing_session(
+    // Start billing session — rollback token if billing fails
+    let billing_session_id = match billing::start_billing_session(
         state,
         pod_id.clone(),
         driver_id.clone(),
@@ -1040,7 +1073,19 @@ pub async fn validate_pin_kiosk(
         custom_duration_minutes,
         None, // kiosk PIN validation
     )
-    .await?;
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            // Rollback: revert token from 'consuming' back to 'pending'
+            let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
+                .bind(&token_id)
+                .execute(&state.db)
+                .await;
+            tracing::error!("Billing start failed for token {}, rolled back to pending: {}", token_id, e);
+            return Err(e);
+        }
+    };
 
     // Finalize token as consumed with billing session ID
     if let Err(e) = sqlx::query(

@@ -222,7 +222,7 @@ export default function DebugPage() {
         </div>
       )}
 
-      <div className="flex-1 flex gap-4 p-4 overflow-hidden">
+      <div className="flex-1 flex gap-4 p-4 overflow-hidden min-h-0">
         {/* ─── LEFT SIDEBAR: Pod Grid ──────────────────────────────── */}
         <div className="w-48 flex-shrink-0 flex flex-col gap-3">
           <div className="bg-rp-card border border-rp-border rounded-xl p-3">
@@ -292,7 +292,7 @@ export default function DebugPage() {
         </div>
 
         {/* ─── MAIN: Live Activity Feed ────────────────────────────── */}
-        <div className="flex-1 flex flex-col gap-4 min-w-0">
+        <div className="flex-1 flex flex-col gap-4 min-w-0 min-h-0">
           {/* Header */}
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-rp-grey uppercase tracking-wider">
@@ -322,7 +322,7 @@ export default function DebugPage() {
           </div>
 
           {/* Activity Feed */}
-          <div className="flex-1 bg-rp-card border border-rp-border rounded-xl overflow-y-auto">
+          <div className="flex-1 min-h-0 bg-rp-card border border-rp-border rounded-xl overflow-y-auto">
             {filteredActivity.length === 0 ? (
               <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
                 No activity yet — events will appear in real-time
@@ -395,7 +395,7 @@ export default function DebugPage() {
           </div>
 
           {/* ─── Diagnostics Section (collapsible) ───────────────── */}
-          <div className="bg-rp-card border border-rp-border rounded-xl">
+          <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl max-h-[45vh] overflow-y-auto">
             <button
               onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}
               className="w-full flex items-center justify-between p-3 text-left"
