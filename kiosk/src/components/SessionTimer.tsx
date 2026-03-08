@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { BillingSession } from "@/lib/types";
 
 interface SessionTimerProps {
@@ -14,15 +15,28 @@ function formatTime(seconds: number): string {
 }
 
 export function SessionTimer({ billing, hasWarning }: SessionTimerProps) {
-  const progress = Math.max(0, (billing.remaining_seconds / billing.allocated_seconds) * 100);
-  const isLow = billing.remaining_seconds < 120;
+  // Local countdown: interpolate between WebSocket ticks for smooth 1s updates
+  const [localRemaining, setLocalRemaining] = useState(billing.remaining_seconds);
+  useEffect(() => {
+    setLocalRemaining(billing.remaining_seconds);
+  }, [billing.remaining_seconds]);
+  useEffect(() => {
+    if (billing.status === "paused_manual") return;
+    const iv = setInterval(() => {
+      setLocalRemaining((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [billing.id, billing.status]);
+
+  const progress = Math.max(0, (localRemaining / billing.allocated_seconds) * 100);
+  const isLow = localRemaining < 120;
 
   return (
     <div>
       <div className="flex justify-between text-xs text-rp-grey mb-1">
         <span>{billing.status === "paused_manual" ? "Paused" : "Remaining"}</span>
         <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold animate-pulse" : isLow ? "text-rp-red font-semibold" : ""}`}>
-          {formatTime(billing.remaining_seconds)}
+          {formatTime(localRemaining)}
         </span>
       </div>
       <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">

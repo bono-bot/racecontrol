@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import type {
   Pod,
   TelemetryFrame,
@@ -95,6 +95,20 @@ export function KioskPodCard({
   const isOffline = pod.status === "offline";
   const hasWarning = !!warning;
 
+  // Local countdown: interpolate between WebSocket billing ticks for smooth 1s updates
+  const [localRemaining, setLocalRemaining] = useState(billing?.remaining_seconds ?? 0);
+  useEffect(() => {
+    if (billing) setLocalRemaining(billing.remaining_seconds);
+  }, [billing?.remaining_seconds]);
+  useEffect(() => {
+    if (!billing || billing.status === "paused_manual") return;
+    const iv = setInterval(() => {
+      setLocalRemaining((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [billing?.id, billing?.status]);
+  const displayRemaining = billing ? localRemaining : 0;
+
   // Stabilize car/track display — AC shared memory can flicker between cars
   const stableCarRef = useRef<{ sessionId: string; car: string; track: string } | null>(null);
   if (billing && telemetry?.car) {
@@ -167,7 +181,7 @@ export function KioskPodCard({
               <div className="flex justify-between text-[10px] text-rp-grey mb-0.5">
                 <span>{billing.status === "paused_manual" ? "Paused" : ""}</span>
                 <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold" : ""}`}>
-                  {formatTime(billing.remaining_seconds)}
+                  {formatTime(displayRemaining)}
                 </span>
               </div>
               <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
@@ -176,7 +190,7 @@ export function KioskPodCard({
                     hasWarning ? "bg-amber-500" : "bg-rp-red"
                   }`}
                   style={{
-                    width: `${Math.max(0, (billing.remaining_seconds / billing.allocated_seconds) * 100)}%`,
+                    width: `${Math.max(0, (displayRemaining / billing.allocated_seconds) * 100)}%`,
                   }}
                 />
               </div>
@@ -322,7 +336,7 @@ export function KioskPodCard({
               <div className="flex justify-between text-xs text-rp-grey mb-1">
                 <span>{billing.status === "paused_manual" ? "Paused" : "Remaining"}</span>
                 <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold" : ""}`}>
-                  {formatTime(billing.remaining_seconds)}
+                  {formatTime(displayRemaining)}
                 </span>
               </div>
               <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
@@ -330,12 +344,12 @@ export function KioskPodCard({
                   className={`h-full rounded-full transition-all duration-1000 ${
                     hasWarning
                       ? "bg-amber-500"
-                      : billing.remaining_seconds < 120
+                      : displayRemaining < 120
                       ? "bg-rp-red"
                       : "bg-rp-red"
                   }`}
                   style={{
-                    width: `${Math.max(0, (billing.remaining_seconds / billing.allocated_seconds) * 100)}%`,
+                    width: `${Math.max(0, (displayRemaining / billing.allocated_seconds) * 100)}%`,
                   }}
                 />
               </div>
