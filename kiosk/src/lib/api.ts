@@ -207,6 +207,44 @@ export const api = {
       body: JSON.stringify({ status, resolution_text, effectiveness }),
     }),
 
+  // Customer Self-Service (phone auth + booking)
+  customerLogin: (phone: string) =>
+    fetchApi<{ status?: string; error?: string }>("/customer/login", {
+      method: "POST",
+      body: JSON.stringify({ phone }),
+    }),
+  customerVerifyOtp: (phone: string, otp: string) =>
+    fetchApi<{ token?: string; driver_id?: string; driver_name?: string; error?: string }>(
+      "/customer/verify-otp",
+      {
+        method: "POST",
+        body: JSON.stringify({ phone, otp }),
+      }
+    ),
+  customerBook: async (
+    token: string,
+    data: {
+      pricing_tier_id: string;
+      experience_id?: string;
+      custom?: Record<string, unknown>;
+    }
+  ): Promise<{
+    pin?: string;
+    pod_number?: number;
+    allocated_seconds?: number;
+    error?: string;
+  }> => {
+    const res = await fetch(`${API_BASE}/api/v1/customer/book`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
   // Pod Enable/Disable
   enablePod: (id: string) =>
     fetchApi<{ ok: boolean }>(`/pods/${id}/enable`, { method: "POST" }),

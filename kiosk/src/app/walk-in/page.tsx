@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { api } from "@/lib/api";
 
@@ -17,6 +18,7 @@ const ERROR_RETURN_MS = 10_000;
 // ─── Main Walk-In Page (PIN Entry Terminal) ───────────────────────────────
 
 export default function WalkInPage() {
+  const router = useRouter();
   const { pods, connected } = useKioskSocket();
 
   const [step, setStep] = useState<Step>("idle");
@@ -183,6 +185,27 @@ export default function WalkInPage() {
           <p className="text-2xl text-white font-medium">Tap to Enter PIN</p>
           <p className="text-rp-grey text-sm">
             Book on the app, then enter your PIN here
+          </p>
+        </div>
+
+        {/* Book a Session divider + button */}
+        <div className="flex flex-col items-center gap-4 mt-4">
+          <div className="flex items-center gap-3 text-xs text-rp-grey">
+            <div className="w-16 h-px bg-rp-border" />
+            <span>or</span>
+            <div className="w-16 h-px bg-rp-border" />
+          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push("/book");
+            }}
+            className="px-8 py-3 bg-rp-surface border-2 border-rp-border rounded-xl text-white font-semibold hover:border-rp-red hover:bg-rp-red/10 transition-all"
+          >
+            Book a Session
+          </button>
+          <p className="text-rp-grey text-xs">
+            Configure your experience and get a PIN
           </p>
         </div>
 
