@@ -474,21 +474,50 @@ VISIBLE=1
     Ok(())
 }
 
-/// Minimize Steam and any other distracting windows via PowerShell.
-fn minimize_background_windows() {
+/// Minimize all visible windows except the game, overlay, and essential system processes.
+/// Uses an allow-list approach: anything not on the list gets minimized.
+pub fn minimize_background_windows() {
     let ps_script = r#"
-        Add-Type -Name Win -Namespace Native -MemberDefinition '
+        Add-Type -Name WinMin -Namespace NativeMin -MemberDefinition '
             [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
         '
+        # Processes whose windows we must NOT minimize
+        $allowList = @(
+            'acs', 'AssettoCorsa',                          # Game
+            'msedge', 'msedgewebview2',                     # Overlay (Edge WebView)
+            'explorer',                                      # Shell (taskbar/desktop)
+            'TextInputHost', 'ShellExperienceHost',          # System UI
+            'SearchHost', 'StartMenuExperienceHost',         # System UI
+            'SecurityHealthSystray', 'ctfmon',               # System tray
+            'rc-agent',                                      # Our agent
+            'ConspitLink2.0'                                 # Wheel display
+        )
         # SW_MINIMIZE = 6
-        Get-Process -Name steam,steamwebhelper -ErrorAction SilentlyContinue |
-            Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
-            ForEach-Object { [Native.Win]::ShowWindow($_.MainWindowHandle, 6) }
+        Get-Process | Where-Object {
+            $_.MainWindowHandle -ne [IntPtr]::Zero -and
+            $allowList -notcontains $_.ProcessName
+        } | ForEach-Object {
+            $hWnd = $_.MainWindowHandle
+            if ([NativeMin.WinMin]::IsWindowVisible($hWnd) -and -not [NativeMin.WinMin]::IsIconic($hWnd)) {
+                [NativeMin.WinMin]::ShowWindow($hWnd, 6) | Out-Null
+                Write-Output "Minimized: $($_.ProcessName) (PID $($_.Id))"
+            }
+        }
     "#;
-    let _ = Command::new("powershell")
+    match Command::new("powershell")
         .args(["-NoProfile", "-Command", ps_script])
-        .output();
-    tracing::info!("Minimized Steam background windows");
+        .output()
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if !stdout.trim().is_empty() {
+                tracing::info!("minimize_background_windows: {}", stdout.trim());
+            }
+        }
+        Err(e) => tracing::warn!("minimize_background_windows failed: {}", e),
+    }
 }
 
 /// Full pod cleanup after a session ends.

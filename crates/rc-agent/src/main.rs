@@ -538,6 +538,10 @@ async fn main() -> Result<()> {
             // Re-enforce overlay TOPMOST every 10s (survives game focus changes)
             _ = overlay_topmost_interval.tick() => {
                 overlay.enforce_topmost();
+                // Minimize distracting windows during active game sessions
+                if game_process.is_some() {
+                    tokio::task::spawn_blocking(|| ac_launcher::minimize_background_windows());
+                }
             }
             // Auto-blank after session summary (15s delay)
             _ = &mut blank_timer, if blank_timer_armed => {
@@ -593,6 +597,8 @@ async fn main() -> Result<()> {
                                     blank_timer_armed = false; // cancel any pending auto-blank
                                     overlay.activate(driver_name.clone(), allocated_seconds);
                                     lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
+                                    // Minimize all background windows for a clean game view
+                                    tokio::task::spawn_blocking(|| ac_launcher::minimize_background_windows());
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingTick { remaining_seconds, allocated_seconds: _, driver_name: _ } => {
                                     lock_screen.update_remaining(remaining_seconds);
