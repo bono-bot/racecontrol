@@ -30,6 +30,16 @@ pub struct AcLaunchParams {
     pub conditions: Option<AcConditions>,
     #[serde(default = "default_duration")]
     pub duration_minutes: u32,
+    #[serde(default)]
+    pub game_mode: String,
+    #[serde(default)]
+    pub server_ip: String,
+    #[serde(default)]
+    pub server_port: u16,
+    #[serde(default)]
+    pub server_http_port: u16,
+    #[serde(default)]
+    pub server_password: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -82,19 +92,35 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
     // Step 2b: Set FFB strength
     set_ffb(&params.ffb)?;
 
-    // Step 3: Launch acs.exe
-    tracing::info!("[3/4] Launching acs.exe...");
-    let ac_dir = find_ac_dir()?;
-    let acs_exe = ac_dir.join("acs.exe");
-
-    let child = Command::new(&acs_exe)
-        .current_dir(&ac_dir)
-        .spawn()
-        .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
-    let pid = child.id();
+    // Step 3: Launch AC — try Content Manager first, fall back to direct acs.exe
+    let pid = if find_cm_exe().is_some() {
+        tracing::info!("[3/5] Launching AC via Content Manager...");
+        launch_via_cm(params)?;
+        // CM spawns acs.exe as a child — poll for it
+        match wait_for_ac_process(15) {
+            Ok(pid) => pid,
+            Err(e) => {
+                tracing::warn!("CM launch: acs.exe not found after polling: {}. Trying direct launch.", e);
+                let ac_dir = find_ac_dir()?;
+                let child = Command::new(ac_dir.join("acs.exe"))
+                    .current_dir(&ac_dir)
+                    .spawn()
+                    .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
+                child.id()
+            }
+        }
+    } else {
+        tracing::info!("[3/5] Content Manager not found, launching acs.exe directly...");
+        let ac_dir = find_ac_dir()?;
+        let child = Command::new(ac_dir.join("acs.exe"))
+            .current_dir(&ac_dir)
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
+        child.id()
+    };
     tracing::info!("AC launched with PID {}", pid);
 
-    // Step 4: Wait for AC to load, then restart Conspit Link and minimize background windows
+    // Step 4: Wait for AC to load, then restart Conspit Link
     tracing::info!("[4/5] Waiting 8s for AC to load, then restarting Conspit Link...");
     std::thread::sleep(std::time::Duration::from_secs(8));
     restart_conspit_link();
@@ -301,12 +327,12 @@ SKIN={skin}
 TRACK={track}
 
 [REMOTE]
-ACTIVE=0
+ACTIVE={remote_active}
 GUID=
 NAME={driver}
-PASSWORD=
-SERVER_IP=
-SERVER_PORT=
+PASSWORD={server_password}
+SERVER_IP={server_ip}
+SERVER_PORT={server_port}
 TEAM=
 
 [REPLAY]
@@ -348,6 +374,10 @@ SPEED_KMH_MIN=0"#,
         driver = params.driver,
         skin = params.skin,
         duration_minutes = params.duration_minutes,
+        remote_active = if params.game_mode == "multi" { 1 } else { 0 },
+        server_ip = params.server_ip,
+        server_port = params.server_port,
+        server_password = params.server_password,
     );
 
     if let Some(parent) = race_ini_path.parent() {
@@ -393,6 +423,92 @@ fn write_assists_ini(params: &AcLaunchParams) -> Result<()> {
         damage, auto_shifter, params.transmission
     );
     Ok(())
+}
+
+/// Find Content Manager executable on the pod.
+/// Checks common install locations used on our pods.
+fn find_cm_exe() -> Option<std::path::PathBuf> {
+    let candidates = [
+        r"C:\Users\User\Desktop\Content Manager.exe",
+        r"C:\Users\User\Desktop\content-manager\Content Manager.exe",
+        r"C:\RacingPoint\Content Manager.exe",
+        r"C:\Users\bono\Desktop\Content Manager.exe",
+    ];
+    for path in &candidates {
+        let p = Path::new(path);
+        if p.exists() {
+            tracing::info!("Found Content Manager at {}", path);
+            return Some(p.to_path_buf());
+        }
+    }
+    tracing::warn!("Content Manager not found in any known location");
+    None
+}
+
+/// Launch AC via Content Manager's acmanager:// URI protocol.
+/// For single-player: `acmanager://race/config` (uses current race.ini)
+/// For multiplayer: `acmanager://race/online?ip=...&httpPort=...&password=...`
+fn launch_via_cm(params: &AcLaunchParams) -> Result<()> {
+    let uri = if params.game_mode == "multi" {
+        let mut uri = format!(
+            "acmanager://race/online?ip={}&httpPort={}",
+            params.server_ip, params.server_http_port,
+        );
+        if !params.server_password.is_empty() {
+            uri.push_str(&format!("&password={}", params.server_password));
+        }
+        uri
+    } else {
+        "acmanager://race/config".to_string()
+    };
+
+    tracing::info!("Launching via Content Manager URI: {}", uri);
+    Command::new("cmd")
+        .args(["/c", "start", "", &uri])
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("Failed to open acmanager:// URI: {}", e))?;
+
+    Ok(())
+}
+
+/// Poll for acs.exe process to appear (CM launches it as a child process).
+/// Returns the PID once found, or an error after timeout.
+fn wait_for_ac_process(timeout_secs: u64) -> Result<u32> {
+    let poll_interval = std::time::Duration::from_millis(500);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+
+    while std::time::Instant::now() < deadline {
+        if let Some(pid) = find_acs_pid() {
+            tracing::info!("Found acs.exe with PID {}", pid);
+            return Ok(pid);
+        }
+        std::thread::sleep(poll_interval);
+    }
+
+    anyhow::bail!("acs.exe did not appear within {}s after CM launch", timeout_secs)
+}
+
+/// Find acs.exe PID via tasklist.
+fn find_acs_pid() -> Option<u32> {
+    let output = Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq acs.exe", "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // CSV format: "acs.exe","12345","Console","1","123,456 K"
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.starts_with("\"acs.exe\"") {
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() >= 2 {
+                let pid_str = parts[1].trim_matches('"');
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    return Some(pid);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Find the AC installation directory
@@ -491,7 +607,8 @@ pub fn minimize_background_windows() {
             'TextInputHost', 'ShellExperienceHost',          # System UI
             'SearchHost', 'StartMenuExperienceHost',         # System UI
             'SecurityHealthSystray', 'ctfmon',               # System tray
-            'rc-agent'                                       # Our agent
+            'rc-agent',                                      # Our agent
+            'Content Manager'                                # CM monitors game lifecycle
             # ConspitLink2.0 intentionally NOT listed — minimize it so kiosk stays on top
             # (Conspit still captures telemetry while minimized)
         )
@@ -527,10 +644,11 @@ pub fn minimize_background_windows() {
 pub fn cleanup_after_session() {
     tracing::info!("[cleanup] Starting post-session cleanup...");
 
-    // 1. Kill AC (Conspit Link stays running — minimized in step 3)
+    // 1. Kill AC and Content Manager (Conspit Link stays running — minimized in step 3)
     let _ = Command::new("taskkill").args(["/IM", "acs.exe", "/F"]).output();
     let _ = Command::new("taskkill").args(["/IM", "AssettoCorsa.exe", "/F"]).output();
-    tracing::info!("[cleanup] Killed AC (Conspit Link kept alive)");
+    let _ = Command::new("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
+    tracing::info!("[cleanup] Killed AC + Content Manager (Conspit Link kept alive)");
 
     // 2. Kill error/crash dialogs
     let _ = Command::new("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();

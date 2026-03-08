@@ -671,6 +671,11 @@ async fn main() -> Result<()> {
                                                 aids: None,
                                                 conditions: None,
                                                 duration_minutes: 60,
+                                                game_mode: String::new(),
+                                                server_ip: String::new(),
+                                                server_port: 0,
+                                                server_http_port: 0,
+                                                server_password: String::new(),
                                             }),
                                             None => ac_launcher::AcLaunchParams {
                                                 car: "ks_ferrari_sf15t".to_string(),
@@ -683,6 +688,11 @@ async fn main() -> Result<()> {
                                                 aids: None,
                                                 conditions: None,
                                                 duration_minutes: 60,
+                                                game_mode: String::new(),
+                                                server_ip: String::new(),
+                                                server_port: 0,
+                                                server_http_port: 0,
+                                                server_password: String::new(),
                                             },
                                         };
 
