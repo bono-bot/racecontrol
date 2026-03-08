@@ -205,7 +205,7 @@ export default function DebugPage() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-rp-black flex flex-col">
+    <div className="h-screen bg-rp-black flex flex-col overflow-hidden">
       <KioskHeader
         connected={connected}
         pods={pods}
@@ -222,9 +222,9 @@ export default function DebugPage() {
         </div>
       )}
 
-      <div className="flex-1 flex gap-4 p-4 overflow-hidden min-h-0">
+      <div className="flex-1 flex gap-4 p-4 min-h-0">
         {/* ─── LEFT SIDEBAR: Pod Grid ──────────────────────────────── */}
-        <div className="w-48 flex-shrink-0 flex flex-col gap-3">
+        <div className="w-48 flex-shrink-0 flex flex-col gap-3 overflow-y-auto">
           <div className="bg-rp-card border border-rp-border rounded-xl p-3">
             <h2 className="text-xs font-semibold text-rp-grey uppercase tracking-wider mb-3">
               Pods
@@ -292,9 +292,9 @@ export default function DebugPage() {
         </div>
 
         {/* ─── MAIN: Live Activity Feed ────────────────────────────── */}
-        <div className="flex-1 flex flex-col gap-4 min-w-0 min-h-0">
+        <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-0 overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-shrink-0">
             <h2 className="text-sm font-semibold text-rp-grey uppercase tracking-wider">
               Live Activity
               {selectedPodId && (
@@ -321,8 +321,8 @@ export default function DebugPage() {
             </div>
           </div>
 
-          {/* Activity Feed */}
-          <div className="flex-1 min-h-0 bg-rp-card border border-rp-border rounded-xl overflow-y-auto">
+          {/* Activity Feed — shrinks to make room for diagnostics */}
+          <div className="flex-1 min-h-[100px] bg-rp-card border border-rp-border rounded-xl overflow-y-auto">
             {filteredActivity.length === 0 ? (
               <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
                 No activity yet — events will appear in real-time
@@ -395,7 +395,7 @@ export default function DebugPage() {
           </div>
 
           {/* ─── Diagnostics Section (collapsible) ───────────────── */}
-          <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl max-h-[45vh] overflow-y-auto">
+          <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl max-h-[40%] overflow-y-auto">
             <button
               onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}
               className="w-full flex items-center justify-between p-3 text-left"
