@@ -11,6 +11,10 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
     headers: { "Content-Type": "application/json" },
     ...options,
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+  }
   return res.json();
 }
 

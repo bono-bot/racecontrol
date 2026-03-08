@@ -67,6 +67,7 @@ export default function DebugPage() {
   const [diagnosis, setDiagnosis] = useState<DebugDiagnosis | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Resolve flow
   const [resolveText, setResolveText] = useState("");
@@ -96,8 +97,11 @@ export default function DebugPage() {
       setActivity(actRes);
       setPlaybooks(pbRes.playbooks || []);
       setIncidents(incRes.incidents || []);
+      setLoadError(null);
     } catch (e) {
-      console.error("Failed to load debug data:", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Failed to load debug data:", msg);
+      setLoadError(msg);
     }
   }, []);
 
@@ -208,6 +212,15 @@ export default function DebugPage() {
         staffName={staffName}
         onSignOut={handleSignOut}
       />
+
+      {loadError && (
+        <div className="mx-4 mt-2 px-4 py-2 bg-red-900/30 border border-red-600/50 rounded-lg flex items-center justify-between">
+          <span className="text-red-400 text-sm font-mono">{loadError}</span>
+          <button onClick={() => { setLoadError(null); loadData(); }} className="text-xs text-red-400 hover:text-white border border-red-600/50 rounded px-2 py-1">
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 flex gap-4 p-4 overflow-hidden">
         {/* ─── LEFT SIDEBAR: Pod Grid ──────────────────────────────── */}
