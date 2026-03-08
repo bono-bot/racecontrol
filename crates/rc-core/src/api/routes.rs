@@ -148,6 +148,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/kiosk/experiences", get(list_kiosk_experiences).post(create_kiosk_experience))
         .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
         .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
+        .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
         // AI Chat
         .route("/ai/chat", post(ai_chat))
         .route("/customer/ai/chat", post(customer_ai_chat))
@@ -4118,6 +4119,72 @@ async fn delete_kiosk_experience(
         Ok(_) => Json(json!({ "error": "Experience not found" })),
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
+}
+
+async fn kiosk_pod_launch_experience(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let pod_id = match body["pod_id"].as_str() {
+        Some(id) => id.to_string(),
+        None => return Json(json!({ "error": "pod_id required" })),
+    };
+    let experience_id = match body["experience_id"].as_str() {
+        Some(id) => id.to_string(),
+        None => return Json(json!({ "error": "experience_id required" })),
+    };
+
+    // Verify pod exists
+    let pod = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM pods WHERE id = ?",
+    )
+    .bind(&pod_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    if pod.ok().flatten().is_none() {
+        return Json(json!({ "error": "Pod not found" }));
+    }
+
+    // Find active billing session for this pod
+    let billing = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT id, driver_id, driver_name FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+    )
+    .bind(&pod_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let (billing_session_id, _driver_id, driver_name) = match billing {
+        Ok(Some(b)) => b,
+        Ok(None) => return Json(json!({ "error": "No active billing session on this pod" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    // Verify experience exists
+    let exp = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM kiosk_experiences WHERE id = ? AND is_active = 1",
+    )
+    .bind(&experience_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    if exp.ok().flatten().is_none() {
+        return Json(json!({ "error": "Experience not found" }));
+    }
+
+    // Launch or show assistance
+    let exp_id_opt = Some(experience_id);
+    auth::launch_or_assist(
+        &state,
+        &pod_id,
+        &billing_session_id,
+        &exp_id_opt,
+        &None,
+        &driver_name,
+    )
+    .await;
+
+    Json(json!({ "ok": true, "billing_session_id": billing_session_id }))
 }
 
 async fn get_kiosk_settings(State(state): State<Arc<AppState>>) -> Json<Value> {

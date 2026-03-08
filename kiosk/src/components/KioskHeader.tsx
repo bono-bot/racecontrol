@@ -73,16 +73,23 @@ export function KioskHeader({ connected, pods, venueName = "Racing Point", staff
       <div className="flex items-center gap-4">
         {staffName && (
           <div className="flex items-center gap-3 border-r border-rp-border pr-4">
-            <Link
-              href={pathname === "/debug" ? "/" : "/debug"}
-              className={`px-3 py-1.5 text-sm font-medium border rounded-lg transition-colors ${
-                pathname === "/debug"
-                  ? "border-rp-red bg-rp-red/10 text-white"
-                  : "border-rp-border text-rp-grey hover:text-white hover:border-rp-red hover:bg-rp-red/10"
-              }`}
-            >
-              {pathname === "/debug" ? "Dashboard" : "Debug"}
-            </Link>
+            {[
+              { href: "/", label: "Dashboard" },
+              { href: "/control", label: "Control" },
+              { href: "/debug", label: "Debug" },
+            ].map((nav) => (
+              <Link
+                key={nav.href}
+                href={nav.href}
+                className={`px-3 py-1.5 text-sm font-medium border rounded-lg transition-colors ${
+                  pathname === nav.href
+                    ? "border-rp-red bg-rp-red/10 text-white"
+                    : "border-rp-border text-rp-grey hover:text-white hover:border-rp-red hover:bg-rp-red/10"
+                }`}
+              >
+                {nav.label}
+              </Link>
+            ))}
             <span className="text-sm text-rp-grey">
               Staff: <span className="text-white font-medium">{staffName}</span>
             </span>

@@ -191,7 +191,7 @@ async fn link_reservation_to_billing(
 
 /// Auto-launch game or show assistance screen depending on game type.
 /// Returns the game name if an experience was linked.
-async fn launch_or_assist(
+pub(crate) async fn launch_or_assist(
     state: &Arc<AppState>,
     pod_id: &str,
     billing_session_id: &str,

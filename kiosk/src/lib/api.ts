@@ -206,4 +206,17 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ status, resolution_text, effectiveness }),
     }),
+
+  // Pod Enable/Disable
+  enablePod: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/pods/${id}/enable`, { method: "POST" }),
+  disablePod: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/pods/${id}/disable`, { method: "POST" }),
+
+  // Kiosk Pod Launch Experience
+  podLaunchExperience: (pod_id: string, experience_id: string) =>
+    fetchApi<{ ok: boolean; billing_session_id?: string }>("/kiosk/pod-launch-experience", {
+      method: "POST",
+      body: JSON.stringify({ pod_id, experience_id }),
+    }),
 };

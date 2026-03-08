@@ -1,6 +1,6 @@
 // ─── Pod Types ────────────────────────────────────────────────────────────
 
-export type PodStatus = "offline" | "idle" | "in_session" | "error";
+export type PodStatus = "offline" | "idle" | "in_session" | "error" | "disabled";
 export type DrivingState = "active" | "idle" | "no_device";
 export type GameState = "idle" | "launching" | "running" | "stopping" | "error";
 export type BillingStatus = "pending" | "active" | "paused_manual" | "completed" | "ended_early" | "cancelled";
