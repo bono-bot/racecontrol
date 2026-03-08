@@ -440,16 +440,15 @@ fn minimize_background_windows() {
 }
 
 /// Full pod cleanup after a session ends.
-/// Kills game + Conspit, dismisses error dialogs, minimizes all background
-/// windows, and ensures the lock screen browser is in the foreground.
+/// Kills game, dismisses error dialogs, minimizes background windows
+/// (including Conspit Link), and ensures the lock screen is in the foreground.
 pub fn cleanup_after_session() {
     tracing::info!("[cleanup] Starting post-session cleanup...");
 
-    // 1. Kill AC and Conspit Link
+    // 1. Kill AC (Conspit Link stays running — minimized in step 3)
     let _ = Command::new("taskkill").args(["/IM", "acs.exe", "/F"]).output();
     let _ = Command::new("taskkill").args(["/IM", "AssettoCorsa.exe", "/F"]).output();
-    let _ = Command::new("taskkill").args(["/IM", "ConspitLink2.0.exe", "/F"]).output();
-    tracing::info!("[cleanup] Killed AC + Conspit");
+    tracing::info!("[cleanup] Killed AC (Conspit Link kept alive)");
 
     // 2. Kill error/crash dialogs
     let _ = Command::new("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
