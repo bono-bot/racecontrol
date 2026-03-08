@@ -4134,21 +4134,17 @@ async fn kiosk_pod_launch_experience(
         None => return Json(json!({ "error": "experience_id required" })),
     };
 
-    // Verify pod exists
-    let pod = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM pods WHERE id = ?",
-    )
-    .bind(&pod_id)
-    .fetch_optional(&state.db)
-    .await;
-
-    if pod.ok().flatten().is_none() {
-        return Json(json!({ "error": "Pod not found" }));
+    // Verify pod exists (pods are in-memory, not DB)
+    {
+        let pods = state.pods.read().await;
+        if !pods.contains_key(&pod_id) {
+            return Json(json!({ "error": "Pod not found" }));
+        }
     }
 
-    // Find active billing session for this pod
+    // Find active billing session for this pod (join drivers for name)
     let billing = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, driver_id, driver_name FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+        "SELECT bs.id, bs.driver_id, d.name FROM billing_sessions bs JOIN drivers d ON d.id = bs.driver_id WHERE bs.pod_id = ? AND bs.status = 'active' ORDER BY bs.started_at DESC LIMIT 1",
     )
     .bind(&pod_id)
     .fetch_optional(&state.db)
