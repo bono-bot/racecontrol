@@ -291,9 +291,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 }
             }
 
-            // Clear pod billing reference
-            if let Some(pod) = state.pods.write().await.get_mut(pod_id) {
-                pod.billing_session_id = None;
+            // Clear pod billing reference and restore idle state
+            {
+                let mut pods = state.pods.write().await;
+                if let Some(pod) = pods.get_mut(pod_id) {
+                    pod.billing_session_id = None;
+                    pod.current_driver = None;
+                    pod.status = rc_common::types::PodStatus::Idle;
+                    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                }
             }
         }
     }
@@ -367,9 +373,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .execute(&state.db)
         .await;
 
-        // Clear pod billing reference
-        if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
-            pod.billing_session_id = None;
+        // Clear pod billing reference and restore idle state
+        {
+            let mut pods = state.pods.write().await;
+            if let Some(pod) = pods.get_mut(&pod_id) {
+                pod.billing_session_id = None;
+                pod.current_driver = None;
+                pod.status = rc_common::types::PodStatus::Idle;
+                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            }
         }
 
         let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
@@ -690,6 +702,8 @@ pub async fn start_billing_session(
     // Update pod info
     if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
         pod.billing_session_id = Some(session_id.clone());
+        pod.current_driver = Some(driver_name.clone());
+        pod.status = rc_common::types::PodStatus::InSession;
     }
 
     // Notify agent
@@ -861,9 +875,15 @@ async fn end_billing_session(
             .execute(&state.db)
             .await;
 
-            // Clear pod billing reference
-            if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
-                pod.billing_session_id = None;
+            // Clear pod billing reference and restore idle state
+            {
+                let mut pods = state.pods.write().await;
+                if let Some(pod) = pods.get_mut(&pod_id) {
+                    pod.billing_session_id = None;
+                    pod.current_driver = None;
+                    pod.status = rc_common::types::PodStatus::Idle;
+                    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                }
             }
 
             // Proportional refund for early end with wallet debit
@@ -983,9 +1003,15 @@ async fn end_billing_session(
 
         log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after rc-core restart", driver_name), "race_engineer");
 
-        // Clear pod billing reference
-        if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
-            pod.billing_session_id = None;
+        // Clear pod billing reference and restore idle state
+        {
+            let mut pods = state.pods.write().await;
+            if let Some(pod) = pods.get_mut(&pod_id) {
+                pod.billing_session_id = None;
+                pod.current_driver = None;
+                pod.status = rc_common::types::PodStatus::Idle;
+                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            }
         }
 
         // Notify agent to deactivate overlay and show blank

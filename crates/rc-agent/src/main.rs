@@ -384,6 +384,7 @@ async fn main() -> Result<()> {
         }
         tracing::info!("Connected and registered as Pod #{}", config.pod.number);
         heartbeat_status.ws_connected.store(true, std::sync::atomic::Ordering::Relaxed);
+        let ws_connect_time = tokio::time::Instant::now();
 
         // Main event loop — runs until connection is lost
         let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(5));
@@ -592,8 +593,14 @@ async fn main() -> Result<()> {
                         break; // → reconnection loop
                     }
                     udp_heartbeat::HeartbeatEvent::ForceReconnect => {
-                        tracing::info!("UDP heartbeat: core requested reconnect");
-                        break; // → reconnection loop
+                        // Grace period: ignore force_reconnect within 10s of connecting
+                        // to avoid race condition where UDP pong arrives before Register is processed
+                        if ws_connect_time.elapsed() < Duration::from_secs(10) {
+                            tracing::debug!("Ignoring force_reconnect — connected {}s ago (grace period)", ws_connect_time.elapsed().as_secs());
+                        } else {
+                            tracing::info!("UDP heartbeat: core requested reconnect");
+                            break; // → reconnection loop
+                        }
                     }
                     udp_heartbeat::HeartbeatEvent::ForceRestart => {
                         tracing::warn!("UDP heartbeat: core requested restart — exiting");

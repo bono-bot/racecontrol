@@ -122,23 +122,39 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
 
                             // Resync active billing session to reconnected agent
                             {
-                                let timers = state.billing.active_timers.read().await;
-                                if let Some(timer) = timers.get(&pod_info.id) {
-                                    let remaining = timer.remaining_seconds();
+                                let resync = {
+                                    let timers = state.billing.active_timers.read().await;
+                                    timers.get(&pod_info.id).map(|timer| (
+                                        timer.session_id.clone(),
+                                        timer.driver_name.clone(),
+                                        timer.allocated_seconds,
+                                        timer.remaining_seconds(),
+                                    ))
+                                };
+                                if let Some((session_id, driver_name, allocated_seconds, remaining)) = resync {
                                     let _ = cmd_tx.send(CoreToAgentMessage::BillingStarted {
-                                        billing_session_id: timer.session_id.clone(),
-                                        driver_name: timer.driver_name.clone(),
-                                        allocated_seconds: timer.allocated_seconds,
+                                        billing_session_id: session_id.clone(),
+                                        driver_name: driver_name.clone(),
+                                        allocated_seconds,
                                     }).await;
-                                    // Also send current tick so timer shows correct remaining time
                                     let _ = cmd_tx.send(CoreToAgentMessage::BillingTick {
                                         remaining_seconds: remaining,
-                                        allocated_seconds: timer.allocated_seconds,
-                                        driver_name: timer.driver_name.clone(),
+                                        allocated_seconds,
+                                        driver_name: driver_name.clone(),
                                     }).await;
+                                    // Restore pod state (agent Register overwrites with Idle)
+                                    {
+                                        let mut pods = state.pods.write().await;
+                                        if let Some(pod) = pods.get_mut(&pod_info.id) {
+                                            pod.billing_session_id = Some(session_id.clone());
+                                            pod.current_driver = Some(driver_name.clone());
+                                            pod.status = rc_common::types::PodStatus::InSession;
+                                            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                                        }
+                                    }
                                     tracing::info!(
                                         "Resynced billing session {} to pod {} ({}s remaining)",
-                                        timer.session_id, pod_info.number, remaining
+                                        session_id, pod_info.number, remaining
                                     );
                                 }
                             }
@@ -160,14 +176,25 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             }
                         }
                         AgentMessage::Heartbeat(pod_info) => {
-                            state
-                                .pods
-                                .write()
-                                .await
-                                .insert(pod_info.id.clone(), pod_info.clone());
+                            // Merge agent-reported fields with core-managed fields
+                            // (billing_session_id, current_driver, status are managed by rc-core billing)
+                            let mut pods = state.pods.write().await;
+                            let updated = if let Some(existing) = pods.get_mut(&pod_info.id) {
+                                // Preserve core-managed billing state
+                                existing.ip_address = pod_info.ip_address.clone();
+                                existing.last_seen = Some(chrono::Utc::now());
+                                existing.driving_state = pod_info.driving_state;
+                                existing.game_state = pod_info.game_state;
+                                existing.current_game = pod_info.current_game;
+                                existing.clone()
+                            } else {
+                                pods.insert(pod_info.id.clone(), pod_info.clone());
+                                pod_info.clone()
+                            };
+                            drop(pods);
                             let _ = state
                                 .dashboard_tx
-                                .send(DashboardEvent::PodUpdate(pod_info.clone()));
+                                .send(DashboardEvent::PodUpdate(updated));
                         }
                         AgentMessage::Telemetry(frame) => {
                             // Feed telemetry to camera controller
