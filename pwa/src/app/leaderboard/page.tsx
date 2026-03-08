@@ -2,19 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, isLoggedIn } from "@/lib/api";
+import { api, publicApi, isLoggedIn } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
-
-const TRACKS = [
-  "monza",
-  "spa",
-  "nurburgring",
-  "imola",
-  "suzuka",
-  "mugello",
-  "barcelona",
-  "silverstone",
-];
 
 function formatLapTime(ms: number): string {
   const mins = Math.floor(ms / 60000);
@@ -34,18 +23,37 @@ interface LeaderboardEntry {
   is_track_record: boolean;
 }
 
+interface TrackInfo {
+  name: string;
+  total_laps: number;
+}
+
 export default function LeaderboardPage() {
   const router = useRouter();
-  const [selectedTrack, setSelectedTrack] = useState(TRACKS[0]);
+  const [tracks, setTracks] = useState<TrackInfo[]>([]);
+  const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingTracks, setLoadingTracks] = useState(true);
+  const [loadingEntries, setLoadingEntries] = useState(false);
 
+  // Load available tracks from public leaderboard
   useEffect(() => {
     if (!isLoggedIn()) {
       router.replace("/login");
       return;
     }
-    setLoading(true);
+    publicApi.leaderboard().then((data: { tracks?: TrackInfo[] }) => {
+      const t = data.tracks || [];
+      setTracks(t);
+      if (t.length > 0) setSelectedTrack(t[0].name);
+      setLoadingTracks(false);
+    }).catch(() => setLoadingTracks(false));
+  }, [router]);
+
+  // Load entries for selected track
+  useEffect(() => {
+    if (!selectedTrack) return;
+    setLoadingEntries(true);
     api.leaderboard(selectedTrack).then((res) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = res as any;
@@ -54,9 +62,11 @@ export default function LeaderboardPage() {
       } else {
         setEntries([]);
       }
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, [router, selectedTrack]);
+      setLoadingEntries(false);
+    }).catch(() => setLoadingEntries(false));
+  }, [selectedTrack]);
+
+  const loading = loadingTracks || loadingEntries;
 
   return (
     <div className="min-h-screen pb-20">
@@ -64,25 +74,31 @@ export default function LeaderboardPage() {
         <h1 className="text-2xl font-bold text-white mb-4">Leaderboard</h1>
 
         {/* Track selector */}
-        <div className="flex gap-2 overflow-x-auto pb-2 mb-6 -mx-4 px-4 no-scrollbar">
-          {TRACKS.map((track) => (
-            <button
-              key={track}
-              onClick={() => setSelectedTrack(track)}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                selectedTrack === track
-                  ? "bg-rp-red text-white"
-                  : "bg-rp-card border border-rp-border text-neutral-400"
-              }`}
-            >
-              {track.charAt(0).toUpperCase() + track.slice(1).replace("_", " ")}
-            </button>
-          ))}
-        </div>
+        {tracks.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-6 -mx-4 px-4 no-scrollbar">
+            {tracks.map((track) => (
+              <button
+                key={track.name}
+                onClick={() => setSelectedTrack(track.name)}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                  selectedTrack === track.name
+                    ? "bg-rp-red text-white"
+                    : "bg-rp-card border border-rp-border text-neutral-400"
+                }`}
+              >
+                {track.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : tracks.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-rp-grey">No tracks with lap data yet</p>
           </div>
         ) : entries.length === 0 ? (
           <div className="text-center py-12">

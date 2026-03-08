@@ -1158,6 +1158,24 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Refunds ───────────────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS refunds (
+            id TEXT PRIMARY KEY,
+            billing_session_id TEXT NOT NULL,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            amount_paise INTEGER NOT NULL,
+            method TEXT NOT NULL CHECK(method IN ('wallet', 'cash', 'upi')),
+            reason TEXT NOT NULL,
+            notes TEXT,
+            staff_id TEXT,
+            wallet_txn_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     // ─── Membership tiers & subscriptions ────────────────────────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS membership_tiers (

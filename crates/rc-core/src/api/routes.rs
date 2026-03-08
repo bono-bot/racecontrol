@@ -40,6 +40,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Drivers
         .route("/drivers", get(list_drivers).post(create_driver))
         .route("/drivers/{id}", get(get_driver))
+        .route("/drivers/{id}/full-profile", get(get_driver_full_profile))
         // Sessions
         .route("/sessions", get(list_sessions).post(create_session))
         .route("/sessions/{id}", get(get_session))
@@ -66,6 +67,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/billing/{id}/pause", post(pause_billing))
         .route("/billing/{id}/resume", post(resume_billing))
         .route("/billing/{id}/extend", post(extend_billing))
+        .route("/billing/{id}/refund", post(refund_billing_session))
+        .route("/billing/{id}/refunds", get(get_billing_refunds))
         .route("/billing/report/daily", get(daily_billing_report))
         // Game Launcher
         .route("/games/launch", post(launch_game))
@@ -509,32 +512,49 @@ async fn list_drivers(
 ) -> Json<Value> {
     let rows = if let Some(ref search) = params.search {
         let q = format!("%{}%", search);
-        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>)>(
-            "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>)>(
+            "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id,
+                    COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at
              FROM drivers
-             WHERE name LIKE ?1 COLLATE NOCASE OR phone LIKE ?2
-             ORDER BY name LIMIT 20",
+             WHERE name LIKE ?1 COLLATE NOCASE OR phone LIKE ?2 OR customer_id LIKE ?3
+             ORDER BY name LIMIT 50",
         )
+        .bind(&q)
         .bind(&q)
         .bind(&q)
         .fetch_all(&state.db)
         .await
     } else {
-        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>)>(
-            "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id
-             FROM drivers ORDER BY name",
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>)>(
+            "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id,
+                    COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at
+             FROM drivers ORDER BY created_at DESC",
         )
         .fetch_all(&state.db)
         .await
     };
+
+    // Total count
+    let total: i64 = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM drivers")
+        .fetch_one(&state.db)
+        .await
+        .map(|r| r.0)
+        .unwrap_or(0);
+
+    let waiver_count: i64 = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM drivers WHERE waiver_signed = 1")
+        .fetch_one(&state.db)
+        .await
+        .map(|r| r.0)
+        .unwrap_or(0);
 
     match rows {
         Ok(drivers) => {
             let list: Vec<Value> = drivers.iter().map(|d| json!({
                 "id": d.0, "name": d.1, "email": d.2, "phone": d.3,
                 "total_laps": d.4, "total_time_ms": d.5, "customer_id": d.6,
+                "waiver_signed": d.7, "has_used_trial": d.8, "created_at": d.9,
             })).collect();
-            Json(json!({ "drivers": list }))
+            Json(json!({ "drivers": list, "total": total, "waiver_count": waiver_count }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
@@ -583,6 +603,181 @@ async fn get_driver(State(state): State<Arc<AppState>>, Path(id): Path<String>) 
         Ok(None) => Json(json!({ "error": "Driver not found" })),
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
+}
+
+/// GET /drivers/{id}/full-profile — comprehensive driver profile for admin
+async fn get_driver_full_profile(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
+    // Core driver info (10 fields)
+    let core = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, Option<String>, bool, Option<String>)>(
+        "SELECT id, name, email, phone, total_laps, total_time_ms,
+                customer_id, nickname, COALESCE(has_used_trial, 0), dob
+         FROM drivers WHERE id = ?"
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let c = match core {
+        Ok(Some(c)) => c,
+        Ok(None) => return Json(json!({ "error": "Driver not found" })),
+        Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+    };
+
+    // Waiver fields (separate query to stay under tuple limit)
+    let waiver = sqlx::query_as::<_, (bool, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, bool)>(
+        "SELECT COALESCE(waiver_signed, 0), waiver_signed_at, waiver_version,
+                guardian_name, guardian_phone, signature_data,
+                COALESCE(show_nickname_on_leaderboard, 0)
+         FROM drivers WHERE id = ?"
+    )
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or((false, None, None, None, None, None, false));
+
+    let is_minor = c.9.as_ref().map_or(false, |dob| {
+        chrono::NaiveDate::parse_from_str(dob, "%Y-%m-%d")
+            .map(|date| (chrono::Utc::now().date_naive() - date).num_days() / 365 < 18)
+            .unwrap_or(false)
+    });
+
+    let driver_json = json!({
+        "id": c.0, "name": c.1, "email": c.2, "phone": c.3,
+        "total_laps": c.4, "total_time_ms": c.5,
+        "customer_id": c.6, "nickname": c.7, "has_used_trial": c.8,
+        "dob": c.9,
+        "waiver_signed": waiver.0, "waiver_signed_at": waiver.1,
+        "waiver_version": waiver.2, "guardian_name": waiver.3,
+        "guardian_phone": waiver.4, "has_signature": waiver.5.is_some(),
+        "show_nickname_on_leaderboard": waiver.6, "is_minor": is_minor,
+    });
+
+    // Wallet
+    let wallet = sqlx::query_as::<_, (i64, i64, i64, Option<String>)>(
+        "SELECT balance_paise, total_credited_paise, total_debited_paise, updated_at FROM wallets WHERE driver_id = ?"
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|w| json!({
+        "balance_paise": w.0, "total_credited_paise": w.1,
+        "total_debited_paise": w.2, "updated_at": w.3,
+    }));
+
+    // Recent wallet transactions (last 20)
+    let txns = sqlx::query_as::<_, (String, i64, i64, String, Option<String>, Option<String>, Option<String>)>(
+        "SELECT id, amount_paise, balance_after_paise, txn_type, reference_id, notes, created_at
+         FROM wallet_transactions WHERE driver_id = ? ORDER BY created_at DESC LIMIT 20"
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(|t| json!({
+        "id": t.0, "amount_paise": t.1, "balance_after_paise": t.2,
+        "txn_type": t.3, "reference_id": t.4, "notes": t.5, "created_at": t.6,
+    }))
+    .collect::<Vec<_>>();
+
+    // Billing sessions (last 20)
+    let sessions = sqlx::query_as::<_, (String, String, i64, i64, String, Option<i64>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT bs.id, bs.pod_id, bs.allocated_seconds, bs.driving_seconds, bs.status,
+                bs.wallet_debit_paise, bs.started_at, bs.ended_at, pt.name
+         FROM billing_sessions bs
+         LEFT JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
+         WHERE bs.driver_id = ?
+         ORDER BY bs.started_at DESC LIMIT 20"
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(|s| json!({
+        "id": s.0, "pod_id": s.1, "allocated_seconds": s.2,
+        "driving_seconds": s.3, "status": s.4, "wallet_debit_paise": s.5,
+        "started_at": s.6, "ended_at": s.7, "pricing_tier_name": s.8,
+    }))
+    .collect::<Vec<_>>();
+
+    // Personal bests
+    let pbs = sqlx::query_as::<_, (String, String, i64, Option<String>)>(
+        "SELECT track, car, best_lap_ms, achieved_at FROM personal_bests WHERE driver_id = ? ORDER BY achieved_at DESC LIMIT 20"
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(|p| json!({ "track": p.0, "car": p.1, "best_lap_ms": p.2, "achieved_at": p.3 }))
+    .collect::<Vec<_>>();
+
+    // Referral info
+    let referral = sqlx::query_as::<_, (String,)>(
+        "SELECT referral_code FROM referrals WHERE referrer_id = ? AND referral_code IS NOT NULL LIMIT 1"
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| r.0);
+
+    let referral_count: i64 = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM referrals WHERE referrer_id = ? AND status = 'completed'"
+    )
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    // Membership
+    let membership = sqlx::query_as::<_, (String, String, f64, f64, String, bool, String)>(
+        "SELECT m.id, mt.name, m.hours_used, mt.hours_included, m.expires_at, m.auto_renew, m.status
+         FROM memberships m JOIN membership_tiers mt ON m.tier_id = mt.id
+         WHERE m.driver_id = ? AND m.status = 'active' LIMIT 1"
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|m| json!({
+        "id": m.0, "tier_name": m.1, "hours_used": m.2,
+        "hours_included": m.3, "expires_at": m.4, "auto_renew": m.5, "status": m.6,
+    }));
+
+    // Refunds
+    let refunds = sqlx::query_as::<_, (String, i64, String, String, Option<String>, String)>(
+        "SELECT r.billing_session_id, r.amount_paise, r.method, r.reason, r.notes, r.created_at
+         FROM refunds r WHERE r.driver_id = ? ORDER BY r.created_at DESC LIMIT 10"
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(|r| json!({
+        "billing_session_id": r.0, "amount_paise": r.1, "method": r.2,
+        "reason": r.3, "notes": r.4, "created_at": r.5,
+    }))
+    .collect::<Vec<_>>();
+
+    Json(json!({
+        "driver": driver_json,
+        "wallet": wallet,
+        "transactions": txns,
+        "sessions": sessions,
+        "personal_bests": pbs,
+        "referral_code": referral,
+        "referral_count": referral_count,
+        "membership": membership,
+        "refunds": refunds,
+    }))
 }
 
 async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -1353,6 +1548,165 @@ async fn billing_session_summary(
         }
     }))
 }
+
+// ─── Billing Refund ───────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct BillingRefundRequest {
+    amount_paise: i64,
+    method: String,       // "wallet", "cash", "upi"
+    reason: String,
+    notes: Option<String>,
+}
+
+async fn refund_billing_session(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    Json(req): Json<BillingRefundRequest>,
+) -> Json<Value> {
+    // Validate method
+    if !["wallet", "cash", "upi"].contains(&req.method.as_str()) {
+        return Json(json!({ "error": "method must be wallet, cash, or upi" }));
+    }
+    if req.amount_paise <= 0 {
+        return Json(json!({ "error": "amount_paise must be positive" }));
+    }
+    if req.reason.trim().is_empty() {
+        return Json(json!({ "error": "reason is required" }));
+    }
+
+    // Fetch session
+    let session = sqlx::query_as::<_, (String, String, Option<i64>, String)>(
+        "SELECT bs.id, bs.driver_id, bs.wallet_debit_paise, d.name
+         FROM billing_sessions bs JOIN drivers d ON bs.driver_id = d.id
+         WHERE bs.id = ?",
+    )
+    .bind(&session_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let (sid, driver_id, debit_paise, driver_name) = match session {
+        Ok(Some(s)) => s,
+        Ok(None) => return Json(json!({ "error": "Session not found" })),
+        Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+    };
+
+    let max_refundable = debit_paise.unwrap_or(0);
+
+    // Check total already refunded for this session
+    let already_refunded: i64 = sqlx::query_as::<_, (i64,)>(
+        "SELECT COALESCE(SUM(amount_paise), 0) FROM refunds WHERE billing_session_id = ?",
+    )
+    .bind(&session_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    let remaining = max_refundable - already_refunded;
+    if req.amount_paise > remaining {
+        return Json(json!({
+            "error": format!("Refund exceeds remaining refundable amount. Charged: {}, already refunded: {}, remaining: {}", max_refundable, already_refunded, remaining)
+        }));
+    }
+
+    let refund_id = uuid::Uuid::new_v4().to_string();
+    let mut wallet_txn_id: Option<String> = None;
+
+    // If wallet refund, credit the wallet
+    if req.method == "wallet" {
+        match wallet::credit(
+            &state,
+            &driver_id,
+            req.amount_paise,
+            "refund_session",
+            Some(&session_id),
+            Some(&format!("Refund: {}", req.reason)),
+            None,
+        )
+        .await
+        {
+            Ok(new_balance) => {
+                // Get the txn_id from the most recent transaction
+                let txn = sqlx::query_as::<_, (String,)>(
+                    "SELECT id FROM wallet_transactions WHERE driver_id = ? AND txn_type = 'refund_session' ORDER BY created_at DESC LIMIT 1"
+                )
+                .bind(&driver_id)
+                .fetch_optional(&state.db)
+                .await;
+                wallet_txn_id = txn.ok().flatten().map(|r| r.0);
+                tracing::info!("Refund to wallet: {} +{}p (session {})", driver_id, req.amount_paise, session_id);
+            }
+            Err(e) => return Json(json!({ "error": format!("Wallet credit failed: {}", e) })),
+        }
+    } else {
+        tracing::info!("Refund via {}: {} {}p (session {})", req.method, driver_id, req.amount_paise, session_id);
+    }
+
+    // Record in refunds table
+    let result = sqlx::query(
+        "INSERT INTO refunds (id, billing_session_id, driver_id, amount_paise, method, reason, notes, staff_id, wallet_txn_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&refund_id)
+    .bind(&session_id)
+    .bind(&driver_id)
+    .bind(req.amount_paise)
+    .bind(&req.method)
+    .bind(&req.reason)
+    .bind(req.notes.as_deref())
+    .bind(None::<String>) // staff_id — could be passed from frontend later
+    .bind(wallet_txn_id.as_deref())
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => Json(json!({
+            "status": "ok",
+            "refund_id": refund_id,
+            "amount_paise": req.amount_paise,
+            "method": req.method,
+            "driver_name": driver_name,
+            "total_refunded_paise": already_refunded + req.amount_paise,
+            "max_refundable_paise": max_refundable,
+        })),
+        Err(e) => Json(json!({ "error": format!("Failed to record refund: {}", e) })),
+    }
+}
+
+async fn get_billing_refunds(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Json<Value> {
+    let refunds = sqlx::query_as::<_, (String, String, String, i64, String, String, Option<String>, Option<String>, String)>(
+        "SELECT r.id, r.billing_session_id, r.driver_id, r.amount_paise, r.method, r.reason, r.notes, r.wallet_txn_id, r.created_at
+         FROM refunds r WHERE r.billing_session_id = ? ORDER BY r.created_at DESC",
+    )
+    .bind(&session_id)
+    .fetch_all(&state.db)
+    .await;
+
+    match refunds {
+        Ok(rows) => {
+            let list: Vec<Value> = rows.iter().map(|r| json!({
+                "id": r.0,
+                "billing_session_id": r.1,
+                "driver_id": r.2,
+                "amount_paise": r.3,
+                "method": r.4,
+                "reason": r.5,
+                "notes": r.6,
+                "wallet_txn_id": r.7,
+                "created_at": r.8,
+            })).collect();
+            let total: i64 = rows.iter().map(|r| r.3).sum();
+            Json(json!({ "refunds": list, "total_refunded_paise": total }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e), "refunds": [] })),
+    }
+}
+
+// ─── Daily Report ──────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct DailyReportQuery {
