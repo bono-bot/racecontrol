@@ -51,7 +51,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
   const [track, setTrack] = useState<CatalogItem | null>(null);
   const [car, setCar] = useState<CatalogItem | null>(null);
   const [difficulty, setDifficulty] = useState("easy");
-  const [transmission, setTransmission] = useState("manual");
+  const [transmission, setTransmission] = useState("auto");
 
   // Search/filter
   const [trackSearch, setTrackSearch] = useState("");

@@ -885,6 +885,12 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                 }
+                                rc_common::protocol::CoreToAgentMessage::SetTransmission { transmission } => {
+                                    tracing::info!("Setting transmission to '{}' mid-session", transmission);
+                                    if let Err(e) = ac_launcher::set_transmission(&transmission) {
+                                        tracing::error!("Failed to set transmission: {}", e);
+                                    }
+                                }
                                 _ => {}
                             }
                         }

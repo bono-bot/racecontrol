@@ -79,6 +79,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ pod_id }),
     }),
+  setTransmission: (pod_id: string, transmission: string) =>
+    fetchApi<{ ok: boolean; transmission: string }>(`/pods/${pod_id}/transmission`, {
+      method: "POST",
+      body: JSON.stringify({ transmission }),
+    }),
 
   // Kiosk Experiences
   listExperiences: () => fetchApi<{ experiences: KioskExperience[] }>("/kiosk/experiences"),

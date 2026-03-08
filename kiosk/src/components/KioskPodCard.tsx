@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type {
   Pod,
   TelemetryFrame,
@@ -11,6 +11,7 @@ import type {
   KioskPodState,
 } from "@/lib/types";
 import { LiveTelemetry } from "./LiveTelemetry";
+import { api } from "@/lib/api";
 
 interface KioskPodCardProps {
   pod: Pod;
@@ -277,6 +278,7 @@ export function KioskPodCard({
                   Resume
                 </button>
               )}
+              <TransmissionToggle podId={pod.id} />
               <button
                 onClick={() => onExtendSession(billing.id)}
                 className="flex-1 px-2 py-1 text-xs border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded transition-colors"
@@ -313,6 +315,37 @@ export function KioskPodCard({
         )}
       </div>
     </div>
+  );
+}
+
+function TransmissionToggle({ podId }: { podId: string }) {
+  const [mode, setMode] = useState<"auto" | "manual">("auto");
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async () => {
+    const next = mode === "auto" ? "manual" : "auto";
+    setBusy(true);
+    try {
+      await api.setTransmission(podId, next);
+      setMode(next);
+    } catch {
+      // ignore
+    }
+    setBusy(false);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+        mode === "manual"
+          ? "bg-blue-600/20 border border-blue-500/50 text-blue-400 hover:bg-blue-600/30"
+          : "border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey"
+      }`}
+    >
+      {mode === "auto" ? "Auto" : "Manual"}
+    </button>
   );
 }
 

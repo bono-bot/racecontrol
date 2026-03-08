@@ -100,6 +100,36 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
     Ok(pid)
 }
 
+/// Update AUTO_SHIFTER in race.ini without restarting AC.
+/// Customer can press Ctrl+R or restart from pits for it to take effect.
+pub fn set_transmission(transmission: &str) -> Result<()> {
+    let race_ini_path = dirs_next::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+        .join("Assetto Corsa")
+        .join("cfg")
+        .join("race.ini");
+
+    let content = std::fs::read_to_string(&race_ini_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read race.ini: {}", e))?;
+
+    let new_value = if transmission == "auto" || transmission == "automatic" { "1" } else { "0" };
+    let updated = content
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("AUTO_SHIFTER=") {
+                format!("AUTO_SHIFTER={}", new_value)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n");
+
+    std::fs::write(&race_ini_path, &updated)?;
+    tracing::info!("Updated race.ini AUTO_SHIFTER={} (transmission={})", new_value, transmission);
+    Ok(())
+}
+
 /// Write race.ini with AUTOSPAWN=1 and the given car/track/driver
 fn write_race_ini(params: &AcLaunchParams) -> Result<()> {
     let race_ini_path = dirs_next::document_dir()

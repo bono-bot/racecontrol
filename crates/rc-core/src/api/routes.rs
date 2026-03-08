@@ -73,6 +73,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/games/active", get(active_games))
         .route("/games/history", get(game_launch_history))
         .route("/games/pod/{pod_id}", get(pod_game_state))
+        .route("/pods/{pod_id}/transmission", post(set_pod_transmission))
         // AC LAN
         .route("/ac/presets", get(list_ac_presets).post(save_ac_preset))
         .route("/ac/presets/{id}", get(get_ac_preset).put(update_ac_preset).delete(delete_ac_preset))
@@ -1479,6 +1480,32 @@ async fn launch_game(
 
     game_launcher::handle_dashboard_command(&state, cmd).await;
     Json(json!({ "ok": true }))
+}
+
+async fn set_pod_transmission(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let transmission = body
+        .get("transmission")
+        .and_then(|v| v.as_str())
+        .unwrap_or("auto");
+
+    let senders = state.agent_senders.read().await;
+    if let Some(tx) = senders.get(&pod_id) {
+        let msg = CoreToAgentMessage::SetTransmission {
+            transmission: transmission.to_string(),
+        };
+        if let Err(e) = tx.send(msg).await {
+            tracing::error!("Failed to send SetTransmission to {}: {}", pod_id, e);
+            return Json(json!({ "error": "Failed to send to agent" }));
+        }
+        tracing::info!("Set transmission to '{}' on pod {}", transmission, pod_id);
+        Json(json!({ "ok": true, "transmission": transmission }))
+    } else {
+        Json(json!({ "error": "No agent connected for this pod" }))
+    }
 }
 
 async fn stop_game(

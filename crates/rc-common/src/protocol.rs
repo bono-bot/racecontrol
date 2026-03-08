@@ -138,6 +138,11 @@ pub enum CoreToAgentMessage {
         employee_name: String,
     },
 
+    /// Change transmission (auto/manual) mid-session — rewrites race.ini
+    SetTransmission {
+        transmission: String,
+    },
+
     /// Kiosk settings updated — broadcast to all agents
     SettingsUpdated {
         settings: std::collections::HashMap<String, String>,
