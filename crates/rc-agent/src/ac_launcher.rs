@@ -70,9 +70,10 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
         .output();
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // Step 2: Write race.ini + apps preset
-    tracing::info!("[2/4] Writing race.ini + apps preset...");
+    // Step 2: Write race.ini + assists.ini + apps preset
+    tracing::info!("[2/4] Writing race.ini + assists.ini + apps preset...");
     write_race_ini(params)?;
+    write_assists_ini(params)?;
     write_apps_preset()?;
 
     // Step 3: Launch acs.exe
@@ -127,6 +128,27 @@ pub fn set_transmission(transmission: &str) -> Result<()> {
 
     std::fs::write(&race_ini_path, &updated)?;
     tracing::info!("Updated race.ini AUTO_SHIFTER={} (transmission={})", new_value, transmission);
+
+    // Also update assists.ini to prevent CSP/CM override
+    let assists_ini_path = race_ini_path.with_file_name("assists.ini");
+    if assists_ini_path.exists() {
+        let assists_content = std::fs::read_to_string(&assists_ini_path)
+            .map_err(|e| anyhow::anyhow!("Failed to read assists.ini: {}", e))?;
+        let assists_updated = assists_content
+            .lines()
+            .map(|line| {
+                if line.trim_start().starts_with("AUTO_SHIFTER=") {
+                    format!("AUTO_SHIFTER={}", new_value)
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        std::fs::write(&assists_ini_path, &assists_updated)?;
+        tracing::info!("Updated assists.ini AUTO_SHIFTER={}", new_value);
+    }
+
     Ok(())
 }
 
@@ -282,6 +304,42 @@ SPEED_KMH_MIN=0"#,
     let mut file = std::fs::File::create(&race_ini_path)?;
     file.write_all(content.as_bytes())?;
     tracing::info!("Wrote race.ini to {}", race_ini_path.display());
+    Ok(())
+}
+
+/// Write assists.ini to override Content Manager / CSP cached assists.
+/// AC and CSP may read assists from this file instead of race.ini's [ASSISTS].
+fn write_assists_ini(params: &AcLaunchParams) -> Result<()> {
+    let assists_ini_path = dirs_next::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+        .join("Assetto Corsa")
+        .join("cfg")
+        .join("assists.ini");
+
+    let aids = params.aids.clone().unwrap_or_default();
+    let damage = params.conditions.as_ref().map(|c| c.damage).unwrap_or(0);
+    let auto_shifter = if params.transmission == "auto" || params.transmission == "automatic" { 1 } else { 0 };
+
+    let content = format!(
+        "[ASSISTS]\r\nABS={abs}\r\nAUTO_CLUTCH={autoclutch}\r\nAUTO_SHIFTER={auto_shifter}\r\nDAMAGE={damage}\r\nIDEAL_LINE={ideal_line}\r\nSTABILITY={stability}\r\nTRACTION_CONTROL={tc}\r\nVISUAL_DAMAGE=0\r\nSLIPSTREAM=1\r\nTYRE_BLANKETS=1\r\nAUTO_BLIP=1\r\nFUEL_RATE=1\r\n",
+        abs = aids.abs,
+        autoclutch = aids.autoclutch,
+        auto_shifter = auto_shifter,
+        damage = damage,
+        ideal_line = aids.ideal_line,
+        stability = aids.stability,
+        tc = aids.tc,
+    );
+
+    if let Some(parent) = assists_ini_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::File::create(&assists_ini_path)?;
+    file.write_all(content.as_bytes())?;
+    tracing::info!(
+        "Wrote assists.ini: DAMAGE={}, AUTO_SHIFTER={} (transmission={})",
+        damage, auto_shifter, params.transmission
+    );
     Ok(())
 }
 

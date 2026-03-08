@@ -218,7 +218,12 @@ async fn launch_or_assist(
         .ok()
         .flatten()?;
         let launch_args = serde_json::json!({
-            "car": exp.2, "track": exp.1, "driver": driver_name
+            "car": exp.2,
+            "track": exp.1,
+            "driver": driver_name,
+            "transmission": "auto",
+            "aids": { "abs": 1, "tc": 1, "stability": 1, "autoclutch": 1, "ideal_line": 1 },
+            "conditions": { "damage": 0 }
         })
         .to_string();
         (exp.0, exp.1, exp.2, launch_args)

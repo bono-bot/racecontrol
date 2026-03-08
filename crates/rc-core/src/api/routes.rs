@@ -3872,7 +3872,12 @@ async fn customer_continue_session(
                 reason: "Game requires manual launch".to_string(),
             });
         } else {
-            let launch_args = serde_json::json!({ "car": car, "track": track, "driver": "Driver" }).to_string();
+            let launch_args = serde_json::json!({
+                "car": car, "track": track, "driver": "Driver",
+                "transmission": "auto",
+                "aids": { "abs": 1, "tc": 1, "stability": 1, "autoclutch": 1, "ideal_line": 1 },
+                "conditions": { "damage": 0 }
+            }).to_string();
             if let Some(sender) = agent_senders.get(&reservation.pod_id) {
                 let _ = sender.send(rc_common::protocol::CoreToAgentMessage::LaunchGame {
                     sim_type,
