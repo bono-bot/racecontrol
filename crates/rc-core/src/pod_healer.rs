@@ -12,6 +12,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde_json::json;
 
+use crate::activity_log::log_pod_activity;
 use crate::state::AppState;
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
@@ -240,6 +241,13 @@ async fn heal_pod(
                 "Pod healer: [{}] {} -> {} ({})",
                 action.pod_id, action.action, action.target, action.reason
             );
+            let activity_action = match action.action.as_str() {
+                "kill_zombie" => "Zombie Socket Killed",
+                "restart_rc_agent" => "Lock Screen Fixed",
+                "clear_temp" => "Disk Cleaned",
+                _ => "Auto-Fix Applied",
+            };
+            log_pod_activity(state, &action.pod_id, "race_engineer", activity_action, &action.reason, "race_engineer");
             execute_heal_action(state, &pod.ip_address, action).await;
         }
         cooldowns.insert(
@@ -256,6 +264,7 @@ async fn heal_pod(
 
     // Escalate to AI if there are complex issues that rules can't handle
     if !issues.is_empty() && state.config.ai_debugger.enabled {
+        log_pod_activity(state, &pod.id, "race_engineer", "AI Analysis Requested", &issues.join("; "), "race_engineer");
         escalate_to_ai(state, pod, &issues, &actions).await;
     }
 

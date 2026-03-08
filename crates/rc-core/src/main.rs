@@ -1,6 +1,7 @@
 mod ac_camera;
 mod ac_server;
 mod action_queue;
+mod activity_log;
 mod ai;
 mod api;
 mod auth;

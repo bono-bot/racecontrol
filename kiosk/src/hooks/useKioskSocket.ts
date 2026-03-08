@@ -9,6 +9,7 @@ import type {
   BillingWarning,
   GameLaunchInfo,
   AuthTokenInfo,
+  PodActivityEntry,
 } from "@/lib/types";
 
 const WS_URL =
@@ -44,6 +45,7 @@ export function useKioskSocket() {
   const [pendingAuthTokens, setPendingAuthTokens] = useState<Map<string, AuthTokenInfo>>(new Map());
   const [assistanceRequests, setAssistanceRequests] = useState<AssistanceRequest[]>([]);
   const [cameraFocus, setCameraFocus] = useState<{ pod_id: string; driver_name: string; reason: string } | null>(null);
+  const [activityLog, setActivityLog] = useState<PodActivityEntry[]>([]);
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -231,6 +233,16 @@ export function useKioskSocket() {
             setCameraFocus(d.pod_id ? d : null);
             break;
           }
+          case "pod_activity": {
+            const entry = msg.data as PodActivityEntry;
+            setActivityLog((prev) => [entry, ...prev].slice(0, 500));
+            break;
+          }
+          case "pod_activity_list": {
+            const entries = msg.data as PodActivityEntry[];
+            setActivityLog(entries);
+            break;
+          }
         }
       } catch (e) {
         console.warn("[Kiosk] Parse error:", e);
@@ -273,6 +285,7 @@ export function useKioskSocket() {
     assistanceRequests,
     dismissAssistance,
     cameraFocus,
+    activityLog,
     sendCommand,
   };
 }

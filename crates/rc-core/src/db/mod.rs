@@ -1443,6 +1443,32 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .await?;
     }
 
+    // ─── Pod Activity Log (unified event stream) ─────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_activity_log (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            pod_number INTEGER DEFAULT 0,
+            timestamp TEXT DEFAULT (datetime('now')),
+            category TEXT NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT DEFAULT '',
+            source TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_pod ON pod_activity_log (pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_ts ON pod_activity_log (timestamp)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_cat ON pod_activity_log (category)")
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

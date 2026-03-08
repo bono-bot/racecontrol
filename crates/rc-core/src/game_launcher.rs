@@ -4,6 +4,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use tokio::sync::RwLock;
 
+use crate::activity_log::log_pod_activity;
 use crate::state::AppState;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{GameLaunchInfo, GameState, SimType};
@@ -16,6 +17,10 @@ pub struct GameTracker {
     pub pid: Option<u32>,
     pub launched_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
+    /// Stored launch_args for auto-relaunch on crash
+    pub launch_args: Option<String>,
+    /// How many times Race Engineer has auto-relaunched after crash (max 2)
+    pub auto_relaunch_count: u32,
 }
 
 impl GameTracker {
@@ -90,7 +95,11 @@ async fn launch_game(
         pid: None,
         launched_at: Some(Utc::now()),
         error_message: None,
+        launch_args: launch_args.clone(),
+        auto_relaunch_count: 0,
     };
+
+    log_pod_activity(state, pod_id, "game", "Game Launching", &format!("{}", sim_type), "core");
 
     let info = tracker.to_info();
 
@@ -148,6 +157,8 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
     };
 
     if let Some(info) = info {
+        log_pod_activity(state, pod_id, "game", "Game Stopping", "", "core");
+
         // Send command to agent
         let senders = state.agent_senders.read().await;
         if let Some(tx) = senders.get(pod_id) {
@@ -197,6 +208,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             pid: info.pid,
                             launched_at: info.launched_at,
                             error_message: info.error_message.clone(),
+                            launch_args: None,
+                            auto_relaunch_count: 0,
                         },
                     );
                 }
@@ -240,7 +253,99 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     // Broadcast to dashboards
     let _ = state
         .dashboard_tx
-        .send(DashboardEvent::GameStateChanged(info));
+        .send(DashboardEvent::GameStateChanged(info.clone()));
+
+    // ─── Race Engineer: Auto-relaunch on crash if billing is active ────
+    if info.game_state == GameState::Error {
+        let has_billing = state
+            .billing
+            .active_timers
+            .read()
+            .await
+            .contains_key(pod_id);
+
+        if has_billing {
+            let (relaunch_count, sim_type, launch_args) = {
+                let games = state.game_launcher.active_games.read().await;
+                if let Some(tracker) = games.get(pod_id) {
+                    (tracker.auto_relaunch_count, tracker.sim_type, tracker.launch_args.clone())
+                } else {
+                    (999, info.sim_type, None) // no tracker = don't relaunch
+                }
+            };
+
+            if relaunch_count < 2 {
+                // Increment counter
+                {
+                    let mut games = state.game_launcher.active_games.write().await;
+                    if let Some(tracker) = games.get_mut(pod_id) {
+                        tracker.auto_relaunch_count += 1;
+                    }
+                }
+
+                let attempt = relaunch_count + 1;
+                let pod_id_owned = pod_id.to_string();
+                let state_clone = state.clone();
+                let sim_name = format!("{}", sim_type);
+
+                log_pod_activity(
+                    state,
+                    pod_id,
+                    "race_engineer",
+                    "Auto-Relaunching Game",
+                    &format!("Race Engineer relaunching {} after crash (attempt {}/2)", sim_name, attempt),
+                    "race_engineer",
+                );
+
+                // Delayed relaunch (5s) — verify billing still active + game still in Error
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                    // Re-check billing still active
+                    let still_billing = state_clone
+                        .billing
+                        .active_timers
+                        .read()
+                        .await
+                        .contains_key(pod_id_owned.as_str());
+
+                    let still_error = state_clone
+                        .game_launcher
+                        .active_games
+                        .read()
+                        .await
+                        .get(&pod_id_owned)
+                        .map(|t| t.game_state == GameState::Error)
+                        .unwrap_or(false);
+
+                    if still_billing && still_error {
+                        tracing::info!(
+                            "Race Engineer: relaunching {} on pod {} (attempt {}/2)",
+                            sim_name, pod_id_owned, attempt
+                        );
+                        let senders = state_clone.agent_senders.read().await;
+                        if let Some(tx) = senders.get(&pod_id_owned) {
+                            let _ = tx
+                                .send(CoreToAgentMessage::LaunchGame {
+                                    sim_type,
+                                    launch_args,
+                                })
+                                .await;
+                        }
+                    }
+                });
+            } else {
+                log_pod_activity(
+                    state,
+                    pod_id,
+                    "race_engineer",
+                    "Relaunch Limit Reached",
+                    &format!("Race Engineer: max relaunch attempts (2) reached for {}", info.sim_type),
+                    "race_engineer",
+                );
+            }
+        }
+    }
 }
 
 /// Periodic health check: detect stale Launching states (timeout after 60s)
@@ -264,6 +369,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
 
     for (pod_id, sim_type) in timed_out {
         tracing::warn!("Game launch timed out on pod {}", pod_id);
+        log_pod_activity(state, &pod_id, "game", "Launch Timeout", &format!("{} failed to start within 60s", sim_type), "core");
 
         let info = GameLaunchInfo {
             pod_id: pod_id.clone(),

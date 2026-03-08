@@ -228,6 +228,9 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/public/leaderboard", get(public_leaderboard))
         .route("/public/leaderboard/{track}", get(public_track_leaderboard))
         .route("/public/time-trial", get(public_time_trial))
+        // Pod Activity Log (unified real-time feed)
+        .route("/activity", get(global_activity))
+        .route("/pods/{pod_id}/activity", get(pod_activity))
         // Pod Debug System
         .route("/debug/activity", get(debug_activity))
         .route("/debug/playbooks", get(debug_playbooks))
@@ -8070,6 +8073,61 @@ async fn bot_book(
 // ═══════════════════════════════════════════════════════════════════════════════
 // Pod Debug System
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Pod Activity Log ────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ActivityQuery {
+    limit: Option<i64>,
+}
+
+async fn global_activity(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<ActivityQuery>,
+) -> Json<Value> {
+    let limit = q.limit.unwrap_or(100).min(500);
+    let rows: Vec<(String, String, i64, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT id, pod_id, pod_number, timestamp, category, action, details, source
+         FROM pod_activity_log ORDER BY timestamp DESC LIMIT ?"
+    )
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let entries: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.0, "pod_id": r.1, "pod_number": r.2, "timestamp": r.3,
+        "category": r.4, "action": r.5, "details": r.6, "source": r.7,
+    })).collect();
+
+    Json(json!(entries))
+}
+
+async fn pod_activity(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+    Query(q): Query<ActivityQuery>,
+) -> Json<Value> {
+    let limit = q.limit.unwrap_or(100).min(500);
+    let rows: Vec<(String, String, i64, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT id, pod_id, pod_number, timestamp, category, action, details, source
+         FROM pod_activity_log WHERE pod_id = ? ORDER BY timestamp DESC LIMIT ?"
+    )
+    .bind(&pod_id)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let entries: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.0, "pod_id": r.1, "pod_number": r.2, "timestamp": r.3,
+        "category": r.4, "action": r.5, "details": r.6, "source": r.7,
+    })).collect();
+
+    Json(json!(entries))
+}
+
+// ─── Debug System ────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct DebugActivityQuery {

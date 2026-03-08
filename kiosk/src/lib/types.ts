@@ -237,6 +237,22 @@ export type KioskPodState =
   | "on_track"
   | "ending";
 
+// ─── Pod Activity Log ────────────────────────────────────────────────────
+
+export type ActivityCategory = "system" | "game" | "billing" | "auth" | "race_engineer";
+export type ActivitySource = "agent" | "core" | "race_engineer" | "staff";
+
+export interface PodActivityEntry {
+  id: string;
+  pod_id: string;
+  pod_number: number;
+  timestamp: string;
+  category: ActivityCategory;
+  action: string;
+  details: string;
+  source: ActivitySource;
+}
+
 // ─── Debug System ────────────────────────────────────────────────────────
 
 export type DebugHealthColor = "green" | "yellow" | "orange" | "red" | "grey";

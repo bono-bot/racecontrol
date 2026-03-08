@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 
+use crate::activity_log::log_pod_activity;
 use crate::state::AppState;
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{DrivingState, GameState, PodInfo, PodStatus};
@@ -93,6 +94,7 @@ async fn check_all_pods(
                         pod.id,
                         rs.consecutive_failures
                     );
+                    log_pod_activity(state, &pod.id, "race_engineer", "Pod Recovered", &format!("Recovered after {} check(s)", rs.consecutive_failures), "race_engineer");
                     rs.consecutive_failures = 0;
                     rs.pod_agent_reachable = true;
                 }
@@ -107,6 +109,7 @@ async fn check_all_pods(
                 pod.id,
                 pod.last_seen
             );
+            log_pod_activity(state, &pod.id, "race_engineer", "Heartbeat Lost", &format!("No heartbeat for {}s", heartbeat_timeout), "race_engineer");
 
             let mut pods_lock = state.pods.write().await;
             if let Some(p) = pods_lock.get_mut(&pod.id) {
@@ -172,6 +175,7 @@ async fn check_all_pods(
                 match exec_result {
                     Ok(resp) if resp.status().is_success() => {
                         tracing::info!("Pod {} rc-agent restart command sent successfully", pod.id);
+                        log_pod_activity(state, &pod.id, "race_engineer", "Agent Restarted", "rc-agent restart via pod-agent", "race_engineer");
                     }
                     Ok(resp) => {
                         tracing::warn!(
@@ -194,6 +198,7 @@ async fn check_all_pods(
                     pod.id,
                     rs.consecutive_failures
                 );
+                log_pod_activity(state, &pod.id, "race_engineer", "Pod Unreachable", &format!("Both agents down, {} consecutive failures", rs.consecutive_failures), "race_engineer");
 
                 // Attempt Wake-on-LAN if MAC address is known and cooldown elapsed
                 if let Some(mac) = &pod.mac_address {
@@ -206,6 +211,7 @@ async fn check_all_pods(
                         if let Err(e) = wol::send_wol(mac).await {
                             tracing::warn!("Pod {} WoL failed: {}", pod.id, e);
                         }
+                        log_pod_activity(state, &pod.id, "race_engineer", "Wake-on-LAN Sent", mac, "race_engineer");
                         rs.last_wol_attempt = Some(now);
                     }
                 }

@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 
+use crate::activity_log::log_pod_activity;
 use crate::state::AppState;
 
 /// Look up dynamic pricing rules and compute an adjusted price.
@@ -231,6 +232,11 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     // Send StopGame + SessionEnded/SubSessionEnded to agents for expired sessions
     if !expired_sessions.is_empty() {
+        // Log activity for expired sessions
+        for (pod_id, _, driving_seconds, driver_name) in &expired_sessions {
+            log_pod_activity(state, pod_id, "billing", "Session Expired", &format!("{} — {}s driven", driver_name, driving_seconds), "core");
+        }
+
         let agent_senders = state.agent_senders.read().await;
         for (pod_id, session_id, driving_seconds, driver_name) in &expired_sessions {
             // Check if pod has active reservation (multi-sub-session support)
@@ -341,6 +347,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     // Persist offline auto-ended sessions to DB
     for (pod_id, session_id, driving_seconds) in offline_auto_end {
+        log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended", "Pod offline >60s — Race Engineer ended session", "race_engineer");
         let _ = sqlx::query(
             "UPDATE billing_sessions SET status = 'ended_early', driving_seconds = ?, ended_at = datetime('now'), notes = 'Auto-ended: pod offline >60s'
              WHERE id = ?",
@@ -704,6 +711,8 @@ pub async fn start_billing_session(
         tier.1
     );
 
+    log_pod_activity(state, &pod_id, "billing", "Session Started", &format!("{} — {} ({}min)", driver_name, tier.1, allocated_seconds / 60), "core");
+
     Ok(session_id)
 }
 
@@ -730,6 +739,13 @@ async fn set_billing_status(
                 BillingSessionStatus::Active => "resumed_manual",
                 _ => "status_change",
             };
+
+            let activity_action = match new_status {
+                BillingSessionStatus::PausedManual => "Session Paused",
+                BillingSessionStatus::Active => "Session Resumed",
+                _ => "Session Status Changed",
+            };
+            log_pod_activity(state, &pod_id, "billing", activity_action, &info.driver_name, "core");
 
             drop(timers);
 
@@ -790,6 +806,13 @@ async fn end_billing_session(
             timer.status = end_status;
             let info = timer.to_info();
             let driving_seconds = timer.driving_seconds;
+
+            let activity_action = match end_status {
+                BillingSessionStatus::EndedEarly => "Session Ended",
+                BillingSessionStatus::Cancelled => "Session Cancelled",
+                _ => "Session Expired",
+            };
+            log_pod_activity(state, &pod_id, "billing", activity_action, &format!("{} — {}s driven", info.driver_name, driving_seconds), "core");
 
             timers.remove(&pod_id);
             drop(timers);
