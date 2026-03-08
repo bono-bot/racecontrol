@@ -455,6 +455,16 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             timer.allocated_seconds
         );
 
+        // Update pod state to reflect the active session
+        {
+            let mut pods = state.pods.write().await;
+            if let Some(pod) = pods.get_mut(&timer.pod_id) {
+                pod.billing_session_id = Some(timer.session_id.clone());
+                pod.current_driver = Some(timer.driver_name.clone());
+                pod.status = rc_common::types::PodStatus::InSession;
+            }
+        }
+
         timers.insert(row.3.clone(), timer);
     }
 
@@ -941,6 +951,58 @@ async fn end_billing_session(
             return true;
         }
     }
+
+    // ─── Fallback: orphaned session in DB but no in-memory timer ─────────
+    // This happens when rc-core restarts while a session was active.
+    drop(timers);
+    let orphan = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status = 'active'",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((sid, pod_id, driver_name)) = orphan {
+        tracing::warn!("Force-ending orphaned billing session {} on {} (no in-memory timer)", sid, pod_id);
+
+        let status_str = match end_status {
+            BillingSessionStatus::EndedEarly => "ended_early",
+            BillingSessionStatus::Cancelled => "cancelled",
+            _ => "completed",
+        };
+
+        let _ = sqlx::query(
+            "UPDATE billing_sessions SET status = ?, ended_at = datetime('now') WHERE id = ?",
+        )
+        .bind(status_str)
+        .bind(session_id)
+        .execute(&state.db)
+        .await;
+
+        log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after rc-core restart", driver_name), "race_engineer");
+
+        // Clear pod billing reference
+        if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
+            pod.billing_session_id = None;
+        }
+
+        // Notify agent to deactivate overlay and show blank
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(&pod_id) {
+            let _ = sender.send(CoreToAgentMessage::SessionEnded {
+                billing_session_id: session_id.to_string(),
+                driver_name,
+                total_laps: 0,
+                best_lap_ms: None,
+                driving_seconds: 0,
+            }).await;
+        }
+
+        return true;
+    }
+
     false
 }
 
