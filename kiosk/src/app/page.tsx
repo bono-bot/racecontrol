@@ -2,15 +2,17 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
+import { useSetupWizard } from "@/hooks/useSetupWizard";
 import { KioskHeader } from "@/components/KioskHeader";
 import { KioskPodCard } from "@/components/KioskPodCard";
-import { DriverRegistration } from "@/components/DriverRegistration";
-import { GameConfigurator } from "@/components/GameConfigurator";
+import { SidePanel } from "@/components/SidePanel";
+import { SetupWizard } from "@/components/SetupWizard";
+import { LiveSessionPanel } from "@/components/LiveSessionPanel";
+import { WalletTopupPanel } from "@/components/WalletTopupPanel";
 import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { AssistanceAlert } from "@/components/AssistanceAlert";
-import WalletTopup from "@/components/WalletTopup";
 import { api } from "@/lib/api";
-import type { AuthTokenInfo } from "@/lib/types";
+import type { AuthTokenInfo, PanelMode } from "@/lib/types";
 
 export default function StaffTerminal() {
   const [staffName, setStaffName] = useState<string | null>(() => {
@@ -35,9 +37,10 @@ export default function StaffTerminal() {
     sendCommand,
   } = useKioskSocket();
 
-  // Modal state
-  const [registerPodId, setRegisterPodId] = useState<string | null>(null);
-  const [gamePodId, setGamePodId] = useState<string | null>(null);
+  // ─── Panel State ──────────────────────────────────────────────────────
+  const [selectedPodId, setSelectedPodId] = useState<string | null>(null);
+  const [panelMode, setPanelMode] = useState<PanelMode>(null);
+
   // Pending assign: holds driver/pricing data until game is selected, then billing starts
   const [pendingAssign, setPendingAssign] = useState<{
     pod_id: string;
@@ -45,12 +48,17 @@ export default function StaffTerminal() {
     pricing_tier_id: string;
     driver_name: string;
   } | null>(null);
+
+  // Wallet topup state
   const [topUpDriverId, setTopUpDriverId] = useState<string | null>(null);
   const [topUpDriverName, setTopUpDriverName] = useState("");
   const [topUpBalance, setTopUpBalance] = useState(0);
 
   // Wallet balances cache: driver_id → balance_paise
   const [walletBalances, setWalletBalances] = useState<Map<string, number>>(new Map());
+
+  // Setup wizard hook
+  const wizard = useSetupWizard();
 
   // Fetch wallet balances for active billing sessions
   const fetchWalletBalances = useCallback(async () => {
@@ -77,46 +85,63 @@ export default function StaffTerminal() {
 
   useEffect(() => {
     fetchWalletBalances();
-    const interval = setInterval(fetchWalletBalances, 15000); // refresh every 15s
+    const interval = setInterval(fetchWalletBalances, 15000);
     return () => clearInterval(interval);
   }, [fetchWalletBalances]);
 
   // Sort pods by number for consistent 4x2 grid
   const sortedPods = Array.from(pods.values()).sort((a, b) => a.number - b.number);
   const displayPods = sortedPods.length > 0 ? sortedPods : [];
+  const isPanelOpen = panelMode !== null && selectedPodId !== null;
+  const selectedPod = selectedPodId ? pods.get(selectedPodId) : null;
+
+  // ─── Panel Mode Derivation ────────────────────────────────────────────
+  const handlePodSelect = (podId: string) => {
+    const pod = pods.get(podId);
+    if (!pod) return;
+
+    const billing = billingTimers.get(podId);
+    const authToken = pendingAuthTokens.get(podId);
+
+    setSelectedPodId(podId);
+
+    if (billing && (billing.status === "active" || billing.status === "paused_manual")) {
+      setPanelMode("live_session");
+    } else if (authToken && authToken.status === "pending") {
+      setPanelMode("waiting");
+    } else {
+      // Idle or ending — start setup
+      setPanelMode("setup");
+      wizard.reset();
+    }
+  };
 
   const handleStartSession = (podId: string) => {
-    setRegisterPodId(podId);
+    setSelectedPodId(podId);
+    setPanelMode("setup");
+    wizard.reset();
   };
 
-  const handleAssignDriver = async (data: {
-    pod_id: string;
-    driver_id: string;
-    driver_name: string;
-    pricing_tier_id: string;
-    auth_type: string;
-  }) => {
-    // Defer billing until game is selected — store assign data, open GameConfigurator
-    setPendingAssign({
-      pod_id: data.pod_id,
-      driver_id: data.driver_id,
-      pricing_tier_id: data.pricing_tier_id,
-      driver_name: data.driver_name,
-    });
-    setRegisterPodId(null);
-    setGamePodId(data.pod_id);
+  const closePanel = () => {
+    setSelectedPodId(null);
+    setPanelMode(null);
+    setPendingAssign(null);
+    setTopUpDriverId(null);
   };
 
+  // ─── Session Controls ─────────────────────────────────────────────────
   const handleGameLaunch = async (simType: string, launchArgs: string) => {
-    if (!gamePodId) return;
+    if (!selectedPodId) return;
 
-    // If we have pending assign data, start billing NOW (right before launch)
-    if (pendingAssign) {
+    // Start billing with the wizard selections
+    const driver = wizard.state.selectedDriver;
+    const tier = wizard.state.selectedTier;
+    if (driver && tier) {
       try {
         const result = await api.startBilling({
-          pod_id: pendingAssign.pod_id,
-          driver_id: pendingAssign.driver_id,
-          pricing_tier_id: pendingAssign.pricing_tier_id,
+          pod_id: selectedPodId,
+          driver_id: driver.id,
+          pricing_tier_id: tier.id,
           staff_id: staffId || undefined,
         });
 
@@ -128,15 +153,16 @@ export default function StaffTerminal() {
         alert(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
         return;
       }
-      setPendingAssign(null);
     }
 
-    await api.launchGame(gamePodId, simType, launchArgs);
-    setGamePodId(null);
+    await api.launchGame(selectedPodId, simType, launchArgs);
+    // Switch to live session view
+    setPanelMode("live_session");
   };
 
   const handleEndSession = (billingSessionId: string) => {
     sendCommand("end_billing", { billing_session_id: billingSessionId });
+    closePanel();
   };
 
   const handlePauseSession = (billingSessionId: string) => {
@@ -156,6 +182,7 @@ export default function StaffTerminal() {
 
   const handleCancelAssignment = (tokenId: string) => {
     sendCommand("cancel_assignment", { token_id: tokenId });
+    closePanel();
   };
 
   const handleStartNow = async (authToken: AuthTokenInfo) => {
@@ -164,7 +191,11 @@ export default function StaffTerminal() {
       console.error("Start Now failed:", result.error);
       return;
     }
-    setGamePodId(authToken.pod_id);
+    // Switch to setup for game config
+    setPanelMode("setup");
+    wizard.reset();
+    // Skip driver registration — driver is already assigned
+    wizard.goToStep("select_game");
   };
 
   const handleAcknowledgeAssistance = (podId: string) => {
@@ -173,7 +204,6 @@ export default function StaffTerminal() {
   };
 
   const handleTopUp = (driverId: string) => {
-    // Find the driver name and current balance from billing
     let name = "Customer";
     let balance = 0;
     billingTimers.forEach((billing) => {
@@ -185,6 +215,7 @@ export default function StaffTerminal() {
     setTopUpDriverId(driverId);
     setTopUpDriverName(name);
     setTopUpBalance(balance);
+    setPanelMode("wallet_topup");
   };
 
   const handleTopUpSuccess = (newBalance: number) => {
@@ -195,7 +226,9 @@ export default function StaffTerminal() {
         return next;
       });
     }
+    // Go back to live session
     setTopUpDriverId(null);
+    setPanelMode("live_session");
   };
 
   const handleSignOut = () => {
@@ -205,14 +238,35 @@ export default function StaffTerminal() {
     sessionStorage.removeItem("kiosk_staff_id");
   };
 
-  // ─── Auth Gate ──────────────────────────────────────────────────────────
+  // ─── Panel Title Derivation ───────────────────────────────────────────
+  const getPanelTitle = (): string => {
+    if (!selectedPod) return "";
+    switch (panelMode) {
+      case "setup":
+        return `Setup — Pod ${selectedPod.number}`;
+      case "live_session":
+        return `Live Session — Pod ${selectedPod.number}`;
+      case "waiting":
+        return `Waiting — Pod ${selectedPod.number}`;
+      case "wallet_topup":
+        return `Top Up Wallet`;
+      default:
+        return "";
+    }
+  };
+
+  // ─── Auth Gate ──────────────────────────────────────────────────────
   if (!staffName) {
-    return <StaffLoginScreen onAuthenticated={(id, name) => {
-      setStaffId(id);
-      setStaffName(name);
-      sessionStorage.setItem("kiosk_staff_id", id);
-      sessionStorage.setItem("kiosk_staff_name", name);
-    }} />;
+    return (
+      <StaffLoginScreen
+        onAuthenticated={(id, name) => {
+          setStaffId(id);
+          setStaffName(name);
+          sessionStorage.setItem("kiosk_staff_id", id);
+          sessionStorage.setItem("kiosk_staff_name", name);
+        }}
+      />
+    );
   }
 
   return (
@@ -225,76 +279,172 @@ export default function StaffTerminal() {
         onAcknowledge={handleAcknowledgeAssistance}
       />
 
-      {/* 4x2 Pod Grid */}
-      <main className="flex-1 p-4">
-        {displayPods.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-4">
-            <div className="w-12 h-12 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
-            <p className="text-rp-grey text-sm">
-              {connected ? "Waiting for pods to connect..." : "Connecting to RaceControl..."}
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 grid-rows-2 gap-3 h-full">
-            {displayPods.map((pod) => {
-              const billing = billingTimers.get(pod.id);
-              const driverId = billing?.driver_id;
-              return (
-                <KioskPodCard
-                  key={pod.id}
-                  pod={pod}
-                  telemetry={latestTelemetry.get(pod.id)}
-                  billing={billing}
-                  warning={billingWarnings.find((w) => w.podId === pod.id)}
-                  gameInfo={gameStates.get(pod.id)}
-                  authToken={pendingAuthTokens.get(pod.id)}
-                  walletBalance={driverId ? walletBalances.get(driverId) : undefined}
-                  onStartSession={handleStartSession}
-                  onEndSession={handleEndSession}
-                  onPauseSession={handlePauseSession}
-                  onResumeSession={handleResumeSession}
-                  onExtendSession={handleExtendSession}
-                  onCancelAssignment={handleCancelAssignment}
-                  onLaunchGame={(podId) => setGamePodId(podId)}
-                  onStartNow={handleStartNow}
-                  onTopUp={handleTopUp}
-                />
-              );
-            })}
-          </div>
-        )}
+      {/* Main Content: Grid + Side Panel */}
+      <main className="flex-1 flex overflow-hidden">
+        {/* Pod Grid */}
+        <div className={`p-4 transition-all duration-300 ${isPanelOpen ? "w-[40%]" : "w-full"}`}>
+          {displayPods.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-4">
+              <div className="w-12 h-12 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
+              <p className="text-rp-grey text-sm">
+                {connected ? "Waiting for pods to connect..." : "Connecting to RaceControl..."}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 grid-rows-2 gap-3 h-full">
+              {displayPods.map((pod) => {
+                const billing = billingTimers.get(pod.id);
+                const driverId = billing?.driver_id;
+                return (
+                  <KioskPodCard
+                    key={pod.id}
+                    pod={pod}
+                    telemetry={latestTelemetry.get(pod.id)}
+                    billing={billing}
+                    warning={billingWarnings.find((w) => w.podId === pod.id)}
+                    gameInfo={gameStates.get(pod.id)}
+                    authToken={pendingAuthTokens.get(pod.id)}
+                    walletBalance={driverId ? walletBalances.get(driverId) : undefined}
+                    compact={isPanelOpen}
+                    isSelected={selectedPodId === pod.id}
+                    onSelect={handlePodSelect}
+                    onStartSession={handleStartSession}
+                    onEndSession={handleEndSession}
+                    onPauseSession={handlePauseSession}
+                    onResumeSession={handleResumeSession}
+                    onExtendSession={handleExtendSession}
+                    onCancelAssignment={handleCancelAssignment}
+                    onLaunchGame={(podId) => {
+                      setSelectedPodId(podId);
+                      setPanelMode("setup");
+                      wizard.reset();
+                      wizard.goToStep("select_game");
+                    }}
+                    onStartNow={handleStartNow}
+                    onTopUp={handleTopUp}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Side Panel */}
+        <SidePanel
+          isOpen={isPanelOpen}
+          title={getPanelTitle()}
+          onClose={closePanel}
+        >
+          {/* Setup Wizard */}
+          {panelMode === "setup" && selectedPod && (
+            <SetupWizard
+              podId={selectedPodId!}
+              podNumber={selectedPod.number}
+              wizardState={wizard.state}
+              setField={wizard.setField}
+              goToStep={wizard.goToStep}
+              goBack={wizard.goBack}
+              goNext={wizard.goNext}
+              isFirstStep={wizard.isFirstStep}
+              onLaunch={handleGameLaunch}
+              buildLaunchArgs={wizard.buildLaunchArgs}
+              onCancel={closePanel}
+            />
+          )}
+
+          {/* Live Session */}
+          {panelMode === "live_session" && selectedPod && billingTimers.get(selectedPodId!) && (
+            <LiveSessionPanel
+              pod={selectedPod}
+              telemetry={latestTelemetry.get(selectedPodId!)}
+              billing={billingTimers.get(selectedPodId!)!}
+              warning={billingWarnings.find((w) => w.podId === selectedPodId)}
+              gameInfo={gameStates.get(selectedPodId!)}
+              walletBalance={
+                billingTimers.get(selectedPodId!)?.driver_id
+                  ? walletBalances.get(billingTimers.get(selectedPodId!)!.driver_id)
+                  : undefined
+              }
+              onEndSession={handleEndSession}
+              onPauseSession={handlePauseSession}
+              onResumeSession={handleResumeSession}
+              onExtendSession={handleExtendSession}
+              onLaunchGame={(podId) => {
+                setPanelMode("setup");
+                wizard.reset();
+                wizard.goToStep("select_game");
+              }}
+              onTopUp={handleTopUp}
+            />
+          )}
+
+          {/* Waiting state */}
+          {panelMode === "waiting" && selectedPod && pendingAuthTokens.get(selectedPodId!) && (
+            <WaitingPanel
+              authToken={pendingAuthTokens.get(selectedPodId!)!}
+              onStartNow={handleStartNow}
+              onCancel={handleCancelAssignment}
+            />
+          )}
+
+          {/* Wallet Top-Up */}
+          {panelMode === "wallet_topup" && topUpDriverId && (
+            <WalletTopupPanel
+              driverId={topUpDriverId}
+              driverName={topUpDriverName}
+              currentBalance={topUpBalance}
+              onClose={() => setPanelMode("live_session")}
+              onSuccess={handleTopUpSuccess}
+            />
+          )}
+        </SidePanel>
       </main>
+    </div>
+  );
+}
 
-      {/* Driver Registration Modal */}
-      {registerPodId && (
-        <DriverRegistration
-          podId={registerPodId}
-          onAssign={handleAssignDriver}
-          onCancel={() => setRegisterPodId(null)}
-        />
+// ─── Waiting Panel (inline) ──────────────────────────────────────────────
+function WaitingPanel({
+  authToken,
+  onStartNow,
+  onCancel,
+}: {
+  authToken: AuthTokenInfo;
+  onStartNow: (token: AuthTokenInfo) => void;
+  onCancel: (tokenId: string) => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
+      <p className="text-amber-400 text-sm font-medium uppercase tracking-wider">
+        Waiting for Customer
+      </p>
+      <p className="text-lg text-white font-semibold">{authToken.driver_name}</p>
+      {authToken.auth_type === "pin" && (
+        <p className="text-5xl font-bold tracking-[0.4em] text-white font-mono">
+          {authToken.token}
+        </p>
       )}
-
-      {/* Game Configurator Modal */}
-      {gamePodId && (
-        <GameConfigurator
-          podId={gamePodId}
-          podNumber={pods.get(gamePodId)?.number || 0}
-          driverName={pendingAssign?.driver_name || billingTimers.get(gamePodId)?.driver_name || "Driver"}
-          onLaunch={handleGameLaunch}
-          onCancel={() => { setGamePodId(null); setPendingAssign(null); }}
-        />
+      {authToken.auth_type === "qr" && (
+        <p className="text-rp-grey">Scan QR code at the pod</p>
       )}
-
-      {/* Wallet Top-Up Modal */}
-      {topUpDriverId && (
-        <WalletTopup
-          driverId={topUpDriverId}
-          driverName={topUpDriverName}
-          currentBalance={topUpBalance}
-          onClose={() => setTopUpDriverId(null)}
-          onSuccess={handleTopUpSuccess}
-        />
-      )}
+      <p className="text-sm text-rp-grey">{authToken.pricing_tier_name}</p>
+      <p className="text-xs text-rp-grey">
+        Expires {new Date(authToken.expires_at).toLocaleTimeString()}
+      </p>
+      <div className="flex gap-3 mt-4">
+        <button
+          onClick={() => onStartNow(authToken)}
+          className="px-6 py-2.5 bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded-lg transition-colors"
+        >
+          Start Now
+        </button>
+        <button
+          onClick={() => onCancel(authToken.id)}
+          className="px-6 py-2.5 border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

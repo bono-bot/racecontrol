@@ -204,6 +204,29 @@ export interface AcCatalog {
   };
 }
 
+// ─── Side Panel ──────────────────────────────────────────────────────
+
+export type PanelMode = "setup" | "live_session" | "waiting" | "wallet_topup" | null;
+
+export type SetupStep =
+  | "register_driver"
+  | "select_plan"
+  | "select_game"
+  | "player_mode"
+  | "session_type"
+  | "ai_config"
+  | "multiplayer_lobby"
+  | "select_experience"
+  | "select_track"
+  | "select_car"
+  | "driving_settings"
+  | "review";
+
+export type SessionType = "practice" | "qualification" | "race";
+export type PlayerMode = "single" | "multi";
+export type ExperienceMode = "preset" | "custom";
+export type AiDifficulty = "easy" | "medium" | "hard";
+
 // ─── Kiosk Pod Card State ─────────────────────────────────────────────────
 
 export type KioskPodState =

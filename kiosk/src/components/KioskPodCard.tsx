@@ -21,6 +21,9 @@ interface KioskPodCardProps {
   gameInfo?: GameLaunchInfo;
   authToken?: AuthTokenInfo;
   walletBalance?: number; // paise
+  compact?: boolean;
+  isSelected?: boolean;
+  onSelect?: (podId: string) => void;
   onStartSession: (podId: string) => void;
   onEndSession: (billingSessionId: string) => void;
   onPauseSession: (billingSessionId: string) => void;
@@ -74,6 +77,9 @@ export function KioskPodCard({
   warning,
   gameInfo,
   authToken,
+  compact = false,
+  isSelected = false,
+  onSelect,
   onStartSession,
   onEndSession,
   onPauseSession,
@@ -102,17 +108,107 @@ export function KioskPodCard({
   }
   const stableCar = stableCarRef.current;
 
+  // Click handler for compact mode
+  const handleCardClick = () => {
+    if (onSelect) {
+      onSelect(pod.id);
+    }
+  };
+
+  // ─── COMPACT MODE ──────────────────────────────────────────────────────
+  if (compact) {
+    return (
+      <div
+        onClick={handleCardClick}
+        className={`
+          relative flex flex-col rounded-lg border overflow-hidden transition-all duration-300 cursor-pointer
+          ${isSelected ? "ring-2 ring-rp-red border-rp-red" : ""}
+          ${isOffline ? "bg-zinc-900 border-zinc-800 opacity-60" : ""}
+          ${state === "idle" && !isOffline && !isSelected ? "bg-rp-card border-rp-border hover:border-rp-grey" : ""}
+          ${state === "on_track" && !isSelected ? "bg-rp-card border-rp-red/40" : ""}
+          ${state === "waiting" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
+          ${state === "selecting" && !isSelected ? "bg-rp-card border-blue-500/40" : ""}
+          ${state === "ending" && !isSelected ? "bg-rp-card border-green-500/40" : ""}
+          ${hasWarning && !isSelected ? "border-amber-500 animate-pulse" : ""}
+        `}
+      >
+        {/* Compact Header */}
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-rp-border/50">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                isOffline ? "bg-zinc-600" : pod.status === "in_session" ? "bg-rp-red" : "bg-green-500"
+              }`}
+            />
+            <span className="font-semibold text-xs">Pod {pod.number}</span>
+          </div>
+          <StateLabel state={state} isOffline={isOffline} />
+        </div>
+
+        {/* Compact Body */}
+        <div className="px-3 py-2 flex flex-col gap-1">
+          {/* Driver name */}
+          {billing && (
+            <p className="text-white font-semibold text-xs truncate">{billing.driver_name}</p>
+          )}
+          {state === "waiting" && authToken && (
+            <p className="text-amber-400 text-xs truncate">{authToken.driver_name}</p>
+          )}
+          {state === "idle" && !isOffline && (
+            <p className="text-rp-grey text-xs">Ready</p>
+          )}
+          {isOffline && (
+            <p className="text-zinc-600 text-xs">Offline</p>
+          )}
+
+          {/* Timer bar (compact) */}
+          {billing && state === "on_track" && (
+            <div>
+              <div className="flex justify-between text-[10px] text-rp-grey mb-0.5">
+                <span>{billing.status === "paused_manual" ? "Paused" : ""}</span>
+                <span className={`font-mono ${hasWarning ? "text-amber-400 font-bold" : ""}`}>
+                  {formatTime(billing.remaining_seconds)}
+                </span>
+              </div>
+              <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-1000 ${
+                    hasWarning ? "bg-amber-500" : "bg-rp-red"
+                  }`}
+                  style={{
+                    width: `${Math.max(0, (billing.remaining_seconds / billing.allocated_seconds) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Waiting PIN (compact) */}
+          {state === "waiting" && authToken?.auth_type === "pin" && (
+            <p className="text-lg font-bold tracking-[0.2em] text-white font-mono text-center">
+              {authToken.token}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── FULL MODE (original) ──────────────────────────────────────────────
   return (
     <div
+      onClick={onSelect ? handleCardClick : undefined}
       className={`
         relative flex flex-col rounded-lg border overflow-hidden transition-all duration-300
+        ${onSelect ? "cursor-pointer" : ""}
+        ${isSelected ? "ring-2 ring-rp-red border-rp-red" : ""}
         ${isOffline ? "bg-zinc-900 border-zinc-800 opacity-60" : ""}
-        ${state === "idle" && !isOffline ? "bg-rp-card border-rp-border hover:border-rp-grey" : ""}
-        ${state === "on_track" ? "bg-rp-card border-rp-red/40 glow-active" : ""}
-        ${state === "waiting" ? "bg-rp-card border-amber-500/40" : ""}
-        ${state === "selecting" ? "bg-rp-card border-blue-500/40" : ""}
-        ${state === "ending" ? "bg-rp-card border-green-500/40" : ""}
-        ${hasWarning ? "border-amber-500 animate-pulse" : ""}
+        ${state === "idle" && !isOffline && !isSelected ? "bg-rp-card border-rp-border hover:border-rp-grey" : ""}
+        ${state === "on_track" && !isSelected ? "bg-rp-card border-rp-red/40 glow-active" : ""}
+        ${state === "waiting" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
+        ${state === "selecting" && !isSelected ? "bg-rp-card border-blue-500/40" : ""}
+        ${state === "ending" && !isSelected ? "bg-rp-card border-green-500/40" : ""}
+        ${hasWarning && !isSelected ? "border-amber-500 animate-pulse" : ""}
       `}
     >
       {/* Pod Header */}
@@ -135,7 +231,7 @@ export function KioskPodCard({
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
             <p className="text-rp-grey text-sm">Ready for session</p>
             <button
-              onClick={() => onStartSession(pod.id)}
+              onClick={(e) => { e.stopPropagation(); onStartSession(pod.id); }}
               className="px-6 py-2.5 bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded-md transition-colors text-sm"
             >
               Start Session
@@ -169,14 +265,14 @@ export function KioskPodCard({
             <div className="flex gap-2 mt-1">
               {onStartNow && (
                 <button
-                  onClick={() => onStartNow(authToken)}
+                  onClick={(e) => { e.stopPropagation(); onStartNow(authToken); }}
                   className="px-4 py-1.5 text-xs bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded transition-colors"
                 >
                   Start Now
                 </button>
               )}
               <button
-                onClick={() => onCancelAssignment(authToken.id)}
+                onClick={(e) => { e.stopPropagation(); onCancelAssignment(authToken.id); }}
                 className="px-3 py-1.5 text-xs border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded transition-colors"
               >
                 Cancel
@@ -211,7 +307,7 @@ export function KioskPodCard({
             {/* Launch Game button — shown when billing active but no game running */}
             {onLaunchGame && (!gameInfo || gameInfo.game_state === "idle") && (
               <button
-                onClick={() => onLaunchGame(pod.id)}
+                onClick={(e) => { e.stopPropagation(); onLaunchGame(pod.id); }}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md transition-colors text-sm"
               >
                 Launch Game
@@ -264,7 +360,7 @@ export function KioskPodCard({
             <div className="flex gap-1.5 mt-1">
               {billing.status === "active" && (
                 <button
-                  onClick={() => onPauseSession(billing.id)}
+                  onClick={(e) => { e.stopPropagation(); onPauseSession(billing.id); }}
                   className="flex-1 px-2 py-1 text-xs border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded transition-colors"
                 >
                   Pause
@@ -272,7 +368,7 @@ export function KioskPodCard({
               )}
               {billing.status === "paused_manual" && (
                 <button
-                  onClick={() => onResumeSession(billing.id)}
+                  onClick={(e) => { e.stopPropagation(); onResumeSession(billing.id); }}
                   className="flex-1 px-2 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded transition-colors"
                 >
                   Resume
@@ -281,13 +377,13 @@ export function KioskPodCard({
               <TransmissionToggle podId={pod.id} />
               <FfbToggle podId={pod.id} />
               <button
-                onClick={() => onExtendSession(billing.id)}
+                onClick={(e) => { e.stopPropagation(); onExtendSession(billing.id); }}
                 className="flex-1 px-2 py-1 text-xs border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded transition-colors"
               >
                 +10m
               </button>
               <button
-                onClick={() => onEndSession(billing.id)}
+                onClick={(e) => { e.stopPropagation(); onEndSession(billing.id); }}
                 className="flex-1 px-2 py-1 text-xs border border-rp-red/50 text-rp-red hover:bg-rp-red/10 rounded transition-colors"
               >
                 End
@@ -307,7 +403,7 @@ export function KioskPodCard({
               </div>
             )}
             <button
-              onClick={() => onStartSession(pod.id)}
+              onClick={(e) => { e.stopPropagation(); onStartSession(pod.id); }}
               className="px-5 py-2 bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded-md transition-colors text-sm"
             >
               New Session
