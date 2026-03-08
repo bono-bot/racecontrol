@@ -201,27 +201,10 @@ export function KioskPodCard({
         {state === "on_track" && billing && (
           <div className="flex-1 flex flex-col gap-2">
             {/* Driver + Experience */}
-            <div className="flex items-start justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-white font-semibold text-sm truncate">
-                  {billing.driver_name}
-                </p>
-                <p className="text-rp-grey text-xs truncate">
-                  {stableCar ? `${stableCar.track} — ${stableCar.car}` : billing.pricing_tier_name}
-                </p>
-              </div>
-              {walletBalance !== undefined && (
-                <button
-                  onClick={() => onTopUp?.(billing.driver_id)}
-                  className="shrink-0 ml-2 text-right group"
-                  title="Top up wallet"
-                >
-                  <p className="text-[10px] text-rp-grey">Balance</p>
-                  <p className="text-xs font-bold text-white group-hover:text-rp-red transition-colors">
-                    {(walletBalance / 100).toFixed(0)} credits
-                  </p>
-                </button>
-              )}
+            <div>
+              <p className="text-white font-semibold text-sm truncate">
+                {billing.driver_name}
+              </p>
             </div>
 
             {/* Launch Game button — shown when billing active but no game running */}
