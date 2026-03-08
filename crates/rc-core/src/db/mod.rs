@@ -1340,6 +1340,91 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Debug system tables ──────────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS debug_playbooks (
+            id TEXT PRIMARY KEY,
+            category TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            steps TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS debug_incidents (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT,
+            category TEXT NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            context_snapshot TEXT,
+            playbook_id TEXT,
+            staff_id TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            resolved_at TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_debug_inc_status ON debug_incidents(status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_debug_inc_category ON debug_incidents(category)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_debug_inc_created ON debug_incidents(created_at)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS debug_resolutions (
+            id TEXT PRIMARY KEY,
+            incident_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            resolution_text TEXT NOT NULL,
+            effectiveness INTEGER NOT NULL DEFAULT 3,
+            staff_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_debug_res_category ON debug_resolutions(category)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_debug_res_incident ON debug_resolutions(incident_id)")
+        .execute(pool)
+        .await?;
+
+    // Seed debug playbooks
+    let playbooks = [
+        ("pb_pod_offline", "pod_offline", "Pod Offline / Not Responding", r#"[{"step_number":1,"action":"Ping the pod IP address","expected_result":"Reply from pod IP","timeout_seconds":5},{"step_number":2,"action":"Check pod-agent on port 8090 (curl http://<ip>:8090/ping)","expected_result":"pong response","timeout_seconds":10},{"step_number":3,"action":"Check Windows Firewall (all profiles: Domain, Private, Public)","expected_result":"Firewall disabled or port 8090 allowed","timeout_seconds":30},{"step_number":4,"action":"TCP scan subnet for DHCP drift (port 8090 across 192.168.31.2-254)","expected_result":"Find pod on new IP","timeout_seconds":60},{"step_number":5,"action":"Send Wake-on-LAN magic packet","expected_result":"Pod powers on and responds within 30s","timeout_seconds":45}]"#),
+        ("pb_game_crash", "game_crash", "Game Crash / Won't Launch", r#"[{"step_number":1,"action":"Check if acs.exe process is running on the pod","expected_result":"Process listed or confirmed dead","timeout_seconds":10},{"step_number":2,"action":"Verify race.ini has AUTOSPAWN=1","expected_result":"AUTOSPAWN=1 present in race.ini","timeout_seconds":15},{"step_number":3,"action":"Check CSP gui.ini for FORCE_START=1 and HIDE_MAIN_MENU=1","expected_result":"Both settings enabled","timeout_seconds":15},{"step_number":4,"action":"Check disk space on pod (must have >1GB free)","expected_result":"Sufficient disk space available","timeout_seconds":10},{"step_number":5,"action":"Kill acs.exe and relaunch AC with correct working directory","expected_result":"AC launches successfully","timeout_seconds":30}]"#),
+        ("pb_billing_stuck", "billing_stuck", "Billing / Timer Stuck", r#"[{"step_number":1,"action":"Check billing_sessions table for session status","expected_result":"Session found with correct status","timeout_seconds":10},{"step_number":2,"action":"Verify WebSocket connection between agent and core","expected_result":"WebSocket connected and receiving messages","timeout_seconds":10},{"step_number":3,"action":"Check billing tick loop is running (look for BillingTick events)","expected_result":"Tick events arriving every second","timeout_seconds":15},{"step_number":4,"action":"Restart billing session via API if stuck","expected_result":"Billing resumes with correct remaining time","timeout_seconds":20}]"#),
+        ("pb_screen_stuck", "screen_stuck", "Blank / Stuck Screen", r#"[{"step_number":1,"action":"Check if Edge kiosk browser process is running","expected_result":"msedge.exe process found","timeout_seconds":10},{"step_number":2,"action":"Verify lock screen server on port 18923","expected_result":"HTTP 200 from localhost:18923","timeout_seconds":10},{"step_number":3,"action":"Kill and restart lock screen browser (msedge.exe)","expected_result":"Lock screen reappears","timeout_seconds":15},{"step_number":4,"action":"Check Windows screen blanking / power settings","expected_result":"Screen never turns off","timeout_seconds":10}]"#),
+        ("pb_no_steering", "no_steering_input", "No Steering / Pedal Input", r#"[{"step_number":1,"action":"Check USB wheelbase connection (VID:1209 PID:FFB0)","expected_result":"Device visible in Device Manager","timeout_seconds":15},{"step_number":2,"action":"Verify Conspit Link 2.0 is running","expected_result":"ConspitLink2.0.exe process found","timeout_seconds":10},{"step_number":3,"action":"Restart ConspitLink2.0.exe","expected_result":"Wheel display shows telemetry data","timeout_seconds":15},{"step_number":4,"action":"Check Device Manager for USB errors or disabled devices","expected_result":"No errors on HID devices","timeout_seconds":15}]"#),
+        ("pb_high_idle", "high_idle_time", "High Idle Time / Not Counting", r#"[{"step_number":1,"action":"Check driving_state for the pod","expected_result":"Should be 'active' during gameplay","timeout_seconds":5},{"step_number":2,"action":"Verify UDP telemetry arriving on port 9996","expected_result":"Packets received from AC","timeout_seconds":10},{"step_number":3,"action":"Check 10-second idle threshold configuration","expected_result":"Threshold set correctly in config","timeout_seconds":5},{"step_number":4,"action":"Inspect game state — is AC actually running and in a session?","expected_result":"AC running with active driving session","timeout_seconds":10}]"#),
+        ("pb_sync_failure", "sync_failure", "Cloud Sync Failure", r#"[{"step_number":1,"action":"Check cloud reachability (ping 72.60.101.58)","expected_result":"Cloud server responds","timeout_seconds":10},{"step_number":2,"action":"Verify sync_log for recent errors","expected_result":"No errors in last sync cycle","timeout_seconds":10},{"step_number":3,"action":"Check internet connectivity (ping 8.8.8.8)","expected_result":"Internet reachable","timeout_seconds":5},{"step_number":4,"action":"Restart cloud_sync module","expected_result":"Sync resumes and pushes pending changes","timeout_seconds":30}]"#),
+        ("pb_kiosk_bypass", "kiosk_bypass", "Kiosk Bypass / Desktop Access", r#"[{"step_number":1,"action":"Check kiosk lockdown setting in rc-agent config","expected_result":"Kiosk mode enabled","timeout_seconds":5},{"step_number":2,"action":"Verify keyboard hook is active (blocks Alt+Tab, Ctrl+Esc)","expected_result":"System shortcuts blocked","timeout_seconds":10},{"step_number":3,"action":"Check that taskbar is hidden","expected_result":"Taskbar not visible","timeout_seconds":5},{"step_number":4,"action":"Re-enable kiosk mode and restart lock screen","expected_result":"Kiosk fully locked down","timeout_seconds":15}]"#),
+    ];
+
+    for (id, category, title, steps) in &playbooks {
+        sqlx::query(
+            "INSERT OR IGNORE INTO debug_playbooks (id, category, title, steps) VALUES (?, ?, ?, ?)"
+        )
+        .bind(id)
+        .bind(category)
+        .bind(title)
+        .bind(steps)
+        .execute(pool)
+        .await?;
+    }
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

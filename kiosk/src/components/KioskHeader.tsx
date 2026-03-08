@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { Pod } from "@/lib/types";
 
 interface KioskHeaderProps {
@@ -13,6 +15,7 @@ interface KioskHeaderProps {
 
 export function KioskHeader({ connected, pods, venueName = "Racing Point", staffName, onSignOut }: KioskHeaderProps) {
   const [clock, setClock] = useState("");
+  const pathname = usePathname();
 
   useEffect(() => {
     const tick = () => {
@@ -66,10 +69,20 @@ export function KioskHeader({ connected, pods, venueName = "Racing Point", staff
         </div>
       </div>
 
-      {/* Right: Staff + Clock + Connection */}
+      {/* Right: Nav + Staff + Clock + Connection */}
       <div className="flex items-center gap-4">
         {staffName && (
           <div className="flex items-center gap-3 border-r border-rp-border pr-4">
+            <Link
+              href={pathname === "/debug" ? "/" : "/debug"}
+              className={`px-3 py-1.5 text-sm font-medium border rounded-lg transition-colors ${
+                pathname === "/debug"
+                  ? "border-rp-red bg-rp-red/10 text-white"
+                  : "border-rp-border text-rp-grey hover:text-white hover:border-rp-red hover:bg-rp-red/10"
+              }`}
+            >
+              {pathname === "/debug" ? "Dashboard" : "Debug"}
+            </Link>
             <span className="text-sm text-rp-grey">
               Staff: <span className="text-white font-medium">{staffName}</span>
             </span>

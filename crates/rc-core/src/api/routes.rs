@@ -224,6 +224,12 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/public/leaderboard", get(public_leaderboard))
         .route("/public/leaderboard/{track}", get(public_track_leaderboard))
         .route("/public/time-trial", get(public_time_trial))
+        // Pod Debug System
+        .route("/debug/activity", get(debug_activity))
+        .route("/debug/playbooks", get(debug_playbooks))
+        .route("/debug/incidents", get(list_debug_incidents).post(create_debug_incident))
+        .route("/debug/incidents/{id}", put(update_debug_incident))
+        .route("/debug/diagnose", post(debug_diagnose))
         // Bot (WhatsApp bot — terminal_secret auth)
         .route("/bot/lookup", get(bot_lookup))
         .route("/bot/pricing", get(bot_pricing))
@@ -7642,4 +7648,421 @@ async fn bot_book(
             pod_number, auth_token.token, duration_minutes
         ),
     }))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Pod Debug System
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+struct DebugActivityQuery {
+    hours: Option<f64>,
+}
+
+async fn debug_activity(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<DebugActivityQuery>,
+) -> Json<Value> {
+    let hours = q.hours.unwrap_or(2.0);
+    let minutes = (hours * 60.0) as i64;
+    let db = &state.db;
+
+    // Pod health from in-memory state
+    let pods = state.pods.read().await;
+    let now = chrono::Utc::now();
+    let pod_health: Vec<Value> = pods.values().map(|p| {
+        let secs = p.last_seen
+            .map(|ls| (now - ls).num_seconds())
+            .unwrap_or(9999);
+        let color = if secs > 9998 { "grey" }
+            else if secs > 15 { "red" }
+            else if secs > 10 { "orange" }
+            else if secs > 5 { "yellow" }
+            else { "green" };
+        json!({
+            "pod_id": p.id,
+            "pod_number": p.number,
+            "seconds_since_heartbeat": secs,
+            "health": color,
+            "status": format!("{:?}", p.status),
+        })
+    }).collect();
+    drop(pods);
+
+    // Billing events
+    let billing_events = sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
+        "SELECT id, session_id, event_type, created_at, COALESCE(json_extract(details, '$.pod_id'), '') \
+         FROM billing_events \
+         WHERE created_at > datetime('now', ? || ' minutes') \
+         ORDER BY created_at DESC LIMIT 200",
+    )
+    .bind(format!("-{}", minutes))
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    let billing_json: Vec<Value> = billing_events.iter().map(|(id, sid, etype, ts, pod)| {
+        json!({ "id": id, "session_id": sid, "event_type": etype, "created_at": ts, "pod_id": pod })
+    }).collect();
+
+    // Game launch events
+    let game_events = sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
+        "SELECT id, pod_id, event_type, created_at, COALESCE(error_message, '') \
+         FROM game_launch_events \
+         WHERE created_at > datetime('now', ? || ' minutes') \
+         ORDER BY created_at DESC LIMIT 200",
+    )
+    .bind(format!("-{}", minutes))
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    let game_json: Vec<Value> = game_events.iter().map(|(id, pod, etype, ts, err)| {
+        json!({ "id": id, "pod_id": pod, "event_type": etype, "created_at": ts, "error_message": err })
+    }).collect();
+
+    Json(json!({
+        "pod_health": pod_health,
+        "billing_events": billing_json,
+        "game_events": game_json,
+    }))
+}
+
+async fn debug_playbooks(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT id, category, title, steps FROM debug_playbooks ORDER BY category",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let playbooks: Vec<Value> = rows.iter().map(|(id, cat, title, steps)| {
+        let parsed: Value = serde_json::from_str(steps).unwrap_or(json!([]));
+        json!({ "id": id, "category": cat, "title": title, "steps": parsed })
+    }).collect();
+
+    Json(json!({ "playbooks": playbooks }))
+}
+
+#[derive(Deserialize)]
+struct CreateIncidentBody {
+    description: String,
+    pod_id: Option<String>,
+}
+
+async fn create_debug_incident(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateIncidentBody>,
+) -> Json<Value> {
+    let db = &state.db;
+    let desc_lower = body.description.to_lowercase();
+
+    // Auto-detect category
+    let category = if desc_lower.contains("offline") || desc_lower.contains("down") || desc_lower.contains("not working") || desc_lower.contains("dead") {
+        "pod_offline"
+    } else if desc_lower.contains("crash") || desc_lower.contains("won't launch") || desc_lower.contains("game error") || desc_lower.contains("wont launch") {
+        "game_crash"
+    } else if desc_lower.contains("billing") || desc_lower.contains("timer") || desc_lower.contains("session stuck") {
+        "billing_stuck"
+    } else if desc_lower.contains("blank") || desc_lower.contains("screen stuck") || desc_lower.contains("lock screen") {
+        "screen_stuck"
+    } else if desc_lower.contains("steering") || desc_lower.contains("pedal") || desc_lower.contains("wheel") || desc_lower.contains("input") {
+        "no_steering_input"
+    } else if desc_lower.contains("idle") || desc_lower.contains("not counting") || desc_lower.contains("pausing") {
+        "high_idle_time"
+    } else if desc_lower.contains("sync") || desc_lower.contains("cloud") || desc_lower.contains("not updating") {
+        "sync_failure"
+    } else if desc_lower.contains("kiosk") || desc_lower.contains("bypass") || desc_lower.contains("desktop") || desc_lower.contains("taskbar") {
+        "kiosk_bypass"
+    } else {
+        "pod_offline" // default
+    };
+
+    // Find matching playbook
+    let playbook = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT id, category, title, steps FROM debug_playbooks WHERE category = ?",
+    )
+    .bind(category)
+    .fetch_optional(db)
+    .await
+    .unwrap_or(None);
+
+    let playbook_id = playbook.as_ref().map(|p| p.0.clone());
+
+    // Capture context snapshot
+    let pods = state.pods.read().await;
+    let active_sessions: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM billing_sessions WHERE status = 'active'",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(0);
+
+    let pod_snapshot = if let Some(ref pid) = body.pod_id {
+        pods.get(pid).map(|p| json!({
+            "status": format!("{:?}", p.status),
+            "last_seen": p.last_seen,
+            "driving_state": p.driving_state,
+            "current_game": p.sim_type,
+        }))
+    } else {
+        None
+    };
+    drop(pods);
+
+    let context = json!({
+        "pod_state": pod_snapshot,
+        "active_sessions": active_sessions,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let _ = sqlx::query(
+        "INSERT INTO debug_incidents (id, pod_id, category, description, status, context_snapshot, playbook_id) \
+         VALUES (?, ?, ?, ?, 'open', ?, ?)",
+    )
+    .bind(&id)
+    .bind(&body.pod_id)
+    .bind(category)
+    .bind(&body.description)
+    .bind(context.to_string())
+    .bind(&playbook_id)
+    .execute(db)
+    .await;
+
+    let playbook_json = playbook.map(|(pid, cat, title, steps)| {
+        let parsed: Value = serde_json::from_str(&steps).unwrap_or(json!([]));
+        json!({ "id": pid, "category": cat, "title": title, "steps": parsed })
+    });
+
+    Json(json!({
+        "incident": {
+            "id": id,
+            "pod_id": body.pod_id,
+            "category": category,
+            "description": body.description,
+            "status": "open",
+            "playbook_id": playbook_id,
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        },
+        "playbook": playbook_json,
+    }))
+}
+
+#[derive(Deserialize)]
+struct DebugIncidentFilter {
+    status: Option<String>,
+}
+
+async fn list_debug_incidents(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<DebugIncidentFilter>,
+) -> Json<Value> {
+    let db = &state.db;
+
+    let rows = if let Some(ref status) = q.status {
+        sqlx::query_as::<_, (String, Option<String>, String, String, String, Option<String>, String)>(
+            "SELECT id, pod_id, category, description, status, playbook_id, created_at \
+             FROM debug_incidents WHERE status = ? ORDER BY created_at DESC LIMIT 100",
+        )
+        .bind(status)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as::<_, (String, Option<String>, String, String, String, Option<String>, String)>(
+            "SELECT id, pod_id, category, description, status, playbook_id, created_at \
+             FROM debug_incidents ORDER BY created_at DESC LIMIT 100",
+        )
+        .fetch_all(db)
+        .await
+        .unwrap_or_default()
+    };
+
+    let incidents: Vec<Value> = rows.iter().map(|(id, pod, cat, desc, status, pb, ts)| {
+        json!({
+            "id": id, "pod_id": pod, "category": cat,
+            "description": desc, "status": status,
+            "playbook_id": pb, "created_at": ts,
+        })
+    }).collect();
+
+    Json(json!({ "incidents": incidents }))
+}
+
+#[derive(Deserialize)]
+struct UpdateIncidentBody {
+    status: Option<String>,
+    resolution_text: Option<String>,
+    effectiveness: Option<i32>,
+}
+
+async fn update_debug_incident(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateIncidentBody>,
+) -> Json<Value> {
+    let db = &state.db;
+
+    if let Some(ref status) = body.status {
+        let resolved_at = if status == "resolved" {
+            Some(chrono::Utc::now().to_rfc3339())
+        } else {
+            None
+        };
+        let _ = sqlx::query(
+            "UPDATE debug_incidents SET status = ?, resolved_at = COALESCE(?, resolved_at) WHERE id = ?",
+        )
+        .bind(status)
+        .bind(&resolved_at)
+        .bind(&id)
+        .execute(db)
+        .await;
+    }
+
+    // If resolving with text, save to RAG knowledge base
+    if let Some(ref text) = body.resolution_text {
+        let category: Option<String> = sqlx::query_scalar(
+            "SELECT category FROM debug_incidents WHERE id = ?",
+        )
+        .bind(&id)
+        .fetch_optional(db)
+        .await
+        .unwrap_or(None);
+
+        if let Some(cat) = category {
+            let res_id = uuid::Uuid::new_v4().to_string();
+            let _ = sqlx::query(
+                "INSERT INTO debug_resolutions (id, incident_id, category, resolution_text, effectiveness) \
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(&res_id)
+            .bind(&id)
+            .bind(&cat)
+            .bind(text)
+            .bind(body.effectiveness.unwrap_or(3))
+            .execute(db)
+            .await;
+        }
+    }
+
+    Json(json!({ "ok": true, "id": id }))
+}
+
+#[derive(Deserialize)]
+struct DiagnoseBody {
+    incident_id: String,
+}
+
+async fn debug_diagnose(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<DiagnoseBody>,
+) -> Json<Value> {
+    if !state.config.ai_debugger.enabled {
+        return Json(json!({ "error": "AI debugger is not enabled" }));
+    }
+
+    let db = &state.db;
+
+    // Load incident
+    let incident = sqlx::query_as::<_, (String, Option<String>, String, String, Option<String>)>(
+        "SELECT id, pod_id, category, description, context_snapshot FROM debug_incidents WHERE id = ?",
+    )
+    .bind(&body.incident_id)
+    .fetch_optional(db)
+    .await
+    .unwrap_or(None);
+
+    let Some((inc_id, pod_id, category, description, ctx_snapshot)) = incident else {
+        return Json(json!({ "error": "Incident not found" }));
+    };
+
+    // Load matching playbook
+    let playbook = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT title, category, steps FROM debug_playbooks WHERE category = ?",
+    )
+    .bind(&category)
+    .fetch_optional(db)
+    .await
+    .unwrap_or(None);
+
+    // Load past resolutions for same category (RAG)
+    let past_resolutions = sqlx::query_as::<_, (String, i32, String)>(
+        "SELECT resolution_text, effectiveness, created_at FROM debug_resolutions \
+         WHERE category = ? ORDER BY effectiveness DESC, created_at DESC LIMIT 5",
+    )
+    .bind(&category)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    // Build AI prompt
+    let biz_context = crate::ai::gather_business_context(
+        &state.db, &state.pods, &state.billing, &state.game_launcher,
+    ).await;
+
+    let mut prompt_parts = vec![
+        format!("INCIDENT: {}", description),
+        format!("CATEGORY: {}", category),
+    ];
+
+    if let Some(ref pid) = pod_id {
+        prompt_parts.push(format!("POD: {}", pid));
+    }
+    if let Some(ref ctx) = ctx_snapshot {
+        prompt_parts.push(format!("CONTEXT SNAPSHOT: {}", ctx));
+    }
+    if let Some(ref pb) = playbook {
+        prompt_parts.push(format!("PLAYBOOK ({}): {}", pb.0, pb.2));
+    }
+    if !past_resolutions.is_empty() {
+        let mut rag = String::from("PAST RESOLUTIONS FOR THIS CATEGORY:\n");
+        for (text, eff, ts) in &past_resolutions {
+            rag.push_str(&format!("  - [effectiveness={}/5, {}] {}\n", eff, ts, text));
+        }
+        prompt_parts.push(rag);
+    }
+    prompt_parts.push(format!("VENUE STATE:\n{}", biz_context));
+
+    let messages = vec![
+        json!({
+            "role": "system",
+            "content": "You are James, AI operations assistant for RacingPoint eSports venue. \
+                        A staff member reported an incident. Analyze the issue using the playbook, \
+                        past resolutions, and current venue state. Provide: 1) Root cause analysis, \
+                        2) Step-by-step fix instructions, 3) Whether this matches a known pattern. \
+                        Be concise and actionable."
+        }),
+        json!({
+            "role": "user",
+            "content": prompt_parts.join("\n\n")
+        }),
+    ];
+
+    match crate::ai::query_ai(&state.config.ai_debugger, &messages, Some(db), Some("debug_incident")).await {
+        Ok((diagnosis, model)) => {
+            let playbook_json = playbook.map(|(title, cat, steps)| {
+                let parsed: Value = serde_json::from_str(&steps).unwrap_or(json!([]));
+                json!({ "category": cat, "title": title, "steps": parsed })
+            });
+
+            let past_json: Vec<Value> = past_resolutions.iter().map(|(text, eff, ts)| {
+                json!({ "resolution_text": text, "effectiveness": eff, "created_at": ts })
+            }).collect();
+
+            Json(json!({
+                "diagnosis": diagnosis,
+                "model": model,
+                "incident_id": inc_id,
+                "playbook": playbook_json,
+                "past_resolutions": past_json,
+            }))
+        }
+        Err(e) => Json(json!({
+            "error": format!("AI diagnosis failed: {}", e),
+            "incident_id": inc_id,
+        })),
+    }
 }

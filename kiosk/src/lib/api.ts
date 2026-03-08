@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis } from "./types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -178,4 +178,32 @@ export const api = {
         body: JSON.stringify({ amount_paise, notes, reference_id }),
       }
     ),
+
+  // Debug System
+  debugActivity: (hours?: number) =>
+    fetchApi<DebugActivityData>(`/debug/activity${hours ? `?hours=${hours}` : ""}`),
+
+  debugPlaybooks: () =>
+    fetchApi<{ playbooks: DebugPlaybook[] }>("/debug/playbooks"),
+
+  createDebugIncident: (description: string, pod_id?: string) =>
+    fetchApi<{ incident: DebugIncident; playbook?: DebugPlaybook }>("/debug/incidents", {
+      method: "POST",
+      body: JSON.stringify({ description, pod_id }),
+    }),
+
+  listDebugIncidents: (status?: string) =>
+    fetchApi<{ incidents: DebugIncident[] }>(`/debug/incidents${status ? `?status=${status}` : ""}`),
+
+  diagnoseIncident: (incident_id: string) =>
+    fetchApi<DebugDiagnosis>("/debug/diagnose", {
+      method: "POST",
+      body: JSON.stringify({ incident_id }),
+    }),
+
+  resolveDebugIncident: (id: string, status: string, resolution_text?: string, effectiveness?: number) =>
+    fetchApi<{ ok: boolean }>(`/debug/incidents/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ status, resolution_text, effectiveness }),
+    }),
 };

@@ -213,3 +213,69 @@ export type KioskPodState =
   | "selecting"
   | "on_track"
   | "ending";
+
+// ─── Debug System ────────────────────────────────────────────────────────
+
+export type DebugHealthColor = "green" | "yellow" | "orange" | "red" | "grey";
+
+export interface PodHealth {
+  pod_id: string;
+  pod_number: number;
+  seconds_since_heartbeat: number;
+  health: DebugHealthColor;
+  status: string;
+}
+
+export interface PlaybookStep {
+  step_number: number;
+  action: string;
+  expected_result: string;
+  timeout_seconds: number;
+}
+
+export interface DebugPlaybook {
+  id: string;
+  category: string;
+  title: string;
+  steps: PlaybookStep[];
+}
+
+export interface DebugIncident {
+  id: string;
+  pod_id?: string;
+  category: string;
+  description: string;
+  status: string;
+  playbook_id?: string;
+  created_at: string;
+}
+
+export interface DebugDiagnosis {
+  diagnosis: string;
+  model: string;
+  incident_id: string;
+  playbook?: DebugPlaybook;
+  past_resolutions: {
+    resolution_text: string;
+    effectiveness: number;
+    created_at: string;
+  }[];
+}
+
+export interface DebugActivityData {
+  pod_health: PodHealth[];
+  billing_events: {
+    id: string;
+    session_id: string;
+    event_type: string;
+    created_at: string;
+    pod_id?: string;
+  }[];
+  game_events: {
+    id: string;
+    pod_id: string;
+    event_type: string;
+    created_at: string;
+    error_message?: string;
+  }[];
+}
