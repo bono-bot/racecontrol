@@ -558,13 +558,17 @@ async fn main() -> Result<()> {
                     });
                 }
             }
-            // Auto-blank after session summary (15s delay)
+            // Auto-blank after session summary (15s delay) — only if no billing active
             _ = &mut blank_timer, if blank_timer_armed => {
-                tracing::info!("Auto-blanking screen after session summary");
-                lock_screen.show_blank_screen();
                 blank_timer_armed = false;
-                // Final cleanup pass — ensure screen is truly clean for next customer
-                tokio::task::spawn_blocking(|| ac_launcher::cleanup_after_session());
+                if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                    tracing::info!("Skipping auto-blank — billing is active");
+                } else {
+                    tracing::info!("Auto-blanking screen after session summary");
+                    lock_screen.show_blank_screen();
+                    // Final cleanup pass — ensure screen is truly clean for next customer
+                    tokio::task::spawn_blocking(|| ac_launcher::cleanup_after_session());
+                }
             }
             // Lock screen events (customer submitted PIN)
             Some(event) = lock_event_rx.recv() => {
@@ -871,9 +875,13 @@ async fn main() -> Result<()> {
                                     lock_screen.clear();
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BlankScreen => {
-                                    tracing::info!("Screen blanked via direct command");
-                                    overlay.deactivate();
-                                    lock_screen.show_blank_screen();
+                                    if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                                        tracing::warn!("Ignoring BlankScreen — billing is active");
+                                    } else {
+                                        tracing::info!("Screen blanked via direct command");
+                                        overlay.deactivate();
+                                        lock_screen.show_blank_screen();
+                                    }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SubSessionEnded {
                                     billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
@@ -919,7 +927,8 @@ async fn main() -> Result<()> {
                                     }
                                     if let Some(v) = settings.get("screen_blanking_enabled") {
                                         tracing::info!("Screen blanking set to: {}", v);
-                                        if v == "true" && lock_screen.is_idle_or_blanked() {
+                                        let billing_on = heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
+                                        if v == "true" && lock_screen.is_idle_or_blanked() && !billing_on {
                                             lock_screen.show_blank_screen();
                                             tracing::info!("Screen blanking ENABLED — screen blanked");
                                         } else if v == "false" {

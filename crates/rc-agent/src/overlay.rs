@@ -212,10 +212,10 @@ impl OverlayManager {
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
 
-        // Center horizontally and vertically on primary monitor
+        // Center horizontally, pin to BOTTOM of screen
         let (screen_w, screen_h) = get_screen_size();
         let x = (screen_w - 1920).max(0) / 2;
-        let y = (screen_h - INITIAL_WINDOW_HEIGHT).max(0) / 2;
+        let y = screen_h - INITIAL_WINDOW_HEIGHT;
 
         let edge_paths = [
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -314,7 +314,7 @@ fn set_topmost_centered() -> bool {
     let (screen_w, screen_h) = get_screen_size();
     let bar_w = screen_w.min(1920); // Use full screen width up to 1920
     let x = (screen_w - bar_w).max(0) / 2;
-    let y = (screen_h - BAR_HEIGHT).max(0) / 2;
+    let y = screen_h - BAR_HEIGHT; // Pin to bottom of screen
 
     unsafe {
         // Strip caption (title bar) and thick frame (resize border) for clean borderless look
