@@ -78,7 +78,7 @@ function BookWizard() {
   const [track, setTrack] = useState<CatalogTrack | null>(null);
   const [car, setCar] = useState<CatalogCar | null>(null);
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("easy");
-  const [transmission, setTransmission] = useState<"auto" | "manual">("auto");
+  const [transmission, setTransmission] = useState<"auto" | "manual">("manual");
 
   // ── Booking result (PIN + pod)
   const [bookedPin, setBookedPin] = useState<string | null>(null);
