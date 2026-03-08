@@ -282,27 +282,33 @@ fn set_topmost() {
 
 async fn serve_overlay(port: u16, state: Arc<Mutex<OverlayData>>) {
     let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
-    let socket = match tokio::net::TcpSocket::new_v4() {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Overlay: failed to create socket: {}", e);
-            return;
+
+    // Retry binding up to 10 times (covers TIME_WAIT from crashed previous instance)
+    let listener = loop {
+        let socket = match tokio::net::TcpSocket::new_v4() {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Overlay: failed to create socket: {}", e);
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                continue;
+            }
+        };
+        let _ = socket.set_reuseaddr(true);
+        match socket.bind(addr) {
+            Ok(()) => match socket.listen(128) {
+                Ok(l) => {
+                    tracing::info!("Overlay server listening on http://127.0.0.1:{}", port);
+                    break l;
+                }
+                Err(e) => {
+                    tracing::warn!("Overlay: listen failed on port {}: {} — retrying in 3s", port, e);
+                }
+            },
+            Err(e) => {
+                tracing::warn!("Overlay: bind failed on port {}: {} — retrying in 3s", port, e);
+            }
         }
-    };
-    let _ = socket.set_reuseaddr(true);
-    if let Err(e) = socket.bind(addr) {
-        tracing::error!("Overlay server failed to bind port {}: {}", port, e);
-        return;
-    }
-    let listener = match socket.listen(128) {
-        Ok(l) => {
-            tracing::info!("Overlay server listening on http://127.0.0.1:{}", port);
-            l
-        }
-        Err(e) => {
-            tracing::error!("Overlay server failed to listen on port {}: {}", port, e);
-            return;
-        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     };
 
     loop {
