@@ -351,9 +351,28 @@ impl LockScreenManager {
         if let Some(ref mut child) = self.browser_process {
             let _ = child.kill();
             let _ = child.wait();
-            tracing::info!("Lock screen browser closed");
+            tracing::info!("Lock screen browser closed (child handle)");
         }
         self.browser_process = None;
+
+        // Fallback: kill any orphaned kiosk Edge processes (e.g. from a previous agent run).
+        // The kiosk flag makes these identifiable — only kiosk-mode Edge gets killed.
+        let output = std::process::Command::new("wmic")
+            .args(["process", "where", "name='msedge.exe' and commandline like '%--kiosk%'", "get", "processid", "/format:list"])
+            .output();
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if let Some(pid_str) = line.strip_prefix("ProcessId=") {
+                    if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/PID", &pid.to_string(), "/F"])
+                            .output();
+                        tracing::info!("Killed orphaned kiosk Edge process (PID {})", pid);
+                    }
+                }
+            }
+        }
     }
 
     #[cfg(not(windows))]
