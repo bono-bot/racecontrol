@@ -316,6 +316,7 @@ pub fn build_custom_launch_args(
     driver: &str,
     difficulty: &str,
     transmission: &str,
+    ffb: &str,
 ) -> Value {
     let (abs, tc, stability, autoclutch, ideal_line) = match difficulty {
         "easy" => (1, 1, 1, 1, 1),
@@ -330,6 +331,7 @@ pub fn build_custom_launch_args(
         "driver": driver,
         "difficulty": difficulty,
         "transmission": transmission,
+        "ffb": ffb,
         "aids": {
             "abs": abs,
             "tc": tc,

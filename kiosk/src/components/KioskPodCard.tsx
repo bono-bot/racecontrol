@@ -279,6 +279,7 @@ export function KioskPodCard({
                 </button>
               )}
               <TransmissionToggle podId={pod.id} />
+              <FfbToggle podId={pod.id} />
               <button
                 onClick={() => onExtendSession(billing.id)}
                 className="flex-1 px-2 py-1 text-xs border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded transition-colors"
@@ -345,6 +346,43 @@ function TransmissionToggle({ podId }: { podId: string }) {
       }`}
     >
       {mode === "auto" ? "Auto" : "Manual"}
+    </button>
+  );
+}
+
+const FFB_CYCLE = ["light", "medium", "strong"] as const;
+const FFB_LABELS: Record<string, string> = { light: "FFB Lo", medium: "FFB Mid", strong: "FFB Hi" };
+
+function FfbToggle({ podId }: { podId: string }) {
+  const [preset, setPreset] = useState<string>("medium");
+  const [busy, setBusy] = useState(false);
+
+  const cycle = async () => {
+    const idx = FFB_CYCLE.indexOf(preset as typeof FFB_CYCLE[number]);
+    const next = FFB_CYCLE[(idx + 1) % FFB_CYCLE.length];
+    setBusy(true);
+    try {
+      await api.setFfb(podId, next);
+      setPreset(next);
+    } catch {
+      // ignore
+    }
+    setBusy(false);
+  };
+
+  return (
+    <button
+      onClick={cycle}
+      disabled={busy}
+      className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+        preset === "strong"
+          ? "bg-rp-red/20 border border-rp-red/50 text-rp-red hover:bg-rp-red/30"
+          : preset === "light"
+          ? "bg-green-600/20 border border-green-500/50 text-green-400 hover:bg-green-600/30"
+          : "border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey"
+      }`}
+    >
+      {FFB_LABELS[preset] || "FFB Mid"}
     </button>
   );
 }

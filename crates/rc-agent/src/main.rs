@@ -646,6 +646,7 @@ async fn main() -> Result<()> {
                                                 track_config: String::new(),
                                                 skin: "00_default".to_string(),
                                                 transmission: "manual".to_string(),
+                                                ffb: "medium".to_string(),
                                                 aids: None,
                                                 conditions: None,
                                                 duration_minutes: 60,
@@ -657,6 +658,7 @@ async fn main() -> Result<()> {
                                                 track_config: String::new(),
                                                 skin: "00_default".to_string(),
                                                 transmission: "manual".to_string(),
+                                                ffb: "medium".to_string(),
                                                 aids: None,
                                                 conditions: None,
                                                 duration_minutes: 60,
@@ -899,6 +901,12 @@ async fn main() -> Result<()> {
                                     tracing::info!("Setting transmission to '{}' mid-session", transmission);
                                     if let Err(e) = ac_launcher::set_transmission(&transmission) {
                                         tracing::error!("Failed to set transmission: {}", e);
+                                    }
+                                }
+                                rc_common::protocol::CoreToAgentMessage::SetFfb { preset } => {
+                                    tracing::info!("Setting FFB to '{}' mid-session", preset);
+                                    if let Err(e) = ac_launcher::set_ffb(&preset) {
+                                        tracing::error!("Failed to set FFB: {}", e);
                                     }
                                 }
                                 _ => {}

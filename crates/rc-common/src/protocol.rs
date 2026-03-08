@@ -143,6 +143,11 @@ pub enum CoreToAgentMessage {
         transmission: String,
     },
 
+    /// Change FFB strength preset (light/medium/strong) — rewrites controls.ini
+    SetFfb {
+        preset: String,
+    },
+
     /// Kiosk settings updated — broadcast to all agents
     SettingsUpdated {
         settings: std::collections::HashMap<String, String>,

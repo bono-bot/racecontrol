@@ -22,6 +22,8 @@ pub struct AcLaunchParams {
     pub skin: String,
     #[serde(default = "default_transmission")]
     pub transmission: String,
+    #[serde(default = "default_ffb")]
+    pub ffb: String,
     #[serde(default)]
     pub aids: Option<AcAids>,
     #[serde(default)]
@@ -53,6 +55,7 @@ pub struct AcConditions {
 fn default_driver() -> String { "Driver".to_string() }
 fn default_skin() -> String { "00_default".to_string() }
 fn default_transmission() -> String { "manual".to_string() }
+fn default_ffb() -> String { "medium".to_string() }
 fn default_duration() -> u32 { 60 }
 fn one() -> u8 { 1 }
 
@@ -75,6 +78,9 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
     write_race_ini(params)?;
     write_assists_ini(params)?;
     write_apps_preset()?;
+
+    // Step 2b: Set FFB strength
+    set_ffb(&params.ffb)?;
 
     // Step 3: Launch acs.exe
     tracing::info!("[3/4] Launching acs.exe...");
@@ -149,6 +155,52 @@ pub fn set_transmission(transmission: &str) -> Result<()> {
         tracing::info!("Updated assists.ini AUTO_SHIFTER={}", new_value);
     }
 
+    Ok(())
+}
+
+/// Update FFB gain in controls.ini. Preset: light=40, medium=70, strong=100.
+/// Takes effect on next AC launch (or restart mid-session).
+pub fn set_ffb(preset: &str) -> Result<()> {
+    let gain = match preset {
+        "light" => 40,
+        "medium" => 70,
+        "strong" => 100,
+        _ => 70, // default to medium
+    };
+
+    let controls_ini_path = dirs_next::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+        .join("Assetto Corsa")
+        .join("cfg")
+        .join("controls.ini");
+
+    let content = std::fs::read_to_string(&controls_ini_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read controls.ini: {}", e))?;
+
+    let mut in_ff_section = false;
+    let mut found = false;
+    let updated: Vec<String> = content
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                in_ff_section = trimmed == "[FF]";
+            }
+            if in_ff_section && trimmed.starts_with("GAIN=") {
+                found = true;
+                return format!("GAIN={}", gain);
+            }
+            line.to_string()
+        })
+        .collect();
+
+    if !found {
+        tracing::warn!("No [FF] GAIN= line found in controls.ini, skipping FFB update");
+        return Ok(());
+    }
+
+    std::fs::write(&controls_ini_path, updated.join("\r\n"))?;
+    tracing::info!("Updated controls.ini [FF] GAIN={} (preset={})", gain, preset);
     Ok(())
 }
 

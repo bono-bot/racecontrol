@@ -52,6 +52,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
   const [car, setCar] = useState<CatalogItem | null>(null);
   const [difficulty, setDifficulty] = useState("easy");
   const [transmission, setTransmission] = useState("auto");
+  const [ffb, setFfb] = useState("medium");
 
   // Search/filter
   const [trackSearch, setTrackSearch] = useState("");
@@ -105,6 +106,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
       driver: driverName,
       difficulty,
       transmission,
+      ffb,
       game,
       game_mode: gameMode,
       aids: preset?.aids || { abs: 1, tc: 1, stability: 1, autoclutch: 1, ideal_line: 1 },
@@ -140,7 +142,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
               {step === "mode" && "Game Mode"}
               {step === "track" && "Select Track"}
               {step === "car" && "Select Car"}
-              {step === "settings" && "Difficulty & Transmission"}
+              {step === "settings" && "Difficulty, Transmission & FFB"}
               {step === "review" && "Review & Launch"}
             </h2>
             <p className="text-sm text-rp-grey">Pod {podNumber} &middot; {driverName}</p>
@@ -348,6 +350,30 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
                   </button>
                 </div>
               </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-4">Force Feedback</h3>
+                <div className="grid grid-cols-3 gap-4">
+                  {([
+                    { key: "light", label: "Light", desc: "Casual / kids" },
+                    { key: "medium", label: "Medium", desc: "Balanced default" },
+                    { key: "strong", label: "Strong", desc: "Full force" },
+                  ] as const).map((preset) => (
+                    <button
+                      key={preset.key}
+                      onClick={() => setFfb(preset.key)}
+                      className={`p-6 rounded-xl border-2 text-center transition-all ${
+                        ffb === preset.key
+                          ? "border-rp-red bg-rp-red/10"
+                          : "border-rp-border bg-rp-surface hover:border-rp-red/50"
+                      }`}
+                    >
+                      <p className="text-xl font-bold text-white">{preset.label}</p>
+                      <p className="text-xs text-rp-grey mt-2">{preset.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -382,6 +408,10 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
                 <div className="flex justify-between">
                   <span className="text-rp-grey">Transmission</span>
                   <span className="text-white font-semibold capitalize">{transmission}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-rp-grey">Force Feedback</span>
+                  <span className="text-white font-semibold capitalize">{ffb}</span>
                 </div>
               </div>
             </div>
