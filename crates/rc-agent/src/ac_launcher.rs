@@ -486,13 +486,14 @@ pub fn minimize_background_windows() {
         # Processes whose windows we must NOT minimize
         $allowList = @(
             'acs', 'AssettoCorsa',                          # Game
-            'msedge', 'msedgewebview2',                     # Overlay (Edge WebView)
+            'msedge', 'msedgewebview2',                     # Overlay / Kiosk (Edge)
             'explorer',                                      # Shell (taskbar/desktop)
             'TextInputHost', 'ShellExperienceHost',          # System UI
             'SearchHost', 'StartMenuExperienceHost',         # System UI
             'SecurityHealthSystray', 'ctfmon',               # System tray
-            'rc-agent',                                      # Our agent
-            'ConspitLink2.0'                                 # Wheel display
+            'rc-agent'                                       # Our agent
+            # ConspitLink2.0 intentionally NOT listed — minimize it so kiosk stays on top
+            # (Conspit still captures telemetry while minimized)
         )
         # SW_MINIMIZE = 6
         Get-Process | Where-Object {

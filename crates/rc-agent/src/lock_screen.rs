@@ -441,6 +441,32 @@ fn suppress_notifications(suppress: bool) {
     }
 }
 
+/// Force the kiosk Edge window to the foreground (above Conspit Link, Steam, etc.).
+/// Standalone function so it can be called from spawned tasks without owning a LockScreenManager.
+#[cfg(windows)]
+pub fn enforce_kiosk_foreground() {
+    let ps_script = r#"
+        Add-Type -Name WinFG -Namespace NativeFG -MemberDefinition '
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        '
+        # Find Edge processes with "Racing Point" in the title (kiosk lock screen)
+        Get-Process -Name msedge -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowTitle -like '*Racing Point*' -and $_.MainWindowHandle -ne [IntPtr]::Zero } |
+            ForEach-Object {
+                [NativeFG.WinFG]::ShowWindow($_.MainWindowHandle, 3) | Out-Null  # SW_MAXIMIZE
+                [NativeFG.WinFG]::SetForegroundWindow($_.MainWindowHandle) | Out-Null
+                Write-Output "Kiosk foreground: $($_.ProcessName) (PID $($_.Id))"
+            }
+    "#;
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", ps_script])
+        .output();
+}
+
+#[cfg(not(windows))]
+pub fn enforce_kiosk_foreground() {}
+
 // ─── HTTP Server ─────────────────────────────────────────────────────────────
 
 /// Minimal HTTP server bound to localhost only.

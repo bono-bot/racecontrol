@@ -296,6 +296,18 @@ async fn main() -> Result<()> {
     // Debug server for remote diagnostics (LAN-accessible on port 18924)
     debug_server::spawn(lock_screen.state_handle(), config.pod.name.clone(), config.pod.number);
 
+    // Delayed startup cleanup — minimize Conspit Link and other windows that
+    // steal focus from the kiosk lock screen on boot. Delay gives startup apps
+    // time to open so we can catch them.
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(8)).await;
+        tokio::task::spawn_blocking(|| {
+            ac_launcher::minimize_background_windows();
+            lock_screen::enforce_kiosk_foreground();
+        });
+        tracing::info!("Startup cleanup: minimized background windows, kiosk to foreground");
+    });
+
     // ─── UDP Heartbeat (fast liveness detection alongside WebSocket) ─────────
     let heartbeat_status = std::sync::Arc::new(udp_heartbeat::HeartbeatStatus::new());
     let (heartbeat_event_tx, mut heartbeat_event_rx) = mpsc::channel::<udp_heartbeat::HeartbeatEvent>(16);
@@ -535,12 +547,15 @@ async fn main() -> Result<()> {
                     kiosk.enforce_process_whitelist();
                 }
             }
-            // Re-enforce overlay TOPMOST every 10s (survives game focus changes)
+            // Re-enforce overlay TOPMOST + clean desktop every 10s
             _ = overlay_topmost_interval.tick() => {
                 overlay.enforce_topmost();
-                // Minimize distracting windows during active game sessions
-                if game_process.is_some() {
-                    tokio::task::spawn_blocking(|| ac_launcher::minimize_background_windows());
+                if kiosk_enabled {
+                    tokio::task::spawn_blocking(|| {
+                        ac_launcher::minimize_background_windows();
+                        // When no game is running, keep kiosk lock screen in foreground
+                        lock_screen::enforce_kiosk_foreground();
+                    });
                 }
             }
             // Auto-blank after session summary (15s delay)
