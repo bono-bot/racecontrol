@@ -31,6 +31,9 @@ struct OverlayData {
     current_lap_time_ms: u32,
     current_sector: u8,
     current_lap_invalid: bool,
+    speed_kmh: f32,
+    gear: i8,
+    rpm: u32,
     car: String,
     track: String,
     // Completed lap records
@@ -49,6 +52,9 @@ impl Default for OverlayData {
             current_lap_time_ms: 0,
             current_sector: 0,
             current_lap_invalid: false,
+            speed_kmh: 0.0,
+            gear: 0,
+            rpm: 0,
             car: String::new(),
             track: String::new(),
             previous_lap: None,
@@ -130,6 +136,9 @@ impl OverlayManager {
         data.current_lap_time_ms = frame.lap_time_ms;
         data.current_sector = frame.sector;
         data.current_lap_invalid = frame.current_lap_invalid.unwrap_or(false);
+        data.speed_kmh = frame.speed_kmh;
+        data.gear = frame.gear;
+        data.rpm = frame.rpm;
         data.car = frame.car.clone();
         data.track = frame.track.clone();
     }
@@ -195,7 +204,7 @@ impl OverlayManager {
             match std::process::Command::new(edge_path)
                 .args([
                     &format!("--app={}", url),
-                    "--window-size=1920,72",
+                    "--window-size=1920,80",
                     "--window-position=0,0",
                     "--no-first-run",
                     "--no-default-browser-check",
@@ -272,7 +281,7 @@ fn set_topmost() {
             0,
             0,
             1920,
-            72,
+            80,
             winapi::um::winuser::SWP_SHOWWINDOW,
         );
     }
@@ -368,13 +377,13 @@ const OVERLAY_HTML: &str = r##"<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <title>Racing HUD</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
-    height: 72px;
+    height: 80px;
     overflow: hidden;
-    background: rgba(26, 26, 26, 0.88);
+    background: rgba(20, 20, 20, 0.92);
     color: #fff;
     font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
     user-select: none;
@@ -383,179 +392,223 @@ html, body {
 body {
     display: flex;
     align-items: center;
-    padding: 0 24px;
+    padding: 0 16px;
     gap: 0;
-    border-bottom: 2px solid #333;
+    border-bottom: 2px solid #E10600;
 }
 
-.section {
+.sec {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 0 20px;
+    padding: 0 18px;
     height: 100%;
+    flex-shrink: 0;
 }
-.section + .section {
-    border-left: 1px solid #444;
-}
+.sec + .sec { border-left: 1px solid #333; }
+.sec-inner { display: flex; flex-direction: column; justify-content: center; }
 
-/* Timer section */
-.timer-section {
-    min-width: 180px;
-}
-.timer-icon {
-    font-size: 20px;
-    color: #888;
-}
-.timer-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #888;
+.lbl {
+    font-size: 9px;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1.5px;
+    color: #666;
+    line-height: 1;
+    margin-bottom: 2px;
 }
-.timer-value {
-    font-size: 28px;
+
+/* Session Timer */
+.timer-sec { min-width: 130px; }
+.timer-val {
+    font-size: 26px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     letter-spacing: 1px;
     color: #fff;
+    line-height: 1.1;
 }
-.timer-value.warning {
-    color: #F59E0B;
-}
-.timer-value.critical {
-    color: #E10600;
-    animation: pulse 0.5s ease-in-out infinite;
-}
+.timer-val.warning { color: #F59E0B; }
+.timer-val.critical { color: #E10600; animation: pulse 0.5s ease-in-out infinite; }
 
-/* Lap sections */
-.lap-label {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: #888;
-    white-space: nowrap;
-}
-.lap-time {
-    font-size: 22px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-.sectors {
-    display: flex;
-    gap: 8px;
-}
-.sector {
-    font-size: 12px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: #999;
-    white-space: nowrap;
-}
-.sector-tag {
-    font-size: 9px;
-    font-weight: 700;
-    color: #666;
-    margin-right: 2px;
-}
-
-.prev-section .lap-time {
-    color: #E5E7EB;
-}
-.best-section .lap-time {
-    color: #A855F7;
-}
-.best-section .lap-label {
-    color: #A855F7;
-}
-
-/* Current lap section */
-.lap-info {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-.lap-number {
-    font-size: 20px;
+/* Current Lap */
+.clap-sec { min-width: 160px; }
+.clap-val {
+    font-size: 26px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     color: #fff;
+    line-height: 1.1;
+    padding-left: 6px;
+    border-left: 3px solid transparent;
 }
-.invalid-badge {
-    font-size: 10px;
+.clap-val.invalid { border-left-color: #E10600; color: #ff8a84; }
+
+/* Speed / Gear */
+.sg-sec { min-width: 90px; }
+.sg-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+.gear-val {
+    font-size: 36px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    line-height: 1;
+    min-width: 28px;
+    text-align: center;
+}
+.speed-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+.speed-val {
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #ccc;
+    line-height: 1.1;
+}
+.speed-unit {
+    font-size: 8px;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Prev / Best Lap */
+.lap-val {
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    line-height: 1.1;
+}
+.prev-sec .lap-val { color: #E5E7EB; }
+.best-sec .lap-val { color: #A855F7; }
+.best-sec .lbl { color: #A855F7; }
+
+.sectors { display: flex; gap: 6px; margin-top: 1px; }
+.sk {
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #777;
+    white-space: nowrap;
+}
+.sk-tag {
+    font-size: 8px;
+    font-weight: 700;
+    color: #555;
+    margin-right: 2px;
+}
+/* Sector delta colors */
+.sk.green .sk-val { color: #22C55E; }
+.sk.purple .sk-val { color: #A855F7; }
+.sk.yellow .sk-val { color: #F59E0B; }
+
+/* Lap Counter */
+.lc-sec { min-width: 70px; }
+.lc-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.lap-num {
+    font-size: 22px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    line-height: 1;
+}
+.inv-badge {
+    font-size: 8px;
     font-weight: 700;
     background: #E10600;
     color: #fff;
-    padding: 2px 8px;
-    border-radius: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.8px;
     display: none;
 }
-.invalid-badge.show {
-    display: inline-block;
-}
+.inv-badge.show { display: inline-block; }
 
-.no-data {
-    color: #555;
-}
+.nd { color: #444; }
 
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
 }
-
-/* Inactive / hidden state */
 .hidden { display: none !important; }
 </style>
 </head>
 <body>
 
-<!-- Timer -->
-<div class="section timer-section">
-    <div>
-        <div class="timer-label">Session</div>
-        <div class="timer-value" id="timer">--:--</div>
+<!-- Session Timer -->
+<div class="sec timer-sec">
+    <div class="sec-inner">
+        <div class="lbl">Session</div>
+        <div class="timer-val" id="timer">--:--</div>
+    </div>
+</div>
+
+<!-- Current Lap Time -->
+<div class="sec clap-sec">
+    <div class="sec-inner">
+        <div class="lbl">Current Lap</div>
+        <div class="clap-val" id="curLap">--:--.---</div>
+    </div>
+</div>
+
+<!-- Speed / Gear -->
+<div class="sec sg-sec">
+    <div class="sg-wrap">
+        <div class="gear-val" id="gear">N</div>
+        <div class="speed-col">
+            <div class="speed-val" id="speed">---</div>
+            <div class="speed-unit">km/h</div>
+        </div>
     </div>
 </div>
 
 <!-- Previous Lap -->
-<div class="section prev-section">
-    <div>
-        <div class="lap-label">Prev Lap</div>
-        <div class="lap-time" id="prevLap">--:--.---</div>
-        <div class="sectors" id="prevSectors">
-            <span class="sector"><span class="sector-tag">S1</span><span id="prevS1">--.--</span></span>
-            <span class="sector"><span class="sector-tag">S2</span><span id="prevS2">--.--</span></span>
-            <span class="sector"><span class="sector-tag">S3</span><span id="prevS3">--.--</span></span>
+<div class="sec prev-sec">
+    <div class="sec-inner">
+        <div class="lbl">Prev</div>
+        <div class="lap-val" id="prevLap">--:--.---</div>
+        <div class="sectors">
+            <span class="sk" id="ps1"><span class="sk-tag">S1</span><span class="sk-val" id="ps1v">--.--</span></span>
+            <span class="sk" id="ps2"><span class="sk-tag">S2</span><span class="sk-val" id="ps2v">--.--</span></span>
+            <span class="sk" id="ps3"><span class="sk-tag">S3</span><span class="sk-val" id="ps3v">--.--</span></span>
         </div>
     </div>
 </div>
 
 <!-- Best Lap -->
-<div class="section best-section">
-    <div>
-        <div class="lap-label">Best Lap</div>
-        <div class="lap-time" id="bestLap">--:--.---</div>
-        <div class="sectors" id="bestSectors">
-            <span class="sector"><span class="sector-tag">S1</span><span id="bestS1">--.--</span></span>
-            <span class="sector"><span class="sector-tag">S2</span><span id="bestS2">--.--</span></span>
-            <span class="sector"><span class="sector-tag">S3</span><span id="bestS3">--.--</span></span>
+<div class="sec best-sec">
+    <div class="sec-inner">
+        <div class="lbl">Best</div>
+        <div class="lap-val" id="bestLap">--:--.---</div>
+        <div class="sectors">
+            <span class="sk purple" id="bs1"><span class="sk-tag">S1</span><span class="sk-val" id="bs1v">--.--</span></span>
+            <span class="sk purple" id="bs2"><span class="sk-tag">S2</span><span class="sk-val" id="bs2v">--.--</span></span>
+            <span class="sk purple" id="bs3"><span class="sk-tag">S3</span><span class="sk-val" id="bs3v">--.--</span></span>
         </div>
     </div>
 </div>
 
-<!-- Current Lap Info -->
-<div class="section">
-    <div class="lap-info">
-        <div>
-            <div class="lap-label">Lap</div>
-            <div class="lap-number" id="lapNum">-</div>
+<!-- Lap Counter -->
+<div class="sec lc-sec">
+    <div class="sec-inner">
+        <div class="lbl">Lap</div>
+        <div class="lc-wrap">
+            <div class="lap-num" id="lapNum">-</div>
+            <div class="inv-badge" id="invBadge">INV</div>
         </div>
-        <div class="invalid-badge" id="invalidBadge">INVALID</div>
     </div>
 </div>
 
@@ -570,8 +623,7 @@ body {
     }
     function fmtSec(ms) {
         if (!ms || ms <= 0) return '--.--';
-        var s = (ms / 1000).toFixed(1);
-        return s;
+        return (ms / 1000).toFixed(1);
     }
     function fmtTimer(sec) {
         if (sec == null || sec < 0) return '--:--';
@@ -579,57 +631,85 @@ body {
         var s = sec % 60;
         return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
     }
+    function gearStr(g) {
+        if (g === 0) return 'N';
+        if (g < 0) return 'R';
+        return String(g);
+    }
+    function sectorClass(prevMs, bestMs) {
+        if (!prevMs || prevMs <= 0 || !bestMs || bestMs <= 0) return '';
+        if (prevMs <= bestMs) return 'purple';
+        if (prevMs - bestMs <= 300) return 'green';
+        return 'yellow';
+    }
 
     var timer = document.getElementById('timer');
+    var curLap = document.getElementById('curLap');
+    var gearEl = document.getElementById('gear');
+    var speedEl = document.getElementById('speed');
     var prevLap = document.getElementById('prevLap');
-    var prevS1 = document.getElementById('prevS1');
-    var prevS2 = document.getElementById('prevS2');
-    var prevS3 = document.getElementById('prevS3');
-    var bestLap = document.getElementById('bestLap');
-    var bestS1 = document.getElementById('bestS1');
-    var bestS2 = document.getElementById('bestS2');
-    var bestS3 = document.getElementById('bestS3');
+    var ps1 = document.getElementById('ps1');
+    var ps1v = document.getElementById('ps1v');
+    var ps2 = document.getElementById('ps2');
+    var ps2v = document.getElementById('ps2v');
+    var ps3 = document.getElementById('ps3');
+    var ps3v = document.getElementById('ps3v');
+    var bestLapEl = document.getElementById('bestLap');
+    var bs1v = document.getElementById('bs1v');
+    var bs2v = document.getElementById('bs2v');
+    var bs3v = document.getElementById('bs3v');
     var lapNum = document.getElementById('lapNum');
-    var invalidBadge = document.getElementById('invalidBadge');
+    var invBadge = document.getElementById('invBadge');
+
+    function setSector(wrap, valEl, ms, cls) {
+        valEl.textContent = fmtSec(ms);
+        wrap.className = 'sk' + (cls ? ' ' + cls : '');
+    }
 
     function update(d) {
         if (!d || !d.active) {
             timer.textContent = '--:--';
+            curLap.textContent = '--:--.---';
+            curLap.className = 'clap-val';
+            gearEl.textContent = 'N';
+            speedEl.textContent = '---';
             return;
         }
 
         // Timer
         timer.textContent = fmtTimer(d.remaining_seconds);
-        timer.className = 'timer-value';
-        if (d.remaining_seconds <= 10) {
-            timer.className = 'timer-value critical';
-        } else if (d.remaining_seconds <= 60) {
-            timer.className = 'timer-value warning';
-        }
+        timer.className = 'timer-val';
+        if (d.remaining_seconds <= 10) timer.className = 'timer-val critical';
+        else if (d.remaining_seconds <= 60) timer.className = 'timer-val warning';
 
-        // Previous lap
+        // Current lap time
+        curLap.textContent = fmt(d.current_lap_time_ms);
+        curLap.className = d.current_lap_invalid ? 'clap-val invalid' : 'clap-val';
+
+        // Speed + Gear
+        gearEl.textContent = gearStr(d.gear);
+        speedEl.textContent = d.speed_kmh > 0 ? Math.round(d.speed_kmh) : '---';
+
+        // Previous lap with sector delta colors
         if (d.previous_lap) {
             prevLap.textContent = fmt(d.previous_lap.lap_time_ms);
-            prevS1.textContent = fmtSec(d.previous_lap.sector1_ms);
-            prevS2.textContent = fmtSec(d.previous_lap.sector2_ms);
-            prevS3.textContent = fmtSec(d.previous_lap.sector3_ms);
+            var b = d.best_lap;
+            setSector(ps1, ps1v, d.previous_lap.sector1_ms, b ? sectorClass(d.previous_lap.sector1_ms, b.sector1_ms) : '');
+            setSector(ps2, ps2v, d.previous_lap.sector2_ms, b ? sectorClass(d.previous_lap.sector2_ms, b.sector2_ms) : '');
+            setSector(ps3, ps3v, d.previous_lap.sector3_ms, b ? sectorClass(d.previous_lap.sector3_ms, b.sector3_ms) : '');
         }
 
-        // Best lap
+        // Best lap (sectors always purple)
         if (d.best_lap) {
-            bestLap.textContent = fmt(d.best_lap.lap_time_ms);
-            bestS1.textContent = fmtSec(d.best_lap.sector1_ms);
-            bestS2.textContent = fmtSec(d.best_lap.sector2_ms);
-            bestS3.textContent = fmtSec(d.best_lap.sector3_ms);
+            bestLapEl.textContent = fmt(d.best_lap.lap_time_ms);
+            bs1v.textContent = fmtSec(d.best_lap.sector1_ms);
+            bs2v.textContent = fmtSec(d.best_lap.sector2_ms);
+            bs3v.textContent = fmtSec(d.best_lap.sector3_ms);
         }
 
-        // Current lap
+        // Lap counter
         lapNum.textContent = d.current_lap_number > 0 ? d.current_lap_number : '-';
-        if (d.current_lap_invalid) {
-            invalidBadge.className = 'invalid-badge show';
-        } else {
-            invalidBadge.className = 'invalid-badge';
-        }
+        invBadge.className = d.current_lap_invalid ? 'inv-badge show' : 'inv-badge';
     }
 
     function poll() {
