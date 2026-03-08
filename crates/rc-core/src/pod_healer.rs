@@ -263,9 +263,14 @@ async fn heal_pod(
     }
 
     // Escalate to AI if there are complex issues that rules can't handle
-    if !issues.is_empty() && state.config.ai_debugger.enabled {
+    // (respects same cooldown as heal actions to prevent spamming)
+    if !issues.is_empty() && state.config.ai_debugger.enabled && cooldown_ok {
         log_pod_activity(state, &pod.id, "race_engineer", "AI Analysis Requested", &issues.join("; "), "race_engineer");
         escalate_to_ai(state, pod, &issues, &actions).await;
+        cooldowns.insert(
+            pod.id.clone(),
+            HealCooldown { last_action: now },
+        );
     }
 
     Ok(())
@@ -390,22 +395,19 @@ async fn check_memory(
 }
 
 /// Check if rc-agent lock screen is responsive.
+/// The lock screen binds to 127.0.0.1:18923, so we must check from the pod
+/// itself via pod-agent exec rather than connecting directly to the pod's network IP.
 async fn check_rc_agent_health(
     state: &Arc<AppState>,
     pod_ip: &str,
 ) -> anyhow::Result<bool> {
-    // Try to reach the lock screen HTTP endpoint on port 18923
-    let url = format!("http://{}:18923/status", pod_ip);
-    let result = state
-        .http_client
-        .get(&url)
-        .timeout(Duration::from_secs(5))
-        .send()
-        .await;
-
-    match result {
-        Ok(resp) => Ok(resp.status().is_success()),
-        Err(_) => Ok(false),
+    let cmd = r#"powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18923/' -TimeoutSec 3 -UseBasicParsing; $r.StatusCode } catch { 0 }""#;
+    match exec_on_pod(state, pod_ip, cmd).await {
+        Ok(output) => {
+            let code: u32 = output.trim().parse().unwrap_or(0);
+            Ok(code == 200)
+        }
+        Err(_) => Ok(true), // if pod-agent exec fails, assume healthy (safe default)
     }
 }
 
