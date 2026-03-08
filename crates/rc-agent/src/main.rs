@@ -544,6 +544,8 @@ async fn main() -> Result<()> {
                 tracing::info!("Auto-blanking screen after session summary");
                 lock_screen.show_blank_screen();
                 blank_timer_armed = false;
+                // Final cleanup pass — ensure screen is truly clean for next customer
+                tokio::task::spawn_blocking(|| ac_launcher::cleanup_after_session());
             }
             // Lock screen events (customer submitted PIN)
             Some(event) = lock_event_rx.recv() => {
@@ -616,6 +618,10 @@ async fn main() -> Result<()> {
                                         let _ = game.stop();
                                         game_process = None;
                                     }
+                                    // Disconnect telemetry adapter
+                                    if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                                    // Full cleanup: kill AC/Conspit, dismiss errors, minimize windows
+                                    tokio::task::spawn_blocking(|| ac_launcher::cleanup_after_session());
                                     // Show session summary, then auto-blank after 15s
                                     lock_screen.show_session_summary(
                                         driver_name, total_laps, best_lap_ms, driving_seconds,
@@ -849,6 +855,10 @@ async fn main() -> Result<()> {
                                         let _ = game.stop();
                                         game_process = None;
                                     }
+                                    // Disconnect telemetry adapter
+                                    if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                                    // Full cleanup: kill AC/Conspit, dismiss errors, minimize windows
+                                    tokio::task::spawn_blocking(|| ac_launcher::cleanup_after_session());
                                     // Show between-sessions screen
                                     lock_screen.show_between_sessions(
                                         driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,

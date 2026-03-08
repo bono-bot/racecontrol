@@ -438,3 +438,49 @@ fn minimize_background_windows() {
         .output();
     tracing::info!("Minimized Steam background windows");
 }
+
+/// Full pod cleanup after a session ends.
+/// Kills game + Conspit, dismisses error dialogs, minimizes all background
+/// windows, and ensures the lock screen browser is in the foreground.
+pub fn cleanup_after_session() {
+    tracing::info!("[cleanup] Starting post-session cleanup...");
+
+    // 1. Kill AC and Conspit Link
+    let _ = Command::new("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+    let _ = Command::new("taskkill").args(["/IM", "AssettoCorsa.exe", "/F"]).output();
+    let _ = Command::new("taskkill").args(["/IM", "ConspitLink2.0.exe", "/F"]).output();
+    tracing::info!("[cleanup] Killed AC + Conspit");
+
+    // 2. Kill error/crash dialogs
+    let _ = Command::new("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
+    tracing::info!("[cleanup] Dismissed error dialogs");
+
+    // 3. Minimize all background windows, bring lock screen to foreground
+    let ps_script = r#"
+        Add-Type -Name Win -Namespace Native -MemberDefinition '
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+        '
+        # Minimize Steam, Conspit, Settings, NVIDIA overlay
+        Get-Process -Name steam,steamwebhelper,ConspitLink2.0,SystemSettings,ApplicationFrameHost -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+            ForEach-Object { [Native.Win]::ShowWindow($_.MainWindowHandle, 6) }
+
+        # Close Settings windows
+        Get-Process -Name SystemSettings,ApplicationFrameHost -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.CloseMainWindow() }
+
+        # Bring lock screen browser (msedge "Racing Point") to foreground and maximize
+        $edge = Get-Process -Name msedge -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowTitle -match 'Racing Point' } |
+            Select-Object -First 1
+        if ($edge) {
+            [Native.Win]::SetForegroundWindow($edge.MainWindowHandle)
+            [Native.Win]::ShowWindow($edge.MainWindowHandle, 3)  # SW_MAXIMIZE
+        }
+    "#;
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-Command", ps_script])
+        .output();
+    tracing::info!("[cleanup] Background windows minimized, lock screen foregrounded");
+}
