@@ -22,7 +22,7 @@ use driving_detector::{
     DetectorConfig, DetectorSignal, DrivingDetector,
     is_input_active, is_steering_moving, parse_openffboard_report,
 };
-use ai_debugger::AiDebuggerConfig;
+use ai_debugger::{AiDebuggerConfig, PodStateSnapshot};
 use game_process::GameExeConfig;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::*;
@@ -171,6 +171,7 @@ async fn main() -> Result<()> {
 
     // Load config
     let config = load_config()?;
+    let agent_start_time = std::time::Instant::now();
     tracing::info!("Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
     tracing::info!("Core server: {}", config.core.url);
 
@@ -539,11 +540,23 @@ async fn main() -> Result<()> {
                                     .map(|c| format!("exit code {}", c))
                                     .unwrap_or_else(|| "no exit code".to_string());
                                 let err_ctx = format!("{:?} crashed on pod {} ({})", game.sim_type, pod_id, exit_info);
+                                let snapshot = PodStateSnapshot {
+                                    pod_id: pod_id.clone(),
+                                    pod_number: config.pod.number,
+                                    lock_screen_active: lock_screen.is_active(),
+                                    billing_active: heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                                    game_pid: game.pid,
+                                    driving_state: Some(detector.current_state()),
+                                    wheelbase_connected: detector.is_hid_connected(),
+                                    ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                                    uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                };
                                 tokio::spawn(ai_debugger::analyze_crash(
                                     config.ai_debugger.clone(),
                                     pod_id.clone(),
                                     game.sim_type,
                                     err_ctx,
+                                    snapshot,
                                     ai_result_tx.clone(),
                                 ));
                             }
@@ -567,7 +580,29 @@ async fn main() -> Result<()> {
                 }
             }
             // AI debug result channel
-            Some(suggestion) = ai_result_rx.recv() => {
+            Some(mut suggestion) = ai_result_rx.recv() => {
+                // Attempt deterministic auto-fix based on AI suggestion
+                let fix_snapshot = PodStateSnapshot {
+                    pod_id: pod_id.clone(),
+                    pod_number: config.pod.number,
+                    lock_screen_active: lock_screen.is_active(),
+                    billing_active: heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                    game_pid: game_process.as_ref().and_then(|g| g.pid),
+                    driving_state: Some(detector.current_state()),
+                    wheelbase_connected: detector.is_hid_connected(),
+                    ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                    uptime_seconds: agent_start_time.elapsed().as_secs(),
+                };
+                if let Some(fix_result) = ai_debugger::try_auto_fix(&suggestion.suggestion, &fix_snapshot) {
+                    tracing::info!(
+                        "[auto-fix] Applied {} — {} (success: {})",
+                        fix_result.fix_type, fix_result.detail, fix_result.success
+                    );
+                    suggestion.suggestion = format!(
+                        "[AUTO-FIX APPLIED: {} — {}]\n\n{}",
+                        fix_result.fix_type, fix_result.detail, suggestion.suggestion
+                    );
+                }
                 let msg = AgentMessage::AiDebugResult(suggestion);
                 let json = serde_json::to_string(&msg)?;
                 let _ = ws_tx.send(Message::Text(json.into())).await;
@@ -840,11 +875,23 @@ async fn main() -> Result<()> {
                                                              Fell back to direct acs.exe launch.",
                                                             pod_id_clone, cm_err
                                                         );
+                                                        let snapshot = PodStateSnapshot {
+                                                            pod_id: pod_id_clone.clone(),
+                                                            pod_number: config.pod.number,
+                                                            lock_screen_active: lock_screen.is_active(),
+                                                            billing_active: heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                                                            game_pid: None,
+                                                            driving_state: Some(detector.current_state()),
+                                                            wheelbase_connected: detector.is_hid_connected(),
+                                                            ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                                                            uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                                        };
                                                         tokio::spawn(ai_debugger::analyze_crash(
                                                             config.ai_debugger.clone(),
                                                             pod_id_clone.clone(),
                                                             launch_sim,
                                                             err_ctx,
+                                                            snapshot,
                                                             ai_result_tx.clone(),
                                                         ));
                                                     }
@@ -881,11 +928,23 @@ async fn main() -> Result<()> {
                                                         "AC launch completely failed on pod {}: {}",
                                                         pod_id_clone, e
                                                     );
+                                                    let snapshot = PodStateSnapshot {
+                                                        pod_id: pod_id_clone.clone(),
+                                                        pod_number: config.pod.number,
+                                                        lock_screen_active: lock_screen.is_active(),
+                                                        billing_active: heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                                                        game_pid: None,
+                                                        driving_state: Some(detector.current_state()),
+                                                        wheelbase_connected: detector.is_hid_connected(),
+                                                        ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                                                        uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                                    };
                                                     tokio::spawn(ai_debugger::analyze_crash(
                                                         config.ai_debugger.clone(),
                                                         pod_id_clone,
                                                         launch_sim,
                                                         err_ctx,
+                                                        snapshot,
                                                         ai_result_tx.clone(),
                                                     ));
                                                 }

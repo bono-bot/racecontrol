@@ -1,0 +1,67 @@
+[
+  {
+    "instruction": "Stale billing overlay on pod 3 after rc-core restart.",
+    "input": "",
+    "output": "Stale overlay timer after rc-core restart — fixed in f74a5f9.\n\nRoot cause: Two bugs:\n1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n2. `end_billing_session()` only checked in-memory timers, not DB\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — in-memory timer exists?\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — is session 'active' in DB?\n- On pod: `curl http://127.0.0.1:18925/data` — overlay active=true/false?\n- If orphaned: `POST /api/v1/billing/{session-uuid}/stop` — force-end via DB fallback"
+  },
+  {
+    "instruction": "How does F1 25 work at Racing Point?",
+    "input": "",
+    "output": "F1 25 details:\n- Executable: F1_25.exe\n- Telemetry UDP port: 20777\n- Platform: Steam\n- Launch method: Steam launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 20777\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered"
+  },
+  {
+    "instruction": "Forza Motorsport crashed on pod 2. Error: force feedback error: device not responding",
+    "input": "",
+    "output": "**Forza Motorsport crash on Pod 2** (192.168.31.33)\n\nError context: force feedback error: device not responding\n\nWheelbase disconnected during gameplay. Conspit Ares 8Nm (OpenFFBoard VID:0x1209 PID:0xFFB0).\n\nImmediate steps:\n1. Check physical USB connection — try different port\n2. Restart ConspitLink2.0: `taskkill /F /IM ConspitLink2.0.exe`\n   Then relaunch: `start \"\" \"C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe\"`\n3. Check Device Manager for the OpenFFBoard device\n4. Power-cycle the wheelbase (power strip under the rig)\n\nIf USB hub issues:\n- Check if multiple USB devices are drawing too much power\n- Try connecting wheelbase directly to motherboard USB (not hub)\n- Check `dmesg`-equivalent in Event Viewer → System for USB errors\n\nrc-agent driving detector will report NoDevice state when wheelbase disconnects.\n\nAfter resolving, relaunch ForzaMotorsport.exe and verify telemetry on UDP 5300."
+  },
+  {
+    "instruction": "Pod 5 rc-agent panics: Os { code: 10048, kind: AddrInUse }.",
+    "input": "",
+    "output": "AddrInUse on port 18923 means a stale rc-agent process is still holding the lock screen port.\n\nDiagnosis: `netstat -ano | findstr 18923` — find the PID holding the port.\n\nFix:\n1. `taskkill /F /PID <stale_pid>` — kill the stale process\n2. Wait 3 seconds for the port to free (TIME_WAIT state)\n3. Restart: `start \"rc-agent\" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe`\n\nThe SO_REUSEADDR fix (ed946db) reduces TIME_WAIT issues, and the mutex guard (305638b) prevents future zombies."
+  },
+  {
+    "instruction": "Pod 8 (192.168.31.91): ForzaMotorsport.exe exited unexpectedly. Context: mod loading error: incompatible CSP version",
+    "input": "",
+    "output": "**Forza Motorsport crash on Pod 8** (192.168.31.91)\n\nError context: mod loading error: incompatible CSP version\n\nContent/mod conflict. A modded asset or CSP extension caused the crash.\n\nImmediate steps:\n1. Check which track/car was selected in the last session\n2. Try launching with a known-good track/car combo (e.g., Monza + Ferrari 488)\n3. If AC: check Content Manager logs at `%LOCALAPPDATA%\\AcTools Content Manager\\Logs`\n\nIf recurring with specific content:\n- Verify mod integrity: right-click in CM → Verify files\n- Update Custom Shaders Patch (CSP) to latest version\n- Remove or reinstall the problematic mod\n- Check game_launch_events table for which content was being loaded\n\nAfter resolving, relaunch ForzaMotorsport.exe and verify telemetry on UDP 5300."
+  },
+  {
+    "instruction": "Can't deploy rc-agent to pod 7, file is locked.",
+    "input": "",
+    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`"
+  },
+  {
+    "instruction": "What are the protected processes on pods?",
+    "input": "",
+    "output": "Protected processes that should NEVER be killed on pods:\n- rc-agent.exe — our agent software\n- pod-agent.exe — remote management agent\n- ConspitLink2.0.exe — wheelbase software\n- explorer.exe — Windows shell\n- dwm.exe — Desktop Window Manager\n- csrss.exe — Windows subsystem\n\nThe kiosk process whitelist in rc-agent also allows:\n- msedge.exe (lock screen browser)\n- acs.exe (Assetto Corsa)\n- Game executables for all supported sims\n- TextInputHost.exe, RuntimeBroker.exe (Windows system)"
+  },
+  {
+    "instruction": "Pod 6 (192.168.31.87): F1_25.exe exited unexpectedly. Context: network error: DNS resolution failed",
+    "input": "",
+    "output": "**F1 25 crash on Pod 6** (192.168.31.87)\n\nError context: network error: DNS resolution failed\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch F1_25.exe and verify telemetry on UDP 20777."
+  },
+  {
+    "instruction": "Pod 5 (192.168.31.86): acs.exe exited unexpectedly. Context: connection to multiplayer server timed out",
+    "input": "",
+    "output": "**Assetto Corsa crash on Pod 5** (192.168.31.86)\n\nError context: connection to multiplayer server timed out\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch acs.exe and verify telemetry on UDP 9996."
+  },
+  {
+    "instruction": "iRacing crashed on pod 5. Error: content manager error: missing track extension",
+    "input": "",
+    "output": "**iRacing crash on Pod 5** (192.168.31.86)\n\nError context: content manager error: missing track extension\n\nContent/mod conflict. A modded asset or CSP extension caused the crash.\n\nImmediate steps:\n1. Check which track/car was selected in the last session\n2. Try launching with a known-good track/car combo (e.g., Monza + Ferrari 488)\n3. If AC: check Content Manager logs at `%LOCALAPPDATA%\\AcTools Content Manager\\Logs`\n\nIf recurring with specific content:\n- Verify mod integrity: right-click in CM → Verify files\n- Update Custom Shaders Patch (CSP) to latest version\n- Remove or reinstall the problematic mod\n- Check game_launch_events table for which content was being loaded\n\nAfter resolving, relaunch iRacingSim64DX11.exe and verify telemetry on UDP 6789."
+  },
+  {
+    "instruction": "Customer on pod 5 says screen went black during their session.",
+    "input": "",
+    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). Check rc-core logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. Quick fix: `POST /api/v1/pods/pod_5/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?"
+  },
+  {
+    "instruction": "Pod 6 (192.168.31.87): ForzaMotorsport.exe exited unexpectedly. Context: failed to connect to iRacing service",
+    "input": "",
+    "output": "**Forza Motorsport crash on Pod 6** (192.168.31.87)\n\nError context: failed to connect to iRacing service\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch ForzaMotorsport.exe and verify telemetry on UDP 5300."
+  },
+  {
+    "instruction": "iRacing crashed on pod 5. Error: failed to read game data: CRC mismatch",
+    "input": "",
+    "output": "**iRacing crash on Pod 5** (192.168.31.86)\n\nError context: failed to read game data: CRC mismatch\n\nCorrupted game files detected.\n\nImmediate steps:\n1. Verify game files through the platform (Steam: right-click → Properties → Verify integrity)\n2. For AC: also verify CSP and Content Manager installation\n3. Check disk health: `wmic diskdrive get status` (should show 'OK')\n\nIf disk issues found:\n- Run `chkdsk C: /f` (requires reboot)\n- Check SMART status: `wmic diskdrive get model,status`\n- Consider replacing the drive if recurring\n\nQuick workaround: reinstall the game if verify doesn't fix it\n\nAfter resolving, relaunch iRacingSim64DX11.exe and verify telemetry on UDP 6789."
+  }
+]

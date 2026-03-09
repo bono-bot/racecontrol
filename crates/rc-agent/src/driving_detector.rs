@@ -136,6 +136,16 @@ impl DrivingDetector {
     pub fn state(&self) -> DrivingState {
         self.current_state
     }
+
+    /// Alias for state() — used by PodStateSnapshot builder.
+    pub fn current_state(&self) -> DrivingState {
+        self.current_state
+    }
+
+    /// Whether the USB HID wheelbase is currently connected.
+    pub fn is_hid_connected(&self) -> bool {
+        self.hid_connected
+    }
 }
 
 /// Parsed HID input report from a Conspit/OpenFFBoard wheelbase

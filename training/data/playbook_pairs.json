@@ -1,0 +1,236 @@
+[
+  {
+    "instruction": "Pod 4 screen is blank but the customer has an active session. What's wrong?",
+    "input": "",
+    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). Check rc-core logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. Quick fix: `POST /api/v1/pods/pod_4/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Customer on pod 5 says screen went black during their session.",
+    "input": "",
+    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). Check rc-core logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. Quick fix: `POST /api/v1/pods/pod_5/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Blank screen on pod 6 during active billing. How to fix?",
+    "input": "",
+    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). Check rc-core logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. Quick fix: `POST /api/v1/pods/pod_6/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 1 at 192.168.31.89 shows black screen even though billing is running.",
+    "input": "",
+    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). Check rc-core logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. Quick fix: `POST /api/v1/pods/pod_1/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 8 has multiple rc-agent processes running. How to clean up?",
+    "input": "",
+    "output": "Multiple rc-agent instances is a zombie process issue. Since commit 305638b, the named mutex `Global\\RacingPoint_RCAgent_SingleInstance` prevents this, but old binaries may still be running.\n\nCleanup procedure:\n1. `taskkill /F /IM rc-agent.exe` — kill ALL instances\n2. Wait 3 seconds for ports to free\n3. `start \"rc-agent\" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe`\n4. Wait 5 seconds\n5. `tasklist | findstr rc-agent` — verify exactly 1 instance\n\nIf running an old binary without mutex protection, deploy the latest rc-agent.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "I see 5 rc-agent instances on pod 3. Is that normal?",
+    "input": "",
+    "output": "Multiple rc-agent instances is a zombie process issue. Since commit 305638b, the named mutex `Global\\RacingPoint_RCAgent_SingleInstance` prevents this, but old binaries may still be running.\n\nCleanup procedure:\n1. `taskkill /F /IM rc-agent.exe` — kill ALL instances\n2. Wait 3 seconds for ports to free\n3. `start \"rc-agent\" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe`\n4. Wait 5 seconds\n5. `tasklist | findstr rc-agent` — verify exactly 1 instance\n\nIf running an old binary without mutex protection, deploy the latest rc-agent.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Zombie rc-agent processes on pod 7 at 192.168.31.38.",
+    "input": "",
+    "output": "Multiple rc-agent instances is a zombie process issue. Since commit 305638b, the named mutex `Global\\RacingPoint_RCAgent_SingleInstance` prevents this, but old binaries may still be running.\n\nCleanup procedure:\n1. `taskkill /F /IM rc-agent.exe` — kill ALL instances\n2. Wait 3 seconds for ports to free\n3. `start \"rc-agent\" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe`\n4. Wait 5 seconds\n5. `tasklist | findstr rc-agent` — verify exactly 1 instance\n\nIf running an old binary without mutex protection, deploy the latest rc-agent.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 6 rc-agent is behaving weird, might have duplicates.",
+    "input": "",
+    "output": "Multiple rc-agent instances is a zombie process issue. Since commit 305638b, the named mutex `Global\\RacingPoint_RCAgent_SingleInstance` prevents this, but old binaries may still be running.\n\nCleanup procedure:\n1. `taskkill /F /IM rc-agent.exe` — kill ALL instances\n2. Wait 3 seconds for ports to free\n3. `start \"rc-agent\" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe`\n4. Wait 5 seconds\n5. `tasklist | findstr rc-agent` — verify exactly 1 instance\n\nIf running an old binary without mutex protection, deploy the latest rc-agent.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "rc-agent on pod 4 crashes with 'AddrInUse' error on port 18923.",
+    "input": "",
+    "output": "AddrInUse on port 18923 means a stale rc-agent process is still holding the lock screen port.\n\nDiagnosis: `netstat -ano | findstr 18923` — find the PID holding the port.\n\nFix:\n1. `taskkill /F /PID <stale_pid>` — kill the stale process\n2. Wait 3 seconds for the port to free (TIME_WAIT state)\n3. Restart: `start \"rc-agent\" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe`\n\nThe SO_REUSEADDR fix (ed946db) reduces TIME_WAIT issues, and the mutex guard (305638b) prevents future zombies.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 5 rc-agent panics: Os { code: 10048, kind: AddrInUse }.",
+    "input": "",
+    "output": "AddrInUse on port 18923 means a stale rc-agent process is still holding the lock screen port.\n\nDiagnosis: `netstat -ano | findstr 18923` — find the PID holding the port.\n\nFix:\n1. `taskkill /F /PID <stale_pid>` — kill the stale process\n2. Wait 3 seconds for the port to free (TIME_WAIT state)\n3. Restart: `start \"rc-agent\" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe`\n\nThe SO_REUSEADDR fix (ed946db) reduces TIME_WAIT issues, and the mutex guard (305638b) prevents future zombies.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Can't start rc-agent on pod 8, port 18923 already in use.",
+    "input": "",
+    "output": "AddrInUse on port 18923 means a stale rc-agent process is still holding the lock screen port.\n\nDiagnosis: `netstat -ano | findstr 18923` — find the PID holding the port.\n\nFix:\n1. `taskkill /F /PID <stale_pid>` — kill the stale process\n2. Wait 3 seconds for the port to free (TIME_WAIT state)\n3. Restart: `start \"rc-agent\" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe`\n\nThe SO_REUSEADDR fix (ed946db) reduces TIME_WAIT issues, and the mutex guard (305638b) prevents future zombies.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Staff terminal kiosk lost login state. Staff has to re-login.",
+    "input": "",
+    "output": "Staff login persistence was fixed in commit 417dd06. Login state is now stored in sessionStorage:\n- `kiosk_staff_id` and `kiosk_staff_name` saved on login\n- Restored from sessionStorage on component mount\n- Cleared on explicit 'Sign Out' or tab close\n\nIf still happening, check:\n1. Is the kiosk running the latest build? (`npm run build` in kiosk/ directory)\n2. Is Edge in private/InPrivate mode? sessionStorage doesn't persist there.\n3. Is the browser crashing and restarting? Check Windows Event Viewer.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Kiosk at reception keeps showing login screen.",
+    "input": "",
+    "output": "Staff login persistence was fixed in commit 417dd06. Login state is now stored in sessionStorage:\n- `kiosk_staff_id` and `kiosk_staff_name` saved on login\n- Restored from sessionStorage on component mount\n- Cleared on explicit 'Sign Out' or tab close\n\nIf still happening, check:\n1. Is the kiosk running the latest build? (`npm run build` in kiosk/ directory)\n2. Is Edge in private/InPrivate mode? sessionStorage doesn't persist there.\n3. Is the browser crashing and restarting? Check Windows Event Viewer.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Staff login on kiosk disappears after page refresh.",
+    "input": "",
+    "output": "Staff login persistence was fixed in commit 417dd06. Login state is now stored in sessionStorage:\n- `kiosk_staff_id` and `kiosk_staff_name` saved on login\n- Restored from sessionStorage on component mount\n- Cleared on explicit 'Sign Out' or tab close\n\nIf still happening, check:\n1. Is the kiosk running the latest build? (`npm run build` in kiosk/ directory)\n2. Is Edge in private/InPrivate mode? sessionStorage doesn't persist there.\n3. Is the browser crashing and restarting? Check Windows Event Viewer.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Deploy to pod 6 failed with SIZE MISMATCH.",
+    "input": "",
+    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`",
+    "source": "playbook"
+  },
+  {
+    "instruction": "rc-agent deploy to pod 8 shows curl exit=23.",
+    "input": "",
+    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Can't deploy rc-agent to pod 7, file is locked.",
+    "input": "",
+    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Deploy script says pod 1 at 192.168.31.89 is unreachable.",
+    "input": "",
+    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`",
+    "source": "playbook"
+  },
+  {
+    "instruction": "cargo build for rc-core fails with 'Access is denied'.",
+    "input": "",
+    "output": "rc-core (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop rc-core: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p rc-core --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping rc-core drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Can't rebuild racecontrol.exe, file is locked.",
+    "input": "",
+    "output": "rc-core (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop rc-core: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p rc-core --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping rc-core drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Build error: Access denied on target/release/racecontrol.exe.",
+    "input": "",
+    "output": "rc-core (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop rc-core: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p rc-core --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping rc-core drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 7 shows overlay timer from a previous session that ended.",
+    "input": "",
+    "output": "Stale overlay timer after rc-core restart — fixed in f74a5f9.\n\nRoot cause: Two bugs:\n1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n2. `end_billing_session()` only checked in-memory timers, not DB\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — in-memory timer exists?\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — is session 'active' in DB?\n- On pod: `curl http://127.0.0.1:18925/data` — overlay active=true/false?\n- If orphaned: `POST /api/v1/billing/{session-uuid}/stop` — force-end via DB fallback",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Overlay countdown on pod 5 keeps running but kiosk says pod is idle.",
+    "input": "",
+    "output": "Stale overlay timer after rc-core restart — fixed in f74a5f9.\n\nRoot cause: Two bugs:\n1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n2. `end_billing_session()` only checked in-memory timers, not DB\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — in-memory timer exists?\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — is session 'active' in DB?\n- On pod: `curl http://127.0.0.1:18925/data` — overlay active=true/false?\n- If orphaned: `POST /api/v1/billing/{session-uuid}/stop` — force-end via DB fallback",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Stale billing overlay on pod 3 after rc-core restart.",
+    "input": "",
+    "output": "Stale overlay timer after rc-core restart — fixed in f74a5f9.\n\nRoot cause: Two bugs:\n1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n2. `end_billing_session()` only checked in-memory timers, not DB\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — in-memory timer exists?\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — is session 'active' in DB?\n- On pod: `curl http://127.0.0.1:18925/data` — overlay active=true/false?\n- If orphaned: `POST /api/v1/billing/{session-uuid}/stop` — force-end via DB fallback",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 6 shows rapid 'Pod Online' / 'Pod Disconnected' cycling in the activity log.",
+    "input": "",
+    "output": "WebSocket flapping is caused by a UDP heartbeat race condition — fixed in a0edc5a.\n\nWhat happens:\n1. Agent connects via WebSocket, sends Register\n2. Before Register completes, UDP heartbeat arrives at core\n3. Core sees !ws_connected → sends force_reconnect\n4. Agent drops connection → reconnects → same thing → loop\n\nFix: Agent-side 10s grace period — ignores ForceReconnect within 10 seconds of successful WebSocket connect.\n\nIf still happening, the pod may be running an old rc-agent binary without the grace period fix. Deploy the latest rc-agent.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "WebSocket flapping on pod 8 — connects and disconnects repeatedly.",
+    "input": "",
+    "output": "WebSocket flapping is caused by a UDP heartbeat race condition — fixed in a0edc5a.\n\nWhat happens:\n1. Agent connects via WebSocket, sends Register\n2. Before Register completes, UDP heartbeat arrives at core\n3. Core sees !ws_connected → sends force_reconnect\n4. Agent drops connection → reconnects → same thing → loop\n\nFix: Agent-side 10s grace period — ignores ForceReconnect within 10 seconds of successful WebSocket connect.\n\nIf still happening, the pod may be running an old rc-agent binary without the grace period fix. Deploy the latest rc-agent.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 5 keeps reconnecting every few seconds.",
+    "input": "",
+    "output": "WebSocket flapping is caused by a UDP heartbeat race condition — fixed in a0edc5a.\n\nWhat happens:\n1. Agent connects via WebSocket, sends Register\n2. Before Register completes, UDP heartbeat arrives at core\n3. Core sees !ws_connected → sends force_reconnect\n4. Agent drops connection → reconnects → same thing → loop\n\nFix: Agent-side 10s grace period — ignores ForceReconnect within 10 seconds of successful WebSocket connect.\n\nIf still happening, the pod may be running an old rc-agent binary without the grace period fix. Deploy the latest rc-agent.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Wheelbase disconnected on pod 6. Customer can't steer.",
+    "input": "",
+    "output": "Wheelbase disconnect on pod 6 — Conspit Ares 8Nm (OpenFFBoard VID:0x1209 PID:0xFFB0).\n\nTroubleshooting:\n1. Check USB connection — try different USB port\n2. Restart ConspitLink2.0: `taskkill /F /IM ConspitLink2.0.exe` then relaunch from `C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe`\n3. Check Device Manager for the OpenFFBoard device\n4. Power-cycle the wheelbase (turn off/on the power strip under the rig)\n5. If ConspitLink crashes repeatedly, check for USB hub power issues\n\nNote: rc-agent monitors HID via hidapi. The driving detector reports `NoDevice` state when wheelbase disconnects. After AC launch, ConspitLink2.0 must be restarted for wheel display telemetry.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 3 wheelbase not detected. OpenFFBoard USB device missing.",
+    "input": "",
+    "output": "Wheelbase disconnect on pod 3 — Conspit Ares 8Nm (OpenFFBoard VID:0x1209 PID:0xFFB0).\n\nTroubleshooting:\n1. Check USB connection — try different USB port\n2. Restart ConspitLink2.0: `taskkill /F /IM ConspitLink2.0.exe` then relaunch from `C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe`\n3. Check Device Manager for the OpenFFBoard device\n4. Power-cycle the wheelbase (turn off/on the power strip under the rig)\n5. If ConspitLink crashes repeatedly, check for USB hub power issues\n\nNote: rc-agent monitors HID via hidapi. The driving detector reports `NoDevice` state when wheelbase disconnects. After AC launch, ConspitLink2.0 must be restarted for wheel display telemetry.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Conspit Ares wheel not working on pod 2.",
+    "input": "",
+    "output": "Wheelbase disconnect on pod 2 — Conspit Ares 8Nm (OpenFFBoard VID:0x1209 PID:0xFFB0).\n\nTroubleshooting:\n1. Check USB connection — try different USB port\n2. Restart ConspitLink2.0: `taskkill /F /IM ConspitLink2.0.exe` then relaunch from `C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe`\n3. Check Device Manager for the OpenFFBoard device\n4. Power-cycle the wheelbase (turn off/on the power strip under the rig)\n5. If ConspitLink crashes repeatedly, check for USB hub power issues\n\nNote: rc-agent monitors HID via hidapi. The driving detector reports `NoDevice` state when wheelbase disconnects. After AC launch, ConspitLink2.0 must be restarted for wheel display telemetry.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Kiosk shows pod 1 as idle but customer is playing with active billing.",
+    "input": "",
+    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check rc-core logs for heartbeat merge behavior.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod 7 status is 'idle' in dashboard, but billing is running.",
+    "input": "",
+    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check rc-core logs for heartbeat merge behavior.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Pod state mismatch: 8 shows idle, billing is active.",
+    "input": "",
+    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check rc-core logs for heartbeat merge behavior.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Windows Defender flagged a file as trojan on pod 5.",
+    "input": "",
+    "output": "This is a Windows Defender false positive caused by using certutil for file downloads.\n\nNEVER use certutil for binary downloads — it's flagged as Trojan:Win32/Ceprolad.A. Always use `curl.exe` (built into Windows 11).\n\nTo verify it's a false positive:\n```powershell\nGet-MpThreatDetection | Select DetectionID, ThreatID, ProcessName\nGet-MpThreat | Select ThreatName, IsActive, DidThreatExecute\n```\n\nTo restore quarantined file and add exclusion:\n```powershell\nAdd-MpPreference -ExclusionPath 'C:\\RacingPoint'\n```",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Defender quarantined rc-agent.exe on pod 6.",
+    "input": "",
+    "output": "This is a Windows Defender false positive caused by using certutil for file downloads.\n\nNEVER use certutil for binary downloads — it's flagged as Trojan:Win32/Ceprolad.A. Always use `curl.exe` (built into Windows 11).\n\nTo verify it's a false positive:\n```powershell\nGet-MpThreatDetection | Select DetectionID, ThreatID, ProcessName\nGet-MpThreat | Select ThreatName, IsActive, DidThreatExecute\n```\n\nTo restore quarantined file and add exclusion:\n```powershell\nAdd-MpPreference -ExclusionPath 'C:\\RacingPoint'\n```",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Got a Trojan:Win32/Ceprolad.A alert on pod 8.",
+    "input": "",
+    "output": "This is a Windows Defender false positive caused by using certutil for file downloads.\n\nNEVER use certutil for binary downloads — it's flagged as Trojan:Win32/Ceprolad.A. Always use `curl.exe` (built into Windows 11).\n\nTo verify it's a false positive:\n```powershell\nGet-MpThreatDetection | Select DetectionID, ThreatID, ProcessName\nGet-MpThreat | Select ThreatName, IsActive, DidThreatExecute\n```\n\nTo restore quarantined file and add exclusion:\n```powershell\nAdd-MpPreference -ExclusionPath 'C:\\RacingPoint'\n```",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Assetto Corsa won't launch via Content Manager on pod 3.",
+    "input": "",
+    "output": "AC launch via Content Manager issues (commit 8064559):\n\n1. **CM blocked for customers**: Employee debug PIN controls CM access. Customers should use the kiosk to start AC, which launches acs.exe directly.\n\n2. **Launch method**: Single-player uses direct acs.exe launch. Multiplayer uses Content Manager `--race` flag.\n\n3. **Launch requirements**:\n   - race.ini: AUTOSPAWN=1\n   - CSP gui.ini: FORCE_START=1 + HIDE_MAIN_MENU=1\n   - AC Server on Racing-Point-Server (.51): preset RP_OPTIMAL (100% grip)\n\n4. After AC launch, restart ConspitLink2.0 for wheel display telemetry.\n\n5. Check `game_launch_events` table for launch history and errors.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "CM launch fails on pod 5. Game doesn't start.",
+    "input": "",
+    "output": "AC launch via Content Manager issues (commit 8064559):\n\n1. **CM blocked for customers**: Employee debug PIN controls CM access. Customers should use the kiosk to start AC, which launches acs.exe directly.\n\n2. **Launch method**: Single-player uses direct acs.exe launch. Multiplayer uses Content Manager `--race` flag.\n\n3. **Launch requirements**:\n   - race.ini: AUTOSPAWN=1\n   - CSP gui.ini: FORCE_START=1 + HIDE_MAIN_MENU=1\n   - AC Server on Racing-Point-Server (.51): preset RP_OPTIMAL (100% grip)\n\n4. After AC launch, restart ConspitLink2.0 for wheel display telemetry.\n\n5. Check `game_launch_events` table for launch history and errors.",
+    "source": "playbook"
+  },
+  {
+    "instruction": "Content Manager shows error when trying to launch AC on pod 6.",
+    "input": "",
+    "output": "AC launch via Content Manager issues (commit 8064559):\n\n1. **CM blocked for customers**: Employee debug PIN controls CM access. Customers should use the kiosk to start AC, which launches acs.exe directly.\n\n2. **Launch method**: Single-player uses direct acs.exe launch. Multiplayer uses Content Manager `--race` flag.\n\n3. **Launch requirements**:\n   - race.ini: AUTOSPAWN=1\n   - CSP gui.ini: FORCE_START=1 + HIDE_MAIN_MENU=1\n   - AC Server on Racing-Point-Server (.51): preset RP_OPTIMAL (100% grip)\n\n4. After AC launch, restart ConspitLink2.0 for wheel display telemetry.\n\n5. Check `game_launch_events` table for launch history and errors.",
+    "source": "playbook"
+  }
+]

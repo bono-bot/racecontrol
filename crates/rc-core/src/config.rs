@@ -315,6 +315,6 @@ fn default_heartbeat_timeout() -> i64 { 30 }
 fn default_restart_cooldown() -> i64 { 120 }
 fn default_claude_cli_timeout() -> u32 { 30 }
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
-fn default_ollama_model() -> String { "llama3.1:8b".to_string() }
+fn default_ollama_model() -> String { "racing-point-ops".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }
 fn default_healer_interval() -> u32 { 120 }

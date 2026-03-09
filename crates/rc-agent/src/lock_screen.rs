@@ -255,6 +255,11 @@ impl LockScreenManager {
         matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked | LockScreenState::Disconnected)
     }
 
+    /// Returns true if the lock screen is showing something to a customer (not hidden/blanked).
+    pub fn is_active(&self) -> bool {
+        !self.is_idle_or_blanked()
+    }
+
     /// Returns true if the screen is currently blanked.
     pub fn is_blanked(&self) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
