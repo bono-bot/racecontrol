@@ -1,11 +1,19 @@
 //! Racing HUD overlay displayed at the top of the screen during active billing sessions.
 //!
-//! Serves a thin HTML bar via a local HTTP server (port 18925) and launches
+//! Serves a floating HTML bar via a local HTTP server (port 18925) and launches
 //! Edge in --app mode to display session timer, lap times, and sector splits.
+//! The window is made borderless and topmost via Windows API after launch.
 
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use rc_common::types::{LapData, TelemetryFrame};
+
+/// Height of the visible HUD bar content (px).
+const BAR_HEIGHT: i32 = 72;
+/// Extra height added for Edge's app-mode title bar (stripped after launch).
+const TITLE_BAR_ALLOWANCE: i32 = 40;
+/// Total initial window height before title bar is stripped.
+const INITIAL_WINDOW_HEIGHT: i32 = BAR_HEIGHT + TITLE_BAR_ALLOWANCE;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -110,11 +118,19 @@ impl OverlayManager {
         // Schedule topmost enforcement after browser has time to open
         let state = self.state.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            if state.lock().unwrap_or_else(|e| e.into_inner()).active {
+            // Try multiple times with short delays — Edge needs a moment to create the window
+            for delay_ms in [1500, 1000, 1000, 2000] {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                if !state.lock().unwrap_or_else(|e| e.into_inner()).active {
+                    return;
+                }
                 #[cfg(windows)]
-                set_topmost();
+                if set_topmost_centered() {
+                    tracing::info!("Overlay: title bar stripped and window centered");
+                    return;
+                }
             }
+            tracing::warn!("Overlay: could not find window to strip title bar after 5.5s");
         });
     }
 
@@ -187,7 +203,7 @@ impl OverlayManager {
         let data = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if data.active {
             #[cfg(windows)]
-            set_topmost();
+            set_topmost_centered();
         }
     }
 
@@ -195,6 +211,12 @@ impl OverlayManager {
     fn launch_browser(&mut self) {
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
+
+        // Center horizontally, pin to TOP of screen
+        let (screen_w, _screen_h) = get_screen_size();
+        let x = (screen_w - 1920).max(0) / 2;
+        let y = 0;
+
         let edge_paths = [
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
             r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -204,8 +226,8 @@ impl OverlayManager {
             match std::process::Command::new(edge_path)
                 .args([
                     &format!("--app={}", url),
-                    "--window-size=1920,80",
-                    "--window-position=0,0",
+                    &format!("--window-size=1920,{}", INITIAL_WINDOW_HEIGHT),
+                    &format!("--window-position={},{}", x, y),
                     "--no-first-run",
                     "--no-default-browser-check",
                     "--disable-notifications",
@@ -248,43 +270,87 @@ impl OverlayManager {
     fn close_browser(&mut self) {}
 }
 
-// ─── HWND Topmost ────────────────────────────────────────────────────────────
+// ─── Windows Helpers ─────────────────────────────────────────────────────────
 
-/// Find the overlay Edge window by title and set it to TOPMOST + borderless.
+/// Get primary monitor resolution.
 #[cfg(windows)]
-fn set_topmost() {
+fn get_screen_size() -> (i32, i32) {
+    unsafe {
+        let w = winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN);
+        let h = winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CYSCREEN);
+        if w > 0 && h > 0 { (w, h) } else { (1920, 1080) }
+    }
+}
+
+/// Find the overlay Edge window by title, strip title bar, make borderless
+/// topmost, and center it on screen. Returns true if window was found.
+#[cfg(windows)]
+fn set_topmost_centered() -> bool {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
 
-    let title: Vec<u16> = OsStr::new("Racing HUD")
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    // Try the page <title> — Edge --app mode uses it as window title
+    let titles_to_try = ["Racing HUD", "Racing HUD - Racing HUD"];
+    let mut hwnd = std::ptr::null_mut();
+
+    for title_str in &titles_to_try {
+        let title: Vec<u16> = OsStr::new(title_str)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            let h = winapi::um::winuser::FindWindowW(std::ptr::null(), title.as_ptr());
+            if !h.is_null() {
+                hwnd = h;
+                break;
+            }
+        }
+    }
+
+    if hwnd.is_null() {
+        return false;
+    }
+
+    let (screen_w, _screen_h) = get_screen_size();
+    let bar_w = screen_w.min(1920); // Use full screen width up to 1920
+    let x = (screen_w - bar_w).max(0) / 2;
+    let y = 0; // Pin to top of screen
 
     unsafe {
-        let hwnd = winapi::um::winuser::FindWindowW(std::ptr::null(), title.as_ptr());
-        if hwnd.is_null() {
-            return;
-        }
-
-        // Strip caption and thick frame for borderless appearance
+        // Strip caption (title bar) and thick frame (resize border) for clean borderless look
         let style = winapi::um::winuser::GetWindowLongW(hwnd, winapi::um::winuser::GWL_STYLE);
         let new_style = style
             & !(winapi::um::winuser::WS_CAPTION as i32)
-            & !(winapi::um::winuser::WS_THICKFRAME as i32);
+            & !(winapi::um::winuser::WS_THICKFRAME as i32)
+            & !(winapi::um::winuser::WS_SYSMENU as i32)
+            & !(winapi::um::winuser::WS_MINIMIZEBOX as i32)
+            & !(winapi::um::winuser::WS_MAXIMIZEBOX as i32);
         winapi::um::winuser::SetWindowLongW(hwnd, winapi::um::winuser::GWL_STYLE, new_style);
 
-        // Set topmost and reposition
+        // Strip extended borders + add TOOLWINDOW (hides from taskbar) + NOACTIVATE (don't steal focus from game)
+        let ex_style = winapi::um::winuser::GetWindowLongW(hwnd, winapi::um::winuser::GWL_EXSTYLE);
+        let new_ex_style = (ex_style
+            & !(winapi::um::winuser::WS_EX_CLIENTEDGE as i32)
+            & !(winapi::um::winuser::WS_EX_WINDOWEDGE as i32)
+            & !(winapi::um::winuser::WS_EX_DLGMODALFRAME as i32)
+            & !(winapi::um::winuser::WS_EX_APPWINDOW as i32))
+            | (winapi::um::winuser::WS_EX_TOOLWINDOW as i32)
+            | (winapi::um::winuser::WS_EX_NOACTIVATE as i32);
+        winapi::um::winuser::SetWindowLongW(hwnd, winapi::um::winuser::GWL_EXSTYLE, new_ex_style);
+
+        // Set topmost, centered, exact bar dimensions
         winapi::um::winuser::SetWindowPos(
             hwnd,
             winapi::um::winuser::HWND_TOPMOST,
-            0,
-            0,
-            1920,
-            80,
-            winapi::um::winuser::SWP_SHOWWINDOW,
+            x,
+            y,
+            bar_w,
+            BAR_HEIGHT,
+            winapi::um::winuser::SWP_SHOWWINDOW | winapi::um::winuser::SWP_FRAMECHANGED,
         );
     }
+
+    true
 }
 
 // ─── HTTP Server ─────────────────────────────────────────────────────────────
@@ -377,34 +443,48 @@ const OVERLAY_HTML: &str = r##"<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <title>Racing HUD</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
+@font-face {
+    font-family: 'HUD';
+    src: local('Montserrat'), local('Segoe UI'), local('system-ui');
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
-    height: 80px;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
-    background: rgba(20, 20, 20, 0.92);
+    background: transparent;
     color: #fff;
     font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
     user-select: none;
     -webkit-user-select: none;
+    -webkit-app-region: no-drag;
 }
-body {
+
+/* The bar itself — positioned at top of window. Once title bar is
+   stripped by Windows API, this fills the entire 72px window. */
+#hud {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 72px;
+    background: rgba(18, 18, 18, 0.94);
     display: flex;
     align-items: center;
-    padding: 0 16px;
-    gap: 0;
+    justify-content: center;
+    border-top: 2px solid #E10600;
     border-bottom: 2px solid #E10600;
 }
 
 .sec {
     display: flex;
     align-items: center;
-    padding: 0 18px;
+    padding: 0 20px;
     height: 100%;
     flex-shrink: 0;
 }
-.sec + .sec { border-left: 1px solid #333; }
+.sec + .sec { border-left: 1px solid rgba(255,255,255,0.08); }
 .sec-inner { display: flex; flex-direction: column; justify-content: center; }
 
 .lbl {
@@ -412,15 +492,15 @@ body {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    color: #666;
+    color: #555;
     line-height: 1;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
 }
 
 /* Session Timer */
-.timer-sec { min-width: 130px; }
+.timer-sec { min-width: 120px; }
 .timer-val {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     letter-spacing: 1px;
@@ -431,9 +511,9 @@ body {
 .timer-val.critical { color: #E10600; animation: pulse 0.5s ease-in-out infinite; }
 
 /* Current Lap */
-.clap-sec { min-width: 160px; }
+.clap-sec { min-width: 150px; }
 .clap-val {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     color: #fff;
@@ -451,7 +531,7 @@ body {
     gap: 8px;
 }
 .gear-val {
-    font-size: 36px;
+    font-size: 34px;
     font-weight: 900;
     font-variant-numeric: tabular-nums;
     color: #fff;
@@ -465,23 +545,23 @@ body {
     align-items: flex-end;
 }
 .speed-val {
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: #ccc;
+    color: #bbb;
     line-height: 1.1;
 }
 .speed-unit {
     font-size: 8px;
     font-weight: 600;
-    color: #555;
+    color: #444;
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 /* Prev / Best Lap */
 .lap-val {
-    font-size: 20px;
+    font-size: 19px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -491,18 +571,18 @@ body {
 .best-sec .lap-val { color: #A855F7; }
 .best-sec .lbl { color: #A855F7; }
 
-.sectors { display: flex; gap: 6px; margin-top: 1px; }
+.sectors { display: flex; gap: 6px; margin-top: 2px; }
 .sk {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    color: #777;
+    color: #666;
     white-space: nowrap;
 }
 .sk-tag {
     font-size: 8px;
     font-weight: 700;
-    color: #555;
+    color: #444;
     margin-right: 2px;
 }
 /* Sector delta colors */
@@ -511,14 +591,14 @@ body {
 .sk.yellow .sk-val { color: #F59E0B; }
 
 /* Lap Counter */
-.lc-sec { min-width: 70px; }
+.lc-sec { min-width: 65px; }
 .lc-wrap {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 .lap-num {
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     color: #fff;
@@ -537,7 +617,7 @@ body {
 }
 .inv-badge.show { display: inline-block; }
 
-.nd { color: #444; }
+.nd { color: #333; }
 
 @keyframes pulse {
     0%, 100% { opacity: 1; }
@@ -547,6 +627,8 @@ body {
 </style>
 </head>
 <body>
+
+<div id="hud">
 
 <!-- Session Timer -->
 <div class="sec timer-sec">
@@ -611,6 +693,8 @@ body {
         </div>
     </div>
 </div>
+
+</div><!-- #hud -->
 
 <script>
 (function() {

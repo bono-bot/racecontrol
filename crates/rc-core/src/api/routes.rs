@@ -230,6 +230,9 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/public/leaderboard", get(public_leaderboard))
         .route("/public/leaderboard/{track}", get(public_track_leaderboard))
         .route("/public/time-trial", get(public_time_trial))
+        // Pod Activity Log (unified real-time feed)
+        .route("/activity", get(global_activity))
+        .route("/pods/{pod_id}/activity", get(pod_activity))
         // Pod Debug System
         .route("/debug/activity", get(debug_activity))
         .route("/debug/playbooks", get(debug_playbooks))
@@ -1274,11 +1277,12 @@ async fn stop_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    let cmd = rc_common::protocol::DashboardCommand::EndBilling {
-        billing_session_id: id,
-    };
-    billing::handle_dashboard_command(&state, cmd).await;
-    Json(json!({ "ok": true }))
+    let found = billing::end_billing_session_public(&state, &id, rc_common::types::BillingSessionStatus::EndedEarly).await;
+    if found {
+        Json(json!({ "ok": true }))
+    } else {
+        Json(json!({ "ok": false, "error": "Session not found or already ended" }))
+    }
 }
 
 async fn pause_billing(
@@ -1347,20 +1351,32 @@ async fn list_billing_sessions(
          WHERE 1=1",
     );
 
+    // Build parameterized query to prevent SQL injection
+    let mut bind_values: Vec<String> = Vec::new();
     if let Some(date) = &params.date {
-        query.push_str(&format!(" AND date(bs.started_at) = '{}'", date));
+        // Validate date format (YYYY-MM-DD only)
+        if date.len() == 10 && date.chars().all(|c| c.is_ascii_digit() || c == '-') {
+            query.push_str(" AND date(bs.started_at) = ?");
+            bind_values.push(date.clone());
+        }
     }
     if let Some(status) = &params.status {
-        query.push_str(&format!(" AND bs.status = '{}'", status));
+        // Validate status is alphanumeric + underscores only
+        if status.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            query.push_str(" AND bs.status = ?");
+            bind_values.push(status.clone());
+        }
     }
 
     query.push_str(" ORDER BY bs.created_at DESC LIMIT 100");
 
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, String)>(
+    let mut q = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, String)>(
         &query,
-    )
-    .fetch_all(&state.db)
-    .await;
+    );
+    for val in &bind_values {
+        q = q.bind(val);
+    }
+    let rows = q.fetch_all(&state.db).await;
 
     match rows {
         Ok(sessions) => {
@@ -1842,8 +1858,10 @@ async fn launch_game(
         launch_args,
     };
 
-    game_launcher::handle_dashboard_command(&state, cmd).await;
-    Json(json!({ "ok": true }))
+    match game_launcher::handle_dashboard_command(&state, cmd).await {
+        Ok(()) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
 }
 
 async fn set_pod_transmission(
@@ -1912,7 +1930,7 @@ async fn stop_game(
         pod_id: pod_id.to_string(),
     };
 
-    game_launcher::handle_dashboard_command(&state, cmd).await;
+    let _ = game_launcher::handle_dashboard_command(&state, cmd).await;
     Json(json!({ "ok": true }))
 }
 
@@ -3903,20 +3921,20 @@ async fn customer_book_session(
     let is_trial = tier.4;
     let price_paise = tier.3;
 
-    // Handle trial booking
+    // Handle trial booking (skip for unlimited_trials drivers)
     if is_trial {
-        let has_used = sqlx::query_as::<_, (bool,)>(
-            "SELECT COALESCE(has_used_trial, 0) FROM drivers WHERE id = ?",
+        let trial_info = sqlx::query_as::<_, (bool, bool)>(
+            "SELECT COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE id = ?",
         )
         .bind(&driver_id)
         .fetch_optional(&state.db)
         .await;
 
-        match has_used {
-            Ok(Some((true,))) => return Json(json!({ "error": "Free trial already used" })),
+        match trial_info {
+            Ok(Some((true, false))) => return Json(json!({ "error": "Free trial already used" })),
             Ok(None) => return Json(json!({ "error": "Driver not found" })),
             Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
-            _ => {} // OK to proceed
+            _ => {} // OK to proceed (hasn't used trial, or has unlimited_trials)
         }
     } else {
         // Validate wallet balance for non-trial
@@ -4874,6 +4892,7 @@ async fn sync_changes(
                         'avatar_url', avatar_url, 'total_laps', total_laps,
                         'total_time_ms', total_time_ms,
                         'has_used_trial', COALESCE(has_used_trial, 0),
+                        'unlimited_trials', COALESCE(unlimited_trials, 0),
                         'pin_hash', pin_hash, 'phone_verified', COALESCE(phone_verified, 0),
                         'dob', dob, 'waiver_signed', COALESCE(waiver_signed, 0),
                         'waiver_signed_at', waiver_signed_at, 'waiver_version', waiver_version,
@@ -5199,6 +5218,7 @@ async fn sync_push(
                 let r = sqlx::query(
                     "UPDATE drivers SET
                         has_used_trial = MAX(COALESCE(has_used_trial, 0), ?),
+                        unlimited_trials = MAX(COALESCE(unlimited_trials, 0), ?),
                         total_laps = MAX(COALESCE(total_laps, 0), ?),
                         total_time_ms = MAX(COALESCE(total_time_ms, 0), ?),
                         registration_completed = MAX(COALESCE(registration_completed, 0), ?),
@@ -5209,6 +5229,7 @@ async fn sync_push(
                      WHERE id = ?",
                 )
                 .bind(d.get("has_used_trial").and_then(|v| v.as_i64()).unwrap_or(0))
+                .bind(d.get("unlimited_trials").and_then(|v| v.as_i64()).unwrap_or(0))
                 .bind(d.get("total_laps").and_then(|v| v.as_i64()).unwrap_or(0))
                 .bind(d.get("total_time_ms").and_then(|v| v.as_i64()).unwrap_or(0))
                 .bind(d.get("registration_completed").and_then(|v| v.as_i64()).unwrap_or(0))
@@ -7955,14 +7976,14 @@ async fn bot_book(
     }
 
     // Look up driver by phone
-    let driver = sqlx::query_as::<_, (String, String, bool)>(
-        "SELECT id, name, COALESCE(has_used_trial, 0) FROM drivers WHERE phone = ?",
+    let driver = sqlx::query_as::<_, (String, String, bool, bool)>(
+        "SELECT id, name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE phone = ?",
     )
     .bind(&req.phone)
     .fetch_optional(&state.db)
     .await;
 
-    let (driver_id, driver_name, has_used_trial) = match driver {
+    let (driver_id, driver_name, has_used_trial, unlimited_trials) = match driver {
         Ok(Some(d)) => d,
         Ok(None) => return Json(json!({
             "status": "error",
@@ -7989,8 +8010,8 @@ async fn bot_book(
     let price_paise = tier.3;
     let duration_minutes = tier.2;
 
-    // Trial check
-    if is_trial && has_used_trial {
+    // Trial check (skip for unlimited_trials drivers)
+    if is_trial && has_used_trial && !unlimited_trials {
         return Json(json!({
             "status": "error",
             "error": "trial_used",
@@ -8116,6 +8137,61 @@ async fn bot_book(
 // ═══════════════════════════════════════════════════════════════════════════════
 // Pod Debug System
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Pod Activity Log ────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ActivityQuery {
+    limit: Option<i64>,
+}
+
+async fn global_activity(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<ActivityQuery>,
+) -> Json<Value> {
+    let limit = q.limit.unwrap_or(100).min(500);
+    let rows: Vec<(String, String, i64, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT id, pod_id, pod_number, timestamp, category, action, details, source
+         FROM pod_activity_log ORDER BY timestamp DESC LIMIT ?"
+    )
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let entries: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.0, "pod_id": r.1, "pod_number": r.2, "timestamp": r.3,
+        "category": r.4, "action": r.5, "details": r.6, "source": r.7,
+    })).collect();
+
+    Json(json!(entries))
+}
+
+async fn pod_activity(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+    Query(q): Query<ActivityQuery>,
+) -> Json<Value> {
+    let limit = q.limit.unwrap_or(100).min(500);
+    let rows: Vec<(String, String, i64, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT id, pod_id, pod_number, timestamp, category, action, details, source
+         FROM pod_activity_log WHERE pod_id = ? ORDER BY timestamp DESC LIMIT ?"
+    )
+    .bind(&pod_id)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let entries: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.0, "pod_id": r.1, "pod_number": r.2, "timestamp": r.3,
+        "category": r.4, "action": r.5, "details": r.6, "source": r.7,
+    })).collect();
+
+    Json(json!(entries))
+}
+
+// ─── Debug System ────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct DebugActivityQuery {
@@ -8294,6 +8370,17 @@ async fn create_debug_incident(
     .bind(&playbook_id)
     .execute(db)
     .await;
+
+    // Log to activity feed so staff messages appear in real-time
+    let pod_id_for_log = body.pod_id.as_deref().unwrap_or("system");
+    crate::activity_log::log_pod_activity(
+        &state,
+        pod_id_for_log,
+        "system",
+        "Staff Report",
+        &body.description,
+        "staff",
+    );
 
     let playbook_json = playbook.map(|(pid, cat, title, steps)| {
         let parsed: Value = serde_json::from_str(&steps).unwrap_or(json!([]));
@@ -8515,6 +8602,11 @@ async fn debug_diagnose(
                 json!({ "resolution_text": text, "effectiveness": eff, "created_at": ts })
             }).collect();
 
+            // Log diagnosis to activity feed
+            let detail = if diagnosis.len() > 120 { format!("{}...", &diagnosis[..120]) } else { diagnosis.clone() };
+            let log_pod = pod_id.as_deref().unwrap_or("system");
+            crate::activity_log::log_pod_activity(&state, log_pod, "race_engineer", "AI Diagnosis", &detail, "race_engineer");
+
             Json(json!({
                 "diagnosis": diagnosis,
                 "model": model,
@@ -8523,9 +8615,13 @@ async fn debug_diagnose(
                 "past_resolutions": past_json,
             }))
         }
-        Err(e) => Json(json!({
-            "error": format!("AI diagnosis failed: {}", e),
-            "incident_id": inc_id,
-        })),
+        Err(e) => {
+            let log_pod = pod_id.as_deref().unwrap_or("system");
+            crate::activity_log::log_pod_activity(&state, log_pod, "race_engineer", "AI Diagnosis Failed", &e.to_string(), "race_engineer");
+            Json(json!({
+                "error": format!("AI diagnosis failed: {}", e),
+                "incident_id": inc_id,
+            }))
+        },
     }
 }

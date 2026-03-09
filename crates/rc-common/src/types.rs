@@ -507,6 +507,20 @@ pub struct AcPresetSummary {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
+// ─── Pod Activity Log ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PodActivityEntry {
+    pub id: String,
+    pub pod_id: String,
+    pub pod_number: u32,
+    pub timestamp: String,
+    pub category: String,  // system | game | billing | auth | race_engineer
+    pub action: String,
+    pub details: String,
+    pub source: String,    // agent | core | race_engineer | staff
+}
+
 // ─── Auth Token ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

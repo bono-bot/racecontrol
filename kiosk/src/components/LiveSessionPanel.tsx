@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import type {
   Pod,
   TelemetryFrame,
@@ -47,6 +47,19 @@ export function LiveSessionPanel({
   onTopUp,
 }: LiveSessionPanelProps) {
   const hasWarning = !!warning;
+
+  // Local countdown: interpolate between WebSocket ticks for smooth 1s updates
+  const [localRemaining, setLocalRemaining] = useState(billing.remaining_seconds);
+  useEffect(() => {
+    setLocalRemaining(billing.remaining_seconds);
+  }, [billing.remaining_seconds]);
+  useEffect(() => {
+    if (billing.status === "paused_manual") return;
+    const iv = setInterval(() => {
+      setLocalRemaining((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [billing.id, billing.status]);
 
   // Stabilize car/track display
   const stableCarRef = useRef<{ sessionId: string; car: string; track: string } | null>(null);
@@ -105,16 +118,16 @@ export function LiveSessionPanel({
             {billing.status === "paused_manual" ? "Paused" : "Session Time"}
           </span>
           <span className={`text-2xl font-bold font-mono tabular-nums ${hasWarning ? "text-amber-400" : "text-white"}`}>
-            {formatTime(billing.remaining_seconds)}
+            {formatTime(localRemaining)}
           </span>
         </div>
         <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-1000 ${
-              hasWarning ? "bg-amber-500" : billing.remaining_seconds < 120 ? "bg-rp-red" : "bg-rp-red"
+              hasWarning ? "bg-amber-500" : localRemaining < 120 ? "bg-rp-red" : "bg-rp-red"
             }`}
             style={{
-              width: `${Math.max(0, (billing.remaining_seconds / billing.allocated_seconds) * 100)}%`,
+              width: `${Math.max(0, (localRemaining / billing.allocated_seconds) * 100)}%`,
             }}
           />
         </div>

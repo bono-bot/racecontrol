@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 
+use crate::activity_log::log_pod_activity;
 use crate::state::AppState;
 
 /// Look up dynamic pricing rules and compute an adjusted price.
@@ -172,13 +173,13 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         // Check 5-minute warning
         if remaining <= 300 && !timer.warning_5min_sent {
             timer.warning_5min_sent = true;
-            warnings.push((timer.session_id.clone(), pod_id.clone(), remaining));
+            warnings.push((timer.session_id.clone(), pod_id.clone(), remaining, timer.driving_seconds));
         }
 
         // Check 1-minute warning
         if remaining <= 60 && !timer.warning_1min_sent {
             timer.warning_1min_sent = true;
-            warnings.push((timer.session_id.clone(), pod_id.clone(), remaining));
+            warnings.push((timer.session_id.clone(), pod_id.clone(), remaining, timer.driving_seconds));
         }
 
         // Broadcast tick to dashboards and agents
@@ -231,6 +232,11 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     // Send StopGame + SessionEnded/SubSessionEnded to agents for expired sessions
     if !expired_sessions.is_empty() {
+        // Log activity for expired sessions
+        for (pod_id, _, driving_seconds, driver_name) in &expired_sessions {
+            log_pod_activity(state, pod_id, "billing", "Session Expired", &format!("{} — {}s driven", driver_name, driving_seconds), "core");
+        }
+
         let agent_senders = state.agent_senders.read().await;
         for (pod_id, session_id, driving_seconds, driver_name) in &expired_sessions {
             // Check if pod has active reservation (multi-sub-session support)
@@ -285,15 +291,21 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 }
             }
 
-            // Clear pod billing reference
-            if let Some(pod) = state.pods.write().await.get_mut(pod_id) {
-                pod.billing_session_id = None;
+            // Clear pod billing reference and restore idle state
+            {
+                let mut pods = state.pods.write().await;
+                if let Some(pod) = pods.get_mut(pod_id) {
+                    pod.billing_session_id = None;
+                    pod.current_driver = None;
+                    pod.status = rc_common::types::PodStatus::Idle;
+                    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                }
             }
         }
     }
 
     // Broadcast warnings
-    for (session_id, pod_id, remaining) in warnings {
+    for (session_id, pod_id, remaining, driving_seconds) in warnings {
         let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
             billing_session_id: session_id.clone(),
             pod_id,
@@ -312,7 +324,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         } else {
             "warning_5min"
         })
-        .bind(0i64)
+        .bind(driving_seconds as i64)
         .execute(&state.db)
         .await;
     }
@@ -341,6 +353,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     // Persist offline auto-ended sessions to DB
     for (pod_id, session_id, driving_seconds) in offline_auto_end {
+        log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended", "Pod offline >60s — Race Engineer ended session", "race_engineer");
         let _ = sqlx::query(
             "UPDATE billing_sessions SET status = 'ended_early', driving_seconds = ?, ended_at = datetime('now'), notes = 'Auto-ended: pod offline >60s'
              WHERE id = ?",
@@ -360,9 +373,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .execute(&state.db)
         .await;
 
-        // Clear pod billing reference
-        if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
-            pod.billing_session_id = None;
+        // Clear pod billing reference and restore idle state
+        {
+            let mut pods = state.pods.write().await;
+            if let Some(pod) = pods.get_mut(&pod_id) {
+                pod.billing_session_id = None;
+                pod.current_driver = None;
+                pod.status = rc_common::types::PodStatus::Idle;
+                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            }
         }
 
         let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
@@ -447,6 +466,16 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             timer.driving_seconds,
             timer.allocated_seconds
         );
+
+        // Update pod state to reflect the active session
+        {
+            let mut pods = state.pods.write().await;
+            if let Some(pod) = pods.get_mut(&timer.pod_id) {
+                pod.billing_session_id = Some(timer.session_id.clone());
+                pod.current_driver = Some(timer.driver_name.clone());
+                pod.status = rc_common::types::PodStatus::InSession;
+            }
+        }
 
         timers.insert(row.3.clone(), timer);
     }
@@ -547,18 +576,21 @@ pub async fn start_billing_session(
 
     let is_trial = tier.4;
 
-    // Check trial eligibility
-    if is_trial {
-        let has_used = sqlx::query_as::<_, (bool,)>(
-            "SELECT has_used_trial FROM drivers WHERE id = ?",
+    // Check trial eligibility (skip for unlimited_trials drivers)
+    let unlimited_trials = if is_trial {
+        let trial_info = sqlx::query_as::<_, (bool, bool)>(
+            "SELECT COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE id = ?",
         )
         .bind(&driver_id)
         .fetch_optional(&state.db)
         .await;
 
-        match has_used {
-            Ok(Some((true,))) => {
-                return Err("Driver has already used their free trial".to_string());
+        match trial_info {
+            Ok(Some((has_used, unlimited))) => {
+                if has_used && !unlimited {
+                    return Err("Driver has already used their free trial".to_string());
+                }
+                unlimited
             }
             Ok(None) => {
                 return Err(format!("Driver '{}' not found", driver_id));
@@ -566,9 +598,10 @@ pub async fn start_billing_session(
             Err(e) => {
                 return Err(format!("DB error checking trial: {}", e));
             }
-            _ => {} // OK, hasn't used trial
         }
-    }
+    } else {
+        false
+    };
 
     // Look up driver name
     let driver_name = sqlx::query_as::<_, (String,)>("SELECT name FROM drivers WHERE id = ?")
@@ -607,7 +640,7 @@ pub async fn start_billing_session(
     let session_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    let _ = sqlx::query(
+    sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at, staff_id)
          VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)",
     )
@@ -620,7 +653,8 @@ pub async fn start_billing_session(
     .bind(now.to_rfc3339())
     .bind(&staff_id)
     .execute(&state.db)
-    .await;
+    .await
+    .map_err(|e| format!("Failed to persist billing session: {}", e))?;
 
     // Log billing events
     for event_type in ["created", "started"] {
@@ -635,8 +669,8 @@ pub async fn start_billing_session(
         .await;
     }
 
-    // Mark trial as used
-    if is_trial {
+    // Mark trial as used (skip for unlimited_trials drivers)
+    if is_trial && !unlimited_trials {
         let _ = sqlx::query("UPDATE drivers SET has_used_trial = 1, updated_at = datetime('now') WHERE id = ?")
             .bind(&driver_id)
             .execute(&state.db)
@@ -672,6 +706,8 @@ pub async fn start_billing_session(
     // Update pod info
     if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
         pod.billing_session_id = Some(session_id.clone());
+        pod.current_driver = Some(driver_name.clone());
+        pod.status = rc_common::types::PodStatus::InSession;
     }
 
     // Notify agent
@@ -704,6 +740,8 @@ pub async fn start_billing_session(
         tier.1
     );
 
+    log_pod_activity(state, &pod_id, "billing", "Session Started", &format!("{} — {} ({}min)", driver_name, tier.1, allocated_seconds / 60), "core");
+
     Ok(session_id)
 }
 
@@ -730,6 +768,13 @@ async fn set_billing_status(
                 BillingSessionStatus::Active => "resumed_manual",
                 _ => "status_change",
             };
+
+            let activity_action = match new_status {
+                BillingSessionStatus::PausedManual => "Session Paused",
+                BillingSessionStatus::Active => "Session Resumed",
+                _ => "Session Status Changed",
+            };
+            log_pod_activity(state, &pod_id, "billing", activity_action, &info.driver_name, "core");
 
             drop(timers);
 
@@ -769,15 +814,15 @@ pub async fn end_billing_session_public(
     state: &Arc<AppState>,
     session_id: &str,
     end_status: BillingSessionStatus,
-) {
-    end_billing_session(state, session_id, end_status).await;
+) -> bool {
+    end_billing_session(state, session_id, end_status).await
 }
 
 async fn end_billing_session(
     state: &Arc<AppState>,
     session_id: &str,
     end_status: BillingSessionStatus,
-) {
+) -> bool {
     let mut timers = state.billing.active_timers.write().await;
 
     let pod_id = timers
@@ -790,6 +835,13 @@ async fn end_billing_session(
             timer.status = end_status;
             let info = timer.to_info();
             let driving_seconds = timer.driving_seconds;
+
+            let activity_action = match end_status {
+                BillingSessionStatus::EndedEarly => "Session Ended",
+                BillingSessionStatus::Cancelled => "Session Cancelled",
+                _ => "Session Expired",
+            };
+            log_pod_activity(state, &pod_id, "billing", activity_action, &format!("{} — {}s driven", info.driver_name, driving_seconds), "core");
 
             timers.remove(&pod_id);
             drop(timers);
@@ -827,9 +879,15 @@ async fn end_billing_session(
             .execute(&state.db)
             .await;
 
-            // Clear pod billing reference
-            if let Some(pod) = state.pods.write().await.get_mut(&pod_id) {
-                pod.billing_session_id = None;
+            // Clear pod billing reference and restore idle state
+            {
+                let mut pods = state.pods.write().await;
+                if let Some(pod) = pods.get_mut(&pod_id) {
+                    pod.billing_session_id = None;
+                    pod.current_driver = None;
+                    pod.status = rc_common::types::PodStatus::Idle;
+                    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                }
             }
 
             // Proportional refund for early end with wallet debit
@@ -914,8 +972,68 @@ async fn end_billing_session(
                     post_session_hooks(&state_clone, &session_id_clone, &driver_id_clone).await;
                 });
             }
+            return true;
         }
     }
+
+    // ─── Fallback: orphaned session in DB but no in-memory timer ─────────
+    // This happens when rc-core restarts while a session was active.
+    drop(timers);
+    let orphan = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status = 'active'",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((sid, pod_id, driver_name)) = orphan {
+        tracing::warn!("Force-ending orphaned billing session {} on {} (no in-memory timer)", sid, pod_id);
+
+        let status_str = match end_status {
+            BillingSessionStatus::EndedEarly => "ended_early",
+            BillingSessionStatus::Cancelled => "cancelled",
+            _ => "completed",
+        };
+
+        let _ = sqlx::query(
+            "UPDATE billing_sessions SET status = ?, ended_at = datetime('now') WHERE id = ?",
+        )
+        .bind(status_str)
+        .bind(session_id)
+        .execute(&state.db)
+        .await;
+
+        log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after rc-core restart", driver_name), "race_engineer");
+
+        // Clear pod billing reference and restore idle state
+        {
+            let mut pods = state.pods.write().await;
+            if let Some(pod) = pods.get_mut(&pod_id) {
+                pod.billing_session_id = None;
+                pod.current_driver = None;
+                pod.status = rc_common::types::PodStatus::Idle;
+                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            }
+        }
+
+        // Notify agent to deactivate overlay and show blank
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(&pod_id) {
+            let _ = sender.send(CoreToAgentMessage::SessionEnded {
+                billing_session_id: session_id.to_string(),
+                driver_name,
+                total_laps: 0,
+                best_lap_ms: None,
+                driving_seconds: 0,
+            }).await;
+        }
+
+        return true;
+    }
+
+    false
 }
 
 /// Post-session hooks: credit referral rewards, schedule review nudge.

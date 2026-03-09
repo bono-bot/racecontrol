@@ -15,14 +15,16 @@ import { api } from "@/lib/api";
 import type { AuthTokenInfo, PanelMode } from "@/lib/types";
 
 export default function StaffTerminal() {
-  const [staffName, setStaffName] = useState<string | null>(() => {
-    if (typeof window !== "undefined") return sessionStorage.getItem("kiosk_staff_name");
-    return null;
-  });
-  const [staffId, setStaffId] = useState<string | null>(() => {
-    if (typeof window !== "undefined") return sessionStorage.getItem("kiosk_staff_id");
-    return null;
-  });
+  const [staffName, setStaffName] = useState<string | null>(null);
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Restore auth from sessionStorage after hydration (SSR can't access sessionStorage)
+  useEffect(() => {
+    setStaffName(sessionStorage.getItem("kiosk_staff_name"));
+    setStaffId(sessionStorage.getItem("kiosk_staff_id"));
+    setHydrated(true);
+  }, []);
 
   const {
     connected,
@@ -256,6 +258,10 @@ export default function StaffTerminal() {
   };
 
   // ─── Auth Gate ──────────────────────────────────────────────────────
+  // Wait for hydration before deciding — SSR can't read sessionStorage
+  if (!hydrated) {
+    return <div className="h-screen bg-rp-black" />;
+  }
   if (!staffName) {
     return (
       <StaffLoginScreen

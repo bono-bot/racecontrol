@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 
 use crate::ac_camera;
 use crate::ac_server;
+use crate::activity_log::log_pod_activity;
 use crate::auth;
 use crate::billing;
 use crate::game_launcher;
@@ -65,6 +66,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         AgentMessage::Register(pod_info) => {
                             tracing::info!("Pod {} registered: {}", pod_info.number, pod_info.name);
                             registered_pod_id = Some(pod_info.id.clone());
+                            log_pod_activity(&state, &pod_info.id, "system", "Pod Online", &format!("Pod {} connected", pod_info.number), "agent");
 
                             // Store agent sender for this pod
                             state
@@ -102,6 +104,8 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                                     pid: None,
                                                     launched_at: None,
                                                     error_message: None,
+                                                    launch_args: None,
+                                                    auto_relaunch_count: 0,
                                                 },
                                             );
                                             tracing::info!("Reconciled game tracker for pod {} on reconnect ({:?})", pod_info.number, pod_game_state);
@@ -118,23 +122,39 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
 
                             // Resync active billing session to reconnected agent
                             {
-                                let timers = state.billing.active_timers.read().await;
-                                if let Some(timer) = timers.get(&pod_info.id) {
-                                    let remaining = timer.remaining_seconds();
+                                let resync = {
+                                    let timers = state.billing.active_timers.read().await;
+                                    timers.get(&pod_info.id).map(|timer| (
+                                        timer.session_id.clone(),
+                                        timer.driver_name.clone(),
+                                        timer.allocated_seconds,
+                                        timer.remaining_seconds(),
+                                    ))
+                                };
+                                if let Some((session_id, driver_name, allocated_seconds, remaining)) = resync {
                                     let _ = cmd_tx.send(CoreToAgentMessage::BillingStarted {
-                                        billing_session_id: timer.session_id.clone(),
-                                        driver_name: timer.driver_name.clone(),
-                                        allocated_seconds: timer.allocated_seconds,
+                                        billing_session_id: session_id.clone(),
+                                        driver_name: driver_name.clone(),
+                                        allocated_seconds,
                                     }).await;
-                                    // Also send current tick so timer shows correct remaining time
                                     let _ = cmd_tx.send(CoreToAgentMessage::BillingTick {
                                         remaining_seconds: remaining,
-                                        allocated_seconds: timer.allocated_seconds,
-                                        driver_name: timer.driver_name.clone(),
+                                        allocated_seconds,
+                                        driver_name: driver_name.clone(),
                                     }).await;
+                                    // Restore pod state (agent Register overwrites with Idle)
+                                    {
+                                        let mut pods = state.pods.write().await;
+                                        if let Some(pod) = pods.get_mut(&pod_info.id) {
+                                            pod.billing_session_id = Some(session_id.clone());
+                                            pod.current_driver = Some(driver_name.clone());
+                                            pod.status = rc_common::types::PodStatus::InSession;
+                                            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                                        }
+                                    }
                                     tracing::info!(
                                         "Resynced billing session {} to pod {} ({}s remaining)",
-                                        timer.session_id, pod_info.number, remaining
+                                        session_id, pod_info.number, remaining
                                     );
                                 }
                             }
@@ -156,14 +176,25 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             }
                         }
                         AgentMessage::Heartbeat(pod_info) => {
-                            state
-                                .pods
-                                .write()
-                                .await
-                                .insert(pod_info.id.clone(), pod_info.clone());
+                            // Merge agent-reported fields with core-managed fields
+                            // (billing_session_id, current_driver, status are managed by rc-core billing)
+                            let mut pods = state.pods.write().await;
+                            let updated = if let Some(existing) = pods.get_mut(&pod_info.id) {
+                                // Preserve core-managed billing state
+                                existing.ip_address = pod_info.ip_address.clone();
+                                existing.last_seen = Some(chrono::Utc::now());
+                                existing.driving_state = pod_info.driving_state;
+                                existing.game_state = pod_info.game_state;
+                                existing.current_game = pod_info.current_game;
+                                existing.clone()
+                            } else {
+                                pods.insert(pod_info.id.clone(), pod_info.clone());
+                                pod_info.clone()
+                            };
+                            drop(pods);
                             let _ = state
                                 .dashboard_tx
-                                .send(DashboardEvent::PodUpdate(pod_info.clone()));
+                                .send(DashboardEvent::PodUpdate(updated));
                         }
                         AgentMessage::Telemetry(frame) => {
                             // Feed telemetry to camera controller
@@ -216,6 +247,18 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "Pod {} game state: {:?} ({:?})",
                                 info.pod_id, info.game_state, info.sim_type
                             );
+                            let gs_action = match info.game_state {
+                                GameState::Running => "Game Running",
+                                GameState::Error => "Game Crashed",
+                                GameState::Idle => "Game Stopped",
+                                GameState::Launching => "Game Launching",
+                                GameState::Stopping => "Game Stopping",
+                            };
+                            let gs_details = match &info.error_message {
+                                Some(err) => format!("{}: {}", info.sim_type, err),
+                                None => format!("{}", info.sim_type),
+                            };
+                            log_pod_activity(&state, &info.pod_id, "game", gs_action, &gs_details, "agent");
                             game_launcher::handle_game_state_update(&state, info.clone()).await;
                         }
                         AgentMessage::AiDebugResult(suggestion) => {
@@ -244,10 +287,12 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         }
                         AgentMessage::PinEntered { pod_id, pin } => {
                             tracing::info!("PIN entered on pod {}", pod_id);
+                            log_pod_activity(&state, pod_id, "auth", "PIN Entered", "", "agent");
                             auth::handle_pin_entered(&state, pod_id.clone(), pin.clone()).await;
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
+                            log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");
                             let has_active_billing = state
                                 .billing
                                 .active_timers
@@ -306,6 +351,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                 && pod.status != rc_common::types::PodStatus::Disabled
             {
                 tracing::warn!("Pod {} WebSocket dropped without Disconnect — marking Offline", pod_id);
+                log_pod_activity(&state, pod_id, "system", "Pod Disconnected", "WebSocket dropped unexpectedly", "core");
                 pod.status = rc_common::types::PodStatus::Offline;
                 pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
                 // Preserve game_state if billing is active — agent will resync on reconnect
@@ -381,6 +427,29 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
         }
     }
 
+    // Send recent activity log on connect (last 100 entries)
+    {
+        let rows: Vec<(String, String, i64, String, String, String, String, String)> = sqlx::query_as(
+            "SELECT id, pod_id, pod_number, timestamp, category, action, details, source
+             FROM pod_activity_log ORDER BY timestamp DESC LIMIT 100"
+        )
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+        let entries: Vec<rc_common::types::PodActivityEntry> = rows.into_iter().map(|r| {
+            rc_common::types::PodActivityEntry {
+                id: r.0, pod_id: r.1, pod_number: r.2 as u32, timestamp: r.3,
+                category: r.4, action: r.5, details: r.6, source: r.7,
+            }
+        }).collect();
+
+        let msg = DashboardEvent::PodActivityList(entries);
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = sender.send(Message::Text(json.into())).await;
+        }
+    }
+
     // Subscribe to broadcast events
     let mut rx = state.dashboard_tx.subscribe();
 
@@ -404,7 +473,7 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                     Ok(cmd) => match &cmd {
                         DashboardCommand::LaunchGame { .. }
                         | DashboardCommand::StopGame { .. } => {
-                            game_launcher::handle_dashboard_command(&cmd_state, cmd).await;
+                            let _ = game_launcher::handle_dashboard_command(&cmd_state, cmd).await;
                         }
                         DashboardCommand::StartAcSession { .. }
                         | DashboardCommand::StopAcSession { .. }

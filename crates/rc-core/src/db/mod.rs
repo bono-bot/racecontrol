@@ -1443,6 +1443,45 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .await?;
     }
 
+    // ─── Pod Activity Log (unified event stream) ─────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_activity_log (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            pod_number INTEGER DEFAULT 0,
+            timestamp TEXT DEFAULT (datetime('now')),
+            category TEXT NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT DEFAULT '',
+            source TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_pod ON pod_activity_log (pod_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_ts ON pod_activity_log (timestamp)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_cat ON pod_activity_log (category)")
+        .execute(pool)
+        .await?;
+
+    // ─── Unlimited trials flag for test/demo drivers ──────────────────────
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN unlimited_trials BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+
+    // Seed test driver with unlimited trials for demos
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO drivers (id, name, phone, has_used_trial, unlimited_trials, created_at, updated_at)
+         VALUES ('driver_test_trial', 'Test Driver (Unlimited)', '0000000000', 0, 1, datetime('now'), datetime('now'))",
+    )
+    .execute(pool)
+    .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

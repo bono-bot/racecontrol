@@ -312,6 +312,7 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
     let drivers = sqlx::query_as::<_, (String,)>(
         "SELECT json_object(
             'id', id, 'has_used_trial', COALESCE(has_used_trial, 0),
+            'unlimited_trials', COALESCE(unlimited_trials, 0),
             'total_laps', COALESCE(total_laps, 0),
             'total_time_ms', COALESCE(total_time_ms, 0),
             'registration_completed', COALESCE(registration_completed, 0),
@@ -505,11 +506,11 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
     // Upsert — cloud wins for customer-owned fields, preserve local-only fields (otp_code etc.)
     sqlx::query(
         "INSERT INTO drivers (id, customer_id, name, email, phone, steam_guid, iracing_id, avatar_url,
-            total_laps, total_time_ms, has_used_trial, pin_hash, phone_verified,
+            total_laps, total_time_ms, has_used_trial, unlimited_trials, pin_hash, phone_verified,
             dob, waiver_signed, waiver_signed_at, waiver_version,
             guardian_name, guardian_phone, registration_completed, signature_data,
             created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
         ON CONFLICT(id) DO UPDATE SET
             customer_id = COALESCE(excluded.customer_id, drivers.customer_id),
             name = excluded.name,
@@ -519,6 +520,7 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
             iracing_id = COALESCE(excluded.iracing_id, drivers.iracing_id),
             avatar_url = COALESCE(excluded.avatar_url, drivers.avatar_url),
             has_used_trial = excluded.has_used_trial,
+            unlimited_trials = excluded.unlimited_trials,
             pin_hash = COALESCE(excluded.pin_hash, drivers.pin_hash),
             phone_verified = excluded.phone_verified,
             dob = excluded.dob,
@@ -542,6 +544,7 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
     .bind(driver.get("total_laps").and_then(|v| v.as_i64()).unwrap_or(0))
     .bind(driver.get("total_time_ms").and_then(|v| v.as_i64()).unwrap_or(0))
     .bind(driver.get("has_used_trial").and_then(|v| v.as_i64()).unwrap_or(0))
+    .bind(driver.get("unlimited_trials").and_then(|v| v.as_i64()).unwrap_or(0))
     .bind(driver.get("pin_hash").and_then(|v| v.as_str()))
     .bind(driver.get("phone_verified").and_then(|v| v.as_i64()).unwrap_or(0))
     .bind(driver.get("dob").and_then(|v| v.as_str()))

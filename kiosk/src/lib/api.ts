@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry } from "./types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -11,6 +11,10 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
     headers: { "Content-Type": "application/json" },
     ...options,
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${path} — ${text.slice(0, 200)}`);
+  }
   return res.json();
 }
 
@@ -178,6 +182,12 @@ export const api = {
         body: JSON.stringify({ amount_paise, notes, reference_id }),
       }
     ),
+
+  // Pod Activity Log
+  globalActivity: (limit = 100) =>
+    fetchApi<PodActivityEntry[]>(`/activity?limit=${limit}`),
+  podActivity: (podId: string, limit = 100) =>
+    fetchApi<PodActivityEntry[]>(`/pods/${podId}/activity?limit=${limit}`),
 
   // Debug System
   debugActivity: (hours?: number) =>

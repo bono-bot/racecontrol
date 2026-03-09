@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::types::{
     AcLanSessionConfig, AcPresetSummary, AcServerInfo,
     AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DrivingState, GameLaunchInfo,
-    GroupSessionInfo, Leaderboard, LapData, PodInfo, SessionInfo, SimType, TelemetryFrame,
+    GroupSessionInfo, Leaderboard, LapData, PodActivityEntry, PodInfo, SessionInfo, SimType,
+    TelemetryFrame,
 };
 
 /// Messages sent from Pod Agent → Core Server
@@ -148,6 +149,11 @@ pub enum CoreToAgentMessage {
         preset: String,
     },
 
+    /// PIN validation failed — agent should show error on lock screen
+    PinFailed {
+        reason: String,
+    },
+
     /// Kiosk settings updated — broadcast to all agents
     SettingsUpdated {
         settings: std::collections::HashMap<String, String>,
@@ -281,6 +287,12 @@ pub enum DashboardEvent {
         ac_session_id: String,
         pod_ids: Vec<String>,
     },
+
+    /// Single pod activity entry (real-time, as it happens)
+    PodActivity(PodActivityEntry),
+
+    /// Batch of recent activity entries (sent on dashboard connect)
+    PodActivityList(Vec<PodActivityEntry>),
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)
