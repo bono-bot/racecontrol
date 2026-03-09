@@ -212,6 +212,9 @@ impl OverlayManager {
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
 
+        // Hide taskbar so the overlay and game have a clean fullscreen view
+        crate::kiosk::hide_taskbar(true);
+
         // Wait for overlay HTTP server to be ready before launching Edge.
         // The server may still be retrying its bind after a restart (TIME_WAIT).
         let addr = format!("127.0.0.1:{}", self.port);
@@ -277,6 +280,8 @@ impl OverlayManager {
             tracing::info!("Overlay browser closed");
         }
         self.browser_process = None;
+        // Restore taskbar when overlay closes (no active session)
+        crate::kiosk::hide_taskbar(false);
     }
 
     #[cfg(not(windows))]

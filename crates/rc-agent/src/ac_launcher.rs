@@ -92,11 +92,14 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
     // Step 2b: Set FFB strength
     set_ffb(&params.ffb)?;
 
-    // Step 3: Launch AC — try Content Manager first, fall back to direct acs.exe
-    let pid = if find_cm_exe().is_some() {
-        tracing::info!("[3/5] Launching AC via Content Manager...");
+    // Step 3: Launch AC
+    // - Multiplayer: use Content Manager (handles server join handshake)
+    // - Single-player: launch acs.exe directly (race.ini already written above)
+    //   CM's acmanager://race/config fails with "Settings are not specified"
+    //   if CM's Quick Drive preset was never configured on this pod.
+    let pid = if params.game_mode == "multi" && find_cm_exe().is_some() {
+        tracing::info!("[3/5] Launching multiplayer via Content Manager...");
         launch_via_cm(params)?;
-        // CM spawns acs.exe as a child — poll for it
         match wait_for_ac_process(15) {
             Ok(pid) => pid,
             Err(e) => {
@@ -110,7 +113,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
             }
         }
     } else {
-        tracing::info!("[3/5] Content Manager not found, launching acs.exe directly...");
+        tracing::info!("[3/5] Launching acs.exe directly (race.ini pre-written)...");
         let ac_dir = find_ac_dir()?;
         let child = Command::new(ac_dir.join("acs.exe"))
             .current_dir(&ac_dir)
@@ -528,7 +531,7 @@ fn find_ac_dir() -> Result<std::path::PathBuf> {
 }
 
 /// Restart Conspit Link 2.0 so it re-handshakes with AC's telemetry.
-/// Launches minimized to avoid popup during gameplay.
+/// Force-minimizes window after launch since WPF apps ignore `start /min`.
 fn restart_conspit_link() {
     let _ = Command::new("taskkill")
         .args(["/IM", "ConspitLink2.0.exe", "/F"])
@@ -537,16 +540,46 @@ fn restart_conspit_link() {
 
     let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
     if Path::new(conspit_path).exists() {
-        // Launch minimized via cmd /c start /min
         match Command::new("cmd")
-            .args(["/c", "start", "/min", "", conspit_path])
+            .args(["/c", "start", "", conspit_path])
             .spawn()
         {
-            Ok(_) => tracing::info!("Conspit Link 2.0 restarted (minimized)"),
+            Ok(_) => {
+                tracing::info!("Conspit Link 2.0 restarted, waiting to minimize...");
+                // Wait for WPF window to fully render, then force-minimize via ShowWindow
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                minimize_conspit_window();
+            }
             Err(e) => tracing::warn!("Failed to restart Conspit Link: {}", e),
         }
     } else {
         tracing::warn!("Conspit Link not found at {}", conspit_path);
+    }
+}
+
+/// Force-minimize ConspitLink window using Windows API (WPF ignores start /min).
+fn minimize_conspit_window() {
+    #[cfg(windows)]
+    {
+        use std::ptr;
+        unsafe {
+            let class_name: Vec<u16> = "ConspitLink2.0\0".encode_utf16().collect();
+            // Try by window title first
+            let hwnd = winapi::um::winuser::FindWindowW(ptr::null(), class_name.as_ptr());
+            if !hwnd.is_null() {
+                winapi::um::winuser::ShowWindow(hwnd, winapi::um::winuser::SW_MINIMIZE);
+                tracing::info!("Conspit Link minimized via FindWindowW");
+                return;
+            }
+        }
+        // Fallback: use PowerShell to minimize by process name
+        let _ = Command::new("powershell")
+            .args([
+                "-NoProfile", "-Command",
+                "Add-Type -Name W -Namespace N -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; Get-Process ConspitLink2.0 -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 6) }"
+            ])
+            .output();
+        tracing::info!("Conspit Link minimized via PowerShell fallback");
     }
 }
 
