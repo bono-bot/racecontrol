@@ -9,6 +9,8 @@ use std::io::Write;
 use anyhow::Result;
 use serde::Deserialize;
 
+use crate::lock_screen;
+
 /// AC launch parameters parsed from the `launch_args` JSON
 #[derive(Debug, Clone, Deserialize)]
 pub struct AcLaunchParams {
@@ -939,4 +941,46 @@ pub fn cleanup_after_session() {
         .args(["-NoProfile", "-Command", ps_script])
         .output();
     tracing::info!("[cleanup] Background windows minimized, lock screen foregrounded");
+}
+
+/// Enforce a known-good safe state on the pod — the "factory reset" for runtime.
+/// Kills ALL game processes (not just AC), dismisses error dialogs,
+/// minimizes background windows, ensures Conspit Link is alive,
+/// and brings the lock screen to the foreground.
+///
+/// Call this when:
+/// - Session ends (normal or forced)
+/// - Game crashes and core doesn't respond within the timeout
+/// - Reconnecting after a network disconnect (when no billing active)
+/// - On startup
+pub fn enforce_safe_state() {
+    tracing::info!("[safe-state] Enforcing default safe state...");
+
+    // 1. Kill ALL known game processes
+    let game_processes = [
+        "acs.exe",
+        "AssettoCorsa.exe",
+        "Content Manager.exe",
+        "F1_25.exe",
+        "iRacingService.exe",
+        "iRacingSim64DX11.exe",
+        "LMU.exe",
+        "ForzaHorizon5.exe",
+    ];
+    for proc in &game_processes {
+        let _ = Command::new("taskkill").args(["/IM", proc, "/F"]).output();
+    }
+    tracing::info!("[safe-state] All game processes killed");
+
+    // 2. Kill error/crash dialogs
+    let _ = Command::new("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
+
+    // 3. Ensure Conspit Link is alive (it's the wheelbase driver — always needed)
+    ensure_conspit_link_running();
+
+    // 4. Minimize background windows + bring lock screen to foreground
+    minimize_background_windows();
+    lock_screen::enforce_kiosk_foreground();
+
+    tracing::info!("[safe-state] Safe state enforced — pod ready for next customer");
 }

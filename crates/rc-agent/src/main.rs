@@ -310,16 +310,14 @@ async fn main() -> Result<()> {
         last_launch_error.clone(),
     );
 
-    // Delayed startup cleanup — minimize Conspit Link and other windows that
-    // steal focus from the kiosk lock screen on boot. Delay gives startup apps
-    // time to open so we can catch them.
+    // Delayed startup cleanup — enforce safe state to kill any orphaned games
+    // from previous session/crash. Delay gives startup apps time to open.
     tokio::spawn(async {
         tokio::time::sleep(Duration::from_secs(8)).await;
         tokio::task::spawn_blocking(|| {
-            ac_launcher::minimize_background_windows();
-            lock_screen::enforce_kiosk_foreground();
+            ac_launcher::enforce_safe_state();
         });
-        tracing::info!("Startup cleanup: minimized background windows, kiosk to foreground");
+        tracing::info!("Startup: safe state enforced — pod clean for first customer");
     });
 
     // ─── UDP Heartbeat (fast liveness detection alongside WebSocket) ─────────
@@ -411,6 +409,11 @@ async fn main() -> Result<()> {
         let mut blank_timer: std::pin::Pin<Box<tokio::time::Sleep>> =
             Box::pin(tokio::time::sleep(Duration::from_secs(86400))); // dormant
         let mut blank_timer_armed = false;
+        // Crash recovery timer: armed when game crashes during active billing.
+        // If core doesn't send SessionEnded within 30s, force-reset to safe state.
+        let mut crash_recovery_timer: std::pin::Pin<Box<tokio::time::Sleep>> =
+            Box::pin(tokio::time::sleep(Duration::from_secs(86400))); // dormant
+        let mut crash_recovery_armed = false;
 
         loop {
             tokio::select! {
@@ -546,6 +549,19 @@ async fn main() -> Result<()> {
                             }
 
                             game_process = None;
+
+                            // If billing is active and game crashed, arm crash recovery timer.
+                            // Gives core 30s to send SessionEnded; otherwise force-reset.
+                            if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                                tracing::warn!("Game crashed during active billing — arming 30s crash recovery timer");
+                                crash_recovery_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(30));
+                                crash_recovery_armed = true;
+                            } else {
+                                // No billing active — enforce safe state immediately
+                                tracing::info!("Game exited with no active billing — enforcing safe state");
+                                tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+                                lock_screen.show_blank_screen();
+                            }
                         }
                     }
                 }
@@ -583,9 +599,34 @@ async fn main() -> Result<()> {
                 } else {
                     tracing::info!("Auto-blanking screen after session summary");
                     lock_screen.show_blank_screen();
-                    // Final cleanup pass — ensure screen is truly clean for next customer
-                    tokio::task::spawn_blocking(|| ac_launcher::cleanup_after_session());
+                    // Final cleanup pass via unified safe state
+                    tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
                 }
+            }
+            // Crash recovery: game crashed during billing, core didn't send SessionEnded in 30s
+            _ = &mut crash_recovery_timer, if crash_recovery_armed => {
+                crash_recovery_armed = false;
+                tracing::warn!("[crash-recovery] 30s timeout — core did not send SessionEnded. Force-resetting pod.");
+                heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                overlay.deactivate();
+                if let Some(ref mut game) = game_process {
+                    let _ = game.stop();
+                    game_process = None;
+                }
+                if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+                lock_screen.show_blank_screen();
+                // Notify core that we force-ended
+                let msg = AgentMessage::GameStateUpdate(GameLaunchInfo {
+                    pod_id: pod_id.clone(),
+                    sim_type: SimType::AssettoCorsa,
+                    game_state: GameState::Idle,
+                    pid: None,
+                    launched_at: None,
+                    error_message: Some("Crash recovery: forced safe state after 30s timeout".to_string()),
+                });
+                let json = serde_json::to_string(&msg)?;
+                let _ = ws_tx.send(Message::Text(json.into())).await;
             }
             // Lock screen events (customer submitted PIN)
             Some(event) = lock_event_rx.recv() => {
@@ -660,6 +701,7 @@ async fn main() -> Result<()> {
                                         billing_session_id, total_laps, best_lap_ms, driving_seconds
                                     );
                                     heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    crash_recovery_armed = false; // cancel crash timer — core responded
                                     overlay.deactivate();
                                     // Stop the game if still running
                                     if let Some(ref mut game) = game_process {
@@ -668,8 +710,8 @@ async fn main() -> Result<()> {
                                     }
                                     // Disconnect telemetry adapter
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                                    // Full cleanup: kill AC/Conspit, dismiss errors, minimize windows
-                                    tokio::task::spawn_blocking(|| ac_launcher::cleanup_after_session());
+                                    // Full cleanup via unified safe state
+                                    tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
                                     // Show session summary, then auto-blank after 15s
                                     lock_screen.show_session_summary(
                                         driver_name, total_laps, best_lap_ms, driving_seconds,
@@ -958,6 +1000,7 @@ async fn main() -> Result<()> {
                                         "Sub-session ended: {} — {} laps, wallet: {}p",
                                         billing_session_id, total_laps, wallet_balance_paise
                                     );
+                                    crash_recovery_armed = false; // cancel crash timer
                                     overlay.deactivate();
                                     // Stop the game
                                     if let Some(ref mut game) = game_process {
@@ -966,8 +1009,8 @@ async fn main() -> Result<()> {
                                     }
                                     // Disconnect telemetry adapter
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                                    // Full cleanup: kill AC/Conspit, dismiss errors, minimize windows
-                                    tokio::task::spawn_blocking(|| ac_launcher::cleanup_after_session());
+                                    // Full cleanup via unified safe state
+                                    tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
                                     // Show between-sessions screen
                                     lock_screen.show_between_sessions(
                                         driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
@@ -1038,7 +1081,22 @@ async fn main() -> Result<()> {
         // Connection lost — update UDP heartbeat status and show disconnected
         heartbeat_status.ws_connected.store(false, std::sync::atomic::Ordering::Relaxed);
         tracing::warn!("Disconnected from core server, will reconnect in {:?}...", reconnect_delay);
-        lock_screen.show_disconnected();
+
+        // If no billing active, enforce safe state on disconnect — kill any orphaned games
+        if !heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+            tracing::info!("No active billing on disconnect — enforcing safe state");
+            overlay.deactivate();
+            if let Some(ref mut game) = game_process {
+                let _ = game.stop();
+                game_process = None;
+            }
+            if let Some(ref mut adp) = adapter { adp.disconnect(); }
+            tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+            lock_screen.show_blank_screen();
+        } else {
+            lock_screen.show_disconnected();
+        }
+
         tokio::time::sleep(reconnect_delay).await;
         reconnect_delay = (reconnect_delay * 2).min(Duration::from_secs(30));
     } // end reconnection loop
