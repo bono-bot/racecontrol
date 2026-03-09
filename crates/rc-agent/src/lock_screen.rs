@@ -366,23 +366,29 @@ impl LockScreenManager {
         }
         self.browser_process = None;
 
-        // Fallback: kill any orphaned kiosk Edge processes (e.g. from a previous agent run).
-        // The kiosk flag makes these identifiable — only kiosk-mode Edge gets killed.
-        let output = std::process::Command::new("wmic")
-            .args(["process", "where", "name='msedge.exe' and commandline like '%--kiosk%'", "get", "processid", "/format:list"])
-            .output();
-        if let Ok(out) = output {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                if let Some(pid_str) = line.strip_prefix("ProcessId=") {
-                    if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                        let _ = std::process::Command::new("taskkill")
-                            .args(["/PID", &pid.to_string(), "/F"])
-                            .output();
+        // Kill orphaned kiosk Edge processes (e.g. from a previous agent run or deploy).
+        // Uses PowerShell Get-CimInstance (wmic is deprecated/removed on Windows 11).
+        // Targets only Edge processes with --kiosk in the command line.
+        let ps_cmd = format!(
+            "Get-CimInstance Win32_Process -Filter \"name='msedge.exe'\" | \
+             Where-Object {{ $_.CommandLine -like '*--kiosk*' -and $_.CommandLine -like '*{}*' }} | \
+             ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; \
+             Write-Output $_.ProcessId }}",
+            self.port
+        );
+        match std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+        {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    if let Ok(pid) = line.trim().parse::<u32>() {
                         tracing::info!("Killed orphaned kiosk Edge process (PID {})", pid);
                     }
                 }
             }
+            Err(e) => tracing::warn!("Failed to check for orphaned kiosk Edge: {}", e),
         }
     }
 

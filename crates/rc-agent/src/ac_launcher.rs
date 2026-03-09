@@ -149,10 +149,11 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     std::thread::sleep(std::time::Duration::from_secs(8));
     restart_conspit_link();
 
-    // Step 5: Minimize Steam and other background windows
-    tracing::info!("[5/5] Minimizing background windows...");
+    // Step 5: Minimize background windows and bring game to foreground
+    tracing::info!("[5/5] Minimizing background windows and focusing game...");
     std::thread::sleep(std::time::Duration::from_secs(2));
     minimize_background_windows();
+    bring_game_to_foreground();
 
     Ok(LaunchResult { pid, cm_error })
 }
@@ -832,6 +833,35 @@ pub fn minimize_background_windows() {
             }
         }
         Err(e) => tracing::warn!("minimize_background_windows failed: {}", e),
+    }
+}
+
+/// Bring the AC game window to the foreground so it's visible.
+/// Must be called after minimize_background_windows() since that may minimize the game.
+fn bring_game_to_foreground() {
+    #[cfg(windows)]
+    {
+        use std::ptr;
+        unsafe {
+            // Try known AC window class/title patterns
+            for title in &["Assetto Corsa\0", "AC\0"] {
+                let title_wide: Vec<u16> = title.encode_utf16().collect();
+                let hwnd = winapi::um::winuser::FindWindowW(ptr::null(), title_wide.as_ptr());
+                if !hwnd.is_null() {
+                    winapi::um::winuser::ShowWindow(hwnd, winapi::um::winuser::SW_RESTORE);
+                    winapi::um::winuser::SetForegroundWindow(hwnd);
+                    tracing::info!("Brought AC window to foreground via FindWindowW");
+                    return;
+                }
+            }
+        }
+        // Fallback: use PowerShell to find acs.exe window and foreground it
+        let _ = Command::new("powershell")
+            .args(["-NoProfile", "-Command",
+                "Add-Type -Name WF -Namespace NF -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; \
+                 Get-Process acs -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [NF.WF]::ShowWindow($_.MainWindowHandle, 9); [NF.WF]::SetForegroundWindow($_.MainWindowHandle) }"])
+            .output();
+        tracing::info!("Brought AC window to foreground via PowerShell fallback");
     }
 }
 

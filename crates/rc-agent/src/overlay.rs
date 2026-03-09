@@ -189,13 +189,15 @@ impl OverlayManager {
         }
     }
 
-    /// Deactivate overlay — close browser, clear state.
+    /// Deactivate overlay — close browser, restore taskbar, clear state.
     pub fn deactivate(&mut self) {
         {
             let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
             data.active = false;
         }
         self.close_browser();
+        // Restore taskbar only when session is over (not during browser re-init)
+        crate::kiosk::hide_taskbar(false);
     }
 
     /// Re-enforce HWND_TOPMOST (call periodically from main loop).
@@ -280,8 +282,6 @@ impl OverlayManager {
             tracing::info!("Overlay browser closed");
         }
         self.browser_process = None;
-        // Restore taskbar when overlay closes (no active session)
-        crate::kiosk::hide_taskbar(false);
     }
 
     #[cfg(not(windows))]
