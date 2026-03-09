@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { LiveTelemetry } from "./LiveTelemetry";
+import { F1Speedometer } from "./F1Speedometer";
 import { SessionTimer } from "./SessionTimer";
 import type {
   Pod,
@@ -12,6 +13,14 @@ import type {
   KioskExperience,
   BillingWarning,
 } from "@/lib/types";
+
+function formatLapTimeShort(ms: number): string {
+  if (ms <= 0) return "--:--.---";
+  const totalSecs = ms / 1000;
+  const mins = Math.floor(totalSecs / 60);
+  const secs = (totalSecs % 60).toFixed(3);
+  return `${mins}:${parseFloat(secs) < 10 ? "0" : ""}${secs}`;
+}
 
 // ─── Re-export for consistent styling across files ──────────────────────────
 
@@ -327,9 +336,27 @@ function InSessionView({
 
       {/* Telemetry */}
       {telemetry && (
-        <div className={isStandalone ? "mt-6" : "mt-2"}>
+        <div className={isStandalone ? "mt-4 flex-1 flex flex-col items-center justify-center" : "mt-2"}>
           {isStandalone ? (
-            <LiveTelemetry telemetry={telemetry} />
+            <div className="flex flex-col items-center gap-3">
+              <F1Speedometer telemetry={telemetry} size={320} />
+              {/* Lap info below the gauge */}
+              <div className="flex items-center gap-6 text-center">
+                <div>
+                  <p className="text-2xl font-bold text-white tabular-nums">
+                    {Math.round(telemetry.speed_kmh)}
+                    <span className="text-sm text-rp-grey ml-1">km/h</span>
+                  </p>
+                </div>
+                <div className="h-6 w-px bg-rp-border" />
+                <div>
+                  <p className="text-sm text-rp-grey">Lap {telemetry.lap_number}</p>
+                  <p className="text-lg font-mono text-white tabular-nums">
+                    {formatLapTimeShort(telemetry.lap_time_ms)}
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : (
             /* Compact: speed + gear only */
             <div className="flex items-end gap-3">
