@@ -717,7 +717,8 @@ fn render_active_session_page(driver_name: &str, remaining_seconds: u32, allocat
         .replace("{{PROGRESS}}", &progress.to_string())
         .replace("{{WARNING_CLASS}}", warning_class)
         .replace("{{WARNING_LEVEL}}", warning_level)
-        .replace("{{REMAINING}}", &remaining_seconds.to_string());
+        .replace("{{REMAINING}}", &remaining_seconds.to_string())
+        .replace("{{ALLOCATED}}", &allocated_seconds.to_string());
     page_shell("Session Active - Racing Point", &content)
 }
 
@@ -1217,28 +1218,50 @@ const ACTIVE_SESSION_PAGE: &str = r#"<style>
     50% { opacity: 0.6; }
 }
 </style>
-<div class="warning-wrapper warning-{{WARNING_LEVEL}}">
+<div id="warnWrap" class="warning-wrapper warning-{{WARNING_LEVEL}}">
 <div class="warning-overlay" id="warningBanner"></div>
 <div class="welcome">{{DRIVER_NAME}}</div>
 <div class="session-label">Time Remaining</div>
-<div class="timer-display {{WARNING_CLASS}}">{{MINUTES}}<span class="colon">:</span>{{SECONDS}}</div>
+<div id="timerDisp" class="timer-display {{WARNING_CLASS}}"><span id="mm">{{MINUTES}}</span><span class="colon">:</span><span id="ss">{{SECONDS}}</span></div>
 <div class="progress-container">
-    <div class="progress-bar" style="width: {{PROGRESS}}%"></div>
+    <div class="progress-bar" id="progBar" style="width: {{PROGRESS}}%"></div>
 </div>
 <div class="hint">Enjoy your session! Need help? Ask at reception.</div>
 </div>
 <script>
 (function(){
-    var remaining = {{REMAINING}};
+    var rem = {{REMAINING}};
+    var alloc = {{ALLOCATED}};
+    var mm = document.getElementById('mm');
+    var ss = document.getElementById('ss');
+    var bar = document.getElementById('progBar');
     var banner = document.getElementById('warningBanner');
-    if (remaining <= 10) {
-        banner.textContent = remaining + ' SECONDS';
-    } else if (remaining <= 60) {
-        banner.textContent = 'LESS THAN 1 MINUTE REMAINING';
-    } else if (remaining <= 300) {
-        banner.textContent = Math.ceil(remaining / 60) + ' MINUTES REMAINING';
+    var wrap = document.getElementById('warnWrap');
+    var disp = document.getElementById('timerDisp');
+
+    function pad(n){ return n < 10 ? '0' + n : '' + n; }
+
+    function update(){
+        mm.textContent = pad(Math.floor(rem / 60));
+        ss.textContent = pad(rem % 60);
+        if (alloc > 0) bar.style.width = Math.round((alloc - rem) / alloc * 100) + '%';
+
+        // Warning classes
+        var wl = rem <= 10 ? 'critical' : rem <= 60 ? 'urgent' : rem <= 300 ? 'caution' : 'none';
+        wrap.className = 'warning-wrapper warning-' + wl;
+        disp.className = rem <= 60 ? 'timer-display time-warning' : 'timer-display';
+
+        // Banner text
+        if (rem <= 10) banner.textContent = rem + ' SECONDS';
+        else if (rem <= 60) banner.textContent = 'LESS THAN 1 MINUTE REMAINING';
+        else if (rem <= 300) banner.textContent = Math.ceil(rem / 60) + ' MINUTES REMAINING';
+        else banner.textContent = '';
     }
-    setTimeout(function(){location.reload()},3000);
+
+    update();
+    setInterval(function(){ if (rem > 0) rem--; update(); }, 1000);
+    // Reload periodically to sync with server state (session end, etc.)
+    setTimeout(function(){ location.reload(); }, 30000);
 })();
 </script>"#;
 
