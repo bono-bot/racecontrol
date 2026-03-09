@@ -250,6 +250,7 @@ export function KioskPodCard({
             >
               Start Session
             </button>
+            <BlankScreenToggle podId={pod.id} />
           </div>
         )}
 
@@ -493,6 +494,38 @@ function FfbToggle({ podId }: { podId: string }) {
       }`}
     >
       {FFB_LABELS[preset] || "FFB Mid"}
+    </button>
+  );
+}
+
+function BlankScreenToggle({ podId }: { podId: string }) {
+  const [blanked, setBlanked] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !blanked;
+    setBusy(true);
+    try {
+      await api.setBlankScreen(podId, next);
+      setBlanked(next);
+    } catch {
+      // ignore
+    }
+    setBusy(false);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      className={`px-4 py-1.5 text-xs rounded transition-colors ${
+        blanked
+          ? "bg-zinc-700 border border-zinc-500 text-zinc-300 hover:bg-zinc-600"
+          : "border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey"
+      }`}
+    >
+      {blanked ? "Unblank Screen" : "Blank Screen"}
     </button>
   );
 }

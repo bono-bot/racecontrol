@@ -255,6 +255,13 @@ export const api = {
     return res.json();
   },
 
+  // Pod Screen Blanking
+  setBlankScreen: (pod_id: string, blank: boolean) =>
+    fetchApi<{ ok: boolean; pod_id: string; blank: boolean }>(`/pods/${pod_id}/screen`, {
+      method: "POST",
+      body: JSON.stringify({ blank }),
+    }),
+
   // Pod Enable/Disable
   enablePod: (id: string) =>
     fetchApi<{ ok: boolean }>(`/pods/${id}/enable`, { method: "POST" }),
