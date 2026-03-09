@@ -212,6 +212,19 @@ impl OverlayManager {
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
 
+        // Wait for overlay HTTP server to be ready before launching Edge.
+        // The server may still be retrying its bind after a restart (TIME_WAIT).
+        let addr = format!("127.0.0.1:{}", self.port);
+        for attempt in 0..25 {
+            if std::net::TcpStream::connect(&addr).is_ok() {
+                if attempt > 0 {
+                    tracing::info!("Overlay: server ready after {}ms", attempt * 200);
+                }
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
         // Center horizontally, pin to TOP of screen
         let (screen_w, _screen_h) = get_screen_size();
         let x = (screen_w - 1920).max(0) / 2;
