@@ -660,25 +660,43 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
 
     match local {
         Some((_local_bal, _local_credited, _local_debited)) => {
-            // Cloud is authoritative for wallet balance.
-            // Topups happen on cloud/dashboard, debits happen at venue but are
-            // pushed back to cloud via push_to_cloud(). Cloud balance already
-            // reflects all transactions from both sides.
-            sqlx::query(
-                "UPDATE wallets SET
-                    balance_paise = ?,
-                    total_credited_paise = ?,
-                    total_debited_paise = ?,
-                    updated_at = ?
-                 WHERE driver_id = ?",
+            // Only overwrite if cloud's updated_at is newer than local.
+            // This prevents stale cloud data from overwriting venue debits
+            // that haven't been pushed yet.
+            let local_ts: Option<(Option<String>,)> = sqlx::query_as(
+                "SELECT updated_at FROM wallets WHERE driver_id = ?",
             )
-            .bind(cloud_balance)
-            .bind(cloud_credited)
-            .bind(cloud_debited)
-            .bind(cloud_updated)
             .bind(&local_driver_id)
-            .execute(&state.db)
+            .fetch_optional(&state.db)
             .await?;
+
+            let should_update = match &local_ts {
+                Some((Some(ts),)) => cloud_updated > ts.as_str(),
+                _ => true,
+            };
+
+            if should_update {
+                sqlx::query(
+                    "UPDATE wallets SET
+                        balance_paise = ?,
+                        total_credited_paise = ?,
+                        total_debited_paise = ?,
+                        updated_at = ?
+                     WHERE driver_id = ?",
+                )
+                .bind(cloud_balance)
+                .bind(cloud_credited)
+                .bind(cloud_debited)
+                .bind(cloud_updated)
+                .bind(&local_driver_id)
+                .execute(&state.db)
+                .await?;
+            } else {
+                tracing::debug!(
+                    "Wallet sync: skipping update for driver {} — local is newer",
+                    local_driver_id
+                );
+            }
         }
         None => {
             // Wallet doesn't exist locally — create it for the resolved driver

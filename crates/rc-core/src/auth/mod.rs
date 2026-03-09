@@ -464,8 +464,8 @@ pub async fn validate_qr(
         return Err("QR token is not assigned to this customer".to_string());
     }
 
-    // Start billing session
-    let billing_session_id = billing::start_billing_session(
+    // Start billing session — rollback token if billing fails
+    let billing_session_id = match billing::start_billing_session(
         state,
         pod_id.clone(),
         driver_id.clone(),
@@ -474,7 +474,19 @@ pub async fn validate_qr(
         custom_duration_minutes,
         None, // customer QR auth
     )
-    .await?;
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            // Rollback: revert token from 'consuming' back to 'pending'
+            let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
+                .bind(&token_id)
+                .execute(&state.db)
+                .await;
+            tracing::error!("Billing start failed for QR token {}, rolled back to pending: {}", token_id, e);
+            return Err(e);
+        }
+    };
 
     // Finalize token as consumed with billing session ID
     if let Err(e) = sqlx::query(

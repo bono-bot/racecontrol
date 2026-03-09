@@ -24,7 +24,7 @@ pub async fn compute_dynamic_price(
     let rules = sqlx::query_as::<_, (String, f64, i64)>(
         "SELECT rule_type, multiplier, flat_adjustment_paise
          FROM pricing_rules
-         WHERE active = 1
+         WHERE is_active = 1
            AND (day_of_week IS NULL OR day_of_week = ?)
            AND (hour_start IS NULL OR ? >= hour_start)
            AND (hour_end IS NULL OR ? < hour_end)
@@ -915,6 +915,31 @@ async fn end_billing_session(
                             )
                             .await;
                         }
+                    }
+                }
+            }
+
+            // Full refund for cancelled sessions (never drove)
+            if end_status == BillingSessionStatus::Cancelled {
+                let wallet_info = sqlx::query_as::<_, (String, Option<i64>)>(
+                    "SELECT driver_id, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+                )
+                .bind(session_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten();
+
+                if let Some((driver_id, Some(debit))) = wallet_info {
+                    if debit > 0 {
+                        let _ = crate::wallet::refund(
+                            state,
+                            &driver_id,
+                            debit,
+                            Some(session_id),
+                            Some("Cancelled session — full refund"),
+                        )
+                        .await;
                     }
                 }
             }

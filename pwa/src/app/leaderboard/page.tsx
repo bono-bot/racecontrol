@@ -16,7 +16,7 @@ function formatLapTime(ms: number): string {
 
 interface LeaderboardEntry {
   position: number;
-  driver_name: string;
+  driver: string;
   car: string;
   best_lap_ms: number;
   is_personal_best: boolean;
@@ -130,7 +130,7 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-neutral-200 truncate">
-                    {entry.driver_name}
+                    {entry.driver}
                   </p>
                   <p className="text-xs text-rp-grey truncate">{entry.car}</p>
                 </div>

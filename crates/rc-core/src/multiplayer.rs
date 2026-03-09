@@ -218,99 +218,124 @@ pub async fn book_multiplayer(
     )
     .await?;
 
-    // Reserve pod for host + create auth token
-    let host_pod_id = &pod_ids[0];
-    let host_reservation_id = pod_reservation::create_reservation(state, host_id, host_pod_id).await?;
+    // Wrap remaining operations so we can refund host if any step fails
+    let result: Result<GroupSessionInfo, String> = async {
+        // Reserve pod for host + create auth token
+        let host_pod_id = &pod_ids[0];
+        let host_reservation_id = pod_reservation::create_reservation(state, host_id, host_pod_id).await?;
 
-    let host_token = auth::create_auth_token(
-        state,
-        host_pod_id.clone(),
-        host_id.to_string(),
-        pricing_tier_id.to_string(),
-        "pin".to_string(),
-        None,
-        Some(duration_minutes as u32),
-        Some(experience_id_resolved.clone()),
-        None,
-    )
-    .await?;
-
-    // Override the auto-generated PIN with the shared PIN
-    sqlx::query("UPDATE auth_tokens SET token = ? WHERE id = ?")
-        .bind(&shared_pin_str)
-        .bind(&host_token.id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| format!("DB error: {}", e))?;
-
-    // Re-send lock screen with shared PIN
-    let host_name = get_driver_name(state, host_id).await;
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(host_pod_id) {
-        let _ = sender
-            .send(CoreToAgentMessage::ShowPinLockScreen {
-                token_id: host_token.id.clone(),
-                driver_name: host_name.clone(),
-                pricing_tier_name: tier_name.clone(),
-                allocated_seconds: duration_minutes as u32 * 60,
-            })
-            .await;
-    }
-    drop(agent_senders);
-
-    // Create host member record
-    let host_member_id = uuid::Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, reservation_id, auth_token_id, wallet_txn_id, invited_at, accepted_at)
-         VALUES (?, ?, ?, 'host', 'accepted', ?, ?, ?, ?, datetime('now'), datetime('now'))",
-    )
-    .bind(&host_member_id)
-    .bind(&group_session_id)
-    .bind(host_id)
-    .bind(host_pod_id)
-    .bind(&host_reservation_id)
-    .bind(&host_token.id)
-    .bind(&wallet_txn_id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| format!("DB error: {}", e))?;
-
-    // Create invitee records (pending — they need to accept + pay)
-    for (i, friend_id) in friend_ids.iter().enumerate() {
-        let member_id = uuid::Uuid::new_v4().to_string();
-        let friend_pod_id = &pod_ids[i + 1]; // host gets first pod
-
-        // Pre-assign pod but don't reserve yet (reserve on accept)
-        sqlx::query(
-            "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, invited_at)
-             VALUES (?, ?, ?, 'invitee', 'pending', ?, datetime('now'))",
+        let host_token = auth::create_auth_token(
+            state,
+            host_pod_id.clone(),
+            host_id.to_string(),
+            pricing_tier_id.to_string(),
+            "pin".to_string(),
+            None,
+            Some(duration_minutes as u32),
+            Some(experience_id_resolved.clone()),
+            None,
         )
-        .bind(&member_id)
+        .await?;
+
+        // Override the auto-generated PIN with the shared PIN
+        sqlx::query("UPDATE auth_tokens SET token = ? WHERE id = ?")
+            .bind(&shared_pin_str)
+            .bind(&host_token.id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| format!("DB error: {}", e))?;
+
+        // Re-send lock screen with shared PIN
+        let host_name = get_driver_name(state, host_id).await;
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(host_pod_id) {
+            let _ = sender
+                .send(CoreToAgentMessage::ShowPinLockScreen {
+                    token_id: host_token.id.clone(),
+                    driver_name: host_name.clone(),
+                    pricing_tier_name: tier_name.clone(),
+                    allocated_seconds: duration_minutes as u32 * 60,
+                })
+                .await;
+        }
+        drop(agent_senders);
+
+        // Create host member record
+        let host_member_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, reservation_id, auth_token_id, wallet_txn_id, invited_at, accepted_at)
+             VALUES (?, ?, ?, 'host', 'accepted', ?, ?, ?, ?, datetime('now'), datetime('now'))",
+        )
+        .bind(&host_member_id)
         .bind(&group_session_id)
-        .bind(friend_id)
-        .bind(friend_pod_id)
+        .bind(host_id)
+        .bind(host_pod_id)
+        .bind(&host_reservation_id)
+        .bind(&host_token.id)
+        .bind(&wallet_txn_id)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error: {}", e))?;
+
+        // Create invitee records (pending — they need to accept + pay)
+        for (i, friend_id) in friend_ids.iter().enumerate() {
+            let member_id = uuid::Uuid::new_v4().to_string();
+            let friend_pod_id = &pod_ids[i + 1]; // host gets first pod
+
+            // Pre-assign pod but don't reserve yet (reserve on accept)
+            sqlx::query(
+                "INSERT INTO group_session_members (id, group_session_id, driver_id, role, status, pod_id, invited_at)
+                 VALUES (?, ?, ?, 'invitee', 'pending', ?, datetime('now'))",
+            )
+            .bind(&member_id)
+            .bind(&group_session_id)
+            .bind(friend_id)
+            .bind(friend_pod_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| format!("DB error: {}", e))?;
+        }
+
+        // Build response
+        let info = build_group_session_info(state, &group_session_id).await?;
+
+        // Broadcast to dashboard
+        let _ = state
+            .dashboard_tx
+            .send(DashboardEvent::GroupSessionCreated(info.clone()));
+
+        tracing::info!(
+            "Multiplayer group session {} created by {} with {} members, PIN: {}",
+            group_session_id,
+            host_id,
+            total_members,
+            shared_pin_str
+        );
+
+        Ok(info)
+    }.await;
+
+    match result {
+        Ok(info) => Ok(info),
+        Err(e) => {
+            // Refund host wallet since booking failed after debit
+            tracing::warn!(
+                "Multiplayer booking failed after wallet debit, refunding host {}: {}",
+                host_id, e
+            );
+            let _ = wallet::credit(
+                state,
+                host_id,
+                price_paise,
+                "refund_session",
+                Some(&group_session_id),
+                Some("Multiplayer booking failed - auto refund"),
+                None,
+            )
+            .await;
+            Err(e)
+        }
     }
-
-    // Build response
-    let info = build_group_session_info(state, &group_session_id).await?;
-
-    // Broadcast to dashboard
-    let _ = state
-        .dashboard_tx
-        .send(DashboardEvent::GroupSessionCreated(info.clone()));
-
-    tracing::info!(
-        "Multiplayer group session {} created by {} with {} members, PIN: {}",
-        group_session_id,
-        host_id,
-        total_members,
-        shared_pin_str
-    );
-
-    Ok(info)
 }
 
 /// Accept a group session invite. Debits invitee wallet, creates reservation + auth token.

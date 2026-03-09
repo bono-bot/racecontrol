@@ -82,9 +82,11 @@ export default function BottomNav() {
 
   useEffect(() => {
     if (!isLoggedIn()) return;
+    let active = true;
     api.friendRequests().then((res) => {
-      if (res.incoming) setPendingRequests(res.incoming.length);
+      if (active && res.incoming) setPendingRequests(res.incoming.length);
     }).catch(() => {});
+    return () => { active = false; };
   }, [pathname]);
 
   return (

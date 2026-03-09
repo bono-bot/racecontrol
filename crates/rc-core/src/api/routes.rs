@@ -722,7 +722,7 @@ async fn get_driver_full_profile(State(state): State<Arc<AppState>>, Path(id): P
 
     // Referral info
     let referral = sqlx::query_as::<_, (String,)>(
-        "SELECT referral_code FROM referrals WHERE referrer_id = ? AND referral_code IS NOT NULL LIMIT 1"
+        "SELECT code FROM referrals WHERE referrer_id = ? AND code IS NOT NULL LIMIT 1"
     )
     .bind(&id)
     .fetch_optional(&state.db)
@@ -742,7 +742,7 @@ async fn get_driver_full_profile(State(state): State<Arc<AppState>>, Path(id): P
 
     // Membership
     let membership = sqlx::query_as::<_, (String, String, f64, f64, String, bool, String)>(
-        "SELECT m.id, mt.name, m.hours_used, mt.hours_included, m.expires_at, m.auto_renew, m.status
+        "SELECT m.id, mt.name, m.hours_used_minutes, mt.hours_included, m.expires_at, m.auto_renew, m.status
          FROM memberships m JOIN membership_tiers mt ON m.tier_id = mt.id
          WHERE m.driver_id = ? AND m.status = 'active' LIMIT 1"
     )
@@ -2620,7 +2620,7 @@ async fn customer_session_detail(
     // Look up any refund for this session
     let refund_paise: Option<(i64,)> = sqlx::query_as(
         "SELECT COALESCE(SUM(amount_paise), 0) FROM wallet_transactions
-         WHERE reference_id = ? AND txn_type = 'refund'",
+         WHERE reference_id = ? AND txn_type IN ('refund_session', 'refund_manual')",
     )
     .bind(&id)
     .fetch_optional(&state.db)
@@ -6311,21 +6311,8 @@ async fn customer_generate_referral_code(
         }
     }
 
-    // Generate 6-char alphanumeric code
-    use std::fmt::Write;
-    let mut code = String::with_capacity(6);
-    let chars = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    for _ in 0..6 {
-        let idx = (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos() as usize) % chars.len();
-        let _ = write!(code, "{}", chars[idx] as char);
-        // tiny spin to get different nanos
-        std::hint::spin_loop();
-    }
-
-    let code = format!("RP{}", code);
+    // Generate 6-char alphanumeric code from UUID
+    let code = format!("RP{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..6].to_uppercase());
 
     let _ = sqlx::query("UPDATE drivers SET referral_code = ? WHERE id = ?")
         .bind(&code)
@@ -6420,7 +6407,7 @@ async fn customer_apply_coupon(
     // Find coupon
     let coupon: Option<(String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool)> = sqlx::query_as(
         "SELECT id, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only
-         FROM coupons WHERE code = ? AND active = 1",
+         FROM coupons WHERE code = ? AND is_active = 1",
     )
     .bind(&code)
     .fetch_optional(&state.db)
@@ -6489,7 +6476,7 @@ async fn customer_list_packages(
     let rows = sqlx::query_as::<_, (String, String, Option<String>, i64, i64, i64, bool, Option<String>, Option<String>)>(
         "SELECT id, name, description, num_rigs, duration_minutes, price_paise,
                 includes_cafe, day_restriction, hour_restriction
-         FROM packages WHERE active = 1
+         FROM packages WHERE is_active = 1
          ORDER BY price_paise ASC",
     )
     .fetch_all(&state.db)
@@ -6528,7 +6515,7 @@ async fn customer_membership(
 
     // Get active membership
     let membership: Option<(String, String, String, f64, f64, String, bool, String)> = sqlx::query_as(
-        "SELECT m.id, mt.name, mt.perks, m.hours_used, mt.hours_included,
+        "SELECT m.id, mt.name, mt.perks, m.hours_used_minutes, mt.hours_included,
                 m.expires_at, m.auto_renew, m.status
          FROM memberships m
          JOIN membership_tiers mt ON m.tier_id = mt.id
@@ -6544,7 +6531,7 @@ async fn customer_membership(
     // Get available tiers
     let tiers = sqlx::query_as::<_, (String, String, f64, i64, String)>(
         "SELECT id, name, hours_included, price_paise, perks
-         FROM membership_tiers WHERE active = 1
+         FROM membership_tiers WHERE is_active = 1
          ORDER BY price_paise ASC",
     )
     .fetch_all(&state.db)
@@ -6599,7 +6586,7 @@ async fn customer_subscribe_membership(
 
     // Check tier exists
     let tier: Option<(String, i64)> = sqlx::query_as(
-        "SELECT name, price_paise FROM membership_tiers WHERE id = ? AND active = 1",
+        "SELECT name, price_paise FROM membership_tiers WHERE id = ? AND is_active = 1",
     )
     .bind(tier_id)
     .fetch_optional(&state.db)
@@ -6628,12 +6615,13 @@ async fn customer_subscribe_membership(
 
     let membership_id = uuid::Uuid::new_v4().to_string();
     let _ = sqlx::query(
-        "INSERT INTO memberships (id, driver_id, tier_id, hours_used, expires_at, auto_renew, status)
-         VALUES (?, ?, ?, 0, datetime('now', '+30 days'), 0, 'active')",
+        "INSERT INTO memberships (id, driver_id, tier_id, hours_used_minutes, price_paise, expires_at, auto_renew, status)
+         VALUES (?, ?, ?, 0, ?, datetime('now', '+30 days'), 0, 'active')",
     )
     .bind(&membership_id)
     .bind(&driver_id)
     .bind(tier_id)
+    .bind(tier.1)
     .execute(&state.db)
     .await;
 
@@ -6830,7 +6818,7 @@ async fn public_time_trial(
 
 async fn list_pricing_rules(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>, Option<i64>, f64, i64, bool)>(
-        "SELECT id, rule_type, day_of_week, hour_start, hour_end, multiplier, flat_adjustment_paise, active
+        "SELECT id, rule_type, day_of_week, hour_start, hour_end, multiplier, flat_adjustment_paise, is_active
          FROM pricing_rules ORDER BY rule_type, day_of_week, hour_start",
     )
     .fetch_all(&state.db)
@@ -6841,7 +6829,7 @@ async fn list_pricing_rules(State(state): State<Arc<AppState>>) -> Json<Value> {
             let list: Vec<Value> = rules.iter().map(|r| json!({
                 "id": r.0, "rule_type": r.1,
                 "day_of_week": r.2, "hour_start": r.3, "hour_end": r.4,
-                "multiplier": r.5, "flat_adjustment_paise": r.6, "active": r.7,
+                "multiplier": r.5, "flat_adjustment_paise": r.6, "is_active": r.7,
             })).collect();
             Json(json!({ "rules": list }))
         }
@@ -6859,7 +6847,7 @@ async fn create_pricing_rule(
     let flat_adj = body.get("flat_adjustment_paise").and_then(|v| v.as_i64()).unwrap_or(0);
 
     let result = sqlx::query(
-        "INSERT INTO pricing_rules (id, rule_type, day_of_week, hour_start, hour_end, multiplier, flat_adjustment_paise, active)
+        "INSERT INTO pricing_rules (id, rule_type, day_of_week, hour_start, hour_end, multiplier, flat_adjustment_paise, is_active)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
     )
     .bind(&id)
@@ -6891,7 +6879,7 @@ async fn update_pricing_rule(
             hour_end = ?,
             multiplier = COALESCE(?, multiplier),
             flat_adjustment_paise = COALESCE(?, flat_adjustment_paise),
-            active = COALESCE(?, active)
+            is_active = COALESCE(?, is_active)
          WHERE id = ?",
     )
     .bind(body.get("rule_type").and_then(|v| v.as_str()))
@@ -6900,7 +6888,7 @@ async fn update_pricing_rule(
     .bind(body.get("hour_end").and_then(|v| v.as_i64()))
     .bind(body.get("multiplier").and_then(|v| v.as_f64()))
     .bind(body.get("flat_adjustment_paise").and_then(|v| v.as_i64()))
-    .bind(body.get("active").and_then(|v| v.as_bool()))
+    .bind(body.get("is_active").and_then(|v| v.as_bool()))
     .bind(&id)
     .execute(&state.db)
     .await;
@@ -6926,7 +6914,7 @@ async fn delete_pricing_rule(
 
 async fn list_coupons(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool, bool)>(
-        "SELECT id, code, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only, active
+        "SELECT id, code, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only, is_active
          FROM coupons ORDER BY created_at DESC",
     )
     .fetch_all(&state.db)
@@ -6937,7 +6925,7 @@ async fn list_coupons(State(state): State<Arc<AppState>>) -> Json<Value> {
             let list: Vec<Value> = coupons.iter().map(|c| json!({
                 "id": c.0, "code": c.1, "coupon_type": c.2, "value": c.3,
                 "max_uses": c.4, "valid_from": c.5, "valid_until": c.6,
-                "min_spend_paise": c.7, "first_session_only": c.8, "active": c.9,
+                "min_spend_paise": c.7, "first_session_only": c.8, "is_active": c.9,
             })).collect();
             Json(json!({ "coupons": list }))
         }
@@ -6956,7 +6944,7 @@ async fn create_coupon(
     }
 
     let result = sqlx::query(
-        "INSERT INTO coupons (id, code, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only, active)
+        "INSERT INTO coupons (id, code, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only, is_active)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
     )
     .bind(&id)
@@ -6992,7 +6980,7 @@ async fn update_coupon(
             valid_until = ?,
             min_spend_paise = ?,
             first_session_only = COALESCE(?, first_session_only),
-            active = COALESCE(?, active)
+            is_active = COALESCE(?, is_active)
          WHERE id = ?",
     )
     .bind(body.get("code").and_then(|v| v.as_str()))
@@ -7003,7 +6991,7 @@ async fn update_coupon(
     .bind(body.get("valid_until").and_then(|v| v.as_str()))
     .bind(body.get("min_spend_paise").and_then(|v| v.as_i64()))
     .bind(body.get("first_session_only").and_then(|v| v.as_bool()))
-    .bind(body.get("active").and_then(|v| v.as_bool()))
+    .bind(body.get("is_active").and_then(|v| v.as_bool()))
     .bind(&id)
     .execute(&state.db)
     .await;

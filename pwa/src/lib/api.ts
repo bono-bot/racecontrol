@@ -162,6 +162,7 @@ export interface LapRecord {
   car: string;
   sim_type: string;
   lap_time_ms: number;
+  lap_number?: number;
   sector1_ms: number | null;
   sector2_ms: number | null;
   sector3_ms: number | null;
@@ -258,6 +259,7 @@ export interface CustomBookingPayload {
   car: string;
   difficulty: string;
   transmission: string;
+  ffb?: string;
 }
 
 // ─── Friends & Multiplayer Types ──────────────────────────────────────────
