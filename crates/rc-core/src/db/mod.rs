@@ -1469,6 +1469,19 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Unlimited trials flag for test/demo drivers ──────────────────────
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN unlimited_trials BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+
+    // Seed test driver with unlimited trials for demos
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO drivers (id, name, phone, has_used_trial, unlimited_trials, created_at, updated_at)
+         VALUES ('driver_test_trial', 'Test Driver (Unlimited)', '0000000000', 0, 1, datetime('now'), datetime('now'))",
+    )
+    .execute(pool)
+    .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

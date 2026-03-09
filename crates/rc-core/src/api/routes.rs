@@ -3884,20 +3884,20 @@ async fn customer_book_session(
     let is_trial = tier.4;
     let price_paise = tier.3;
 
-    // Handle trial booking
+    // Handle trial booking (skip for unlimited_trials drivers)
     if is_trial {
-        let has_used = sqlx::query_as::<_, (bool,)>(
-            "SELECT COALESCE(has_used_trial, 0) FROM drivers WHERE id = ?",
+        let trial_info = sqlx::query_as::<_, (bool, bool)>(
+            "SELECT COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE id = ?",
         )
         .bind(&driver_id)
         .fetch_optional(&state.db)
         .await;
 
-        match has_used {
-            Ok(Some((true,))) => return Json(json!({ "error": "Free trial already used" })),
+        match trial_info {
+            Ok(Some((true, false))) => return Json(json!({ "error": "Free trial already used" })),
             Ok(None) => return Json(json!({ "error": "Driver not found" })),
             Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
-            _ => {} // OK to proceed
+            _ => {} // OK to proceed (hasn't used trial, or has unlimited_trials)
         }
     } else {
         // Validate wallet balance for non-trial
@@ -4855,6 +4855,7 @@ async fn sync_changes(
                         'avatar_url', avatar_url, 'total_laps', total_laps,
                         'total_time_ms', total_time_ms,
                         'has_used_trial', COALESCE(has_used_trial, 0),
+                        'unlimited_trials', COALESCE(unlimited_trials, 0),
                         'pin_hash', pin_hash, 'phone_verified', COALESCE(phone_verified, 0),
                         'dob', dob, 'waiver_signed', COALESCE(waiver_signed, 0),
                         'waiver_signed_at', waiver_signed_at, 'waiver_version', waiver_version,
@@ -5180,6 +5181,7 @@ async fn sync_push(
                 let r = sqlx::query(
                     "UPDATE drivers SET
                         has_used_trial = MAX(COALESCE(has_used_trial, 0), ?),
+                        unlimited_trials = MAX(COALESCE(unlimited_trials, 0), ?),
                         total_laps = MAX(COALESCE(total_laps, 0), ?),
                         total_time_ms = MAX(COALESCE(total_time_ms, 0), ?),
                         registration_completed = MAX(COALESCE(registration_completed, 0), ?),
@@ -5190,6 +5192,7 @@ async fn sync_push(
                      WHERE id = ?",
                 )
                 .bind(d.get("has_used_trial").and_then(|v| v.as_i64()).unwrap_or(0))
+                .bind(d.get("unlimited_trials").and_then(|v| v.as_i64()).unwrap_or(0))
                 .bind(d.get("total_laps").and_then(|v| v.as_i64()).unwrap_or(0))
                 .bind(d.get("total_time_ms").and_then(|v| v.as_i64()).unwrap_or(0))
                 .bind(d.get("registration_completed").and_then(|v| v.as_i64()).unwrap_or(0))
@@ -7927,14 +7930,14 @@ async fn bot_book(
     }
 
     // Look up driver by phone
-    let driver = sqlx::query_as::<_, (String, String, bool)>(
-        "SELECT id, name, COALESCE(has_used_trial, 0) FROM drivers WHERE phone = ?",
+    let driver = sqlx::query_as::<_, (String, String, bool, bool)>(
+        "SELECT id, name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE phone = ?",
     )
     .bind(&req.phone)
     .fetch_optional(&state.db)
     .await;
 
-    let (driver_id, driver_name, has_used_trial) = match driver {
+    let (driver_id, driver_name, has_used_trial, unlimited_trials) = match driver {
         Ok(Some(d)) => d,
         Ok(None) => return Json(json!({
             "status": "error",
@@ -7961,8 +7964,8 @@ async fn bot_book(
     let price_paise = tier.3;
     let duration_minutes = tier.2;
 
-    // Trial check
-    if is_trial && has_used_trial {
+    // Trial check (skip for unlimited_trials drivers)
+    if is_trial && has_used_trial && !unlimited_trials {
         return Json(json!({
             "status": "error",
             "error": "trial_used",

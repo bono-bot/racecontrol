@@ -312,7 +312,7 @@ export function SetupWizard({
         {/* ─── SELECT PLAN ──────────────────────────────────────── */}
         {step === "select_plan" && (
           <div className="space-y-2">
-            {tiers.map((tier) => (
+            {tiers.filter(t => !t.is_trial || !ws.selectedDriver?.has_used_trial).map((tier) => (
               <button
                 key={tier.id}
                 onClick={() => handleSelectTier(tier)}

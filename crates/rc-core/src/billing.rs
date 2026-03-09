@@ -576,18 +576,21 @@ pub async fn start_billing_session(
 
     let is_trial = tier.4;
 
-    // Check trial eligibility
-    if is_trial {
-        let has_used = sqlx::query_as::<_, (bool,)>(
-            "SELECT has_used_trial FROM drivers WHERE id = ?",
+    // Check trial eligibility (skip for unlimited_trials drivers)
+    let unlimited_trials = if is_trial {
+        let trial_info = sqlx::query_as::<_, (bool, bool)>(
+            "SELECT COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE id = ?",
         )
         .bind(&driver_id)
         .fetch_optional(&state.db)
         .await;
 
-        match has_used {
-            Ok(Some((true,))) => {
-                return Err("Driver has already used their free trial".to_string());
+        match trial_info {
+            Ok(Some((has_used, unlimited))) => {
+                if has_used && !unlimited {
+                    return Err("Driver has already used their free trial".to_string());
+                }
+                unlimited
             }
             Ok(None) => {
                 return Err(format!("Driver '{}' not found", driver_id));
@@ -595,9 +598,10 @@ pub async fn start_billing_session(
             Err(e) => {
                 return Err(format!("DB error checking trial: {}", e));
             }
-            _ => {} // OK, hasn't used trial
         }
-    }
+    } else {
+        false
+    };
 
     // Look up driver name
     let driver_name = sqlx::query_as::<_, (String,)>("SELECT name FROM drivers WHERE id = ?")
@@ -665,8 +669,8 @@ pub async fn start_billing_session(
         .await;
     }
 
-    // Mark trial as used
-    if is_trial {
+    // Mark trial as used (skip for unlimited_trials drivers)
+    if is_trial && !unlimited_trials {
         let _ = sqlx::query("UPDATE drivers SET has_used_trial = 1, updated_at = datetime('now') WHERE id = ?")
             .bind(&driver_id)
             .execute(&state.db)

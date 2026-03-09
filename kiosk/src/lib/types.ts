@@ -147,6 +147,7 @@ export interface Driver {
   phone?: string;
   total_laps: number;
   total_time_ms: number;
+  has_used_trial?: boolean;
 }
 
 // ─── Wallet ──────────────────────────────────────────────────────────────
