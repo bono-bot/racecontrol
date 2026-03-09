@@ -1,6 +1,6 @@
 //! Assetto Corsa full launch sequence for sim racing pods.
 //!
-//! Flow: Kill AC → Write race.ini → Launch acs.exe → Wait → Restart Conspit Link
+//! Flow: Kill AC → Write race.ini → Launch acs.exe → Wait → Minimize Conspit Link
 //! Requires: CSP gui.ini already patched with FORCE_START=1 (one-time setup)
 
 use std::process::Command;
@@ -144,10 +144,11 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     };
     tracing::info!("AC launched with PID {}", pid);
 
-    // Step 4: Wait for AC to load, then restart Conspit Link
-    tracing::info!("[4/5] Waiting 8s for AC to load, then restarting Conspit Link...");
+    // Step 4: Wait for AC to load, then minimize Conspit Link
+    // (Don't kill Conspit Link — it crashes on force-restart. Just minimize it.)
+    tracing::info!("[4/5] Waiting 8s for AC to load, then minimizing Conspit Link...");
     std::thread::sleep(std::time::Duration::from_secs(8));
-    restart_conspit_link();
+    minimize_conspit_window();
 
     // Step 5: Minimize background windows and bring game to foreground
     tracing::info!("[5/5] Minimizing background windows and focusing game...");
@@ -695,56 +696,56 @@ fn is_process_running(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Restart Conspit Link 2.0 so it re-handshakes with AC's telemetry.
-/// Force-minimizes window after launch since WPF apps ignore `start /min`.
-fn restart_conspit_link() {
-    let _ = Command::new("taskkill")
-        .args(["/IM", "ConspitLink2.0.exe", "/F"])
-        .output();
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
-    if Path::new(conspit_path).exists() {
-        match Command::new("cmd")
-            .args(["/c", "start", "", conspit_path])
-            .spawn()
-        {
-            Ok(_) => {
-                tracing::info!("Conspit Link 2.0 restarted, waiting to minimize...");
-                // Wait for WPF window to fully render, then force-minimize via ShowWindow
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                minimize_conspit_window();
-            }
-            Err(e) => tracing::warn!("Failed to restart Conspit Link: {}", e),
-        }
-    } else {
-        tracing::warn!("Conspit Link not found at {}", conspit_path);
-    }
-}
-
 /// Force-minimize ConspitLink window using Windows API (WPF ignores start /min).
+/// Tries multiple window title patterns since the WPF title may differ from the
+/// process name, then falls back to PowerShell process enumeration.
 fn minimize_conspit_window() {
     #[cfg(windows)]
     {
-        use std::ptr;
-        unsafe {
-            let class_name: Vec<u16> = "ConspitLink2.0\0".encode_utf16().collect();
-            // Try by window title first
-            let hwnd = winapi::um::winuser::FindWindowW(ptr::null(), class_name.as_ptr());
-            if !hwnd.is_null() {
-                winapi::um::winuser::ShowWindow(hwnd, winapi::um::winuser::SW_MINIMIZE);
-                tracing::info!("Conspit Link minimized via FindWindowW");
-                return;
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+
+        fn wide(s: &str) -> Vec<u16> {
+            OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+        }
+
+        // Try multiple possible window titles (WPF title may have spaces)
+        let titles = [
+            "Conspit Link 2.0",
+            "ConspitLink2.0",
+            "Conspit Link",
+            "ConspitLink",
+        ];
+        for title in &titles {
+            unsafe {
+                let title_wide = wide(title);
+                let hwnd = winapi::um::winuser::FindWindowW(std::ptr::null(), title_wide.as_ptr());
+                if !hwnd.is_null() {
+                    winapi::um::winuser::ShowWindow(hwnd, winapi::um::winuser::SW_MINIMIZE);
+                    tracing::info!("Conspit Link minimized via FindWindowW(\"{}\")", title);
+                    return;
+                }
             }
         }
-        // Fallback: use PowerShell to minimize by process name
-        let _ = Command::new("powershell")
+
+        // Fallback: use PowerShell to minimize by process name (wildcard for safety)
+        let result = Command::new("powershell")
             .args([
                 "-NoProfile", "-Command",
-                "Add-Type -Name W -Namespace N -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; Get-Process ConspitLink2.0 -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 6) }"
+                "Add-Type -Name W -Namespace N -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; Get-Process -Name ConspitLink* -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 6); Write-Output \"Minimized: $($_.ProcessName)\" }"
             ])
             .output();
-        tracing::info!("Conspit Link minimized via PowerShell fallback");
+        match result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if stdout.trim().is_empty() {
+                    tracing::warn!("Conspit Link: no window found to minimize (not running?)");
+                } else {
+                    tracing::info!("Conspit Link minimized via PowerShell: {}", stdout.trim());
+                }
+            }
+            Err(e) => tracing::warn!("Conspit Link minimize PowerShell failed: {}", e),
+        }
     }
 }
 
