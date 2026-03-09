@@ -41,6 +41,11 @@ const PROTECTED_PROCESSES: &[&str] = &[
     "steam.exe",
     "steamwebhelper.exe",
     "vmsdesktop.exe",
+    // James's machine runs as Pod 1 — these are infrastructure, not suspicious
+    "claude.exe",
+    "ollama.exe",
+    "ollama_llama_server.exe",
+    "deskin.exe",
 ];
 
 /// Ports we monitor for stale sockets.
