@@ -8322,6 +8322,17 @@ async fn create_debug_incident(
     .execute(db)
     .await;
 
+    // Log to activity feed so staff messages appear in real-time
+    let pod_id_for_log = body.pod_id.as_deref().unwrap_or("system");
+    crate::activity_log::log_pod_activity(
+        &state,
+        pod_id_for_log,
+        "system",
+        "Staff Report",
+        &body.description,
+        "staff",
+    );
+
     let playbook_json = playbook.map(|(pid, cat, title, steps)| {
         let parsed: Value = serde_json::from_str(&steps).unwrap_or(json!([]));
         json!({ "id": pid, "category": cat, "title": title, "steps": parsed })
@@ -8542,6 +8553,11 @@ async fn debug_diagnose(
                 json!({ "resolution_text": text, "effectiveness": eff, "created_at": ts })
             }).collect();
 
+            // Log diagnosis to activity feed
+            let detail = if diagnosis.len() > 120 { format!("{}...", &diagnosis[..120]) } else { diagnosis.clone() };
+            let log_pod = pod_id.as_deref().unwrap_or("system");
+            crate::activity_log::log_pod_activity(&state, log_pod, "race_engineer", "AI Diagnosis", &detail, "race_engineer");
+
             Json(json!({
                 "diagnosis": diagnosis,
                 "model": model,
@@ -8550,9 +8566,13 @@ async fn debug_diagnose(
                 "past_resolutions": past_json,
             }))
         }
-        Err(e) => Json(json!({
-            "error": format!("AI diagnosis failed: {}", e),
-            "incident_id": inc_id,
-        })),
+        Err(e) => {
+            let log_pod = pod_id.as_deref().unwrap_or("system");
+            crate::activity_log::log_pod_activity(&state, log_pod, "race_engineer", "AI Diagnosis Failed", &e.to_string(), "race_engineer");
+            Json(json!({
+                "error": format!("AI diagnosis failed: {}", e),
+                "incident_id": inc_id,
+            }))
+        },
     }
 }

@@ -66,6 +66,7 @@ export default function DebugPage() {
   const [currentPlaybook, setCurrentPlaybook] = useState<DebugPlaybook | null>(null);
   const [diagnosis, setDiagnosis] = useState<DebugDiagnosis | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnoseError, setDiagnoseError] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -133,6 +134,7 @@ export default function DebugPage() {
   async function handleSubmitIncident() {
     if (!issueText.trim()) return;
     setSubmitting(true);
+    setDiagnoseError(null);
     try {
       const res = await api.createDebugIncident(issueText.trim(), selectedPodId || undefined);
       setCurrentIncident(res.incident);
@@ -142,7 +144,9 @@ export default function DebugPage() {
       setDiagnosticsOpen(true);
       loadData();
     } catch (e) {
-      console.error("Failed to create incident:", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Failed to create incident:", msg);
+      setDiagnoseError(`Failed to submit: ${msg}`);
     } finally {
       setSubmitting(false);
     }
@@ -151,12 +155,20 @@ export default function DebugPage() {
   async function handleDiagnose() {
     if (!currentIncident) return;
     setDiagnosing(true);
+    setDiagnoseError(null);
     try {
       const res = await api.diagnoseIncident(currentIncident.id);
+      // Backend returns { error: "..." } with HTTP 200 on failure
+      if ((res as unknown as { error?: string }).error) {
+        setDiagnoseError((res as unknown as { error: string }).error);
+        return;
+      }
       setDiagnosis(res);
       if (res.playbook) setCurrentPlaybook(res.playbook);
     } catch (e) {
-      console.error("Failed to diagnose:", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Failed to diagnose:", msg);
+      setDiagnoseError(msg);
     } finally {
       setDiagnosing(false);
     }
@@ -175,6 +187,7 @@ export default function DebugPage() {
       setCurrentIncident(null);
       setCurrentPlaybook(null);
       setDiagnosis(null);
+      setDiagnoseError(null);
       setResolveText("");
       setResolveEffectiveness(3);
       loadData();
@@ -191,6 +204,7 @@ export default function DebugPage() {
     setCurrentIncident(null);
     setCurrentPlaybook(null);
     setDiagnosis(null);
+    setDiagnoseError(null);
     loadData();
   }
 
@@ -491,25 +505,32 @@ export default function DebugPage() {
 
                     {/* Ask Race Engineer button */}
                     {!diagnosis && (
-                      <button
-                        onClick={handleDiagnose}
-                        disabled={diagnosing}
-                        className="w-full bg-amber-600/20 hover:bg-amber-600/30 border border-amber-600/50 text-amber-400 font-medium py-2 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
-                      >
-                        {diagnosing ? (
-                          <>
-                            <span className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                            Analyzing...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                            </svg>
-                            Ask Race Engineer
-                          </>
+                      <div className="space-y-2">
+                        <button
+                          onClick={handleDiagnose}
+                          disabled={diagnosing}
+                          className="w-full bg-amber-600/20 hover:bg-amber-600/30 border border-amber-600/50 text-amber-400 font-medium py-2 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
+                        >
+                          {diagnosing ? (
+                            <>
+                              <span className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                              Analyzing...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                              </svg>
+                              Ask Race Engineer
+                            </>
+                          )}
+                        </button>
+                        {diagnoseError && (
+                          <div className="text-xs text-red-400 bg-red-900/20 border border-red-600/30 rounded-lg px-3 py-2">
+                            {diagnoseError}
+                          </div>
                         )}
-                      </button>
+                      </div>
                     )}
 
                     {/* Diagnosis result */}
@@ -525,7 +546,7 @@ export default function DebugPage() {
                           {diagnosis.diagnosis}
                         </div>
 
-                        {diagnosis.past_resolutions.length > 0 && (
+                        {diagnosis.past_resolutions?.length > 0 && (
                           <div className="mt-2">
                             <h4 className="text-xs text-zinc-500 mb-1">Past fixes:</h4>
                             {diagnosis.past_resolutions.map((r, i) => (
