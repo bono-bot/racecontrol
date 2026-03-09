@@ -767,10 +767,12 @@ pub fn ensure_conspit_link_running() {
         .spawn()
     {
         Ok(_) => {
-            tracing::info!("Conspit Link restarted, will minimize in 4s...");
-            // Wait for WPF window to render, then minimize
-            std::thread::sleep(std::time::Duration::from_secs(4));
-            minimize_conspit_window();
+            tracing::info!("Conspit Link restarted, will minimize in 4s (non-blocking)...");
+            // Spawn a thread to wait and minimize — don't block the main loop
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_secs(4));
+                minimize_conspit_window();
+            });
         }
         Err(e) => tracing::error!("Failed to restart Conspit Link: {}", e),
     }

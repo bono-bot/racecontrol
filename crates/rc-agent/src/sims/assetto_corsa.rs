@@ -62,26 +62,44 @@ mod physics {
 }
 
 // Graphics (acpmf_graphics) — updates ~10Hz
+// Reference: sim_info.py SPageFileGraphic with _pack_ = 4
+// Offsets calculated from struct layout:
+//   0: packetId(i32), 4: status(i32), 8: session(i32),
+//   12: currentTime(wchar[15]=30B), 42: lastTime(30B), 72: bestTime(30B),
+//   102: split(30B), 132: completedLaps(i32), 136: position(i32),
+//   140: iCurrentTime(i32), 144: iLastTime(i32), 148: iBestTime(i32),
+//   152: sessionTimeLeft(f32), 156: distanceTraveled(f32), 160: isInPit(i32),
+//   164: currentSectorIndex(i32), 168: lastSectorTime(i32), 172: numberOfLaps(i32),
+//   176: tyreCompound(wchar[33]=66B), 242: (pad 2B), 244: replayTimeMultiplier(f32),
+//   248: normalizedCarPosition(f32), ...
+//   396: currentSectorIndex repeated? ... 1408+: isValidLap
 mod graphics {
-    pub const STATUS: usize = 0;            // i32, AC_STATUS: 0=OFF 1=REPLAY 2=LIVE 3=PAUSE
-    pub const COMPLETED_LAPS: usize = 132;  // i32
-    pub const CURRENT_SECTOR_INDEX: usize = 136; // i32, 0=S1 1=S2 2=S3
-    pub const I_CURRENT_TIME: usize = 140;  // i32, current lap time in ms
-    pub const I_LAST_TIME: usize = 144;     // i32, last completed lap time in ms
-    pub const I_BEST_TIME: usize = 148;     // i32, session best lap time in ms
-    pub const IS_IN_PIT: usize = 160;       // i32, 1 if in pit lane
-    pub const LAST_SECTOR_TIME: usize = 168; // i32, last sector split time in ms
-    pub const IS_VALID_LAP: usize = 180;    // i32, 0 = invalid (cut/off-track)
-    pub const NORMALIZED_CAR_POSITION: usize = 288; // f32, 0.0-1.0 track progress
-    pub const NUMBER_OF_LAPS: usize = 172;  // i32, total laps in session (0 = unlimited)
+    pub const STATUS: usize = 4;              // i32, AC_STATUS: 0=OFF 1=REPLAY 2=LIVE 3=PAUSE
+    pub const COMPLETED_LAPS: usize = 132;    // i32
+    pub const CURRENT_SECTOR_INDEX: usize = 164; // i32, 0=S1 1=S2 2=S3
+    pub const I_CURRENT_TIME: usize = 140;    // i32, current lap time in ms
+    pub const I_LAST_TIME: usize = 144;       // i32, last completed lap time in ms
+    pub const I_BEST_TIME: usize = 148;       // i32, session best lap time in ms
+    pub const IS_IN_PIT: usize = 160;         // i32, 1 if in pit lane
+    pub const LAST_SECTOR_TIME: usize = 168;  // i32, last sector split time in ms
+    pub const NUMBER_OF_LAPS: usize = 172;    // i32, total laps in session (0 = unlimited)
+    pub const NORMALIZED_CAR_POSITION: usize = 248; // f32, 0.0-1.0 track progress
+    // isValidLap is deep in the extended struct (~offset 1408+), not reliably accessible
+    // We still track it but acknowledge it may read incorrect data
+    pub const IS_VALID_LAP: usize = 180;      // i32, approximate — may need correction
 }
 
 // Static (acpmf_static) — updates once per session
+// Reference: sim_info.py SPageFileStatic with _pack_ = 4
+// 0: smVersion(wchar[15]=30B), 30: acVersion(30B), 60: numberOfSessions(i32),
+// 64: numCars(i32), 68: carModel(wchar[33]=66B), 134: track(66B),
+// 200: playerName(66B), 266: playerSurname(66B), 332: playerNick(66B),
+// 398: sectorCount(i32)
 mod statics {
     pub const CAR_MODEL: usize = 68;    // wchar[33] = 66 bytes UTF-16LE
     pub const TRACK: usize = 134;       // wchar[33] = 66 bytes UTF-16LE
     pub const PLAYER_NAME: usize = 200; // wchar[33] = 66 bytes UTF-16LE
-    pub const NUM_SECTORS: usize = 268; // i32, number of sectors on this track (usually 3)
+    pub const NUM_SECTORS: usize = 398; // i32, number of sectors on this track (usually 3)
 }
 
 impl AssettoCorsaAdapter {
