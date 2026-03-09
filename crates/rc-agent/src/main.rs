@@ -28,6 +28,7 @@ use rc_common::protocol::AgentMessage;
 use rc_common::types::*;
 use sims::SimAdapter;
 use sims::assetto_corsa::AssettoCorsaAdapter;
+use sims::f1_25::F125Adapter;
 use kiosk::KioskManager;
 use lock_screen::{LockScreenEvent, LockScreenManager};
 use overlay::OverlayManager;
@@ -213,19 +214,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Create sim adapter (None for unsupported sims — they still run heartbeats)
-    let mut adapter: Option<Box<dyn SimAdapter>> = match sim_type {
-        SimType::AssettoCorsa => Some(Box::new(AssettoCorsaAdapter::new(
-            pod_id.clone(),
-            config.pod.sim_ip.clone(),
-            config.pod.sim_port,
-        ))),
-        _ => {
-            tracing::warn!("Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
-            None
-        }
-    };
-
     // Set up driving detector (USB HID + UDP)
     let detector_config = DetectorConfig {
         wheelbase_vid: config.wheelbase.vendor_id,
@@ -237,6 +225,23 @@ async fn main() -> Result<()> {
 
     // Channel for detector signals from HID/UDP tasks
     let (signal_tx, mut signal_rx) = mpsc::channel::<DetectorSignal>(256);
+
+    // Create sim adapter (None for unsupported sims — they still run heartbeats)
+    let mut adapter: Option<Box<dyn SimAdapter>> = match sim_type {
+        SimType::AssettoCorsa => Some(Box::new(AssettoCorsaAdapter::new(
+            pod_id.clone(),
+            config.pod.sim_ip.clone(),
+            config.pod.sim_port,
+        ))),
+        SimType::F125 => Some(Box::new(F125Adapter::new(
+            pod_id.clone(),
+            Some(signal_tx.clone()),
+        ))),
+        _ => {
+            tracing::warn!("Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
+            None
+        }
+    };
 
     // Spawn USB HID wheelbase monitor (blocking I/O in spawn_blocking)
     let hid_signal_tx = signal_tx.clone();
