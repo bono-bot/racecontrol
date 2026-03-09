@@ -1475,9 +1475,11 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .await;
 
     // Seed test driver with unlimited trials for demos
+    // Use UPSERT so existing driver always gets unlimited_trials=1 and has_used_trial reset
     let _ = sqlx::query(
-        "INSERT OR IGNORE INTO drivers (id, name, phone, has_used_trial, unlimited_trials, created_at, updated_at)
-         VALUES ('driver_test_trial', 'Test Driver (Unlimited)', '0000000000', 0, 1, datetime('now'), datetime('now'))",
+        "INSERT INTO drivers (id, name, phone, has_used_trial, unlimited_trials, created_at, updated_at)
+         VALUES ('driver_test_trial', 'Test Driver (Unlimited)', '0000000000', 0, 1, datetime('now'), datetime('now'))
+         ON CONFLICT(id) DO UPDATE SET unlimited_trials = 1, has_used_trial = 0, updated_at = datetime('now')",
     )
     .execute(pool)
     .await;
