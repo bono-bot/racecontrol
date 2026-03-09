@@ -749,6 +749,33 @@ fn minimize_conspit_window() {
     }
 }
 
+/// Check if Conspit Link is running; if not, restart it and minimize after a delay.
+/// Called periodically from the main loop as a crash watchdog.
+pub fn ensure_conspit_link_running() {
+    let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
+    if !Path::new(conspit_path).exists() {
+        return; // Not installed on this pod
+    }
+
+    if is_process_running("ConspitLink2.0.exe") {
+        return; // Already running, nothing to do
+    }
+
+    tracing::warn!("Conspit Link not running — restarting (crash recovery)...");
+    match Command::new("cmd")
+        .args(["/c", "start", "", conspit_path])
+        .spawn()
+    {
+        Ok(_) => {
+            tracing::info!("Conspit Link restarted, will minimize in 4s...");
+            // Wait for WPF window to render, then minimize
+            std::thread::sleep(std::time::Duration::from_secs(4));
+            minimize_conspit_window();
+        }
+        Err(e) => tracing::error!("Failed to restart Conspit Link: {}", e),
+    }
+}
+
 /// Write apps preset to enable sector times and essential HUD elements.
 /// This writes to the Documents/Assetto Corsa/cfg/ folder.
 fn write_apps_preset() -> Result<()> {

@@ -557,7 +557,7 @@ async fn main() -> Result<()> {
                     kiosk.enforce_process_whitelist();
                 }
             }
-            // Re-enforce overlay TOPMOST + clean desktop every 10s
+            // Re-enforce overlay TOPMOST + clean desktop + Conspit watchdog every 10s
             _ = overlay_topmost_interval.tick() => {
                 overlay.enforce_topmost();
                 if kiosk_enabled {
@@ -565,6 +565,8 @@ async fn main() -> Result<()> {
                         ac_launcher::minimize_background_windows();
                         // When no game is running, keep kiosk lock screen in foreground
                         lock_screen::enforce_kiosk_foreground();
+                        // Restart Conspit Link if it crashed (stays minimized)
+                        ac_launcher::ensure_conspit_link_running();
                     });
                 }
             }
