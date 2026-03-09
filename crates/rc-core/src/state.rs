@@ -36,6 +36,8 @@ pub struct AppState {
     pub camera: CameraController,
     /// Map of pod_id -> sender for pushing commands to specific agents
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,
+    /// Map of pod_id -> connection ID (monotonic counter) to detect stale disconnects
+    pub agent_conn_ids: RwLock<HashMap<String, u64>>,
     /// Shared HTTP client for outbound requests (cloud sync, etc.)
     pub http_client: reqwest::Client,
     /// Active terminal PIN sessions (token -> expiry)
@@ -65,6 +67,7 @@ impl AppState {
             ac_server: AcServerManager::new(),
             camera: CameraController::new(),
             agent_senders: RwLock::new(HashMap::new()),
+            agent_conn_ids: RwLock::new(HashMap::new()),
             http_client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()

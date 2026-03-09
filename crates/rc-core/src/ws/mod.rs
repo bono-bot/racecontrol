@@ -40,7 +40,11 @@ pub async fn dashboard_ws(
 async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
-    tracing::info!("Pod agent connected");
+    // Unique ID for this connection — used to avoid stale disconnect cleanup
+    static CONN_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let conn_id = CONN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    tracing::info!("Pod agent connected (conn_id={})", conn_id);
 
     // Create mpsc channel for sending commands back to this agent
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<CoreToAgentMessage>(64);
@@ -64,16 +68,21 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                 Ok(agent_msg) => {
                     match &agent_msg {
                         AgentMessage::Register(pod_info) => {
-                            tracing::info!("Pod {} registered: {}", pod_info.number, pod_info.name);
+                            tracing::info!("Pod {} registered (conn_id={}): {}", pod_info.number, conn_id, pod_info.name);
                             registered_pod_id = Some(pod_info.id.clone());
-                            log_pod_activity(&state, &pod_info.id, "system", "Pod Online", &format!("Pod {} connected", pod_info.number), "agent");
+                            log_pod_activity(&state, &pod_info.id, "system", "Pod Online", &format!("Pod {} connected (conn_id={})", pod_info.number, conn_id), "agent");
 
-                            // Store agent sender for this pod
+                            // Store agent sender and connection ID for this pod
                             state
                                 .agent_senders
                                 .write()
                                 .await
                                 .insert(pod_info.id.clone(), cmd_tx.clone());
+                            state
+                                .agent_conn_ids
+                                .write()
+                                .await
+                                .insert(pod_info.id.clone(), conn_id);
 
                             state
                                 .pods
@@ -334,37 +343,50 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
         }
     }
 
-    // Cleanup: remove agent sender and mark pod offline
+    // Cleanup: only remove sender and mark offline if THIS connection is still the active one.
+    // A newer connection may have already replaced us in agent_senders/agent_conn_ids,
+    // in which case this is a stale zombie disconnect and we must NOT touch the pod state.
     if let Some(pod_id) = &registered_pod_id {
-        state.agent_senders.write().await.remove(pod_id);
+        let current_conn_id = state.agent_conn_ids.read().await.get(pod_id).copied();
+        let is_stale = current_conn_id.is_some() && current_conn_id != Some(conn_id);
 
-        let has_active_billing = state
-            .billing
-            .active_timers
-            .read()
-            .await
-            .contains_key(pod_id.as_str());
+        if is_stale {
+            tracing::info!(
+                "Stale WebSocket cleanup for pod {} (conn_id={}, current={}). Skipping.",
+                pod_id, conn_id, current_conn_id.unwrap()
+            );
+        } else {
+            state.agent_senders.write().await.remove(pod_id);
+            state.agent_conn_ids.write().await.remove(pod_id);
 
-        // Mark pod offline on ungraceful disconnect (WebSocket dropped without Disconnect message)
-        if let Some(pod) = state.pods.write().await.get_mut(pod_id.as_str()) {
-            if pod.status != rc_common::types::PodStatus::Offline
-                && pod.status != rc_common::types::PodStatus::Disabled
-            {
-                tracing::warn!("Pod {} WebSocket dropped without Disconnect — marking Offline", pod_id);
-                log_pod_activity(&state, pod_id, "system", "Pod Disconnected", "WebSocket dropped unexpectedly", "core");
-                pod.status = rc_common::types::PodStatus::Offline;
-                pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
-                // Preserve game_state if billing is active — agent will resync on reconnect
-                if !has_active_billing {
-                    pod.game_state = Some(GameState::Idle);
-                    pod.current_game = None;
+            let has_active_billing = state
+                .billing
+                .active_timers
+                .read()
+                .await
+                .contains_key(pod_id.as_str());
+
+            // Mark pod offline on ungraceful disconnect (WebSocket dropped without Disconnect message)
+            if let Some(pod) = state.pods.write().await.get_mut(pod_id.as_str()) {
+                if pod.status != rc_common::types::PodStatus::Offline
+                    && pod.status != rc_common::types::PodStatus::Disabled
+                {
+                    tracing::warn!("Pod {} WebSocket dropped without Disconnect (conn_id={}) — marking Offline", pod_id, conn_id);
+                    log_pod_activity(&state, pod_id, "system", "Pod Disconnected", &format!("WebSocket dropped unexpectedly (conn_id={})", conn_id), "core");
+                    pod.status = rc_common::types::PodStatus::Offline;
+                    pod.driving_state = Some(rc_common::types::DrivingState::NoDevice);
+                    // Preserve game_state if billing is active — agent will resync on reconnect
+                    if !has_active_billing {
+                        pod.game_state = Some(GameState::Idle);
+                        pod.current_game = None;
+                    }
+                    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
                 }
-                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
             }
-        }
 
-        billing::update_driving_state(&state, pod_id, rc_common::types::DrivingState::NoDevice)
-            .await;
+            billing::update_driving_state(&state, pod_id, rc_common::types::DrivingState::NoDevice)
+                .await;
+        }
     }
 
     send_task.abort();
