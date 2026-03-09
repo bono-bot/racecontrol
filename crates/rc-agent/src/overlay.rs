@@ -1,4 +1,4 @@
-//! Racing HUD overlay displayed in the center of the screen during active billing sessions.
+//! Racing HUD overlay displayed at the top of the screen during active billing sessions.
 //!
 //! Serves a floating HTML bar via a local HTTP server (port 18925) and launches
 //! Edge in --app mode to display session timer, lap times, and sector splits.
@@ -212,10 +212,10 @@ impl OverlayManager {
         self.close_browser();
         let url = format!("http://127.0.0.1:{}", self.port);
 
-        // Center horizontally, pin to BOTTOM of screen
-        let (screen_w, screen_h) = get_screen_size();
+        // Center horizontally, pin to TOP of screen
+        let (screen_w, _screen_h) = get_screen_size();
         let x = (screen_w - 1920).max(0) / 2;
-        let y = screen_h - INITIAL_WINDOW_HEIGHT;
+        let y = 0;
 
         let edge_paths = [
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -311,10 +311,10 @@ fn set_topmost_centered() -> bool {
         return false;
     }
 
-    let (screen_w, screen_h) = get_screen_size();
+    let (screen_w, _screen_h) = get_screen_size();
     let bar_w = screen_w.min(1920); // Use full screen width up to 1920
     let x = (screen_w - bar_w).max(0) / 2;
-    let y = screen_h - BAR_HEIGHT; // Pin to bottom of screen
+    let y = 0; // Pin to top of screen
 
     unsafe {
         // Strip caption (title bar) and thick frame (resize border) for clean borderless look
@@ -327,12 +327,15 @@ fn set_topmost_centered() -> bool {
             & !(winapi::um::winuser::WS_MAXIMIZEBOX as i32);
         winapi::um::winuser::SetWindowLongW(hwnd, winapi::um::winuser::GWL_STYLE, new_style);
 
-        // Also strip extended window styles that add borders
+        // Strip extended borders + add TOOLWINDOW (hides from taskbar) + NOACTIVATE (don't steal focus from game)
         let ex_style = winapi::um::winuser::GetWindowLongW(hwnd, winapi::um::winuser::GWL_EXSTYLE);
-        let new_ex_style = ex_style
+        let new_ex_style = (ex_style
             & !(winapi::um::winuser::WS_EX_CLIENTEDGE as i32)
             & !(winapi::um::winuser::WS_EX_WINDOWEDGE as i32)
-            & !(winapi::um::winuser::WS_EX_DLGMODALFRAME as i32);
+            & !(winapi::um::winuser::WS_EX_DLGMODALFRAME as i32)
+            & !(winapi::um::winuser::WS_EX_APPWINDOW as i32))
+            | (winapi::um::winuser::WS_EX_TOOLWINDOW as i32)
+            | (winapi::um::winuser::WS_EX_NOACTIVATE as i32);
         winapi::um::winuser::SetWindowLongW(hwnd, winapi::um::winuser::GWL_EXSTYLE, new_ex_style);
 
         // Set topmost, centered, exact bar dimensions
@@ -458,12 +461,11 @@ html, body {
     -webkit-app-region: no-drag;
 }
 
-/* The bar itself — floats at bottom of window so Edge's title bar
-   sits above it harmlessly. Once title bar is stripped, this fills
-   the entire 72px window. */
+/* The bar itself — positioned at top of window. Once title bar is
+   stripped by Windows API, this fills the entire 72px window. */
 #hud {
     position: absolute;
-    bottom: 0;
+    top: 0;
     left: 0;
     right: 0;
     height: 72px;
