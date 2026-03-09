@@ -508,18 +508,33 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .await?;
 
     // Seed default kiosk experiences (Assetto Corsa — Spa)
+    // Car IDs must match exact folder names under AC content/cars/ (Kunos cars use ks_ prefix)
     sqlx::query(
         "INSERT OR IGNORE INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, sort_order)
          VALUES
-            ('exp_spa_f1_30', 'Spa Hot Lap — F1', 'assetto_corsa', 'spa', 'ferrari_sf15t', 'A', 30, 'pitlane', 1),
-            ('exp_spa_f1_60', 'Spa Hot Lap — F1 (Long)', 'assetto_corsa', 'spa', 'ferrari_sf15t', 'A', 60, 'pitlane', 2),
-            ('exp_spa_gt3_30', 'Spa Hot Lap — GT3', 'assetto_corsa', 'spa', 'mclaren_p1_gtr', 'B', 30, 'pitlane', 3),
-            ('exp_spa_gt4_30', 'Spa Hot Lap — GT4', 'assetto_corsa', 'spa', 'audi_r8_lms', 'C', 30, 'pitlane', 4),
-            ('exp_spa_road_30', 'Spa Hot Lap — Road', 'assetto_corsa', 'spa', 'lotus_3_eleven', 'D', 30, 'pitlane', 5),
-            ('exp_trial', 'Trial Lap', 'assetto_corsa', 'spa', 'ferrari_sf15t', 'A', 5, 'pitlane', 0)",
+            ('exp_spa_f1_30', 'Spa Hot Lap — F1', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 'A', 30, 'pitlane', 1),
+            ('exp_spa_f1_60', 'Spa Hot Lap — F1 (Long)', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 'A', 60, 'pitlane', 2),
+            ('exp_spa_gt3_30', 'Spa Hot Lap — GT3', 'assetto_corsa', 'spa', 'ks_mclaren_p1_gtr', 'B', 30, 'pitlane', 3),
+            ('exp_spa_gt4_30', 'Spa Hot Lap — GT4', 'assetto_corsa', 'spa', 'ks_audi_r8_lms', 'C', 30, 'pitlane', 4),
+            ('exp_spa_road_30', 'Spa Hot Lap — Road', 'assetto_corsa', 'spa', 'ks_lotus_3_eleven', 'D', 30, 'pitlane', 5),
+            ('exp_trial', 'Trial Lap', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 'A', 5, 'pitlane', 0)",
     )
     .execute(pool)
     .await?;
+
+    // Fix existing rows that were seeded without the ks_ prefix
+    sqlx::query(
+        "UPDATE kiosk_experiences SET car = 'ks_ferrari_sf15t' WHERE car = 'ferrari_sf15t'"
+    ).execute(pool).await?;
+    sqlx::query(
+        "UPDATE kiosk_experiences SET car = 'ks_mclaren_p1_gtr' WHERE car = 'mclaren_p1_gtr'"
+    ).execute(pool).await?;
+    sqlx::query(
+        "UPDATE kiosk_experiences SET car = 'ks_audi_r8_lms' WHERE car = 'audi_r8_lms'"
+    ).execute(pool).await?;
+    sqlx::query(
+        "UPDATE kiosk_experiences SET car = 'ks_lotus_3_eleven' WHERE car = 'lotus_3_eleven'"
+    ).execute(pool).await?;
 
     // Seed default kiosk settings
     sqlx::query(

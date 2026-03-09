@@ -1,24 +1,28 @@
 //! Racing HUD overlay displayed at the top of the screen during active billing sessions.
 //!
-//! Serves a floating HTML bar via a local HTTP server (port 18925) and launches
-//! Edge in --app mode to display session timer, lap times, and sector splits.
-//! The window is made borderless and topmost via Windows API after launch.
+//! Renders a native Win32 popup window with GDI text — no browser, no HTTP server.
+//! The window is created borderless and topmost from birth, so there is no
+//! timing-dependent title-bar stripping. A dedicated thread runs the Win32
+//! message loop and repaints the HUD every 200 ms.
+
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use rc_common::types::{LapData, TelemetryFrame};
 
-/// Height of the visible HUD bar content (px).
+/// Height of the HUD bar (px).
 const BAR_HEIGHT: i32 = 72;
-/// Extra height added for Edge's app-mode title bar (stripped after launch).
-const TITLE_BAR_ALLOWANCE: i32 = 40;
-/// Total initial window height before title bar is stripped.
-const INITIAL_WINDOW_HEIGHT: i32 = BAR_HEIGHT + TITLE_BAR_ALLOWANCE;
+/// Maximum bar width.
+const BAR_WIDTH: i32 = 1920;
+/// Repaint interval (ms) — matches the old HTTP polling rate.
+const REPAINT_INTERVAL_MS: u32 = 200;
+/// Timer ID for WM_TIMER.
+const TIMER_ID: usize = 1;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /// A completed lap record for overlay display.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone)]
 struct LapRecord {
     lap_time_ms: u32,
     sector1_ms: Option<u32>,
@@ -27,14 +31,13 @@ struct LapRecord {
     valid: bool,
 }
 
-/// Shared state between the HTTP server and the overlay manager.
-#[derive(Debug, Clone, serde::Serialize)]
+/// Shared state written by the public API, read by the paint routine.
+#[derive(Debug, Clone)]
 struct OverlayData {
     active: bool,
     driver_name: String,
     remaining_seconds: u32,
     allocated_seconds: u32,
-    // Current lap info from telemetry
     current_lap_number: u32,
     current_lap_time_ms: u32,
     current_sector: u8,
@@ -44,7 +47,6 @@ struct OverlayData {
     rpm: u32,
     car: String,
     track: String,
-    // Completed lap records
     previous_lap: Option<LapRecord>,
     best_lap: Option<LapRecord>,
 }
@@ -73,31 +75,31 @@ impl Default for OverlayData {
 
 // ─── Manager ─────────────────────────────────────────────────────────────────
 
-/// Manages the racing HUD overlay lifecycle: state, HTTP server, and browser window.
+/// Manages the racing HUD overlay lifecycle.
 pub struct OverlayManager {
     state: Arc<Mutex<OverlayData>>,
-    port: u16,
     #[cfg(windows)]
-    browser_process: Option<std::process::Child>,
+    window_hwnd: Arc<Mutex<Option<isize>>>,
+    #[cfg(windows)]
+    window_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl OverlayManager {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(OverlayData::default())),
-            port: 18925,
             #[cfg(windows)]
-            browser_process: None,
+            window_hwnd: Arc::new(Mutex::new(None)),
+            #[cfg(windows)]
+            window_thread: None,
         }
     }
 
-    /// Start the local HTTP server for overlay pages (call once at startup).
+    /// No-op — kept for API compatibility with main.rs.
+    /// The old implementation started an HTTP server here; the native window
+    /// is created on-demand in `activate()`.
     pub fn start_server(&self) {
-        let state = self.state.clone();
-        let port = self.port;
-        tokio::spawn(async move {
-            serve_overlay(port, state).await;
-        });
+        tracing::info!("Overlay: native Win32 mode — no HTTP server needed");
     }
 
     /// Activate overlay for a new billing session.
@@ -111,27 +113,11 @@ impl OverlayManager {
                 allocated_seconds,
                 ..OverlayData::default()
             };
-            // Keep active=true since default() sets it false
             data.active = true;
         }
-        self.launch_browser();
-        // Schedule topmost enforcement after browser has time to open
-        let state = self.state.clone();
-        tokio::spawn(async move {
-            // Try multiple times with short delays — Edge needs a moment to create the window
-            for delay_ms in [1500, 1000, 1000, 2000] {
-                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                if !state.lock().unwrap_or_else(|e| e.into_inner()).active {
-                    return;
-                }
-                #[cfg(windows)]
-                if set_topmost_centered() {
-                    tracing::info!("Overlay: title bar stripped and window centered");
-                    return;
-                }
-            }
-            tracing::warn!("Overlay: could not find window to strip title bar after 5.5s");
-        });
+
+        #[cfg(windows)]
+        self.open_window();
     }
 
     /// Update billing timer from BillingTick.
@@ -174,29 +160,27 @@ impl OverlayManager {
             return;
         }
 
-        // Always update previous lap
         data.previous_lap = Some(record.clone());
 
-        // Update best lap if this lap is valid and faster (or first valid lap)
         if lap.valid {
-            let dominated = match &data.best_lap {
+            let is_best = match &data.best_lap {
                 Some(best) => lap.lap_time_ms < best.lap_time_ms,
                 None => true,
             };
-            if dominated {
+            if is_best {
                 data.best_lap = Some(record);
             }
         }
     }
 
-    /// Deactivate overlay — close browser, restore taskbar, clear state.
+    /// Deactivate overlay — close window, restore taskbar, clear state.
     pub fn deactivate(&mut self) {
         {
             let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
             data.active = false;
         }
-        self.close_browser();
-        // Restore taskbar only when session is over (not during browser re-init)
+        #[cfg(windows)]
+        self.close_window();
         crate::kiosk::hide_taskbar(false);
     }
 
@@ -205,630 +189,552 @@ impl OverlayManager {
         let data = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if data.active {
             #[cfg(windows)]
-            set_topmost_centered();
+            {
+                let hwnd_guard = self.window_hwnd.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(h) = *hwnd_guard {
+                    let hwnd = h as winapi::shared::windef::HWND;
+                    unsafe {
+                        winapi::um::winuser::SetWindowPos(
+                            hwnd,
+                            winapi::um::winuser::HWND_TOPMOST,
+                            0,
+                            0,
+                            0,
+                            0,
+                            winapi::um::winuser::SWP_NOMOVE
+                                | winapi::um::winuser::SWP_NOSIZE
+                                | winapi::um::winuser::SWP_NOACTIVATE,
+                        );
+                    }
+                }
+            }
         }
     }
 
-    #[cfg(windows)]
-    fn launch_browser(&mut self) {
-        self.close_browser();
-        let url = format!("http://127.0.0.1:{}", self.port);
+    // ─── Windows window management ──────────────────────────────────────────
 
-        // Hide taskbar so the overlay and game have a clean fullscreen view
+    #[cfg(windows)]
+    fn open_window(&mut self) {
+        self.close_window();
         crate::kiosk::hide_taskbar(true);
 
-        // Wait for overlay HTTP server to be ready before launching Edge.
-        // The server may still be retrying its bind after a restart (TIME_WAIT).
-        let addr = format!("127.0.0.1:{}", self.port);
-        for attempt in 0..25 {
-            if std::net::TcpStream::connect(&addr).is_ok() {
-                if attempt > 0 {
-                    tracing::info!("Overlay: server ready after {}ms", attempt * 200);
-                }
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
+        let state = self.state.clone();
+        let hwnd_slot = self.window_hwnd.clone();
 
-        // Center horizontally, pin to TOP of screen
-        let (screen_w, _screen_h) = get_screen_size();
-        let x = (screen_w - 1920).max(0) / 2;
-        let y = 0;
-
-        let edge_paths = [
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-            "msedge.exe",
-        ];
-        for edge_path in &edge_paths {
-            match std::process::Command::new(edge_path)
-                .args([
-                    &format!("--app={}", url),
-                    &format!("--window-size=1920,{}", INITIAL_WINDOW_HEIGHT),
-                    &format!("--window-position={},{}", x, y),
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--disable-notifications",
-                    "--disable-infobars",
-                    "--disable-session-crashed-bubble",
-                    "--disable-component-update",
-                    "--user-data-dir=C:\\RacingPoint\\overlay-profile",
-                ])
-                .spawn()
-            {
-                Ok(child) => {
-                    self.browser_process = Some(child);
-                    tracing::info!("Overlay browser launched at {} using {}", url, edge_path);
-                    return;
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to launch Edge for overlay from {}: {}", edge_path, e);
-                }
-            }
-        }
-        tracing::error!("Overlay: could not launch Edge from any known path");
-    }
-
-    #[cfg(not(windows))]
-    fn launch_browser(&mut self) {
-        tracing::warn!("Overlay browser not supported on non-Windows platforms");
+        let handle = std::thread::spawn(move || {
+            win32_window_loop(state, hwnd_slot);
+        });
+        self.window_thread = Some(handle);
     }
 
     #[cfg(windows)]
-    fn close_browser(&mut self) {
-        if let Some(ref mut child) = self.browser_process {
-            let _ = child.kill();
-            let _ = child.wait();
-            tracing::info!("Overlay browser closed");
+    fn close_window(&mut self) {
+        {
+            let mut hwnd_guard = self.window_hwnd.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(h) = hwnd_guard.take() {
+                let hwnd = h as winapi::shared::windef::HWND;
+                unsafe {
+                    winapi::um::winuser::PostMessageW(
+                        hwnd,
+                        winapi::um::winuser::WM_CLOSE,
+                        0,
+                        0,
+                    );
+                }
+            }
         }
-        self.browser_process = None;
-    }
-
-    #[cfg(not(windows))]
-    fn close_browser(&mut self) {}
-}
-
-// ─── Windows Helpers ─────────────────────────────────────────────────────────
-
-/// Get primary monitor resolution.
-#[cfg(windows)]
-fn get_screen_size() -> (i32, i32) {
-    unsafe {
-        let w = winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN);
-        let h = winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CYSCREEN);
-        if w > 0 && h > 0 { (w, h) } else { (1920, 1080) }
+        if let Some(handle) = self.window_thread.take() {
+            let _ = handle.join();
+        }
+        tracing::info!("Overlay window closed");
     }
 }
 
-/// Find the overlay Edge window by title, strip title bar, make borderless
-/// topmost, and center it on screen. Returns true if window was found.
+// ─── Win32 Window Implementation ─────────────────────────────────────────────
+
 #[cfg(windows)]
-fn set_topmost_centered() -> bool {
+fn win32_window_loop(state: Arc<Mutex<OverlayData>>, hwnd_slot: Arc<Mutex<Option<isize>>>) {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
+    use winapi::shared::minwindef::*;
+    use winapi::shared::windef::*;
+    use winapi::um::libloaderapi::GetModuleHandleW;
+    use winapi::um::wingdi::*;
+    use winapi::um::winuser::*;
 
-    // Try the page <title> — Edge --app mode uses it as window title
-    let titles_to_try = ["Racing HUD", "Racing HUD - Racing HUD"];
-    let mut hwnd = std::ptr::null_mut();
-
-    for title_str in &titles_to_try {
-        let title: Vec<u16> = OsStr::new(title_str)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        unsafe {
-            let h = winapi::um::winuser::FindWindowW(std::ptr::null(), title.as_ptr());
-            if !h.is_null() {
-                hwnd = h;
-                break;
-            }
-        }
+    fn wide(s: &str) -> Vec<u16> {
+        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
     }
 
-    if hwnd.is_null() {
-        return false;
-    }
+    let class_name = wide("RacingHudOverlay");
+    let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
-    let (screen_w, _screen_h) = get_screen_size();
-    let bar_w = screen_w.min(1920); // Use full screen width up to 1920
-    let x = (screen_w - bar_w).max(0) / 2;
-    let y = 0; // Pin to top of screen
+    // Store state pointer as raw for the window proc
+    let state_ptr = Box::into_raw(Box::new(state.clone()));
 
-    unsafe {
-        // Strip caption (title bar) and thick frame (resize border) for clean borderless look
-        let style = winapi::um::winuser::GetWindowLongW(hwnd, winapi::um::winuser::GWL_STYLE);
-        let new_style = style
-            & !(winapi::um::winuser::WS_CAPTION as i32)
-            & !(winapi::um::winuser::WS_THICKFRAME as i32)
-            & !(winapi::um::winuser::WS_SYSMENU as i32)
-            & !(winapi::um::winuser::WS_MINIMIZEBOX as i32)
-            & !(winapi::um::winuser::WS_MAXIMIZEBOX as i32);
-        winapi::um::winuser::SetWindowLongW(hwnd, winapi::um::winuser::GWL_STYLE, new_style);
-
-        // Strip extended borders + add TOOLWINDOW (hides from taskbar) + NOACTIVATE (don't steal focus from game)
-        let ex_style = winapi::um::winuser::GetWindowLongW(hwnd, winapi::um::winuser::GWL_EXSTYLE);
-        let new_ex_style = (ex_style
-            & !(winapi::um::winuser::WS_EX_CLIENTEDGE as i32)
-            & !(winapi::um::winuser::WS_EX_WINDOWEDGE as i32)
-            & !(winapi::um::winuser::WS_EX_DLGMODALFRAME as i32)
-            & !(winapi::um::winuser::WS_EX_APPWINDOW as i32))
-            | (winapi::um::winuser::WS_EX_TOOLWINDOW as i32)
-            | (winapi::um::winuser::WS_EX_NOACTIVATE as i32);
-        winapi::um::winuser::SetWindowLongW(hwnd, winapi::um::winuser::GWL_EXSTYLE, new_ex_style);
-
-        // Set topmost, centered, exact bar dimensions
-        winapi::um::winuser::SetWindowPos(
-            hwnd,
-            winapi::um::winuser::HWND_TOPMOST,
-            x,
-            y,
-            bar_w,
-            BAR_HEIGHT,
-            winapi::um::winuser::SWP_SHOWWINDOW | winapi::um::winuser::SWP_FRAMECHANGED,
-        );
-    }
-
-    true
-}
-
-// ─── HTTP Server ─────────────────────────────────────────────────────────────
-
-async fn serve_overlay(port: u16, state: Arc<Mutex<OverlayData>>) {
-    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
-
-    // Retry binding up to 10 times (covers TIME_WAIT from crashed previous instance)
-    let listener = loop {
-        let socket = match tokio::net::TcpSocket::new_v4() {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("Overlay: failed to create socket: {}", e);
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                continue;
-            }
-        };
-        let _ = socket.set_reuseaddr(true);
-        match socket.bind(addr) {
-            Ok(()) => match socket.listen(128) {
-                Ok(l) => {
-                    tracing::info!("Overlay server listening on http://127.0.0.1:{}", port);
-                    break l;
-                }
-                Err(e) => {
-                    tracing::warn!("Overlay: listen failed on port {}: {} — retrying in 3s", port, e);
-                }
-            },
-            Err(e) => {
-                tracing::warn!("Overlay: bind failed on port {}: {} — retrying in 3s", port, e);
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let wc = WNDCLASSEXW {
+        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+        style: CS_HREDRAW | CS_VREDRAW,
+        lpfnWndProc: Some(wnd_proc),
+        cbClsExtra: 0,
+        cbWndExtra: 0,
+        hInstance: hinstance,
+        hIcon: std::ptr::null_mut(),
+        hCursor: unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) },
+        hbrBackground: std::ptr::null_mut(),
+        lpszMenuName: std::ptr::null(),
+        lpszClassName: class_name.as_ptr(),
+        hIconSm: std::ptr::null_mut(),
     };
 
-    loop {
-        let (mut stream, _) = match listener.accept().await {
-            Ok(conn) => conn,
-            Err(_) => continue,
-        };
+    unsafe {
+        RegisterClassExW(&wc);
+    }
 
-        let state = state.clone();
+    // Center horizontally on screen
+    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let bar_w = screen_w.min(BAR_WIDTH);
+    let x = (screen_w - bar_w).max(0) / 2;
 
-        tokio::spawn(async move {
-            let mut buf = [0u8; 2048];
-            let n = match stream.read(&mut buf).await {
-                Ok(n) if n > 0 => n,
-                _ => return,
-            };
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
+            class_name.as_ptr(),
+            wide("Racing HUD").as_ptr(),
+            WS_POPUP | WS_VISIBLE,
+            x,
+            0,
+            bar_w,
+            BAR_HEIGHT,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            hinstance,
+            state_ptr as LPVOID,
+        )
+    };
 
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let first_line = request.lines().next().unwrap_or("");
+    if hwnd.is_null() {
+        tracing::error!("Overlay: CreateWindowExW failed");
+        // Clean up the leaked state pointer
+        unsafe { drop(Box::from_raw(state_ptr)); }
+        return;
+    }
 
-            if first_line.contains("/favicon") {
-                let resp = "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n";
-                let _ = stream.write_all(resp.as_bytes()).await;
-                return;
+    // Set 94% opacity via layered window attributes
+    // 0.94 * 255 ≈ 240
+    unsafe {
+        SetLayeredWindowAttributes(hwnd, 0, 240, LWA_ALPHA);
+    }
+
+    // Store HWND so other threads can PostMessage to us
+    {
+        let mut slot = hwnd_slot.lock().unwrap_or_else(|e| e.into_inner());
+        *slot = Some(hwnd as isize);
+    }
+
+    // Start repaint timer
+    unsafe {
+        SetTimer(hwnd, TIMER_ID, REPAINT_INTERVAL_MS, None);
+    }
+
+    tracing::info!("Overlay: native Win32 window created ({}x{} at {},0)", bar_w, BAR_HEIGHT, x);
+
+    // Message loop
+    unsafe {
+        let mut msg: MSG = std::mem::zeroed();
+        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    // Cleanup: the state_ptr is freed in WM_DESTROY
+    {
+        let mut slot = hwnd_slot.lock().unwrap_or_else(|e| e.into_inner());
+        *slot = None;
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn wnd_proc(
+    hwnd: winapi::shared::windef::HWND,
+    msg: u32,
+    wparam: winapi::shared::minwindef::WPARAM,
+    lparam: winapi::shared::minwindef::LPARAM,
+) -> winapi::shared::minwindef::LRESULT {
+    use winapi::shared::minwindef::*;
+    use winapi::um::winuser::*;
+
+    unsafe {
+        match msg {
+            WM_CREATE => {
+                let cs = &*(lparam as *const CREATESTRUCTW);
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, cs.lpCreateParams as isize);
+                0
             }
+            WM_TIMER => {
+                InvalidateRect(hwnd, std::ptr::null(), FALSE);
+                0
+            }
+            WM_PAINT => {
+                let state_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const Arc<Mutex<OverlayData>>;
+                if !state_ptr.is_null() {
+                    let state = &*state_ptr;
+                    let data = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    paint_hud(hwnd, &data);
+                }
+                0
+            }
+            WM_DESTROY => {
+                KillTimer(hwnd, TIMER_ID);
+                let state_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Arc<Mutex<OverlayData>>;
+                if !state_ptr.is_null() {
+                    drop(Box::from_raw(state_ptr));
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                }
+                PostQuitMessage(0);
+                0
+            }
+            WM_MOUSEACTIVATE => {
+                MA_NOACTIVATE as isize
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+}
 
-            if first_line.contains("/data") {
-                // JSON endpoint for polling
-                let data = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                let json = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-cache\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    json.len(), json
-                );
-                let _ = stream.write_all(resp.as_bytes()).await;
+// ─── GDI Painting ────────────────────────────────────────────────────────────
+
+#[cfg(windows)]
+unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
+    use winapi::shared::windef::*;
+    use winapi::um::wingdi::*;
+    use winapi::um::winuser::*;
+
+    fn rgb(r: u8, g: u8, b: u8) -> u32 {
+        (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+    }
+
+    let mut ps: PAINTSTRUCT = std::mem::zeroed();
+    let hdc = BeginPaint(hwnd, &mut ps);
+    if hdc.is_null() {
+        return;
+    }
+
+    let mut rc: RECT = std::mem::zeroed();
+    GetClientRect(hwnd, &mut rc);
+    let w = rc.right - rc.left;
+    let h = rc.bottom - rc.top;
+
+    // Double-buffer to prevent flicker
+    let mem_dc = CreateCompatibleDC(hdc);
+    let mem_bmp = CreateCompatibleBitmap(hdc, w, h);
+    let old_bmp = SelectObject(mem_dc, mem_bmp as *mut _);
+
+    // ── Background ──
+    let bg_brush = CreateSolidBrush(rgb(18, 18, 18));
+    let bg_rect = RECT { left: 0, top: 0, right: w, bottom: h };
+    FillRect(mem_dc, &bg_rect, bg_brush);
+    DeleteObject(bg_brush as *mut _);
+
+    // ── Red accent borders (top 2px, bottom 2px) ──
+    let red_brush = CreateSolidBrush(rgb(225, 6, 0)); // #E10600
+    let top_border = RECT { left: 0, top: 0, right: w, bottom: 2 };
+    let bot_border = RECT { left: 0, top: h - 2, right: w, bottom: h };
+    FillRect(mem_dc, &top_border, red_brush);
+    FillRect(mem_dc, &bot_border, red_brush);
+    DeleteObject(red_brush as *mut _);
+
+    SetBkMode(mem_dc, TRANSPARENT as i32);
+
+    // ── Create fonts ──
+    let font_label = create_font(mem_dc, "Segoe UI", 11, true);
+    let font_value = create_font(mem_dc, "Segoe UI", 22, true);
+    let font_gear = create_font(mem_dc, "Segoe UI", 32, true);
+    let font_speed = create_font(mem_dc, "Segoe UI", 16, true);
+    let font_lap = create_font(mem_dc, "Segoe UI", 18, true);
+    let font_sector = create_font(mem_dc, "Segoe UI", 10, true);
+    let font_unit = create_font(mem_dc, "Segoe UI", 9, false);
+
+    // ── Section divider color ──
+    let divider_brush = CreateSolidBrush(rgb(255, 255, 255)); // will use pen instead
+    DeleteObject(divider_brush as *mut _);
+    let divider_pen = CreatePen(PS_SOLID as i32, 1, rgb(40, 40, 40));
+
+    // ── Color constants ──
+    let col_white: u32 = rgb(255, 255, 255);
+    let col_grey: u32 = rgb(85, 85, 85);
+    let col_light_grey: u32 = rgb(229, 231, 235); // #E5E7EB
+    let col_red: u32 = rgb(225, 6, 0);
+    let col_amber: u32 = rgb(245, 158, 11);
+    let col_purple: u32 = rgb(168, 85, 247);
+    let col_dim: u32 = rgb(68, 68, 68);
+
+    // ── Layout — divide into 6 sections ──
+    // We center the content in the bar. Each section gets a fixed width.
+    let section_widths: [i32; 6] = [130, 160, 110, 180, 180, 80]; // Session, Lap, Gear, Prev, Best, LapNum
+    let total_content: i32 = section_widths.iter().sum();
+    let start_x = (w - total_content).max(0) / 2;
+
+    let mut sx = start_x;
+    let label_y = 14;
+    let value_y = 32;
+
+    // Helper: draw a divider line at x
+    let old_pen = SelectObject(mem_dc, divider_pen as *mut _);
+
+    for (i, &sec_w) in section_widths.iter().enumerate() {
+        if i > 0 {
+            // Draw vertical divider
+            MoveToEx(mem_dc, sx, 10, std::ptr::null_mut());
+            LineTo(mem_dc, sx, h - 10);
+        }
+
+        match i {
+            0 => {
+                // ── Session Timer ──
+                draw_text_at(mem_dc, font_label, col_grey, sx + 12, label_y, "SESSION");
+
+                let timer_str = format_timer(data.remaining_seconds);
+                let timer_col = if data.remaining_seconds <= 10 {
+                    col_red
+                } else if data.remaining_seconds <= 60 {
+                    col_amber
+                } else {
+                    col_white
+                };
+                draw_text_at(mem_dc, font_value, timer_col, sx + 12, value_y, &timer_str);
+            }
+            1 => {
+                // ── Current Lap ──
+                draw_text_at(mem_dc, font_label, col_grey, sx + 12, label_y, "CURRENT LAP");
+
+                let lap_str = format_lap_time(data.current_lap_time_ms);
+                let lap_col = if data.current_lap_invalid { rgb(255, 138, 132) } else { col_white };
+                // Red left border indicator for invalid laps
+                if data.current_lap_invalid {
+                    let inv_brush = CreateSolidBrush(col_red);
+                    let inv_rect = RECT { left: sx + 8, top: value_y - 2, right: sx + 11, bottom: value_y + 24 };
+                    FillRect(mem_dc, &inv_rect, inv_brush);
+                    DeleteObject(inv_brush as *mut _);
+                }
+                draw_text_at(mem_dc, font_value, lap_col, sx + 16, value_y, &lap_str);
+            }
+            2 => {
+                // ── Gear + Speed ──
+                let gear_str = match data.gear {
+                    0 => "N".to_string(),
+                    g if g < 0 => "R".to_string(),
+                    g => g.to_string(),
+                };
+                draw_text_at(mem_dc, font_gear, col_white, sx + 12, 16, &gear_str);
+
+                let speed_str = if data.speed_kmh > 0.0 {
+                    format!("{}", data.speed_kmh.round() as i32)
+                } else {
+                    "---".to_string()
+                };
+                draw_text_at(mem_dc, font_speed, rgb(187, 187, 187), sx + 52, 22, &speed_str);
+                draw_text_at(mem_dc, font_unit, col_dim, sx + 52, 42, "KM/H");
+            }
+            3 => {
+                // ── Previous Lap ──
+                draw_text_at(mem_dc, font_label, col_grey, sx + 12, label_y, "PREV");
+
+                if let Some(ref prev) = data.previous_lap {
+                    let prev_str = format_lap_time(prev.lap_time_ms);
+                    draw_text_at(mem_dc, font_lap, col_light_grey, sx + 12, value_y, &prev_str);
+
+                    // Sector times
+                    let sector_y = value_y + 22;
+                    let mut sector_x = sx + 12;
+                    for (label, ms, best_ms) in [
+                        ("S1", prev.sector1_ms, data.best_lap.as_ref().and_then(|b| b.sector1_ms)),
+                        ("S2", prev.sector2_ms, data.best_lap.as_ref().and_then(|b| b.sector2_ms)),
+                        ("S3", prev.sector3_ms, data.best_lap.as_ref().and_then(|b| b.sector3_ms)),
+                    ] {
+                        draw_text_at(mem_dc, font_sector, col_dim, sector_x, sector_y, label);
+                        sector_x += 14;
+                        let val_str = format_sector(ms);
+                        let col = sector_color(ms, best_ms, col_grey, col_purple, rgb(34, 197, 94), col_amber);
+                        draw_text_at(mem_dc, font_sector, col, sector_x, sector_y, &val_str);
+                        sector_x += 42;
+                    }
+                } else {
+                    draw_text_at(mem_dc, font_lap, rgb(51, 51, 51), sx + 12, value_y, "--:--.---");
+                }
+            }
+            4 => {
+                // ── Best Lap ──
+                draw_text_at(mem_dc, font_label, col_purple, sx + 12, label_y, "BEST");
+
+                if let Some(ref best) = data.best_lap {
+                    let best_str = format_lap_time(best.lap_time_ms);
+                    draw_text_at(mem_dc, font_lap, col_purple, sx + 12, value_y, &best_str);
+
+                    // Sector times (always purple for best)
+                    let sector_y = value_y + 22;
+                    let mut sector_x = sx + 12;
+                    for (label, ms) in [("S1", best.sector1_ms), ("S2", best.sector2_ms), ("S3", best.sector3_ms)] {
+                        draw_text_at(mem_dc, font_sector, col_purple, sector_x, sector_y, label);
+                        sector_x += 14;
+                        draw_text_at(mem_dc, font_sector, col_purple, sector_x, sector_y, &format_sector(ms));
+                        sector_x += 42;
+                    }
+                } else {
+                    draw_text_at(mem_dc, font_lap, rgb(51, 51, 51), sx + 12, value_y, "--:--.---");
+                }
+            }
+            5 => {
+                // ── Lap Counter ──
+                draw_text_at(mem_dc, font_label, col_grey, sx + 12, label_y, "LAP");
+
+                let lap_num_str = if data.current_lap_number > 0 {
+                    data.current_lap_number.to_string()
+                } else {
+                    "-".to_string()
+                };
+                draw_text_at(mem_dc, font_value, col_white, sx + 12, value_y, &lap_num_str);
+
+                // INV badge
+                if data.current_lap_invalid {
+                    let badge_x = sx + 42;
+                    let badge_y = value_y + 2;
+                    let badge_brush = CreateSolidBrush(col_red);
+                    let badge_rect = RECT {
+                        left: badge_x,
+                        top: badge_y,
+                        right: badge_x + 30,
+                        bottom: badge_y + 16,
+                    };
+                    FillRect(mem_dc, &badge_rect, badge_brush);
+                    DeleteObject(badge_brush as *mut _);
+                    let font_badge = create_font(mem_dc, "Segoe UI", 9, true);
+                    draw_text_at(mem_dc, font_badge, col_white, badge_x + 4, badge_y + 1, "INV");
+                    DeleteObject(font_badge as *mut _);
+                }
+            }
+            _ => {}
+        }
+
+        sx += sec_w;
+    }
+
+    // Cleanup GDI objects
+    SelectObject(mem_dc, old_pen as *mut _);
+    DeleteObject(divider_pen as *mut _);
+    DeleteObject(font_label as *mut _);
+    DeleteObject(font_value as *mut _);
+    DeleteObject(font_gear as *mut _);
+    DeleteObject(font_speed as *mut _);
+    DeleteObject(font_lap as *mut _);
+    DeleteObject(font_sector as *mut _);
+    DeleteObject(font_unit as *mut _);
+
+    // Blit double buffer to screen
+    BitBlt(hdc, 0, 0, w, h, mem_dc, 0, 0, SRCCOPY);
+
+    // Cleanup double buffer
+    SelectObject(mem_dc, old_bmp);
+    DeleteObject(mem_bmp as *mut _);
+    DeleteDC(mem_dc);
+
+    EndPaint(hwnd, &ps);
+}
+
+// ─── GDI Helpers ─────────────────────────────────────────────────────────────
+
+#[cfg(windows)]
+unsafe fn create_font(
+    _hdc: winapi::shared::windef::HDC,
+    face: &str,
+    size: i32,
+    bold: bool,
+) -> winapi::shared::windef::HFONT {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use winapi::um::wingdi::*;
+
+    let mut face_wide = [0u16; 32];
+    for (i, c) in OsStr::new(face).encode_wide().enumerate() {
+        if i >= 31 { break; }
+        face_wide[i] = c;
+    }
+
+    CreateFontW(
+        -size,                              // height (negative = character height)
+        0,                                  // width (auto)
+        0,                                  // escapement
+        0,                                  // orientation
+        if bold { 700 } else { 400 },       // weight
+        0,                                  // italic
+        0,                                  // underline
+        0,                                  // strikeout
+        1,                                  // charset (DEFAULT_CHARSET)
+        0,                                  // out precision
+        0,                                  // clip precision
+        5,                                  // quality (CLEARTYPE_QUALITY)
+        0,                                  // pitch and family
+        face_wide.as_ptr(),
+    )
+}
+
+#[cfg(windows)]
+unsafe fn draw_text_at(
+    hdc: winapi::shared::windef::HDC,
+    font: winapi::shared::windef::HFONT,
+    color: u32,
+    x: i32,
+    y: i32,
+    text: &str,
+) {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use winapi::um::wingdi::*;
+
+    let old_font = SelectObject(hdc, font as *mut _);
+    SetTextColor(hdc, color);
+    let wide: Vec<u16> = OsStr::new(text).encode_wide().collect();
+    TextOutW(hdc, x, y, wide.as_ptr(), wide.len() as i32);
+    SelectObject(hdc, old_font);
+}
+
+// ─── Formatting Helpers ──────────────────────────────────────────────────────
+
+fn format_timer(seconds: u32) -> String {
+    let m = seconds / 60;
+    let s = seconds % 60;
+    format!("{:02}:{:02}", m, s)
+}
+
+fn format_lap_time(ms: u32) -> String {
+    if ms == 0 {
+        return "--:--.---".to_string();
+    }
+    let m = ms / 60_000;
+    let s = (ms % 60_000) / 1000;
+    let ml = ms % 1000;
+    format!("{}:{:02}.{:03}", m, s, ml)
+}
+
+fn format_sector(ms: Option<u32>) -> String {
+    match ms {
+        Some(v) if v > 0 => format!("{:.1}", v as f64 / 1000.0),
+        _ => "--.--".to_string(),
+    }
+}
+
+fn sector_color(prev_ms: Option<u32>, best_ms: Option<u32>, default: u32, purple: u32, green: u32, yellow: u32) -> u32 {
+    match (prev_ms, best_ms) {
+        (Some(p), Some(b)) if p > 0 && b > 0 => {
+            if p <= b {
+                purple
+            } else if p.saturating_sub(b) <= 300 {
+                green
             } else {
-                // Serve the HTML overlay page
-                let body = render_overlay_page();
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    body.len(), body
-                );
-                let _ = stream.write_all(resp.as_bytes()).await;
+                yellow
             }
-        });
-    }
-}
-
-// ─── HTML/CSS/JS ─────────────────────────────────────────────────────────────
-
-fn render_overlay_page() -> String {
-    OVERLAY_HTML.to_string()
-}
-
-const OVERLAY_HTML: &str = r##"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Racing HUD</title>
-<style>
-@font-face {
-    font-family: 'HUD';
-    src: local('Montserrat'), local('Segoe UI'), local('system-ui');
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body {
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: transparent;
-    color: #fff;
-    font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
-    user-select: none;
-    -webkit-user-select: none;
-    -webkit-app-region: no-drag;
-}
-
-/* The bar itself — positioned at top of window. Once title bar is
-   stripped by Windows API, this fills the entire 72px window. */
-#hud {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 72px;
-    background: rgba(18, 18, 18, 0.94);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-top: 2px solid #E10600;
-    border-bottom: 2px solid #E10600;
-}
-
-.sec {
-    display: flex;
-    align-items: center;
-    padding: 0 20px;
-    height: 100%;
-    flex-shrink: 0;
-}
-.sec + .sec { border-left: 1px solid rgba(255,255,255,0.08); }
-.sec-inner { display: flex; flex-direction: column; justify-content: center; }
-
-.lbl {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: #555;
-    line-height: 1;
-    margin-bottom: 3px;
-}
-
-/* Session Timer */
-.timer-sec { min-width: 120px; }
-.timer-val {
-    font-size: 24px;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 1px;
-    color: #fff;
-    line-height: 1.1;
-}
-.timer-val.warning { color: #F59E0B; }
-.timer-val.critical { color: #E10600; animation: pulse 0.5s ease-in-out infinite; }
-
-/* Current Lap */
-.clap-sec { min-width: 150px; }
-.clap-val {
-    font-size: 24px;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-    color: #fff;
-    line-height: 1.1;
-    padding-left: 6px;
-    border-left: 3px solid transparent;
-}
-.clap-val.invalid { border-left-color: #E10600; color: #ff8a84; }
-
-/* Speed / Gear */
-.sg-sec { min-width: 90px; }
-.sg-wrap {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-}
-.gear-val {
-    font-size: 34px;
-    font-weight: 900;
-    font-variant-numeric: tabular-nums;
-    color: #fff;
-    line-height: 1;
-    min-width: 28px;
-    text-align: center;
-}
-.speed-col {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-}
-.speed-val {
-    font-size: 17px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    color: #bbb;
-    line-height: 1.1;
-}
-.speed-unit {
-    font-size: 8px;
-    font-weight: 600;
-    color: #444;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-/* Prev / Best Lap */
-.lap-val {
-    font-size: 19px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    line-height: 1.1;
-}
-.prev-sec .lap-val { color: #E5E7EB; }
-.best-sec .lap-val { color: #A855F7; }
-.best-sec .lbl { color: #A855F7; }
-
-.sectors { display: flex; gap: 6px; margin-top: 2px; }
-.sk {
-    font-size: 10px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: #666;
-    white-space: nowrap;
-}
-.sk-tag {
-    font-size: 8px;
-    font-weight: 700;
-    color: #444;
-    margin-right: 2px;
-}
-/* Sector delta colors */
-.sk.green .sk-val { color: #22C55E; }
-.sk.purple .sk-val { color: #A855F7; }
-.sk.yellow .sk-val { color: #F59E0B; }
-
-/* Lap Counter */
-.lc-sec { min-width: 65px; }
-.lc-wrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-.lap-num {
-    font-size: 20px;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-    color: #fff;
-    line-height: 1;
-}
-.inv-badge {
-    font-size: 8px;
-    font-weight: 700;
-    background: #E10600;
-    color: #fff;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    display: none;
-}
-.inv-badge.show { display: inline-block; }
-
-.nd { color: #333; }
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-}
-.hidden { display: none !important; }
-</style>
-</head>
-<body>
-
-<div id="hud">
-
-<!-- Session Timer -->
-<div class="sec timer-sec">
-    <div class="sec-inner">
-        <div class="lbl">Session</div>
-        <div class="timer-val" id="timer">--:--</div>
-    </div>
-</div>
-
-<!-- Current Lap Time -->
-<div class="sec clap-sec">
-    <div class="sec-inner">
-        <div class="lbl">Current Lap</div>
-        <div class="clap-val" id="curLap">--:--.---</div>
-    </div>
-</div>
-
-<!-- Speed / Gear -->
-<div class="sec sg-sec">
-    <div class="sg-wrap">
-        <div class="gear-val" id="gear">N</div>
-        <div class="speed-col">
-            <div class="speed-val" id="speed">---</div>
-            <div class="speed-unit">km/h</div>
-        </div>
-    </div>
-</div>
-
-<!-- Previous Lap -->
-<div class="sec prev-sec">
-    <div class="sec-inner">
-        <div class="lbl">Prev</div>
-        <div class="lap-val" id="prevLap">--:--.---</div>
-        <div class="sectors">
-            <span class="sk" id="ps1"><span class="sk-tag">S1</span><span class="sk-val" id="ps1v">--.--</span></span>
-            <span class="sk" id="ps2"><span class="sk-tag">S2</span><span class="sk-val" id="ps2v">--.--</span></span>
-            <span class="sk" id="ps3"><span class="sk-tag">S3</span><span class="sk-val" id="ps3v">--.--</span></span>
-        </div>
-    </div>
-</div>
-
-<!-- Best Lap -->
-<div class="sec best-sec">
-    <div class="sec-inner">
-        <div class="lbl">Best</div>
-        <div class="lap-val" id="bestLap">--:--.---</div>
-        <div class="sectors">
-            <span class="sk purple" id="bs1"><span class="sk-tag">S1</span><span class="sk-val" id="bs1v">--.--</span></span>
-            <span class="sk purple" id="bs2"><span class="sk-tag">S2</span><span class="sk-val" id="bs2v">--.--</span></span>
-            <span class="sk purple" id="bs3"><span class="sk-tag">S3</span><span class="sk-val" id="bs3v">--.--</span></span>
-        </div>
-    </div>
-</div>
-
-<!-- Lap Counter -->
-<div class="sec lc-sec">
-    <div class="sec-inner">
-        <div class="lbl">Lap</div>
-        <div class="lc-wrap">
-            <div class="lap-num" id="lapNum">-</div>
-            <div class="inv-badge" id="invBadge">INV</div>
-        </div>
-    </div>
-</div>
-
-</div><!-- #hud -->
-
-<script>
-(function() {
-    function fmt(ms) {
-        if (!ms || ms <= 0) return '--:--.---';
-        var m = Math.floor(ms / 60000);
-        var s = Math.floor((ms % 60000) / 1000);
-        var ml = ms % 1000;
-        return m + ':' + String(s).padStart(2, '0') + '.' + String(ml).padStart(3, '0');
-    }
-    function fmtSec(ms) {
-        if (!ms || ms <= 0) return '--.--';
-        return (ms / 1000).toFixed(1);
-    }
-    function fmtTimer(sec) {
-        if (sec == null || sec < 0) return '--:--';
-        var m = Math.floor(sec / 60);
-        var s = sec % 60;
-        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    }
-    function gearStr(g) {
-        if (g === 0) return 'N';
-        if (g < 0) return 'R';
-        return String(g);
-    }
-    function sectorClass(prevMs, bestMs) {
-        if (!prevMs || prevMs <= 0 || !bestMs || bestMs <= 0) return '';
-        if (prevMs <= bestMs) return 'purple';
-        if (prevMs - bestMs <= 300) return 'green';
-        return 'yellow';
-    }
-
-    var timer = document.getElementById('timer');
-    var curLap = document.getElementById('curLap');
-    var gearEl = document.getElementById('gear');
-    var speedEl = document.getElementById('speed');
-    var prevLap = document.getElementById('prevLap');
-    var ps1 = document.getElementById('ps1');
-    var ps1v = document.getElementById('ps1v');
-    var ps2 = document.getElementById('ps2');
-    var ps2v = document.getElementById('ps2v');
-    var ps3 = document.getElementById('ps3');
-    var ps3v = document.getElementById('ps3v');
-    var bestLapEl = document.getElementById('bestLap');
-    var bs1v = document.getElementById('bs1v');
-    var bs2v = document.getElementById('bs2v');
-    var bs3v = document.getElementById('bs3v');
-    var lapNum = document.getElementById('lapNum');
-    var invBadge = document.getElementById('invBadge');
-
-    function setSector(wrap, valEl, ms, cls) {
-        valEl.textContent = fmtSec(ms);
-        wrap.className = 'sk' + (cls ? ' ' + cls : '');
-    }
-
-    function update(d) {
-        if (!d || !d.active) {
-            timer.textContent = '--:--';
-            curLap.textContent = '--:--.---';
-            curLap.className = 'clap-val';
-            gearEl.textContent = 'N';
-            speedEl.textContent = '---';
-            return;
         }
-
-        // Timer
-        timer.textContent = fmtTimer(d.remaining_seconds);
-        timer.className = 'timer-val';
-        if (d.remaining_seconds <= 10) timer.className = 'timer-val critical';
-        else if (d.remaining_seconds <= 60) timer.className = 'timer-val warning';
-
-        // Current lap time
-        curLap.textContent = fmt(d.current_lap_time_ms);
-        curLap.className = d.current_lap_invalid ? 'clap-val invalid' : 'clap-val';
-
-        // Speed + Gear
-        gearEl.textContent = gearStr(d.gear);
-        speedEl.textContent = d.speed_kmh > 0 ? Math.round(d.speed_kmh) : '---';
-
-        // Previous lap with sector delta colors
-        if (d.previous_lap) {
-            prevLap.textContent = fmt(d.previous_lap.lap_time_ms);
-            var b = d.best_lap;
-            setSector(ps1, ps1v, d.previous_lap.sector1_ms, b ? sectorClass(d.previous_lap.sector1_ms, b.sector1_ms) : '');
-            setSector(ps2, ps2v, d.previous_lap.sector2_ms, b ? sectorClass(d.previous_lap.sector2_ms, b.sector2_ms) : '');
-            setSector(ps3, ps3v, d.previous_lap.sector3_ms, b ? sectorClass(d.previous_lap.sector3_ms, b.sector3_ms) : '');
-        }
-
-        // Best lap (sectors always purple)
-        if (d.best_lap) {
-            bestLapEl.textContent = fmt(d.best_lap.lap_time_ms);
-            bs1v.textContent = fmtSec(d.best_lap.sector1_ms);
-            bs2v.textContent = fmtSec(d.best_lap.sector2_ms);
-            bs3v.textContent = fmtSec(d.best_lap.sector3_ms);
-        }
-
-        // Lap counter
-        lapNum.textContent = d.current_lap_number > 0 ? d.current_lap_number : '-';
-        invBadge.className = d.current_lap_invalid ? 'inv-badge show' : 'inv-badge';
+        _ => default,
     }
-
-    function poll() {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/data', true);
-        xhr.timeout = 500;
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                try { update(JSON.parse(xhr.responseText)); } catch(e) {}
-            }
-        };
-        xhr.send();
-    }
-
-    setInterval(poll, 200);
-    poll();
-})();
-</script>
-</body>
-</html>"##;
+}

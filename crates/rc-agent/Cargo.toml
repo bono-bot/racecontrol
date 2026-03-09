@@ -46,4 +46,4 @@ dirs-next = "2"
 
 # Windows process management
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror"] }
+winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi"] }
