@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use rc_common::types::{LapData, TelemetryFrame};
 
 /// Height of the HUD bar (px).
-const BAR_HEIGHT: i32 = 72;
+const BAR_HEIGHT: i32 = 96;
 /// Maximum bar width.
 const BAR_WIDTH: i32 = 1920;
 /// Repaint interval (ms) — matches the old HTTP polling rate.
@@ -437,9 +437,31 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
     FillRect(mem_dc, &bg_rect, bg_brush);
     DeleteObject(bg_brush as *mut _);
 
-    // ── Red accent borders (top 2px, bottom 2px) ──
+    // ── RPM color bar (top 4px, full width) ──
+    // Green at low RPM → Yellow mid → Red near redline
+    let rpm_pct = if data.rpm > 0 { (data.rpm as f32 / 18000.0).min(1.0) } else { 0.0 };
+    let rpm_bar_w = (rpm_pct * w as f32) as i32;
+    let rpm_col = if rpm_pct > 0.90 {
+        rgb(225, 6, 0)       // Red — near redline
+    } else if rpm_pct > 0.75 {
+        rgb(245, 158, 11)    // Amber — high RPM
+    } else if rpm_pct > 0.50 {
+        rgb(234, 179, 8)     // Yellow — mid RPM
+    } else {
+        rgb(34, 197, 94)     // Green — low RPM
+    };
+    let rpm_brush = CreateSolidBrush(rpm_col);
+    let rpm_bg_brush = CreateSolidBrush(rgb(30, 30, 30));
+    let rpm_bar_rect = RECT { left: 0, top: 0, right: w, bottom: 4 };
+    FillRect(mem_dc, &rpm_bar_rect, rpm_bg_brush);
+    let rpm_fill_rect = RECT { left: 0, top: 0, right: rpm_bar_w, bottom: 4 };
+    FillRect(mem_dc, &rpm_fill_rect, rpm_brush);
+    DeleteObject(rpm_brush as *mut _);
+    DeleteObject(rpm_bg_brush as *mut _);
+
+    // ── Red accent border below RPM bar (1px) ──
     let red_brush = CreateSolidBrush(rgb(225, 6, 0)); // #E10600
-    let top_border = RECT { left: 0, top: 0, right: w, bottom: 2 };
+    let top_border = RECT { left: 0, top: 4, right: w, bottom: 6 };
     let bot_border = RECT { left: 0, top: h - 2, right: w, bottom: h };
     FillRect(mem_dc, &top_border, red_brush);
     FillRect(mem_dc, &bot_border, red_brush);
@@ -453,12 +475,11 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
     let font_gear = create_font(mem_dc, "Segoe UI", 32, true);
     let font_speed = create_font(mem_dc, "Segoe UI", 16, true);
     let font_lap = create_font(mem_dc, "Segoe UI", 18, true);
-    let font_sector = create_font(mem_dc, "Segoe UI", 10, true);
+    let font_sector = create_font(mem_dc, "Segoe UI", 12, true);
+    let font_sector_label = create_font(mem_dc, "Segoe UI", 10, false);
     let font_unit = create_font(mem_dc, "Segoe UI", 9, false);
 
-    // ── Section divider color ──
-    let divider_brush = CreateSolidBrush(rgb(255, 255, 255)); // will use pen instead
-    DeleteObject(divider_brush as *mut _);
+    // ── Section divider ──
     let divider_pen = CreatePen(PS_SOLID as i32, 1, rgb(40, 40, 40));
 
     // ── Color constants ──
@@ -469,16 +490,18 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
     let col_amber: u32 = rgb(245, 158, 11);
     let col_purple: u32 = rgb(168, 85, 247);
     let col_dim: u32 = rgb(68, 68, 68);
+    let col_sector_grey: u32 = rgb(160, 160, 160);
 
     // ── Layout — divide into 6 sections ──
-    // We center the content in the bar. Each section gets a fixed width.
-    let section_widths: [i32; 6] = [130, 160, 110, 180, 180, 80]; // Session, Lap, Gear, Prev, Best, LapNum
+    // Content starts below RPM bar (6px top reserved).
+    let section_widths: [i32; 6] = [130, 160, 110, 200, 200, 80]; // Session, Lap, Gear, Prev, Best, LapNum
     let total_content: i32 = section_widths.iter().sum();
     let start_x = (w - total_content).max(0) / 2;
 
     let mut sx = start_x;
-    let label_y = 14;
-    let value_y = 32;
+    let label_y = 12;
+    let value_y = 28;
+    let sector_y = 56; // Row for sector times
 
     // Helper: draw a divider line at x
     let old_pen = SelectObject(mem_dc, divider_pen as *mut _);
@@ -486,8 +509,8 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
     for (i, &sec_w) in section_widths.iter().enumerate() {
         if i > 0 {
             // Draw vertical divider
-            MoveToEx(mem_dc, sx, 10, std::ptr::null_mut());
-            LineTo(mem_dc, sx, h - 10);
+            MoveToEx(mem_dc, sx, 8, std::ptr::null_mut());
+            LineTo(mem_dc, sx, h - 6);
         }
 
         match i {
@@ -519,6 +542,15 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
                     DeleteObject(inv_brush as *mut _);
                 }
                 draw_text_at(mem_dc, font_value, lap_col, sx + 16, value_y, &lap_str);
+
+                // Live sector indicator below current lap
+                let sector_label = match data.current_sector {
+                    0 => "S1",
+                    1 => "S2",
+                    2 => "S3",
+                    _ => "S1",
+                };
+                draw_text_at(mem_dc, font_sector_label, col_dim, sx + 16, sector_y, sector_label);
             }
             2 => {
                 // ── Gear + Speed ──
@@ -527,15 +559,21 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
                     g if g < 0 => "R".to_string(),
                     g => g.to_string(),
                 };
-                draw_text_at(mem_dc, font_gear, col_white, sx + 12, 16, &gear_str);
+                draw_text_at(mem_dc, font_gear, col_white, sx + 12, 14, &gear_str);
 
                 let speed_str = if data.speed_kmh > 0.0 {
                     format!("{}", data.speed_kmh.round() as i32)
                 } else {
                     "---".to_string()
                 };
-                draw_text_at(mem_dc, font_speed, rgb(187, 187, 187), sx + 52, 22, &speed_str);
-                draw_text_at(mem_dc, font_unit, col_dim, sx + 52, 42, "KM/H");
+                draw_text_at(mem_dc, font_speed, rgb(187, 187, 187), sx + 52, 18, &speed_str);
+                draw_text_at(mem_dc, font_unit, col_dim, sx + 52, 38, "KM/H");
+
+                // RPM number below
+                if data.rpm > 0 {
+                    let rpm_str = format!("{}", data.rpm);
+                    draw_text_at(mem_dc, font_sector_label, col_dim, sx + 52, sector_y, &rpm_str);
+                }
             }
             3 => {
                 // ── Previous Lap ──
@@ -545,20 +583,19 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
                     let prev_str = format_lap_time(prev.lap_time_ms);
                     draw_text_at(mem_dc, font_lap, col_light_grey, sx + 12, value_y, &prev_str);
 
-                    // Sector times
-                    let sector_y = value_y + 22;
+                    // Sector times — prominent row
                     let mut sector_x = sx + 12;
                     for (label, ms, best_ms) in [
                         ("S1", prev.sector1_ms, data.best_lap.as_ref().and_then(|b| b.sector1_ms)),
                         ("S2", prev.sector2_ms, data.best_lap.as_ref().and_then(|b| b.sector2_ms)),
                         ("S3", prev.sector3_ms, data.best_lap.as_ref().and_then(|b| b.sector3_ms)),
                     ] {
-                        draw_text_at(mem_dc, font_sector, col_dim, sector_x, sector_y, label);
-                        sector_x += 14;
+                        draw_text_at(mem_dc, font_sector_label, col_dim, sector_x, sector_y, label);
+                        sector_x += 16;
                         let val_str = format_sector(ms);
-                        let col = sector_color(ms, best_ms, col_grey, col_purple, rgb(34, 197, 94), col_amber);
-                        draw_text_at(mem_dc, font_sector, col, sector_x, sector_y, &val_str);
-                        sector_x += 42;
+                        let col = sector_color(ms, best_ms, col_sector_grey, col_purple, rgb(34, 197, 94), col_amber);
+                        draw_text_at(mem_dc, font_sector, col, sector_x, sector_y - 1, &val_str);
+                        sector_x += 46;
                     }
                 } else {
                     draw_text_at(mem_dc, font_lap, rgb(51, 51, 51), sx + 12, value_y, "--:--.---");
@@ -572,14 +609,13 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
                     let best_str = format_lap_time(best.lap_time_ms);
                     draw_text_at(mem_dc, font_lap, col_purple, sx + 12, value_y, &best_str);
 
-                    // Sector times (always purple for best)
-                    let sector_y = value_y + 22;
+                    // Sector times — always purple for best
                     let mut sector_x = sx + 12;
                     for (label, ms) in [("S1", best.sector1_ms), ("S2", best.sector2_ms), ("S3", best.sector3_ms)] {
-                        draw_text_at(mem_dc, font_sector, col_purple, sector_x, sector_y, label);
-                        sector_x += 14;
-                        draw_text_at(mem_dc, font_sector, col_purple, sector_x, sector_y, &format_sector(ms));
-                        sector_x += 42;
+                        draw_text_at(mem_dc, font_sector_label, rgb(120, 60, 180), sector_x, sector_y, label);
+                        sector_x += 16;
+                        draw_text_at(mem_dc, font_sector, col_purple, sector_x, sector_y - 1, &format_sector(ms));
+                        sector_x += 46;
                     }
                 } else {
                     draw_text_at(mem_dc, font_lap, rgb(51, 51, 51), sx + 12, value_y, "--:--.---");
@@ -629,6 +665,7 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
     DeleteObject(font_speed as *mut _);
     DeleteObject(font_lap as *mut _);
     DeleteObject(font_sector as *mut _);
+    DeleteObject(font_sector_label as *mut _);
     DeleteObject(font_unit as *mut _);
 
     // Blit double buffer to screen
