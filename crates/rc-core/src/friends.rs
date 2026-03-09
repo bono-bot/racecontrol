@@ -9,10 +9,11 @@ pub async fn send_friend_request(
     sender_id: &str,
     identifier: &str,
 ) -> Result<String, String> {
-    // Look up receiver by phone, customer_id, or nickname
+    // Look up receiver by phone, customer_id, nickname, or exact name (registered only)
     let receiver: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM drivers WHERE phone = ? OR customer_id = ? OR nickname = ? LIMIT 1",
+        "SELECT id FROM drivers WHERE (phone = ? OR customer_id = ? OR nickname = ? OR LOWER(name) = LOWER(?)) AND registration_completed = 1 LIMIT 1",
     )
+    .bind(identifier)
     .bind(identifier)
     .bind(identifier)
     .bind(identifier)
@@ -176,13 +177,17 @@ pub async fn remove_friend(
     Ok(())
 }
 
-/// List all friends for a driver with online status.
+/// List all friends for a driver with online status and stats.
 pub async fn list_friends(
     state: &Arc<AppState>,
     driver_id: &str,
 ) -> Result<Vec<FriendInfo>, String> {
-    let rows: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT d.id, d.name, d.customer_id, d.presence FROM drivers d
+    let rows: Vec<(String, String, Option<String>, Option<String>, i64, i64, i64)> = sqlx::query_as(
+        "SELECT d.id, d.name, d.customer_id, d.presence,
+                COALESCE(d.total_laps, 0),
+                COALESCE(d.total_time_ms, 0),
+                (SELECT COUNT(*) FROM billing_sessions WHERE driver_id = d.id)
+         FROM drivers d
          INNER JOIN friendships f ON (
              (f.driver_a_id = ? AND f.driver_b_id = d.id) OR
              (f.driver_b_id = ? AND f.driver_a_id = d.id)
@@ -196,11 +201,14 @@ pub async fn list_friends(
 
     Ok(rows
         .into_iter()
-        .map(|(id, name, customer_id, presence)| FriendInfo {
+        .map(|(id, name, customer_id, presence, total_laps, total_time_ms, session_count)| FriendInfo {
             driver_id: id,
             name,
             customer_id,
             is_online: presence.as_deref() == Some("online"),
+            total_laps,
+            total_time_ms,
+            session_count,
         })
         .collect())
 }

@@ -10,14 +10,27 @@ import type {
   CatalogTrack,
   CatalogCar,
   CustomBookingPayload,
+  FriendInfo,
 } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
-const STEP_LABELS = [
+const STEP_LABELS_SINGLE = [
   "Duration",
   "Game",
   "Mode",
+  "Track",
+  "Car",
+  "Difficulty",
+  "Transmission",
+  "Confirm",
+];
+
+const STEP_LABELS_MULTI = [
+  "Duration",
+  "Game",
+  "Mode",
+  "Friends",
   "Track",
   "Car",
   "Difficulty",
@@ -70,7 +83,7 @@ function BookWizard() {
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
 
-  // ── Wizard state (step 9 = "booked" confirmation showing PIN)
+  // ── Wizard state
   const [step, setStep] = useState(1);
   const [tier, setTier] = useState<PricingTier | null>(null);
   const [game] = useState("assetto_corsa");
@@ -79,6 +92,13 @@ function BookWizard() {
   const [car, setCar] = useState<CatalogCar | null>(null);
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("easy");
   const [transmission, setTransmission] = useState<"auto" | "manual">("auto");
+  const [selectedFriends, setSelectedFriends] = useState<FriendInfo[]>([]);
+
+  // Step labels depend on mode
+  const stepLabels = mode === "multi" ? STEP_LABELS_MULTI : STEP_LABELS_SINGLE;
+  const totalSteps = stepLabels.length;
+  // "Booked" confirmation is totalSteps + 1
+  const bookedStep = totalSteps + 1;
 
   // ── Booking result (PIN + pod)
   const [bookedPin, setBookedPin] = useState<string | null>(null);
@@ -92,6 +112,11 @@ function BookWizard() {
   const [showAllCars, setShowAllCars] = useState(false);
   const [trackCategory, setTrackCategory] = useState<string | null>(null);
   const [carCategory, setCarCategory] = useState<string | null>(null);
+
+  // ── Logical step mapping: map wizard step to content based on mode
+  // Single: 1=Duration, 2=Game, 3=Mode, 4=Track, 5=Car, 6=Difficulty, 7=Transmission, 8=Confirm
+  // Multi:  1=Duration, 2=Game, 3=Mode, 4=Friends, 5=Track, 6=Car, 7=Difficulty, 8=Transmission, 9=Confirm
+  const stepContent = stepLabels[step - 1];
 
   // ── Load initial data
   useEffect(() => {
@@ -150,12 +175,12 @@ function BookWizard() {
   }, [catalog, catalogLoading]);
 
   useEffect(() => {
-    if (step === 4) loadCatalog();
-  }, [step, loadCatalog]);
+    if (stepContent === "Track") loadCatalog();
+  }, [step, stepContent, loadCatalog]);
 
   // ── Navigation
   function goNext() {
-    if (step < 8) setStep(step + 1);
+    if (step < totalSteps) setStep(step + 1);
   }
 
   function goBack() {
@@ -182,14 +207,26 @@ function BookWizard() {
     };
 
     try {
-      const res = await api.bookCustom(tier.id, custom);
-      if (res.status === "booked" && res.pin) {
-        setBookedPin(res.pin);
-        setBookedPodNumber(res.pod_number || 0);
-        setBookedSeconds(res.allocated_seconds || 0);
-        setStep(9); // Show PIN confirmation screen
+      if (mode === "multi" && selectedFriends.length > 0) {
+        // Multiplayer booking
+        const friendIds = selectedFriends.map((f) => f.driver_id);
+        const res = await api.bookMultiplayer(tier.id, friendIds, undefined, custom);
+        if (res.group_session) {
+          router.push("/book/group");
+        } else {
+          setError(res.error || "Multiplayer booking failed");
+        }
       } else {
-        setError(res.error || "Booking failed");
+        // Single player booking
+        const res = await api.bookCustom(tier.id, custom);
+        if (res.status === "booked" && res.pin) {
+          setBookedPin(res.pin);
+          setBookedPodNumber(res.pod_number || 0);
+          setBookedSeconds(res.allocated_seconds || 0);
+          setStep(bookedStep);
+        } else {
+          setError(res.error || "Booking failed");
+        }
       }
     } catch {
       setError("Network error");
@@ -207,8 +244,8 @@ function BookWizard() {
     );
   }
 
-  // Step 9 = booked confirmation — full-screen, no wizard header
-  if (step === 9 && bookedPin) {
+  // Booked confirmation — full-screen, no wizard header
+  if (step === bookedStep && bookedPin) {
     return (
       <div className="min-h-screen pb-24 px-4">
         <BookedPinScreen
@@ -235,8 +272,8 @@ function BookWizard() {
             </svg>
           </button>
           <div className="flex-1">
-            <h1 className="text-lg font-bold text-white">{STEP_LABELS[step - 1]}</h1>
-            <p className="text-xs text-rp-grey">Step {step} of 8</p>
+            <h1 className="text-lg font-bold text-white">{stepLabels[step - 1]}</h1>
+            <p className="text-xs text-rp-grey">Step {step} of {totalSteps}</p>
           </div>
           <div className="text-right">
             <p className="text-xs text-rp-grey">Credits</p>
@@ -248,7 +285,7 @@ function BookWizard() {
 
         {/* Step indicator */}
         <div className="flex gap-1">
-          {STEP_LABELS.map((_, i) => (
+          {stepLabels.map((_, i) => (
             <div
               key={i}
               className={`h-1 flex-1 rounded-full transition-colors ${
@@ -269,7 +306,7 @@ function BookWizard() {
 
       {/* Step content */}
       <div className="px-4">
-        {step === 1 && (
+        {stepContent === "Duration" && (
           <DurationStep
             tiers={tiers}
             selected={tier}
@@ -280,12 +317,12 @@ function BookWizard() {
             }}
           />
         )}
-        {step === 2 && (
+        {stepContent === "Game" && (
           <GameStep
             onSelect={() => goNext()}
           />
         )}
-        {step === 3 && (
+        {stepContent === "Mode" && (
           <ModeStep
             selected={mode}
             onSelect={(m) => {
@@ -294,7 +331,14 @@ function BookWizard() {
             }}
           />
         )}
-        {step === 4 && (
+        {stepContent === "Friends" && (
+          <FriendsPickerStep
+            selected={selectedFriends}
+            onSelect={setSelectedFriends}
+            onContinue={goNext}
+          />
+        )}
+        {stepContent === "Track" && (
           <TrackStep
             catalog={catalog}
             loading={catalogLoading}
@@ -311,7 +355,7 @@ function BookWizard() {
             }}
           />
         )}
-        {step === 5 && (
+        {stepContent === "Car" && (
           <CarStep
             catalog={catalog}
             loading={catalogLoading}
@@ -328,7 +372,7 @@ function BookWizard() {
             }}
           />
         )}
-        {step === 6 && (
+        {stepContent === "Difficulty" && (
           <DifficultyStep
             selected={difficulty}
             onSelect={(d) => {
@@ -337,7 +381,7 @@ function BookWizard() {
             }}
           />
         )}
-        {step === 7 && (
+        {stepContent === "Transmission" && (
           <TransmissionStep
             selected={transmission}
             onSelect={(t) => {
@@ -346,7 +390,7 @@ function BookWizard() {
             }}
           />
         )}
-        {step === 8 && (
+        {stepContent === "Confirm" && (
           <ConfirmStep
             tier={tier}
             track={track}
@@ -354,6 +398,7 @@ function BookWizard() {
             difficulty={difficulty}
             transmission={transmission}
             mode={mode}
+            selectedFriends={selectedFriends}
             balance={profile?.wallet_balance_paise || 0}
             booking={booking}
             onBook={handleBook}
@@ -466,15 +511,165 @@ function ModeStep({
         <p className="text-white font-semibold text-lg">Single Player</p>
         <p className="text-rp-grey text-sm mt-1">Race at your own pace</p>
       </button>
-      <div className="w-full text-left bg-rp-card border border-rp-border rounded-xl p-5 opacity-40">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-rp-grey font-semibold text-lg">Multiplayer</p>
-            <p className="text-rp-grey text-sm mt-1">Race against friends on LAN</p>
-          </div>
-          <span className="text-xs bg-neutral-800 text-rp-grey px-2 py-1 rounded">Coming Soon</span>
-        </div>
+      <button
+        onClick={() => onSelect("multi")}
+        className={`w-full text-left bg-rp-card border rounded-xl p-5 transition-colors ${
+          selected === "multi" ? "border-rp-red" : "border-rp-border"
+        }`}
+      >
+        <p className="text-white font-semibold text-lg">Multiplayer</p>
+        <p className="text-rp-grey text-sm mt-1">Race against friends on LAN</p>
+      </button>
+    </div>
+  );
+}
+
+function FriendsPickerStep({
+  selected,
+  onSelect,
+  onContinue,
+}: {
+  selected: FriendInfo[];
+  onSelect: (friends: FriendInfo[]) => void;
+  onContinue: () => void;
+}) {
+  const [friends, setFriends] = useState<FriendInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.friends().then((res) => {
+      if (res.friends) setFriends(res.friends);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  function toggle(f: FriendInfo) {
+    const exists = selected.find((s) => s.driver_id === f.driver_id);
+    if (exists) {
+      onSelect(selected.filter((s) => s.driver_id !== f.driver_id));
+    } else if (selected.length < 7) {
+      onSelect([...selected, f]);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="w-8 h-8 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
       </div>
+    );
+  }
+
+  const onlineFriends = friends.filter((f) => f.is_online);
+  const offlineFriends = friends.filter((f) => !f.is_online);
+
+  if (friends.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-rp-grey mb-4">No friends added yet</p>
+        <a href="/friends" className="text-rp-red font-medium text-sm">
+          Add friends first
+        </a>
+      </div>
+    );
+  }
+
+  function formatTime(ms: number) {
+    const hrs = Math.floor(ms / 3600000);
+    const mins = Math.floor((ms % 3600000) / 60000);
+    return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-rp-grey mb-3">
+        Select friends to race with (max 7)
+      </p>
+
+      {onlineFriends.length > 0 && (
+        <>
+          <p className="text-xs text-emerald-400 uppercase tracking-wide mb-2">Online</p>
+          <div className="space-y-2 mb-4">
+            {onlineFriends.map((f) => {
+              const isSelected = selected.some((s) => s.driver_id === f.driver_id);
+              return (
+                <button
+                  key={f.driver_id}
+                  onClick={() => toggle(f)}
+                  className={`w-full text-left bg-rp-card border rounded-xl p-3.5 transition-colors ${
+                    isSelected ? "border-rp-red" : "border-rp-border"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <div className="w-10 h-10 rounded-full bg-neutral-700 flex items-center justify-center text-white font-bold text-sm">
+                        {f.name.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full border-2 border-rp-card" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-medium text-sm truncate">{f.name}</p>
+                      <p className="text-rp-grey text-xs">
+                        {f.total_laps} laps &middot; {formatTime(f.total_time_ms)} &middot; {f.session_count} sessions
+                      </p>
+                    </div>
+                    {isSelected && (
+                      <div className="w-6 h-6 rounded-full bg-rp-red flex items-center justify-center">
+                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {offlineFriends.length > 0 && (
+        <>
+          <p className="text-xs text-rp-grey uppercase tracking-wide mb-2">Offline</p>
+          <div className="space-y-2 mb-4 opacity-50">
+            {offlineFriends.map((f) => (
+              <div
+                key={f.driver_id}
+                className="w-full text-left bg-rp-card border border-rp-border rounded-xl p-3.5"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-neutral-700 flex items-center justify-center text-white font-bold text-sm">
+                    {f.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-rp-grey font-medium text-sm truncate">{f.name}</p>
+                    <p className="text-rp-grey text-xs">
+                      {f.total_laps} laps &middot; {formatTime(f.total_time_ms)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {onlineFriends.length === 0 && (
+        <div className="text-center py-8 mb-4">
+          <p className="text-rp-grey text-sm">No friends online right now</p>
+          <a href="/friends" className="text-rp-red font-medium text-xs mt-2 inline-block">
+            Add more friends
+          </a>
+        </div>
+      )}
+
+      <button
+        onClick={onContinue}
+        disabled={selected.length === 0}
+        className="w-full bg-rp-red text-white font-semibold py-4 rounded-xl text-lg disabled:opacity-50 transition-opacity"
+      >
+        Continue with {selected.length} friend{selected.length !== 1 ? "s" : ""}
+      </button>
     </div>
   );
 }
@@ -854,6 +1049,7 @@ function ConfirmStep({
   difficulty,
   transmission,
   mode,
+  selectedFriends,
   balance,
   booking,
   onBook,
@@ -864,6 +1060,7 @@ function ConfirmStep({
   difficulty: string;
   transmission: string;
   mode: string;
+  selectedFriends: FriendInfo[];
   balance: number;
   booking: boolean;
   onBook: () => void;
@@ -893,6 +1090,23 @@ function ConfirmStep({
           </div>
         ))}
       </div>
+
+      {/* Friends for multiplayer */}
+      {mode === "multi" && selectedFriends.length > 0 && (
+        <div className="mt-4 bg-rp-card border border-rp-border rounded-xl p-4">
+          <p className="text-rp-grey text-xs uppercase tracking-wide mb-2">Racing with</p>
+          <div className="flex flex-wrap gap-2">
+            {selectedFriends.map((f) => (
+              <span key={f.driver_id} className="bg-neutral-700 text-white text-xs px-2.5 py-1 rounded-lg">
+                {f.name}
+              </span>
+            ))}
+          </div>
+          <p className="text-rp-grey text-xs mt-3">
+            Each friend pays their own share from their wallet
+          </p>
+        </div>
+      )}
 
       {/* Price summary */}
       <div className="mt-4 bg-rp-card border border-rp-border rounded-xl p-4">

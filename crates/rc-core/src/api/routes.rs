@@ -155,6 +155,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // AI Chat
         .route("/ai/chat", post(ai_chat))
         .route("/customer/ai/chat", post(customer_ai_chat))
+        // Ops stats (overview counts)
+        .route("/ops/stats", get(ops_stats))
         // AI Diagnose (on-demand analysis)
         .route("/ai/diagnose", post(ai_diagnose))
         // AI Suggestions (history)
@@ -3306,6 +3308,41 @@ async fn ai_diagnose(
 
 // ─── AI Suggestions History ─────────────────────────────────────────────────
 
+/// GET /ops/stats — failed sessions today + active/resolved bug counts.
+async fn ops_stats(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    let failed_today: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM billing_sessions WHERE status IN ('ended_early', 'cancelled') AND date(created_at) = ?",
+    )
+    .bind(&today)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let active_bugs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ai_suggestions WHERE dismissed = 0",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let resolved_bugs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ai_suggestions WHERE dismissed = 1",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    Json(json!({
+        "failed_sessions_today": failed_today,
+        "active_bugs": active_bugs,
+        "resolved_bugs": resolved_bugs,
+    }))
+}
+
 async fn list_ai_suggestions(
     State(state): State<Arc<AppState>>,
     Query(params): Query<std::collections::HashMap<String, String>>,
@@ -5849,10 +5886,7 @@ async fn customer_book_multiplayer(
         Err(e) => return Json(json!({ "error": e })),
     };
 
-    let experience_id = match req.get("experience_id").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => return Json(json!({ "error": "Missing 'experience_id'" })),
-    };
+    let experience_id = req.get("experience_id").and_then(|v| v.as_str()).map(String::from);
 
     let pricing_tier_id = match req.get("pricing_tier_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -5868,7 +5902,19 @@ async fn customer_book_multiplayer(
         return Json(json!({ "error": "Need at least one friend for multiplayer" }));
     }
 
-    match multiplayer::book_multiplayer(&state, &driver_id, &experience_id, &pricing_tier_id, friend_ids).await {
+    // Accept optional custom booking payload (same as single-player custom booking)
+    let custom = req.get("custom").and_then(|v| {
+        let game = v.get("game")?.as_str()?.to_string();
+        let track = v.get("track")?.as_str()?.to_string();
+        let car = v.get("car")?.as_str()?.to_string();
+        Some((game, track, car))
+    });
+
+    if experience_id.is_none() && custom.is_none() {
+        return Json(json!({ "error": "Must provide 'experience_id' or 'custom' booking payload" }));
+    }
+
+    match multiplayer::book_multiplayer(&state, &driver_id, experience_id.as_deref(), &pricing_tier_id, friend_ids, custom).await {
         Ok(info) => Json(json!({ "status": "ok", "group_session": info })),
         Err(e) => Json(json!({ "error": e })),
     }

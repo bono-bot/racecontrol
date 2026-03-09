@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { api, isLoggedIn } from "@/lib/api";
 
 const tabs = [
   {
@@ -43,20 +45,22 @@ const tabs = [
     ),
   },
   {
+    href: "/friends",
+    label: "Friends",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-6 h-6">
+        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/stats",
     label: "Stats",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-6 h-6">
         <path d="M18 20V10M12 20V4M6 20v-6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
-    href: "/ai",
-    label: "AI",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-6 h-6">
-        <path d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -74,6 +78,14 @@ const tabs = [
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const [pendingRequests, setPendingRequests] = useState(0);
+
+  useEffect(() => {
+    if (!isLoggedIn()) return;
+    api.friendRequests().then((res) => {
+      if (res.incoming) setPendingRequests(res.incoming.length);
+    }).catch(() => {});
+  }, [pathname]);
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-rp-card border-t border-rp-border safe-area-bottom z-50">
@@ -85,12 +97,15 @@ export default function BottomNav() {
             <Link
               key={tab.href}
               href={tab.href}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1 transition-colors ${
+              className={`relative flex flex-col items-center gap-0.5 px-3 py-1 transition-colors ${
                 isActive ? "text-rp-red" : "text-rp-grey"
               }`}
             >
               {tab.icon}
               <span className="text-[10px] font-medium">{tab.label}</span>
+              {tab.href === "/friends" && pendingRequests > 0 && (
+                <span className="absolute -top-0.5 right-1 w-2 h-2 bg-rp-red rounded-full" />
+              )}
             </Link>
           );
         })}

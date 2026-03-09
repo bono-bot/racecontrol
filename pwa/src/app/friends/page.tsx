@@ -44,6 +44,10 @@ export default function FriendsPage() {
       return;
     }
     loadData();
+
+    // Poll every 10s for real-time presence updates
+    const interval = setInterval(loadData, 10000);
+    return () => clearInterval(interval);
   }, [router, loadData]);
 
   async function handleSendRequest() {
@@ -190,36 +194,56 @@ export default function FriendsPage() {
               friends.map((f) => (
                 <div
                   key={f.driver_id}
-                  className="bg-rp-card border border-rp-border rounded-xl p-4 flex items-center justify-between"
+                  className="bg-rp-card border border-rp-border rounded-xl p-4"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <div className="w-10 h-10 rounded-full bg-neutral-700 flex items-center justify-center">
-                        <span className="text-sm font-bold text-neutral-300">
-                          {f.name.charAt(0).toUpperCase()}
-                        </span>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-full bg-neutral-700 flex items-center justify-center">
+                          <span className="text-sm font-bold text-neutral-300">
+                            {f.name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div
+                          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-rp-card ${
+                            f.is_online ? "bg-green-500" : "bg-neutral-600"
+                          }`}
+                        />
                       </div>
-                      <div
-                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-rp-card ${
-                          f.is_online ? "bg-green-500" : "bg-neutral-600"
-                        }`}
-                      />
+                      <div>
+                        <p className="text-sm font-medium text-white">{f.name}</p>
+                        {f.customer_id && (
+                          <p className="text-xs text-rp-grey font-mono">
+                            {f.customer_id}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRemove(f.driver_id)}
+                      className="text-xs text-neutral-500 hover:text-red-400 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="flex gap-4 ml-[52px]">
+                    <div>
+                      <p className="text-xs text-rp-grey">Laps</p>
+                      <p className="text-sm font-semibold text-white">{f.total_laps}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-white">{f.name}</p>
-                      {f.customer_id && (
-                        <p className="text-xs text-rp-grey font-mono">
-                          {f.customer_id}
-                        </p>
-                      )}
+                      <p className="text-xs text-rp-grey">Track Time</p>
+                      <p className="text-sm font-semibold text-white">
+                        {f.total_time_ms >= 3600000
+                          ? `${Math.floor(f.total_time_ms / 3600000)}h ${Math.floor((f.total_time_ms % 3600000) / 60000)}m`
+                          : `${Math.floor(f.total_time_ms / 60000)}m`}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-rp-grey">Sessions</p>
+                      <p className="text-sm font-semibold text-white">{f.session_count}</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleRemove(f.driver_id)}
-                    className="text-xs text-neutral-500 hover:text-red-400 transition-colors"
-                  >
-                    Remove
-                  </button>
                 </div>
               ))
             )}

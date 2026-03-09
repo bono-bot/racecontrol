@@ -584,6 +584,9 @@ pub struct FriendInfo {
     pub name: String,
     pub customer_id: Option<String>,
     pub is_online: bool,
+    pub total_laps: i64,
+    pub total_time_ms: i64,
+    pub session_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

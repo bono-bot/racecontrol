@@ -86,12 +86,14 @@ async fn find_adjacent_idle_pods(
 
 /// Book a multiplayer group session.
 /// Host wallet is debited, pods are reserved, auth tokens created with shared PIN.
+/// Either `experience_id` or `custom` must be provided.
 pub async fn book_multiplayer(
     state: &Arc<AppState>,
     host_id: &str,
-    experience_id: &str,
+    experience_id: Option<&str>,
     pricing_tier_id: &str,
     friend_ids: Vec<String>,
+    custom: Option<(String, String, String)>, // (game, track, car)
 ) -> Result<GroupSessionInfo, String> {
     let total_members = 1 + friend_ids.len(); // host + friends
 
@@ -107,17 +109,38 @@ pub async fn book_multiplayer(
 
     let (tier_name, price_paise, duration_minutes) = tier;
 
-    // Verify experience
-    let experience = sqlx::query_as::<_, (String,)>(
-        "SELECT name FROM kiosk_experiences WHERE id = ?",
-    )
-    .bind(experience_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| format!("DB error: {}", e))?
-    .ok_or("Experience not found")?;
-
-    let experience_name = experience.0;
+    // Resolve experience: either from experience_id or create ad-hoc from custom payload
+    let (experience_id_resolved, experience_name) = if let Some(eid) = experience_id {
+        let exp = sqlx::query_as::<_, (String,)>(
+            "SELECT name FROM kiosk_experiences WHERE id = ?",
+        )
+        .bind(eid)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| format!("DB error: {}", e))?
+        .ok_or("Experience not found")?;
+        (eid.to_string(), exp.0)
+    } else if let Some((ref game, ref track, ref car)) = custom {
+        // Create ad-hoc experience for this custom multiplayer booking
+        let adhoc_id = uuid::Uuid::new_v4().to_string();
+        let adhoc_name = format!("Custom: {} @ {}", car, track);
+        sqlx::query(
+            "INSERT INTO kiosk_experiences (id, name, game, track, car, duration_minutes, start_type, sort_order, is_active, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'race', 9999, 0, datetime('now'))",
+        )
+        .bind(&adhoc_id)
+        .bind(&adhoc_name)
+        .bind(game)
+        .bind(track)
+        .bind(car)
+        .bind(duration_minutes)
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("DB error creating ad-hoc experience: {}", e))?;
+        (adhoc_id, adhoc_name)
+    } else {
+        return Err("Must provide experience_id or custom booking payload".to_string());
+    };
 
     // Verify all friend_ids are actual friends of host
     for friend_id in &friend_ids {
@@ -176,7 +199,7 @@ pub async fn book_multiplayer(
     )
     .bind(&group_session_id)
     .bind(host_id)
-    .bind(experience_id)
+    .bind(&experience_id_resolved)
     .bind(pricing_tier_id)
     .bind(&shared_pin_str)
     .bind(total_members as i64)
@@ -207,7 +230,7 @@ pub async fn book_multiplayer(
         "pin".to_string(),
         None,
         Some(duration_minutes as u32),
-        Some(experience_id.to_string()),
+        Some(experience_id_resolved.clone()),
         None,
     )
     .await?;

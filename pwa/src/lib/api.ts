@@ -267,6 +267,9 @@ export interface FriendInfo {
   name: string;
   customer_id: string | null;
   is_online: boolean;
+  total_laps: number;
+  total_time_ms: number;
+  session_count: number;
 }
 
 export interface FriendRequestInfo {
@@ -645,15 +648,16 @@ export const api = {
 
   // Multiplayer
   bookMultiplayer: (
-    experience_id: string,
     pricing_tier_id: string,
-    friend_ids: string[]
+    friend_ids: string[],
+    experience_id?: string,
+    custom?: CustomBookingPayload,
   ) =>
     fetchApi<{ group_session?: GroupSessionInfo; error?: string }>(
       "/customer/book-multiplayer",
       {
         method: "POST",
-        body: JSON.stringify({ experience_id, pricing_tier_id, friend_ids }),
+        body: JSON.stringify({ pricing_tier_id, friend_ids, ...(experience_id ? { experience_id } : {}), ...(custom ? { custom } : {}) }),
       }
     ),
 
