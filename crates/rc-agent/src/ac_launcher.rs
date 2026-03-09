@@ -69,8 +69,17 @@ fn default_ffb() -> String { "medium".to_string() }
 fn default_duration() -> u32 { 60 }
 fn one() -> u8 { 1 }
 
+/// Result from AC launch — carries PID and optional CM error for debug reporting.
+#[derive(Debug)]
+pub struct LaunchResult {
+    pub pid: u32,
+    /// If CM was used (multiplayer) and failed, this contains the error details.
+    /// The game may still be running via direct acs.exe fallback.
+    pub cm_error: Option<String>,
+}
+
 /// Runs the full AC launch sequence. Blocks for ~10 seconds.
-pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
+pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     tracing::info!("AC launch: {} @ {} for {}", params.car, params.track, params.driver);
 
     // Step 1: Kill existing AC
@@ -97,13 +106,25 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
     // - Single-player: launch acs.exe directly (race.ini already written above)
     //   CM's acmanager://race/config fails with "Settings are not specified"
     //   if CM's Quick Drive preset was never configured on this pod.
+    let mut cm_error: Option<String> = None;
+
     let pid = if params.game_mode == "multi" && find_cm_exe().is_some() {
         tracing::info!("[3/5] Launching multiplayer via Content Manager...");
         launch_via_cm(params)?;
         match wait_for_ac_process(15) {
             Ok(pid) => pid,
             Err(e) => {
-                tracing::warn!("CM launch: acs.exe not found after polling: {}. Trying direct launch.", e);
+                // CM failed — gather diagnostic info before falling back
+                let cm_diag = diagnose_cm_failure();
+                let error_detail = format!(
+                    "CM multiplayer launch failed: {}. Diagnostics: {}",
+                    e, cm_diag
+                );
+                tracing::error!("[CM_ERROR] {}", error_detail);
+                cm_error = Some(error_detail);
+
+                // Fall back to direct acs.exe (race.ini has [REMOTE] ACTIVE=1)
+                tracing::warn!("Falling back to direct acs.exe launch for multiplayer...");
                 let ac_dir = find_ac_dir()?;
                 let child = Command::new(ac_dir.join("acs.exe"))
                     .current_dir(&ac_dir)
@@ -133,7 +154,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<u32> {
     std::thread::sleep(std::time::Duration::from_secs(2));
     minimize_background_windows();
 
-    Ok(pid)
+    Ok(LaunchResult { pid, cm_error })
 }
 
 /// Update AUTO_SHIFTER in race.ini without restarting AC.
@@ -528,6 +549,149 @@ fn find_ac_dir() -> Result<std::path::PathBuf> {
         }
     }
     anyhow::bail!("AC installation not found");
+}
+
+/// Diagnose why Content Manager failed to launch AC.
+/// Checks: CM process state, CM log files, error dialog windows.
+fn diagnose_cm_failure() -> String {
+    let mut findings = Vec::new();
+
+    // 1. Check if CM process is still running (might be showing error dialog)
+    if let Some(cm_info) = check_cm_process() {
+        findings.push(cm_info);
+    }
+
+    // 2. Check CM log files for recent errors
+    if let Some(log_error) = read_cm_log_errors() {
+        findings.push(format!("CM log: {}", log_error));
+    }
+
+    // 3. Check for WerFault (crash dialog)
+    if is_process_running("WerFault.exe") {
+        findings.push("WerFault.exe detected (crash dialog showing)".to_string());
+    }
+
+    if findings.is_empty() {
+        "No specific CM error found — CM may have silently failed or shown a GUI dialog".to_string()
+    } else {
+        findings.join("; ")
+    }
+}
+
+/// Check if Content Manager process is running and what state it's in.
+fn check_cm_process() -> Option<String> {
+    let output = Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq Content Manager.exe", "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+
+    if trimmed.is_empty() || trimmed.contains("No tasks") {
+        Some("CM process not running (may have crashed or was never launched)".to_string())
+    } else {
+        // CM is running but didn't spawn acs.exe — likely stuck on error dialog
+        Some("CM process alive but acs.exe not spawned (probable error dialog)".to_string())
+    }
+}
+
+/// Read Content Manager log files for recent error messages.
+/// CM stores logs in its data directory (next to exe) or %LOCALAPPDATA%.
+fn read_cm_log_errors() -> Option<String> {
+    let log_paths = build_cm_log_paths();
+
+    for log_path in &log_paths {
+        if let Ok(content) = std::fs::read_to_string(log_path) {
+            // Look at the last 2000 chars for recent errors
+            let tail = if content.len() > 2000 {
+                &content[content.len() - 2000..]
+            } else {
+                &content
+            };
+
+            // Search for CM error patterns
+            let error_patterns = [
+                "Request Cannot be processed",
+                "Settings are not specified",
+                "Cannot connect",
+                "Server is not available",
+                "Connection refused",
+                "Oops",
+                "Exception",
+                "Error:",
+                "FATAL",
+                "failed to join",
+                "booking is not available",
+            ];
+
+            let mut found_errors = Vec::new();
+            for line in tail.lines().rev().take(50) {
+                for pattern in &error_patterns {
+                    if line.to_lowercase().contains(&pattern.to_lowercase()) {
+                        let trimmed = line.trim();
+                        if trimmed.len() <= 200 {
+                            found_errors.push(trimmed.to_string());
+                        } else {
+                            found_errors.push(format!("{}...", &trimmed[..200]));
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if !found_errors.is_empty() {
+                found_errors.truncate(3); // Max 3 error lines
+                return Some(found_errors.join(" | "));
+            }
+        }
+    }
+
+    None
+}
+
+/// Build list of possible CM log file paths to check.
+fn build_cm_log_paths() -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+
+    // Check next to each known CM exe location
+    for cm_dir in &[
+        r"C:\Users\User\Desktop\content-manager",
+        r"C:\Users\User\Desktop",
+        r"C:\RacingPoint",
+        r"C:\Users\bono\Desktop",
+    ] {
+        let base = Path::new(cm_dir);
+        // CM stores logs in Data/Logs/ or Logs/ subfolder
+        paths.push(base.join("Data").join("Logs").join("Main Log.txt"));
+        paths.push(base.join("Data").join("Logs").join("log.txt"));
+        paths.push(base.join("Logs").join("Main Log.txt"));
+        paths.push(base.join("Logs").join("log.txt"));
+    }
+
+    // %LOCALAPPDATA% locations
+    if let Some(local_app) = dirs_next::data_local_dir() {
+        for dir_name in &["AcTools Content Manager", "AcManager", "AcTools"] {
+            let base = local_app.join(dir_name);
+            paths.push(base.join("Logs").join("Main Log.txt"));
+            paths.push(base.join("Logs").join("log.txt"));
+            paths.push(base.join("Log.txt"));
+        }
+    }
+
+    paths
+}
+
+/// Check if a process is currently running by image name.
+fn is_process_running(name: &str) -> bool {
+    Command::new("tasklist")
+        .args(["/FI", &format!("IMAGENAME eq {}", name), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()
+        .map(|o| {
+            let s = String::from_utf8_lossy(&o.stdout);
+            !s.trim().is_empty() && !s.contains("No tasks")
+        })
+        .unwrap_or(false)
 }
 
 /// Restart Conspit Link 2.0 so it re-handshakes with AC's telemetry.

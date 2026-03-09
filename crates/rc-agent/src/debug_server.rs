@@ -12,8 +12,17 @@ use tokio::net::TcpListener;
 
 use crate::lock_screen::LockScreenState;
 
+/// Shared state for game launch errors (visible in debug console).
+/// Set by the LaunchGame handler when CM reports errors.
+pub type LastLaunchError = Arc<Mutex<Option<String>>>;
+
 /// Start the debug server (call once at startup).
-pub fn spawn(state: Arc<Mutex<LockScreenState>>, pod_name: String, pod_number: u32) {
+pub fn spawn(
+    state: Arc<Mutex<LockScreenState>>,
+    pod_name: String,
+    pod_number: u32,
+    last_launch_error: LastLaunchError,
+) {
     tokio::spawn(async move {
         let listener = match TcpListener::bind("0.0.0.0:18924").await {
             Ok(l) => {
@@ -34,6 +43,7 @@ pub fn spawn(state: Arc<Mutex<LockScreenState>>, pod_name: String, pod_number: u
 
             let state = state.clone();
             let pod_name = pod_name.clone();
+            let last_launch_error = last_launch_error.clone();
 
             tokio::spawn(async move {
                 let mut buf = [0u8; 4096];
@@ -52,7 +62,7 @@ pub fn spawn(state: Arc<Mutex<LockScreenState>>, pod_name: String, pod_number: u
                     serve_page(&mut stream, &state).await;
                 } else {
                     // Default: /status
-                    serve_status(&mut stream, &state, &pod_name, pod_number).await;
+                    serve_status(&mut stream, &state, &pod_name, pod_number, &last_launch_error).await;
                 }
             });
         }
@@ -64,6 +74,7 @@ async fn serve_status(
     state: &Arc<Mutex<LockScreenState>>,
     pod_name: &str,
     pod_number: u32,
+    last_launch_error: &LastLaunchError,
 ) {
     let current = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let state_name = match &current {
@@ -78,9 +89,19 @@ async fn serve_status(
         LockScreenState::Disconnected => "disconnected",
     };
 
+    let launch_err = last_launch_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let launch_err_json = match &launch_err {
+        Some(err) => {
+            // Escape JSON special chars in error message
+            let escaped = err.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(r#","last_launch_error":"{}""#, escaped)
+        }
+        None => String::new(),
+    };
+
     let body = format!(
-        r#"{{"pod":"{}","pod_number":{},"lock_screen_state":"{}","debug_server":"ok"}}"#,
-        pod_name, pod_number, state_name
+        r#"{{"pod":"{}","pod_number":{},"lock_screen_state":"{}","debug_server":"ok"{}}}"#,
+        pod_name, pod_number, state_name, launch_err_json
     );
 
     let resp = format!(

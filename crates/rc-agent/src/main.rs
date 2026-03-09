@@ -293,8 +293,17 @@ async fn main() -> Result<()> {
     overlay.start_server();
     tracing::info!("Overlay server started on port 18925");
 
+    // Shared state for last game launch error (visible in debug console)
+    let last_launch_error: debug_server::LastLaunchError =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+
     // Debug server for remote diagnostics (LAN-accessible on port 18924)
-    debug_server::spawn(lock_screen.state_handle(), config.pod.name.clone(), config.pod.number);
+    debug_server::spawn(
+        lock_screen.state_handle(),
+        config.pod.name.clone(),
+        config.pod.number,
+        last_launch_error.clone(),
+    );
 
     // Delayed startup cleanup — minimize Conspit Link and other windows that
     // steal focus from the kiosk lock screen on boot. Delay gives startup apps
@@ -745,25 +754,52 @@ async fn main() -> Result<()> {
                                         };
 
                                         match launch_result {
-                                            Ok(pid) => {
+                                            Ok(result) => {
+                                                // Clear or set launch error in debug console
+                                                if let Ok(mut err_slot) = last_launch_error.lock() {
+                                                    *err_slot = result.cm_error.clone();
+                                                }
+
                                                 let info = GameLaunchInfo {
-                                                    pod_id: pod_id_clone,
+                                                    pod_id: pod_id_clone.clone(),
                                                     sim_type: launch_sim,
                                                     game_state: GameState::Running,
-                                                    pid: Some(pid),
+                                                    pid: Some(result.pid),
                                                     launched_at: Some(Utc::now()),
-                                                    error_message: None,
+                                                    error_message: result.cm_error.clone(),
                                                 };
                                                 game_process = Some(game_process::GameProcess {
                                                     sim_type: launch_sim,
                                                     state: GameState::Running,
                                                     child: None,
-                                                    pid: Some(pid),
+                                                    pid: Some(result.pid),
                                                     last_exit_code: None,
                                                 });
                                                 let msg = AgentMessage::GameStateUpdate(info);
                                                 let json_str = serde_json::to_string(&msg)?;
                                                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
+
+                                                // If CM failed during multiplayer, store in debug console + trigger AI debugger
+                                                if let Some(ref cm_err) = result.cm_error {
+                                                    tracing::error!("[CM_ERROR] Multiplayer CM failure on {}: {}", pod_id_clone, cm_err);
+                                                    if let Ok(mut err_slot) = last_launch_error.lock() {
+                                                        *err_slot = Some(cm_err.clone());
+                                                    }
+                                                    if config.ai_debugger.enabled {
+                                                        let err_ctx = format!(
+                                                            "Content Manager multiplayer launch failed on pod {}. {}. \
+                                                             Fell back to direct acs.exe launch.",
+                                                            pod_id_clone, cm_err
+                                                        );
+                                                        tokio::spawn(ai_debugger::analyze_crash(
+                                                            config.ai_debugger.clone(),
+                                                            pod_id_clone.clone(),
+                                                            launch_sim,
+                                                            err_ctx,
+                                                            ai_result_tx.clone(),
+                                                        ));
+                                                    }
+                                                }
 
                                                 // Reconnect telemetry adapter to new AC instance
                                                 if let Some(ref mut adp) = adapter {
@@ -775,8 +811,11 @@ async fn main() -> Result<()> {
                                             }
                                             Err(e) => {
                                                 tracing::error!("AC launch failed: {}", e);
+                                                if let Ok(mut err_slot) = last_launch_error.lock() {
+                                                    *err_slot = Some(format!("Launch failed: {}", e));
+                                                }
                                                 let info = GameLaunchInfo {
-                                                    pod_id: pod_id_clone,
+                                                    pod_id: pod_id_clone.clone(),
                                                     sim_type: launch_sim,
                                                     game_state: GameState::Error,
                                                     pid: None,
@@ -786,6 +825,21 @@ async fn main() -> Result<()> {
                                                 let msg = AgentMessage::GameStateUpdate(info);
                                                 let json_str = serde_json::to_string(&msg)?;
                                                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
+
+                                                // Trigger AI debugger for total launch failure
+                                                if config.ai_debugger.enabled {
+                                                    let err_ctx = format!(
+                                                        "AC launch completely failed on pod {}: {}",
+                                                        pod_id_clone, e
+                                                    );
+                                                    tokio::spawn(ai_debugger::analyze_crash(
+                                                        config.ai_debugger.clone(),
+                                                        pod_id_clone,
+                                                        launch_sim,
+                                                        err_ctx,
+                                                        ai_result_tx.clone(),
+                                                    ));
+                                                }
                                             }
                                         }
                                     } else {
