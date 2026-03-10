@@ -241,15 +241,15 @@ export function KioskPodCard({
           />
           <span className="font-semibold text-sm">Pod {pod.number}</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           {/* Power buttons */}
           {isOffline && onWakePod && (
             <button
               onClick={(e) => { e.stopPropagation(); onWakePod(pod.id); }}
-              className="w-6 h-6 flex items-center justify-center rounded bg-green-900/40 text-green-400 hover:bg-green-800/50 transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-md bg-green-900/40 text-green-400 hover:bg-green-800/50 transition-colors"
               title="Power on (WOL)"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </button>
@@ -257,10 +257,10 @@ export function KioskPodCard({
           {!isOffline && onRestartPod && (
             <button
               onClick={(e) => { e.stopPropagation(); onRestartPod(pod.id); }}
-              className="w-6 h-6 flex items-center justify-center rounded bg-yellow-900/40 text-yellow-400 hover:bg-yellow-800/50 transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-md bg-yellow-900/40 text-yellow-400 hover:bg-yellow-800/50 transition-colors"
               title="Restart pod"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </button>
@@ -268,10 +268,10 @@ export function KioskPodCard({
           {!isOffline && onShutdownPod && (
             <button
               onClick={(e) => { e.stopPropagation(); onShutdownPod(pod.id); }}
-              className="w-6 h-6 flex items-center justify-center rounded bg-red-900/40 text-red-400 hover:bg-red-800/50 transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-md bg-red-900/40 text-red-400 hover:bg-red-800/50 transition-colors"
               title="Shutdown pod"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
               </svg>
             </button>
@@ -564,14 +564,14 @@ function BlankScreenButton({ podId }: { podId: string }) {
     <button
       onClick={toggle}
       disabled={busy}
-      className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+      className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
         blanked
           ? "bg-zinc-600 text-zinc-300 hover:bg-zinc-500"
           : "bg-zinc-800 text-rp-grey hover:bg-zinc-700 hover:text-white"
       }`}
       title={blanked ? "Unblank screen" : "Blank screen"}
     >
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         {blanked ? (
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
         ) : (
