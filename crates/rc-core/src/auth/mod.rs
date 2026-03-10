@@ -231,16 +231,19 @@ pub(crate) async fn launch_or_assist(
         return None;
     };
 
-    // Look up billing session duration and inject into launch args
-    let duration_minutes: u32 = sqlx::query_as::<_, (i64,)>(
-        "SELECT allocated_seconds FROM billing_sessions WHERE id = ?",
+    // Look up billing session duration — use remaining time (for crash relaunches)
+    let duration_minutes: u32 = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT allocated_seconds, driving_seconds FROM billing_sessions WHERE id = ?",
     )
     .bind(billing_session_id)
     .fetch_optional(&state.db)
     .await
     .ok()
     .flatten()
-    .map(|(secs,)| (secs as u32) / 60)
+    .map(|(alloc, driven)| {
+        let remaining = (alloc as u32).saturating_sub(driven as u32);
+        (remaining + 59) / 60 // round up to nearest minute
+    })
     .unwrap_or(60);
 
     // Inject duration_minutes into launch_args JSON

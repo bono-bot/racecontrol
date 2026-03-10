@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use crate::activity_log::log_pod_activity;
 use crate::state::AppState;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
-use rc_common::types::{GameLaunchInfo, GameState, SimType};
+use rc_common::types::{BillingSessionStatus, GameLaunchInfo, GameState, SimType};
 
 /// In-memory tracker for a game running on a pod (mirrors BillingTimer pattern)
 pub struct GameTracker {
@@ -258,6 +258,32 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     let _ = state
         .dashboard_tx
         .send(DashboardEvent::GameStateChanged(info.clone()));
+
+    // ─── AC Timer Sync: reset billing timer on initial game start ────
+    // When AC reports Running, reset billing driving_seconds to 0 so both
+    // timers (AC practice + billing) start at the same moment. Only applies
+    // during initial launch (driving_seconds < 120) — crash relaunches skip.
+    if info.game_state == GameState::Running && info.sim_type == SimType::AssettoCorsa {
+        let mut timers = state.billing.active_timers.write().await;
+        if let Some(timer) = timers.get_mut(pod_id) {
+            if timer.status == BillingSessionStatus::Active && timer.driving_seconds < 120 {
+                tracing::info!(
+                    "AC timer sync: resetting billing timer for session {} on pod {} (was {}s)",
+                    timer.session_id, pod_id, timer.driving_seconds
+                );
+                timer.driving_seconds = 0;
+                timer.started_at = Some(Utc::now());
+                // Sync to DB immediately
+                let _ = sqlx::query(
+                    "UPDATE billing_sessions SET driving_seconds = 0, started_at = ? WHERE id = ?"
+                )
+                .bind(Utc::now().to_rfc3339())
+                .bind(&timer.session_id)
+                .execute(&state.db)
+                .await;
+            }
+        }
+    }
 
     // ─── Race Engineer: Auto-relaunch on crash if billing is active ────
     if info.game_state == GameState::Error {
