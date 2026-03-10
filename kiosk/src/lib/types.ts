@@ -213,6 +213,7 @@ export type SetupStep =
   | "register_driver"
   | "select_plan"
   | "select_game"
+  | "session_splits"
   | "player_mode"
   | "session_type"
   | "ai_config"

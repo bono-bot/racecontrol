@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::ac_server;
+use crate::accounting;
 use crate::auth;
 use crate::billing;
 use crate::catalog;
@@ -70,6 +71,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/billing/{id}/refund", post(refund_billing_session))
         .route("/billing/{id}/refunds", get(get_billing_refunds))
         .route("/billing/report/daily", get(daily_billing_report))
+        .route("/billing/split-options/{duration_minutes}", get(get_split_options))
         // Game Launcher
         .route("/games/launch", post(launch_game))
         .route("/games/stop", post(stop_game))
@@ -230,6 +232,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/public/leaderboard", get(public_leaderboard))
         .route("/public/leaderboard/{track}", get(public_track_leaderboard))
         .route("/public/time-trial", get(public_time_trial))
+        .route("/public/laps/{lap_id}/telemetry", get(public_lap_telemetry))
         // Pod Activity Log (unified real-time feed)
         .route("/activity", get(global_activity))
         .route("/pods/{pod_id}/activity", get(pod_activity))
@@ -243,6 +246,13 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/bot/lookup", get(bot_lookup))
         .route("/bot/pricing", get(bot_pricing))
         .route("/bot/book", post(bot_book))
+        // Accounting & Audit (admin)
+        .route("/accounting/accounts", get(list_accounts))
+        .route("/accounting/trial-balance", get(trial_balance))
+        .route("/accounting/profit-loss", get(profit_loss))
+        .route("/accounting/balance-sheet", get(balance_sheet))
+        .route("/accounting/journal", get(list_journal_entries))
+        .route("/audit-log", get(query_audit_log))
 }
 
 async fn health() -> Json<Value> {
@@ -286,9 +296,10 @@ async fn register_pod(
     let ip = body["ip_address"].as_str().unwrap_or("").to_string();
     let sim = body["sim_type"].as_str().unwrap_or("assetto_corsa");
     let sim_type = match sim {
+        "assetto_corsa_evo" => SimType::AssettoCorsaEvo,
         "iracing" => SimType::IRacing,
         "f1_25" => SimType::F125,
-        "lemans" => SimType::LeMansUltimate,
+        "le_mans_ultimate" | "lemans" => SimType::LeMansUltimate,
         "forza" => SimType::Forza,
         _ => SimType::AssettoCorsa,
     };
@@ -965,8 +976,8 @@ async fn session_laps(State(state): State<Arc<AppState>>, Path(id): Path<String>
 }
 
 async fn track_leaderboard(State(state): State<Arc<AppState>>, Path(track): Path<String>) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, String, String, i64, String)>(
-        "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at
+    let rows = sqlx::query_as::<_, (String, String, String, i64, String, Option<String>)>(
+        "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id
          FROM track_records tr JOIN drivers d ON tr.driver_id = d.id
          WHERE tr.track = ? ORDER BY tr.best_lap_ms ASC"
     )
@@ -979,7 +990,7 @@ async fn track_leaderboard(State(state): State<Arc<AppState>>, Path(track): Path
             let list: Vec<Value> = records.iter().enumerate().map(|(i, r)| json!({
                 "position": i + 1,
                 "track": r.0, "car": r.1, "driver": r.2,
-                "best_lap_ms": r.3, "achieved_at": r.4,
+                "best_lap_ms": r.3, "achieved_at": r.4, "lap_id": r.5,
             })).collect();
             Json(json!({ "track": track, "records": list }))
         }
@@ -1066,6 +1077,9 @@ async fn update_pricing_tier(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
+    // Snapshot before change for audit trail
+    let old_snapshot = accounting::snapshot_row(&state, "pricing_tiers", &id).await;
+
     let name = body.get("name").and_then(|v| v.as_str());
     let duration_minutes = body.get("duration_minutes").and_then(|v| v.as_i64());
     let price_paise = body.get("price_paise").and_then(|v| v.as_i64());
@@ -1096,6 +1110,7 @@ async fn update_pricing_tier(
         return Json(json!({ "error": "No fields to update" }));
     }
 
+    updates.push("updated_at = datetime('now')");
     let query = format!("UPDATE pricing_tiers SET {} WHERE id = ?", updates.join(", "));
 
     let mut q = sqlx::query(&query);
@@ -1105,7 +1120,14 @@ async fn update_pricing_tier(
     q = q.bind(&id);
 
     match q.execute(&state.db).await {
-        Ok(_) => Json(json!({ "ok": true })),
+        Ok(_) => {
+            let new_values = serde_json::to_string(&body).ok();
+            accounting::log_audit(
+                &state, "pricing_tiers", &id, "update",
+                old_snapshot.as_deref(), new_values.as_deref(), None,
+            ).await;
+            Json(json!({ "ok": true }))
+        }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
@@ -1114,13 +1136,21 @@ async fn delete_pricing_tier(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
+    let old_snapshot = accounting::snapshot_row(&state, "pricing_tiers", &id).await;
+
     // Soft delete: set is_active = 0
-    match sqlx::query("UPDATE pricing_tiers SET is_active = 0 WHERE id = ?")
+    match sqlx::query("UPDATE pricing_tiers SET is_active = 0, updated_at = datetime('now') WHERE id = ?")
         .bind(&id)
         .execute(&state.db)
         .await
     {
-        Ok(_) => Json(json!({ "ok": true })),
+        Ok(_) => {
+            accounting::log_audit(
+                &state, "pricing_tiers", &id, "delete",
+                old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
+            ).await;
+            Json(json!({ "ok": true }))
+        }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
@@ -1237,6 +1267,9 @@ async fn start_billing(
     };
 
     // Now start billing (should succeed since we pre-validated)
+    let split_count = body.get("split_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+    let split_duration_minutes = body.get("split_duration_minutes").and_then(|v| v.as_u64()).map(|v| v as u32);
+
     let session_id = billing::start_billing_session(
         &state,
         pod_id.to_string(),
@@ -1245,6 +1278,8 @@ async fn start_billing(
         custom_price_paise,
         custom_duration_minutes,
         staff_id,
+        split_count,
+        split_duration_minutes,
     )
     .await;
 
@@ -1271,6 +1306,38 @@ async fn start_billing(
             Json(json!({ "error": reason }))
         }
     }
+}
+
+/// Returns valid session split options for a given total duration.
+/// AC-specific: customers can divide their session into shorter sub-sessions.
+async fn get_split_options(
+    Path(duration_minutes): Path<u32>,
+) -> Json<Value> {
+    let options = compute_split_options(duration_minutes);
+    Json(json!({ "duration_minutes": duration_minutes, "options": options }))
+}
+
+/// Compute valid split configurations for a given total duration.
+/// Rules: each sub-session must be at least 10 minutes, count * sub_duration == total.
+fn compute_split_options(total_minutes: u32) -> Vec<serde_json::Value> {
+    let mut options = Vec::new();
+    // Always include the unsplit option
+    options.push(json!({ "count": 1, "duration_minutes": total_minutes, "label": format!("1 × {} min", total_minutes) }));
+
+    // Find all valid splits where sub-session >= 10 min
+    for count in 2..=6 {
+        if total_minutes % count == 0 {
+            let sub = total_minutes / count;
+            if sub >= 10 {
+                options.push(json!({
+                    "count": count,
+                    "duration_minutes": sub,
+                    "label": format!("{} × {} min", count, sub),
+                }));
+            }
+        }
+    }
+    options
 }
 
 async fn stop_billing(
@@ -1825,18 +1892,23 @@ async fn launch_game(
         return Json(json!({ "error": "pod_id and sim_type are required" }));
     }
 
-    // Inject duration_minutes from active billing session into launch_args
+    // Inject duration_minutes from active billing session into launch_args.
+    // For AC with session splitting, use split_duration_minutes instead of full duration.
     let launch_args = if let Some(args) = launch_args_raw {
-        let duration_minutes: u32 = sqlx::query_as::<_, (i64,)>(
-            "SELECT allocated_seconds FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+        let session_info = sqlx::query_as::<_, (i64, Option<i64>)>(
+            "SELECT allocated_seconds, split_duration_minutes FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
         )
         .bind(pod_id)
         .fetch_optional(&state.db)
         .await
         .ok()
-        .flatten()
-        .map(|(secs,)| (secs as u32) / 60)
-        .unwrap_or(60);
+        .flatten();
+
+        let duration_minutes: u32 = match &session_info {
+            Some((secs, Some(split_mins))) if sim_type_str == "assetto_corsa" => *split_mins as u32,
+            Some((secs, _)) => (*secs as u32) / 60,
+            None => 60,
+        };
 
         let mut parsed: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
         parsed["duration_minutes"] = serde_json::json!(duration_minutes);
@@ -4257,6 +4329,8 @@ async fn customer_continue_session(
         None,
         None,
         None, // customer-initiated continue
+        None, // split_count
+        None, // split_duration_minutes
     )
     .await
     {
@@ -5159,8 +5233,9 @@ async fn sync_push(
             let r = sqlx::query(
                 "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id,
                     allocated_seconds, driving_seconds, status, custom_price_paise, notes,
-                    started_at, ended_at, created_at, experience_id, car, track, sim_type)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+                    started_at, ended_at, created_at, experience_id, car, track, sim_type,
+                    split_count, split_duration_minutes)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
                  ON CONFLICT(id) DO UPDATE SET
                     driving_seconds = excluded.driving_seconds,
                     status = excluded.status,
@@ -5182,6 +5257,8 @@ async fn sync_push(
             .bind(s.get("car").and_then(|v| v.as_str()))
             .bind(s.get("track").and_then(|v| v.as_str()))
             .bind(s.get("sim_type").and_then(|v| v.as_str()))
+            .bind(s.get("split_count").and_then(|v| v.as_i64()))
+            .bind(s.get("split_duration_minutes").and_then(|v| v.as_i64()))
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
@@ -6639,8 +6716,8 @@ async fn public_leaderboard(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
     // All-time track records across all tracks
-    let records = sqlx::query_as::<_, (String, String, String, i64, String)>(
-        "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at
+    let records = sqlx::query_as::<_, (String, String, String, i64, String, Option<String>)>(
+        "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id
          FROM track_records tr
          JOIN drivers d ON tr.driver_id = d.id
          ORDER BY tr.achieved_at DESC",
@@ -6691,6 +6768,7 @@ async fn public_leaderboard(
             "best_lap_ms": r.3,
             "best_lap_display": format!("{}:{:02}.{:03}", r.3 / 60000, (r.3 % 60000) / 1000, r.3 % 1000),
             "achieved_at": r.4,
+            "lap_id": r.5,
         })).collect::<Vec<_>>(),
         "tracks": tracks.iter().map(|t| json!({
             "name": t.0, "total_laps": t.1,
@@ -6715,8 +6793,9 @@ async fn public_track_leaderboard(
     Path(track): Path<String>,
 ) -> Json<Value> {
     // Top 50 fastest laps on this track (best per driver per car)
-    let records = sqlx::query_as::<_, (String, String, i64, String)>(
-        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, l.car, MIN(l.lap_time_ms), MAX(l.created_at)
+    let records = sqlx::query_as::<_, (String, String, i64, String, Option<String>)>(
+        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, l.car, MIN(l.lap_time_ms), MAX(l.created_at),
+                (SELECT l2.id FROM laps l2 WHERE l2.driver_id = l.driver_id AND l2.car = l.car AND l2.track = l.track AND l2.valid = 1 ORDER BY l2.lap_time_ms ASC LIMIT 1)
          FROM laps l
          JOIN drivers d ON l.driver_id = d.id
          WHERE l.track = ? AND l.valid = 1
@@ -6753,6 +6832,7 @@ async fn public_track_leaderboard(
             "best_lap_ms": r.2,
             "best_lap_display": format!("{}:{:02}.{:03}", r.2 / 60000, (r.2 % 60000) / 1000, r.2 % 1000),
             "achieved_at": r.3,
+            "lap_id": r.4,
         })).collect::<Vec<_>>(),
     }))
 }
@@ -6814,6 +6894,69 @@ async fn public_time_trial(
     }))
 }
 
+// ─── Public Lap Telemetry (No Auth Required) ────────────────────────────────
+
+async fn public_lap_telemetry(
+    State(state): State<Arc<AppState>>,
+    Path(lap_id): Path<String>,
+) -> Json<Value> {
+    // First verify lap exists and get metadata
+    let lap = sqlx::query_as::<_, (String, String, String, i64, Option<i64>, Option<i64>, Option<i64>)>(
+        "SELECT track, car, sim_type, lap_time_ms, sector1_ms, sector2_ms, sector3_ms FROM laps WHERE id = ?",
+    )
+    .bind(&lap_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let lap = match lap {
+        Ok(Some(l)) => l,
+        Ok(None) => return Json(json!({ "error": "Lap not found" })),
+        Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+    };
+
+    // Fetch all telemetry samples for this lap
+    let samples = sqlx::query_as::<_, (i64, Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<i64>, Option<i64>)>(
+        "SELECT offset_ms, speed, throttle, brake, steering, gear, rpm
+         FROM telemetry_samples
+         WHERE lap_id = ?
+         ORDER BY offset_ms ASC",
+    )
+    .bind(&lap_id)
+    .fetch_all(&state.db)
+    .await;
+
+    match samples {
+        Ok(rows) => {
+            let data: Vec<Value> = rows.iter().map(|s| {
+                json!({
+                    "offset_ms": s.0,
+                    "speed": s.1,
+                    "throttle": s.2,
+                    "brake": s.3,
+                    "steering": s.4,
+                    "gear": s.5,
+                    "rpm": s.6,
+                })
+            }).collect();
+
+            let sample_count = data.len();
+            Json(json!({
+                "lap_id": lap_id,
+                "track": lap.0,
+                "car": lap.1,
+                "sim_type": lap.2,
+                "lap_time_ms": lap.3,
+                "sector1_ms": lap.4,
+                "sector2_ms": lap.5,
+                "sector3_ms": lap.6,
+                "samples": data,
+                "sample_count": sample_count,
+            }))
+        }
+        Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
+    }
+}
+
 // ─── Dynamic Pricing Admin ───────────────────────────────────────────────────
 
 async fn list_pricing_rules(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -6861,7 +7004,14 @@ async fn create_pricing_rule(
     .await;
 
     match result {
-        Ok(_) => Json(json!({ "id": id })),
+        Ok(_) => {
+            let new_values = serde_json::to_string(&body).ok();
+            accounting::log_audit(
+                &state, "pricing_rules", &id, "create",
+                None, new_values.as_deref(), None,
+            ).await;
+            Json(json!({ "id": id }))
+        }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
@@ -6871,6 +7021,8 @@ async fn update_pricing_rule(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
+    let old_snapshot = accounting::snapshot_row(&state, "pricing_rules", &id).await;
+
     let result = sqlx::query(
         "UPDATE pricing_rules SET
             rule_type = COALESCE(?, rule_type),
@@ -6894,7 +7046,14 @@ async fn update_pricing_rule(
     .await;
 
     match result {
-        Ok(_) => Json(json!({ "ok": true })),
+        Ok(_) => {
+            let new_values = serde_json::to_string(&body).ok();
+            accounting::log_audit(
+                &state, "pricing_rules", &id, "update",
+                old_snapshot.as_deref(), new_values.as_deref(), None,
+            ).await;
+            Json(json!({ "ok": true }))
+        }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
@@ -6903,10 +7062,19 @@ async fn delete_pricing_rule(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    let _ = sqlx::query("DELETE FROM pricing_rules WHERE id = ?")
+    let old_snapshot = accounting::snapshot_row(&state, "pricing_rules", &id).await;
+
+    // Soft delete instead of hard delete (preserves audit trail)
+    let _ = sqlx::query("UPDATE pricing_rules SET is_active = 0 WHERE id = ?")
         .bind(&id)
         .execute(&state.db)
         .await;
+
+    accounting::log_audit(
+        &state, "pricing_rules", &id, "delete",
+        old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
+    ).await;
+
     Json(json!({ "ok": true }))
 }
 
@@ -6960,7 +7128,14 @@ async fn create_coupon(
     .await;
 
     match result {
-        Ok(_) => Json(json!({ "id": id, "code": code })),
+        Ok(_) => {
+            let new_values = serde_json::to_string(&body).ok();
+            accounting::log_audit(
+                &state, "coupons", &id, "create",
+                None, new_values.as_deref(), None,
+            ).await;
+            Json(json!({ "id": id, "code": code }))
+        }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
@@ -6970,6 +7145,8 @@ async fn update_coupon(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
+    let old_snapshot = accounting::snapshot_row(&state, "coupons", &id).await;
+
     let result = sqlx::query(
         "UPDATE coupons SET
             code = COALESCE(?, code),
@@ -6997,7 +7174,14 @@ async fn update_coupon(
     .await;
 
     match result {
-        Ok(_) => Json(json!({ "ok": true })),
+        Ok(_) => {
+            let new_values = serde_json::to_string(&body).ok();
+            accounting::log_audit(
+                &state, "coupons", &id, "update",
+                old_snapshot.as_deref(), new_values.as_deref(), None,
+            ).await;
+            Json(json!({ "ok": true }))
+        }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
@@ -7006,10 +7190,19 @@ async fn delete_coupon(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    let _ = sqlx::query("DELETE FROM coupons WHERE id = ?")
+    let old_snapshot = accounting::snapshot_row(&state, "coupons", &id).await;
+
+    // Soft delete instead of hard delete
+    let _ = sqlx::query("UPDATE coupons SET is_active = 0 WHERE id = ?")
         .bind(&id)
         .execute(&state.db)
         .await;
+
+    accounting::log_audit(
+        &state, "coupons", &id, "delete",
+        old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
+    ).await;
+
     Json(json!({ "ok": true }))
 }
 
@@ -8611,5 +8804,212 @@ async fn debug_diagnose(
                 "incident_id": inc_id,
             }))
         },
+    }
+}
+
+// ─── Accounting & Audit Routes ─────────────────────────────────────────────
+
+async fn list_accounts(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, i64, String, String, Option<String>, Option<String>, bool)>(
+        "SELECT id, code, name, account_type, parent_id, description, is_active
+         FROM accounts ORDER BY code",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(accts) => {
+            let list: Vec<Value> = accts.iter().map(|a| json!({
+                "id": a.0, "code": a.1, "name": a.2, "account_type": a.3,
+                "parent_id": a.4, "description": a.5, "is_active": a.6,
+            })).collect();
+            Json(json!({ "accounts": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+#[derive(Deserialize)]
+struct DateRangeQuery {
+    from: Option<String>,
+    to: Option<String>,
+}
+
+async fn trial_balance(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DateRangeQuery>,
+) -> Json<Value> {
+    match accounting::get_trial_balance(&state, params.from.as_deref(), params.to.as_deref()).await {
+        Ok(data) => Json(data),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn profit_loss(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DateRangeQuery>,
+) -> Json<Value> {
+    match accounting::get_profit_loss(&state, params.from.as_deref(), params.to.as_deref()).await {
+        Ok(data) => Json(data),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn balance_sheet(State(state): State<Arc<AppState>>) -> Json<Value> {
+    match accounting::get_balance_sheet(&state).await {
+        Ok(data) => Json(data),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn list_journal_entries(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DateRangeQuery>,
+) -> Json<Value> {
+    #[derive(Deserialize)]
+    struct JournalQuery {
+        from: Option<String>,
+        to: Option<String>,
+        limit: Option<i64>,
+    }
+
+    let limit = 100i64; // default
+
+    let mut query = String::from(
+        "SELECT je.id, je.date, je.description, je.reference_type, je.reference_id, je.staff_id, je.created_at
+         FROM journal_entries je WHERE 1=1"
+    );
+
+    if params.from.is_some() {
+        query.push_str(" AND je.date >= ?");
+    }
+    if params.to.is_some() {
+        query.push_str(" AND je.date <= ?");
+    }
+    query.push_str(" ORDER BY je.created_at DESC LIMIT ?");
+
+    let mut q = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>, String)>(&query);
+    if let Some(ref d) = params.from {
+        q = q.bind(d);
+    }
+    if let Some(ref d) = params.to {
+        q = q.bind(d);
+    }
+    q = q.bind(limit);
+
+    let entries = match q.fetch_all(&state.db).await {
+        Ok(rows) => rows,
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    let mut result = Vec::new();
+    for entry in &entries {
+        // Fetch lines for this entry
+        let lines = sqlx::query_as::<_, (String, String, i64, i64)>(
+            "SELECT jel.account_id, a.name, jel.debit_paise, jel.credit_paise
+             FROM journal_entry_lines jel
+             JOIN accounts a ON jel.account_id = a.id
+             WHERE jel.journal_entry_id = ?
+             ORDER BY jel.debit_paise DESC",
+        )
+        .bind(&entry.0)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+        let line_json: Vec<Value> = lines.iter().map(|l| json!({
+            "account_id": l.0,
+            "account_name": l.1,
+            "debit_paise": l.2,
+            "credit_paise": l.3,
+        })).collect();
+
+        result.push(json!({
+            "id": entry.0,
+            "date": entry.1,
+            "description": entry.2,
+            "reference_type": entry.3,
+            "reference_id": entry.4,
+            "staff_id": entry.5,
+            "created_at": entry.6,
+            "lines": line_json,
+        }));
+    }
+
+    Json(json!({ "entries": result, "count": result.len() }))
+}
+
+#[derive(Deserialize)]
+struct AuditLogQuery {
+    table_name: Option<String>,
+    row_id: Option<String>,
+    action: Option<String>,
+    staff_id: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn query_audit_log(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<AuditLogQuery>,
+) -> Json<Value> {
+    let limit = params.limit.unwrap_or(100).min(500);
+
+    let mut query = String::from(
+        "SELECT id, table_name, row_id, action, old_values, new_values, staff_id, ip_address, created_at
+         FROM audit_log WHERE 1=1"
+    );
+    let mut binds: Vec<String> = Vec::new();
+
+    if let Some(ref t) = params.table_name {
+        query.push_str(" AND table_name = ?");
+        binds.push(t.clone());
+    }
+    if let Some(ref r) = params.row_id {
+        query.push_str(" AND row_id = ?");
+        binds.push(r.clone());
+    }
+    if let Some(ref a) = params.action {
+        query.push_str(" AND action = ?");
+        binds.push(a.clone());
+    }
+    if let Some(ref s) = params.staff_id {
+        query.push_str(" AND staff_id = ?");
+        binds.push(s.clone());
+    }
+    if let Some(ref d) = params.from {
+        query.push_str(" AND created_at >= ?");
+        binds.push(d.clone());
+    }
+    if let Some(ref d) = params.to {
+        query.push_str(" AND created_at <= ?");
+        binds.push(d.clone());
+    }
+
+    query.push_str(" ORDER BY created_at DESC LIMIT ?");
+    binds.push(limit.to_string());
+
+    let mut q = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String)>(&query);
+    for b in &binds {
+        q = q.bind(b);
+    }
+
+    match q.fetch_all(&state.db).await {
+        Ok(rows) => {
+            let entries: Vec<Value> = rows.iter().map(|r| json!({
+                "id": r.0,
+                "table_name": r.1,
+                "row_id": r.2,
+                "action": r.3,
+                "old_values": r.4.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
+                "new_values": r.5.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
+                "staff_id": r.6,
+                "ip_address": r.7,
+                "created_at": r.8,
+            })).collect();
+            Json(json!({ "entries": entries, "count": entries.len() }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }

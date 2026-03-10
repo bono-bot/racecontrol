@@ -27,18 +27,20 @@ const DIFFICULTY_PRESETS: Record<string, { label: string; desc: string }> = {
 
 const GAMES = [
   { id: "assetto_corsa", name: "Assetto Corsa", enabled: true },
-  { id: "f1_25", name: "F1 25", enabled: false },
-  { id: "iracing", name: "iRacing", enabled: false },
-  { id: "lemans", name: "Le Mans Ultimate", enabled: false },
-  { id: "forza", name: "Forza", enabled: false },
+  { id: "assetto_corsa_evo", name: "Assetto Corsa Evo", enabled: true },
+  { id: "f1_25", name: "F1 25", enabled: true },
+  { id: "iracing", name: "iRacing", enabled: true },
+  { id: "le_mans_ultimate", name: "Le Mans Ultimate", enabled: true },
+  { id: "forza", name: "Forza Motorsport", enabled: false },
 ];
 
 const GAME_LABELS: Record<string, string> = {
   assetto_corsa: "Assetto Corsa",
+  assetto_corsa_evo: "Assetto Corsa Evo",
   f1_25: "F1 25",
   iracing: "iRacing",
-  lemans: "Le Mans Ultimate",
-  forza: "Forza",
+  le_mans_ultimate: "Le Mans Ultimate",
+  forza: "Forza Motorsport",
 };
 
 const CLASS_COLORS: Record<string, string> = {
@@ -52,6 +54,7 @@ const STEP_TITLES: Record<string, string> = {
   register_driver: "Register Driver",
   select_plan: "Select Plan",
   select_game: "Select Game",
+  session_splits: "Session Format",
   player_mode: "Player Mode",
   session_type: "Session Type",
   ai_config: "AI Opponents",
@@ -83,6 +86,9 @@ export function SetupWizard({
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
   const [walletCache, setWalletCache] = useState<Map<string, number>>(new Map());
 
+  // Split options
+  const [splitOptions, setSplitOptions] = useState<{ count: number; duration_minutes: number; label: string }[]>([]);
+
   // Search/filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [driverName, setDriverName] = useState("");
@@ -91,6 +97,15 @@ export function SetupWizard({
   const [trackCategory, setTrackCategory] = useState("Featured");
   const [carSearch, setCarSearch] = useState("");
   const [carCategory, setCarCategory] = useState("Featured");
+
+  // Fetch split options when entering session_splits step
+  useEffect(() => {
+    if (ws.currentStep === "session_splits" && ws.selectedTier) {
+      api.getSplitOptions(ws.selectedTier.duration_minutes).then((res) => {
+        setSplitOptions(res.options || []);
+      }).catch(() => setSplitOptions([]));
+    }
+  }, [ws.currentStep, ws.selectedTier]);
 
   // Load data on mount
   useEffect(() => {
@@ -179,6 +194,12 @@ export function SetupWizard({
 
   function handleSelectGame(gameId: string) {
     setField("selectedGame", gameId);
+    goNext();
+  }
+
+  function handleSelectSplit(count: number, durationMinutes: number) {
+    setField("splitCount", count);
+    setField("splitDurationMinutes", count > 1 ? durationMinutes : null);
     goNext();
   }
 
@@ -348,6 +369,51 @@ export function SetupWizard({
                 {!g.enabled && <p className="text-xs text-rp-grey mt-1">Coming Soon</p>}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* ─── SESSION SPLITS (AC only) ────────────────────────── */}
+        {step === "session_splits" && (
+          <div className="space-y-4">
+            <p className="text-sm text-rp-grey">
+              Split your {ws.selectedTier?.duration_minutes}-minute session into shorter sub-sessions.
+              The game restarts between each split.
+            </p>
+            <div className="space-y-2">
+              {splitOptions.map((opt) => (
+                <button
+                  key={opt.count}
+                  onClick={() => handleSelectSplit(opt.count, opt.duration_minutes)}
+                  className={`w-full flex items-center justify-between px-4 py-3 bg-rp-surface border rounded transition-colors ${
+                    ws.splitCount === opt.count
+                      ? "border-rp-red bg-rp-red/10"
+                      : "border-rp-border hover:border-rp-red/50"
+                  }`}
+                >
+                  <div className="text-left">
+                    <p className="text-sm font-semibold text-white">{opt.label}</p>
+                    {opt.count === 1 && (
+                      <p className="text-xs text-rp-grey">Full session, no restarts</p>
+                    )}
+                    {opt.count > 1 && (
+                      <p className="text-xs text-rp-grey">
+                        {opt.count} races of {opt.duration_minutes} min each
+                      </p>
+                    )}
+                  </div>
+                  {opt.count > 1 && (
+                    <span className="text-xs text-rp-red font-medium">
+                      {opt.count} races
+                    </span>
+                  )}
+                </button>
+              ))}
+              {splitOptions.length === 0 && (
+                <div className="text-center py-8">
+                  <p className="text-sm text-rp-grey">Loading split options...</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -829,6 +895,9 @@ export function SetupWizard({
               <ReviewRow label="Driver" value={ws.selectedDriver?.name || ""} />
               <ReviewRow label="Plan" value={ws.selectedTier?.name || ""} />
               <ReviewRow label="Game" value={GAME_LABELS[ws.selectedGame] || ws.selectedGame} />
+              {ws.splitCount > 1 && ws.splitDurationMinutes && (
+                <ReviewRow label="Format" value={`${ws.splitCount} × ${ws.splitDurationMinutes} min`} />
+              )}
               <ReviewRow label="Mode" value={ws.playerMode === "multi" ? "Multiplayer" : "Singleplayer"} />
               <ReviewRow label="Session" value={ws.sessionType.charAt(0).toUpperCase() + ws.sessionType.slice(1)} />
               {ws.aiEnabled && (

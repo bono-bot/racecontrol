@@ -747,6 +747,44 @@ export const api = {
     ),
 };
 
+// ─── Leaderboard Types ────────────────────────────────────────────────────
+
+export interface LeaderboardEntry {
+  position: number;
+  driver: string;
+  car: string;
+  best_lap_ms: number;
+  is_personal_best: boolean;
+  is_track_record: boolean;
+  lap_id?: string;
+}
+
+// ─── Lap Telemetry Types ──────────────────────────────────────────────────
+
+export interface LapTelemetrySample {
+  offset_ms: number;
+  speed: number | null;
+  throttle: number | null;
+  brake: number | null;
+  steering: number | null;
+  gear: number | null;
+  rpm: number | null;
+}
+
+export interface LapTelemetryData {
+  lap_id: string;
+  track: string;
+  car: string;
+  sim_type: string;
+  lap_time_ms: number;
+  sector1_ms: number | null;
+  sector2_ms: number | null;
+  sector3_ms: number | null;
+  samples: LapTelemetrySample[];
+  sample_count: number;
+  error?: string;
+}
+
 // ─── Public API (no auth) ─────────────────────────────────────────────────
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
@@ -760,6 +798,10 @@ export const publicApi = {
 
   timeTrial: () =>
     fetch(`${API_BASE_URL}/public/time-trial`).then(r => r.json()),
+
+  lapTelemetry: (lapId: string) =>
+    fetch(`${API_BASE_URL}/public/laps/${encodeURIComponent(lapId)}/telemetry`)
+      .then(r => r.json()) as Promise<LapTelemetryData>,
 };
 
 export interface TerminalCommand {

@@ -767,6 +767,12 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN staff_id TEXT")
         .execute(pool)
         .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN split_count INTEGER DEFAULT 1")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN split_duration_minutes INTEGER")
+        .execute(pool)
+        .await;
 
     // ─── Cloud sync tables ───────────────────────────────────────────────────
     sqlx::query(
@@ -1498,6 +1504,139 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await;
+
+    // ─── Audit Log (tracks all config changes) ───────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY,
+            table_name TEXT NOT NULL,
+            row_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN ('create', 'update', 'delete')),
+            old_values TEXT,
+            new_values TEXT,
+            staff_id TEXT,
+            ip_address TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_log_table ON audit_log(table_name)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_log_row ON audit_log(table_name, row_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_log_staff ON audit_log(staff_id)")
+        .execute(pool)
+        .await?;
+
+    // ─── Double-Entry Bookkeeping: Chart of Accounts ──────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS accounts (
+            id TEXT PRIMARY KEY,
+            code INTEGER NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            account_type TEXT NOT NULL CHECK(account_type IN ('asset', 'liability', 'equity', 'revenue', 'expense')),
+            parent_id TEXT REFERENCES accounts(id),
+            description TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_accounts_type ON accounts(account_type)")
+        .execute(pool)
+        .await?;
+
+    // Seed chart of accounts for RacingPoint
+    let accounts = [
+        // Assets (1xxx)
+        ("acc_cash", 1000, "Cash", "asset", "", "Physical cash received"),
+        ("acc_bank", 1100, "Bank Account", "asset", "", "Bank deposits (UPI, card)"),
+        ("acc_ar", 1200, "Accounts Receivable", "asset", "", "Outstanding customer payments"),
+        // Liabilities (2xxx)
+        ("acc_wallet", 2000, "Customer Wallet Credits", "liability", "", "Prepaid credits owed to customers"),
+        ("acc_gst_payable", 2100, "GST Payable", "liability", "", "Tax collected pending remittance"),
+        // Equity (3xxx)
+        ("acc_owner_equity", 3000, "Owner's Equity", "equity", "", "Owner investment"),
+        ("acc_retained", 3100, "Retained Earnings", "equity", "", "Accumulated net profit"),
+        // Revenue (4xxx)
+        ("acc_racing_rev", 4000, "Racing Revenue", "revenue", "", "Sim racing session fees"),
+        ("acc_cafe_rev", 4100, "Cafe Revenue", "revenue", "", "Food & beverage sales"),
+        ("acc_merch_rev", 4200, "Merchandise Revenue", "revenue", "", "Merchandise sales"),
+        ("acc_membership_rev", 4300, "Membership Revenue", "revenue", "", "Membership subscription fees"),
+        ("acc_tournament_rev", 4400, "Tournament Revenue", "revenue", "", "Tournament entry fees"),
+        // Expenses (5xxx)
+        ("acc_refunds", 5000, "Refunds Issued", "expense", "", "Session & manual refunds"),
+        ("acc_promo_bonus", 5100, "Promotional Bonuses", "expense", "", "Wallet topup bonus credits given"),
+        ("acc_cafe_cogs", 5200, "Cafe Cost of Goods", "expense", "", "Food & beverage purchase costs"),
+        ("acc_ops_expense", 5300, "Operating Expenses", "expense", "", "Rent, utilities, equipment"),
+        ("acc_penalty_adj", 5400, "Penalties & Adjustments", "expense", "", "Manual wallet adjustments"),
+    ];
+
+    for (id, code, name, acct_type, _parent, desc) in &accounts {
+        sqlx::query(
+            "INSERT OR IGNORE INTO accounts (id, code, name, account_type, description)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(code)
+        .bind(name)
+        .bind(acct_type)
+        .bind(desc)
+        .execute(pool)
+        .await?;
+    }
+
+    // ─── Double-Entry Bookkeeping: Journal Entries ─────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS journal_entries (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL DEFAULT (date('now')),
+            description TEXT NOT NULL,
+            reference_type TEXT,
+            reference_id TEXT,
+            staff_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_journal_date ON journal_entries(date)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_journal_ref ON journal_entries(reference_type, reference_id)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS journal_entry_lines (
+            id TEXT PRIMARY KEY,
+            journal_entry_id TEXT NOT NULL REFERENCES journal_entries(id),
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            debit_paise INTEGER NOT NULL DEFAULT 0,
+            credit_paise INTEGER NOT NULL DEFAULT 0,
+            CHECK(debit_paise >= 0 AND credit_paise >= 0),
+            CHECK(NOT (debit_paise > 0 AND credit_paise > 0))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_jel_entry ON journal_entry_lines(journal_entry_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_jel_account ON journal_entry_lines(account_id)")
+        .execute(pool)
+        .await?;
 
     tracing::info!("Database migrations complete");
     Ok(())

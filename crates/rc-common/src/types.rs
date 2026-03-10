@@ -7,8 +7,11 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum SimType {
     AssettoCorsa,
+    AssettoCorsaEvo,
+    #[serde(rename = "iracing")]
     IRacing,
     LeMansUltimate,
+    #[serde(rename = "f1_25")]
     F125,
     Forza,
 }
@@ -17,6 +20,7 @@ impl std::fmt::Display for SimType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SimType::AssettoCorsa => write!(f, "Assetto Corsa"),
+            SimType::AssettoCorsaEvo => write!(f, "Assetto Corsa Evo"),
             SimType::IRacing => write!(f, "iRacing"),
             SimType::LeMansUltimate => write!(f, "Le Mans Ultimate"),
             SimType::F125 => write!(f, "F1 25"),
@@ -281,6 +285,10 @@ pub struct BillingSessionInfo {
     pub status: BillingSessionStatus,
     pub driving_state: DrivingState,
     pub started_at: Option<DateTime<Utc>>,
+    /// Number of sub-sessions (e.g. 3 for 3×10min). Default 1 = no split.
+    pub split_count: u32,
+    /// Duration of each sub-session in minutes (e.g. 10 for 3×10min). None = no split.
+    pub split_duration_minutes: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -34,10 +34,11 @@ const DIFFICULTY_PRESETS: Record<string, { label: string; desc: string; aids: Re
 
 const GAMES = [
   { id: "assetto_corsa", name: "Assetto Corsa", enabled: true },
-  { id: "f1_25", name: "F1 25", enabled: false },
-  { id: "iracing", name: "iRacing", enabled: false },
-  { id: "lemans", name: "Le Mans Ultimate", enabled: false },
-  { id: "forza", name: "Forza", enabled: false },
+  { id: "assetto_corsa_evo", name: "Assetto Corsa Evo", enabled: true },
+  { id: "f1_25", name: "F1 25", enabled: true },
+  { id: "iracing", name: "iRacing", enabled: true },
+  { id: "le_mans_ultimate", name: "Le Mans Ultimate", enabled: true },
+  { id: "forza", name: "Forza Motorsport", enabled: false },
 ];
 
 export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCancel }: GameConfiguratorProps) {

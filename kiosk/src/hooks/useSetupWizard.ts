@@ -36,6 +36,9 @@ export interface WizardState {
   drivingDifficulty: string;
   transmission: string;
   ffb: string;
+  // Session splits (AC only)
+  splitCount: number;
+  splitDurationMinutes: number | null;
   // Multiplayer
   multiplayerMode: "create" | "join" | null;
   serverIp: string;
@@ -61,6 +64,8 @@ const INITIAL_STATE: WizardState = {
   drivingDifficulty: "easy",
   transmission: "auto",
   ffb: "medium",
+  splitCount: 1,
+  splitDurationMinutes: null,
   multiplayerMode: null,
   serverIp: "",
   serverPort: "",
@@ -79,6 +84,7 @@ const SINGLE_FLOW: SetupStep[] = [
   "register_driver",
   "select_plan",
   "select_game",
+  "session_splits",
   "player_mode",
   "session_type",
   "ai_config",
@@ -116,13 +122,20 @@ export function useSetupWizard() {
 
   const getFlow = useCallback((): SetupStep[] => {
     const flow = state.playerMode === "multi" ? [...MULTI_FLOW] : [...SINGLE_FLOW];
+    let filtered = flow;
+    // Skip session_splits for non-AC games or if tier duration < 20 min (no valid splits)
+    const isAc = state.selectedGame === "assetto_corsa";
+    const duration = state.selectedTier?.duration_minutes ?? 0;
+    if (!isAc || duration < 20) {
+      filtered = filtered.filter((s) => s !== "session_splits");
+    }
     // If experience mode is "preset", skip select_track and select_car
     if (state.experienceMode === "preset") {
-      return flow.filter((s) => s !== "select_track" && s !== "select_car");
+      return filtered.filter((s) => s !== "select_track" && s !== "select_car");
     }
     // If experience mode is "custom", skip select_experience
-    return flow.filter((s) => s !== "select_experience");
-  }, [state.playerMode, state.experienceMode]);
+    return filtered.filter((s) => s !== "select_experience");
+  }, [state.playerMode, state.experienceMode, state.selectedGame, state.selectedTier]);
 
   const goBack = useCallback(() => {
     const flow = getFlow();

@@ -14,7 +14,6 @@ from datetime import datetime, timedelta
 
 CORE_URL = "http://localhost:8080/api/v1"
 CLOUD_URL = "https://app.racingpoint.cloud/api/v1"
-OLLAMA_URL = "http://localhost:11434"
 POD8_IP = "192.168.31.91"
 TERMINAL_SECRET = "rp-terminal-2026"
 DB_PATH = Path(__file__).parent.parent / "data" / "racecontrol.db"
@@ -57,11 +56,6 @@ def test_pod8_in_core():
         pods = pods["pods"]
     pod8 = [p for p in pods if str(p.get("number")) == "8" or "pod_8" in str(p.get("id", "")).lower()]
     return len(pod8) > 0, f"Found {len(pods)} pods, pod_8 present: {len(pod8) > 0}"
-
-
-def test_ollama():
-    r = requests.get(f"{OLLAMA_URL}/api/version", timeout=5)
-    return r.status_code == 200, f"HTTP {r.status_code}, version: {r.json().get('version', '?')}"
 
 
 def test_cloud_reachable():
@@ -155,8 +149,7 @@ def main():
         (" 1. rc-core health", test_core_health),
         (" 2. Pod 8 agent", test_pod8_agent),
         (" 3. Pod 8 in rc-core", test_pod8_in_core),
-        (" 4. Ollama", test_ollama),
-        (" 5. Cloud reachable", test_cloud_reachable),
+        (" 4. Cloud reachable", test_cloud_reachable),
         (" 6. Cloud sync pull", test_cloud_sync_pull),
         (" 7. Sync state (DB)", test_sync_state_recent),
         (" 8. Sync health", test_sync_health),

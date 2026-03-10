@@ -23,8 +23,8 @@ theme = "dark"
 
 [ai_debugger]
 enabled = true
-ollama_url = "http://host.docker.internal:32769"
-ollama_model = "llama3.1:8b"
+# ollama_url = "http://host.docker.internal:32769"  # Ollama removed from cloud
+# ollama_model = "llama3.1:8b"
 chat_enabled = true
 proactive_analysis = true
 

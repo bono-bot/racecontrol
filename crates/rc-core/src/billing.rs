@@ -69,6 +69,10 @@ pub struct BillingTimer {
     pub warning_1min_sent: bool,
     /// When the pod went offline (None if online)
     pub offline_since: Option<DateTime<Utc>>,
+    /// Number of sub-sessions (1 = no split)
+    pub split_count: u32,
+    /// Duration of each sub-session in minutes (None = no split)
+    pub split_duration_minutes: Option<u32>,
 }
 
 impl BillingTimer {
@@ -89,6 +93,8 @@ impl BillingTimer {
             status: self.status,
             driving_state: self.driving_state,
             started_at: self.started_at,
+            split_count: self.split_count,
+            split_duration_minutes: self.split_duration_minutes,
         }
     }
 
@@ -414,8 +420,8 @@ pub async fn sync_timers_to_db(state: &Arc<AppState>) {
 
 /// On server startup, recover any active billing sessions from the database
 pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, Option<String>)>(
-        "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, pt.name, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, Option<String>, Option<i64>, Option<i64>)>(
+        "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, pt.name, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at, bs.split_count, bs.split_duration_minutes
          FROM billing_sessions bs
          JOIN drivers d ON bs.driver_id = d.id
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
@@ -456,6 +462,8 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             warning_5min_sent: (row.5 as u32).saturating_sub(row.6 as u32) <= 300,
             warning_1min_sent: (row.5 as u32).saturating_sub(row.6 as u32) <= 60,
             offline_since: None,
+            split_count: row.9.unwrap_or(1) as u32,
+            split_duration_minutes: row.10.map(|m| m as u32),
         };
 
         tracing::info!(
@@ -495,6 +503,8 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
             custom_price_paise,
             custom_duration_minutes,
             staff_id,
+            split_count,
+            split_duration_minutes,
         } => {
             let _ = start_billing_session(
                 state,
@@ -504,6 +514,8 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
                 custom_price_paise,
                 custom_duration_minutes,
                 staff_id,
+                split_count,
+                split_duration_minutes,
             )
             .await;
         }
@@ -547,6 +559,8 @@ pub async fn start_billing_session(
     custom_price_paise: Option<u32>,
     custom_duration_minutes: Option<u32>,
     staff_id: Option<String>,
+    split_count: Option<u32>,
+    split_duration_minutes: Option<u32>,
 ) -> Result<String, String> {
     // Check no active session on this pod
     {
@@ -640,9 +654,12 @@ pub async fn start_billing_session(
     let session_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now();
 
+    let final_split_count = split_count.unwrap_or(1);
+    let final_split_duration = split_duration_minutes;
+
     sqlx::query(
-        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at, staff_id)
-         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)",
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, started_at, staff_id, split_count, split_duration_minutes)
+         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
     )
     .bind(&session_id)
     .bind(&driver_id)
@@ -652,6 +669,8 @@ pub async fn start_billing_session(
     .bind(final_price_paise)
     .bind(now.to_rfc3339())
     .bind(&staff_id)
+    .bind(final_split_count as i64)
+    .bind(final_split_duration.map(|d| d as i64))
     .execute(&state.db)
     .await
     .map_err(|e| format!("Failed to persist billing session: {}", e))?;
@@ -692,6 +711,8 @@ pub async fn start_billing_session(
         warning_5min_sent: false,
         warning_1min_sent: false,
         offline_since: None,
+        split_count: final_split_count,
+        split_duration_minutes: final_split_duration,
     };
 
     let info = timer.to_info();
@@ -1274,6 +1295,8 @@ mod tests {
             warning_5min_sent: false,
             warning_1min_sent: false,
             offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
         };
 
         // Should count when driving
@@ -1308,6 +1331,8 @@ mod tests {
             warning_5min_sent: false,
             warning_1min_sent: false,
             offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
         };
 
         // One more tick should expire
@@ -1332,6 +1357,8 @@ mod tests {
             warning_5min_sent: false,
             warning_1min_sent: false,
             offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);

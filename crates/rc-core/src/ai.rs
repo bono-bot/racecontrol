@@ -1,7 +1,7 @@
 //! Central AI service for RaceControl.
 //!
 //! All AI calls (chat, crash analysis, pattern detection) route through this module.
-//! Priority: Ollama (local, with learned context) → Claude CLI → Anthropic API.
+//! Priority: Claude CLI → Ollama (venue, with learned context) → Anthropic API.
 //! Automatically logs Claude CLI responses as training pairs for Ollama to learn from.
 
 use std::collections::HashSet;
@@ -152,8 +152,8 @@ pub async fn query_anthropic(
         .unwrap_or_default())
 }
 
-/// Try Ollama (with learned context) → Claude CLI → Anthropic API. Returns (response, model_used).
-/// When `db` is provided, automatically logs Claude CLI responses for Ollama to learn from.
+/// Try Claude CLI → Ollama (venue, with learned context) → Anthropic API. Returns (response, model_used).
+/// When `db` is provided, automatically logs responses as training pairs for future learning.
 pub async fn query_ai(
     config: &AiDebuggerConfig,
     messages: &[Value],
@@ -162,71 +162,12 @@ pub async fn query_ai(
 ) -> anyhow::Result<(String, String)> {
     let user_query = extract_user_query(messages);
 
-    // 1. Find similar past Q&A pairs for few-shot learning
-    let few_shot = if let Some(db) = db {
-        find_similar_pairs(db, &user_query, 3).await
-    } else {
-        vec![]
-    };
-
-    // 2. Build enhanced messages with domain context + few-shot examples
-    let enhanced = build_enhanced_messages(messages, &few_shot);
-
-    // 3. Try Ollama FIRST (local, instant, with learned context)
-    match query_ollama(&config.ollama_url, &config.ollama_model, &enhanced).await {
-        Ok(reply) => {
-            let example_count = few_shot.len();
-
-            // Increment use_count on training pairs we used
-            if let Some(db) = db {
-                for pair in &few_shot {
-                    let _ = sqlx::query(
-                        "UPDATE ai_training_pairs SET use_count = use_count + 1 WHERE id = ?",
-                    )
-                    .bind(&pair.id)
-                    .execute(db)
-                    .await;
-                }
-            }
-
-            // If no few-shot context, background-learn from Claude CLI for next time
-            if example_count == 0 && config.claude_cli_enabled {
-                if let Some(db) = db {
-                    let db = db.clone();
-                    let msgs = messages.to_vec();
-                    let src = source.unwrap_or("unknown").to_string();
-                    let timeout = config.claude_cli_timeout_secs;
-                    tokio::spawn(async move {
-                        let prompt = messages_to_prompt(&msgs);
-                        if let Ok(cli_reply) = query_claude_cli(&prompt, timeout).await {
-                            let query = extract_user_query(&msgs);
-                            log_training_pair(&db, &query, &cli_reply, &src, "claude-cli").await;
-                            tracing::info!(
-                                "AI learning: logged Claude CLI response for future Ollama use (source: {})",
-                                src
-                            );
-                        }
-                    });
-                }
-            }
-
-            tracing::info!(
-                "AI query answered by Ollama (with {} examples)",
-                example_count
-            );
-            return Ok((reply, format!("ollama/{}", config.ollama_model)));
-        }
-        Err(e) => {
-            tracing::warn!("Ollama failed: {}. Trying Claude CLI...", e);
-        }
-    }
-
-    // 4. Fallback: Claude CLI (and log response for future Ollama learning)
+    // 1. Primary: Claude CLI
     if config.claude_cli_enabled {
         let prompt = messages_to_prompt(messages);
         match query_claude_cli(&prompt, config.claude_cli_timeout_secs).await {
             Ok(reply) => {
-                // Log this Q&A pair for Ollama to learn from next time
+                // Log this Q&A pair for future learning
                 if let Some(db) = db {
                     log_training_pair(
                         db,
@@ -240,12 +181,47 @@ pub async fn query_ai(
                 return Ok((reply, "claude-cli".to_string()));
             }
             Err(e) => {
-                tracing::warn!("Claude CLI failed: {}. Trying Anthropic API...", e);
+                tracing::warn!("Claude CLI failed: {}. Trying Ollama...", e);
             }
         }
     }
 
-    // 5. Final fallback: Anthropic API
+    // 2. Fallback: Ollama (venue-local, with learned context from training pairs)
+    {
+        let few_shot = if let Some(db) = db {
+            find_similar_pairs(db, &user_query, 3).await
+        } else {
+            vec![]
+        };
+        let enhanced = build_enhanced_messages(messages, &few_shot);
+
+        match query_ollama(&config.ollama_url, &config.ollama_model, &enhanced).await {
+            Ok(reply) => {
+                // Increment use_count on training pairs we used
+                if let Some(db) = db {
+                    for pair in &few_shot {
+                        let _ = sqlx::query(
+                            "UPDATE ai_training_pairs SET use_count = use_count + 1 WHERE id = ?",
+                        )
+                        .bind(&pair.id)
+                        .execute(db)
+                        .await;
+                    }
+                }
+
+                tracing::info!(
+                    "AI query answered by Ollama (with {} examples)",
+                    few_shot.len()
+                );
+                return Ok((reply, format!("ollama/{}", config.ollama_model)));
+            }
+            Err(e) => {
+                tracing::warn!("Ollama failed: {}. Trying Anthropic API...", e);
+            }
+        }
+    }
+
+    // 3. Final fallback: Anthropic API
     if let Some(api_key) = &config.anthropic_api_key {
         let reply = query_anthropic(api_key, &config.anthropic_model, messages).await?;
         if let Some(db) = db {
@@ -260,7 +236,7 @@ pub async fn query_ai(
         }
         Ok((reply, format!("anthropic/{}", config.anthropic_model)))
     } else {
-        anyhow::bail!("All AI providers failed (Ollama, Claude CLI, Anthropic API)")
+        anyhow::bail!("All AI providers failed (Claude CLI, Ollama, Anthropic API)")
     }
 }
 

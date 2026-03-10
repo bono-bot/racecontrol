@@ -43,11 +43,18 @@ export const api = {
     driver_id: string;
     pricing_tier_id: string;
     staff_id?: string;
+    split_count?: number;
+    split_duration_minutes?: number;
   }) =>
     fetchApi<{ ok?: boolean; error?: string; billing_session_id?: string }>("/billing/start", {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  getSplitOptions: (durationMinutes: number) =>
+    fetchApi<{ duration_minutes: number; options: { count: number; duration_minutes: number; label: string }[] }>(
+      `/billing/split-options/${durationMinutes}`
+    ),
 
   // Auth
   assignCustomer: (data: {

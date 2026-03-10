@@ -145,6 +145,10 @@ export default function StaffTerminal() {
           driver_id: driver.id,
           pricing_tier_id: tier.id,
           staff_id: staffId || undefined,
+          ...(wizard.state.splitCount > 1 && {
+            split_count: wizard.state.splitCount,
+            split_duration_minutes: wizard.state.splitDurationMinutes ?? undefined,
+          }),
         });
 
         if (result.error) {

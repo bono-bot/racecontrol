@@ -89,6 +89,8 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "acs.exe",                     // Assetto Corsa
     "acserver.exe",                // AC dedicated server
     // NOTE: "content manager.exe" is NOT here — only allowed in employee debug mode
+    "assettocorsa2.exe",           // Assetto Corsa Evo
+    "ac2-win64-shipping.exe",      // AC Evo (Unreal Engine shipping build)
     "iracing.exe",                 // iRacing
     "iracingservice.exe",
     "iracingsim64dx11.exe",

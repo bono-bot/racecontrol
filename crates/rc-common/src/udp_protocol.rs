@@ -62,7 +62,7 @@ pub struct HeartbeatPong {
 /// bit 1:     game_running
 /// bit 2:     driving_active
 /// bit 3:     billing_active
-/// bit 4-7:   game_id (0=none, 1=AC, 2=F1, 3=iRacing, 4=LMU, 5=Forza)
+/// bit 4-7:   game_id (0=none, 1=AC, 2=F1, 3=iRacing, 4=LMU, 5=Forza, 6=ACEvo)
 /// bit 8-15:  cpu_percent (0-100)
 /// bit 16-23: gpu_percent (0-100)
 /// bit 24-31: reserved

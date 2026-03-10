@@ -398,6 +398,8 @@ pub enum DashboardCommand {
         custom_price_paise: Option<u32>,
         custom_duration_minutes: Option<u32>,
         staff_id: Option<String>,
+        split_count: Option<u32>,
+        split_duration_minutes: Option<u32>,
     },
 
     /// Manually pause billing (staff-initiated)

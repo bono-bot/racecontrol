@@ -162,6 +162,7 @@ impl GameProcess {
 fn process_names(sim_type: SimType) -> &'static [&'static str] {
     match sim_type {
         SimType::AssettoCorsa => &["acs.exe", "AssettoCorsa.exe"],
+        SimType::AssettoCorsaEvo => &["AssettoCorsa2.exe", "AC2-Win64-Shipping.exe"],
         SimType::IRacing => &["iRacingSim64DX11.exe", "iRacingService.exe"],
         SimType::F125 => &["F1_25.exe"],
         SimType::LeMansUltimate => &["LMU.exe", "Le Mans Ultimate.exe"],

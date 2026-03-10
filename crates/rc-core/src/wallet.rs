@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use crate::accounting;
 use crate::state::AppState;
 
 /// Ensure a wallet row exists for the driver. Creates one if missing.
@@ -56,6 +57,7 @@ pub async fn get_wallet_info(
 
 /// Credit (add) funds to a driver's wallet. Returns new balance.
 /// Uses a SQLite transaction for atomicity.
+/// Automatically posts a double-entry journal entry.
 pub async fn credit(
     state: &Arc<AppState>,
     driver_id: &str,
@@ -109,6 +111,24 @@ pub async fn credit(
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
 
+    // Post double-entry journal entry (fire-and-forget, non-blocking)
+    match txn_type {
+        "topup_cash" | "topup_card" | "topup_upi" | "topup_online" => {
+            accounting::post_topup(state, driver_id, amount_paise, txn_type, staff_id, Some(&txn_id)).await;
+        }
+        "bonus" => {
+            accounting::post_bonus(state, driver_id, amount_paise, Some(&txn_id)).await;
+        }
+        "refund_session" | "refund_manual" => {
+            accounting::post_refund(state, driver_id, amount_paise, reference_id).await;
+        }
+        "adjustment" => {
+            // Adjustment credit: treat as manual correction
+            accounting::post_topup(state, driver_id, amount_paise, "topup_cash", staff_id, Some(&txn_id)).await;
+        }
+        _ => {}
+    }
+
     tracing::info!(
         "Wallet credit: {} +{}p = {}p ({})",
         driver_id,
@@ -122,6 +142,7 @@ pub async fn credit(
 
 /// Debit (subtract) funds from a driver's wallet. Returns (new_balance, txn_id).
 /// Fails if insufficient balance.
+/// Automatically posts a double-entry journal entry.
 pub async fn debit(
     state: &Arc<AppState>,
     driver_id: &str,
@@ -179,6 +200,9 @@ pub async fn debit(
     .execute(&state.db)
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
+
+    // Post double-entry journal entry for all debit types
+    accounting::post_wallet_debit(state, driver_id, amount_paise, txn_type, Some(&txn_id)).await;
 
     tracing::info!(
         "Wallet debit: {} -{}p = {}p ({})",

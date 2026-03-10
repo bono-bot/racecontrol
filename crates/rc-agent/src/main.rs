@@ -68,6 +68,8 @@ struct GamesConfig {
     #[serde(default)]
     assetto_corsa: GameExeConfig,
     #[serde(default)]
+    assetto_corsa_evo: GameExeConfig,
+    #[serde(default)]
     iracing: GameExeConfig,
     #[serde(default)]
     f1_25: GameExeConfig,
@@ -832,6 +834,7 @@ async fn main() -> Result<()> {
                                             SimType::IRacing => 3,
                                             SimType::LeMansUltimate => 4,
                                             SimType::Forza => 5,
+                                            SimType::AssettoCorsaEvo => 6,
                                         }, std::sync::atomic::Ordering::Relaxed);
 
                                         // Send "launching" state
@@ -978,6 +981,7 @@ async fn main() -> Result<()> {
                                         // Generic launch for other sims
                                         let base_config = match launch_sim {
                                             SimType::AssettoCorsa => &config.games.assetto_corsa,
+                                            SimType::AssettoCorsaEvo => &config.games.assetto_corsa_evo,
                                             SimType::IRacing => &config.games.iracing,
                                             SimType::F125 => &config.games.f1_25,
                                             SimType::LeMansUltimate => &config.games.le_mans_ultimate,

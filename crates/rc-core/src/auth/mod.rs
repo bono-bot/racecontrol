@@ -363,6 +363,8 @@ pub async fn validate_pin(
         custom_price_paise,
         custom_duration_minutes,
         None, // customer PIN auth
+        None, // split_count
+        None, // split_duration_minutes
     )
     .await
     {
@@ -473,6 +475,8 @@ pub async fn validate_qr(
         custom_price_paise,
         custom_duration_minutes,
         None, // customer QR auth
+        None, // split_count
+        None, // split_duration_minutes
     )
     .await
     {
@@ -571,6 +575,8 @@ pub async fn start_now(
         custom_price_paise,
         custom_duration_minutes,
         None, // PWA token auth
+        None, // split_count
+        None, // split_duration_minutes
     )
     .await
     {
@@ -1084,6 +1090,8 @@ pub async fn validate_pin_kiosk(
         custom_price_paise,
         custom_duration_minutes,
         None, // kiosk PIN validation
+        None, // split_count
+        None, // split_duration_minutes
     )
     .await
     {
