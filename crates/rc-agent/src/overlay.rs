@@ -42,6 +42,9 @@ struct OverlayData {
     current_lap_time_ms: u32,
     current_sector: u8,
     current_lap_invalid: bool,
+    live_sector1_ms: Option<u32>,
+    live_sector2_ms: Option<u32>,
+    live_sector3_ms: Option<u32>,
     speed_kmh: f32,
     gear: i8,
     rpm: u32,
@@ -62,6 +65,9 @@ impl Default for OverlayData {
             current_lap_time_ms: 0,
             current_sector: 0,
             current_lap_invalid: false,
+            live_sector1_ms: None,
+            live_sector2_ms: None,
+            live_sector3_ms: None,
             speed_kmh: 0.0,
             gear: 0,
             rpm: 0,
@@ -143,6 +149,9 @@ impl OverlayManager {
         data.rpm = frame.rpm;
         data.car = frame.car.clone();
         data.track = frame.track.clone();
+        data.live_sector1_ms = frame.sector1_ms;
+        data.live_sector2_ms = frame.sector2_ms;
+        data.live_sector3_ms = frame.sector3_ms;
     }
 
     /// Record a completed lap — update previous_lap and possibly best_lap.
@@ -494,7 +503,7 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
 
     // ── Layout — divide into 6 sections ──
     // Content starts below RPM bar (6px top reserved).
-    let section_widths: [i32; 6] = [130, 160, 110, 200, 200, 80]; // Session, Lap, Gear, Prev, Best, LapNum
+    let section_widths: [i32; 6] = [120, 200, 100, 200, 200, 60]; // Session, Lap, Gear, Prev, Best, LapNum
     let total_content: i32 = section_widths.iter().sum();
     let start_x = (w - total_content).max(0) / 2;
 
@@ -543,14 +552,55 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
                 }
                 draw_text_at(mem_dc, font_value, lap_col, sx + 16, value_y, &lap_str);
 
-                // Live sector indicator below current lap
-                let sector_label = match data.current_sector {
-                    0 => "S1",
-                    1 => "S2",
-                    2 => "S3",
-                    _ => "S1",
-                };
-                draw_text_at(mem_dc, font_sector_label, col_dim, sx + 16, sector_y, sector_label);
+                // Live sector times below current lap
+                let mut sector_x = sx + 12;
+                let sectors: [(
+                    &str,
+                    Option<u32>,
+                    Option<u32>,
+                    Option<u32>,
+                ); 3] = [
+                    (
+                        "S1",
+                        data.live_sector1_ms,
+                        data.previous_lap.as_ref().and_then(|p| p.sector1_ms),
+                        data.best_lap.as_ref().and_then(|b| b.sector1_ms),
+                    ),
+                    (
+                        "S2",
+                        data.live_sector2_ms,
+                        data.previous_lap.as_ref().and_then(|p| p.sector2_ms),
+                        data.best_lap.as_ref().and_then(|b| b.sector2_ms),
+                    ),
+                    (
+                        "S3",
+                        data.live_sector3_ms,
+                        data.previous_lap.as_ref().and_then(|p| p.sector3_ms),
+                        data.best_lap.as_ref().and_then(|b| b.sector3_ms),
+                    ),
+                ];
+                for (idx, (label, ms, prev_ms, best_ms)) in sectors.iter().enumerate() {
+                    let is_active = data.current_sector == idx as u8 && ms.is_none();
+
+                    // White label for active sector, dim for others
+                    let label_col = if is_active { col_white } else { col_dim };
+                    draw_text_at(mem_dc, font_sector_label, label_col, sector_x, sector_y, label);
+                    sector_x += 16;
+
+                    if ms.is_some() {
+                        // Completed sector — show time with F1 color coding
+                        let col = sector_color(
+                            *ms, *prev_ms, *best_ms,
+                            col_sector_grey, col_purple, rgb(34, 197, 94), col_amber,
+                        );
+                        draw_text_at(mem_dc, font_sector, col, sector_x, sector_y - 1, &format_sector(*ms));
+                    } else {
+                        // Active or future sector — dim/white dashes
+                        let dash_col = if is_active { col_white } else { col_dim };
+                        draw_text_at(mem_dc, font_sector, dash_col, sector_x, sector_y - 1, "--.-");
+                    }
+                    sector_x += 46;
+                }
             }
             2 => {
                 // ── Gear + Speed ──
@@ -593,7 +643,7 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData) {
                         draw_text_at(mem_dc, font_sector_label, col_dim, sector_x, sector_y, label);
                         sector_x += 16;
                         let val_str = format_sector(ms);
-                        let col = sector_color(ms, best_ms, col_sector_grey, col_purple, rgb(34, 197, 94), col_amber);
+                        let col = sector_color(ms, None, best_ms, col_sector_grey, col_purple, rgb(34, 197, 94), col_amber);
                         draw_text_at(mem_dc, font_sector, col, sector_x, sector_y - 1, &val_str);
                         sector_x += 46;
                     }
@@ -761,15 +811,35 @@ fn format_sector(ms: Option<u32>) -> String {
     }
 }
 
-fn sector_color(prev_ms: Option<u32>, best_ms: Option<u32>, default: u32, purple: u32, green: u32, yellow: u32) -> u32 {
-    match (prev_ms, best_ms) {
-        (Some(p), Some(b)) if p > 0 && b > 0 => {
-            if p <= b {
-                purple
-            } else if p.saturating_sub(b) <= 300 {
-                green
-            } else {
+fn sector_color(
+    current_ms: Option<u32>,
+    prev_ms: Option<u32>,
+    best_ms: Option<u32>,
+    default: u32,
+    purple: u32,
+    green: u32,
+    yellow: u32,
+) -> u32 {
+    match current_ms {
+        Some(c) if c > 0 => {
+            // Purple: new personal best (or tied)
+            if let Some(b) = best_ms {
+                if c <= b {
+                    return purple;
+                }
+            }
+            // Green: faster than previous lap's same sector
+            if let Some(p) = prev_ms {
+                if c < p {
+                    return green;
+                }
+            }
+            // Yellow: slower than or equal to previous
+            // First lap (no prev/best): purple — it IS the best by definition
+            if prev_ms.is_some() || best_ms.is_some() {
                 yellow
+            } else {
+                purple
             }
         }
         _ => default,
