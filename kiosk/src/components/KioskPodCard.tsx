@@ -33,6 +33,9 @@ interface KioskPodCardProps {
   onLaunchGame?: (podId: string) => void;
   onStartNow?: (authToken: AuthTokenInfo) => void;
   onTopUp?: (driverId: string) => void;
+  onWakePod?: (podId: string) => void;
+  onRestartPod?: (podId: string) => void;
+  onShutdownPod?: (podId: string) => void;
 }
 
 function derivePodState(
@@ -90,6 +93,9 @@ export function KioskPodCard({
   onStartNow,
   walletBalance,
   onTopUp,
+  onWakePod,
+  onRestartPod,
+  onShutdownPod,
 }: KioskPodCardProps) {
   const state = derivePodState(pod, billing, authToken, gameInfo);
   const isOffline = pod.status === "offline";
@@ -235,7 +241,45 @@ export function KioskPodCard({
           />
           <span className="font-semibold text-sm">Pod {pod.number}</span>
         </div>
-        <StateLabel state={state} isOffline={isOffline} />
+        <div className="flex items-center gap-1">
+          {/* Power buttons */}
+          {isOffline && onWakePod && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onWakePod(pod.id); }}
+              className="w-6 h-6 flex items-center justify-center rounded bg-green-900/40 text-green-400 hover:bg-green-800/50 transition-colors"
+              title="Power on (WOL)"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </button>
+          )}
+          {!isOffline && onRestartPod && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRestartPod(pod.id); }}
+              className="w-6 h-6 flex items-center justify-center rounded bg-yellow-900/40 text-yellow-400 hover:bg-yellow-800/50 transition-colors"
+              title="Restart pod"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          )}
+          {!isOffline && onShutdownPod && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onShutdownPod(pod.id); }}
+              className="w-6 h-6 flex items-center justify-center rounded bg-red-900/40 text-red-400 hover:bg-red-800/50 transition-colors"
+              title="Shutdown pod"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
+              </svg>
+            </button>
+          )}
+          {/* Blank screen toggle — available when online */}
+          {!isOffline && <BlankScreenButton podId={pod.id} />}
+          <StateLabel state={state} isOffline={isOffline} />
+        </div>
       </div>
 
       {/* Card Body */}
@@ -250,7 +294,6 @@ export function KioskPodCard({
             >
               Start Session
             </button>
-            <BlankScreenToggle podId={pod.id} />
           </div>
         )}
 
@@ -498,7 +541,7 @@ function FfbToggle({ podId }: { podId: string }) {
   );
 }
 
-function BlankScreenToggle({ podId }: { podId: string }) {
+function BlankScreenButton({ podId }: { podId: string }) {
   const [blanked, setBlanked] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -507,10 +550,12 @@ function BlankScreenToggle({ podId }: { podId: string }) {
     const next = !blanked;
     setBusy(true);
     try {
-      await api.setBlankScreen(podId, next);
-      setBlanked(next);
-    } catch {
-      // ignore
+      const res = await api.setBlankScreen(podId, next);
+      if (res.ok) {
+        setBlanked(next);
+      }
+    } catch (err) {
+      alert(`Screen ${next ? "blank" : "unblank"} failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
     setBusy(false);
   };
@@ -519,13 +564,20 @@ function BlankScreenToggle({ podId }: { podId: string }) {
     <button
       onClick={toggle}
       disabled={busy}
-      className={`px-4 py-1.5 text-xs rounded transition-colors ${
+      className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
         blanked
-          ? "bg-zinc-700 border border-zinc-500 text-zinc-300 hover:bg-zinc-600"
-          : "border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey"
+          ? "bg-zinc-600 text-zinc-300 hover:bg-zinc-500"
+          : "bg-zinc-800 text-rp-grey hover:bg-zinc-700 hover:text-white"
       }`}
+      title={blanked ? "Unblank screen" : "Blank screen"}
     >
-      {blanked ? "Unblank Screen" : "Blank Screen"}
+      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        {blanked ? (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        ) : (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M3 3l18 18" />
+        )}
+      </svg>
     </button>
   );
 }

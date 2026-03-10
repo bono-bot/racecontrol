@@ -244,6 +244,31 @@ export default function StaffTerminal() {
     wizard.goToStep("select_game");
   };
 
+  const handleWakePod = async (podId: string) => {
+    try {
+      await api.wakePod(podId);
+    } catch (err) {
+      alert(`Wake failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
+  };
+
+  const handleRestartPod = async (podId: string) => {
+    try {
+      await api.restartPod(podId);
+    } catch (err) {
+      alert(`Restart failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
+  };
+
+  const handleShutdownPod = async (podId: string) => {
+    if (!window.confirm("Shutdown this pod?")) return;
+    try {
+      await api.shutdownPod(podId);
+    } catch (err) {
+      alert(`Shutdown failed: ${err instanceof Error ? err.message : "Network error"}`);
+    }
+  };
+
   const handleAcknowledgeAssistance = (podId: string) => {
     sendCommand("acknowledge_assistance", { pod_id: podId });
     dismissAssistance(podId);
@@ -372,6 +397,9 @@ export default function StaffTerminal() {
                     }}
                     onStartNow={handleStartNow}
                     onTopUp={handleTopUp}
+                    onWakePod={handleWakePod}
+                    onRestartPod={handleRestartPod}
+                    onShutdownPod={handleShutdownPod}
                   />
                 );
               })}
