@@ -146,7 +146,7 @@ fn build_prompt(sim_type: &SimType, error_context: &str, snapshot: &PodStateSnap
         - Games: AC (acs.exe, UDP 9996), F1 (F1_25.exe, 20777), iRacing (6789), LMU (5555), Forza (5300)\n\
         - Protected processes: rc-agent, pod-agent, ConspitLink2.0, explorer, dwm, csrss\n\
         - AC launch: acs.exe directly, AUTOSPAWN=1, CSP FORCE_START=1\n\
-        - After AC launch, restart ConspitLink2.0 for wheel display\n\n\
+        - ConspitLink2.0 is managed by a separate watchdog (do NOT suggest restarting it)\n\n\
         Provide a concise, actionable diagnosis (under 200 words). \
         Focus on the most likely cause and specific fix commands.",
         sim_type,
@@ -173,12 +173,9 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
         return Some(fix_stale_sockets(snapshot));
     }
 
-    // Pattern 2: Restart ConspitLink
-    if lower.contains("conspitlink") || lower.contains("conspit link") || lower.contains("wheelbase") && lower.contains("restart") {
-        return Some(fix_restart_conspit_link());
-    }
+    // ConspitLink is managed by the 10s watchdog in the main loop — no AI auto-fix needed
 
-    // Pattern 3: Kill error dialogs (WerFault) — check before game relaunch since both may match
+    // Pattern 2: Kill error dialogs (WerFault) — check before game relaunch since both may match
     if lower.contains("werfault") || lower.contains("error dialog") || lower.contains("crash dialog") {
         return Some(fix_kill_error_dialogs());
     }
@@ -235,48 +232,6 @@ fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
         Err(e) => AutoFixResult {
             fix_type: "clear_stale_sockets".to_string(),
             detail: format!("Failed to run cleanup: {}", e),
-            success: false,
-        },
-    }
-}
-
-fn fix_restart_conspit_link() -> AutoFixResult {
-    tracing::info!("[auto-fix] Restarting ConspitLink2.0");
-
-    // Kill existing instance
-    let _ = std::process::Command::new("taskkill")
-        .args(["/IM", "ConspitLink2.0.exe", "/F"])
-        .output();
-
-    // Wait briefly for process to die
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    // Relaunch using .spawn() instead of .output() to avoid blocking if the process doesn't exit
-    let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
-    if !std::path::Path::new(conspit_path).exists() {
-        return AutoFixResult {
-            fix_type: "restart_conspit_link".to_string(),
-            detail: format!("ConspitLink not installed at {}", conspit_path),
-            success: false,
-        };
-    }
-
-    let result = std::process::Command::new("cmd")
-        .args(["/C", "start", "", "/MIN", conspit_path])
-        .spawn();
-
-    match result {
-        Ok(_) => {
-            tracing::info!("[auto-fix] ConspitLink2.0 restarted");
-            AutoFixResult {
-                fix_type: "restart_conspit_link".to_string(),
-                detail: "Killed and relaunched ConspitLink2.0.exe".to_string(),
-                success: true,
-            }
-        }
-        Err(e) => AutoFixResult {
-            fix_type: "restart_conspit_link".to_string(),
-            detail: format!("Failed to restart: {}", e),
             success: false,
         },
     }
@@ -463,7 +418,8 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_fix_conspit_link() {
+    fn test_auto_fix_conspit_link_ignored() {
+        // ConspitLink is managed by the main-loop watchdog, not AI auto-fix
         let snapshot = PodStateSnapshot {
             pod_id: "pod_2".to_string(),
             pod_number: 2,
@@ -476,8 +432,7 @@ mod tests {
             uptime_seconds: 100,
         };
         let result = try_auto_fix("Try restarting ConspitLink2.0 to restore the wheelbase connection", &snapshot);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().fix_type, "restart_conspit_link");
+        assert!(result.is_none(), "ConspitLink should not be handled by auto-fix");
     }
 
     #[test]
