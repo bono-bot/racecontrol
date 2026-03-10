@@ -52,6 +52,27 @@ pub async fn shutdown_pod(http_client: &reqwest::Client, ip: &str) -> Result<Str
     Ok(format!("{}{}", stdout, stderr))
 }
 
+/// Send a restart command to a pod via its pod-agent HTTP endpoint.
+pub async fn restart_pod(http_client: &reqwest::Client, ip: &str) -> Result<String> {
+    let url = format!("http://{}:{}/exec", ip, POD_AGENT_PORT);
+    let resp = http_client
+        .post(&url)
+        .json(&serde_json::json!({
+            "cmd": "shutdown /r /f /t 0",
+            "timeout_ms": 5000
+        }))
+        .timeout(std::time::Duration::from_secs(8))
+        .send()
+        .await?;
+
+    let body: serde_json::Value = resp.json().await?;
+    let stdout = body["stdout"].as_str().unwrap_or("");
+    let stderr = body["stderr"].as_str().unwrap_or("");
+
+    tracing::info!("[wol] Restart command sent to {}", ip);
+    Ok(format!("{}{}", stdout, stderr))
+}
+
 fn parse_mac(mac: &str) -> Result<[u8; 6]> {
     let parts: Vec<&str> = mac.split(|c| c == ':' || c == '-').collect();
     if parts.len() != 6 {

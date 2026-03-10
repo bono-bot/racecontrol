@@ -269,6 +269,18 @@ export const api = {
       body: JSON.stringify({ blank }),
     }),
 
+  // Pod Power Management
+  wakePod: (id: string) =>
+    fetchApi<{ status: string; pod_id: string }>(`/pods/${id}/wake`, { method: "POST" }),
+  shutdownPod: (id: string) =>
+    fetchApi<{ status: string; pod_id: string }>(`/pods/${id}/shutdown`, { method: "POST" }),
+  restartPod: (id: string) =>
+    fetchApi<{ status: string; pod_id: string }>(`/pods/${id}/restart`, { method: "POST" }),
+  wakeAllPods: () =>
+    fetchApi<{ status: string; results: unknown[] }>("/pods/wake-all", { method: "POST" }),
+  shutdownAllPods: () =>
+    fetchApi<{ status: string; results: unknown[] }>("/pods/shutdown-all", { method: "POST" }),
+
   // Pod Enable/Disable
   enablePod: (id: string) =>
     fetchApi<{ ok: boolean }>(`/pods/${id}/enable`, { method: "POST" }),

@@ -36,8 +36,10 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/pods/{id}/enable", post(enable_pod))
         .route("/pods/{id}/disable", post(disable_pod))
         .route("/pods/{id}/screen", post(set_pod_screen))
+        .route("/pods/{id}/restart", post(restart_pod))
         .route("/pods/wake-all", post(wake_all_pods))
         .route("/pods/shutdown-all", post(shutdown_all_pods))
+        .route("/pods/restart-all", post(restart_all_pods))
         // Drivers
         .route("/drivers", get(list_drivers).post(create_driver))
         .route("/drivers/{id}", get(get_driver))
@@ -509,6 +511,44 @@ async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
                 }
                 "sent"
             }
+            Err(_) => "failed",
+        };
+        results.push(json!({ "pod_id": pod.id, "status": status }));
+    }
+
+    Json(json!({ "status": "ok", "results": results }))
+}
+
+// POST /pods/{id}/restart — Restart pod via pod-agent (does NOT mark Disabled)
+async fn restart_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let pods = state.pods.read().await;
+    let pod = match pods.get(&id) {
+        Some(p) => p.clone(),
+        None => return Json(json!({ "error": format!("Pod {} not found", id) })),
+    };
+    drop(pods);
+
+    match wol::restart_pod(&state.http_client, &pod.ip_address).await {
+        Ok(output) => Json(json!({ "status": "restart_sent", "pod_id": id, "output": output })),
+        Err(e) => Json(json!({ "error": format!("Restart failed: {}", e) })),
+    }
+}
+
+// POST /pods/restart-all — Restart all reachable pods
+async fn restart_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
+    let mut results = Vec::new();
+
+    for pod in &pods {
+        if pod.status == PodStatus::Offline || pod.status == PodStatus::Disabled {
+            results.push(json!({ "pod_id": pod.id, "status": "skipped" }));
+            continue;
+        }
+        let status = match wol::restart_pod(&state.http_client, &pod.ip_address).await {
+            Ok(_) => "sent",
             Err(_) => "failed",
         };
         results.push(json!({ "pod_id": pod.id, "status": status }));
