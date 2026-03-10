@@ -62,9 +62,26 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "nvidia web helper.exe",
     "nvidia overlay.exe",
 
-    // RaceControl agent itself
+    // RaceControl services
     "rc-agent.exe",
     "rc-agent",
+    "pod-agent.exe",
+    "pod-agent",
+
+    // Windows shell tools (used by watchdog, minimize, etc.)
+    "cmd.exe",
+    "powershell.exe",
+    "curl.exe",
+    "wscript.exe",
+    "cscript.exe",
+    "schtasks.exe",
+    "tasklist.exe",
+    "taskkill.exe",
+    "findstr.exe",
+    "find.exe",
+
+    // Wheelbase telemetry
+    "conspitlink2.0.exe",
 
     // Ollama (local LLM)
     "ollama.exe",
