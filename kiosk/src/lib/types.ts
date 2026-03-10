@@ -68,6 +68,18 @@ export interface BillingSession {
   status: BillingStatus;
   driving_state: DrivingState;
   started_at?: string;
+  split_count?: number;
+  split_duration_minutes?: number;
+  current_split_number?: number;
+}
+
+export interface PendingSplitContinuation {
+  pod_id: string;
+  driver_id: string;
+  driver_name: string;
+  split_count: number;
+  current_split_number: number;
+  split_duration_minutes: number;
 }
 
 export interface PricingTier {

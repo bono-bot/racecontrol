@@ -56,6 +56,12 @@ export const api = {
       `/billing/split-options/${durationMinutes}`
     ),
 
+  continueSplit: (data: { pod_id: string; sim_type: string; launch_args: string }) =>
+    fetchApi<{ ok?: boolean; error?: string; billing_session_id?: string; current_split_number?: number; total_splits?: number }>(
+      "/billing/continue-split",
+      { method: "POST", body: JSON.stringify(data) }
+    ),
+
   // Auth
   assignCustomer: (data: {
     pod_id: string;

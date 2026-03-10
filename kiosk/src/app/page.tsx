@@ -37,6 +37,8 @@ export default function StaffTerminal() {
     assistanceRequests,
     dismissAssistance,
     sendCommand,
+    pendingSplitContinuation,
+    clearPendingSplitContinuation,
   } = useKioskSocket();
 
   // ─── Panel State ──────────────────────────────────────────────────────
@@ -131,37 +133,75 @@ export default function StaffTerminal() {
     setTopUpDriverId(null);
   };
 
+  // ─── Split Continuation ──────────────────────────────────────────────
+  // When a sub-session completes and more splits remain, auto-open the setup wizard
+  // for the same pod so staff can pick the next track/car.
+  const [isSplitContinuation, setIsSplitContinuation] = useState(false);
+
+  useEffect(() => {
+    if (pendingSplitContinuation) {
+      setSelectedPodId(pendingSplitContinuation.pod_id);
+      setIsSplitContinuation(true);
+      wizard.reset();
+      // Pre-select AC as the game (splits are AC-only)
+      wizard.setField("selectedGame", "assetto_corsa");
+      setPanelMode("setup");
+      // Skip to track/car selection — game is already known
+      wizard.goToStep("select_track");
+    }
+  }, [pendingSplitContinuation]);
+
   // ─── Session Controls ─────────────────────────────────────────────────
   const handleGameLaunch = async (simType: string, launchArgs: string) => {
     if (!selectedPodId) return;
 
-    // Start billing with the wizard selections
-    const driver = wizard.state.selectedDriver;
-    const tier = wizard.state.selectedTier;
-    if (driver && tier) {
+    if (isSplitContinuation && pendingSplitContinuation) {
+      // Split continuation — no billing start, just continue the split
       try {
-        const result = await api.startBilling({
+        const result = await api.continueSplit({
           pod_id: selectedPodId,
-          driver_id: driver.id,
-          pricing_tier_id: tier.id,
-          staff_id: staffId || undefined,
-          ...(wizard.state.splitCount > 1 && {
-            split_count: wizard.state.splitCount,
-            split_duration_minutes: wizard.state.splitDurationMinutes ?? undefined,
-          }),
+          sim_type: simType,
+          launch_args: launchArgs,
         });
-
         if (result.error) {
-          alert(`Billing failed: ${result.error}`);
+          alert(`Continue split failed: ${result.error}`);
           return;
         }
       } catch (err) {
-        alert(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
+        alert(`Failed to continue split: ${err instanceof Error ? err.message : "Network error"}`);
         return;
       }
-    }
+      setIsSplitContinuation(false);
+      clearPendingSplitContinuation();
+    } else {
+      // Normal billing start
+      const driver = wizard.state.selectedDriver;
+      const tier = wizard.state.selectedTier;
+      if (driver && tier) {
+        try {
+          const result = await api.startBilling({
+            pod_id: selectedPodId,
+            driver_id: driver.id,
+            pricing_tier_id: tier.id,
+            staff_id: staffId || undefined,
+            ...(wizard.state.splitCount > 1 && {
+              split_count: wizard.state.splitCount,
+              split_duration_minutes: wizard.state.splitDurationMinutes ?? undefined,
+            }),
+          });
 
-    await api.launchGame(selectedPodId, simType, launchArgs);
+          if (result.error) {
+            alert(`Billing failed: ${result.error}`);
+            return;
+          }
+        } catch (err) {
+          alert(`Failed to start billing: ${err instanceof Error ? err.message : "Network error"}`);
+          return;
+        }
+      }
+
+      await api.launchGame(selectedPodId, simType, launchArgs);
+    }
     // Switch to live session view
     setPanelMode("live_session");
   };

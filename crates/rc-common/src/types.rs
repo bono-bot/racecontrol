@@ -289,6 +289,8 @@ pub struct BillingSessionInfo {
     pub split_count: u32,
     /// Duration of each sub-session in minutes (e.g. 10 for 3×10min). None = no split.
     pub split_duration_minutes: Option<u32>,
+    /// Which sub-session is currently running (1-indexed). 1 = first or only session.
+    pub current_split_number: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

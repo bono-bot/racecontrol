@@ -10,6 +10,7 @@ import type {
   GameLaunchInfo,
   AuthTokenInfo,
   PodActivityEntry,
+  PendingSplitContinuation,
 } from "@/lib/types";
 
 const WS_URL =
@@ -46,6 +47,7 @@ export function useKioskSocket() {
   const [assistanceRequests, setAssistanceRequests] = useState<AssistanceRequest[]>([]);
   const [cameraFocus, setCameraFocus] = useState<{ pod_id: string; driver_name: string; reason: string } | null>(null);
   const [activityLog, setActivityLog] = useState<PodActivityEntry[]>([]);
+  const [pendingSplitContinuation, setPendingSplitContinuation] = useState<PendingSplitContinuation | null>(null);
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -127,6 +129,24 @@ export function useKioskSocket() {
                 session.status === "ended_early"
               ) {
                 next.delete(session.pod_id);
+
+                // Detect split session completion — trigger between-sessions flow
+                if (
+                  session.status === "completed" &&
+                  session.split_count &&
+                  session.split_count > 1 &&
+                  session.current_split_number != null &&
+                  session.current_split_number < session.split_count
+                ) {
+                  setPendingSplitContinuation({
+                    pod_id: session.pod_id,
+                    driver_id: session.driver_id,
+                    driver_name: session.driver_name,
+                    split_count: session.split_count,
+                    current_split_number: session.current_split_number,
+                    split_duration_minutes: session.split_duration_minutes ?? 0,
+                  });
+                }
               } else {
                 next.set(session.pod_id, session);
               }
@@ -273,6 +293,10 @@ export function useKioskSocket() {
     setAssistanceRequests((prev) => prev.filter((r) => r.pod_id !== podId));
   }, []);
 
+  const clearPendingSplitContinuation = useCallback(() => {
+    setPendingSplitContinuation(null);
+  }, []);
+
   return {
     connected,
     pods,
@@ -287,5 +311,7 @@ export function useKioskSocket() {
     cameraFocus,
     activityLog,
     sendCommand,
+    pendingSplitContinuation,
+    clearPendingSplitContinuation,
   };
 }

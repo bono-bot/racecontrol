@@ -74,6 +74,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/billing/{id}/refunds", get(get_billing_refunds))
         .route("/billing/report/daily", get(daily_billing_report))
         .route("/billing/split-options/{duration_minutes}", get(get_split_options))
+        .route("/billing/continue-split", post(continue_split))
         // Game Launcher
         .route("/games/launch", post(launch_game))
         .route("/games/stop", post(stop_game))
@@ -1604,6 +1605,150 @@ fn compute_split_options(total_minutes: u32) -> Vec<serde_json::Value> {
         }
     }
     options
+}
+
+/// Continue to next sub-session in a split session. No wallet debit — already paid.
+async fn continue_split(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let pod_id = match body.get("pod_id").and_then(|v| v.as_str()) {
+        Some(p) => p.to_string(),
+        None => return Json(json!({ "error": "pod_id required" })),
+    };
+    let sim_type = body.get("sim_type").and_then(|v| v.as_str()).unwrap_or("assetto_corsa").to_string();
+    let launch_args = body.get("launch_args").and_then(|v| v.as_str()).unwrap_or("{}").to_string();
+
+    // Find active reservation for this pod
+    let reservation = match crate::pod_reservation::get_active_reservation_for_pod(&state, &pod_id).await {
+        Some(r) => r,
+        None => return Json(json!({ "error": "No active reservation on this pod" })),
+    };
+
+    // Must not have an active billing session on this pod
+    {
+        let timers = state.billing.active_timers.read().await;
+        if timers.contains_key(&pod_id) {
+            return Json(json!({ "error": "A session is still active on this pod" }));
+        }
+    }
+
+    // Look up the original split session details from the reservation
+    let original = match sqlx::query_as::<_, (i64, i64, String, String)>(
+        "SELECT split_count, split_duration_minutes, pricing_tier_id, driver_id
+         FROM billing_sessions
+         WHERE reservation_id = ?
+         ORDER BY started_at ASC LIMIT 1",
+    )
+    .bind(&reservation.id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return Json(json!({ "error": "No billing sessions found for this reservation" })),
+        Err(e) => return Json(json!({ "error": format!("DB error: {}", e) })),
+    };
+
+    let total_splits = original.0 as u32;
+    let split_duration_minutes = original.1 as u32;
+    let pricing_tier_id = original.2;
+    let driver_id = original.3;
+
+    // Count completed sessions in this reservation
+    let completed = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM billing_sessions WHERE reservation_id = ? AND status IN ('completed', 'ended_early')",
+    )
+    .bind(&reservation.id)
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0 as u32)
+    .unwrap_or(0);
+
+    if completed >= total_splits {
+        // All splits used — end reservation
+        let _ = crate::pod_reservation::end_reservation(&state, &reservation.id).await;
+        return Json(json!({ "error": "All splits already used", "completed": completed, "total": total_splits }));
+    }
+
+    let current_split_number = completed + 1;
+    let is_last_split = current_split_number >= total_splits;
+
+    // Touch reservation
+    crate::pod_reservation::touch_reservation(&state, &reservation.id).await;
+
+    // Start billing session with split duration — NO wallet debit
+    let billing_session_id = match billing::start_billing_session(
+        &state,
+        pod_id.clone(),
+        driver_id.clone(),
+        pricing_tier_id,
+        Some(0), // custom_price_paise = 0 (no charge for continuation)
+        Some(split_duration_minutes), // custom_duration_minutes
+        None, // staff_id
+        Some(total_splits), // split_count
+        Some(split_duration_minutes), // split_duration_minutes
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Link this billing session to the reservation
+    let _ = sqlx::query(
+        "UPDATE billing_sessions SET reservation_id = ?, wallet_debit_paise = 0 WHERE id = ?",
+    )
+    .bind(&reservation.id)
+    .bind(&billing_session_id)
+    .execute(&state.db)
+    .await;
+
+    // Update the timer's current_split_number
+    {
+        let mut timers = state.billing.active_timers.write().await;
+        if let Some(timer) = timers.get_mut(&pod_id) {
+            timer.current_split_number = current_split_number;
+        }
+    }
+
+    // If this is the last split, end the reservation so the final timer expiry
+    // triggers SessionEnded (full end) instead of SubSessionEnded
+    if is_last_split {
+        let _ = crate::pod_reservation::end_reservation(&state, &reservation.id).await;
+        tracing::info!("Last split ({}/{}) — reservation {} ended", current_split_number, total_splits, reservation.id);
+    }
+
+    // Launch the game — inject split_duration_minutes into launch args
+    let game_launched = {
+        let mut parsed: serde_json::Value = serde_json::from_str(&launch_args).unwrap_or_default();
+        parsed["duration_minutes"] = serde_json::json!(split_duration_minutes);
+
+        let sim: rc_common::types::SimType = match serde_json::from_value(serde_json::Value::String(sim_type.clone())) {
+            Ok(st) => st,
+            Err(_) => return Json(json!({ "error": format!("Unknown sim_type: {}", sim_type) })),
+        };
+
+        let cmd = rc_common::protocol::DashboardCommand::LaunchGame {
+            pod_id: pod_id.clone(),
+            sim_type: sim,
+            launch_args: Some(parsed.to_string()),
+        };
+        game_launcher::handle_dashboard_command(&state, cmd).await.is_ok()
+    };
+
+    tracing::info!(
+        "Continue split {}/{} on pod {} — session {}",
+        current_split_number, total_splits, pod_id, billing_session_id
+    );
+
+    Json(json!({
+        "ok": true,
+        "billing_session_id": billing_session_id,
+        "current_split_number": current_split_number,
+        "total_splits": total_splits,
+        "is_last_split": is_last_split,
+        "game_launched": game_launched,
+    }))
 }
 
 async fn stop_billing(

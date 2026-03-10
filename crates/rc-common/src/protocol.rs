@@ -126,6 +126,8 @@ pub enum CoreToAgentMessage {
         best_lap_ms: Option<u32>,
         driving_seconds: u32,
         wallet_balance_paise: i64,
+        current_split_number: u32,
+        total_splits: u32,
     },
 
     /// Show assistance screen (for games without auto-spawn, e.g. F1 25)

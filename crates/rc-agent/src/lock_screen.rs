@@ -50,6 +50,8 @@ pub enum LockScreenState {
         best_lap_ms: Option<u32>,
         driving_seconds: u32,
         wallet_balance_paise: i64,
+        current_split_number: u32,
+        total_splits: u32,
     },
     /// Awaiting staff assistance (F1 25 or manual-launch games).
     AwaitingAssistance {
@@ -214,6 +216,8 @@ impl LockScreenManager {
         best_lap_ms: Option<u32>,
         driving_seconds: u32,
         wallet_balance_paise: i64,
+        current_split_number: u32,
+        total_splits: u32,
     ) {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -223,6 +227,8 @@ impl LockScreenManager {
                 best_lap_ms,
                 driving_seconds,
                 wallet_balance_paise,
+                current_split_number,
+                total_splits,
             };
         }
         self.launch_browser();
@@ -622,7 +628,9 @@ fn render_page(state: &LockScreenState) -> String {
             best_lap_ms,
             driving_seconds,
             wallet_balance_paise,
-        } => render_between_sessions_page(driver_name, *total_laps, *best_lap_ms, *driving_seconds, *wallet_balance_paise),
+            current_split_number,
+            total_splits,
+        } => render_between_sessions_page(driver_name, *total_laps, *best_lap_ms, *driving_seconds, *wallet_balance_paise, *current_split_number, *total_splits),
         LockScreenState::AwaitingAssistance {
             driver_name,
             message,
@@ -762,6 +770,8 @@ fn render_between_sessions_page(
     best_lap_ms: Option<u32>,
     driving_seconds: u32,
     wallet_balance_paise: i64,
+    current_split_number: u32,
+    total_splits: u32,
 ) -> String {
     let best_lap_display = match best_lap_ms {
         Some(ms) => {
@@ -775,11 +785,13 @@ fn render_between_sessions_page(
     let session_mins = driving_seconds / 60;
     let session_secs = driving_seconds % 60;
     let balance_rupees = wallet_balance_paise as f64 / 100.0;
+    let remaining_splits = total_splits.saturating_sub(current_split_number);
 
     let content = format!(
         r#"<div style="text-align:center;padding:40px 20px">
 <div style="font-size:48px;margin-bottom:10px">&#127937;</div>
-<h1 style="font-size:32px;margin:0 0 10px">Great session, {driver}!</h1>
+<h1 style="font-size:32px;margin:0 0 10px">Race {current} of {total} complete!</h1>
+<p style="font-size:18px;color:#ccc;margin:0 0 20px">Great driving, {driver}!</p>
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;max-width:600px;margin:20px auto">
 <div style="background:#222;border-radius:12px;padding:20px">
 <div style="font-size:36px;font-weight:700">{laps}</div>
@@ -794,20 +806,22 @@ fn render_between_sessions_page(
 <div style="font-size:14px;color:#999">Session Time</div>
 </div>
 </div>
-<div style="background:#1a3a1a;border:2px solid #2d6a2d;border-radius:12px;padding:20px;max-width:400px;margin:20px auto">
-<div style="font-size:14px;color:#4ade80">Wallet Balance</div>
-<div style="font-size:42px;font-weight:700;color:#4ade80">&#x20B9;{balance:.0}</div>
+<div style="background:#1a1a3a;border:2px solid #4444aa;border-radius:12px;padding:20px;max-width:400px;margin:20px auto">
+<div style="font-size:14px;color:#93c5fd">Remaining Races</div>
+<div style="font-size:42px;font-weight:700;color:#60a5fa">{remaining}</div>
 </div>
-<p style="font-size:20px;color:#ccc;margin-top:20px">Open the app on your phone to pick your next race!</p>
+<p style="font-size:20px;color:#ccc;margin-top:20px">Staff will set up your next race — sit tight!</p>
 <p style="font-size:14px;color:#666;margin-top:30px">This pod will return to idle in 5 minutes if no new session is started.</p>
 </div>
 <script>setTimeout(function(){{location.reload()}},5000)</script>"#,
         driver = html_escape(driver_name),
+        current = current_split_number,
+        total = total_splits,
         laps = total_laps,
         best = best_lap_display,
         mins = session_mins,
         secs = session_secs,
-        balance = balance_rupees,
+        remaining = remaining_splits,
     );
     page_shell("Pick Next Race - Racing Point", &content)
 }

@@ -1082,10 +1082,11 @@ async fn main() -> Result<()> {
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SubSessionEnded {
                                     billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
+                                    current_split_number, total_splits,
                                 } => {
                                     tracing::info!(
-                                        "Sub-session ended: {} — {} laps, wallet: {}p",
-                                        billing_session_id, total_laps, wallet_balance_paise
+                                        "Sub-session ended: {} — split {}/{}, {} laps, wallet: {}p",
+                                        billing_session_id, current_split_number, total_splits, total_laps, wallet_balance_paise
                                     );
                                     crash_recovery_armed = false; // cancel crash timer
                                     overlay.deactivate();
@@ -1101,6 +1102,7 @@ async fn main() -> Result<()> {
                                     // Show between-sessions screen
                                     lock_screen.show_between_sessions(
                                         driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
+                                        current_split_number, total_splits,
                                     );
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {

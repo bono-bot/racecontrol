@@ -73,6 +73,8 @@ pub struct BillingTimer {
     pub split_count: u32,
     /// Duration of each sub-session in minutes (None = no split)
     pub split_duration_minutes: Option<u32>,
+    /// Which sub-session is currently running (1-indexed)
+    pub current_split_number: u32,
 }
 
 impl BillingTimer {
@@ -95,6 +97,7 @@ impl BillingTimer {
             started_at: self.started_at,
             split_count: self.split_count,
             split_duration_minutes: self.split_duration_minutes,
+            current_split_number: self.current_split_number,
         }
     }
 
@@ -255,21 +258,44 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
                 if has_reservation {
                     // Sub-session ended — pod stays reserved, customer picks next race
-                    let wallet_balance = crate::wallet::get_balance(state, &{
-                        // Look up driver_id from session
-                        sqlx::query_as::<_, (String,)>(
-                            "SELECT driver_id FROM billing_sessions WHERE id = ?",
-                        )
-                        .bind(session_id)
-                        .fetch_optional(&state.db)
-                        .await
-                        .ok()
-                        .flatten()
-                        .map(|r| r.0)
-                        .unwrap_or_default()
-                    })
+                    let driver_id_for_wallet = sqlx::query_as::<_, (String,)>(
+                        "SELECT driver_id FROM billing_sessions WHERE id = ?",
+                    )
+                    .bind(session_id)
+                    .fetch_optional(&state.db)
                     .await
-                    .unwrap_or(0);
+                    .ok()
+                    .flatten()
+                    .map(|r| r.0)
+                    .unwrap_or_default();
+
+                    let wallet_balance = crate::wallet::get_balance(state, &driver_id_for_wallet)
+                        .await
+                        .unwrap_or(0);
+
+                    // Look up split info to determine current/total
+                    let split_info = sqlx::query_as::<_, (Option<i64>, Option<String>)>(
+                        "SELECT split_count, reservation_id FROM billing_sessions WHERE id = ?",
+                    )
+                    .bind(session_id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten();
+
+                    let (current_split, total_splits) = if let Some((Some(sc), Some(res_id))) = &split_info {
+                        let completed = sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM billing_sessions WHERE reservation_id = ? AND status IN ('completed', 'ended_early')",
+                        )
+                        .bind(res_id)
+                        .fetch_one(&state.db)
+                        .await
+                        .map(|r| r.0)
+                        .unwrap_or(1);
+                        (completed as u32, *sc as u32)
+                    } else {
+                        (1, 1)
+                    };
 
                     let _ = sender
                         .send(CoreToAgentMessage::SubSessionEnded {
@@ -279,8 +305,18 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                             best_lap_ms: None,
                             driving_seconds: *driving_seconds,
                             wallet_balance_paise: wallet_balance,
+                            current_split_number: current_split,
+                            total_splits,
                         })
                         .await;
+
+                    // If this was the last split, end the reservation
+                    if current_split >= total_splits {
+                        if let Some((_, Some(res_id))) = &split_info {
+                            let _ = crate::pod_reservation::end_reservation(state, res_id).await;
+                            tracing::info!("Last split completed — reservation {} ended", res_id);
+                        }
+                    }
                 } else {
                     // Full session ended — pod returns to idle
                     let _ = sender
@@ -297,13 +333,17 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 }
             }
 
-            // Clear pod billing reference and restore idle state
+            // Clear pod billing reference
             {
                 let mut pods = state.pods.write().await;
                 if let Some(pod) = pods.get_mut(pod_id) {
                     pod.billing_session_id = None;
-                    pod.current_driver = None;
-                    pod.status = rc_common::types::PodStatus::Idle;
+                    if has_reservation {
+                        // Pod stays reserved for next sub-session — keep driver name visible
+                    } else {
+                        pod.current_driver = None;
+                        pod.status = rc_common::types::PodStatus::Idle;
+                    }
                     let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
                 }
             }
@@ -464,6 +504,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             offline_since: None,
             split_count: row.9.unwrap_or(1) as u32,
             split_duration_minutes: row.10.map(|m| m as u32),
+            current_split_number: 1, // Best guess on recovery — exact value non-critical
         };
 
         tracing::info!(
@@ -627,10 +668,14 @@ pub async fn start_billing_session(
         .map(|r| r.0)
         .unwrap_or_else(|| "Unknown".to_string());
 
-    // Calculate allocated seconds
-    let allocated_seconds = custom_duration_minutes
-        .map(|m| m * 60)
-        .unwrap_or(tier.2 as u32 * 60);
+    // Calculate allocated seconds — use split duration for split sessions
+    let allocated_seconds = if let Some(split_dur) = split_duration_minutes.filter(|_| split_count.unwrap_or(1) > 1) {
+        split_dur * 60
+    } else {
+        custom_duration_minutes
+            .map(|m| m * 60)
+            .unwrap_or(tier.2 as u32 * 60)
+    };
 
     // Apply dynamic pricing if no custom price override
     let final_price_paise = if let Some(custom) = custom_price_paise {
@@ -713,6 +758,7 @@ pub async fn start_billing_session(
         offline_since: None,
         split_count: final_split_count,
         split_duration_minutes: final_split_duration,
+        current_split_number: 1,
     };
 
     let info = timer.to_info();
@@ -729,6 +775,23 @@ pub async fn start_billing_session(
         pod.billing_session_id = Some(session_id.clone());
         pod.current_driver = Some(driver_name.clone());
         pod.status = rc_common::types::PodStatus::InSession;
+    }
+
+    // Create pod reservation for split sessions (keeps pod reserved between sub-sessions)
+    if final_split_count > 1 {
+        if let Ok(reservation_id) = crate::pod_reservation::create_reservation(state, &driver_id, &pod_id).await {
+            let _ = sqlx::query(
+                "UPDATE billing_sessions SET reservation_id = ? WHERE id = ?",
+            )
+            .bind(&reservation_id)
+            .bind(&session_id)
+            .execute(&state.db)
+            .await;
+            tracing::info!(
+                "Split session: created reservation {} for {}-split session on pod {}",
+                reservation_id, final_split_count, pod_id
+            );
+        }
     }
 
     // Notify agent
@@ -986,6 +1049,8 @@ async fn end_billing_session(
                             best_lap_ms: None,
                             driving_seconds,
                             wallet_balance_paise: wallet_balance,
+                            current_split_number: info.current_split_number,
+                            total_splits: info.split_count,
                         })
                         .await;
                 } else {
@@ -1297,6 +1362,7 @@ mod tests {
             offline_since: None,
             split_count: 1,
             split_duration_minutes: None,
+            current_split_number: 1,
         };
 
         // Should count when driving
@@ -1333,6 +1399,7 @@ mod tests {
             offline_since: None,
             split_count: 1,
             split_duration_minutes: None,
+            current_split_number: 1,
         };
 
         // One more tick should expire
@@ -1359,6 +1426,7 @@ mod tests {
             offline_since: None,
             split_count: 1,
             split_duration_minutes: None,
+            current_split_number: 1,
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
