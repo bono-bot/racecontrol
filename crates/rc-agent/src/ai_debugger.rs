@@ -68,12 +68,18 @@ pub async fn analyze_crash(
     snapshot: PodStateSnapshot,
     result_tx: mpsc::Sender<AiDebugSuggestion>,
 ) {
+    tracing::info!(
+        "[ai-debug] Starting crash analysis for {} ({:?}), model={}, url={}",
+        pod_id, sim_type, config.ollama_model, config.ollama_url
+    );
     let prompt = build_prompt(&sim_type, &error_context, &snapshot);
+    tracing::debug!("[ai-debug] Prompt length: {} chars", prompt.len());
 
     // Try Ollama first (local, fast, no internet needed)
     match query_ollama(&config.ollama_url, &config.ollama_model, &prompt).await {
         Ok(suggestion) => {
-            let _ = result_tx
+            tracing::info!("[ai-debug] Ollama responded: {} chars", suggestion.len());
+            match result_tx
                 .send(AiDebugSuggestion {
                     pod_id,
                     sim_type,
@@ -82,11 +88,15 @@ pub async fn analyze_crash(
                     model: format!("ollama/{}", config.ollama_model),
                     created_at: Utc::now(),
                 })
-                .await;
+                .await
+            {
+                Ok(()) => tracing::info!("[ai-debug] Suggestion sent to result channel"),
+                Err(e) => tracing::error!("[ai-debug] Failed to send suggestion: {}", e),
+            }
             return;
         }
         Err(e) => {
-            tracing::warn!("Ollama query failed: {}. Trying Anthropic fallback...", e);
+            tracing::warn!("[ai-debug] Ollama query failed: {}. Trying Anthropic fallback...", e);
         }
     }
 
@@ -241,13 +251,19 @@ fn fix_restart_conspit_link() -> AutoFixResult {
     // Wait briefly for process to die
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // Relaunch
+    // Relaunch using .spawn() instead of .output() to avoid blocking if the process doesn't exit
+    let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
+    if !std::path::Path::new(conspit_path).exists() {
+        return AutoFixResult {
+            fix_type: "restart_conspit_link".to_string(),
+            detail: format!("ConspitLink not installed at {}", conspit_path),
+            success: false,
+        };
+    }
+
     let result = std::process::Command::new("cmd")
-        .args([
-            "/C", "start", "", "/MIN",
-            "C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe",
-        ])
-        .output();
+        .args(["/C", "start", "", "/MIN", conspit_path])
+        .spawn();
 
     match result {
         Ok(_) => {
@@ -360,7 +376,7 @@ async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<St
             "prompt": prompt,
             "stream": false,
         }))
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(120))
         .send()
         .await?;
 

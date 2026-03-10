@@ -535,11 +535,14 @@ async fn main() -> Result<()> {
                             let _ = ws_tx.send(Message::Text(json.into())).await;
 
                             // Trigger AI debugger if configured
+                            tracing::info!("[crash-detect] AI debugger enabled={}, url={}, model={}",
+                                config.ai_debugger.enabled, config.ai_debugger.ollama_url, config.ai_debugger.ollama_model);
                             if config.ai_debugger.enabled {
                                 let exit_info = game.last_exit_code
                                     .map(|c| format!("exit code {}", c))
                                     .unwrap_or_else(|| "no exit code".to_string());
                                 let err_ctx = format!("{:?} crashed on pod {} ({})", game.sim_type, pod_id, exit_info);
+                                tracing::info!("[crash-detect] Spawning AI debugger for: {}", err_ctx);
                                 let snapshot = PodStateSnapshot {
                                     pod_id: pod_id.clone(),
                                     pod_number: config.pod.number,
@@ -581,7 +584,8 @@ async fn main() -> Result<()> {
             }
             // AI debug result channel
             Some(mut suggestion) = ai_result_rx.recv() => {
-                // Attempt deterministic auto-fix based on AI suggestion
+                tracing::info!("[ai-result] Received AI suggestion for {}", suggestion.pod_id);
+                // Attempt deterministic auto-fix in a blocking thread to avoid stalling the event loop
                 let fix_snapshot = PodStateSnapshot {
                     pod_id: pod_id.clone(),
                     pod_number: config.pod.number,
@@ -593,7 +597,23 @@ async fn main() -> Result<()> {
                     ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
                     uptime_seconds: agent_start_time.elapsed().as_secs(),
                 };
-                if let Some(fix_result) = ai_debugger::try_auto_fix(&suggestion.suggestion, &fix_snapshot) {
+                let suggestion_text = suggestion.suggestion.clone();
+                let fix_handle = tokio::task::spawn_blocking(move || {
+                    ai_debugger::try_auto_fix(&suggestion_text, &fix_snapshot)
+                });
+                // Timeout auto-fix after 10s — don't let a hanging process block the suggestion delivery
+                let fix_result = match tokio::time::timeout(Duration::from_secs(10), fix_handle).await {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(e)) => {
+                        tracing::warn!("[auto-fix] spawn_blocking panicked: {}", e);
+                        None
+                    }
+                    Err(_) => {
+                        tracing::warn!("[auto-fix] Timed out after 10s — skipping auto-fix");
+                        None
+                    }
+                };
+                if let Some(fix_result) = fix_result {
                     tracing::info!(
                         "[auto-fix] Applied {} — {} (success: {})",
                         fix_result.fix_type, fix_result.detail, fix_result.success
@@ -605,7 +625,11 @@ async fn main() -> Result<()> {
                 }
                 let msg = AgentMessage::AiDebugResult(suggestion);
                 let json = serde_json::to_string(&msg)?;
-                let _ = ws_tx.send(Message::Text(json.into())).await;
+                tracing::info!("[ai-result] Sending AiDebugResult via WebSocket...");
+                match ws_tx.send(Message::Text(json.into())).await {
+                    Ok(_) => tracing::info!("[ai-result] AiDebugResult sent successfully"),
+                    Err(e) => tracing::error!("[ai-result] Failed to send AiDebugResult: {}", e),
+                }
             }
             // Kiosk enforcement — kill unauthorized processes
             _ = kiosk_interval.tick() => {
