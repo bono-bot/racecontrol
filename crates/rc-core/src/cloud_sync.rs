@@ -291,7 +291,10 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
             'custom_price_paise', custom_price_paise, 'notes', notes,
             'started_at', started_at, 'ended_at', ended_at, 'created_at', created_at,
             'experience_id', experience_id, 'car', car, 'track', track, 'sim_type', sim_type,
-            'split_count', split_count, 'split_duration_minutes', split_duration_minutes
+            'split_count', split_count, 'split_duration_minutes', split_duration_minutes,
+            'wallet_debit_paise', wallet_debit_paise,
+            'discount_paise', discount_paise, 'coupon_id', coupon_id,
+            'original_price_paise', original_price_paise, 'discount_reason', discount_reason
         ) FROM billing_sessions WHERE created_at > ? OR ended_at > ?
         ORDER BY created_at ASC LIMIT 500",
     )

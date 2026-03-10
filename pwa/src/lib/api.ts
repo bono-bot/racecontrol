@@ -154,6 +154,9 @@ export interface BillingSession {
   started_at: string | null;
   ended_at: string | null;
   custom_price_paise: number | null;
+  discount_paise: number | null;
+  original_price_paise: number | null;
+  discount_reason: string | null;
 }
 
 export interface LapRecord {
@@ -195,6 +198,9 @@ export interface SessionDetailSession {
   track: string | null;
   sim_type: string | null;
   wallet_debit_paise: number | null;
+  discount_paise: number | null;
+  original_price_paise: number | null;
+  discount_reason: string | null;
   refund_paise: number | null;
   total_laps: number;
   best_lap_ms: number | null;
@@ -516,7 +522,7 @@ export const api = {
       body: JSON.stringify({ experience_id, pricing_tier_id }),
     }),
 
-  bookCustom: (pricing_tier_id: string, custom: CustomBookingPayload) =>
+  bookCustom: (pricing_tier_id: string, custom: CustomBookingPayload, coupon_code?: string) =>
     fetchApi<{
       status?: string;
       reservation_id?: string;
@@ -525,12 +531,15 @@ export const api = {
       pin?: string;
       allocated_seconds?: number;
       wallet_debit_paise?: number;
+      discount_paise?: number;
+      original_price_paise?: number;
+      discount_reason?: string;
       error?: string;
       balance_paise?: number;
       required_paise?: number;
     }>("/customer/book", {
       method: "POST",
-      body: JSON.stringify({ pricing_tier_id, custom }),
+      body: JSON.stringify({ pricing_tier_id, custom, coupon_code: coupon_code || undefined }),
     }),
 
   activeReservation: () =>

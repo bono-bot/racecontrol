@@ -364,6 +364,19 @@ export default function SessionDetailPage() {
               label="Plan"
               value={session.pricing_tier_name || "\u2014"}
             />
+            {session.discount_paise && session.discount_paise > 0 ? (
+              <>
+                <ReceiptRow
+                  label="Original"
+                  value={formatCredits(session.original_price_paise || session.price_paise)}
+                />
+                <ReceiptRow
+                  label={`Discount${session.discount_reason ? ` (${session.discount_reason})` : ''}`}
+                  value={`-${formatCredits(session.discount_paise)}`}
+                  accent="green"
+                />
+              </>
+            ) : null}
             <ReceiptRow
               label="Charged"
               value={formatCredits(session.wallet_debit_paise)}

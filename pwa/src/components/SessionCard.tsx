@@ -80,6 +80,12 @@ export default function SessionCard({ session }: { session: BillingSession }) {
           <p className="text-xs text-rp-grey">{formatDate(session.started_at)}</p>
         </div>
 
+        {session.discount_paise && session.discount_paise > 0 ? (
+          <p className="mt-2 text-[11px] text-green-400">
+            Saved {Math.floor(session.discount_paise / 100)} Credits
+          </p>
+        ) : null}
+
         {/* Progress bar */}
         <div className="mt-3 h-1.5 bg-rp-card rounded-full overflow-hidden">
           <div

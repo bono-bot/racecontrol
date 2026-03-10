@@ -105,6 +105,10 @@ function BookWizard() {
   const [bookedPodNumber, setBookedPodNumber] = useState<number>(0);
   const [bookedSeconds, setBookedSeconds] = useState<number>(0);
 
+  // ── Coupon state
+  const [couponCode, setCouponCode] = useState("");
+  const [couponValid, setCouponValid] = useState<{ discount_paise: number; description: string } | null>(null);
+
   // ── Search state for track/car steps
   const [trackSearch, setTrackSearch] = useState("");
   const [carSearch, setCarSearch] = useState("");
@@ -218,7 +222,7 @@ function BookWizard() {
         }
       } else {
         // Single player booking
-        const res = await api.bookCustom(tier.id, custom);
+        const res = await api.bookCustom(tier.id, custom, couponCode || undefined);
         if (res.status === "booked" && res.pin) {
           setBookedPin(res.pin);
           setBookedPodNumber(res.pod_number || 0);
@@ -402,6 +406,10 @@ function BookWizard() {
             balance={profile?.wallet_balance_paise || 0}
             booking={booking}
             onBook={handleBook}
+            couponCode={couponCode}
+            setCouponCode={setCouponCode}
+            couponValid={couponValid}
+            setCouponValid={setCouponValid}
           />
         )}
       </div>
@@ -1053,6 +1061,10 @@ function ConfirmStep({
   balance,
   booking,
   onBook,
+  couponCode,
+  setCouponCode,
+  couponValid,
+  setCouponValid,
 }: {
   tier: PricingTier | null;
   track: CatalogTrack | null;
@@ -1064,9 +1076,39 @@ function ConfirmStep({
   balance: number;
   booking: boolean;
   onBook: () => void;
+  couponCode: string;
+  setCouponCode: (v: string) => void;
+  couponValid: { discount_paise: number; description: string } | null;
+  setCouponValid: (v: { discount_paise: number; description: string } | null) => void;
 }) {
-  const price = tier?.price_paise || 0;
-  const canAfford = tier?.is_trial || balance >= price;
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState<string | null>(null);
+
+  const basePrice = tier?.price_paise || 0;
+  const discount = couponValid?.discount_paise || 0;
+  const finalPrice = basePrice - discount;
+  const canAfford = tier?.is_trial || balance >= finalPrice;
+
+  async function handleApplyCoupon() {
+    if (!couponCode.trim()) return;
+    setCouponLoading(true);
+    setCouponError(null);
+    setCouponValid(null);
+    try {
+      const res = await api.applyCoupon(couponCode.trim());
+      if (res.valid && res.coupon_type && res.value != null) {
+        let disc = 0;
+        if (res.coupon_type === 'percent') disc = Math.round(basePrice * res.value / 100);
+        else if (res.coupon_type === 'flat') disc = Math.min(res.value as number, basePrice);
+        setCouponValid({ discount_paise: disc, description: res.description || '' });
+      } else {
+        setCouponError(res.error || 'Invalid coupon');
+      }
+    } catch {
+      setCouponError('Failed to validate coupon');
+    }
+    setCouponLoading(false);
+  }
 
   const rows = [
     { label: "Duration", value: tier?.name || "—" },
@@ -1108,12 +1150,53 @@ function ConfirmStep({
         </div>
       )}
 
+      {/* Coupon code input (non-trial only) */}
+      {!tier?.is_trial && (
+        <div className="mt-4 bg-rp-card border border-rp-border rounded-xl p-4">
+          <p className="text-rp-grey text-xs uppercase tracking-wide mb-2">Have a coupon?</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={couponCode}
+              onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponValid(null); setCouponError(null); }}
+              placeholder="Enter code"
+              className="flex-1 bg-rp-dark border border-rp-border rounded-lg px-3 py-2 text-sm text-white placeholder:text-neutral-500 outline-none focus:border-rp-red/50 uppercase"
+            />
+            <button
+              onClick={handleApplyCoupon}
+              disabled={couponLoading || !couponCode.trim()}
+              className="px-4 py-2 bg-rp-red text-white text-sm font-medium rounded-lg disabled:opacity-40"
+            >
+              {couponLoading ? '...' : 'Apply'}
+            </button>
+          </div>
+          {couponValid && (
+            <p className="text-emerald-400 text-xs mt-2">
+              {couponValid.description} — saving {(couponValid.discount_paise / 100).toFixed(0)} credits
+            </p>
+          )}
+          {couponError && <p className="text-red-400 text-xs mt-2">{couponError}</p>}
+        </div>
+      )}
+
       {/* Price summary */}
       <div className="mt-4 bg-rp-card border border-rp-border rounded-xl p-4">
+        {discount > 0 && (
+          <>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-rp-grey text-sm">Original</span>
+              <span className="text-rp-grey text-sm line-through">{(basePrice / 100).toFixed(0)} credits</span>
+            </div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-emerald-400 text-sm">Discount</span>
+              <span className="text-emerald-400 text-sm">-{(discount / 100).toFixed(0)} credits</span>
+            </div>
+          </>
+        )}
         <div className="flex items-center justify-between mb-1">
           <span className="text-rp-grey text-sm">Cost</span>
           <span className="text-white font-bold text-lg">
-            {tier?.is_trial ? "Free Trial" : `${(price / 100).toFixed(0)} credits`}
+            {tier?.is_trial ? "Free Trial" : `${(finalPrice / 100).toFixed(0)} credits`}
           </span>
         </div>
         <div className="flex items-center justify-between">
@@ -1126,7 +1209,7 @@ function ConfirmStep({
 
       {!canAfford && (
         <div className="mt-3 bg-red-900/30 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm">
-          Insufficient credits. You need {((price - balance) / 100).toFixed(0)} more credits.
+          Insufficient credits. You need {((finalPrice - balance) / 100).toFixed(0)} more credits.
         </div>
       )}
 
@@ -1140,7 +1223,7 @@ function ConfirmStep({
           ? "Booking..."
           : tier?.is_trial
           ? "Start Free Trial"
-          : `Debit ${(price / 100).toFixed(0)} credits & Race`}
+          : `Debit ${(finalPrice / 100).toFixed(0)} credits & Race`}
       </button>
     </div>
   );

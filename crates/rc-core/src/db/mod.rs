@@ -774,6 +774,20 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Discount columns on billing_sessions ────────────────────────────────
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN discount_paise INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN coupon_id TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN original_price_paise INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN discount_reason TEXT")
+        .execute(pool)
+        .await;
+
     // ─── Cloud sync tables ───────────────────────────────────────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS sync_state (

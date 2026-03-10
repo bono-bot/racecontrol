@@ -1195,6 +1195,142 @@ async fn delete_pricing_tier(
     }
 }
 
+// ─── Discount / Coupon helpers ───────────────────────────────────────────────
+
+/// Validated coupon info ready to apply as a discount.
+struct CouponDiscount {
+    coupon_id: String,
+    coupon_type: String,
+    value: f64,
+    discount_paise: i64,
+    description: String,
+}
+
+/// Validate a coupon code and calculate the discount for a given price.
+/// Returns Ok(CouponDiscount) or Err(error string).
+async fn validate_and_calc_coupon(
+    state: &Arc<AppState>,
+    code: &str,
+    driver_id: &str,
+    price_paise: i64,
+) -> Result<CouponDiscount, String> {
+    let code_upper = code.to_uppercase();
+
+    // Find coupon
+    let coupon: Option<(String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool)> = sqlx::query_as(
+        "SELECT id, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only
+         FROM coupons WHERE code = ? AND is_active = 1",
+    )
+    .bind(&code_upper)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    let coupon = coupon.ok_or("Invalid or expired coupon code")?;
+
+    // Check usage count
+    let used: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM coupon_redemptions WHERE coupon_id = ?",
+    )
+    .bind(&coupon.0)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    if used.0 >= coupon.3 {
+        return Err("Coupon has reached maximum uses".to_string());
+    }
+
+    // Check if already used by this driver
+    let driver_used: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM coupon_redemptions WHERE coupon_id = ? AND driver_id = ?",
+    )
+    .bind(&coupon.0)
+    .bind(driver_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    if driver_used.0 > 0 {
+        return Err("You have already used this coupon".to_string());
+    }
+
+    // Check min_spend
+    if let Some(min) = coupon.6 {
+        if price_paise < min {
+            return Err(format!("Minimum spend of {} credits required", min / 100));
+        }
+    }
+
+    // Check first_session_only
+    if coupon.7 {
+        let session_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM billing_sessions WHERE driver_id = ? AND status IN ('completed', 'active')",
+        )
+        .bind(driver_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
+
+        if session_count.0 > 0 {
+            return Err("This coupon is only valid for first-time sessions".to_string());
+        }
+    }
+
+    // Calculate discount
+    let (discount_paise, description) = match coupon.1.as_str() {
+        "percent" => {
+            let disc = ((price_paise as f64) * coupon.2 / 100.0).round() as i64;
+            let disc = disc.min(price_paise); // never exceed price
+            (disc, format!("{}% off", coupon.2))
+        }
+        "flat" => {
+            let disc = (coupon.2 as i64).min(price_paise);
+            (disc, format!("{} credits off", disc / 100))
+        }
+        "free_minutes" => {
+            // free_minutes doesn't reduce price, it extends time — handled separately
+            (0, format!("{} free minutes", coupon.2 as i64))
+        }
+        _ => return Err("Unknown coupon type".to_string()),
+    };
+
+    Ok(CouponDiscount {
+        coupon_id: coupon.0,
+        coupon_type: coupon.1,
+        value: coupon.2,
+        discount_paise,
+        description,
+    })
+}
+
+/// Record a coupon redemption in the DB.
+async fn record_coupon_redemption(
+    state: &Arc<AppState>,
+    coupon_id: &str,
+    driver_id: &str,
+    billing_session_id: &str,
+    discount_paise: i64,
+) {
+    let _ = sqlx::query(
+        "INSERT INTO coupon_redemptions (id, coupon_id, driver_id, billing_session_id, discount_paise)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(coupon_id)
+    .bind(driver_id)
+    .bind(billing_session_id)
+    .bind(discount_paise)
+    .execute(&state.db)
+    .await;
+
+    // Increment used_count on coupon
+    let _ = sqlx::query("UPDATE coupons SET used_count = used_count + 1 WHERE id = ?")
+        .bind(coupon_id)
+        .execute(&state.db)
+        .await;
+}
+
 // ─── Billing ────────────────────────────────────────────────────────────────
 
 async fn start_billing(
@@ -1207,6 +1343,10 @@ async fn start_billing(
     let custom_price_paise = body.get("custom_price_paise").and_then(|v| v.as_u64()).map(|v| v as u32);
     let custom_duration_minutes = body.get("custom_duration_minutes").and_then(|v| v.as_u64()).map(|v| v as u32);
     let staff_id = body.get("staff_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    // Discount params: coupon_code OR staff_discount_paise + discount_reason
+    let coupon_code = body.get("coupon_code").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let staff_discount_paise = body.get("staff_discount_paise").and_then(|v| v.as_i64());
+    let discount_reason = body.get("discount_reason").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     if pod_id.is_empty() || driver_id.is_empty() || pricing_tier_id.is_empty() {
         return Json(json!({ "error": "pod_id, driver_id, and pricing_tier_id are required" }));
@@ -1261,21 +1401,84 @@ async fn start_billing(
         None => return Json(json!({ "error": "Pricing tier lookup failed" })),
     };
 
-    // Determine the actual price (custom override or tier price)
-    let price_paise = custom_price_paise.map(|p| p as i64).unwrap_or(tier_price_paise);
+    // Determine the base price (custom override or tier price)
+    let mut base_price_paise = custom_price_paise.map(|p| p as i64).unwrap_or(tier_price_paise);
+
+    // Apply group discount (Option A): if 3+ sessions already active, this is the 4th+ → apply group multiplier
+    let mut group_discount_paise: i64 = 0;
+    if !is_trial {
+        let active_count = state.billing.active_timers.read().await.len();
+        if active_count >= 3 {
+            // Fetch group pricing rule
+            let group_rule = sqlx::query_as::<_, (f64,)>(
+                "SELECT multiplier FROM pricing_rules WHERE rule_type = 'group' AND is_active = 1 LIMIT 1",
+            )
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            if let Some((multiplier,)) = group_rule {
+                let discounted = (base_price_paise as f64 * multiplier).round() as i64;
+                group_discount_paise = base_price_paise - discounted;
+                base_price_paise = discounted;
+                tracing::info!(
+                    "Group discount applied: {} active sessions, multiplier={}, saved {}p",
+                    active_count + 1, multiplier, group_discount_paise
+                );
+            }
+        }
+    }
+
+    // Apply discount (coupon or staff manual) — stacks on top of group discount
+    let mut applied_discount_paise: i64 = group_discount_paise;
+    let mut applied_coupon_id: Option<String> = None;
+    let mut applied_discount_reason: Option<String> = if group_discount_paise > 0 {
+        Some(format!("Group {} sessions (11% off)", state.billing.active_timers.read().await.len() + 1))
+    } else {
+        None
+    };
+
+    if let Some(ref code) = coupon_code {
+        match validate_and_calc_coupon(&state, code, driver_id, base_price_paise).await {
+            Ok(cd) => {
+                applied_discount_paise += cd.discount_paise;
+                applied_coupon_id = Some(cd.coupon_id);
+                let coupon_desc = format!("Coupon {}: {}", code.to_uppercase(), cd.description);
+                applied_discount_reason = Some(match applied_discount_reason {
+                    Some(existing) => format!("{} + {}", existing, coupon_desc),
+                    None => coupon_desc,
+                });
+            }
+            Err(e) => return Json(json!({ "error": e })),
+        }
+    } else if let Some(staff_disc) = staff_discount_paise {
+        if staff_disc > 0 && staff_disc <= base_price_paise {
+            applied_discount_paise += staff_disc;
+            let staff_desc = discount_reason.unwrap_or("Staff discount".to_string());
+            applied_discount_reason = Some(match applied_discount_reason {
+                Some(existing) => format!("{} + {}", existing, staff_desc),
+                None => staff_desc,
+            });
+        }
+    }
+
+    // original_price is before ALL discounts (group + coupon/staff)
+    let original_price_paise = custom_price_paise.map(|p| p as i64).unwrap_or(tier_price_paise);
+    let final_price_paise = original_price_paise - applied_discount_paise;
 
     // Wallet balance check and debit (skip for trial or zero-price)
-    let wallet_debit: Option<i64> = if !is_trial && price_paise > 0 {
+    let wallet_debit: Option<i64> = if !is_trial && final_price_paise > 0 {
         // Check balance first
         let balance = match wallet::get_balance(&state, driver_id).await {
             Ok(b) => b,
             Err(e) => return Json(json!({ "error": format!("Wallet error: {}", e) })),
         };
-        if balance < price_paise {
+        if balance < final_price_paise {
             return Json(json!({
-                "error": format!("Insufficient credits: have {} credits, need {} credits", balance / 100, price_paise / 100),
+                "error": format!("Insufficient credits: have {} credits, need {} credits", balance / 100, final_price_paise / 100),
                 "balance_paise": balance,
-                "required_paise": price_paise,
+                "required_paise": final_price_paise,
             }));
         }
 
@@ -1289,17 +1492,23 @@ async fn start_billing(
             .map(|r| r.0)
             .unwrap_or(0);
 
+        let debit_notes = if applied_discount_paise > 0 {
+            format!("Session on Pod {} (staff) — {} credits discount", pod_num, applied_discount_paise / 100)
+        } else {
+            format!("Session on Pod {} (staff)", pod_num)
+        };
+
         match wallet::debit(
             &state,
             driver_id,
-            price_paise,
+            final_price_paise,
             "debit_session",
             None,
-            Some(&format!("Session on Pod {} (staff)", pod_num)),
+            Some(&debit_notes),
         )
         .await
         {
-            Ok((_, _txn_id)) => Some(price_paise),
+            Ok((_, _txn_id)) => Some(final_price_paise),
             Err(e) => return Json(json!({ "error": e })),
         }
     } else {
@@ -1325,17 +1534,34 @@ async fn start_billing(
 
     match session_id {
         Ok(id) => {
-            // Record wallet debit on the billing session
-            if let Some(debit) = wallet_debit {
+            // Record wallet debit + discount info on the billing session
+            if wallet_debit.is_some() || applied_discount_paise > 0 {
                 let _ = sqlx::query(
-                    "UPDATE billing_sessions SET wallet_debit_paise = ? WHERE id = ?",
+                    "UPDATE billing_sessions SET wallet_debit_paise = ?, discount_paise = ?, coupon_id = ?, original_price_paise = ?, discount_reason = ? WHERE id = ?",
                 )
-                .bind(debit)
+                .bind(wallet_debit)
+                .bind(applied_discount_paise)
+                .bind(&applied_coupon_id)
+                .bind(original_price_paise)
+                .bind(&applied_discount_reason)
                 .bind(&id)
                 .execute(&state.db)
                 .await;
             }
-            Json(json!({ "ok": true, "billing_session_id": id, "wallet_debit_paise": wallet_debit }))
+
+            // Record coupon redemption
+            if let Some(ref cid) = applied_coupon_id {
+                record_coupon_redemption(&state, cid, driver_id, &id, applied_discount_paise).await;
+            }
+
+            Json(json!({
+                "ok": true,
+                "billing_session_id": id,
+                "wallet_debit_paise": wallet_debit,
+                "discount_paise": applied_discount_paise,
+                "original_price_paise": original_price_paise,
+                "discount_reason": applied_discount_reason,
+            }))
         }
         Err(reason) => {
             // Refund wallet if billing failed
@@ -1569,7 +1795,7 @@ async fn billing_session_summary(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    // Get billing session info
+    // Get billing session info (including discount fields)
     let session = sqlx::query_as::<_, (String, String, String, String, i64, i64, String, Option<String>, Option<String>)>(
         "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at, bs.ended_at
          FROM billing_sessions bs
@@ -1585,6 +1811,16 @@ async fn billing_session_summary(
         Ok(None) => return Json(json!({ "error": "Session not found" })),
         Err(e) => return Json(json!({ "error": e.to_string() })),
     };
+
+    // Get discount info
+    let discount_info = sqlx::query_as::<_, (Option<i64>, Option<String>, Option<i64>, Option<String>)>(
+        "SELECT discount_paise, coupon_id, original_price_paise, discount_reason FROM billing_sessions WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
 
     // Get laps for this session
     let laps = sqlx::query_as::<_, (String, i64, i64, Option<i64>, Option<i64>, Option<i64>, bool, String, String)>(
@@ -1670,6 +1906,10 @@ async fn billing_session_summary(
             "personal_best_broken": personal_best_broken,
             "leaderboard_position": leaderboard_position,
             "laps": laps_json,
+            "discount_paise": discount_info.as_ref().and_then(|d| d.0),
+            "coupon_id": discount_info.as_ref().and_then(|d| d.1.clone()),
+            "original_price_paise": discount_info.as_ref().and_then(|d| d.2),
+            "discount_reason": discount_info.as_ref().and_then(|d| d.3.clone()),
         }
     }))
 }
@@ -1846,10 +2086,11 @@ async fn daily_billing_report(
         .date
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
 
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, Option<String>, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<i64>, Option<String>)>(
         "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, pt.name, bs.allocated_seconds,
                 bs.driving_seconds, bs.status, COALESCE(bs.custom_price_paise, pt.price_paise),
-                bs.started_at, bs.ended_at, bs.staff_id, sm.name
+                bs.started_at, bs.ended_at, bs.staff_id, sm.name,
+                bs.discount_paise, bs.original_price_paise, bs.discount_reason
          FROM billing_sessions bs
          JOIN drivers d ON bs.driver_id = d.id
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
@@ -1870,6 +2111,11 @@ async fn daily_billing_report(
                 .map(|s| s.8)
                 .sum();
             let total_driving_seconds: i64 = sessions.iter().map(|s| s.6).sum();
+            let total_discount_paise: i64 = sessions
+                .iter()
+                .filter(|s| s.7 != "cancelled")
+                .map(|s| s.13.unwrap_or(0))
+                .sum();
 
             // Build staff summary
             let mut staff_map: std::collections::HashMap<String, (String, usize, i64)> = std::collections::HashMap::new();
@@ -1898,6 +2144,8 @@ async fn daily_billing_report(
                         "status": s.7, "price_paise": s.8,
                         "started_at": s.9, "ended_at": s.10,
                         "staff_id": s.11, "staff_name": s.12,
+                        "discount_paise": s.13, "original_price_paise": s.14,
+                        "discount_reason": s.15,
                     })
                 })
                 .collect();
@@ -1906,6 +2154,7 @@ async fn daily_billing_report(
                 "date": date,
                 "total_sessions": total_sessions,
                 "total_revenue_paise": total_revenue_paise,
+                "total_discount_paise": total_discount_paise,
                 "total_driving_seconds": total_driving_seconds,
                 "staff_summary": staff_summary,
                 "sessions": list,
@@ -2656,8 +2905,9 @@ async fn customer_sessions(
         Err(e) => return Json(json!({ "error": e })),
     };
 
-    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<i64>)>(
-        "SELECT bs.id, bs.pod_id, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at, bs.ended_at, bs.custom_price_paise
+    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<i64>, Option<i64>, Option<i64>, Option<String>)>(
+        "SELECT bs.id, bs.pod_id, bs.allocated_seconds, bs.driving_seconds, bs.status, bs.started_at, bs.ended_at, bs.custom_price_paise,
+                bs.discount_paise, bs.original_price_paise, bs.discount_reason
          FROM billing_sessions bs
          WHERE bs.driver_id = ?
          ORDER BY bs.created_at DESC
@@ -2681,6 +2931,9 @@ async fn customer_sessions(
                         "started_at": s.5,
                         "ended_at": s.6,
                         "custom_price_paise": s.7,
+                        "discount_paise": s.8,
+                        "original_price_paise": s.9,
+                        "discount_reason": s.10,
                     })
                 })
                 .collect();
@@ -2728,6 +2981,16 @@ async fn customer_session_detail(
         Ok(None) => return Json(json!({ "error": "Session not found" })),
         Err(e) => return Json(json!({ "error": e.to_string() })),
     };
+
+    // Fetch discount info separately (avoids sqlx 16-field tuple limit)
+    let discount_info = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<String>)>(
+        "SELECT discount_paise, original_price_paise, discount_reason FROM billing_sessions WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
 
     // Look up any refund for this session
     let refund_paise: Option<(i64,)> = sqlx::query_as(
@@ -2799,6 +3062,9 @@ async fn customer_session_detail(
             "track": session.12,
             "sim_type": session.13,
             "wallet_debit_paise": session.14,
+            "discount_paise": discount_info.as_ref().and_then(|d| d.0),
+            "original_price_paise": discount_info.as_ref().and_then(|d| d.1),
+            "discount_reason": discount_info.as_ref().and_then(|d| d.2.clone()),
             "refund_paise": refund_paise.map(|r| r.0).filter(|&r| r > 0),
             "total_laps": total_laps,
             "best_lap_ms": best_lap_ms,
@@ -4005,6 +4271,7 @@ struct BookSessionRequest {
     experience_id: Option<String>,
     pricing_tier_id: String,
     custom: Option<CustomBookingOptions>,
+    coupon_code: Option<String>,
 }
 
 async fn customer_book_session(
@@ -4031,7 +4298,27 @@ async fn customer_book_session(
     };
 
     let is_trial = tier.4;
-    let price_paise = tier.3;
+    let base_price_paise = tier.3;
+
+    // Apply coupon discount if provided
+    let mut applied_discount_paise: i64 = 0;
+    let mut applied_coupon_id: Option<String> = None;
+    let mut applied_discount_reason: Option<String> = None;
+
+    if !is_trial {
+        if let Some(ref code) = req.coupon_code {
+            match validate_and_calc_coupon(&state, code, &driver_id, base_price_paise).await {
+                Ok(cd) => {
+                    applied_discount_paise = cd.discount_paise;
+                    applied_coupon_id = Some(cd.coupon_id);
+                    applied_discount_reason = Some(format!("Coupon {}: {}", code.to_uppercase(), cd.description));
+                }
+                Err(e) => return Json(json!({ "error": e })),
+            }
+        }
+    }
+
+    let final_price_paise = base_price_paise - applied_discount_paise;
 
     // Handle trial booking (skip for unlimited_trials drivers)
     if is_trial {
@@ -4049,17 +4336,17 @@ async fn customer_book_session(
             _ => {} // OK to proceed (hasn't used trial, or has unlimited_trials)
         }
     } else {
-        // Validate wallet balance for non-trial
+        // Validate wallet balance for non-trial (using discounted price)
         let balance = match wallet::get_balance(&state, &driver_id).await {
             Ok(b) => b,
             Err(e) => return Json(json!({ "error": e })),
         };
 
-        if balance < price_paise {
+        if balance < final_price_paise {
             return Json(json!({
                 "error": "Insufficient wallet balance",
                 "balance_paise": balance,
-                "required_paise": price_paise,
+                "required_paise": final_price_paise,
             }));
         }
     }
@@ -4085,19 +4372,24 @@ async fn customer_book_session(
         pods.get(&pod_id).map(|p| p.number).unwrap_or(0)
     };
 
-    // Debit wallet (skip for trial)
-    let (wallet_txn_id, wallet_debit) = if !is_trial && price_paise > 0 {
+    // Debit wallet (skip for trial) — uses discounted price
+    let (wallet_txn_id, wallet_debit) = if !is_trial && final_price_paise > 0 {
+        let debit_notes = if applied_discount_paise > 0 {
+            format!("{} on Pod {} — {} credits discount", tier.1, pod_number, applied_discount_paise / 100)
+        } else {
+            format!("{} on Pod {}", tier.1, pod_number)
+        };
         match wallet::debit(
             &state,
             &driver_id,
-            price_paise,
+            final_price_paise,
             "debit_session",
-            None, // reference_id set after billing session created
-            Some(&format!("{} on Pod {}", tier.1, pod_number)),
+            None,
+            Some(&debit_notes),
         )
         .await
         {
-            Ok((_, txn_id)) => (Some(txn_id), Some(price_paise)),
+            Ok((_, txn_id)) => (Some(txn_id), Some(final_price_paise)),
             Err(e) => return Json(json!({ "error": e })),
         }
     } else {
@@ -4175,6 +4467,12 @@ async fn customer_book_session(
         }
     };
 
+    // Record coupon redemption if applicable
+    // We use reservation_id as a stand-in since the billing_session isn't created until PIN auth
+    if let Some(ref cid) = applied_coupon_id {
+        record_coupon_redemption(&state, cid, &driver_id, &reservation_id, applied_discount_paise).await;
+    }
+
     Json(json!({
         "status": "booked",
         "reservation_id": reservation_id,
@@ -4184,6 +4482,9 @@ async fn customer_book_session(
         "allocated_seconds": auth_token.allocated_seconds,
         "wallet_debit_paise": wallet_debit,
         "wallet_txn_id": wallet_txn_id,
+        "discount_paise": applied_discount_paise,
+        "original_price_paise": base_price_paise,
+        "discount_reason": applied_discount_reason,
     }))
 }
 
@@ -5274,12 +5575,18 @@ async fn sync_push(
                 "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id,
                     allocated_seconds, driving_seconds, status, custom_price_paise, notes,
                     started_at, ended_at, created_at, experience_id, car, track, sim_type,
-                    split_count, split_duration_minutes)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+                    split_count, split_duration_minutes,
+                    wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)
                  ON CONFLICT(id) DO UPDATE SET
                     driving_seconds = excluded.driving_seconds,
                     status = excluded.status,
-                    ended_at = excluded.ended_at",
+                    ended_at = excluded.ended_at,
+                    wallet_debit_paise = COALESCE(excluded.wallet_debit_paise, billing_sessions.wallet_debit_paise),
+                    discount_paise = COALESCE(excluded.discount_paise, billing_sessions.discount_paise),
+                    coupon_id = COALESCE(excluded.coupon_id, billing_sessions.coupon_id),
+                    original_price_paise = COALESCE(excluded.original_price_paise, billing_sessions.original_price_paise),
+                    discount_reason = COALESCE(excluded.discount_reason, billing_sessions.discount_reason)",
             )
             .bind(id)
             .bind(s.get("driver_id").and_then(|v| v.as_str()))
@@ -5299,6 +5606,11 @@ async fn sync_push(
             .bind(s.get("sim_type").and_then(|v| v.as_str()))
             .bind(s.get("split_count").and_then(|v| v.as_i64()))
             .bind(s.get("split_duration_minutes").and_then(|v| v.as_i64()))
+            .bind(s.get("wallet_debit_paise").and_then(|v| v.as_i64()))
+            .bind(s.get("discount_paise").and_then(|v| v.as_i64()))
+            .bind(s.get("coupon_id").and_then(|v| v.as_str()))
+            .bind(s.get("original_price_paise").and_then(|v| v.as_i64()))
+            .bind(s.get("discount_reason").and_then(|v| v.as_str()))
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
