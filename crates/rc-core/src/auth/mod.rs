@@ -1054,32 +1054,79 @@ pub struct KioskPinResult {
 pub async fn validate_pin_kiosk(
     state: &Arc<AppState>,
     pin: String,
+    chosen_pod_id: Option<String>,
 ) -> Result<KioskPinResult, String> {
     // Atomically find and consume ANY pending pin token matching this PIN (prevents double-spend)
-    let row = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
-        "UPDATE auth_tokens SET status = 'consuming'
-         WHERE id = (
-             SELECT id FROM auth_tokens
-             WHERE token = ? AND auth_type = 'pin' AND status = 'pending'
-               AND expires_at > datetime('now')
-             LIMIT 1
-         ) AND status = 'pending'
-         RETURNING id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
-    )
-    .bind(&pin)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| format!("DB error: {}", e))?
-    .ok_or_else(|| "Invalid PIN. Please check with reception.".to_string())?;
+    // If a pod_id is provided (customer chose a pod), prefer tokens for that pod first,
+    // then fall back to any matching token.
+    let row = if let Some(ref cpid) = chosen_pod_id {
+        // Try matching the chosen pod first
+        let r = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+            "UPDATE auth_tokens SET status = 'consuming'
+             WHERE id = (
+                 SELECT id FROM auth_tokens
+                 WHERE token = ? AND auth_type = 'pin' AND status = 'pending'
+                   AND pod_id = ? AND expires_at > datetime('now')
+                 LIMIT 1
+             ) AND status = 'pending'
+             RETURNING id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
+        )
+        .bind(&pin)
+        .bind(cpid)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
+
+        // Fall back to any matching PIN token if none found for chosen pod
+        match r {
+            Some(row) => Some(row),
+            None => {
+                sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+                    "UPDATE auth_tokens SET status = 'consuming'
+                     WHERE id = (
+                         SELECT id FROM auth_tokens
+                         WHERE token = ? AND auth_type = 'pin' AND status = 'pending'
+                           AND expires_at > datetime('now')
+                         LIMIT 1
+                     ) AND status = 'pending'
+                     RETURNING id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
+                )
+                .bind(&pin)
+                .fetch_optional(&state.db)
+                .await
+                .map_err(|e| format!("DB error: {}", e))?
+            }
+        }
+    } else {
+        sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+            "UPDATE auth_tokens SET status = 'consuming'
+             WHERE id = (
+                 SELECT id FROM auth_tokens
+                 WHERE token = ? AND auth_type = 'pin' AND status = 'pending'
+                   AND expires_at > datetime('now')
+                 LIMIT 1
+             ) AND status = 'pending'
+             RETURNING id, pod_id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
+        )
+        .bind(&pin)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| format!("DB error: {}", e))?
+    };
+
+    let row = row.ok_or_else(|| "Invalid PIN. Please check with reception.".to_string())?;
 
     let token_id = row.0;
-    let pod_id = row.1;
+    let token_pod_id = row.1;
     let driver_id = row.2;
     let pricing_tier_id = row.3.clone();
     let custom_price_paise = row.4.map(|p| p as u32);
     let custom_duration_minutes = row.5.map(|m| m as u32);
     let experience_id = row.6;
     let custom_launch_args = row.7;
+
+    // Use the customer's chosen pod if provided, otherwise the token's assigned pod
+    let pod_id = chosen_pod_id.unwrap_or(token_pod_id);
 
     // Start billing session — rollback token if billing fails
     let billing_session_id = match billing::start_billing_session(

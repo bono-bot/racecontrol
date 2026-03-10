@@ -112,7 +112,7 @@ export default function BookingPage() {
   // Success screen auto-returns to walk-in
   useEffect(() => {
     if (phase !== "success") return;
-    const timer = setTimeout(() => router.push("/walk-in"), AUTO_RETURN_MS);
+    const timer = setTimeout(() => router.push("/"), AUTO_RETURN_MS);
     return () => clearTimeout(timer);
   }, [phase, router]);
 
@@ -121,7 +121,7 @@ export default function BookingPage() {
     if (phase !== "phone" && phase !== "otp") return;
     const interval = setInterval(() => {
       if (Date.now() - lastActivity > INACTIVITY_MS) {
-        router.push("/walk-in");
+        router.push("/");
       }
     }, 5000);
     return () => clearInterval(interval);
@@ -320,7 +320,7 @@ export default function BookingPage() {
   }
 
   function handleCancel() {
-    router.push("/walk-in");
+    router.push("/");
   }
 
   const ws = wizard.state;
@@ -560,7 +560,7 @@ export default function BookingPage() {
         </p>
 
         <button
-          onClick={() => router.push("/walk-in")}
+          onClick={() => router.push("/")}
           className="px-8 py-3 border border-rp-border rounded-lg text-rp-grey hover:text-white hover:border-rp-red transition-colors"
         >
           Done

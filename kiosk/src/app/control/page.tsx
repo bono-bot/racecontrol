@@ -28,7 +28,7 @@ export default function ControlPage() {
   useEffect(() => {
     const name = sessionStorage.getItem("kiosk_staff_name");
     if (!name) {
-      router.replace("/");
+      router.replace("/staff");
       return;
     }
     setStaffName(name);
@@ -45,7 +45,7 @@ export default function ControlPage() {
   const handleSignOut = () => {
     sessionStorage.removeItem("kiosk_staff_name");
     sessionStorage.removeItem("kiosk_staff_id");
-    router.replace("/");
+    router.replace("/staff");
   };
 
   // Sort pods by number

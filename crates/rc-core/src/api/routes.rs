@@ -2841,13 +2841,14 @@ async fn validate_pin(
 #[derive(Debug, Deserialize)]
 struct KioskValidatePinRequest {
     pin: String,
+    pod_id: Option<String>,
 }
 
 async fn kiosk_validate_pin(
     State(state): State<Arc<AppState>>,
     Json(req): Json<KioskValidatePinRequest>,
 ) -> Json<Value> {
-    match auth::validate_pin_kiosk(&state, req.pin).await {
+    match auth::validate_pin_kiosk(&state, req.pin, req.pod_id).await {
         Ok(result) => Json(json!({
             "status": "ok",
             "billing_session_id": result.billing_session_id,

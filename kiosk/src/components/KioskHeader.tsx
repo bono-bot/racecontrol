@@ -74,7 +74,7 @@ export function KioskHeader({ connected, pods, venueName = "Racing Point", staff
         {staffName && (
           <div className="flex items-center gap-3 border-r border-rp-border pr-4">
             {[
-              { href: "/", label: "Dashboard" },
+              { href: "/staff", label: "Dashboard" },
               { href: "/debug", label: "Debug" },
             ].map((nav) => (
               <Link

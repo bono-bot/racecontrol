@@ -127,7 +127,7 @@ export const api = {
   getAcCatalog: () => fetchApi<AcCatalog>("/customer/ac/catalog"),
 
   // Kiosk PIN Validation
-  validateKioskPin: (pin: string) =>
+  validateKioskPin: (pin: string, pod_id?: string) =>
     fetchApi<{
       status?: string;
       error?: string;
@@ -139,7 +139,7 @@ export const api = {
       allocated_seconds?: number;
     }>("/auth/kiosk/validate-pin", {
       method: "POST",
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({ pin, pod_id }),
     }),
 
   // Staff Auth

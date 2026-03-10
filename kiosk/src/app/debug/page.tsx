@@ -80,7 +80,7 @@ export default function DebugPage() {
     if (typeof window !== "undefined") {
       const name = sessionStorage.getItem("kiosk_staff_name");
       if (!name) {
-        router.push("/");
+        router.push("/staff");
         return;
       }
       setStaffName(name);
