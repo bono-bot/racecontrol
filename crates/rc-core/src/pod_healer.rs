@@ -184,18 +184,30 @@ async fn heal_pod(
 
     // ─── Rule 2: rc-agent lock screen unresponsive ──────────────────────
     if !diag.rc_agent_healthy {
-        let has_active_billing = has_active_billing(state, &pod.id).await;
-        if has_active_billing {
-            issues.push(format!(
-                "rc-agent lock screen unresponsive but pod has active billing — NOT restarting"
-            ));
+        let has_active_ws = state.agent_senders.read().await.contains_key(&pod.id);
+        if has_active_ws {
+            // Pod has an active WebSocket connection → rc-agent IS running.
+            // Lock screen port check is a false positive (PowerShell flakiness,
+            // antivirus, transient TCP issue). Do NOT restart — that would kill
+            // the WebSocket and cause offline/online flapping.
+            tracing::debug!(
+                "Pod healer: {} lock screen unresponsive but WebSocket connected — skipping restart",
+                pod.id
+            );
         } else {
-            actions.push(HealAction {
-                pod_id: pod.id.clone(),
-                action: "restart_rc_agent".to_string(),
-                target: "rc-agent.exe".to_string(),
-                reason: "Lock screen (port 18923) unresponsive, no active billing".to_string(),
-            });
+            let has_active_billing = has_active_billing(state, &pod.id).await;
+            if has_active_billing {
+                issues.push(format!(
+                    "rc-agent lock screen unresponsive but pod has active billing — NOT restarting"
+                ));
+            } else {
+                actions.push(HealAction {
+                    pod_id: pod.id.clone(),
+                    action: "restart_rc_agent".to_string(),
+                    target: "rc-agent.exe".to_string(),
+                    reason: "Lock screen (port 18923) unresponsive, no active billing, no WebSocket".to_string(),
+                });
+            }
         }
     }
 
