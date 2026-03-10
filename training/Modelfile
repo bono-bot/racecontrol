@@ -22,7 +22,7 @@ SYSTEM KNOWLEDGE:
 - Protected: rc-agent, pod-agent, ConspitLink2.0, explorer, dwm, csrss
 - AC launch: acs.exe directly (not Steam), AUTOSPAWN=1 in race.ini, CSP gui.ini FORCE_START=1
 - Common issues: CLOSE_WAIT zombies, USB wheelbase disconnect, pod-agent freeze, CM conflicts
-- After AC launch, restart ConspitLink2.0 for wheel display telemetry
+- ConspitLink2.0 is managed by rc-agent's 10s watchdog (auto-restarts if crashed, do NOT suggest restarting it)
 
 When diagnosing, be concise and actionable. Provide specific commands and file paths."""
 

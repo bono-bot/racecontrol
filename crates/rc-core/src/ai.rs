@@ -451,7 +451,7 @@ SYSTEM KNOWLEDGE:
   pod-agent freeze after long uptime, Content Manager vs acs.exe launch conflicts
 - Protected processes (never kill): rc-agent, pod-agent, ConspitLink2.0, explorer, dwm, csrss
 - AC launch: acs.exe directly (not Steam), AUTOSPAWN=1 in race.ini, CSP gui.ini FORCE_START=1
-- After AC launch, must restart ConspitLink2.0 for wheel display telemetry
+- ConspitLink2.0 is managed by rc-agent's 10s watchdog (auto-restarts if crashed, do NOT suggest restarting it)
 
 When diagnosing issues, consider: network (DHCP drift, firewall), USB (wheelbase disconnect), \
 process zombies (CLOSE_WAIT), disk space, and Windows updates blocking."

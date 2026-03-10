@@ -232,8 +232,8 @@ def generate_hardware_pairs() -> list[dict]:
                 "- Path: `C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe`\n"
                 "- Force feedback: 8 Newton-meters\n"
                 "- rc-agent monitors via hidapi (HID USB reports)\n"
-                "- After AC launch, ConspitLink2.0 must be restarted for wheel display telemetry\n"
-                "- ensure_conspit_link_running() in ac_launcher.rs auto-restarts if crashed"
+                "- ConspitLink2.0 managed by rc-agent's 10s watchdog (auto-restarts if crashed)\n"
+                "- ensure_conspit_link_running() in ac_launcher.rs handles crash recovery"
             ),
             "source": "ops/hardware",
         },
@@ -325,7 +325,7 @@ def generate_game_pairs() -> list[dict]:
                 "4. CSP gui.ini: FORCE_START=1 + HIDE_MAIN_MENU=1\n"
                 "5. Launch acs.exe directly (NOT through Steam)\n"
                 "6. Wait for process to load, bring to foreground\n"
-                "7. Restart ConspitLink2.0 for wheel display telemetry\n\n"
+                "7. ConspitLink2.0 auto-restarts via watchdog (no manual step needed)\n\n"
                 "**Multiplayer**: Content Manager --race flag\n"
                 "- AC Server on Racing-Point-Server (.51), preset RP_OPTIMAL (100% grip)\n"
                 "- Commit 8064559: CM integration + multiplayer support"

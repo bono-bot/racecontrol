@@ -199,13 +199,11 @@ PLAYBOOK_TEMPLATES = [
             "Wheelbase disconnect on pod {num} — Conspit Ares 8Nm (OpenFFBoard VID:0x1209 PID:0xFFB0).\n\n"
             "Troubleshooting:\n"
             "1. Check USB connection — try different USB port\n"
-            "2. Restart ConspitLink2.0: `taskkill /F /IM ConspitLink2.0.exe` then relaunch from "
-            "`C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe`\n"
+            "2. Power-cycle the wheelbase (turn off/on the power strip under the rig)\n"
             "3. Check Device Manager for the OpenFFBoard device\n"
-            "4. Power-cycle the wheelbase (turn off/on the power strip under the rig)\n"
-            "5. If ConspitLink crashes repeatedly, check for USB hub power issues\n\n"
-            "Note: rc-agent monitors HID via hidapi. The driving detector reports `NoDevice` state when wheelbase disconnects. "
-            "After AC launch, ConspitLink2.0 must be restarted for wheel display telemetry."
+            "4. ConspitLink2.0 auto-restarts via rc-agent's 10s watchdog — no manual restart needed\n"
+            "5. If USB hub issues, try connecting wheelbase directly to motherboard USB\n\n"
+            "Note: rc-agent monitors HID via hidapi. The driving detector reports `NoDevice` state when wheelbase disconnects."
         ),
     },
     # Category 10: Pod status shows idle during active billing
@@ -264,7 +262,7 @@ PLAYBOOK_TEMPLATES = [
             "   - race.ini: AUTOSPAWN=1\n"
             "   - CSP gui.ini: FORCE_START=1 + HIDE_MAIN_MENU=1\n"
             "   - AC Server on Racing-Point-Server (.51): preset RP_OPTIMAL (100% grip)\n\n"
-            "4. After AC launch, restart ConspitLink2.0 for wheel display telemetry.\n\n"
+            "4. ConspitLink2.0 auto-restarts via rc-agent watchdog if it crashes.\n\n"
             "5. Check `game_launch_events` table for launch history and errors."
         ),
     },

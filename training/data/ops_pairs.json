@@ -116,7 +116,7 @@
   {
     "instruction": "What wheelbases does Racing Point use?",
     "input": "",
-    "output": "Racing Point uses Conspit Ares 8Nm wheelbases across all 8 pods.\n\n- USB interface: OpenFFBoard (VID:0x1209 PID:0xFFB0)\n- Software: ConspitLink2.0 (runs on each pod, must stay alive)\n- Path: `C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe`\n- Force feedback: 8 Newton-meters\n- rc-agent monitors via hidapi (HID USB reports)\n- After AC launch, ConspitLink2.0 must be restarted for wheel display telemetry\n- ensure_conspit_link_running() in ac_launcher.rs auto-restarts if crashed",
+    "output": "Racing Point uses Conspit Ares 8Nm wheelbases across all 8 pods.\n\n- USB interface: OpenFFBoard (VID:0x1209 PID:0xFFB0)\n- Software: ConspitLink2.0 (runs on each pod, must stay alive)\n- Path: `C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe`\n- Force feedback: 8 Newton-meters\n- rc-agent monitors via hidapi (HID USB reports)\n- ConspitLink2.0 managed by rc-agent's 10s watchdog (auto-restarts if crashed)\n- ensure_conspit_link_running() in ac_launcher.rs handles crash recovery",
     "source": "ops/hardware"
   },
   {
@@ -170,7 +170,7 @@
   {
     "instruction": "How is Assetto Corsa launched at Racing Point?",
     "input": "",
-    "output": "Assetto Corsa launch process:\n\n**Single-player**: Direct acs.exe launch\n1. Write race.ini: AUTOSPAWN=1, track, car, AI opponents\n2. Write assists.ini: difficulty preset (Beginner/Intermediate/Expert)\n3. Write apps preset: enable required CSP apps\n4. CSP gui.ini: FORCE_START=1 + HIDE_MAIN_MENU=1\n5. Launch acs.exe directly (NOT through Steam)\n6. Wait for process to load, bring to foreground\n7. Restart ConspitLink2.0 for wheel display telemetry\n\n**Multiplayer**: Content Manager --race flag\n- AC Server on Racing-Point-Server (.51), preset RP_OPTIMAL (100% grip)\n- Commit 8064559: CM integration + multiplayer support",
+    "output": "Assetto Corsa launch process:\n\n**Single-player**: Direct acs.exe launch\n1. Write race.ini: AUTOSPAWN=1, track, car, AI opponents\n2. Write assists.ini: difficulty preset (Beginner/Intermediate/Expert)\n3. Write apps preset: enable required CSP apps\n4. CSP gui.ini: FORCE_START=1 + HIDE_MAIN_MENU=1\n5. Launch acs.exe directly (NOT through Steam)\n6. Wait for process to load, bring to foreground\n7. ConspitLink2.0 auto-restarts via watchdog (no manual step needed)\n\n**Multiplayer**: Content Manager --race flag\n- AC Server on Racing-Point-Server (.51), preset RP_OPTIMAL (100% grip)\n- Commit 8064559: CM integration + multiplayer support",
     "source": "ops/games"
   },
   {

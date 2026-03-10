@@ -65,7 +65,7 @@ ERROR_TYPES = [
             "If recurring:\n"
             "- Check pagefile size: Settings → System → About → Advanced system settings → Performance → Virtual Memory\n"
             "- Reduce game graphics settings (especially texture quality)\n"
-            "- Check for memory leaks in ConspitLink2.0 (restart it)\n"
+            "- Check for memory leaks (ConspitLink2.0 auto-restarts via watchdog if needed)\n"
             "- Restart the pod to clear accumulated memory fragmentation"
         ),
     },
@@ -145,10 +145,9 @@ ERROR_TYPES = [
             "Wheelbase disconnected during gameplay. Conspit Ares 8Nm (OpenFFBoard VID:0x1209 PID:0xFFB0).\n\n"
             "Immediate steps:\n"
             "1. Check physical USB connection — try different port\n"
-            "2. Restart ConspitLink2.0: `taskkill /F /IM ConspitLink2.0.exe`\n"
-            "   Then relaunch: `start \"\" \"C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLink2.0.exe\"`\n"
+            "2. Power-cycle the wheelbase (power strip under the rig)\n"
             "3. Check Device Manager for the OpenFFBoard device\n"
-            "4. Power-cycle the wheelbase (power strip under the rig)\n\n"
+            "4. ConspitLink2.0 auto-restarts via rc-agent watchdog (no manual restart needed)\n\n"
             "If USB hub issues:\n"
             "- Check if multiple USB devices are drawing too much power\n"
             "- Try connecting wheelbase directly to motherboard USB (not hub)\n"
