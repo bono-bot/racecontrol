@@ -371,30 +371,27 @@ impl LockScreenManager {
         }
         self.browser_process = None;
 
-        // Kill orphaned kiosk Edge processes (e.g. from a previous agent run or deploy).
-        // Uses PowerShell Get-CimInstance (wmic is deprecated/removed on Windows 11).
-        // Targets only Edge processes with --kiosk in the command line.
-        let ps_cmd = format!(
-            "Get-CimInstance Win32_Process -Filter \"name='msedge.exe'\" | \
-             Where-Object {{ $_.CommandLine -like '*--kiosk*' -and $_.CommandLine -like '*{}*' }} | \
-             ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; \
-             Write-Output $_.ProcessId }}",
-            self.port
-        );
-        match std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
-        {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                for line in stdout.lines() {
-                    if let Ok(pid) = line.trim().parse::<u32>() {
-                        tracing::info!("Killed orphaned kiosk Edge process (PID {})", pid);
+        // Kill ALL Edge and Edge WebView2 processes aggressively via taskkill.
+        // On gaming pods, there should be no user Edge sessions — only our kiosk windows.
+        // This prevents the stacking bug where repeated show_blank_screen() calls
+        // spawn new Edge windows without fully cleaning up the old ones.
+        for exe in &["msedge.exe", "msedgewebview2.exe"] {
+            match std::process::Command::new("taskkill")
+                .args(["/F", "/IM", exe])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+            {
+                Ok(status) => {
+                    if status.success() {
+                        tracing::info!("Killed all {} processes", exe);
                     }
                 }
+                Err(e) => tracing::warn!("Failed to run taskkill for {}: {}", exe, e),
             }
-            Err(e) => tracing::warn!("Failed to check for orphaned kiosk Edge: {}", e),
         }
+        // Brief pause to let processes fully exit and release ports
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
     #[cfg(not(windows))]
