@@ -27,8 +27,10 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
     // Load operating hours from kiosk_settings
     let open = get_setting(state, "business_hours_start").await.unwrap_or_else(|| "10:00".into());
     let close = get_setting(state, "business_hours_end").await.unwrap_or_else(|| "22:00".into());
-    let open_time = NaiveTime::parse_from_str(&open, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(10, 0, 0).unwrap());
-    let close_time = NaiveTime::parse_from_str(&close, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(22, 0, 0).unwrap());
+    let default_open = NaiveTime::from_hms_opt(10, 0, 0).expect("static 10:00 is valid");
+    let default_close = NaiveTime::from_hms_opt(22, 0, 0).expect("static 22:00 is valid");
+    let open_time = NaiveTime::parse_from_str(&open, "%H:%M").unwrap_or(default_open);
+    let close_time = NaiveTime::parse_from_str(&close, "%H:%M").unwrap_or(default_close);
 
     // Check if auto-scheduling is enabled
     let enabled = get_setting(state, "scheduler_enabled").await.unwrap_or_else(|| "true".into());
@@ -277,8 +279,10 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> Json<Value> {
     let pre_open = get_setting(&state, "scheduler_pre_open_minutes").await.unwrap_or_else(|| "10".into());
     let post_close = get_setting(&state, "scheduler_post_close_minutes").await.unwrap_or_else(|| "15".into());
 
-    let open_time = NaiveTime::parse_from_str(&open, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(10, 0, 0).unwrap());
-    let close_time = NaiveTime::parse_from_str(&close, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(22, 0, 0).unwrap());
+    let default_open = NaiveTime::from_hms_opt(10, 0, 0).expect("static 10:00 is valid");
+    let default_close = NaiveTime::from_hms_opt(22, 0, 0).expect("static 22:00 is valid");
+    let open_time = NaiveTime::parse_from_str(&open, "%H:%M").unwrap_or(default_open);
+    let close_time = NaiveTime::parse_from_str(&close, "%H:%M").unwrap_or(default_close);
 
     let is_open = time_now >= open_time && time_now < close_time;
 

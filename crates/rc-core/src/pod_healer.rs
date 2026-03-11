@@ -151,7 +151,11 @@ async fn heal_pod(
         .send()
         .await;
 
-    if ping.is_err() || !ping.as_ref().unwrap().status().is_success() {
+    let is_reachable = match &ping {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    };
+    if !is_reachable {
         // Pod-agent unreachable — pod_monitor handles this case
         return Ok(());
     }

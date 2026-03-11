@@ -352,8 +352,8 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
 
         if is_stale {
             tracing::info!(
-                "Stale WebSocket cleanup for pod {} (conn_id={}, current={}). Skipping.",
-                pod_id, conn_id, current_conn_id.unwrap()
+                "Stale WebSocket cleanup for pod {} (conn_id={}, current={:?}). Skipping.",
+                pod_id, conn_id, current_conn_id
             );
         } else {
             state.agent_senders.write().await.remove(pod_id);
