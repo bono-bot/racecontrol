@@ -1,7 +1,107 @@
+use std::path::PathBuf;
 use std::process::{Child, Command};
 
 use rc_common::types::{GameState, SimType};
 use serde::Deserialize;
+
+/// Directory where the PID file is persisted.
+/// Windows: C:\RaceControl\  Linux: /tmp/racecontrol/
+fn pid_file_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    { PathBuf::from(r"C:\RaceControl") }
+    #[cfg(not(target_os = "windows"))]
+    { PathBuf::from("/tmp/racecontrol") }
+}
+
+fn pid_file_path() -> PathBuf {
+    pid_file_dir().join("game.pid")
+}
+
+/// Write the current game PID to disk so it survives rc-agent restarts.
+pub fn persist_pid(pid: u32) {
+    let dir = pid_file_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    if let Err(e) = std::fs::write(pid_file_path(), pid.to_string()) {
+        tracing::warn!("Failed to persist game PID {}: {}", pid, e);
+    } else {
+        tracing::debug!("Persisted game PID {} to {:?}", pid, pid_file_path());
+    }
+}
+
+/// Read a previously persisted PID from disk.
+pub fn read_persisted_pid() -> Option<u32> {
+    std::fs::read_to_string(pid_file_path())
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+}
+
+/// Remove the PID file from disk.
+pub fn clear_persisted_pid() {
+    let _ = std::fs::remove_file(pid_file_path());
+}
+
+/// All known game process names across all sim types.
+fn all_game_process_names() -> &'static [&'static str] {
+    &[
+        "acs.exe", "AssettoCorsa.exe",
+        "AssettoCorsa2.exe", "AC2-Win64-Shipping.exe",
+        "iRacingSim64DX11.exe", "iRacingService.exe",
+        "F1_25.exe",
+        "LMU.exe", "Le Mans Ultimate.exe",
+        "ForzaMotorsport.exe",
+    ]
+}
+
+/// Startup orphan scan: kill any game processes left over from a previous
+/// rc-agent instance.  Called once at agent startup before connecting to rc-core.
+///
+/// 1. Check persisted PID file — if alive, kill it.
+/// 2. Scan for all known game process names and kill any that are running.
+/// 3. Clean up the PID file.
+pub fn cleanup_orphaned_games() -> u32 {
+    let mut cleaned = 0u32;
+
+    // 1. Check persisted PID
+    if let Some(pid) = read_persisted_pid() {
+        if is_process_alive(pid) {
+            tracing::warn!(pid, "Killing orphaned game process from PID file on startup");
+            if let Err(e) = kill_process(pid) {
+                tracing::error!(pid, "Failed to kill orphaned game by PID: {}", e);
+            } else {
+                cleaned += 1;
+            }
+        } else {
+            tracing::info!(pid, "Persisted game PID is no longer alive — cleaning up");
+        }
+        clear_persisted_pid();
+    }
+
+    // 2. Scan for any running game processes by name
+    use sysinfo::System;
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let known_names = all_game_process_names();
+    for (_pid, process) in sys.processes() {
+        let pname = process.name().to_string_lossy().to_string();
+        for name in known_names {
+            if pname.eq_ignore_ascii_case(name) {
+                let pid = _pid.as_u32();
+                tracing::warn!(pid, process_name = %pname, "Killing orphaned game process found by name scan on startup");
+                if let Err(e) = kill_process(pid) {
+                    tracing::error!(pid, "Failed to kill orphaned game process: {}", e);
+                } else {
+                    cleaned += 1;
+                }
+                break;
+            }
+        }
+    }
+
+    if cleaned > 0 {
+        tracing::info!("Cleaned up {} orphaned game processes on startup", cleaned);
+    }
+    cleaned
+}
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct GameExeConfig {
@@ -76,6 +176,7 @@ impl GameProcess {
             }
             let child = cmd.spawn()?;
             let pid = child.id();
+            persist_pid(pid);
             Ok(Self {
                 sim_type,
                 state: GameState::Launching,
@@ -126,10 +227,17 @@ impl GameProcess {
             child.wait()?;
         } else if let Some(pid) = self.pid {
             kill_process(pid)?;
+        } else if let Some(pid) = read_persisted_pid() {
+            // Fallback: no in-memory child or PID, but PID file exists (post-restart)
+            tracing::info!(pid, "Stopping game via persisted PID file fallback");
+            if is_process_alive(pid) {
+                kill_process(pid)?;
+            }
         }
         self.state = GameState::Idle;
         self.child = None;
         self.pid = None;
+        clear_persisted_pid();
         Ok(())
     }
 

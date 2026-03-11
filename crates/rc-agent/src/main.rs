@@ -179,6 +179,12 @@ async fn main() -> Result<()> {
     tracing::info!("Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
     tracing::info!("Core server: {}", config.core.url);
 
+    // Clean up orphaned game processes from previous rc-agent instance
+    let orphans_cleaned = game_process::cleanup_orphaned_games();
+    if orphans_cleaned > 0 {
+        tracing::warn!("Cleaned up {} orphaned game processes on startup", orphans_cleaned);
+    }
+
     let pod_id = format!("pod_{}", config.pod.number);
     let sim_type = match config.pod.sim.as_str() {
         "assetto_corsa" | "ac" => SimType::AssettoCorsa,
@@ -191,6 +197,25 @@ async fn main() -> Result<()> {
             return Ok(());
         }
     };
+
+    // Determine installed games from config
+    let mut installed_games = vec![SimType::AssettoCorsa]; // AC always available (Content Manager)
+    if config.games.f1_25.exe_path.is_some() || config.games.f1_25.steam_app_id.is_some() {
+        installed_games.push(SimType::F125);
+    }
+    if config.games.iracing.exe_path.is_some() || config.games.iracing.steam_app_id.is_some() {
+        installed_games.push(SimType::IRacing);
+    }
+    if config.games.forza.exe_path.is_some() || config.games.forza.steam_app_id.is_some() {
+        installed_games.push(SimType::Forza);
+    }
+    if config.games.le_mans_ultimate.exe_path.is_some() || config.games.le_mans_ultimate.steam_app_id.is_some() {
+        installed_games.push(SimType::LeMansUltimate);
+    }
+    if config.games.assetto_corsa_evo.exe_path.is_some() || config.games.assetto_corsa_evo.steam_app_id.is_some() {
+        installed_games.push(SimType::AssettoCorsaEvo);
+    }
+    tracing::info!("Installed games: {:?}", installed_games);
 
     // Build pod info
     let pod_info = PodInfo {
@@ -208,6 +233,7 @@ async fn main() -> Result<()> {
         billing_session_id: None,
         game_state: None,
         current_game: None,
+        installed_games,
     };
 
     // Watchdog: ensure pod-agent.exe stays running
@@ -312,7 +338,7 @@ async fn main() -> Result<()> {
     // Lock screen for customer authentication (PIN / QR)
     // Always start the lock screen server so customers can enter PINs
     let (lock_event_tx, mut lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
-    let mut lock_screen = LockScreenManager::new(lock_event_tx);
+    let mut lock_screen = LockScreenManager::new(lock_event_tx, config.pod.number);
     lock_screen.start_server();
     tracing::info!("Lock screen server started on port 18923");
 
@@ -530,6 +556,7 @@ async fn main() -> Result<()> {
                         // Steam-launched game — scan for process by name
                         if let Some(pid) = game_process::find_game_pid(game.sim_type) {
                             game.pid = Some(pid);
+                            game_process::persist_pid(pid);
                             game.state = GameState::Running;
                             let info = GameLaunchInfo {
                                 pod_id: pod_id.clone(),
@@ -593,6 +620,7 @@ async fn main() -> Result<()> {
                             }
 
                             game_process = None;
+                            game_process::clear_persisted_pid();
 
                             // If billing is active and game crashed, arm crash recovery timer.
                             // Gives core 30s to send SessionEnded; otherwise force-reset.
@@ -905,6 +933,7 @@ async fn main() -> Result<()> {
                                                     launched_at: Some(Utc::now()),
                                                     error_message: result.cm_error.clone(),
                                                 };
+                                                game_process::persist_pid(result.pid);
                                                 game_process = Some(game_process::GameProcess {
                                                     sim_type: launch_sim,
                                                     state: GameState::Running,
