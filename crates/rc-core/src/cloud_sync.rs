@@ -389,6 +389,28 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
         has_data = true;
     }
 
+    // Push wallet transactions (immutable, use >= to avoid missing same-timestamp rows)
+    let wallet_txns = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'driver_id', driver_id, 'amount_paise', amount_paise,
+            'balance_after_paise', balance_after_paise, 'txn_type', txn_type,
+            'reference_id', reference_id, 'notes', notes, 'staff_id', staff_id,
+            'created_at', created_at
+        ) FROM wallet_transactions WHERE created_at >= ? ORDER BY created_at ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !wallet_txns.is_empty() {
+        let items: Vec<serde_json::Value> = wallet_txns.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} wallet transactions", items.len());
+        payload["wallet_transactions"] = serde_json::json!(items);
+        has_data = true;
+    }
+
     if !has_data {
         tracing::debug!("Cloud sync push: nothing to push");
         return Ok(());
