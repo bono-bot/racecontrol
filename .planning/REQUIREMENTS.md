@@ -50,12 +50,27 @@
 
 ## Traceability
 
-| REQ | Phase | Status |
-|-----|-------|--------|
-| HUD-01 to HUD-09 | TBD | Pending |
-| DATA-01 to DATA-04 | TBD | Pending |
-| INFRA-01 to INFRA-02 | TBD | Pending |
-| FFB-01 to FFB-04 | TBD | Pending |
+| REQ | Phase | Plan | Status |
+|-----|-------|------|--------|
+| FFB-01 | Phase 1: FFB Safety | P1.1 — FFB Controller and Session Lifecycle Integration | Pending |
+| FFB-02 | Phase 1: FFB Safety | P1.1 — FFB Controller and Session Lifecycle Integration | Pending |
+| FFB-03 | Phase 1: FFB Safety | P1.1 — FFB Controller and Session Lifecycle Integration | Pending |
+| FFB-04 | Phase 1: FFB Safety | P1.1 — FFB Controller and Session Lifecycle Integration | Pending |
+| INFRA-01 | Phase 2: HUD Infrastructure | P2.1 — GDI Resources Cache and Component Paint System | Pending |
+| INFRA-02 | Phase 2: HUD Infrastructure | P2.1 — GDI Resources Cache and Component Paint System | Pending |
+| HUD-01 | Phase 3: HUD Layout | P3.1 — Core Layout (Gear, Speed, RPM Bar) | Pending |
+| HUD-02 | Phase 3: HUD Layout | P3.1 — Core Layout (Gear, Speed, RPM Bar) | Pending |
+| HUD-03 | Phase 3: HUD Layout | P3.2 — Timing Display (Lap Times, Sectors, Session Timer, Lap Counter, Invalid Indicator) | Pending |
+| HUD-04 | Phase 3: HUD Layout | P3.2 — Timing Display (Lap Times, Sectors, Session Timer, Lap Counter, Invalid Indicator) | Pending |
+| HUD-05 | Phase 3: HUD Layout | P3.2 — Timing Display (Lap Times, Sectors, Session Timer, Lap Counter, Invalid Indicator) | Pending |
+| HUD-06 | Phase 3: HUD Layout | P3.2 — Timing Display (Lap Times, Sectors, Session Timer, Lap Counter, Invalid Indicator) | Pending |
+| HUD-07 | Phase 3: HUD Layout | P3.2 — Timing Display (Lap Times, Sectors, Session Timer, Lap Counter, Invalid Indicator) | Pending |
+| HUD-08 | Phase 3: HUD Layout | P3.1 — Core Layout (Gear, Speed, RPM Bar) | Pending |
+| HUD-09 | Phase 3: HUD Layout | P3.1 — Core Layout (Gear, Speed, RPM Bar) | Pending |
+| DATA-01 | Phase 4: Data Accuracy | P4.1 — Timing Data Fixes and State Validation | Pending |
+| DATA-02 | Phase 4: Data Accuracy | P4.1 — Timing Data Fixes and State Validation | Pending |
+| DATA-03 | Phase 4: Data Accuracy | P4.1 — Timing Data Fixes and State Validation | Pending |
+| DATA-04 | Phase 4: Data Accuracy | P4.1 — Timing Data Fixes and State Validation | Pending |
 
 ---
-*Last updated: 2026-03-11 after research synthesis*
+*Last updated: 2026-03-11 after roadmap creation — all 19 requirements mapped to phases*
