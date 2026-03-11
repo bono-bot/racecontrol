@@ -1741,4 +1741,30 @@ mod tests {
         assert!(timer.pause_count >= 3);
         // The tick loop checks pause_count < 3 before pausing
     }
+
+    #[test]
+    fn partial_refund_calculation() {
+        // Simulate: 1800s allocated, 900s driven, 70000 paise (₹700) debited
+        // Expected: 50% unused → refund = 35000 paise
+        let allocated: i64 = 1800;
+        let driving_seconds: i64 = 900;
+        let wallet_debit_paise: i64 = 70000;
+
+        let remaining = allocated - driving_seconds;
+        let refund = (remaining as f64 / allocated as f64 * wallet_debit_paise as f64) as i64;
+
+        assert_eq!(refund, 35000); // 50% of ₹700
+
+        // Edge case: 75% driven → 25% refund
+        let driving_seconds_2: i64 = 1350;
+        let remaining_2 = allocated - driving_seconds_2;
+        let refund_2 = (remaining_2 as f64 / allocated as f64 * wallet_debit_paise as f64) as i64;
+        assert_eq!(refund_2, 17500); // 25% of ₹700
+
+        // Edge case: fully driven → 0 refund
+        let driving_seconds_3: i64 = 1800;
+        let remaining_3 = allocated - driving_seconds_3;
+        let refund_3 = (remaining_3 as f64 / allocated as f64 * wallet_debit_paise as f64) as i64;
+        assert_eq!(refund_3, 0);
+    }
 }
