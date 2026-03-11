@@ -5944,6 +5944,32 @@ async fn sync_push(
         }
     }
 
+    // Upsert wallet_transactions (immutable — INSERT OR IGNORE by UUID for idempotency)
+    if let Some(txns) = body.get("wallet_transactions").and_then(|v| v.as_array()) {
+        for txn in txns {
+            let id = txn.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT OR IGNORE INTO wallet_transactions
+                    (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, created_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            )
+            .bind(id)
+            .bind(txn.get("driver_id").and_then(|v| v.as_str()))
+            .bind(txn.get("amount_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(txn.get("balance_after_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(txn.get("txn_type").and_then(|v| v.as_str()).unwrap_or("adjustment"))
+            .bind(txn.get("reference_id").and_then(|v| v.as_str()))
+            .bind(txn.get("notes").and_then(|v| v.as_str()))
+            .bind(txn.get("staff_id").and_then(|v| v.as_str()))
+            .bind(txn.get("created_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total += 1; }
+        }
+        tracing::info!("Sync push: {} wallet transactions", txns.len());
+    }
+
     tracing::info!("Sync push: upserted {} records", total);
     Json(json!({ "ok": true, "upserted": total }))
 }
