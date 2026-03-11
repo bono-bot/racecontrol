@@ -239,7 +239,7 @@ thiserror.workspace = true
   - Pull (Cloud → Venue) every 30s:
     - Drivers, wallets, pricing_tiers, pricing_rules, kiosk_experiences, kiosk_settings
   - Push (Venue → Cloud) every 30s:
-    - Laps, track_records, personal_bests, billing_sessions, pods, drivers, wallets
+    - Laps, track_records, personal_bests, billing_sessions, pods, drivers, wallets, wallet_transactions
   - CRDT conflict resolution: MAX(updated_at) — newest write wins
   - HTTP client: reqwest for cloud API calls
   - Retry logic: Exponential backoff on 5xx
