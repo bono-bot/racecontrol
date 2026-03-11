@@ -791,9 +791,9 @@ async fn start_ac_lan_for_group(
                 lap_gain: 30,
             },
             pickup_mode: true,
-            udp_port: 9600,
-            tcp_port: 9600,
-            http_port: 8081,
+            udp_port: 0,  // Dynamically assigned by PortAllocator in start_ac_server()
+            tcp_port: 0,  // Dynamically assigned by PortAllocator in start_ac_server()
+            http_port: 0, // Dynamically assigned by PortAllocator in start_ac_server()
             min_csp_version: 0,
             ..Default::default()
         };

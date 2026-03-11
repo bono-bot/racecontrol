@@ -1669,6 +1669,17 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Dynamic port allocation columns on ac_sessions ──────────────────────
+    let _ = sqlx::query("ALTER TABLE ac_sessions ADD COLUMN udp_port INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE ac_sessions ADD COLUMN tcp_port INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE ac_sessions ADD COLUMN http_port INTEGER")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

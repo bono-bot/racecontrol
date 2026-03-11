@@ -10,6 +10,7 @@ use crate::ac_server::AcServerManager;
 use crate::billing::BillingManager;
 use crate::config::Config;
 use crate::game_launcher::GameManager;
+use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
 use rc_common::types::PodInfo;
 
@@ -33,6 +34,7 @@ pub struct AppState {
     pub billing: BillingManager,
     pub game_launcher: GameManager,
     pub ac_server: AcServerManager,
+    pub port_allocator: PortAllocator,
     pub camera: CameraController,
     /// Map of pod_id -> sender for pushing commands to specific agents
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,
@@ -65,6 +67,7 @@ impl AppState {
             billing: BillingManager::new(),
             game_launcher: GameManager::new(),
             ac_server: AcServerManager::new(),
+            port_allocator: PortAllocator::new(9600, 8081, 16),
             camera: CameraController::new(),
             agent_senders: RwLock::new(HashMap::new()),
             agent_conn_ids: RwLock::new(HashMap::new()),

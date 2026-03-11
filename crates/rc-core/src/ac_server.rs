@@ -56,12 +56,17 @@ impl AcServerManager {
 /// On startup, find ac_sessions rows that are still 'starting' or 'running' (left over
 /// from a previous rc-core instance) and kill their processes if still alive.  This
 /// prevents orphaned acServer processes from holding ports and blocking new sessions.
-pub async fn cleanup_orphaned_sessions(db: &SqlitePool) -> anyhow::Result<u32> {
+/// Also adds orphaned ports to the PortAllocator cooldown to avoid TIME_WAIT collisions.
+pub async fn cleanup_orphaned_sessions(
+    db: &SqlitePool,
+    port_allocator: &crate::port_allocator::PortAllocator,
+) -> anyhow::Result<u32> {
+    // Read ports from dedicated columns first, falling back to json_extract for pre-migration rows
     let rows = sqlx::query_as::<_, (String, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
         "SELECT id, pid, \
-                json_extract(config_json, '$.udp_port') AS udp_port, \
-                json_extract(config_json, '$.tcp_port') AS tcp_port, \
-                json_extract(config_json, '$.http_port') AS http_port \
+                COALESCE(udp_port, json_extract(config_json, '$.udp_port')), \
+                COALESCE(tcp_port, json_extract(config_json, '$.tcp_port')), \
+                COALESCE(http_port, json_extract(config_json, '$.http_port')) \
          FROM ac_sessions WHERE status IN ('starting', 'running')"
     )
     .fetch_all(db)
@@ -101,6 +106,17 @@ pub async fn cleanup_orphaned_sessions(db: &SqlitePool) -> anyhow::Result<u32> {
             );
         }
 
+        // Add orphaned ports to cooldown so they aren't reused during TIME_WAIT
+        if let (Some(udp), Some(tcp), Some(http)) = (udp_port, tcp_port, http_port) {
+            port_allocator
+                .add_to_cooldown(crate::port_allocator::AllocatedPorts {
+                    udp_port: *udp as u16,
+                    tcp_port: *tcp as u16,
+                    http_port: *http as u16,
+                })
+                .await;
+        }
+
         // Mark session as error regardless
         let _ = sqlx::query(
             "UPDATE ac_sessions SET status = 'error', ended_at = datetime('now') WHERE id = ?"
@@ -116,7 +132,7 @@ pub async fn cleanup_orphaned_sessions(db: &SqlitePool) -> anyhow::Result<u32> {
             udp_port = ?udp_port,
             tcp_port = ?tcp_port,
             http_port = ?http_port,
-            "Cleaned up orphaned session — ports freed"
+            "Cleaned up orphaned session — ports added to cooldown"
         );
     }
 
@@ -370,13 +386,28 @@ pub async fn start_ac_server(
         }
     }
 
+    // Allocate dynamic ports for this session
+    let allocated = state.port_allocator.allocate(&session_id).await?;
+    let mut config = config;
+    config.udp_port = allocated.udp_port;
+    config.tcp_port = allocated.tcp_port;
+    config.http_port = allocated.http_port;
+
+    tracing::info!(
+        session_id = %session_id,
+        udp_port = allocated.udp_port,
+        tcp_port = allocated.tcp_port,
+        http_port = allocated.http_port,
+        "Dynamically allocated ports for AC session"
+    );
+
     // Create server directory
     let data_dir = &state.config.ac_server.data_dir;
     let server_dir = PathBuf::from(data_dir).join(&session_id);
     let cfg_dir = server_dir.join("cfg");
     std::fs::create_dir_all(&cfg_dir)?;
 
-    // Generate and write config files
+    // Generate and write config files (now using dynamically allocated ports)
     let server_cfg = generate_server_cfg_ini(&config);
     let entry_list = generate_entry_list_ini(&config);
     std::fs::write(cfg_dir.join("server_cfg.ini"), &server_cfg)?;
@@ -447,18 +478,21 @@ pub async fn start_ac_server(
         let _ = state.dashboard_tx.send(DashboardEvent::AcServerUpdate(info));
     }
 
-    // Log to DB
+    // Log to DB (including dynamically allocated ports for orphan recovery)
     let config_json = serde_json::to_string(&config).unwrap_or_default();
     let pod_ids_json = serde_json::to_string(&pod_ids).unwrap_or_default();
     let _ = sqlx::query(
-        "INSERT INTO ac_sessions (id, config_json, status, pod_ids, pid, join_url, started_at, created_at) \
-         VALUES (?, ?, 'starting', ?, ?, ?, datetime('now'), datetime('now'))"
+        "INSERT INTO ac_sessions (id, config_json, status, pod_ids, pid, join_url, udp_port, tcp_port, http_port, started_at, created_at) \
+         VALUES (?, ?, 'starting', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))"
     )
     .bind(&session_id)
     .bind(&config_json)
     .bind(&pod_ids_json)
     .bind(pid.map(|p| p as i64))
     .bind(&join_url)
+    .bind(allocated.udp_port as i64)
+    .bind(allocated.tcp_port as i64)
+    .bind(allocated.http_port as i64)
     .execute(&state.db)
     .await;
 
@@ -585,6 +619,9 @@ pub async fn stop_ac_server(state: &Arc<AppState>, session_id: &str) -> anyhow::
     if killed_via_fallback {
         tracing::info!(session_id, "Session stopped via PID fallback path");
     }
+
+    // Release dynamically allocated ports (enters cooldown)
+    state.port_allocator.release(session_id).await;
 
     // Broadcast stopped status
     let info = {
