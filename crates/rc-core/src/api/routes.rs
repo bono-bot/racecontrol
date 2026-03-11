@@ -322,6 +322,7 @@ async fn register_pod(
         billing_session_id: None,
         game_state: None,
         current_game: None,
+        installed_games: Vec::new(),
     };
 
     state.pods.write().await.insert(id.clone(), pod.clone());
@@ -360,6 +361,7 @@ async fn seed_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
             billing_session_id: None,
             game_state: None,
             current_game: None,
+            installed_games: Vec::new(),
         };
         state.pods.write().await.insert(id.to_string(), pod.clone());
         let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
@@ -5909,6 +5911,7 @@ async fn sync_push(
                 billing_session_id: pod.get("billing_session_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 game_state: None,
                 current_game: None,
+                installed_games: Vec::new(),
             };
             state.pods.write().await.insert(id.to_string(), pod_info.clone());
             let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod_info));

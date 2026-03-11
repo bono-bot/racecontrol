@@ -15,6 +15,7 @@ mod error_aggregator;
 mod friends;
 mod game_launcher;
 mod multiplayer;
+mod port_allocator;
 mod lap_tracker;
 mod pod_healer;
 mod pod_monitor;
