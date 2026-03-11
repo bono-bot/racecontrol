@@ -2,6 +2,7 @@ mod ac_launcher;
 mod ai_debugger;
 mod debug_server;
 mod driving_detector;
+mod ffb_controller;
 mod game_process;
 mod kiosk;
 mod lock_screen;
@@ -22,6 +23,7 @@ use driving_detector::{
     DetectorConfig, DetectorSignal, DrivingDetector,
     is_input_active, is_steering_moving, parse_openffboard_report,
 };
+use ffb_controller::FfbController;
 use ai_debugger::{AiDebuggerConfig, PodStateSnapshot};
 use game_process::GameExeConfig;
 use rc_common::protocol::AgentMessage;
@@ -226,6 +228,24 @@ async fn main() -> Result<()> {
     };
     let mut detector = DrivingDetector::new(&detector_config);
 
+    // FFB safety controller — zero wheelbase torque on session end/startup
+    let ffb = std::sync::Arc::new(FfbController::new(
+        config.wheelbase.vendor_id,
+        config.wheelbase.product_id,
+    ));
+
+    // FFB-03: Zero force on startup — recover from any prior unclean exit
+    {
+        let ffb_startup = ffb.clone();
+        tokio::task::spawn_blocking(move || {
+            match ffb_startup.zero_force() {
+                Ok(true) => tracing::info!("Startup: wheelbase FFB zeroed (safety)"),
+                Ok(false) => tracing::debug!("Startup: wheelbase not found — FFB zero skipped"),
+                Err(e) => tracing::warn!("Startup: FFB zero failed: {} — continuing", e),
+            }
+        });
+    }
+
     // Channel for detector signals from HID/UDP tasks
     let (signal_tx, mut signal_rx) = mpsc::channel::<DetectorSignal>(256);
 
@@ -315,13 +335,17 @@ async fn main() -> Result<()> {
 
     // Delayed startup cleanup — enforce safe state to kill any orphaned games
     // from previous session/crash. Delay gives startup apps time to open.
-    tokio::spawn(async {
-        tokio::time::sleep(Duration::from_secs(8)).await;
-        tokio::task::spawn_blocking(|| {
-            ac_launcher::enforce_safe_state();
+    {
+        let ffb_startup_cleanup = ffb.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(8)).await;
+            tokio::task::spawn_blocking(move || {
+                ffb_startup_cleanup.zero_force().ok();
+                ac_launcher::enforce_safe_state();
+            });
+            tracing::info!("Startup: safe state enforced — pod clean for first customer");
         });
-        tracing::info!("Startup: safe state enforced — pod clean for first customer");
-    });
+    }
 
     // ─── UDP Heartbeat (fast liveness detection alongside WebSocket) ─────────
     let heartbeat_status = std::sync::Arc::new(udp_heartbeat::HeartbeatStatus::new());
@@ -577,7 +601,7 @@ async fn main() -> Result<()> {
                             } else {
                                 // No billing active — enforce safe state immediately
                                 tracing::info!("Game exited with no active billing — enforcing safe state");
-                                tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+                                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
                                 lock_screen.show_blank_screen();
                             }
                         }
@@ -661,7 +685,7 @@ async fn main() -> Result<()> {
                     tracing::info!("Auto-blanking screen after session summary");
                     lock_screen.show_blank_screen();
                     // Final cleanup pass via unified safe state
-                    tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
                 }
             }
             // Crash recovery: game crashed during billing, core didn't send SessionEnded in 30s
@@ -675,7 +699,7 @@ async fn main() -> Result<()> {
                     game_process = None;
                 }
                 if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
                 lock_screen.show_blank_screen();
                 // Notify core that we force-ended
                 let msg = AgentMessage::GameStateUpdate(GameLaunchInfo {
@@ -772,7 +796,7 @@ async fn main() -> Result<()> {
                                     // Disconnect telemetry adapter
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
                                     // Full cleanup via unified safe state
-                                    tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
                                     // Show session summary, then auto-blank after 15s
                                     lock_screen.show_session_summary(
                                         driver_name, total_laps, best_lap_ms, driving_seconds,
@@ -1098,7 +1122,7 @@ async fn main() -> Result<()> {
                                     // Disconnect telemetry adapter
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
                                     // Full cleanup via unified safe state
-                                    tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
                                     // Show between-sessions screen
                                     lock_screen.show_between_sessions(
                                         driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
@@ -1180,7 +1204,7 @@ async fn main() -> Result<()> {
                 game_process = None;
             }
             if let Some(ref mut adp) = adapter { adp.disconnect(); }
-            tokio::task::spawn_blocking(|| ac_launcher::enforce_safe_state());
+            { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
             lock_screen.show_blank_screen();
         } else {
             lock_screen.show_disconnected();
