@@ -267,6 +267,7 @@ pub enum BillingSessionStatus {
     Pending,
     Active,
     PausedManual,
+    PausedDisconnect,
     Completed,
     EndedEarly,
     Cancelled,
