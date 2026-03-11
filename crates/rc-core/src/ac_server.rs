@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use sqlx::SqlitePool;
 
 use crate::state::AppState;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
@@ -48,6 +49,124 @@ impl AcServerManager {
             instances: RwLock::new(HashMap::new()),
         }
     }
+}
+
+// ─── Orphaned Process Cleanup ─────────────────────────────────────────────────
+
+/// On startup, find ac_sessions rows that are still 'starting' or 'running' (left over
+/// from a previous rc-core instance) and kill their processes if still alive.  This
+/// prevents orphaned acServer processes from holding ports and blocking new sessions.
+pub async fn cleanup_orphaned_sessions(db: &SqlitePool) -> anyhow::Result<u32> {
+    let rows = sqlx::query_as::<_, (String, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+        "SELECT id, pid, \
+                json_extract(config_json, '$.udp_port') AS udp_port, \
+                json_extract(config_json, '$.tcp_port') AS tcp_port, \
+                json_extract(config_json, '$.http_port') AS http_port \
+         FROM ac_sessions WHERE status IN ('starting', 'running')"
+    )
+    .fetch_all(db)
+    .await?;
+
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    tracing::info!("Found {} orphaned ac_sessions from previous run", rows.len());
+    let mut cleaned = 0u32;
+
+    for (id, pid, udp_port, tcp_port, http_port) in &rows {
+        if let Some(pid) = pid {
+            let pid = *pid as u32;
+            if is_process_alive(pid) {
+                tracing::warn!(
+                    pid,
+                    session_id = %id,
+                    "Killing orphaned acServer process on startup"
+                );
+                if let Err(e) = kill_process_by_pid(pid) {
+                    tracing::error!(pid, session_id = %id, "Failed to kill orphaned process: {}", e);
+                }
+            } else {
+                tracing::info!(
+                    pid,
+                    session_id = %id,
+                    "Orphaned session PID {} is no longer alive — marking as error",
+                    pid
+                );
+            }
+        } else {
+            tracing::info!(
+                session_id = %id,
+                "Orphaned session has no PID — marking as error"
+            );
+        }
+
+        // Mark session as error regardless
+        let _ = sqlx::query(
+            "UPDATE ac_sessions SET status = 'error', ended_at = datetime('now') WHERE id = ?"
+        )
+        .bind(id)
+        .execute(db)
+        .await;
+
+        cleaned += 1;
+
+        tracing::info!(
+            session_id = %id,
+            udp_port = ?udp_port,
+            tcp_port = ?tcp_port,
+            http_port = ?http_port,
+            "Cleaned up orphaned session — ports freed"
+        );
+    }
+
+    tracing::info!("Cleaned up {} orphaned ac_sessions on startup", cleaned);
+    Ok(cleaned)
+}
+
+/// Platform-specific process alive check
+#[cfg(target_os = "windows")]
+fn is_process_alive(pid: u32) -> bool {
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .output();
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            stdout.contains(&pid.to_string())
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_process_alive(pid: u32) -> bool {
+    Path::new(&format!("/proc/{}", pid)).exists()
+}
+
+/// Platform-specific process kill
+#[cfg(target_os = "windows")]
+fn kill_process_by_pid(pid: u32) -> anyhow::Result<()> {
+    let output = std::process::Command::new("taskkill")
+        .args(["/F", "/PID", &pid.to_string()])
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("taskkill failed: {}", stderr.trim());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_process_by_pid(pid: u32) -> anyhow::Result<()> {
+    let output = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("kill -9 failed: {}", stderr.trim());
+    }
+    Ok(())
 }
 
 // ─── INI Generation ──────────────────────────────────────────────────────────

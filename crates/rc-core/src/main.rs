@@ -100,6 +100,13 @@ async fn main() -> anyhow::Result<()> {
     // Initialize database
     let pool = db::init_pool(&config.database.path).await?;
 
+    // Clean up orphaned acServer processes from previous run
+    match ac_server::cleanup_orphaned_sessions(&pool).await {
+        Ok(0) => tracing::info!("No orphaned AC sessions found"),
+        Ok(n) => tracing::warn!("Cleaned up {} orphaned AC sessions on startup", n),
+        Err(e) => tracing::error!("Failed to clean up orphaned sessions: {}", e),
+    }
+
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     let state = Arc::new(AppState::new(config, pool));
