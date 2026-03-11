@@ -5968,6 +5968,47 @@ async fn sync_push(
             if r.is_ok() { total += 1; }
         }
         tracing::info!("Sync push: {} wallet transactions", txns.len());
+
+        // Shadow verification: compare latest transaction balance with wallet balance
+        // Collect unique driver_ids from the pushed transactions
+        let mut driver_ids: Vec<String> = txns.iter()
+            .filter_map(|t| t.get("driver_id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
+        driver_ids.sort();
+        driver_ids.dedup();
+
+        for did in &driver_ids {
+            // Get the most recent transaction's balance_after_paise for this driver
+            let txn_balance: Option<(i64,)> = sqlx::query_as(
+                "SELECT balance_after_paise FROM wallet_transactions WHERE driver_id = ? ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(did)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let wallet_balance: Option<(i64,)> = sqlx::query_as(
+                "SELECT balance_paise FROM wallets WHERE driver_id = ?",
+            )
+            .bind(did)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            if let (Some((txn_bal,)), Some((wallet_bal,))) = (txn_balance, wallet_balance) {
+                if txn_bal != wallet_bal {
+                    tracing::warn!(
+                        driver_id = %did,
+                        wallet_balance = wallet_bal,
+                        txn_balance = txn_bal,
+                        diff = wallet_bal - txn_bal,
+                        "Wallet balance discrepancy detected in shadow verification"
+                    );
+                }
+            }
+        }
     }
 
     tracing::info!("Sync push: upserted {} records", total);
