@@ -4349,8 +4349,38 @@ async fn customer_wallet_transactions(
     };
 
     let limit = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(50i64);
-    let txns = wallet::get_transactions(&state, &driver_id, limit).await;
-    Json(json!({ "transactions": txns }))
+    let offset = params.get("offset").and_then(|o| o.parse().ok()).unwrap_or(0i64);
+
+    let total: i64 = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM wallet_transactions WHERE driver_id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<String>, String)>(
+        "SELECT id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, created_at
+         FROM wallet_transactions WHERE driver_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+    )
+    .bind(&driver_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let txns: Vec<Value> = rows.iter().map(|r| {
+        json!({
+            "id": r.0, "driver_id": r.1, "amount_paise": r.2,
+            "balance_after_paise": r.3, "txn_type": r.4,
+            "reference_id": r.5, "notes": r.6, "staff_id": r.7,
+            "created_at": r.8,
+        })
+    }).collect();
+
+    Json(json!({ "transactions": txns, "total": total }))
 }
 
 // ─── Customer Experiences ───────────────────────────────────────────────────

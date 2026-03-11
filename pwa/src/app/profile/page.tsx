@@ -91,14 +91,18 @@ export default function ProfilePage() {
             </div>
 
             {/* Wallet */}
-            <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-6 flex items-center justify-between">
+            <button
+              onClick={() => router.push("/wallet/history")}
+              className="w-full bg-rp-card border border-rp-border rounded-xl p-4 mb-6 flex items-center justify-between active:bg-rp-card/80 transition-colors text-left"
+            >
               <div>
                 <p className="text-xs text-rp-grey">Credits</p>
                 <p className="text-2xl font-bold text-white">
                   {((profile.wallet_balance_paise || 0) / 100).toFixed(0)} credits
                 </p>
               </div>
-            </div>
+              <span className="text-xs text-rp-red font-medium">History &rarr;</span>
+            </button>
 
             {/* Info cards */}
             <div className="space-y-3 mb-6">
