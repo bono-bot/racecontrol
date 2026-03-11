@@ -322,6 +322,7 @@ async fn register_pod(
         billing_session_id: None,
         game_state: None,
         current_game: None,
+        installed_games: Vec::new(),
     };
 
     state.pods.write().await.insert(id.clone(), pod.clone());
@@ -360,6 +361,7 @@ async fn seed_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
             billing_session_id: None,
             game_state: None,
             current_game: None,
+            installed_games: Vec::new(),
         };
         state.pods.write().await.insert(id.to_string(), pod.clone());
         let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
@@ -5909,6 +5911,7 @@ async fn sync_push(
                 billing_session_id: pod.get("billing_session_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 game_state: None,
                 current_game: None,
+                installed_games: Vec::new(),
             };
             state.pods.write().await.insert(id.to_string(), pod_info.clone());
             let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod_info));
@@ -6890,12 +6893,11 @@ async fn customer_session_share(
     };
 
     // Improvement: compare first valid lap to best valid lap
-    let improvement_ms = if valid_laps.len() >= 2 {
-        let first = valid_laps.first().unwrap().1;
-        let best = best_lap_ms.unwrap();
-        Some(first - best)
-    } else {
-        None
+    let improvement_ms = match (valid_laps.first(), best_lap_ms) {
+        (Some(first_lap), Some(best)) if valid_laps.len() >= 2 => {
+            Some(first_lap.1 - best)
+        }
+        _ => None,
     };
 
     // Build share card data
@@ -8455,15 +8457,13 @@ async fn customer_register_tournament(
     .ok()
     .flatten();
 
-    match &status {
+    let max = match &status {
         Some((s, _)) if s != "registration" && s != "upcoming" => {
             return Json(json!({ "error": "Registration is not open" }));
         }
         None => return Json(json!({ "error": "Tournament not found" })),
-        _ => {}
-    }
-
-    let max = status.unwrap().1;
+        Some((_, max_participants)) => *max_participants,
+    };
 
     // Check capacity
     let count: i64 = sqlx::query_as::<_, (i64,)>(
