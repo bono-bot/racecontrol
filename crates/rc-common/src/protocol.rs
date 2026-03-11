@@ -644,4 +644,44 @@ mod tests {
             panic!("Wrong variant");
         }
     }
+
+    #[test]
+    fn test_core_to_agent_pause_overlay() {
+        let msg = CoreToAgentMessage::ShowPauseOverlay {
+            session_id: "sess-1".to_string(),
+            remaining_seconds: 600,
+            pause_count: 2,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("show_pause_overlay"));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::ShowPauseOverlay { session_id, remaining_seconds, pause_count } = parsed {
+            assert_eq!(session_id, "sess-1");
+            assert_eq!(remaining_seconds, 600);
+            assert_eq!(pause_count, 2);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_session_paused() {
+        let event = DashboardEvent::SessionPaused {
+            pod_id: "pod_1".to_string(),
+            session_id: "sess-1".to_string(),
+            reason: "disconnect".to_string(),
+            pause_count: 1,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("session_paused"));
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::SessionPaused { pod_id, session_id, reason, pause_count } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(session_id, "sess-1");
+            assert_eq!(reason, "disconnect");
+            assert_eq!(pause_count, 1);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
 }
