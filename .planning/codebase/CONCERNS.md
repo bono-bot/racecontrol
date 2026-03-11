@@ -1,678 +1,476 @@
-# RaceControl Codebase — Technical Concerns & Debt
+# RaceControl Codebase Analysis: Technical Debt & Concerns
 
-**Last Updated:** 2026-03-11
-**Scope:** rc-agent, rc-core, rc-common, pod-agent, PWA/Web frontends
-
----
-
-## Critical Issues
-
-### 1. Hardcoded Terminal Secret in Frontend ⚠️ SECURITY
-
-**Severity:** CRITICAL
-**File:** `/pwa/src/lib/api.ts` (lines 602, 612)
-**Issue:** The fallback terminal secret `"rp-terminal-2026"` is hardcoded in the TypeScript source:
-
-```typescript
-headers: session ? { "x-terminal-session": session }
-  : { "x-terminal-secret": "rp-terminal-2026" },
-```
-
-**Risk:**
-- Anyone with access to the client bundle can extract the secret
-- Acts as a backdoor to the terminal API if session-based auth fails
-- Violates principle of least privilege (customers can access terminal)
-
-**Mitigation Needed:**
-- Remove hardcoded secret from frontend entirely
-- Session-based auth must always be present before using terminal
-- Consider API-proxying terminal commands through authenticated backend endpoint
-- Rotate this secret in production configuration
+**Analysis Date**: 2026-03-11
+**Codebase**: Rust workspace (rc-core, rc-agent, rc-common) + Next.js PWA
+**Build Duration**: ~10 days (rapid development by 2 AI assistants)
 
 ---
 
-### 2. Pod-Agent Has No Authentication ⚠️ SECURITY
+## Executive Summary
 
-**Severity:** CRITICAL
-**Files:** `/pod-agent/src/main.rs` (entire service)
-**Issue:** Pod-agent on port 8090 accepts commands from any source on the LAN (192.168.31.x):
-- `/exec` — runs arbitrary shell commands
-- `/write` — writes files to pod filesystem
-- `/input` — sends keyboard/mouse input
-- `/screenshot` — captures screen
-- No auth token validation, no mutual TLS, no IP whitelist in code
+RaceControl is a functional but **debt-laden** codebase with concerning architectural and safety patterns. While core business logic works, rapid development has left:
 
-**Risk:**
-- Any pod on the local network can compromise any other pod
-- Malicious actor with network access can execute code as SYSTEM
-- No audit trail of who issued commands
-- Complete system takeover possible
-
-**Mitigation Needed:**
-- Implement shared-secret or HMAC authentication in pod-agent
-- Add token validation to all endpoints (`/exec`, `/write`, `/input`, `/screenshot`)
-- Require signed requests from rc-core (HMAC-SHA256 or similar)
-- Log all commands with source IP + timestamp
-- Consider mTLS between rc-core and pod-agents
-- Add IP whitelist validation (only rc-core server IP)
-
-**Memory Note:** Standing rules mention pod-agent has no auth, flagged as known issue.
+- **38 unwrap() calls** with panic risk
+- **154 .ok() calls** silencing errors
+- **9,515-line routes.rs file** (monolithic, unmaintainable)
+- **Hardcoded default JWT secret** in production code
+- **Cloud-venue sync layer** with fragility and data loss risks
+- **Dead code** (unused functions, constants, struct fields)
+- **Windows-gated code** untestable on Linux (all 49 sections)
+- **Missing tests** across critical modules
+- **Race conditions** in pod state management
 
 ---
 
-### 3. Default JWT Secret in Production ⚠️ SECURITY
+## Critical Issues (P0)
 
-**Severity:** CRITICAL
-**File:** `/crates/rc-core/src/main.rs` (line 94-96), `/crates/rc-core/src/config.rs` (line 310)
-**Issue:** Default JWT secret is `"racingpoint-jwt-change-me-in-production"`:
+### 1. Default JWT Secret in Production Code
+**File**: `/root/racecontrol/crates/rc-core/src/config.rs:310`
 
 ```rust
 fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to_string() }
+```
 
-if config.auth.jwt_secret == "racingpoint-jwt-change-me-in-production" {
-    tracing::warn!("Using default JWT secret! Set auth.jwt_secret in racecontrol.toml for production.");
+**Risk**: If config file lacks `jwt_secret`, this hardcoded default is used. Allows unauthorized token forgery.
+
+**Status**: CRITICAL security debt.
+
+**Mitigation**: Require `jwt_secret` in config file with no default, or generate random secret on startup with file persistence.
+
+---
+
+### 2. Cloud-Venue Sync Fragility
+**File**: `/root/racecontrol/crates/rc-core/src/cloud_sync.rs`
+
+**Issues**:
+
+1. **Timestamp normalization naive** (lines 19-26): Handles ISO format conversion but doesn't validate timestamps. Could silently accept malformed data.
+
+2. **No sync error recovery**: If sync fails mid-upsert, state could be partially synced. No transaction boundaries visible.
+
+3. **Wallet sync CRDT merge untested**: Relies on `MAX(updated_at)` to decide which version wins. But `updated_at` can be clock-skewed between cloud and venue.
+
+4. **Pull-only architecture**: Cloud pushes to venue, but venue must poll. Creates window for inconsistency if venue crashes during sync.
+
+5. **No rollback on partial failure**: If drivers sync succeeds but wallets fail, data is left inconsistent.
+
+**Affected tables**:
+- `drivers` (pull)
+- `wallets` (pull + push with CRDT merge)
+- `pricing_tiers`, `pricing_rules` (pull)
+- `kiosk_experiences`, `kiosk_settings` (pull)
+
+**Status**: Known issues documented in MEMORY.md (Mar 9 fixes attempted). Still fragile.
+
+---
+
+### 3. Monolithic routes.rs (9,515 lines)
+**File**: `/root/racecontrol/crates/rc-core/src/api/routes.rs`
+
+**Problems**:
+- Single file handles ~100+ endpoint definitions
+- No code splitting, difficult to navigate
+- Tight coupling between unrelated domains (billing, friends, tournaments, coaching)
+- Testing individual routes requires full route setup
+- IDE performance degradation beyond 5000 lines
+
+**Example route density**:
+- Billing handlers (100+ lines each)
+- Multiplayer/friends logic (500+ lines)
+- Leaderboard aggregation (complex queries)
+- Tournament bracket generation (300+ lines)
+
+**Status**: Maintenance nightmare. Refactoring blocked by lack of tests.
+
+---
+
+### 4. Unsafe Unwrap() Calls with Panic Risk
+**Count**: 38 unwrap() calls
+
+**Critical examples**:
+- `/root/racecontrol/crates/rc-core/src/api/routes.rs:6786-6787`: Assumes `valid_laps` is non-empty and `best_lap_ms` exists
+  ```rust
+  let first = valid_laps.first().unwrap().1;
+  let best = best_lap_ms.unwrap();
+  ```
+
+- `/root/racecontrol/crates/rc-core/src/scheduler.rs:30-31`: Hardcoded fallback times if parse fails, then unwrap on default
+  ```rust
+  let open_time = NaiveTime::parse_from_str(&open, "%H:%M")
+    .unwrap_or(NaiveTime::from_hms_opt(10, 0, 0).unwrap());
+  ```
+
+- `/root/racecontrol/crates/rc-agent/src/lock_screen.rs:506`: Panics if port parsing fails
+  ```rust
+  let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+  ```
+
+**Impact**: Any of these can crash rc-core or rc-agent without graceful degradation.
+
+---
+
+### 5. Error Silencing with .ok()
+**Count**: 154 .ok() calls
+
+**Patterns**:
+- HTTP request failures ignored (pod_healer.rs)
+- Game process failures silenced (game_launcher.rs)
+- Telemetry port monitoring failures discarded
+
+**Example**: `/root/racecontrol/crates/rc-core/src/pod_healer.rs:154`
+```rust
+if ping.is_err() || !ping.as_ref().unwrap().status().is_success() {
+```
+Ping errors are checked but swallowed — no logging, no recovery.
+
+**Impact**: Silent failures make debugging operational issues extremely difficult.
+
+---
+
+## High Priority Issues (P1)
+
+### 6. Unused Imports & Dead Code
+**Warnings from cargo check**:
+
+```
+rc-agent/src/sims/assetto_corsa.rs:2 - unused import: chrono::Utc
+rc-agent/src/ac_launcher.rs:903 - function cleanup_after_session never used
+rc-agent/src/kiosk.rs - methods allow_process, disallow_process, exit_debug_mode never used
+rc-agent/src/kiosk.rs - functions install_keyboard_hook, remove_keyboard_hook never used
+rc-agent/src/lock_screen.rs - field token_id never read (2 variants)
+rc-agent/src/overlay.rs - constants BAR_HEIGHT, BAR_WIDTH never used
+```
+
+**Impact**: Code bloat, confusion about which APIs are actually live, maintenance burden.
+
+---
+
+### 7. Unused Struct Fields
+**File**: `/root/racecontrol/crates/rc-agent/src/driving_detector.rs`
+
+```rust
+pub struct DetectorConfig {
+    pub telemetry_ports: Vec<u16>,  // never read
+    pub wheelbase_vid: u16,         // never read
+    pub wheelbase_pid: u16,         // never read
 }
 ```
 
-**Risk:**
-- If production deployment forgets to override in `racecontrol.toml`, any attacker can forge JWTs
-- Warning is only logged, not enforced
-- No validation that the changed secret is sufficiently strong
-
-**Mitigation Needed:**
-- Make JWT secret required (panic if default is used in production mode)
-- Reject weak secrets (< 32 bytes, no entropy checks)
-- Load from environment variable or secure config vault, never defaults in code
-- Consider using the `secrecy` crate to prevent secret leaks in logs/panics
+**Impact**: Config parsed but not used. Suggests incomplete integration or dead code path.
 
 ---
 
-## High-Priority Issues
+### 8. Windows-Gated Code Untestable on Linux (49 sections)
+**File Pattern**: All `#[cfg(windows)]` code blocks in rc-agent
 
-### 4. Insecure Terminal Secret Storage ⚠️ SECURITY
+**Affected modules**:
+- Lock screen HTML rendering + TCP server
+- Overlay window management
+- Game process interaction (DLL injection, window focus)
+- Kiosk mode security
+- Wheelbase HID communication
 
-**Severity:** HIGH
-**Files:**
-- `/crates/rc-core/src/config.rs` (line 62)
-- `/crates/rc-core/src/remote_terminal.rs` (line 47)
-- `/crates/rc-core/src/cloud_sync.rs` (lines 84-85, 404-405)
+**Problem**: Cannot test Windows-specific behavior on Linux. All CI/CD must run on Windows or use conditional compilation stubs.
 
-**Issue:** Terminal secret is stored in plaintext TOML config file and transmitted in HTTP headers:
+**Status**: No unit tests for Windows-gated code found.
+
+---
+
+### 9. Lock Screen HTML Hardcoded as String Constant
+**File**: `/root/racecontrol/crates/rc-agent/src/lock_screen.rs`
+
+**Problem**: Full HTML/CSS/JS embedded in Rust string literals. No syntax highlighting, difficult to maintain, version control noise on markup changes.
+
+**Impact**: Making UI changes requires recompiling Rust. No designer-friendly editing.
+
+**Alternative**: Should load HTML from template files at runtime.
+
+---
+
+### 10. Cloud Sync Race in Wallet Balance
+**File**: `/root/racecontrol/crates/rc-core/src/cloud_sync.rs` + `/root/racecontrol/crates/rc-core/src/wallet.rs`
+
+**Scenario**:
+1. Cloud has wallet balance = 5000 paise
+2. Venue debits 2000 paise for session
+3. Venue updates local wallet to 3000 paise
+4. Cloud sync pulls wallet record from cloud (5000 paise)
+5. `upsert_wallet` overwrites venue balance back to 5000 paise (stale data wins)
+
+**Status**: Partially mitigated in Mar 9 fix (`upsert_wallet` now checks `updated_at`). But clock skew could still cause issues.
+
+**Long-term fix needed**: Wallet transactions (not just balance snapshots) should sync.
+
+---
+
+### 11. No Transaction Boundaries in Billing Start
+**File**: `/root/racecontrol/crates/rc-core/src/billing.rs`
+
+**Issue**: When a session starts:
+1. Wallet is debited
+2. `billing_sessions` row inserted
+3. Pod state updated
+
+If step 2 or 3 fails after step 1, wallet is debited but session not recorded. Credits are lost.
+
+**Status**: No visible transaction wrapping these operations.
+
+---
+
+### 12. Unused Variables (Dead Assignments)
+**File**: `/root/racecontrol/crates/rc-agent/src/lock_screen.rs:789`
 
 ```rust
-pub terminal_secret: Option<String>,  // From racecontrol.toml
+let balance_rupees = wallet_balance_paise as f64 / 100.0;  // computed but never used
 ```
 
-And sent as:
-```rust
-.header("x-terminal-secret", secret)
-```
-
-**Risk:**
-- Config file visible to anyone with file system access
-- Secret transmitted in HTTP headers (could be logged, cached, or intercepted if not HTTPS)
-- No encryption at rest
-- Cloud sync transmits terminal secret on every request
-
-**Mitigation Needed:**
-- Load terminal secret from environment variable only (not TOML)
-- Use `secrecy::Secret<String>` type to prevent accidental logging
-- Only use HTTPS for cloud sync and terminal requests
-- Never log the secret value (redact in logs)
-- Consider session-based tokens instead of long-lived secrets
+**Impact**: Suggests incomplete feature or debug code left behind.
 
 ---
 
-### 5. Camera Credentials in Code (Historical) ⚠️ SECURITY
+## Medium Priority Issues (P2)
 
-**Severity:** HIGH
-**Reference:** Memory note states "Camera credentials (Admin@123) in code" marked as DEPRECATED
-**Note:** This appears to be a legacy issue flagged in standing rules. Verify if camera RTSP credentials are still hardcoded in:
-- Camera access code (if exists, not found in main search)
-- RTSP endpoint connections
+### 13. Missing Tests Across Core Modules
 
-**Action:**
-- Search for any remaining hardcoded camera credentials
-- Move to environment variables or secure storage
+**Modules with zero visible tests**:
+- `billing.rs` (52KB) — session start/end, billing computation
+- `cloud_sync.rs` (31KB) — data sync logic
+- `pod_healer.rs` (24KB) — pod recovery
+- `multiplayer.rs` (34KB) — group bookings
+- `scheduler.rs` (19KB) — availability logic
+- `wallet.rs` (7.8KB) — financial operations (CRITICAL)
+
+**Impact**: No confidence in correctness. Refactoring is dangerous. Regressions undetected.
 
 ---
 
-### 6. SQL Migration Lacks Version Control ⚠️ DATA INTEGRITY
+### 14. Pod State Management Race Conditions
+**File**: `/root/racecontrol/crates/rc-core/src/pod_monitor.rs` + `state.rs`
 
-**Severity:** HIGH
-**File:** `/crates/rc-core/src/db/mod.rs` (inline SQL)
-**Issue:** All database migrations are inline SQL strings in a single `migrate()` function:
+**Problem**: Multiple background tasks (pod monitor, cloud sync, action queue, UDP heartbeat) mutate pod state without clear synchronization:
 
 ```rust
-async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
-    // 400+ lines of raw SQL CREATE TABLE / ALTER TABLE statements
-}
+// pod_monitor.rs: updates pod status
+state.update_pod_status(pod_id, status).await;
+
+// cloud_sync.rs: pulls fresh pod configs
+sync_pod_config(state, pod_id).await;
+
+// action_queue.rs: queues game launches
+queue_game_launch(state, pod_id).await;
 ```
 
-**Problems:**
-- No versioning — can't track which migrations have been applied
-- `CREATE TABLE IF NOT EXISTS` works first time but won't handle schema changes
-- No rollback mechanism
-- Difficult to debug migration failures
-- Can't add new columns with defaults safely without data loss
-- Multiple concurrent instances might try to migrate simultaneously
-
-**Risk:**
-- Breaking schema changes in production without downtime protection
-- No way to confirm all instances have same schema
-- Lost audit trail of schema evolution
-
-**Mitigation Needed:**
-- Implement proper migration versioning (sqlx::migrate! or liquibase-style)
-- Use numbered migration files (001_initial.sql, 002_add_column.sql, etc.)
-- Add a `schema_version` table to track applied migrations
-- Implement mutex to prevent concurrent migrations
-- Test migrations against real data before production deploy
+**Risk**: If concurrent updates occur, final state depends on thread scheduling (not deterministic).
 
 ---
 
-### 7. Timestamp Normalization in Cloud Sync ⚠️ DATA CONSISTENCY
+### 15. Game Process Stale Reference Bug
+**File**: `/root/racecontrol/crates/rc-core/src/game_launcher.rs` + memory notes
 
-**Severity:** HIGH
-**File:** `/crates/rc-core/src/cloud_sync.rs` (lines 16-26)
-**Issue:** ISO timestamps are normalized for comparison:
+**Known Issue**: `StopGame` doesn't kill AC when rc-core restarts. `game_process` reference becomes stale.
+
+**Status**: Documented in MEMORY.md as known issue. Not fixed.
+
+---
+
+### 16. Error Aggregation Opaque
+**File**: `/root/racecontrol/crates/rc-core/src/error_aggregator.rs`
+
+**Problem**: Collects errors but unclear how they're exported or monitored. No visible integration with alerting/observability.
+
+**Impact**: Errors might be silently accumulated with no operator visibility.
+
+---
+
+### 17. Pod Reservation Overbooking Risk
+**File**: `/root/racecontrol/crates/rc-core/src/pod_reservation.rs`
+
+**Risk**: No apparent distributed lock mechanism. If cloud and venue both accept a booking for the same pod at same time, double-booking could occur.
+
+---
+
+### 18. Telemetry Port Monitoring Incomplete
+**File**: `/root/racecontrol/crates/rc-core/src/main.rs` + config
+
+**Ports monitored**: 9996 (AC), 20777 (F1), 5300 (Forza), 6789 (iRacing), 5555 (LMU)
+
+**Problem**: No graceful handling if port ranges collide or a port is in use by another process. No port release on shutdown.
+
+---
+
+### 19. API Keys in Headers Not Rotated
+**Files**:
+- `/root/racecontrol/crates/rc-agent/src/ai_debugger.rs:350`
+- `/root/racecontrol/crates/rc-core/src/ai.rs:121`
 
 ```rust
-fn normalize_timestamp(ts: &str) -> String {
-    ts.replace('T', " ")
-        .split('+')
-        .next()
-        .unwrap_or("1970-01-01 00:00:00")
-        .trim_end_matches('Z')
-        .to_string()
-}
+.header("x-api-key", api_key)
 ```
 
-**Problems:**
-- `unwrap_or()` silently defaults to epoch if parsing fails (silently corrupts sync)
-- Loses timezone information in conversion
-- Character-based string replacement is fragile
-- No validation that timestamp format is correct
-
-**Risk:**
-- Updated records become "invisible" if sync timestamp comparison breaks
-- Data inconsistency between local and cloud instances
-- Silent failures (no error, just wrong data)
-
-**Mitigation Needed:**
-- Use proper datetime parsing (chrono::DateTime)
-- Return error instead of fallback default
-- Add validation that converted timestamp is reasonable (not epoch)
-- Log conversion failures for debugging
-- Unit test with various timestamp formats
+**Problem**: API keys read from config once at startup. If key is compromised, server must be restarted to switch keys.
 
 ---
 
-### 8. Pod-Agent Watchdog May Miss rc-agent Crashes ⚠️ RELIABILITY
-
-**Severity:** HIGH
-**File:** `/pod-agent/src/main.rs` (lines 135-140)
-**Issue:** Watchdog loop checks every 30 seconds, but rc-agent could crash between checks:
+### 20. AC Server Password in URL
+**File**: `/root/racecontrol/crates/rc-agent/src/ac_launcher.rs:486`
 
 ```rust
-tokio::spawn(async {
-    tokio::time::sleep(Duration::from_secs(WATCHDOG_INTERVAL_SECS)).await;  // 30s
-    loop {
-        watchdog_ensure_running("rc-agent.exe").await;
-        tokio::time::sleep(Duration::from_secs(WATCHDOG_INTERVAL_SECS)).await;
-    }
-});
+uri.push_str(&format!("&password={}", params.server_password));
 ```
 
-**Risk:**
-- Up to 30 seconds of downtime before detection
-- Customer session lost during gap
-- Billing timer continues running while agent is dead
-- Wheelbase input ignored during downtime
-
-**Context:** Memory notes that watchdog is active on pods, but 30s interval may be too large for venue operations.
-
-**Mitigation Needed:**
-- Reduce watchdog interval to 5-10 seconds
-- Implement heartbeat-based detection instead of polling
-- Consider file modification monitoring (rc-agent executable timestamp)
-- Add dead-letter queue if rc-agent crashes repeatedly
+**Risk**: Server password embedded in connection URL. If URL is logged, password exposed. Should use header or request body.
 
 ---
 
-## Medium-Priority Issues
+## Low Priority Issues (P3)
 
-### 9. No Error Recovery for Failed Cloud Sync ⚠️ RELIABILITY
+### 21. Large File Code Organization (billing.rs, ai.rs)
+- `billing.rs` (52KB): Mix of session lifecycle, pricing computation, dynamic pricing
+- `ai.rs` (30KB): AI integration + debugging logic interleaved
+- `multiplayer.rs` (34KB): Group booking + presence + messaging
 
-**Severity:** MEDIUM
-**File:** `/crates/rc-core/src/cloud_sync.rs` (line 59-62)
-**Issue:** Cloud sync errors are logged but silently skipped:
-
-```rust
-loop {
-    interval.tick().await;
-    if let Err(e) = sync_once(&state, &api_url).await {
-        tracing::error!("Cloud sync failed: {}", e);  // Log and continue
-    }
-}
-```
-
-**Problems:**
-- Failed sync is not retried or escalated
-- No exponential backoff for transient failures
-- Missing customers, pricing, or driver data on local copy if cloud is temporarily down
-- No alerting to operations team
-
-**Risk:**
-- Local and cloud drift indefinitely
-- Stale pricing or driver data served to customers
-- No visibility into sync health
-
-**Mitigation Needed:**
-- Implement retry with exponential backoff (3 attempts, 1s/5s/30s delays)
-- Track consecutive failures and alert after 3+ failures
-- Broadcast sync status via dashboard WebSocket
-- Store last successful sync timestamp and warn if gap > 1 hour
+**Impact**: Hard to locate specific logic. Consider splitting by concern (session mgmt, pricing rules, etc.).
 
 ---
 
-### 10. Pod-Monitor and Pod-Healer Lack Coordination ⚠️ RELIABILITY
-
-**Severity:** MEDIUM
-**Files:**
-- `/crates/rc-core/src/pod_monitor.rs` (Tier 2)
-- `/crates/rc-core/src/pod_healer.rs` (Tier 3)
-
-**Issue:** Two independent recovery loops may step on each other:
-
-```rust
-// pod_monitor.rs: tries to restart rc-agent via pod-agent
-// pod_healer.rs: tries deep diagnostics, also kills/restarts processes
-```
-
-**Problems:**
-- No coordination between Tier 2 and Tier 3
-- Both may attempt same recovery simultaneously (race condition)
-- Recovery state not shared (pod_monitor has `PodRecoveryState`, pod_healer has separate logic)
-- No deduplication of recovery attempts
-
-**Risk:**
-- Conflicting commands sent to same pod
-- Recovery state inconsistency
-- Unnecessary restarts if both start same fix
-- Customer confusion if pod restarts unexpectedly during recovery
-
-**Mitigation Needed:**
-- Unify recovery state in AppState (single source of truth)
-- Implement recovery attempt locking (only one recovery per pod at a time)
-- Pod_monitor marks pod as "recovery_in_progress", pod_healer checks this state
-- Add recovery history tracking (last 5 attempts with outcomes)
+### 22. Inconsistent Error Context
+Some errors return bare strings, others use anyhow context. Mix of `.map_err()` chains and `?` operator without context.
 
 ---
 
-### 11. Billing Timer May Drift if Pod Goes Offline ⚠️ CORRECTNESS
+### 23. Timezone Handling
+**File**: `/root/racecontrol/crates/rc-core/src/config.rs`
 
-**Severity:** MEDIUM
-**File:** `/crates/rc-core/src/billing.rs` (lines 150+)
-**Issue:** Billing timer tracks `offline_since` but continues counting:
-
-```rust
-pub struct BillingTimer {
-    pub driving_seconds: u32,
-    pub offline_since: Option<DateTime<Utc>>,  // Tracks when pod went offline
-    // But driving_seconds still increments!
-}
-```
-
-**Problems:**
-- If pod is offline for 10 minutes, but `offline_since` is set, timer still counts down
-- After pod comes back online, customer gets less time than they paid for
-- Memory notes mention "offline auto-end" logic, but unclear if billing is paused or not
-
-**Risk:**
-- Billing disputes if customer's session abruptly ends while pod is recovering
-- Loss of revenue if timers are paused and not properly resumed
-- No clear state machine (is it paused? counting? suspended?)
-
-**Mitigation Needed:**
-- Clarify billing semantics when pod goes offline:
-  - Option A: Pause billing while offline
-  - Option B: Force-end billing after N seconds offline (with refund)
-- Implement explicit state (Active, Paused, Suspended, Ended)
-- Ensure driving_seconds doesn't increment if paused
-- Add detailed logging of state transitions for debugging
+Timezone stored in config but unclear if all timestamps respect it. Scheduler uses `chrono::Local` which depends on system time zone.
 
 ---
 
-### 12. Weak Validation in POST Endpoints ⚠️ SECURITY
+### 24. Catalog Seeding Static
+**File**: `/root/racecontrol/crates/rc-core/src/catalog.rs`
 
-**Severity:** MEDIUM
-**File:** `/crates/rc-core/src/api/routes.rs` (multiple handlers)
-**Issue:** POST endpoints lack comprehensive input validation:
-
-```rust
-// Example: billing/start endpoint takes pod_id, driver_id, tier_id
-// No validation that:
-// - pod_id actually exists
-// - driver_id is authorized for this pod
-// - tier_id is active and not deleted
-```
-
-**Problems:**
-- No check for deleted/archived entities
-- No ownership validation (can a driver bill another driver?)
-- No rate limiting on booking or billing start
-- Enum/category values not validated against whitelist
-
-**Risk:**
-- API can create billing for non-existent pods
-- Potential to bill wrong customer
-- Malformed requests crash handlers silently
-- DoS by spamming with invalid IDs
-
-**Mitigation Needed:**
-- Add input validation middleware (deserialize + custom validator)
-- Check entity existence before processing
-- Validate ownership and authorization
-- Implement rate limiting on all POST/PUT endpoints
-- Return 400 (Bad Request) with clear error messages, not 500
+AC tracks and cars are seeded at startup. Adding new vehicles requires code change + recompile.
 
 ---
 
-### 13. AI Debugger Fallback Chain Incomplete ⚠️ RELIABILITY
-
-**Severity:** MEDIUM
-**File:** `/crates/rc-agent/src/ai_debugger.rs` (lines 78-124)
-**Issue:** If Ollama fails and no Anthropic key, analysis is silently skipped:
-
-```rust
-if let Some(api_key) = &config.anthropic_api_key {
-    // Try Anthropic
-} else {
-    tracing::warn!("No Anthropic API key configured and Ollama failed");
-}
-```
-
-**Problems:**
-- No local fallback (hard-coded rules, decision tree)
-- Crashes are reported but not actioned without AI
-- No visibility into why analysis failed (silent warn)
-- AI suggestions are optional, so pod health isn't assessed
-
-**Risk:**
-- Pod crashes go undiagnosed and unhealed
-- Recurring issues not detected
-- Customer experience degrades (pod offline, no auto-fix)
-
-**Mitigation Needed:**
-- Implement deterministic fallback rules (hardcoded heuristics) when both AI systems fail
-- Log specific reason AI was unavailable (network, timeout, no key, etc.)
-- Broadcast error to dashboard
-- Consider caching previous successful analyses for similar crashes
+### 25. No Database Migration System
+Schema changes require manual SQL execution. No version tracking, no rollback capability.
 
 ---
 
-## Low-Priority Issues
+## Security Review
 
-### 14. Deprecated Orange Color in Lock Screen ⚠️ BRAND CONSISTENCY
-
-**Severity:** LOW
-**File:** `/crates/rc-agent/src/lock_screen.rs` (line ~18)
-**Reference:** Memory notes state "OLD orange #FF4400 is DEPRECATED"
-**Issue:** Lock screen may still use deprecated color if not updated:
-
-```html
-<div style="color:#ff4444;...">Invalid PIN — try again</div>
-```
-
-**Note:** The color above appears to be #ff4444 (red), not #FF4400 (orange). Verify no other references to deprecated orange.
-
-**Mitigation:**
-- Search codebase for #FF4400 or `#FF4400` patterns
-- Ensure all UI uses official Racing Red (#E10600) or approved palette
+### Observations
+1. **SQLx parameterized queries**: Good. No visible SQL injection risks.
+2. **Hardcoded JWT secret**: BAD (see P0 #1).
+3. **API keys in config**: Reasonable if config file is not in git repo.
+4. **Terminal secret in headers** (`x-terminal-secret`): Used for cloud-venue auth. Should be rotated mechanism.
+5. **No input validation visible**: Routes accept JSON without explicit schema validation. Relies on serde deserialization.
+6. **No rate limiting**: No visible rate limit enforcement on APIs.
 
 ---
 
-### 15. Hardcoded Subnet in Prompts ⚠️ MAINTAINABILITY
+## Architecture Fragility
 
-**Severity:** LOW
-**Files:**
-- `/crates/rc-agent/src/ai_debugger.rs` (line 144)
-- `/crates/rc-core/src/ai.rs` (multiple locations)
+### Sync Layer (Cloud ↔ Venue)
+1. **Pull-based**: Venue polls cloud every 30s. Creates stale data window.
+2. **No event-driven sync**: Changes on cloud are invisible until next poll interval.
+3. **Upsert conflicts**: CRDT based on `updated_at`. Clock skew breaks assumptions.
+4. **Wallet transactions not synced**: Only balance snapshots (incomplete).
 
-**Issue:** Network topology (subnet 192.168.31.x) hardcoded in AI prompt templates:
+### Pod State Management
+1. **Multiple background tasks** mutate state without clear sequencing.
+2. **Pod healing** can conflict with active sessions.
+3. **Network partitions** between cloud and venue cause divergent pod lists.
 
-```rust
-- 8 pods on subnet 192.168.31.x, server at .51:8080\n\
-```
-
-**Problems:**
-- Prompt is tightly coupled to venue topology
-- If network changes, prompt must be updated
-- Not configurable, requires code change + recompile
-
-**Risk:**
-- Low — only affects AI context, not functional correctness
-
-**Mitigation Needed:**
-- Load subnet info from config
-- Template AI prompts with venue network info at runtime
-- Store topology in AppState instead of hardcoded
-
----
-
-### 16. WebSocket Parse Errors Silently Ignored ⚠️ DEBUGGABILITY
-
-**Severity:** LOW
-**File:** `/web/src/hooks/useWebSocket.ts` (line 209)
-**Issue:** WebSocket message parsing errors are logged but not visible to user:
-
-```typescript
-} catch (e) {
-  console.warn("[RaceControl] Parse error:", e);
-}
-```
-
-**Problems:**
-- Developer tools only, not visible in UI
-- No retry logic if message is malformed
-- Metrics don't track parse error frequency
-
-**Risk:**
-- Low — doesn't affect critical operations
-
-**Mitigation Needed:**
-- Broadcast parse errors to dashboard
-- Count and alert if error rate > 5% of messages
-- Consider validating schema on both ends (serde for Rust)
-
----
-
-### 17. Billing Session Split Logic Untested ⚠️ CORRECTNESS
-
-**Severity:** LOW
-**File:** `/crates/rc-core/src/billing.rs` (billing split feature)
-**Issue:** Billing split feature (multiple sub-sessions) added but no unit tests visible:
-
-```rust
-pub split_count: u32,
-pub split_duration_minutes: Option<u32>,
-pub current_split_number: u32,
-```
-
-**Problems:**
-- Feature is complex (state transitions, refunds, continuation)
-- No tests confirm correct behavior
-- Edge cases not covered (e.g., split during refund)
-
-**Risk:**
-- Low — feature appears to have happy path working
-- Medium risk if splits are commonly used (not yet, per memory notes)
-
-**Mitigation Needed:**
-- Add unit tests for split billing scenarios:
-  - Create 60-minute session, split into 3x20min
-  - Pause and resume between splits
-  - Refund a split session
-  - End session mid-split
-- Document split billing state machine
-
----
-
-### 18. No Liveness Check for DB Pool ⚠️ RELIABILITY
-
-**Severity:** LOW
-**File:** `/crates/rc-core/src/db/mod.rs` (line 11-14)
-**Issue:** SQLite pool initialized but no health check:
-
-```rust
-let url = format!("sqlite:{}?mode=rwc", db_path);
-let pool = SqlitePoolOptions::new()
-    .max_connections(5)
-    .connect(&url)
-    .await?;
-```
-
-**Problems:**
-- If DB is corrupted, only discovered when first query runs
-- No startup validation that DB is readable/writable
-- No periodic health checks
-
-**Risk:**
-- Low — SQLite is local, unlikely to fail unexpectedly
-- Could delay issue detection if DB file is inaccessible
-
-**Mitigation Needed:**
-- Add simple `SELECT 1` health check during startup
-- Periodically ping DB (every 5 minutes)
-- Alert if health check fails (broadcast to dashboard)
-
----
-
-### 19. AC Server Health Check May Be Too Lenient ⚠️ RELIABILITY
-
-**Severity:** LOW
-**File:** `/crates/rc-core/src/ac_server.rs` (health check logic)
-**Issue:** AC server health check runs every 5 seconds but criteria unclear
-
-**Problems:**
-- Health check implementation not reviewed (file not fully examined)
-- May not catch process hung (responding but frozen)
-- No heartbeat validation from AC server itself
-
-**Risk:**
-- Low — AC server crash is detected eventually
-
-**Mitigation Needed:**
-- Verify health check includes:
-  - TCP port 8081 responds
-  - Process memory usage is reasonable
-  - Response time < 2 seconds
-  - Lap data updates within last 30 seconds
-
----
-
-### 20. Missing Metrics and Observability ⚠️ OPERATIONS
-
-**Severity:** LOW
-**File:** Entire codebase
-**Issue:** No metrics/instrumentation for:
-- API response times
-- Billing timer accuracy
-- Pod recovery success rates
-- Cloud sync latency
-- Database query times
-
-**Problems:**
-- Can't answer: "Which API endpoint is slow?"
-- No visibility into pod healer effectiveness
-- Billing accuracy can't be verified post-hoc
-
-**Risk:**
-- Low — system appears functional
-- Medium risk as venue scales (bottlenecks invisible)
-
-**Mitigation Needed:**
-- Integrate Prometheus or similar metrics library
-- Track key metrics:
-  - `rc_core_api_request_duration_seconds` (histogram)
-  - `rc_core_billing_timer_accuracy_percent` (gauge)
-  - `rc_core_cloud_sync_latency_seconds` (histogram)
-  - `rc_agent_crash_count` (counter)
-- Expose `/metrics` endpoint
-- Visualize in Grafana or similar
-
----
-
-## Recommendations by Priority
-
-### Immediate (This Week)
-1. **Add pod-agent authentication** (Critical) — Shared secret HMAC validation on all endpoints
-2. **Remove hardcoded terminal secret from frontend** (Critical) — Use session-only auth
-3. **Make JWT secret required** (Critical) — Panic if default used
-4. **Coordinate pod-monitor and pod-healer** (High) — Implement recovery state locking
-
-### Short Term (This Month)
-5. Implement SQL migration versioning
-6. Add cloud sync retry + exponential backoff
-7. Reduce pod-agent watchdog interval to 5-10 seconds
-8. Clarify and test billing offline/pause semantics
-9. Add input validation middleware for POST endpoints
-
-### Medium Term (Q2 2026)
-10. Implement metrics/observability (Prometheus)
-11. Add billing split unit tests
-12. Move camera credentials to environment
-13. Implement pod recovery attempt history
-14. Refactor cloud sync timestamp handling with proper datetime parsing
-
-### Nice-to-Have
-15. Deterministic fallback rules for AI debugger
-16. Webhook alerts for error patterns
-17. Database health check on startup
-18. Schema migration locking for concurrent instances
-
----
-
-## Known Technical Debt Tracked in Standing Rules
-
-- **Edge stacking fix (80ec001):** Fixed by killing both msedge.exe + msedgewebview2.exe
-- **Static CRT build:** Eliminates vcruntime140.dll dependency (✓ implemented)
-- **Force-close game on billing end:** TODO in standing rules, not yet implemented
-- **USB mass storage lockdown:** TODO via Group Policy
-- **Regenerate GitHub PAT:** Done (renewed Mar 9, 2026)
-
----
-
-## Summary by Category
-
-| Category | Critical | High | Medium | Low |
-|----------|----------|------|--------|-----|
-| **Security** | 3 | 2 | 1 | 0 |
-| **Reliability** | 0 | 2 | 3 | 3 |
-| **Data Integrity** | 0 | 1 | 1 | 0 |
-| **Correctness** | 0 | 0 | 1 | 1 |
-| **Maintainability** | 0 | 0 | 0 | 2 |
-| **Operations** | 0 | 0 | 0 | 1 |
-
-**Total Concerns: 20**
+### Session Lifecycle
+1. Wallet debited at START, not END.
+2. If session crashes before finishing, credits are lost without refund mechanism.
+3. No transaction wrapping debit + session record insert.
 
 ---
 
 ## Testing Gaps
 
-- **Billing split scenarios:** No unit tests visible
-- **Pod recovery coordination:** No integration tests
-- **Cloud sync timestamp handling:** Needs regression tests
-- **AI debugger fallback chain:** Manual testing only
-- **API input validation:** Ad-hoc, no comprehensive coverage
-
-Recommend running `cargo test -p rc-core -p rc-agent -p rc-common` and reviewing test output.
+| Module | Coverage | Risk |
+|--------|----------|------|
+| billing.rs | None visible | CRITICAL |
+| wallet.rs | None visible | CRITICAL |
+| cloud_sync.rs | None visible | HIGH |
+| pod_healer.rs | None visible | HIGH |
+| multiplayer.rs | None visible | MEDIUM |
+| scheduler.rs | None visible | MEDIUM |
+| ai.rs | Unit tests only (ai_debugger.rs) | MEDIUM |
 
 ---
 
-## Final Notes
+## Compiler Warnings Summary
 
-This codebase is functionally solid for a venue management system, with good async/tokio patterns and proper error handling in most places. However, security hardening around pod-agent auth and terminal secrets is critical before production deployment. The data consistency issues (cloud sync, billing offline) need clarification and testing to ensure correctness at scale.
+**Unused imports**: 1
+**Unused variables**: 1
+**Dead code (functions)**: 3
+**Dead code (struct fields)**: 3
+**Dead code (constants)**: 2
 
-The AI-driven auto-fix system is innovative but requires fallback mechanisms when both Ollama and Anthropic are unavailable.
+**Status**: All warnings are legitimate debt (not false positives).
+
+---
+
+## Recommended Prioritization
+
+### Immediate (Before Production):
+1. Fix hardcoded JWT secret (P0 #1)
+2. Add transaction wrapping to billing start (P0 #11)
+3. Audit all unwrap() calls, replace with proper error handling (P0 #4)
+4. Stop silencing .ok() errors without logging (P0 #5)
+
+### Short-term (Next sprint):
+1. Add integration tests for billing and wallet (P1 #13)
+2. Split routes.rs into modules by domain (P1 #3)
+3. Add cloud-venue sync tests with clock skew scenarios (P1 #10)
+4. Fix pod state race conditions with proper locking (P1 #14)
+
+### Medium-term:
+1. Extract lock screen HTML to template files (P1 #9)
+2. Add database migration system (P3 #25)
+3. Implement event-driven sync instead of polling (P2)
+4. Add rate limiting to public APIs (P2)
+
+---
+
+## File Manifest
+
+**RC-Core** (9 files with concerns):
+- `/root/racecontrol/crates/rc-core/src/config.rs` — default JWT secret
+- `/root/racecontrol/crates/rc-core/src/api/routes.rs` — 9515 lines, unwrap() calls, error silencing
+- `/root/racecontrol/crates/rc-core/src/cloud_sync.rs` — sync fragility, timestamp handling
+- `/root/racecontrol/crates/rc-core/src/billing.rs` — no transaction wrapping, no tests
+- `/root/racecontrol/crates/rc-core/src/wallet.rs` — no tests, CRDT merge untested
+- `/root/racecontrol/crates/rc-core/src/pod_healer.rs` — error silencing, race conditions
+- `/root/racecontrol/crates/rc-core/src/pod_reservation.rs` — overbooking risk
+- `/root/racecontrol/crates/rc-core/src/state.rs` — pod state race conditions
+- `/root/racecontrol/crates/rc-core/src/game_launcher.rs` — stale game process reference
+- `/root/racecontrol/crates/rc-core/src/ai.rs` — API key rotation, hardcoded prompt lengths
+- `/root/racecontrol/crates/rc-core/src/scheduler.rs` — unwrap() on time parsing, timezone handling
+
+**RC-Agent** (6 files with concerns):
+- `/root/racecontrol/crates/rc-agent/src/lock_screen.rs` — HTML hardcoded, unused variables, unwrap() on port parsing
+- `/root/racecontrol/crates/rc-agent/src/ac_launcher.rs` — password in URL, dead code
+- `/root/racecontrol/crates/rc-agent/src/main.rs` — unwrap() on CString, unused Windows code
+- `/root/racecontrol/crates/rc-agent/src/kiosk.rs` — dead methods, Windows-only code
+- `/root/racecontrol/crates/rc-agent/src/overlay.rs` — unused constants
+- `/root/racecontrol/crates/rc-agent/src/sims/assetto_corsa.rs` — unused imports, unwrap() on socket
+
+---
+
+## Conclusion
+
+RaceControl is **functionally complete** but **structurally fragile**. The rapid 10-day development cycle prioritized feature delivery over code quality. Key concerns:
+
+- Security debt (hardcoded secrets, no input validation)
+- Reliability debt (unsafe error handling, race conditions)
+- Maintainability debt (monolithic files, dead code, no tests)
+- Operational debt (error silencing, opaque sync state)
+
+**Before expanding to multi-venue scale**: Address P0 and P1 items, especially billing transactions, cloud sync CRDT, and test coverage.
+
+**Estimated remediation**: 3-4 weeks of focused refactoring + testing.

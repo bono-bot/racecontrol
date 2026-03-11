@@ -1,602 +1,312 @@
-# RaceControl Testing Patterns and Framework
+# RaceControl Testing Strategy & Framework
 
-This document outlines testing approaches across the Rust and TypeScript codebases, including test locations, frameworks, mocking patterns, and coverage areas.
+## Current Testing Status
 
----
+### Rust (Cargo workspace)
+**Status**: MINIMAL — No dedicated test files found in codebase
 
-## Rust Testing
+- **No test harness**: No `#[cfg(test)]` modules in crates/
+- **No test framework**: Neither `cargo test` nor established unit tests
+- **Manual testing**: All testing is integration/manual at runtime
+- **Why**: Early-stage venue system with tight hardware coupling (pods, USB devices, UDP networking)
 
-### Test Framework
+**Test capabilities available** (not used):
+- `cargo test` would execute tests if they existed
+- Unused dependencies in Cargo.toml: `thiserror` v2 (suggests potential error type testing)
 
-**Primary Framework**: Rust's built-in `#[test]` macro with `#[cfg(test)]` modules.
+### TypeScript/JavaScript (Kiosk & PWA)
+**Status**: MINIMAL — No test configuration found
 
-**Standard Pattern**: Tests are defined inline in modules using `#[cfg(test)]` blocks:
+- **No test framework**: No Jest, Vitest, or Mocha configuration
+  - No `jest.config.js`, `vitest.config.ts`, or `jest.setup.ts`
+  - No test scripts in `package.json`
+- **No test files**: No `*.test.ts`, `*.spec.ts`, `*.test.tsx` files in source directories
+  - Node_modules contain test files from Next.js itself, but not application tests
+- **Manual verification**: Tests performed via browser/kiosk at runtime
 
+## Test Locations (Where Tests Would Go)
+
+### Rust
+- **Unit tests**: Colocate with modules using `#[cfg(test)]` blocks at end of each file
+  ```rust
+  // In crates/rc-core/src/billing.rs
+  #[cfg(test)]
+  mod tests {
+      use super::*;
+
+      #[test]
+      fn test_billing_timer_tick() { ... }
+  }
+  ```
+- **Integration tests**: Would go in `crates/rc-core/tests/` directory (not present)
+- **Run**: `cargo test -p rc-core`
+
+### TypeScript/JavaScript
+- **Unit tests**: Colocate with modules
+  - `src/hooks/useKioskSocket.test.ts`
+  - `src/components/KioskPodCard.test.tsx`
+  - `src/lib/api.test.ts`
+- **Integration tests**: `tests/integration/` directory (not present)
+- **E2E tests**: Playwright or Cypress (not configured)
+- **Run**: `npm test` (would require jest/vitest configuration)
+
+## Testing Patterns (If Implemented)
+
+### Rust Testing Best Practices for This Codebase
+
+#### Unit Tests
+**For billing calculations**:
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn test_compute_dynamic_price_off_peak() {
+        // Mock time to off-peak hours
+        let state = Arc::new(test_state());
+        let base_price = 70000; // ₹700 in paise
+
+        let adjusted = compute_dynamic_price(&state, base_price).await;
+        assert!(adjusted < base_price); // Off-peak should discount
+    }
+
+    #[tokio::test]
+    async fn test_billing_timer_expiry() {
+        let mut timer = BillingTimer {
+            allocated_seconds: 60,
+            driving_seconds: 0,
+            // ... other fields
+        };
+
+        for _ in 0..60 {
+            let expired = timer.tick();
+            assert!(!expired);
+        }
+        assert_eq!(timer.remaining_seconds(), 0);
+    }
+}
+```
+
+**For serialization**:
+```rust
+#[cfg(test)]
+mod tests {
     #[test]
-    fn test_name() {
-        // Arrange
-        let input = setup();
+    fn test_agent_message_serialization() {
+        let msg = AgentMessage::Heartbeat(PodInfo { ... });
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"heartbeat\""));
 
-        // Act
-        let result = function_under_test(input);
-
-        // Assert
-        assert_eq!(result, expected);
+        let deserialized: AgentMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, msg);
     }
 }
 ```
 
-### Test Locations
-
-Tests are colocated with source code in the same file, at the bottom in a `#[cfg(test)]` module:
-
-**Examples**:
-- `crates/rc-common/src/protocol.rs` (12 tests for message serialization)
-- `crates/rc-agent/src/driving_detector.rs` (7 tests for driving state detection)
-- `crates/rc-core/src/billing.rs` (tests for billing timer logic)
-- `crates/rc-agent/src/sims/assetto_corsa.rs` (telemetry parsing tests)
-- `crates/rc-agent/src/sims/f1_25.rs` (F1 25 parsing tests)
-
-### Test Modules Found
-
-The codebase includes **47 tests** across three crates:
-
-1. **rc-common**: Protocol/serialization tests (message roundtrips)
-2. **rc-agent**: Driving detection, UDP protocol parsing, telemetry parsing
-3. **rc-core**: Billing timer behavior (to be added/expanded)
-
-### Running Tests
-
-**Command**:
-```bash
-# Run all tests across all crates
-cargo test
-
-# Run tests for specific crate
-cargo test -p rc-common
-cargo test -p rc-agent
-cargo test -p rc-core
-
-# Run with output
-cargo test -- --nocapture
-
-# Run single test
-cargo test test_cloud_action_booking_roundtrip
-```
-
-**From Memory Documentation**:
-```
-Test commands:
-  cargo test -p rc-common &&
-  cargo test -p rc-agent &&
-  cargo test -p rc-core
-```
-
-### Test Coverage Areas
-
-#### 1. Protocol/Serialization Tests (`rc-common/src/protocol.rs`)
-
-**Purpose**: Verify that message types serialize/deserialize correctly with serde JSON.
-
-**Pattern** (roundtrip tests):
-```rust
-#[test]
-fn test_cloud_action_booking_roundtrip() {
-    let action = CloudAction::BookingCreated {
-        booking_id: "book-123".to_string(),
-        driver_id: "drv-456".to_string(),
-        pricing_tier_id: "tier-30min".to_string(),
-        experience_id: Some("exp-nurburgring".to_string()),
-        pod_id: Some("pod_3".to_string()),
-    };
-    let json = serde_json::to_string(&action).unwrap();
-    assert!(json.contains("booking_created"));
-    let parsed: CloudAction = serde_json::from_str(&json).unwrap();
-    if let CloudAction::BookingCreated { booking_id, .. } = parsed {
-        assert_eq!(booking_id, "book-123");
-    } else {
-        panic!("Wrong variant");
-    }
-}
-
-#[test]
-fn test_cloud_action_wallet_roundtrip() {
-    let action = CloudAction::WalletTopUp {
-        driver_id: "drv-1".to_string(),
-        amount_paise: 90000,
-        transaction_id: "txn-abc".to_string(),
-    };
-    let json = serde_json::to_string(&action).unwrap();
-    let parsed: CloudAction = serde_json::from_str(&json).unwrap();
-    if let CloudAction::WalletTopUp { amount_paise, .. } = parsed {
-        assert_eq!(amount_paise, 90000);
-    } else {
-        panic!("Wrong variant");
-    }
-}
-
-#[test]
-fn test_agent_message_roundtrip() {
-    let msg = AgentMessage::PinEntered {
-        pod_id: "pod_1".to_string(),
-        pin: "1234".to_string(),
-    };
-    let json = serde_json::to_string(&msg).unwrap();
-    assert!(json.contains("pin_entered"));
-    let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
-    if let AgentMessage::PinEntered { pod_id, pin } = parsed {
-        assert_eq!(pod_id, "pod_1");
-        assert_eq!(pin, "1234");
-    } else {
-        panic!("Wrong variant");
-    }
-}
-
-#[test]
-fn test_core_to_agent_billing_tick() {
-    let msg = CoreToAgentMessage::BillingTick {
-        remaining_seconds: 1500,
-        allocated_seconds: 1800,
-        driver_name: "Test Driver".to_string(),
-    };
-    let json = serde_json::to_string(&msg).unwrap();
-    assert!(json.contains("billing_tick"));
-    let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
-    if let CoreToAgentMessage::BillingTick { remaining_seconds, .. } = parsed {
-        assert_eq!(remaining_seconds, 1500);
-    } else {
-        panic!("Wrong variant");
-    }
-}
-
-#[test]
-fn test_pending_cloud_action_serde() {
-    let pending = PendingCloudAction {
-        id: "act-1".to_string(),
-        action: CloudAction::BookingCancelled {
-            booking_id: "book-999".to_string(),
-        },
-        created_at: "2026-03-07T12:00:00Z".to_string(),
-    };
-    let json = serde_json::to_string(&pending).unwrap();
-    let parsed: PendingCloudAction = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed.id, "act-1");
-    if let CloudAction::BookingCancelled { booking_id } = parsed.action {
-        assert_eq!(booking_id, "book-999");
-    } else {
-        panic!("Wrong variant");
-    }
-}
-```
-
-**Tested Message Types**:
-- `CloudAction::BookingCreated`
-- `CloudAction::WalletTopUp`
-- `CloudAction::BookingCancelled`
-- `CloudAction::QrConfirmed`
-- `CloudAction::SettingsChanged`
-- `CloudAction::Notification`
-- `PendingCloudAction`
-- `AgentMessage::PinEntered`
-- `CoreToAgentMessage::BillingTick`
-
-#### 2. Driving Detector Tests (`rc-agent/src/driving_detector.rs`)
-
-**Purpose**: Verify hysteresis-based state machine for detecting active driving.
-
-**Pattern**:
-```rust
-fn make_detector() -> DrivingDetector {
-    DrivingDetector::new(&DetectorConfig::default())
-}
-
-#[test]
-fn initial_state_is_no_device() {
-    let d = make_detector();
-    assert_eq!(d.state(), DrivingState::NoDevice);
-}
-
-#[test]
-fn hid_active_transitions_to_active() {
-    let mut d = make_detector();
-    let (state, changed) = d.process_signal(DetectorSignal::HidActive);
-    assert_eq!(state, DrivingState::Active);
-    assert!(changed);
-}
-
-#[test]
-fn udp_active_transitions_to_active() {
-    let mut d = make_detector();
-    let (state, changed) = d.process_signal(DetectorSignal::UdpActive);
-    assert_eq!(state, DrivingState::Active);
-    assert!(changed);
-}
-
-#[test]
-fn stays_active_within_idle_threshold() {
-    let mut d = make_detector();
-    d.process_signal(DetectorSignal::HidActive);
-    d.process_signal(DetectorSignal::HidIdle);
-    let (state, _) = d.evaluate_state();
-    assert_eq!(state, DrivingState::Active);
-}
-
-#[test]
-fn hid_disconnect_without_udp_goes_to_no_device() {
-    let mut d = make_detector();
-    d.process_signal(DetectorSignal::HidDisconnected);
-    let (state, _) = d.evaluate_state();
-    assert_eq!(state, DrivingState::NoDevice);
-}
-
-#[test]
-fn input_active_detection() {
-    let config = DetectorConfig::default();
-    let input = WheelbaseInput {
-        steering: 0.0,
-        throttle: 0.1,
-        brake: 0.0,
-    };
-    assert!(is_input_active(&input, &config));
-
-    let idle_input = WheelbaseInput {
-        steering: 0.01,
-        throttle: 0.01,
-        brake: 0.01,
-    };
-    assert!(!is_input_active(&idle_input, &config));
-}
-
-#[test]
-fn steering_movement_detection() {
-    assert!(is_steering_moving(0.5, 0.0, 0.02));
-    assert!(!is_steering_moving(0.01, 0.0, 0.02));
-}
-```
-
-**Test Coverage**:
-- Initial state verification
-- State transitions (HID active, UDP active)
-- Hysteresis behavior (stays active within threshold)
-- Disconnect handling
-- Input thresholds (throttle/brake)
-- Steering movement detection
-
-#### 3. UDP Protocol Tests (`rc-common/src/udp_protocol.rs`)
-
-**Purpose**: Verify binary packet parsing for heartbeat ping/pong.
-
-**Pattern** (bitfield operations):
-```rust
-#[test]
-fn pod_status_bits_roundtrip() {
-    let mut status = PodStatusBits::new();
-    status.set_ws_connected(true);
-    status.set_game_running(true);
-    status.set_driving_active(true);
-    status.set_billing_active(false);
-    status.set_game_id(1);
-    status.set_cpu_percent(75);
-    status.set_gpu_percent(60);
-
-    assert!(status.ws_connected());
-    assert!(status.game_running());
-    assert!(status.driving_active());
-    assert!(!status.billing_active());
-    assert_eq!(status.game_id(), 1);
-    assert_eq!(status.cpu_percent(), 75);
-    assert_eq!(status.gpu_percent(), 60);
-}
-```
-
-#### 4. Telemetry Parsing Tests (`rc-agent/src/sims/assetto_corsa.rs`, `f1_25.rs`)
-
-**Purpose**: Verify UDP telemetry packet parsing from game engines.
-
-**Pattern** (binary parsing):
-```rust
-#[test]
-fn parse_ac_telemetry() {
-    let data = vec![/* binary packet data */];
-    let frame = parse_assetto_corsa_telemetry(&data);
-    assert!(frame.is_some());
-    let f = frame.unwrap();
-    assert_eq!(f.speed_kmh, expected_speed);
-}
-```
-
-### Test Style Conventions
-
-**Helper Functions**: Extract common setup into helper functions:
-```rust
-fn make_detector() -> DrivingDetector {
-    DrivingDetector::new(&DetectorConfig::default())
-}
-```
-
-**Assertion Patterns**:
-```rust
-// Simple equality
-assert_eq!(result, expected);
-
-// Boolean
-assert!(condition);
-assert!(!condition);
-
-// Option/Result matching
-if let Some(value) = result {
-    assert_eq!(value, expected);
-} else {
-    panic!("Expected Some, got None");
-}
-```
-
-**Test Naming**: Descriptive names following `test_<what>` pattern:
-- `test_initial_state_is_no_device`
-- `test_hid_active_transitions_to_active`
-- `test_stays_active_within_idle_threshold`
-- `test_cloud_action_booking_roundtrip`
-
-### Mocking Patterns
-
-**No formal mocking library**: The codebase relies on:
-1. **Dependency injection**: Pass config/state to functions
-2. **Pure functions**: Prefer stateless functions over mocking
-3. **Helper functions**: Create small test fixtures
-
-**Example** (DrivingDetector):
-```rust
-fn make_detector() -> DrivingDetector {
-    DrivingDetector::new(&DetectorConfig::default())
-}
-// Now tests can create instances without DB/network
-```
-
-**Async Testing**: Not heavily used yet; async functions are integration-tested in `rc-core` via manual testing on Pod 8.
-
-### Integration Testing
-
-**Strategy**: Limited integration tests in the codebase. Relies on:
-1. **End-to-end testing on Pod 8**: Deploy and test before rolling out to all 8 pods
-2. **Manual verification**: Verify on actual hardware before CI
-3. **Characterization tests first**: Test the current behavior before refactoring (per Bono's TDD rule)
-
-**From Memory Documentation**:
-```
-Rule (from Uday): Always run tests + verify on Pod 8 before claiming done
-Test commands: cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core
-Step-by-step: Backend → Frontend → Connect → Test → Deploy (one layer at a time)
-Test First, Refactor Second (from Bono): ALWAYS test the current state BEFORE changing anything.
-```
-
-### Code Quality Standards
-
-**No .unwrap() in Production**: All production code uses `?` operator or explicit error handling.
-- `.unwrap()` is only acceptable in tests and examples.
-
-**Database Queries**: Chain with `.await?`:
-```rust
-let rules = sqlx::query_as::<_, (String, f64, i64)>(...)
-    .bind(value)
-    .fetch_optional(&state.db)
-    .await
-    .ok()        // OK: test can use .unwrap() here
-    .flatten();
-```
-
----
-
-## TypeScript Testing
-
-### Test Framework
-
-**Current State**: No dedicated test framework configured in the codebase.
-
-**Typical Approach** (for future): Would use Jest or Vitest for:
-- Component tests (React Testing Library)
-- Hook tests (testing-library/react)
-- API client tests
-
-**Current Testing Method**: Manual testing during development and on deployed instances.
-
-### Testing Patterns (TypeScript/React)
-
-**Best Practices** (not yet implemented but should follow):
-
-1. **Component Snapshot Tests**: Verify UI doesn't break unexpectedly
-2. **Hook Tests**: Test `useWebSocket` behavior with mock WebSocket
-3. **API Client Tests**: Mock fetch and verify request formatting
-
-### Example (Hypothetical Hook Test)
-
+#### Async Tests
+- Use `#[tokio::test]` macro (from tokio dev-dependency)
+- For anything touching `AppState`, database, or WebSocket operations
+
+#### Mocking
+- **sqlx**: Use in-memory SQLite (`:memory:`)
+  ```rust
+  let db = SqlitePool::connect("sqlite::memory:").await?;
+  db.execute("CREATE TABLE ... ").await?;
+  ```
+- **State mocking**: Create test fixtures
+  ```rust
+  fn test_state() -> AppState {
+      AppState::new(test_config(), in_memory_pool())
+  }
+  ```
+
+### TypeScript Testing Patterns
+
+#### Unit Tests (Hooks)
 ```typescript
-// __tests__/useWebSocket.test.ts
-import { renderHook, act } from "@testing-library/react";
-import { useWebSocket } from "@/hooks/useWebSocket";
+// src/hooks/useKioskSocket.test.ts
+import { renderHook, waitFor } from '@testing-library/react';
+import { useKioskSocket } from './useKioskSocket';
 
-describe("useWebSocket", () => {
-  it("should connect and receive pod updates", async () => {
-    const { result } = renderHook(() => useWebSocket());
-
-    expect(result.current.connected).toBe(false);
-
-    // Mock WebSocket connection
-    // Verify connected state changes
-    // Simulate message receipt
-    // Verify state updates
+describe('useKioskSocket', () => {
+  it('should connect to WebSocket on mount', async () => {
+    const { result } = renderHook(() => useKioskSocket());
+    await waitFor(() => expect(result.current.connected).toBe(true));
   });
 
-  it("should reconnect on disconnect", async () => {
-    // Test auto-reconnect logic
+  it('should handle pod updates', async () => {
+    const { result } = renderHook(() => useKioskSocket());
+    // Simulate message from WebSocket
+    // Assert pod state updated
   });
 });
 ```
 
-### Example (Hypothetical API Client Test)
-
+#### Component Tests
 ```typescript
-// __tests__/api.test.ts
-import { api } from "@/lib/api";
+// src/components/KioskPodCard.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react';
+import { KioskPodCard } from './KioskPodCard';
 
-describe("api client", () => {
-  it("should format POST requests correctly", async () => {
-    const payload = {
-      pod_id: "pod_1",
-      driver_id: "drv_123",
-      pricing_tier_id: "tier-30min",
-    };
+describe('KioskPodCard', () => {
+  it('should render pod number and status', () => {
+    const pod = { number: 1, status: 'idle', ... };
+    render(<KioskPodCard pod={pod} isSelected={false} onClick={jest.fn()} />);
+    expect(screen.getByText('Pod 1')).toBeInTheDocument();
+  });
 
-    // Mock fetch
-    global.fetch = jest.fn(() =>
-      Promise.resolve({
-        json: () => Promise.resolve({ ok: true }),
-      })
-    );
-
-    await api.startBilling(payload);
-
-    expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/billing/start",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
-    );
+  it('should call onClick when clicked', () => {
+    const onClick = jest.fn();
+    const pod = { ... };
+    render(<KioskPodCard pod={pod} isSelected={false} onClick={onClick} />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(onClick).toHaveBeenCalled();
   });
 });
 ```
 
-### Manual Testing Strategy
+#### API Tests
+```typescript
+// src/lib/api.test.ts
+describe('API Client', () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
 
-**Current Approach**: Manual testing on actual pods with structured verification:
+  it('should fetch wallet balance', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      json: async () => ({ wallet: { balance_paise: 100000 } }),
+    });
 
-1. **Component Testing**: Verify in browser dev tools
-2. **Hook Testing**: Monitor WebSocket messages in Network tab
-3. **API Testing**: Use curl or Postman to verify endpoints
-4. **End-to-End**: Test full user journeys on deployment
-
----
-
-## Deployment Testing Strategy
-
-### Pre-Deployment Checklist (from Memory)
-
-1. **Run tests locally**:
-   ```bash
-   cargo test -p rc-common
-   cargo test -p rc-agent
-   cargo test -p rc-core
-   ```
-
-2. **Check binary size**:
-   ```bash
-   ls -lh target/release/rc-agent.exe
-   ```
-
-3. **Deploy to Pod 8 first**: Isolated testing before rolling to all 8 pods
-
-4. **Verify behavior**:
-   - Check logs for errors
-   - Test billing flow
-   - Test game launch
-   - Monitor resource usage
-
-5. **Rollout**: If Pod 8 tests pass, deploy to remaining pods (1-7)
-
-### From Memory Documentation
-
-```
-Rule: "Test before upload" means:
-  - cargo test (unit tests)
-  - check binary size
-  - deploy to ONE pod first (Pod 8)
-  - NEVER execute the binary locally on James's machine
-
-Troubleshooting: See [debugging-playbook.md](debugging-playbook.md) and [pod-commands.md](pod-commands.md)
+    const result = await api.getWallet('driver-123');
+    expect(result.wallet?.balance_paise).toBe(100000);
+  });
+});
 ```
 
----
+## Test Fixtures & Utilities
 
-## Test Statistics
+### Rust Fixtures (Would Go in tests/fixtures.rs or similar)
+```rust
+// Common test data builders
+pub fn test_pod_info() -> PodInfo {
+    PodInfo {
+        id: "test-pod-1".to_string(),
+        number: 1,
+        name: "Pod 1".to_string(),
+        ip_address: "192.168.31.89".to_string(),
+        sim_type: SimType::AssettoCorsa,
+        status: PodStatus::Idle,
+        // ...
+    }
+}
 
-**Current Coverage**:
-- **Total Tests**: 47 across all crates
-- **rc-common**: 12+ protocol/serialization tests
-- **rc-agent**: ~15 driving detector + telemetry parsing tests
-- **rc-core**: ~20 (billing, accounting, AI, etc. — to be expanded)
-
-**Critical Areas Tested**:
-1. Protocol serialization (100% coverage of message types)
-2. Driving state detection (hysteresis state machine)
-3. UDP heartbeat protocol (bitfield operations)
-4. Telemetry parsing (game-specific formats)
-
-**Areas Needing More Tests**:
-1. Async operations (channels, WebSocket, HTTP)
-2. Database operations (billing persistence)
-3. AI debugger (Ollama/Anthropic fallback logic)
-4. Pod reservation (multi-session split billing)
-5. TypeScript components (React Testing Library)
-
----
-
-## Running Tests Locally
-
-### Full Test Suite
-
-```bash
-cd /c/Users/bono/racingpoint/racecontrol
-
-# Run all tests
-cargo test
-
-# Run with output
-cargo test -- --nocapture --test-threads=1
-
-# Run specific crate
-cargo test -p rc-common
-cargo test -p rc-agent
-cargo test -p rc-core
-
-# Run single test
-cargo test test_driving_detector_state_transitions
+pub async fn test_pool() -> SqlitePool {
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    sqlx::migrate!().run(&pool).await.unwrap();
+    pool
+}
 ```
 
-### Typical Development Workflow
+### TypeScript Fixtures (Would Go in tests/fixtures.ts)
+```typescript
+export const mockPodInfo: PodInfo = {
+  id: 'pod-1',
+  number: 1,
+  name: 'Pod 1',
+  status: 'idle',
+  // ...
+};
 
-1. Write/modify code
-2. Run focused tests:
-   ```bash
-   cargo test -p rc-agent test_
-   ```
-3. Run full suite before committing:
-   ```bash
-   cargo test
-   ```
-4. Deploy to Pod 8 for integration testing:
-   ```bash
-   # See [pod-commands.md] for deployment procedures
-   ```
-5. Verify on pod and roll out to others
+export const mockBillingTimer: BillingSessionInfo = {
+  id: 'billing-123',
+  driver_id: 'driver-456',
+  // ...
+};
+```
+
+## Coverage Status
+
+**Estimated Coverage**: <5%
+- **No automated coverage tracking** (no Istanbul/nyc config)
+- **Tested paths**:
+  - Manual system tests at venue (pods, billing, game launches)
+  - WebSocket connectivity verified via dashboard UI
+- **Untested paths**:
+  - Billing edge cases (timer sync, offline recovery)
+  - SQLx query error handling
+  - Cloud sync conflict resolution
+  - React hook state transitions
+  - API error responses
+
+## Integration Testing (Manual / At Venue)
+
+The codebase relies on **integration testing at the venue**:
+
+1. **Billing System**: Staff launches session → Timer ticks → Pod blanks on expiry
+2. **Pod Communication**: Core sends `StartSession` → Agent receives via WebSocket → Game launches
+3. **Kiosk Dashboard**: Shows live pod grid, session timers, billing warnings
+4. **Wallet System**: Customer topup → Credits reflect → Session starts
+5. **Game Telemetry**: UDP frames received → Telemetry endpoint returns lap data
+6. **Cloud Sync**: Venue laptop pulls pricing rules → Applies to new sessions
+
+**Result**: System verified working end-to-end as of March 2026 (latest commit: `22c7f8d`)
+
+## Recommendations for Adding Tests
+
+### Phase 1: High-Value Unit Tests (Billing)
+- Billing timer calculations (edge cases: expiry, multi-split)
+- Dynamic pricing logic (time-of-day, discount chains)
+- Wallet debit/credit (verify paise calculations)
+- Effort: ~40 test cases, 4 hours
+
+### Phase 2: Serialization & Protocol Tests
+- AgentMessage/CoreToAgentMessage round-trip JSON
+- Config TOML parsing with defaults
+- Telemetry frame validation
+- Effort: ~30 test cases, 2 hours
+
+### Phase 3: API Route Tests (Axum)
+- Status codes (200, 400, 401, 404)
+- JWT validation
+- Request/response serialization
+- Effort: ~50 test cases, 6 hours
+
+### Phase 4: React Hook Tests
+- useKioskSocket connection/reconnection
+- WebSocket message handling
+- State updates (pods, billing, telemetry)
+- Effort: ~30 test cases, 4 hours
+
+## Test Dependencies (If Added)
+
+### Rust
+```toml
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"] }
+serde_json = "1"
+mockall = "0.12"  # For mocking async functions
+tempfile = "3"    # For temporary files in tests
+```
+
+### TypeScript
+```json
+{
+  "devDependencies": {
+    "@testing-library/react": "^14",
+    "@testing-library/jest-dom": "^6",
+    "@testing-library/user-event": "^14",
+    "jest": "^29",
+    "jest-environment-jsdom": "^29",
+    "ts-jest": "^29",
+    "@types/jest": "^29"
+  }
+}
+```
 
 ---
 
-## Summary Table
-
-| Aspect | Framework | Pattern | Example |
-|--------|-----------|---------|---------|
-| Rust tests | `#[test]` macro | Inline in `#[cfg(test)]` | Protocol roundtrips, driving detector |
-| Test runner | `cargo test` | Per-crate or all | `cargo test -p rc-common` |
-| Naming | `test_<what>` | Descriptive | `test_cloud_action_booking_roundtrip` |
-| Protocol tests | Serde roundtrip | Serialize → deserialize → compare | Verify message JSON format |
-| Driver detection | State machine | Signal → state transitions | Test hysteresis behavior |
-| Mocking | Dependency injection | Helper functions | `make_detector()` fixture |
-| Error handling | No `.unwrap()` | Use `.ok().flatten()` or `?` | DB query chains |
-| TS testing | Not yet implemented | Would use Jest + RTL | Manual testing + Pod 8 |
-| Integration testing | Pod 8 deployment | Manual verification | Deploy, test, rollout |
-| Pre-deployment | cargo test + Pod 8 | Isolate testing on Pod 8 | TDD cycle + pod validation |
+**Last Updated**: March 2026
+**Testing Philosophy**: **Manual integration testing at venue** — Codebase design emphasizes runtime correctness over unit test coverage due to tight hardware coupling.

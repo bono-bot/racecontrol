@@ -1,335 +1,351 @@
 # RaceControl Technology Stack
 
-**Date:** March 11, 2026
-**Version:** 0.1.0
-**Repository:** https://github.com/racingpoint/racecontrol
-
 ## Overview
-Rust + Next.js monorepo for Racing Point eSports venue management system. Multi-tier architecture with cloud sync, real-time telemetry, AI-driven diagnostics, and billing automation.
+RaceControl is a distributed sim racing venue management system built on Rust backend services (Axum) and Next.js/React frontends, with cross-platform Windows/Linux compatibility.
 
----
+## Backend Stack
 
-## Languages & Runtimes
+### Language & Runtime
+- **Rust 1.93.1+** (2024 edition)
+- **Tokio async runtime** (full features)
+- **Cross-platform**: Compiles for Windows (x86_64) and Linux
 
-| Component | Language | Version | Notes |
-|-----------|----------|---------|-------|
-| **rc-core** (backend) | Rust | 1.93.1 (stable-x86_64-pc-windows-msvc) | Axum web server on port 8080 |
-| **rc-agent** (pod client) | Rust | 1.93.1 | Gaming pod agent on port 8090 |
-| **rc-common** (shared) | Rust | 1.93.1 | Protocol + types, compiled for all crates |
-| **Kiosk** (frontend) | TypeScript / Next.js | 16.1.6 / React 19.2.3 | Port 3300 |
-| **PWA** | TypeScript / Next.js | 16.1.6 / React 19.2.3 | Mobile customer interface |
-| **Admin Web** | TypeScript / React | 19.2.3 | Bono's VPS admin portal |
-| **Python (ops)** | Python 3.11+ | (3.8+) | Deployment scripts, web terminal |
+### Workspace & Build System
+- **Cargo workspaces** with 3 crates: `rc-common`, `rc-core`, `rc-agent`
+- **Workspace dependencies** centralized in root `/root/racecontrol/Cargo.toml`
+- **Build output**: Target binaries:
+  - `racecontrol` (rc-core server, port 8080)
+  - `rc-agent` (gaming PC agent, port 18923 lock screen)
 
----
+#### Workspace Configuration
+- Location: `/root/racecontrol/Cargo.toml`
+- Members: `crates/rc-common`, `crates/rc-core`, `crates/rc-agent`
+- Common version: 0.1.0
+- License: MIT
+- Repository: https://github.com/racingpoint/racecontrol
 
-## Build Configuration
+### Core Dependencies (Workspace-shared)
 
-### Rust (Cargo)
+| Dependency | Version | Purpose |
+|-----------|---------|---------|
+| `serde` | 1.x | Serialization/deserialization (derive) |
+| `serde_json` | 1.x | JSON encoding |
+| `chrono` | 0.4 | Date/time with serde support |
+| `uuid` | 1.x | UUID generation (v4, serde) |
+| `tracing` | 0.1 | Structured logging |
+| `tracing-subscriber` | 0.3 | Logging with env-filter |
+| `tokio` | 1.x | Async runtime (full features) |
+| `anyhow` | 1.x | Error handling |
+| `thiserror` | 2.x | Error definitions |
+| `toml` | 0.8 | TOML config parsing |
+| `jsonwebtoken` | 9.x | JWT auth |
+| `rand` | 0.8 | Random number generation |
 
-**Workspace:** `C:\Users\bono\racingpoint\racecontrol`
+### rc-common Crate
+**Location**: `/root/racecontrol/crates/rc-common/Cargo.toml`
 
-```toml
-[workspace]
-resolver = "2"
-members = ["crates/rc-common", "crates/rc-core", "crates/rc-agent"]
+Shared library with common types and protocols:
+- Serialization types (serde)
+- UDP telemetry protocol definitions
+- Shared data structures
 
-[workspace.package]
-version = "0.1.0"
-edition = "2024"
-```
+**Dependencies**:
+- `serde`, `serde_json`, `chrono`, `uuid` (workspace)
 
-**Build Flags:**
-- **Static CRT linking:** `.cargo/config.toml` sets `rustflags = ["-C", "target-feature=+crt-static"]` to eliminate `vcruntime140.dll` dependency on pods
-- **Target:** `x86_64-pc-windows-msvc`
-- **Cargo PATH:** `$PATH:/c/Users/bono/.cargo/bin` must be exported in bash before `cargo` commands
-
-### Node.js & Next.js
-
-**Kiosk (`kiosk/package.json`):**
-```json
-{
-  "dependencies": {
-    "next": "16.1.6",
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
-    "typescript": "5.9.3"
-  },
-  "scripts": {
-    "dev": "next dev -p 3300 -H 0.0.0.0 --webpack",
-    "build": "next build",
-    "start": "next start -p 3300"
-  }
-}
-```
-
----
-
-## Rust Crates & Dependencies
-
-### rc-core (Central Backend Server)
-
-**Binary:** `racecontrol` | **Port:** 8080
+### rc-core Crate (Main Server)
+**Location**: `/root/racecontrol/crates/rc-core/Cargo.toml`
+**Binary**: `racecontrol` → `/root/racecontrol/crates/rc-core/src/main.rs`
+**Port**: 8080 (configurable via racecontrol.toml)
 
 #### Web Framework
-- **axum** 0.8 (features: ws, macros) — async HTTP server with WebSocket support
-- **tower** 0.5 — middleware and service composition
-- **tower-http** 0.6 (features: cors, fs, trace) — HTTP utilities
-- **tokio-tungstenite** 0.26 — WebSocket client (cloud agent comms)
+- **Axum 0.8**: Async web framework with:
+  - WebSocket support (`ws` feature)
+  - Macros for routing
+- **Tower 0.5**: Middleware composition
+- **Tower-HTTP 0.6**:
+  - CORS middleware
+  - Static file serving (`fs` feature)
+  - Request tracing (`trace` feature)
 
 #### Database
-- **sqlx** 0.8 (features: runtime-tokio, sqlite) — SQLite query builder + pool
-- **SQLite pragma:** `journal_mode=WAL`, `foreign_keys=ON`
+- **SQLx 0.8**: Async SQL toolkit
+  - Tokio runtime integration
+  - SQLite compile-time query verification
+  - Database: `/root/racecontrol/data/racecontrol.db`
 
-#### Network & Discovery
-- **mdns-sd** 0.12 — mDNS discovery for pod auto-discovery
-- **reqwest** 0.12 (features: json) — HTTP client (cloud sync, AI, Ollama)
-- **urlencoding** 2 — URL encoding for Evolution API instance names
+#### Networking & Communication
+- **mDNS-SD 0.12**: Service discovery (pod discovery on LAN)
+- **Tokio-Tungstenite 0.26**: WebSocket client/server
+- **Futures-util 0.3**: Async combinator utilities
+- **Reqwest 0.12**: HTTP client (JSON support, AI/Claude calls)
 
-#### Serialization & Time
-- **serde** 1 (features: derive) — JSON serialization
-- **serde_json** 1 — JSON parsing
-- **chrono** 0.4 (features: serde) — Datetime handling
-- **uuid** 1 (features: v4, serde) — UUID generation
+#### Auth & Security
+- **jsonwebtoken 9.x**: JWT encoding/decoding
+- **rand 0.8**: Secure random generation
 
-#### Auth & Crypto
-- **jsonwebtoken** 9 — JWT token generation/validation
-- **rand** 0.8 — Cryptographic randomness
+#### Utilities
+- **urlencoding 2.x**: URL encoding (Evolution API instance names)
 
-#### Error Handling & Config
-- **anyhow** 1 — Error propagation
-- **thiserror** 2 — Custom error types
-- **toml** 0.8 — Configuration file parsing
+#### Key Source Files
+- `/root/racecontrol/crates/rc-core/src/main.rs` → Server entry point
+- `/root/racecontrol/crates/rc-core/src/api/` → REST API routes
+- `/root/racecontrol/crates/rc-core/src/ws/` → WebSocket handlers
+- `/root/racecontrol/crates/rc-core/src/db/` → Database layer
+- `/root/racecontrol/crates/rc-core/src/auth/` → JWT & terminal auth
+- `/root/racecontrol/crates/rc-core/src/billing.rs` → Billing engine
+- `/root/racecontrol/crates/rc-core/src/cloud_sync.rs` → Venue ↔ Cloud sync
+- `/root/racecontrol/crates/rc-core/src/udp_heartbeat.rs` → UDP telemetry listener
+- `/root/racecontrol/crates/rc-core/src/pod_monitor.rs` → Pod health/status
+- `/root/racecontrol/crates/rc-core/src/game_launcher.rs` → Game launch orchestration
+- `/root/racecontrol/crates/rc-core/src/catalog.rs` → AC cars/tracks (36 featured cars, 41 featured)
+- `/root/racecontrol/crates/rc-core/src/lap_tracker.rs` → Lap/telemetry aggregation
+- `/root/racecontrol/crates/rc-core/src/ac_server.rs` → AC dedicated server config
+- `/root/racecontrol/crates/rc-core/src/accounting.rs` → Double-entry bookkeeping
+- `/root/racecontrol/crates/rc-core/src/ai.rs` → Claude/Ollama AI integration
+- `/root/racecontrol/crates/rc-core/src/friends.rs` → Multiplayer presence
+- `/root/racecontrol/crates/rc-core/src/multiplayer.rs` → Group booking
+- `/root/racecontrol/crates/rc-core/src/pod_healer.rs` → Pod recovery (Steam, Conspit cleanup)
+- `/root/racecontrol/crates/rc-core/src/remote_terminal.rs` → PIN-protected terminal
+- `/root/racecontrol/crates/rc-core/src/wallet.rs` → Credit system
+- `/root/racecontrol/crates/rc-core/src/scheduler.rs` → Cron jobs (review nudges, tournaments)
+- `/root/racecontrol/crates/rc-core/src/action_queue.rs` → Async action processing
+- `/root/racecontrol/crates/rc-core/src/error_aggregator.rs` → Pod error tracking
+- `/root/racecontrol/crates/rc-core/src/activity_log.rs` → Activity audit trail
+- `/root/racecontrol/crates/rc-core/src/wol.rs` → Wake-on-LAN for pods
 
-#### Tracing & Logging
-- **tracing** 0.1 — Structured logging facade
-- **tracing-subscriber** 0.3 (features: env-filter) — Log backend with environment filtering
+### rc-agent Crate (Gaming PC Agent)
+**Location**: `/root/racecontrol/crates/rc-agent/Cargo.toml`
+**Binary**: `rc-agent` → `/root/racecontrol/crates/rc-agent/src/main.rs`
+**Port**: 18923 (lock screen via WebSocket)
+**Deployment**: One instance per gaming pod (Pod 1-8 at 192.168.31.x)
 
----
+#### Core Dependencies
+**Workspace shared**: tokio, serde, chrono, uuid, etc. (same as rc-core)
 
-### rc-agent (Pod Gaming Client)
+#### Networking & Game Control
+- **Tokio-Tungstenite 0.26**: WebSocket client (with native-tls)
+- **Futures-util 0.3**: Async utilities
+- **mDNS-SD 0.12**: Pod discovery on LAN
 
-**Binary:** `rc-agent` | **Port:** 8090 (pod-agent), UDP heartbeat 9999
+#### Hardware Integration
+- **hidapi 2.x**: USB HID library for wheelbase detection
+  - Monitors Conspit Ares 8Nm/10Nm/12Nm wheelbase (Vendor ID: 0x1209, Product ID: 0xFFB0)
+  - Detects steering wheel input for driving state
 
-#### WebSocket & Network
-- **tokio-tungstenite** 0.26 (features: native-tls) — WebSocket client to rc-core
-- **mdns-sd** 0.12 — Pod discovery
-- **reqwest** 0.12 (features: json) — HTTP client (AI debugger)
+#### System Monitoring
+- **sysinfo 0.33**: Cross-platform process & system info
+  - Game process monitoring (AC, iRacing, F1 25, Forza, LMU)
+  - CPU/memory tracking
 
-#### Hardware & System Monitoring
-- **hidapi** 2 — USB HID access (Conspit Ares 8Nm wheelbase VID:0x1209 PID:0xFFB0)
-- **sysinfo** 0.33 — Process list + CPU/GPU metrics
-- **winapi** 0.3 (features: processthreadsapi, winnt, handleapi, winuser, memoryapi, basetsd, synchapi, errhandlingapi, winerror, wingdi, libloaderapi) — Windows process management + GUI
-- **dirs-next** 2 — Cross-platform directory paths (Documents, AppData)
+#### Game & UI
+- **qrcode 0.13**: QR code generation for lock screen (PIN-based remote access)
+- **dirs-next 2.x**: Cross-platform directory paths (Documents, AppData)
 
-#### UI & Code Generation
-- **qrcode** 0.13 — QR code generation (lock screen authentication)
-- **futures-util** 0.3 — Async stream helpers
+#### AI Debugging
+- **reqwest 0.12**: HTTP client for Ollama/Claude API calls
 
-#### Shared Types
-- **rc-common** (workspace) — Protocol enums, types, UDP heartbeat format
+#### Windows-Specific
+**Target-gated features** (`[target.'cfg(windows)'.dependencies]`):
+- **winapi 0.3**: Windows API bindings with features:
+  - `processthreadsapi`: Process creation/termination
+  - `winnt`: Windows NT types
+  - `handleapi`: Handle management
+  - `winuser`: Window/message APIs
+  - `memoryapi`: Memory management
+  - `basetsd`: Base types
+  - `synchapi`: Synchronization primitives
+  - `errhandlingapi`: Windows error handling
+  - `winerror`: Error codes
+  - `wingdi`: Graphics Device Interface
+  - `libloaderapi`: DLL loading
 
----
-
-### rc-common (Shared Protocol Library)
-
-#### Types
-- **serde** 1 (features: derive) — JSON serialization for message types
-- **serde_json** 1 — JSON utilities
-- **chrono** 0.4 (features: serde) — DateTime serialization
-- **uuid** 1 (features: v4, serde) — Driver/pod/session IDs
-
-**Key types:**
-- `TelemetryFrame` — UDP telemetry from sims (speed, throttle, brake, steering, RPM, gear)
-- `SimType` — enum: AssettoCorsaAdapter, F125Adapter (F1 25), iRacing, LMU, Forza, ACEvo
-- `DrivingState` — detector: Active, Idle, Loading, Paused, Invalid
-- `BillingSessionInfo` — session state: allocated_seconds, driving_seconds, status
-- `HeartbeatPing/Pong` — binary UDP packets (12/16 bytes, magic "RP" 0x52 0x50)
-
-**Module:** `crates/rc-common/src/`
-- `protocol.rs` — message types (CoreToAgentMessage, AgentToCoreMessage, DashboardEvent, DashboardCommand)
-- `udp_protocol.rs` — binary heartbeat format
-- `types.rs` — shared data structures
-
----
-
-## Key Dependencies Summary
-
-| Crate | Purpose | Version | Status |
-|-------|---------|---------|--------|
-| **axum** | Web framework | 0.8 | Stable, production |
-| **sqlx** | Database ORM | 0.8 | Stable, SQLite only |
-| **tokio** | Async runtime | 1.x | Full features enabled |
-| **serde/serde_json** | JSON serialization | 1 / 1 | Standard |
-| **chrono** | DateTime | 0.4 | With serde |
-| **uuid** | ID generation | 1 | v4 + serde |
-| **reqwest** | HTTP client | 0.12 | JSON support |
-| **jsonwebtoken** | JWT auth | 9 | Simple secrets |
-| **tracing** | Structured logging | 0.1 | env-filter enabled |
-| **hidapi** | USB HID (wheelbase) | 2 | Windows only, critical |
-| **sysinfo** | Process monitoring | 0.33 | Pod health checks |
-| **winapi** | Windows API | 0.3 | Process mgmt + GUI |
-| **qrcode** | QR generation | 0.13 | Lock screen |
-| **mdns-sd** | mDNS discovery | 0.12 | Pod auto-discovery |
-| **tokio-tungstenite** | WebSocket | 0.26 | Both client & server |
-
----
-
-## Database
-
-### Type
-SQLite (embedded, file-based)
-
-### Path (Configurable)
-Default: `C:\Users\bono\racingpoint\racecontrol\racecontrol.db`
-Config key: `database.path` in `racecontrol.toml`
-
-### Initialization
-- Auto-created on first run by `rc-core/src/db/mod.rs::init_pool()`
-- Migrations run on every startup (CREATE TABLE IF NOT EXISTS)
-- **Pragma:** WAL mode, foreign keys enabled
-- **Pool:** Max 5 connections (sqlx::SqlitePoolOptions)
-
-### Core Tables
-- **drivers** — user profiles, trial status, waiver signing
-- **billing_sessions** — time-based pricing, session duration, discounts
-- **pricing_tiers** — 30min/₹700, 60min/₹900, 5min trial (free)
-- **pricing_rules** — dynamic multipliers (peak/off-peak, day-of-week)
-- **laps** — completed laps with sector times, validity tracking
-- **personal_bests** — per-driver per-track-per-car records
-- **track_records** — venue-wide records by track + car
-- **pods** — pod registration, online status, current driver
-- **kiosk_experiences** — Experience catalog (AC tracks/cars with presets)
-- **kiosk_settings** — global settings synced from cloud
-- **billing_events** — start/idle/end events for debugging
-- **game_launch_events** — error logs + AI suggestions
-- **ac_sessions** — AC server LAN session state
-- **ac_presets** — AC server configuration templates
-- **sync_state** — cloud sync timestamps (pull last_synced_at per table)
-- **wallets** — balance_paise, total_credited, total_debited, updated_at
-
----
+#### Key Source Files
+- `/root/racecontrol/crates/rc-agent/src/main.rs` → Agent entry point
+- `/root/racecontrol/crates/rc-agent/src/game_process.rs` → Game launch/kill
+- `/root/racecontrol/crates/rc-agent/src/ac_launcher.rs` → Assetto Corsa launch (Steam app ID 244210)
+- `/root/racecontrol/crates/rc-agent/src/kiosk.rs` → Kiosk UI (staff PIN login, game selection)
+- `/root/racecontrol/crates/rc-agent/src/lock_screen.rs` → Lock screen with PIN/QR code
+- `/root/racecontrol/crates/rc-agent/src/overlay.rs` → In-game overlay (telemetry, timers)
+- `/root/racecontrol/crates/rc-agent/src/driving_detector.rs` → HID + UDP active detection
+- `/root/racecontrol/crates/rc-agent/src/debug_server.rs` → Debug CLI interface
+- `/root/racecontrol/crates/rc-agent/src/ai_debugger.rs` → Ollama/Claude integration (Qwen2.5-coder:14b preferred)
+- `/root/racecontrol/crates/rc-agent/src/udp_heartbeat.rs` → UDP telemetry listener
+- `/root/racecontrol/crates/rc-agent/src/sims/` → Game-specific modules
 
 ## Frontend Stack
 
-### Kiosk (Venue Display & Customer Booking)
-- **Framework:** Next.js 16.1.6 (React 19.2.3)
-- **Styling:** Tailwind CSS 4 (PostCSS)
-- **Port:** 3300
-- **Build:** `next build` → standalone server
-- **Dev:** `next dev -p 3300 -H 0.0.0.0`
+### PWA (Customer-facing)
+**Location**: `/root/racecontrol/pwa/`
+**Port**: 3100 (dev), configurable in production
+**Package**: `/root/racecontrol/pwa/package.json`
 
-### PWA (Mobile Customer Portal)
-- **Framework:** Next.js 16.1.6 (React 19.2.3)
-- **Purpose:** QR scan → confirmation → billing
-- **Build:** Standalone deployment
+| Dependency | Version | Purpose |
+|-----------|---------|---------|
+| **Next.js** | 16.1.6 | React framework, SSR/SSG |
+| **React** | 19.2.3 | UI library |
+| **React-DOM** | 19.2.3 | DOM rendering |
+| **recharts** | 3.8.0 | Charts/graphs (telemetry visualization) |
+| **html5-qrcode** | 2.3.8 | QR code scanning (customer scan-to-book) |
+| **Tailwind CSS** | 4.x | Utility-first styling |
+| **TypeScript** | 5.x | Type safety |
 
-### Admin Web (Bono's VPS)
-- **Framework:** React 19.2.3 + TypeScript
-- **Purpose:** Dashboard, driver management, live pod status
-- **Host:** app.racingpoint.cloud (72.60.101.58)
+**Pages**: `/`, `/login`, `/register`, `/dashboard`, `/book`, `/book/active`, `/book/group`, `/sessions`, `/sessions/[id]`, `/stats`, `/leaderboard`, `/leaderboard/public`, `/telemetry`, `/friends`, `/tournaments`, `/coaching`, `/ai`, `/profile`, `/scan`, `/terminal`
 
----
+**Key routes**:
+- `/book` - Custom booking wizard (8-step flow)
+- `/sessions/[id]` - Session details + shareable report
+- `/leaderboard/public` - Public leaderboard (no auth)
+- `/coaching` - Sector analysis + lap comparison
+- `/tournaments` - Tournament bracket display
 
-## Development Tools
+### Kiosk (On-venue staff UI)
+**Location**: `/root/racecontrol/kiosk/`
+**Port**: 3300
+**Package**: `/root/racecontrol/kiosk/package.json`
 
-### Rust
-- **rustc:** 1.93.1 (stable)
-- **cargo:** 1.93.1
-- **rust-analyzer:** LSP-enabled (settings.json)
-- **Test command:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
-- **Total tests:** 47 across 3 crates (protocol, driving detector, billing, AI, auto-fix)
+| Dependency | Version | Purpose |
+|-----------|---------|---------|
+| **Next.js** | 16.1.6 | React framework |
+| **React** | 19.2.3 | UI library |
+| **React-DOM** | 19.2.3 | DOM rendering |
+| **Tailwind CSS** | 4.x | Styling |
+| **TypeScript** | 5.9.3 | Type safety |
 
-### Node.js
-- **Version:** 18+ (inferred from Next.js 16.1.6 compatibility)
-- **Package manager:** npm (inferred from package.json)
-- **TypeScript:** 5.9.3
+**Key features**:
+- Staff PIN login
+- Game configurator (car selection, track, etc.)
+- Direct launch flow (no customer PIN required)
+- Pod status grid
 
-### Python (Deployment & Ops)
-- **Version:** 3.8+
-- **Key scripts:**
-  - `webterm.py` — web terminal at port 9999 (for Uday's phone)
-  - Deployment helpers for HTTP server (`python3 -m http.server`)
-  - Health check scripts
+### Web (Legacy/Admin UI)
+**Location**: `/root/racecontrol/web/`
+**Port**: 3000 (dev)
+**Package**: `/root/racecontrol/web/package.json`
 
----
+| Dependency | Version | Purpose |
+|-----------|---------|---------|
+| **Next.js** | 16.1.6 | React framework |
+| **React** | 19.2.3 | UI library |
+| **React-DOM** | 19.2.3 | DOM rendering |
+| **socket.io-client** | 4.8.3 | Real-time WebSocket events |
+| **Tailwind CSS** | 4.x | Styling |
+| **TypeScript** | 5.x | Type safety |
 
-## Cloud Infrastructure
+## Configuration Management
 
-### Bono's VPS
-- **Host:** app.racingpoint.cloud (72.60.101.58)
-- **Role:** Cloud rc-core, admin portal, webhook targets
-- **API:** `GET /api/v1/sync/changes`, `POST /api/v1/sync/push`
-- **Auth:** `x-terminal-secret` header (shared secret in `cloud.terminal_secret`)
+### rc-core Configuration
+**File**: `/root/racecontrol/racecontrol.toml`
 
-### DNS & Service Discovery
-- **mDNS:** Pod discovery via `mdns-sd` (broadcast on local network)
-- **Pod discovery interval:** Configurable, default 30s
+**Sections**:
+- `[venue]` - Venue name, location, timezone
+- `[server]` - Host, port (8080)
+- `[database]` - SQLite path (`./data/racecontrol.db`)
+- `[cloud]` - Cloud API URL, sync interval (30s), terminal auth
+- `[watchdog]` - Pod health check settings
+- `[pods]` - Count (8), discovery, healer settings
+- `[branding]` - Primary color, theme
+- `[ai_debugger]` - Claude CLI timeout (30s), Ollama settings, chat enabled
+- `[ac_server]` - AC server path, data directory
+- `[auth]` - JWT secret, Evolution API credentials
+- `[integrations.discord]` - Discord channel names
+- `[integrations.whatsapp]` - WhatsApp contact
 
----
+**Docker variant**: `/root/racecontrol/racecontrol.docker.toml`
 
-## File Locations
+### rc-agent Configuration
+**File**: `/root/racecontrol/rc-agent.example.toml` (template)
+**Deployed to**: Each pod (e.g., Pod 1: `C:\racecontrol\rc-agent.toml`)
 
-| Component | Path |
-|-----------|------|
-| **Workspace root** | `C:\Users\bono\racingpoint\racecontrol` |
-| **rc-core** | `crates/rc-core/src/main.rs` → `racecontrol` binary |
-| **rc-agent** | `crates/rc-agent/src/main.rs` → `rc-agent` binary |
-| **rc-common** | `crates/rc-common/src/lib.rs` |
-| **Kiosk** | `kiosk/` (Next.js project) |
-| **Database schema** | `crates/rc-core/src/db/mod.rs` (inline migrations) |
-| **Config example** | `racecontrol.toml` (venue root) |
-| **Pod config** | `rc-agent-pod{1-8}.toml` (each pod) |
-| **Cargo.lock** | `Cargo.lock` (pinned deps) |
-| **Deployment kit** | `D:\pod-deploy\` (pendrive: install.bat, binaries, configs) |
+**Sections**:
+- `[agent]` - Pod name, pod number, server WebSocket URL
+- `[games.*]` - Per-game config (steam_app_id or exe_path)
+  - assetto_corsa: 244210
+  - f1_25: 2488620
+  - le_mans_ultimate: 1564310
+  - forza: 2440510
+  - iracing: Direct exe path
+- `[ai_debugger]` - Ollama URL, model (qwen2.5-coder:14b), API key fallback
 
----
+## Database
 
-## Deployment Artifacts
+**Type**: SQLite 3
+**Location**: `/root/racecontrol/data/racecontrol.db`
+**Access Layer**: SQLx with compile-time query checking
 
-### Binary Sizes (approx, static CRT build)
-- **rc-core.exe** — ~15MB (Axum server with full tower stack)
-- **rc-agent.exe** — ~12MB (pod client with wheelbbase USB, process monitoring)
-- **pod-agent.exe** — ~2MB (lightweight pod command executor)
+**Key tables**:
+- `drivers` - Customer accounts (phone, steam_guid, iracing_id)
+- `pods` - Pod configuration & status
+- `billing_sessions` - Drive sessions + payment
+- `wallet_transactions` - Credit ledger (debit/credit/refund)
+- `laps` - Lap telemetry aggregates (track, car, time, etc.)
+- `pricing_rules` - Dynamic pricing multipliers by day/hour
+- `coupons` - Discount codes (percent/flat/free_minutes)
+- `packages` - 5 seeded: Date Night, Squad, Birthday, Corporate, Student
+- `memberships` - 3 tiers: Rookie/Pro/Champion
+- `tournaments` - Full bracket system with auto-advance
+- `time_trials` - Weekly leaderboards
+- `referrals` - Referral codes + auto-credit
+- `friends` - Multiplayer friend requests
+- `journal_entries` - Double-entry accounting
+- `audit_log` - Soft-delete audit trail (pricing_rules, coupons)
+- `review_nudges` - Post-session review requests
+- `kiosk_experiences` - Per-pod game configs
+- `heartbeats` - Cloud sync health checks
 
-### Static Assets
-- **Kiosk build:** Next.js standalone in `kiosk/.next/standalone/`
-- **PWA build:** Similar structure
-- **No external CDN required** — all assets bundled
+## Build & Deployment
 
----
+### Rust Build
+```bash
+cd /root/racecontrol
+cargo build --release
+```
 
-## Build & Release Process
+**Binaries**:
+- `target/release/racecontrol` (rc-core, ~10-15MB)
+- `target/release/rc-agent` (rc-agent, ~8-12MB)
 
-1. **Unit tests:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
-2. **Binary build:** `cargo build --release -p rc-core -p rc-agent`
-3. **Static CRT:** Automatically applied via `.cargo/config.toml`
-4. **Verification:** Size check, smoke test on Pod 8, connect to core
-5. **Deploy:** Copy binaries to `deploy-staging/`, HTTP serve, curl to pod-agent `/exec` endpoint
-6. **Cleanup:** Kill old binaries, remove stale files before download
+### Next.js Build
+```bash
+cd /root/racecontrol/pwa
+npm run build
+npm run start -p 3100
+```
 
----
+### Docker
+**Dockerfile**: `/root/racecontrol/Dockerfile`
+- Multi-stage build (Rust + Node)
+- Runs rc-core on port 8080
+- Configured via environment variables
 
-## Version Pinning
+### PM2 Deployment (Cloud)
+- `racecontrol` → rc-core on port 8080
+- `racingpoint-dashboard` → Next.js dashboard on port 3400
+- `racingpoint-admin` → Admin UI on port 3200
 
-- **Rust edition:** 2024 (workspace default)
-- **Next.js:** Pinned to 16.1.6 (specific version in package.json)
-- **React:** Pinned to 19.2.3
-- **TypeScript:** Pinned to 5.9.3
-- **Tailwind CSS:** v4 (postcss)
-- **Cargo.lock:** Committed (for reproducible builds)
+### Windows Deployment (Venues)
+- **PowerShell deployment scripts**:
+  - `/root/racecontrol/deploy_pod8.ps1`
+  - `/root/racecontrol/deploy_pod8_v2.ps1`
+  - `/root/racecontrol/deploy_watchdogs.ps1`
+- **Python helper scripts**:
+  - `/root/racecontrol/fix_conspit.py` - Wheelbase cleanup
+  - `/root/racecontrol/launch_ac.py` - AC launch wrapper
+  - `/root/racecontrol/pod_ac_launch.py` - Pod-specific AC launcher
 
----
+## Third-Party Integrations
 
-## Notable Omissions & Constraints
+- **Claude AI**: Via Anthropic SDK (rc-core `ai.rs`) or Claude CLI (rc-agent `ai_debugger.rs`)
+- **Ollama**: Local LLM on venue James machine (llama3.1:8b or qwen2.5-coder:14b)
+- **Evolution API**: WhatsApp gateway (http://localhost:53622)
+- **Steam**: Game launch via steam app IDs + DirectX 11
+- **mDNS**: Pod discovery protocol
+- **WebSocket**: Agent ↔ Core real-time communication
 
-- **No ORM except sqlx:** Raw SQL queries for custom performance
-- **No GraphQL:** REST API only
-- **No TypeScript in Rust:** Separate type definitions (no code generation)
-- **No async file I/O on pods:** Uses sync I/O to avoid cross-thread complexity on Windows
-- **No vcruntime dependency:** Static CRT linking avoids runtime DLL installation
-- **No Docker build artifacts:** Only cross-platform Rust binaries
+## Summary Statistics
+- **Rust crates**: 3
+- **Next.js apps**: 3 (pwa, kiosk, web)
+- **Database tables**: 30+
+- **REST API endpoints**: 50+
+- **WebSocket handlers**: 20+
+- **Lines of Rust code**: ~15,000
+- **Lines of TypeScript/React**: ~8,000

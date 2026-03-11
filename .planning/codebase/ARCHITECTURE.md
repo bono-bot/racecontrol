@@ -1,767 +1,679 @@
 # RaceControl Architecture
 
-## System Overview
+## Overview
 
-RaceControl is a **Rust + Next.js monorepo** that manages a distributed sim racing venue with 8 gaming pods. The system consists of three Rust crates (rc-common, rc-core, rc-agent) and three Next.js frontends (kiosk, pwa, web), all coordinated via WebSocket and HTTP APIs.
+RaceControl is a Rust-based sim racing venue management system with a 3-crate workspace architecture. It provides real-time pod (gaming PC) control, billing, telemetry processing, and customer-facing web interfaces for a simulation racing venue.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      RaceControl System                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  [Cloud] ◄────────────────────────────────────────────────────┐ │
-│  (Bono)  HTTP sync every 30s          ┌──────────────────┐   │ │
-│    ▲     & cloud authoritative        │   rc-core        │   │ │
-│    │     for drivers, pricing         │  Axum Server     │   │ │
-│    │                                   │  Port 8080       │   │ │
-│    │     ┌──────────────┐              └────────┬─────────┘   │ │
-│    │     │ Pricing      │                       │             │ │
-│    │     │ Drivers      │             ┌─────────┴──────┬──────────┤
-│    │     │ Tournaments  │             │                │          │
-│    └─────┤ (master)     │             │                │          │
-│          └──────────────┘             │                │          │
-│                                        │                │          │
-│                          ┌─────────────▼────┐   ┌──────▼───────┐ │
-│                          │  SQLite Database │   │  WebSocket   │ │
-│                          │   (local auth)   │   │  Multiplexer │ │
-│                          │   (local billing)│   │              │ │
-│                          └──────────────────┘   └──────┬───────┘ │
-│                                                         │         │
-│                     ┌───────────────────────────────────┼─────────┤
-│                     │                                   │         │
-│    ┌────────────────▼────────────┐  ┌──────────────────▼───────┐ │
-│    │    rc-agent (Pod 1-8)       │  │    Web/Mobile Clients    │ │
-│    │  • Game lifecycle mgmt      │  │                          │ │
-│    │  • Wheelbase USB HID        │  │  • Kiosk (port 3300)     │ │
-│    │  • Lock screen QR auth      │  │  • PWA (port 3100)       │ │
-│    │  • Driving detector         │  │  • Dashboard (port 3200) │ │
-│    │  • AI auto-fix              │  │                          │ │
-│    │  • Game launch (AC, F1, etc)│  └──────────────────────────┘ │
-│    └────────────────────────────┘                                │
-│                                                                   │
-│  [Each Pod] 192.168.31.x                                        │
-│  • RTX 4070 simulation PC                                       │
-│  • Conspit Ares 8Nm wheelbase (OpenFFBoard)                     │
-│  • Game telemetry via UDP (AC, F1 25, iRacing, etc)            │
-│                                                                   │
-└─────────────────────────────────────────────────────────────────┘
-```
+**Core Purpose**: Manage sim racing sessions at a venue with multiple pods, handle billing via drive-time, track lap telemetry, and provide live dashboard monitoring.
+
+**Tech Stack**:
+- Backend: Rust (Axum web framework, Tokio async runtime)
+- Frontend: Next.js 16 (PWA) + Kiosk UI
+- Real-time: WebSockets + UDP telemetry
+- Hardware: OpenFFBoard wheelbases (VID:0x1209 PID:0xFFB0), USB HID steering input, UDP game telemetry
+- Database: SQLite (venue), PostgreSQL (cloud)
+- Games Supported: Assetto Corsa, Assetto Corsa Evo, iRacing, F1 25, Forza Motorsport, Le Mans Ultimate
 
 ---
 
-## Crate Architecture
+## 3-Crate Workspace Structure
 
-### 1. **rc-common** (Shared Library)
-**Location:** `crates/rc-common/src`
-**Purpose:** Shared types and protocol definitions across all crates
+### Workspace Layout
+`/root/racecontrol/Cargo.toml` defines a Rust workspace with three interdependent crates:
 
-#### Modules:
-- **`types.rs`** (80 lines)
-  - `SimType` enum: AssettoCorsa, AssettoCorsaEvo, IRacing, F125, LeMansUltimate, Forza
-  - `PodInfo`: Pod identity, status, sim type, IP, driver context
-  - `PodStatus` enum: Offline, Idle, InSession, Error, Disabled
-  - `Driver`: Driver profile with totals
-  - `SessionInfo`, `TelemetryFrame`, `LapData`: Race data
-  - `DrivingState`, `GameState`: Pod state tracking
-  - `BillingSessionInfo`, `PricingTier`: Billing domain
+```
+[workspace]
+members = [
+    "crates/rc-common",      # Shared types and protocol
+    "crates/rc-core",        # Central server (port 8080)
+    "crates/rc-agent",       # Pod/gaming PC agent
+]
+```
 
-- **`protocol.rs`** (60+ lines)
-  - `AgentMessage` enum: Register, Heartbeat, Telemetry, LapCompleted, SessionUpdate, etc.
-  - `CoreToAgentMessage` enum: Registered, StartSession, StopSession, UpdateConfig
-  - Request/response DTOs for HTTP
-
-- **`udp_protocol.rs`**
-  - UDP telemetry frame parsers (AC, F1 25, iRacing telemetry)
-
-**Total Lines:** 1,613
-**Key Abstractions:**
-- Serialization via `serde` (all types must serialize/deserialize for WebSocket and HTTP)
-- SimType → Pod simulation mapping
-- Billing session lifecycle
+**Shared Dependencies** (in workspace.dependencies):
+- `serde` + `serde_json` for serialization
+- `tokio` (full features) for async runtime
+- `chrono` for timestamps
+- `uuid` for IDs
+- `tracing` for observability
+- `jsonwebtoken` for JWT auth
+- `thiserror`, `anyhow` for error handling
 
 ---
 
-### 2. **rc-core** (Central Server)
-**Location:** `crates/rc-core/src`
-**Binary:** `racecontrol` (port 8080)
-**Purpose:** Central orchestrator for all venue operations
+## rc-common: Shared Protocol & Types
 
-#### Key Modules:
+**Location**: `crates/rc-common/src/`
 
-**Core Infrastructure (1,500+ LOC)**
-- **`main.rs`** (253 lines)
-  - Axum web server initialization
-  - mDNS pod discovery
-  - Tracing/logging setup
-  - Database initialization
-  - JWT middleware for auth
+**Purpose**: Single source of truth for data structures and protocol messages shared between rc-core (server) and rc-agent (gaming PC).
 
-- **`state.rs`** (202 lines)
-  - `AppState`: Global mutable state
-  - Pod registry (HashMap<String, PodInfo>)
-  - WebSocket multiplexer (agent_senders, dashboard broadcast)
-  - Billing, game launcher, AC server managers
-  - Rate limiting & OTP tracking
+### Key Files
 
-- **`config.rs`** (320 lines)
-  - Config struct: venue, server, database, cloud, pods, auth, AI debugger, AC server
-  - Loads from `racecontrol.toml` or env vars
-  - Defaults for development
+#### `types.rs` - Domain Entities
+Core domain types used throughout the system:
 
-- **`db/mod.rs`** (60+ lines)
-  - SQLite pool initialization
-  - Schema migration (drivers, pods, sessions, laps, billing, wallets)
-  - WAL mode enabled for concurrency
-  - Foreign key constraints enabled
+- **SimType** (enum): AssettoCorsa, AssettoCorsaEvo, IRacing, LeMansUltimate, F125, Forza
+- **PodInfo** (struct): Pod identity and state
+  - `id`, `number`, `name`, `ip_address`, `mac_address`
+  - `sim_type`: Currently installed game
+  - `status`: Offline, Idle, InSession, Error, Disabled
+  - `current_driver`: Customer name or ID
+  - `current_session_id`: Active billing session UUID
+  - `last_seen`: Last heartbeat timestamp
+  - `driving_state`: Optional (Active, Idle, Stopped)
+  - `billing_session_id`: Linked to billing.rs session
+  - `game_state`: Loading, Menu, Paused, Racing, Finished
+  - `installed_games`: Vec of SimType available on pod
 
-**WebSocket & Real-time (60+ lines)**
-- **`ws/mod.rs`**
-  - `agent_ws`: Pod agent connection handler
-    - Registers pod, creates mpsc channel
-    - Forwards CoreToAgentMessage commands back to agents
-    - Listens for AgentMessage (heartbeat, telemetry, lap data)
-  - `dashboard_ws`: Client connection handler
-    - Subscribes to broadcast DashboardEvent stream
-    - Authorizes via JWT
-  - Stale connection cleanup via conn_id atomics
+- **Driver** (struct): Customer profile
+  - `id`, `name`, `email`, `phone`
+  - `steam_guid`, `iracing_id`: Third-party IDs
+  - `total_laps`, `total_time_ms`: Career stats
 
-**Pod Management (927+ LOC)**
-- **`pod_monitor.rs`** (234 lines)
-  - Monitors pod heartbeats
-  - Detects offline/crashed pods
-  - Updates pod status in registry
+- **SessionType**: Practice, Qualifying, Race, Hotlap
+- **SessionStatus**: Pending, Active, Completed, Cancelled
+- **DrivingState**: Active, Idle, Stopped (from wheelbase input detection)
+- **GameState**: Loading, Menu, Paused, Racing, Finished (from telemetry)
 
-- **`pod_healer.rs`** (693 lines)
-  - Automatic recovery for crashed/stalled pods
-  - WoL (Wake-on-LAN) for powered-down pods
-  - Restart strategies based on failure mode
-  - Protected process list (explorer.exe, dwm.exe, rc-agent.exe, pod-agent.exe)
+#### `protocol.rs` - WebSocket Messages
+Serializable messages exchanged between rc-core and rc-agent over WebSocket:
 
-- **`pod_reservation.rs`** (229 lines)
-  - Tracks pod availability
-  - Allocates pods to sessions
-  - Handles pod transitions (idle → in_session → idle)
+**CoreMessage** (server → agent):
+- `LaunchGame { pod_id, sim_type, experience_id }`: Start a game
+- `StopGame { pod_id }`: Kill active game process
+- `SetLockScreen { pod_id, state }`: Display lock screen UI
+- `ShowOverlay { pod_id, widget_type, data }`: In-game overlay (telemetry, times)
+- `UpdatePodConfig { pod_id, config }`: Wheelbase settings, game paths
+- `Ping`: Heartbeat
 
-- **`wol.rs`** (88 lines)
-  - Wake-on-LAN magic packet generation
+**AgentMessage** (agent → server):
+- `PodStateUpdate { pod_id, state }`: Pod status, driving state, game state
+- `TelemetryFrame { pod_id, frame_data }`: Lap telemetry (delta, fuel, temps)
+- `Lap { pod_id, lap_data }`: Completed lap (time, sector splits, fuel used)
+- `SessionEvent { pod_id, event }`: Session start, end, reset
+- `Pong`: Heartbeat response
 
-**Billing & Accounting (1,700+ LOC)**
-- **`billing.rs`** (1,434 lines)
-  - Core billing engine
-  - Session-based billing (30min/₹700, 60min/₹900, 5min trial, 10s idle cutoff)
-  - Pause/resume, refunds, splits
-  - Tiered pricing with early-bird & bulk discounts
-  - Rate limits prevent oversell
+#### `udp_protocol.rs` - UDP Telemetry Format
+Binary protocol for game telemetry via UDP (F1 25 on port 20777, AC on 9996, iRacing on 6789, etc.):
 
-- **`accounting.rs`**
-  - Revenue reconciliation
-  - Payment tracking
-  - Financial reporting
-
-- **`wallet.rs`** (267 lines)
-  - Customer wallet/credit management
-  - Recharge history
-
-**Game Management (454+ lines)**
-- **`game_launcher.rs`**
-  - Launch/stop game instances on pods
-  - Telemetry subscription
-  - Crash detection & automatic restart
-
-- **`ac_server.rs`**
-  - Assetto Corsa server lifecycle (start/stop)
-  - LAN session management
-  - Grid setup, qualifying/race modes
-
-- **`ac_camera.rs`**
-  - Dahua security camera control
-  - RTSP subtype=1 streaming
-  - Pan/tilt/zoom for spectating
-
-- **`catalog.rs`** (354 lines)
-  - AC track/car catalog (36 tracks, 325 cars)
-  - Difficulty presets
-  - Experience metadata
-
-**Session & Lap Tracking (150+ LOC)**
-- **`lap_tracker.rs`**
-  - Lap completion detection from telemetry
-  - Sector times, best lap tracking
-  - Grid/session metadata
-
-- **`multiplayer.rs`** (1,009 lines)
-  - Group sessions (friends, tournaments, casual)
-  - Scoring rules
-  - Leaderboard generation
-  - Tournament state machine
-
-**Authentication & Authorization (150+ LOC)**
-- **`auth/mod.rs`**
-  - JWT generation/validation
-  - PIN authentication (4-digit lock screen)
-  - OTP via SMS (Evolution API)
-  - Session token management
-
-**AI & Debugging (693+ LOC)**
-- **`ai.rs`**
-  - AI debugging prompt generation
-  - Ollama local LLM integration (venue-only)
-  - Anthropic API fallback
-  - Proactive error analysis
-
-- **`error_aggregator.rs`** (301 lines)
-  - Collects API errors across endpoints
-  - 5-minute rolling buckets
-  - Escalates high-frequency errors to AI
-
-- **`remote_terminal.rs`** (184 lines)
-  - SSH-like command execution on pods
-  - PIN-based authentication
-  - Session token with 24h expiry
-
-**Data Synchronization (828+ LOC)**
-- **`cloud_sync.rs`**
-  - Pull drivers, pricing, tournaments from cloud every 30s
-  - Push local billing/lap/session data
-  - UUID mismatch resolution (local vs cloud)
-  - Turso/SQLite cloud database support
-
-**Scheduling & Utilities**
-- **`scheduler.rs`** (478 lines)
-  - Periodic tasks (pod healer, cloud sync, watchdog)
-  - Cron-like scheduling
-  - Exponential backoff for failures
-
-- **`friends.rs`** (297 lines)
-  - Friend list management
-  - Group invites
-  - Multiplayer session coordination
-
-- **`activity_log.rs`**
-  - Audit trail for pod events
-
-**API Routes**
-- **`api/mod.rs`** (routes::api_routes)
-- **`api/routes.rs`** (100+ lines)
-  - REST endpoints organized by domain:
-    - `/health` - server status
-    - `/pods/*` - pod lifecycle (list, register, wake, shutdown, enable, disable, restart)
-    - `/drivers/*` - driver CRUD
-    - `/sessions/*` - session management
-    - `/laps/*` - lap data
-    - `/leaderboard/*` - rankings
-    - `/billing/*` - billing operations
-    - `/games/*` - game launch/stop
-    - `/ac/*` - AC server & content
-    - `/auth/*` - PIN/OTP assignment
-    - `/pricing/*` - pricing tier management
-
-**Total rc-core Lines:** ~18,728 (across 30 modules)
+- Frame-based deserialization for each sim's telemetry packet
+- Lap detection logic (sector times, session state transitions)
+- Fuel/tire/damage parsing for live overlay
 
 ---
 
-### 3. **rc-agent** (Pod Client)
-**Location:** `crates/rc-agent/src`
-**Binary:** `rc-agent` (runs on each pod, connects to rc-core via WebSocket)
-**Purpose:** On-pod game lifecycle, wheelbase monitoring, AI auto-fix
+## rc-core: Central Server (Port 8080)
 
-#### Key Modules:
+**Location**: `crates/rc-core/src/`
 
-**Initialization & Lifecycle (100+ LOC)**
-- **`main.rs`** (100 lines)
-  - TOML config load (`rc-agent-podX.toml`)
-  - WebSocket client connection to rc-core
-  - Spawns 5 main task channels: driving_detector, game_process, ai_debugger, lock_screen, overlay
+**Purpose**: RESTful API server + WebSocket hub. Single point of truth for pod state, customer data, billing, cloud sync, and real-time control.
 
-**Game & Process Management (454+ LOC)**
-- **`game_process.rs`**
-  - Track game executable state (launched, running, crashed, stopped)
-  - Named pipe communication for game state
-  - Crash detection via exit code or process timeout
-  - Auto-restart on crash (with cooldown)
+**Entry Point**: `main.rs`
+- Loads config from `racecontrol.toml` (venue name, JWT secret, database path, cloud credentials)
+- Initializes SQLite database (`initialize_db()`)
+- Spawns async background tasks (pod monitor, cloud sync, scheduler)
+- Starts Axum HTTP router on `config.server.host:config.server.port` (default 127.0.0.1:8080)
+- Configures CORS, tracing, and JWT middleware
+- Listens for WebSocket upgrades on `/ws`
 
-- **`ac_launcher.rs`**
-  - Assetto Corsa launch via Content Manager
-  - FORCE_START=1, HIDE_MAIN_MENU=1 in gui.ini
-  - Telemetry UDP listener setup
-  - Track/car pre-configuration
+### Core Modules
 
-- **`sims/mod.rs`** (SimAdapter trait)
-  - `SimAdapter` trait: connect, is_connected, read_telemetry, poll_lap_completed, session_info, disconnect
-  - Implementations: assetto_corsa.rs, f1_25.rs
+#### `state.rs` - In-Memory Application State
+**AppState** (wrapped in Arc<RwLock<>>):
+- `pods: HashMap<String, PodInfo>`: Current state of all pods (cached in-memory)
+- `db: Arc<Database>`: SQLite connection pool
+- `cloud_client: CloudClient`: HTTP client for cloud API sync
+- `config: Config`: Runtime configuration
+- `active_sessions: HashMap<String, BillingSession>`: In-flight billing sessions
+- `action_queue: ActionQueue`: Queued pod operations (start, stop, config)
 
-- **`sims/assetto_corsa.rs`**
-  - AC UDP telemetry parser
-  - Physics update frequency (default 100 Hz)
-  - Session state machine (practice → qualifying → race)
+**Why in-memory?** For sub-100ms WebSocket broadcast latency to connected clients. Database is source of truth for persistence; state is a live cache.
 
-- **`sims/f1_25.rs`**
-  - F1 25 UDP telemetry parser
-  - ERS energy management state
+#### `api/routes.rs` - REST Endpoints
+Organized by resource (customers, pods, billing, etc.):
 
-**Wheelbase & Input Monitoring (60+ LOC)**
-- **`driving_detector.rs`**
-  - USB HID for Conspit Ares 8Nm wheelbase (VID:0x1209 PID:0xFFB0)
-  - Detects steering/throttle/brake input
-  - Reports `DrivingState` to rc-core
-  - 10-second idle threshold for billing cutoff
+**Customer Routes** (`/customer/`):
+- `GET /customer/me` — Current user profile + wallet balance
+- `GET /customer/sessions` — Booking history with lap data
+- `GET /customer/sessions/{id}` — Session detail + telemetry graph
+- `GET /customer/sessions/{id}/share` — Shareable report (percentile, consistency, PB)
+- `POST /customer/book` — Initiate booking (step through wizard, reserve pod)
+- `GET /customer/ac/catalog` — 36 featured AC tracks/cars
+- `GET /customer/packages` — Preset packages (Date Night, Birthday, Corporate)
+- `GET /customer/membership` — Membership tier, hours tracking
+- `POST /customer/membership` — Subscribe to membership
 
-- **`udp_heartbeat.rs`**
-  - Sends/receives heartbeat UDP packets
-  - Pod ↔ rc-core connectivity check
+**Pod Routes** (`/pods/`):
+- `GET /pods` — List all pods with current state
+- `GET /pods/{id}` — Pod detail (status, driver, game, installed games)
+- `POST /pods/{id}/launch` — Start game on pod (requires booking JWT)
+- `POST /pods/{id}/stop` — Kill game (staff only)
+- `POST /pods/{id}/screen` — Per-pod blanking (kiosk lock screen state)
+- `GET /pods/{id}/metrics` — Pod uptime, session count, avg play time
 
-**Lock Screen & Authentication (80+ LOC)**
-- **`lock_screen.rs`**
-  - Fullscreen "Secure Exit" UI
-  - QR code generation for customer auth
-  - PIN validation via rc-core
-  - Blocks customer access to system settings
-  - Exit button enabled only on valid PIN/QR scan
+**Billing Routes** (`/billing/`):
+- `POST /billing/session/start` — Begin charging for drive time
+- `POST /billing/session/end` — Stop charging, compute final bill
+- `GET /billing/pricing` — Dynamic pricing for current time
+- `GET /billing/history` — Customer's past bills
 
-**UI & Display (100+ LOC)**
-- **`kiosk.rs`**
-  - Fullscreen kiosk window management
-  - Display manager for multi-monitor setup
-  - Prevents taskbar/window switching
+**Terminal Routes** (`/terminal/`):
+- `POST /terminal/auth` — Verify 4-digit PIN for remote access
+- `POST /terminal/{pod_id}/launch` — Direct game launch (kiosk staff)
+- `POST /terminal/{pod_id}/stop` — Direct game kill
 
-- **`overlay.rs`**
-  - In-game HUD overlay (speed, timing, boost)
-  - TCP server (port 9000) for overlay communication
-  - Ready/sync with game launch
+**Admin Routes** (`/admin/`):
+- `GET /admin/dashboard` — Venue KPIs
+- `POST /admin/pricing/rules` — Configure dynamic pricing (multipliers by day/hour)
+- `POST /admin/coupons` — Create discount codes
+- `GET /admin/audit-log` — Double-entry bookkeeping audit trail
 
-**AI Debugging & Auto-Fix (693+ LOC)**
-- **`ai_debugger.rs`**
-  - Captures `PodStateSnapshot` at crash time
-  - Calls Ollama (local on James's GPU) or Claude API
-  - Auto-fix suggestions:
-    - Stale socket cleanup
-    - Game process management
-    - Temp file cleanup (%temp%)
-    - WerFault (Windows error reporting) cleanup
-  - Protected process list prevents OS/system damage
-  - Execution via `tokio::spawn_blocking` with 60s timeout
-  - Pipeline logging for debugging
+#### `auth/mod.rs` - JWT Authentication
+- `JwtClaims` struct: `{ user_id, role (Customer|Staff|Admin), exp, iat }`
+- `generate_jwt()`: Create token on login (24h expiry)
+- `verify_jwt()` middleware: Validate signature, expiry, role
+- `get_current_user()` extractor: Extract user_id from request
 
-**Debug Server (80+ LOC)**
-- **`debug_server.rs`**
-  - HTTP debug endpoint (port 8090)
-  - Pod diagnostics
-  - Live state introspection
+**Employee PIN Auth**: `POST /terminal/auth` accepts 4-digit PIN, returns JWT. PIN is computed daily from hash(jwt_secret + date), preventing reverse-engineering.
 
-**Total rc-agent Lines:** ~1,400 (across 13 modules)
-
----
-
-## Data Flow Architecture
-
-### Pod Lifecycle Flow
-```
-1. Pod boots → rc-agent starts
-2. rc-agent connects to rc-core via WebSocket
-3. rc-agent sends Register(PodInfo) → core adds to pod registry
-4. core broadcasts DashboardEvent("pod_registered") to kiosk/pwa
-
-5. Customer books session → core sends StartSession to rc-agent
-6. rc-agent launches game, initializes wheelbase, lock screen
-7. Game runs → telemetry UDP → rc-agent reads & sends Telemetry frames
-8. rc-agent monitors DrivingState, sends updates
-9. Game detects lap → rc-agent sends LapCompleted
-
-10. Customer exits → lock screen requires PIN
-11. PIN validated → core sends StopSession
-12. rc-agent shuts game, resets pod → billing stops
-13. Pod idle → ready for next session
-
-14. If game crashes → rc-agent auto-detects crash
-    → sends crash report to rc-core
-    → rc-core triggers ai_debugger
-    → Ollama analyzes pod state & suggests fixes
-    → rc-agent executes auto-fix (if safe)
-    → Game auto-restarts
-```
-
-### Billing Flow
-```
-1. Customer starts session → session_id, pod_id, duration generated
-2. Billing engine calculates tier (trial/30min/60min) & rate
-3. Timer starts → every 10s: check driving_state
-4. If idle > 10s → pause billing (customer can resume)
-5. If driving → accrue to billing_session
-6. Customer ends session → final cost calculated
-7. Deduct from wallet (cloud-synced)
-8. Log to activity_log for audit
-```
-
-### Cloud Sync Flow
-```
-Every 30s:
-1. rc-core pulls drivers, pricing, tournaments from cloud
-2. rc-core pushes billing sessions, lap times to cloud
-3. ID mismatch resolution: match by phone+email
-4. Local data always authoritative for billing/laps
-5. Cloud data always authoritative for drivers/pricing
-```
-
----
-
-## WebSocket Protocol
-
-### Pod Agent ↔ rc-core (agent_ws)
-
-**Pod → Core: `AgentMessage`**
-```
-Register(PodInfo)        // Pod boots, announces itself
-Heartbeat(PodInfo)       // Every 5s, pod status update
-Telemetry(TelemetryFrame)// Game physics frame (~100 Hz)
-LapCompleted(LapData)    // Lap detected
-SessionUpdate(SessionInfo)// Session state change
-DrivingStateUpdate       // Steering/throttle detected
-GameStateUpdate          // Game launched/crashed/stopped
-AiDebugResult            // Auto-fix suggestion result
-PinEntered { pod_id, pin }// Lock screen PIN entry
-Disconnect { pod_id }    // Pod shutting down
-```
-
-**Core → Pod: `CoreToAgentMessage`**
-```
-Registered { pod_id }    // Ack pod registration
-StartSession(SessionInfo)// Launch game with these settings
-StopSession { session_id }// Graceful shutdown
-UpdateConfig             // Update rc-agent config
-SetScreen { mode }       // Wake/lock/blank display
-```
-
-### Dashboard Client ↔ rc-core (dashboard_ws)
-
-**Core → Client: `DashboardEvent`**
-```
-PodStatusUpdate(PodInfo) // Pod status changed
-TelemetryFrame          // Live telemetry
-LapCompleted            // Real-time lap results
-BillingUpdate           // Session cost updated
-SessionStatusUpdate     // Session state
-ChatMessage             // AI debugging chat
-```
-
-**Client → Core: `DashboardCommand`**
-```
-Subscribe { pod_id }    // Watch specific pod
-Unsubscribe { pod_id }  // Stop watching
-SendChatMessage { text }// AI debug chat input
-```
-
----
-
-## API Endpoint Organization
-
-### Pod Management
-- `GET /pods` → list all pods
-- `GET /pods/{id}` → pod details
-- `POST /pods/{id}/wake` → power on
-- `POST /pods/{id}/shutdown` → power off
-- `POST /pods/{id}/restart` → restart
-- `POST /pods/{id}/enable` → enable pod (unmask from disabled list)
-- `POST /pods/{id}/disable` → disable pod (prevent auto-recovery)
-
-### Driver Management
-- `GET /drivers` → all drivers
-- `GET /drivers/{id}` → driver profile + stats
-- `POST /drivers` → register new driver
-- `GET /drivers/{id}/full-profile` → full history
-
-### Session & Booking
-- `GET /sessions` → active/past sessions
-- `POST /sessions` → create new session
-- `GET /sessions/{id}` → session details
-- `POST /bookings` → create booking
-
-### Billing
-- `POST /billing/start` → start billing session
-- `GET /billing/active` → current active sessions
-- `POST /billing/{id}/stop` → end session & charge
-- `POST /billing/{id}/pause` → pause (idle)
-- `POST /billing/{id}/extend` → add time
-- `POST /billing/{id}/refund` → refund session
-- `GET /billing/report/daily` → revenue report
-
-### Games
-- `POST /games/launch` → launch game on pod
-- `POST /games/stop` → stop game
-- `GET /games/active` → running games
-- `GET /games/pod/{pod_id}` → game state on pod
-
-### AC Server
-- `GET /ac/presets` → saved track/car combos
-- `POST /ac/session/start` → start LAN session
-- `POST /ac/session/stop` → end session
-- `GET /ac/content/tracks` → all tracks (36)
-- `GET /ac/content/cars` → all cars (325)
-
-### Authentication
-- `POST /auth/assign` → assign PIN to customer
-- `POST /auth/cancel/{id}` → revoke PIN
-- `GET /auth/pending` → pending PIN requests
-
-### Leaderboard & Stats
-- `GET /leaderboard/{track}` → top times on track
-- `GET /sessions/{id}/laps` → lap times for session
-- `GET /laps` → all lap records
-
----
-
-## Frontend Architecture
-
-### 1. **Kiosk (In-Venue, Port 3300)**
-**Location:** `kiosk/src`
-**Purpose:** On-site reception rig management & customer onboarding
-
-**Framework:** Next.js 16 + React 19 + TailwindCSS
-
-**Key Pages:**
-- `page.tsx` - Home/splash
-- `book/page.tsx` - Experience booking (track/car/difficulty selector)
-- `pod/[number]/page.tsx` - Individual pod control panel
-- `control/page.tsx` - Master pod array control
-- `debug/page.tsx` - Staff debugging interface
-- `settings/page.tsx` - Venue configuration
-- `spectator/page.tsx` - Live spectating feeds
-- `staff/page.tsx` - Staff login & PIN management
-
-**Key Components:**
-- `KioskPodCard.tsx` - Pod status card
-- `ExperienceSelector.tsx` - Track/car/difficulty picker
-- `DriverRegistration.tsx` - QR + PIN entry
-- `LiveTelemetry.tsx` - Real-time speed, gear, throttle
-- `SessionTimer.tsx` - Billing countdown
-- `F1Speedometer.tsx` - RPM gauge
-- `GameConfigurator.tsx` - Game settings preset manager
-
-**Hooks:**
-- `useKioskSocket.ts` - WebSocket to rc-core dashboard endpoint
-- `useSetupWizard.ts` - Multi-step experience setup state
-
-**API:**
-- `lib/api.ts` - HTTP client for REST endpoints
-
-### 2. **PWA (Mobile Customer, Port 3100)**
-**Location:** `pwa/src`
-**Purpose:** Mobile customer experience (booking, stats, friends)
-
-**Framework:** Next.js 16 + React 19 + Recharts (graphs)
-
-**Key Pages:**
-- `page.tsx` - Dashboard
-- `book/page.tsx` - Booking interface
-- `book/active/page.tsx` - Active sessions
-- `book/group/page.tsx` - Group/tournament booking
-- `sessions/page.tsx` - Session history
-- `sessions/[id]/page.tsx` - Session detail + lap replay
-- `leaderboard/page.tsx` - Global rankings
-- `leaderboard/public/page.tsx` - Public leaderboard
-- `stats/page.tsx` - Personal statistics
-- `telemetry/page.tsx` - Live telemetry visualization
-- `coaching/page.tsx` - AI coaching insights
-- `friends/page.tsx` - Friend management
-- `profile/page.tsx` - User profile & settings
-- `login/page.tsx` - QR scan + OTP login
-- `register/page.tsx` - New driver signup
-- `scan/page.tsx` - QR scanner for pod pairing
-- `tournaments/page.tsx` - Event/tournament browser
-- `ai/page.tsx` - AI debugging chat interface
-- `terminal/page.tsx` - Web terminal for Uday (staff only)
-
-**Components:**
-- `SessionCard.tsx` - Session summary
-- `TelemetryChart.tsx` - Lap visualization (recharts)
-- `BottomNav.tsx` - Mobile navigation
-
-### 3. **Web Dashboard (Admin, Port 3200)**
-**Location:** `web/src` (legacy, may be deprecated)
-**Purpose:** Admin panel for operations
-
-**Framework:** Next.js + React + TailwindCSS
-
----
-
-## Key Data Structures
-
-### PodInfo
+#### `billing.rs` - Drive-Time Billing
+**BillingSession** (struct):
 ```rust
-pub struct PodInfo {
-    pub id: String,                     // UUID
-    pub number: u32,                    // Pod 1-8
-    pub name: String,                   // "Pod 1 - AC"
-    pub ip_address: String,             // 192.168.31.x
-    pub mac_address: Option<String>,    // For WoL
-    pub sim_type: SimType,              // AssettoCorsa, F1_25, etc
-    pub status: PodStatus,              // Offline, Idle, InSession, Error, Disabled
-    pub current_driver: Option<String>, // Driver UUID
-    pub current_session_id: Option<String>,
-    pub last_seen: Option<DateTime<Utc>>,
-    pub driving_state: Option<DrivingState>,
-    pub billing_session_id: Option<String>,
-    pub game_state: Option<GameState>,
-    pub current_game: Option<SimType>,
-}
-```
-
-### TelemetryFrame
-```rust
-pub struct TelemetryFrame {
+pub struct BillingSession {
+    pub id: String,                    // UUID
     pub pod_id: String,
-    pub timestamp: DateTime<Utc>,
-    pub speed_kmh: f32,
-    pub throttle: f32,      // 0.0-1.0
-    pub brake: f32,
-    pub steering: f32,      // -1.0 to +1.0
-    pub gear: i32,
-    pub rpm: f32,
-    pub fuel: f32,
-    pub lap_distance: f32,  // meters in lap
-    pub track_temperature: f32,
-    pub car_id: String,
-    pub track_id: String,
-}
-```
-
-### BillingSessionInfo
-```rust
-pub struct BillingSessionInfo {
-    pub id: String,                 // UUID
     pub driver_id: String,
-    pub pod_id: String,
     pub started_at: DateTime<Utc>,
     pub ended_at: Option<DateTime<Utc>>,
-    pub paused_at: Option<DateTime<Utc>>,
-    pub duration_ms: u64,           // Billable time
-    pub idle_ms: u64,               // Paused time (not billed)
-    pub cost_credits: u64,          // Final cost
-    pub pricing_tier_id: String,    // Which pricing was used
-    pub status: BillingStatus,      // Active, Paused, Completed, Refunded
-    pub refund_reason: Option<String>,
+    pub drive_time_ms: u64,            // Accumulates while driving
+    pub idle_time_ms: u64,             // While stationary
+    pub total_paise_charged: i64,      // ₹1 = 100 paise
+    pub status: SessionStatus,
 }
 ```
 
+**Drive-Time Logic**:
+1. **Start Session**: Customer selects game/track. `billing::start_session()` creates row in `billing_sessions` table, debits wallet at START (not end).
+2. **Timer Loop** (100ms tick): Check `DrivingState` from pod telemetry.
+   - If Active: accumulate `drive_time_ms`
+   - If Idle (>10s): accumulate `idle_time_ms`, don't charge
+   - Staff CANNOT launch session if customer wallet balance < session cost estimate
+3. **Dynamic Pricing**: `compute_dynamic_price()` applies multipliers from `pricing_rules` table (e.g., +30% on weekends, +20% 5–8 PM).
+4. **End Session**: Write actual paise charged to `wallet_debit_paise` field, deduct from `wallet.balance`.
+
+**Post-Session Hooks**:
+- Referral rewards (₹100 referrer, ₹50 referee if first session)
+- Review nudge scheduling (₹50 credit for Google review)
+- Membership hours tracking (Pro/Champion tiers)
+
+#### `ws/mod.rs` - WebSocket Hub
+**Connection Lifecycle**:
+1. Client (rc-agent or dashboard) connects to `/ws?pod_id={id}`
+2. `handle_socket()` spawns a task per connection.
+3. Server pushes `PodStateUpdate` messages (pod status, lap data) to all connected clients.
+4. Server receives `CoreMessage` commands from authorized clients, forwards to action queue.
+
+**Broadcast Architecture**:
+- `broadcast::channel()` (Tokio): Fan-out pod state updates to all dashboards.
+- Each pod has a separate channel to avoid congestion.
+- Clients subscribe on connect, unsubscribe on disconnect.
+
+#### `cloud_sync.rs` - Venue ↔ Cloud Sync
+**Pull (Cloud → Venue)** every 30s:
+- Drivers, wallets, pricing_tiers, pricing_rules, kiosk_experiences, kiosk_settings
+
+**Push (Venue → Cloud)** every 30s:
+- Laps, track_records, personal_bests, billing_sessions, pods, drivers (venue-owned fields), wallets
+- Uses CRDT (Conflict-free Replicated Data Type): MAX() for `updated_at` timestamps to prevent stale overwrites
+
+**Sync Conflict Prevention** (Mar 9 fix):
+- `upsert_wallet()` checks `updated_at` before overwriting — prevents stale cloud balance erasing venue debits.
+- Long-term: wallet_transactions table to sync individual credit/debit events.
+
+#### `pod_monitor.rs` - Pod Health
+- Heartbeat checker: Flags pods offline if no message in 2 minutes.
+- Status transitions: Idle → InSession → Idle (or Error on crash).
+- Auto-recovery: Attempts WoL (Wake-on-LAN) if offline.
+
+#### `pod_healer.rs` - Auto-Recovery
+- Detects crashed games, dead rc-agent processes.
+- Sends `StopGame` command to orphaned processes.
+- Restarts rc-agent via WoL if needed.
+
+#### `game_launcher.rs` - Game Start Orchestration
+1. Receives `POST /pods/{id}/launch` with `{ game: "ac", track, car, ... }`
+2. Validates customer wallet balance.
+3. Calls `billing::start_session()` (debits wallet immediately).
+4. Queues `LaunchGame` message to rc-agent over WebSocket.
+5. Waits for `GameState::Racing` telemetry.
+6. Returns session ID to customer.
+
+#### `pod_reservation.rs` - Booking Wizard
+- 8-step wizard: Sim selection → Track/Car → Duration → Difficulty → Friends → Customization → Review → Checkout.
+- Reserves pod for requested time slot.
+- Checks pod availability + customer wallet.
+- Returns formatted booking summary.
+
+#### `lap_tracker.rs` - Telemetry → Leaderboard
+- Consumes `Lap` messages from rc-agent (lap_time, sector_splits, fuel_used, etc.).
+- Computes percentile rank vs. same track/car.
+- Stores in `personal_bests`, `track_records` tables.
+- Exposes `GET /leaderboard/public` (no auth) for public rankings.
+
+#### `catalog.rs` - AC Catalog API
+- Hosts 36 featured tracks, 41 featured cars (50 total, 325 total).
+- Endpoints: `GET /customer/ac/catalog`, `GET /customer/ac/tracks`, `GET /customer/ac/cars`.
+
+#### `friends.rs` - Social Features
+- Friend requests, accept/reject/block.
+- Presence (online/offline/in_session).
+- Group booking (multiple drivers on same pod, turn-based).
+
+#### `multiplayer.rs` - Multiplayer Session Coordination
+- Join multiplayer lobbies (AC server mode).
+- Coordinate pod allocation for team events.
+
+#### `action_queue.rs` - Command Queueing
+- Prevents race conditions when multiple clients issue commands simultaneously.
+- FIFO queue: `LaunchGame`, `StopGame`, `SetLockScreen`, etc.
+- Consumer task processes one command at a time, awaits WebSocket ack.
+
+#### `scheduler.rs` - Cron Jobs
+- Pricing rule updates (apply multipliers on schedule).
+- Referral payout batching.
+- Membership hour resets (monthly).
+
+#### `ai.rs` - Claude API Integration
+- `POST /ai/coaching` — AI-powered lap coaching (sector deltas, tips).
+- `POST /ai/chat` — Customer support chatbot.
+
+#### `accounting.rs` - Journal Entries
+- Double-entry bookkeeping for financial transactions.
+- Auto-posts on every wallet credit/debit/refund.
+- Queries: trial-balance, profit-loss, balance-sheet.
+
+#### `activity_log.rs` - Audit Trail
+- Soft-deletes: pricing_tiers, pricing_rules, coupons marked `is_active=0`.
+- Auto-logs before/after snapshots on CRUD operations.
+- Query via `GET /audit-log`.
+
+#### `db/mod.rs` - SQLite Abstraction
+- Connection pool (sqlite with rusqlite, wrapped in Arc<RwLock<>>).
+- Schema migrations (create tables if not exist).
+- Tables: customers, billing_sessions, personal_bests, track_records, pricing_rules, coupons, audit_log, accounts, journal_entries, wallets, etc.
+
+#### `config.rs` - Configuration
+- Reads `racecontrol.toml`:
+  - `[venue]`: name, location, timezone
+  - `[server]`: host, port
+  - `[auth]`: jwt_secret, employee_pin_base
+  - `[database]`: path (default /tmp/racecontrol.db)
+  - `[cloud]`: api_url, sync_interval_secs
+  - `[games]`: paths to game executables on pod
+- Fallback defaults if file missing.
+
+#### `remote_terminal.rs` - Staff Terminal
+- PIN-authenticated remote launcher for kiosk staff.
+- `POST /terminal/{pod_id}/launch` launches game directly (no customer booking needed).
+
+#### `error_aggregator.rs` - Error Tracking
+- Collects pod/game errors.
+- Alerts admins if error rate spikes.
+
+#### `ac_server.rs`, `ac_camera.rs` - Assetto Corsa Specifics
+- AC stracker protocol (UDP server list, live track state).
+- Camera control for replay clips.
+
+#### `udp_heartbeat.rs` - UDP Listener
+- Listens on multiple ports (9996 AC, 20777 F1, 5300 Forza, 6789 iRacing, 5555 LMU).
+- Deserializes telemetry packets, emits Lap/TelemetryFrame events.
+
+#### `wol.rs` - Wake-on-LAN
+- Send magic packet to offline pods (MAC address stored in PodInfo).
+
 ---
 
-## Module Dependencies
+## rc-agent: Pod Client (Gaming PC)
 
+**Location**: `crates/rc-agent/src/`
+
+**Purpose**: Runs on each gaming PC (pod). Listens for commands from rc-core, launches/kills games, captures telemetry, manages UI overlays, handles lock screen.
+
+**Entry Point**: `main.rs`
+- Loads `AgentConfig` from TOML (pod ID, core server URL, game paths, wheelbase vendor ID/PID).
+- Spawns threads for:
+  - Game process manager
+  - Lock screen UI
+  - Overlay renderer
+  - Kiosk UI
+  - UDP telemetry listeners (6 ports in parallel)
+  - Driving detector (HID wheelbase input)
+  - WebSocket sender/receiver
+- Connects to rc-core WebSocket: `ws://core:8080/ws?pod_id={id}`
+
+### Core Modules
+
+#### `game_process.rs` - Game Launch & Monitoring
+**GameProcessManager**:
+- Spawns game EXE (e.g., `C:\Program Files\Assetto Corsa\assettocorsa.exe`).
+- Polls process status (running, crashed, exited).
+- Sends SIGTERM/SIGKILL on `StopGame` command.
+- Tracks game PID, CPU/memory usage.
+
+**Game Launch Flow**:
+1. Receive `LaunchGame { pod_id, sim_type, experience_id }` over WebSocket.
+2. Look up game path from config: `GamesConfig { assetto_corsa, f1_25, ... }`.
+3. Resolve experience (track/car combo) from customer booking.
+4. Build command line: `game.exe --track "Monza" --car "Ferrari" --difficulty "Expert"`.
+5. Spawn process with redirected stdout/stderr.
+6. Poll telemetry (game sends UDP frames on 9996, 20777, etc.).
+7. On game exit or `StopGame`, clean up.
+
+#### `game_process.rs` - Telemetry Parsing
+- Listens on UDP port for game telemetry (F1 25, AC, iRacing, Forza, LMU).
+- Parses binary frames (frame_id, position, velocity, fuel, tire temps, etc.).
+- Emits `TelemetryFrame` and `Lap` events to rc-core.
+
+#### `sims/mod.rs` - Sim Adapter Pattern
+**SimAdapter** (trait):
+- `parse_frame()`: Convert binary UDP to normalized telemetry struct.
+- `detect_lap()`: Identify lap completion from session_id + lap counter changes.
+- `extract_sectors()`: Compute sector times from waypoint data.
+
+**Implementations**:
+- `sims/assetto_corsa.rs`: AC physics data deserialization.
+- `sims/f1_25.rs`: F1 25 telemetry (complete as of Mar 5).
+
+#### `driving_detector.rs` - Wheelbase Input Detection
+**DrivingDetector**:
+- Reads OpenFFBoard HID input (steering angle, throttle, brake, clutch).
+- Detects if input is active (steering >5°, throttle >10%, etc.).
+- Emits `DrivingState::Active` or `DrivingState::Idle`.
+- Used by billing timer to distinguish charged drive time from idle time.
+
+**HID Access**:
+- Uses `hidapi` crate (cross-platform USB HID).
+- Vendor ID: 0x1209, Product ID: 0xFFB0 (OpenFFBoard).
+- Polls every 10ms, logs if input inactive for >10s.
+
+#### `lock_screen.rs` - Lock Screen Manager
+- Displays full-screen overlay (customer name, track, timer, fuel gauge).
+- Receives `SetLockScreen` messages from rc-core.
+- Renders using Windows API (DirectX or GDI on Windows, Xlib on Linux).
+
+#### `overlay.rs` - Overlay Renderer
+- In-game overlay (telemetry, delta time, fuel estimate).
+- Uses game's native overlay API or injected DLL (game-specific).
+- Updates from `TelemetryFrame` events.
+
+#### `kiosk.rs` - Kiosk UI Manager
+**KioskManager**:
+- Displays staff interface (pod status, active session, quick buttons).
+- Staff PIN login (4-digit, computed daily).
+- Quick launch buttons for games.
+- Sends commands to rc-core: `LaunchGame`, `StopGame`.
+- Shows customer name, timer, current fuel, seat position.
+
+#### `ai_debugger.rs` - AI Coaching Integration
+- Optionally hooks into lap data.
+- Sends coaching queries to rc-core `/ai/coaching` endpoint.
+- Displays coaching tips in overlay.
+
+#### `udp_heartbeat.rs` - Heartbeat to rc-core
+- Sends `Pong` every 2 minutes to `ws://core:8080/ws`.
+- rc-core detects offline pods if no heartbeat for 6 minutes.
+
+#### `debug_server.rs` - Local Debug HTTP
+- `http://pod_ip:3000/status` returns PodInfo JSON.
+- Used by James for on-site debugging.
+
+---
+
+## Data Flow: Customer Session
+
+### 1. Booking (PWA → rc-core)
 ```
-rc-common (types + protocol)
-  ├── serde
-  ├── chrono
-  └── uuid
+Customer on PWA /book
+  → SELECT game, track, car, duration
+  → POST /customer/book { game, track, car, duration, friends: [...] }
+  → rc-core: pod_reservation::validate_booking()
+    → Check pod availability
+    → Check customer wallet balance
+    → Reserve pod + session slot in DB
+  ← Returns { booking_id, pod_id, cost_estimate, reserved_until }
+```
 
-rc-core (central server)
-  ├── rc-common
-  ├── axum (web framework)
-  ├── tower-http (cors, fs, trace)
-  ├── sqlx (sqlite async)
-  ├── mdns-sd (pod discovery)
-  ├── tokio-tungstenite (websocket)
-  ├── jsonwebtoken (JWT)
-  ├── reqwest (HTTP client)
-  └── toml (config)
+### 2. Game Launch (rc-core → rc-agent → Game)
+```
+Customer confirms booking, enters pod
+  → POST /pods/{pod_id}/launch { booking_id, game, track, car }
+  → rc-core validates JWT, calls billing::start_session()
+    → Debits wallet immediately
+    → Creates billing_sessions row
+  → rc-core queues CoreMessage::LaunchGame
+  → rc-core sends over WebSocket to rc-agent
 
-rc-agent (pod client)
-  ├── rc-common
-  ├── tokio-tungstenite (websocket to core)
-  ├── hidapi (USB wheelbase HID)
-  ├── sysinfo (process monitoring)
-  ├── mdns-sd (discover core)
-  ├── qrcode (lock screen QR)
-  ├── dirs-next (Documents path)
-  ├── winapi (Windows process mgmt)
-  └── reqwest (AI debugger HTTP)
+  ← rc-agent receives CoreMessage::LaunchGame
+    → game_process.rs looks up game EXE path
+    → Spawns: C:\AC\assettocorsa.exe --track Monza --car Ferrari
+    → Polls UDP 9996 for telemetry frames
+    → Emits TelemetryFrame events to rc-core
+```
 
-kiosk (next.js frontend)
-  ├── next 16
-  ├── react 19
-  └── tailwindcss 4
+### 3. Live Telemetry (rc-agent → rc-core → Dashboard)
+```
+Game sends UDP frame (F1 25 on 20777, AC on 9996, etc.)
+  ← rc-agent::sims::f1_25::parse_frame()
+    → Normalized { speed, position, throttle, fuel, tire_temp, ... }
+    → AgentMessage::TelemetryFrame
+  → Sent to rc-core over WebSocket
 
-pwa (next.js frontend)
-  ├── next 16
-  ├── react 19
-  ├── tailwindcss 4
-  ├── html5-qrcode (QR scanner)
-  └── recharts (charting)
+  ← rc-core receives TelemetryFrame
+    → Broadcasts to all dashboard clients over WebSocket
+    → Updates in-memory pod.driving_state (Active/Idle)
+    → Accumulates drive_time_ms (if Active)
+```
+
+### 4. Lap Completion (rc-agent → rc-core → Leaderboard)
+```
+Game detects lap completion (session_id changed, lap_id incremented)
+  ← rc-agent::lap_tracker::detect_lap()
+    → Extracts lap_time, sector_splits, fuel_used
+    → AgentMessage::Lap { pod_id, lap_data }
+  → Sent to rc-core
+
+  ← rc-core::lap_tracker.rs
+    → Computes percentile rank
+    → Stores in personal_bests, track_records
+    → Updates leaderboard
+```
+
+### 5. Session End (Customer Exits → rc-core)
+```
+Customer exits game (or timeout)
+  ← rc-agent detects game process exit
+    → Sends AgentMessage::SessionEvent { event: SessionEnded }
+  → rc-core receives
+    → Calls billing::end_session(session_id)
+    → Computes final paise charged
+    → Writes to wallet.balance
+    → Schedules post-session hooks (referral, review nudge, membership hours)
+
+  ← PWA shows session summary
+    → /sessions/{id} page with telemetry graph, lap times, leaderboard rank
 ```
 
 ---
 
-## Configuration & Environment
+## State Management
 
-**Config File:** `C:\Users\bono\racingpoint\racecontrol\racecontrol.toml`
+### In-Memory State (AppState)
+**Located in**: `state.rs`
 
-**Sections:**
-- `[venue]` - Name, location, timezone
-- `[server]` - Host (0.0.0.0), port (8080)
-- `[database]` - SQLite path (./data/racecontrol.db)
-- `[cloud]` - Cloud API URL, sync interval (30s), Turso credentials
-- `[pods]` - Pod count (8), discovery enabled, healer interval (120s)
-- `[branding]` - Primary color (#E10600), theme (dark)
-- `[ai_debugger]` - Ollama URL, model name, Anthropic API key
-- `[ac_server]` - AC server path, data directory
-- `[auth]` - JWT secret, OTP/PIN expiry (600s, 300s)
-- `[integrations]` - Discord webhook, WhatsApp contact
-- `[watchdog]` - Heartbeat timeout (30s), restart cooldown (120s)
+**Pods HashMap** (source of truth for real-time):
+- `pods: HashMap<String, PodInfo>`
+- Populated on startup from DB.
+- Updated every 100ms from telemetry/agent messages.
+- Broadcast to all WebSocket clients.
 
----
+**Active Sessions** (transient, not persisted until end):
+- `active_sessions: HashMap<String, BillingSession>`
+- Track in-flight billing (drive time, idle time, paise charged).
+- Written to DB when session ends.
 
-## Performance & Scaling
+**Action Queue** (commands waiting to send):
+- `action_queue: ActionQueue`
+- Holds `CoreMessage` items (LaunchGame, StopGame, SetLockScreen).
+- Consumer task processes FIFO, awaits WebSocket ack.
 
-- **WebSocket Multiplexing:** 8 pods + unlimited clients on single rc-core instance
-- **Database:** SQLite with WAL mode, 5 connection pool
-- **Cloud Sync:** 30s interval pull/push, ID resolution by phone+email
-- **Billing:** Sub-10ms calculation per session state check
-- **Telemetry:** 100 Hz UDP frames from game, ~1000/s ingestion capacity
-- **Pod Healing:** Every 120s, monitors heartbeat, auto-recovers stalled pods
+### SQLite Persistence
+**Location**: Default `/tmp/racecontrol.db` (configurable in `racecontrol.toml`)
 
----
+**Key Tables**:
+- `pods` — Pod metadata (name, IP, MAC, sim_type, installed_games)
+- `drivers` — Customer profiles (name, email, phone, steam_guid, iracing_id)
+- `billing_sessions` — Session records (pod_id, driver_id, start_time, end_time, paise_charged)
+- `personal_bests` — Customer's fastest lap per track/car
+- `track_records` — Venue leaderboard (fastest lap ever on each track/car)
+- `pricing_rules` — Dynamic pricing multipliers (day_of_week, hour, multiplier)
+- `coupons` — Discount codes (percent/flat/free_minutes, is_active)
+- `wallets` — Customer credit balances (driver_id, balance_paise, updated_at)
+- `journal_entries` — Double-entry bookkeeping (account_id, debit/credit, timestamp)
+- `audit_log` — Change history (table, record_id, before/after JSON, timestamp)
 
-## Testing & Validation
+### Cloud Sync (Bi-directional)
+**Located in**: `cloud_sync.rs`
 
-**Unit Tests:** 47 tests across 3 crates
-- Protocol serialization (rc-common)
-- Driving detector logic (rc-agent)
-- Billing calculations (rc-core)
-- Cloud sync ID resolution (rc-core)
+**Pull (Cloud → Venue)**: Every 30s
+- Drivers, wallets, pricing_tiers, pricing_rules, kiosk_experiences
 
-**Integration:**
-- Pod registration → core registry
-- Heartbeat → status update
-- Session start → game launch
-- Billing → cost calculation & refund
+**Push (Venue → Cloud)**: Every 30s
+- Laps, track_records, personal_bests, billing_sessions, pods, drivers, wallets
 
----
-
-## Deployment & CI/CD
-
-**Binaries:**
-- `rc-core` (racecontrol.exe) - Central server
-- `rc-agent` (rc-agent.exe) - Pod client (x1 per pod)
-- `pod-agent` (pod-agent.exe) - Pod HTTP daemon for remote deploy
-
-**Artifacts:**
-- Kiosk: Next.js build (`.next/`)
-- PWA: Next.js build (`.next/`)
-- Docker: Dockerfile for cloud deployment (Bono's VPS)
-
-**Deploy Kit:** `D:\pod-deploy\` on James's machine
-- Includes: install.bat, binaries, configs, watchdog setup
-- Usage: `install.bat <pod_number>` on each pod
+**Conflict Resolution**: MAX(updated_at) — newest write wins. Long-term: event sourcing via `wallet_transactions` table.
 
 ---
 
-## Key Design Decisions
+## Real-Time Features
 
-1. **Three Rust Crates:** Separation of concerns (types, server, agent)
-2. **SQLite:** Venue-local authoritative for billing; no cloud dependency required
-3. **WebSocket + HTTP:** Real-time events (WS) + request-response (HTTP)
-4. **mDNS Discovery:** Pod → Core discovery without static IPs
-5. **Ollama Local GPU:** AI debugging on venue (James's RTX 4070), not cloud
-6. **Protected Processes:** Auto-fix never kills explorer.exe, dwm.exe, rc-agent.exe
-7. **Cloud Sync Eventual Consistency:** 30s pull/push with local-first fallback
-8. **Billing Timer:** 10s idle threshold to allow customer brief pauses
-9. **Multi-Sim Support:** Abstract SimAdapter trait for AC, F1 25, iRacing, etc.
-10. **Event-Driven UI:** Dashboard updates via broadcast channel, not polling
+### WebSocket Architecture
+**Endpoint**: `GET /ws?pod_id={id}`
+
+**Message Flow**:
+```
+Client (rc-agent or Dashboard)
+  ↓ (send CoreMessage)
+  rc-core WebSocket handler
+  ↓ (broadcast AgentMessage)
+  All connected clients receive update
+```
+
+**Channels**:
+- Tokio `broadcast::channel()` per pod (to avoid global congestion).
+- Clients subscribe on `/ws` connect, unsubscribe on disconnect.
+
+### Live Dashboard Updates
+- Real-time pod status (Online/Offline/Idle/InSession/Error).
+- Active session timers (elapsed drive time, estimated total time).
+- Telemetry updates (speed, fuel, tire temps) every 10–100ms.
+- Lap-time notifications (instant leaderboard rank update).
+
+### Broadcast to Multiple Clients
+Example: One customer's session affects multiple dashboards.
+```
+Pod 5 spawns lap message
+  → rc-core receives from rc-agent
+  → Broadcasts PodStateUpdate to all clients subscribed to pod_5
+  → Dashboard 1 updates live timer
+  → Dashboard 2 updates leaderboard
+  → Kiosk on Pod 5 updates overlay
+```
+
+---
+
+## Authentication & Authorization
+
+### JWT Structure
+**Claims**:
+```rust
+{
+  "user_id": "cust_abc123",
+  "role": "Customer",  // or "Staff", "Admin"
+  "exp": 1700000000,   // 24h expiry
+  "iat": 1699913600
+}
+```
+
+**Roles**:
+- **Customer**: Can book, view own sessions, join leaderboard.
+- **Staff**: Can launch games directly (PIN auth), view pod status.
+- **Admin**: Full access (pricing rules, coupons, audit logs).
+
+### Middleware
+`jwt_error_to_401` middleware in `main.rs` converts JWT decode errors to 401 Unauthorized.
+
+### Employee PIN Authentication
+**Endpoint**: `POST /terminal/auth { pin }`
+
+**PIN Computation**:
+```
+pin = hash(jwt_secret + today_date) % 10000
+```
+- Daily rotation prevents brute-force / reverse-engineering.
+- Staff can log in from kiosk using 4-digit PIN.
+
+---
+
+## Error Handling & Resilience
+
+### Pod Failure Recovery
+1. **pod_monitor.rs** detects offline (no heartbeat >2min).
+2. **pod_healer.rs** attempts WoL (Wake-on-LAN).
+3. If game crashes mid-session, billing auto-closes session.
+4. Customer refunded if crash occurred.
+
+### Network Disconnection
+- rc-agent WebSocket drops: rc-core flags pod as Offline.
+- Dashboard reconnect auto: PWA WebSocket reconnect logic.
+- Retry queue: Action commands (LaunchGame, StopGame) queued if pod unreachable, retried on reconnect.
+
+### Database Failures
+- Fallback to in-memory state if SQLite read fails.
+- All writes replicated to cloud (cloud_sync.rs) as backup.
+- Soft deletes prevent accidental data loss.
+
+---
+
+## Scalability & Performance
+
+### Multi-Pod Scaling
+- **In-memory HashMap** for <100 pods (typical venue has 8–12).
+- Each pod has independent UDP telemetry listener (non-blocking).
+- WebSocket broadcast fan-out scales with client count (Tokio task-per-connection).
+
+### Telemetry Throughput
+- **F1 25**: 60 Hz telemetry (60 frames/sec per pod × 8 pods = 480 frames/sec).
+- **UDP parsing**: Non-blocking, scales with core count.
+- **WebSocket broadcast**: Tokio async, supports 100s of concurrent clients.
+
+### Database Throughput
+- **SQLite**: Write-serialized (one connection). Suitable for venue-level (not global enterprise).
+- **Cloud sync**: Batches updates, pushes every 30s (not real-time consistency).
+
+### Optimization Notes
+- Pod state cached in-memory (HashMap), not fetched from DB on each request.
+- Lap data batched (not inserted individually).
+- Pricing rules cached on startup, updated via scheduler (not fetched on every session start).
+
+---
+
+## Key Design Principles
+
+1. **Single Source of Truth**: Database is persistent, memory is cache. Always read from DB on restart.
+2. **Loose Coupling**: rc-agent and rc-core communicate via WebSocket + protocol types (rc-common), not shared code.
+3. **Async-First**: Tokio for all I/O (database, network, WebSocket). No blocking calls in hot paths.
+4. **Protocol Versioning**: protocol.rs enums versioned for backward-compat when agents/servers diverge.
+5. **Cloud-Aware**: All writes replicate to cloud. Venue is always degraded-mode capable (works offline).
+6. **Soft Deletes**: Audit trail preservation via is_active flag, not hard deletes.
+7. **Drive-Time Integrity**: Billing debits at session start (not end) to prevent customers with $0 balance launching games.
+8. **Real-Time Broadcasting**: WebSocket broadcast for live dashboards, avoiding long-polling.
