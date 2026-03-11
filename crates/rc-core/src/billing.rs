@@ -39,7 +39,6 @@ pub async fn compute_dynamic_price(
     .bind(hour)
     .fetch_optional(&state.db)
     .await
-    .map_err(|e| tracing::warn!("Dynamic pricing query failed, using base price: {}", e))
     .ok()
     .flatten();
 
@@ -307,7 +306,6 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     .bind(session_id)
                     .fetch_optional(&state.db)
                     .await
-                    .map_err(|e| tracing::warn!("Failed to fetch driver for split session ({}): {}", session_id, e))
                     .ok()
                     .flatten()
                     .map(|r| r.0)
@@ -324,7 +322,6 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     .bind(session_id)
                     .fetch_optional(&state.db)
                     .await
-                    .map_err(|e| tracing::warn!("Failed to fetch split info ({}): {}", session_id, e))
                     .ok()
                     .flatten();
 
@@ -497,7 +494,6 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .bind(&session_id)
         .fetch_optional(&state.db)
         .await
-        .map_err(|e| tracing::error!("Failed to fetch session for pause-timeout refund ({}): {}", session_id, e))
         .ok()
         .flatten();
 
@@ -766,23 +762,6 @@ pub async fn start_billing_session(
         }
     }
 
-    // Guard: same driver cannot be on multiple pods simultaneously
-    let active_elsewhere = sqlx::query_as::<_, (String,)>(
-        "SELECT pod_id FROM billing_sessions WHERE driver_id = ? AND status IN ('active', 'paused_manual') AND pod_id != ?",
-    )
-    .bind(&driver_id)
-    .bind(&pod_id)
-    .fetch_optional(&state.db)
-    .await
-    .unwrap_or(None);
-
-    if let Some((other_pod,)) = active_elsewhere {
-        return Err(format!(
-            "Driver already has an active session on {}",
-            other_pod
-        ));
-    }
-
     // Look up pricing tier
     let tier = sqlx::query_as::<_, (String, String, i64, i64, bool)>(
         "SELECT id, name, duration_minutes, price_paise, is_trial FROM pricing_tiers WHERE id = ? AND is_active = 1",
@@ -835,7 +814,6 @@ pub async fn start_billing_session(
         .bind(&driver_id)
         .fetch_optional(&state.db)
         .await
-        .map_err(|e| tracing::warn!("Failed to look up driver name for {}: {}", driver_id, e))
         .ok()
         .flatten()
         .map(|r| r.0)
@@ -1234,7 +1212,6 @@ async fn end_billing_session(
                 .bind(session_id)
                 .fetch_optional(&state.db)
                 .await
-                .map_err(|e| tracing::error!("Failed to fetch session for early-end refund ({}): {}", session_id, e))
                 .ok()
                 .flatten();
 
@@ -1264,7 +1241,6 @@ async fn end_billing_session(
                 .bind(session_id)
                 .fetch_optional(&state.db)
                 .await
-                .map_err(|e| tracing::error!("Failed to fetch session for cancel refund ({}): {}", session_id, e))
                 .ok()
                 .flatten();
 
@@ -1350,7 +1326,6 @@ async fn end_billing_session(
     .bind(session_id)
     .fetch_optional(&state.db)
     .await
-    .map_err(|e| tracing::error!("Failed to fetch orphaned session ({}): {}", session_id, e))
     .ok()
     .flatten();
 

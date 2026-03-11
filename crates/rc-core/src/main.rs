@@ -90,10 +90,9 @@ async fn main() -> anyhow::Result<()> {
     // Load config
     let config = Config::load_or_default();
 
-    // Refuse to start with the default JWT secret — it's a critical security risk
+    // Warn if default JWT secret is unchanged
     if config.auth.jwt_secret == "racingpoint-jwt-change-me-in-production" {
-        tracing::error!("FATAL: Using default JWT secret. Set auth.jwt_secret in racecontrol.toml before running in production.");
-        anyhow::bail!("Refusing to start with default JWT secret. Set auth.jwt_secret in racecontrol.toml.");
+        tracing::warn!("Using default JWT secret! Set auth.jwt_secret in racecontrol.toml for production.");
     }
     tracing::info!("Venue: {} ({})", config.venue.name, config.venue.location);
     tracing::info!("Server: {}:{}", config.server.host, config.server.port);
