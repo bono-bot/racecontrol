@@ -1655,6 +1655,20 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Billing pause-on-disconnect columns ────────────────────────────────
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN pause_count INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN total_paused_seconds INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN last_paused_at TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN refund_paise INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

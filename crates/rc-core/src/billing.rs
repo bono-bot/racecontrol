@@ -75,6 +75,14 @@ pub struct BillingTimer {
     pub split_duration_minutes: Option<u32>,
     /// Which sub-session is currently running (1-indexed)
     pub current_split_number: u32,
+    /// Number of disconnect-pauses used in this session (max 3)
+    pub pause_count: u32,
+    /// Total seconds spent in PausedDisconnect state
+    pub total_paused_seconds: u32,
+    /// When the current pause started (None if not paused)
+    pub last_paused_at: Option<DateTime<Utc>>,
+    /// Maximum pause duration before auto-end (10 minutes)
+    pub max_pause_duration_secs: u32,
 }
 
 impl BillingTimer {
@@ -505,6 +513,10 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             split_count: row.9.unwrap_or(1) as u32,
             split_duration_minutes: row.10.map(|m| m as u32),
             current_split_number: 1, // Best guess on recovery — exact value non-critical
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
         };
 
         tracing::info!(
@@ -759,6 +771,10 @@ pub async fn start_billing_session(
         split_count: final_split_count,
         split_duration_minutes: final_split_duration,
         current_split_number: 1,
+        pause_count: 0,
+        total_paused_seconds: 0,
+        last_paused_at: None,
+        max_pause_duration_secs: 600,
     };
 
     let info = timer.to_info();
@@ -1363,6 +1379,10 @@ mod tests {
             split_count: 1,
             split_duration_minutes: None,
             current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
         };
 
         // Should count when driving
@@ -1400,6 +1420,10 @@ mod tests {
             split_count: 1,
             split_duration_minutes: None,
             current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
         };
 
         // One more tick should expire
@@ -1427,6 +1451,10 @@ mod tests {
             split_count: 1,
             split_duration_minutes: None,
             current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
