@@ -509,6 +509,7 @@ pub async fn start_ac_server(
 
 pub async fn stop_ac_server(state: &Arc<AppState>, session_id: &str) -> anyhow::Result<()> {
     let assigned_pods;
+    let mut killed_via_fallback = false;
 
     // Update instance
     {
@@ -516,10 +517,17 @@ pub async fn stop_ac_server(state: &Arc<AppState>, session_id: &str) -> anyhow::
         if let Some(inst) = instances.get_mut(session_id) {
             inst.status = AcServerStatus::Stopping;
 
-            // Kill the process
+            // Kill the process via child handle
             if let Some(ref mut child) = inst.child {
                 let _ = child.kill();
                 let _ = child.wait();
+            } else if let Some(pid) = inst.pid {
+                // Child handle lost (e.g. after restart) but PID still in memory
+                tracing::info!(pid, "Stopping acServer via PID fallback (in-memory, no child handle)");
+                if is_process_alive(pid) {
+                    let _ = kill_process_by_pid(pid);
+                }
+                killed_via_fallback = true;
             }
 
             assigned_pods = inst.assigned_pods.clone();
@@ -527,8 +535,55 @@ pub async fn stop_ac_server(state: &Arc<AppState>, session_id: &str) -> anyhow::
             inst.child = None;
             inst.pid = None;
         } else {
-            anyhow::bail!("AC session {} not found", session_id);
+            // Session not in memory — try PID fallback from DB (post-restart scenario)
+            let row = sqlx::query_as::<_, (Option<i64>, Option<String>)>(
+                "SELECT pid, pod_ids FROM ac_sessions WHERE id = ? AND status IN ('starting', 'running')"
+            )
+            .bind(session_id)
+            .fetch_optional(&state.db)
+            .await?;
+
+            if let Some((pid_opt, pod_ids_json)) = row {
+                if let Some(pid) = pid_opt {
+                    let pid = pid as u32;
+                    if is_process_alive(pid) {
+                        tracing::info!(pid, session_id, "Stopping acServer via PID fallback from DB (no child handle)");
+                        if let Err(e) = kill_process_by_pid(pid) {
+                            tracing::error!(pid, session_id, "Failed to kill via PID fallback: {}", e);
+                        }
+                    }
+                    killed_via_fallback = true;
+                } else {
+                    // No PID in DB — last resort: kill all acServer processes by name
+                    #[cfg(target_os = "windows")]
+                    {
+                        tracing::warn!(session_id, "No PID available — killing ALL acServer.exe instances as last resort");
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/F", "/IM", "acServer.exe"])
+                            .output();
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        tracing::warn!(session_id, "No PID available — killing all acServer processes as last resort");
+                        let _ = std::process::Command::new("killall")
+                            .args(["-9", "acServer"])
+                            .output();
+                    }
+                    killed_via_fallback = true;
+                }
+
+                // Parse pod_ids from DB for StopGame broadcast
+                assigned_pods = pod_ids_json
+                    .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
+                    .unwrap_or_default();
+            } else {
+                anyhow::bail!("AC session {} not found in memory or database", session_id);
+            }
         }
+    }
+
+    if killed_via_fallback {
+        tracing::info!(session_id, "Session stopped via PID fallback path");
     }
 
     // Broadcast stopped status
