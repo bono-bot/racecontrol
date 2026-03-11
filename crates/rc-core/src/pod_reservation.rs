@@ -181,7 +181,7 @@ pub async fn expire_idle_reservations(state: &Arc<AppState>) -> u32 {
            AND NOT EXISTS (
                SELECT 1 FROM billing_sessions
                WHERE billing_sessions.reservation_id = pod_reservations.id
-                 AND billing_sessions.status IN ('active', 'paused_manual', 'pending')
+                 AND billing_sessions.status IN ('active', 'paused_manual', 'paused_disconnect', 'pending')
            )",
     )
     .fetch_all(&state.db)

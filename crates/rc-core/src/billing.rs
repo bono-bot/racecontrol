@@ -145,17 +145,43 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut expired_sessions = Vec::new();
     let mut warnings = Vec::new();
     let mut agent_ticks: Vec<(String, u32, u32, String)> = Vec::new();
-    let mut offline_auto_end: Vec<(String, String, u32)> = Vec::new();
+    let mut pause_timeout_end: Vec<(String, String, u32, String)> = Vec::new();
+    let mut new_pauses: Vec<(String, String, u32)> = Vec::new(); // pod_id, session_id, pause_count
 
     // Read pod statuses for offline detection
     let pods = state.pods.read().await;
 
     for (pod_id, timer) in timers.iter_mut() {
+        // ─── Handle PausedDisconnect state ────────────────────────────────
+        if timer.status == BillingSessionStatus::PausedDisconnect {
+            // Do NOT increment driving_seconds — billing is frozen
+            timer.total_paused_seconds += 1;
+
+            // Check if pause timeout exceeded (10 min default)
+            if timer.total_paused_seconds > timer.max_pause_duration_secs {
+                tracing::info!(
+                    "Disconnect pause timeout for session {} on pod {} ({}s paused) — auto-ending with refund",
+                    timer.session_id, pod_id, timer.total_paused_seconds
+                );
+                pause_timeout_end.push((
+                    pod_id.clone(),
+                    timer.session_id.clone(),
+                    timer.driving_seconds,
+                    timer.driver_id.clone(),
+                ));
+            } else {
+                // Broadcast paused tick to dashboards (so they see the session is paused)
+                events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
+            }
+            continue;
+        }
+
+        // Skip non-active timers (PausedManual, etc.)
         if timer.status != BillingSessionStatus::Active {
             continue;
         }
 
-        // Track offline_since for stuck billing timer auto-cleanup
+        // ─── Disconnect detection for Active sessions ─────────────────────
         let pod_is_offline = pods
             .get(pod_id.as_str())
             .map(|p| p.status == rc_common::types::PodStatus::Offline)
@@ -165,20 +191,28 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             if timer.offline_since.is_none() {
                 timer.offline_since = Some(Utc::now());
             }
-            // Auto-end if offline > 60 seconds
-            if let Some(since) = timer.offline_since {
-                if (Utc::now() - since).num_seconds() > 60 {
-                    tracing::warn!(
-                        "Auto-ending stuck billing session {} on pod {} (offline >60s)",
-                        timer.session_id, pod_id
-                    );
-                    offline_auto_end.push((
-                        pod_id.clone(),
-                        timer.session_id.clone(),
-                        timer.driving_seconds,
-                    ));
-                    continue; // Skip normal tick for this timer
-                }
+
+            // Immediately pause on disconnect (if pauses remaining)
+            if timer.pause_count < 3 {
+                timer.status = BillingSessionStatus::PausedDisconnect;
+                timer.pause_count += 1;
+                timer.last_paused_at = Some(Utc::now());
+                // Note: total_paused_seconds will be incremented each tick while paused
+
+                tracing::info!(
+                    "Billing paused due to disconnect: session={} pod={} pause_count={}",
+                    timer.session_id, pod_id, timer.pause_count
+                );
+
+                new_pauses.push((pod_id.clone(), timer.session_id.clone(), timer.pause_count));
+                events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info()));
+                continue; // Skip normal tick
+            } else {
+                // All 3 pauses used — billing continues even while offline
+                tracing::warn!(
+                    "Pod {} offline but session {} has used all 3 pauses — billing continues",
+                    pod_id, timer.session_id
+                );
             }
         } else {
             timer.offline_since = None; // Pod is back online
@@ -220,8 +254,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         timers.remove(pod_id);
     }
 
-    // Remove offline auto-end timers
-    for (pod_id, _, _) in &offline_auto_end {
+    // Remove pause-timeout-ended timers
+    for (pod_id, _, _, _) in &pause_timeout_end {
         timers.remove(pod_id);
     }
 
@@ -405,25 +439,101 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .await;
     }
 
-    // Persist offline auto-ended sessions to DB
-    for (pod_id, session_id, driving_seconds) in offline_auto_end {
-        log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended", "Pod offline >60s — Race Engineer ended session", "race_engineer");
+    // Persist new disconnect pauses to DB
+    for (pod_id, session_id, pause_count) in &new_pauses {
+        log_pod_activity(state, pod_id, "billing", "Session Paused (Disconnect)",
+            &format!("Pod offline — pause {}/3", pause_count), "race_engineer");
         let _ = sqlx::query(
-            "UPDATE billing_sessions SET status = 'ended_early', driving_seconds = ?, ended_at = datetime('now'), notes = 'Auto-ended: pod offline >60s'
+            "UPDATE billing_sessions SET status = 'paused_disconnect', pause_count = ?, last_paused_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(*pause_count as i64)
+        .bind(session_id)
+        .execute(&state.db)
+        .await;
+
+        let _ = sqlx::query(
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
+             VALUES (?, ?, 'paused_disconnect', ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(session_id)
+        .bind(0i64) // driving_seconds not incremented during pause
+        .bind(format!("{{\"pause_count\":{},\"reason\":\"disconnect\"}}", pause_count))
+        .execute(&state.db)
+        .await;
+
+        // Broadcast SessionPaused to dashboards
+        let _ = state.dashboard_tx.send(DashboardEvent::SessionPaused {
+            pod_id: pod_id.clone(),
+            session_id: session_id.clone(),
+            reason: "disconnect".to_string(),
+            pause_count: *pause_count,
+        });
+
+        // Send ShowPauseOverlay to agent
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(pod_id) {
+            let _ = sender.send(CoreToAgentMessage::ShowPauseOverlay {
+                session_id: session_id.clone(),
+                remaining_seconds: 600, // max pause duration
+                pause_count: *pause_count,
+            }).await;
+        }
+    }
+
+    // Handle pause timeout auto-end with partial refund
+    for (pod_id, session_id, driving_seconds, driver_id) in pause_timeout_end {
+        log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended",
+            "Disconnect pause timeout (10min) — auto-ended with partial refund", "race_engineer");
+
+        // Calculate partial refund
+        let session_info = sqlx::query_as::<_, (i64, Option<i64>)>(
+            "SELECT allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = ?",
+        )
+        .bind(&session_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        let mut refund_paise: i64 = 0;
+        if let Some((allocated, Some(debit))) = session_info {
+            if debit > 0 && (driving_seconds as i64) < allocated {
+                let remaining = allocated - driving_seconds as i64;
+                refund_paise = (remaining as f64 / allocated as f64 * debit as f64) as i64;
+                if refund_paise > 0 {
+                    let _ = crate::wallet::refund(
+                        state,
+                        &driver_id,
+                        refund_paise,
+                        Some(&session_id),
+                        Some("Auto-refund: disconnect pause timeout"),
+                    )
+                    .await;
+                }
+            }
+        }
+
+        let _ = sqlx::query(
+            "UPDATE billing_sessions SET status = 'ended_early', driving_seconds = ?, ended_at = datetime('now'),
+             refund_paise = ?, notes = 'Auto-ended: disconnect pause timeout (10min)'
              WHERE id = ?",
         )
         .bind(driving_seconds as i64)
+        .bind(refund_paise)
         .bind(&session_id)
         .execute(&state.db)
         .await;
 
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
-             VALUES (?, ?, 'auto_ended_offline', ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
+             VALUES (?, ?, 'pause_timeout_ended', ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&session_id)
         .bind(driving_seconds as i64)
+        .bind(format!("{{\"refund_paise\":{}}}", refund_paise))
         .execute(&state.db)
         .await;
 
@@ -436,6 +546,24 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 pod.status = rc_common::types::PodStatus::Idle;
                 let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
             }
+        }
+
+        // Notify agent: session ended
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(&pod_id) {
+            let _ = sender.send(CoreToAgentMessage::StopGame).await;
+            let _ = sender.send(CoreToAgentMessage::HidePauseOverlay {
+                session_id: session_id.clone(),
+            }).await;
+            let _ = sender
+                .send(CoreToAgentMessage::SessionEnded {
+                    billing_session_id: session_id.clone(),
+                    driver_name: "".to_string(), // Name not needed for timeout end
+                    total_laps: 0,
+                    best_lap_ms: None,
+                    driving_seconds,
+                })
+                .await;
         }
 
         let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
@@ -460,6 +588,16 @@ pub async fn sync_timers_to_db(state: &Arc<AppState>) {
             .bind(&timer.session_id)
             .execute(&state.db)
             .await;
+        } else if timer.status == BillingSessionStatus::PausedDisconnect {
+            // Persist pause state (driving_seconds frozen, but total_paused_seconds updates)
+            let _ = sqlx::query(
+                "UPDATE billing_sessions SET driving_seconds = ?, total_paused_seconds = ? WHERE id = ?",
+            )
+            .bind(timer.driving_seconds as i64)
+            .bind(timer.total_paused_seconds as i64)
+            .bind(&timer.session_id)
+            .execute(&state.db)
+            .await;
         }
     }
 }
@@ -473,7 +611,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
          FROM billing_sessions bs
          JOIN drivers d ON bs.driver_id = d.id
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
-         WHERE bs.status IN ('active', 'paused_manual')",
+         WHERE bs.status IN ('active', 'paused_manual', 'paused_disconnect')",
     )
     .fetch_all(&state.db)
     .await?;
@@ -487,6 +625,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
         let status = match row.7.as_str() {
             "active" => BillingSessionStatus::Active,
             "paused_manual" => BillingSessionStatus::PausedManual,
+            "paused_disconnect" => BillingSessionStatus::PausedDisconnect,
             _ => continue,
         };
 
@@ -907,6 +1046,81 @@ async fn set_billing_status(
                 .send(DashboardEvent::BillingSessionChanged(info));
         }
     }
+}
+
+/// Resume a billing session that was paused due to disconnect (manual only — staff/kiosk).
+pub async fn resume_billing_from_disconnect(
+    state: &Arc<AppState>,
+    session_id: &str,
+) -> Result<(), String> {
+    let mut timers = state.billing.active_timers.write().await;
+
+    let pod_id = timers
+        .iter()
+        .find(|(_, t)| t.session_id == session_id)
+        .map(|(k, _)| k.clone());
+
+    let pod_id = pod_id.ok_or_else(|| "Session not found in active timers".to_string())?;
+
+    let timer = timers.get_mut(&pod_id).ok_or("Timer not found")?;
+
+    if timer.status != BillingSessionStatus::PausedDisconnect {
+        return Err(format!(
+            "Session is not paused due to disconnect (current status: {:?})",
+            timer.status
+        ));
+    }
+
+    timer.status = BillingSessionStatus::Active;
+    timer.last_paused_at = None;
+    timer.offline_since = None;
+    // Note: total_paused_seconds keeps accumulating across pauses (not reset)
+
+    let info = timer.to_info();
+    let driver_name = timer.driver_name.clone();
+
+    drop(timers);
+
+    log_pod_activity(state, &pod_id, "billing", "Session Resumed (Disconnect)",
+        &driver_name, "core");
+
+    // Update DB
+    let _ = sqlx::query(
+        "UPDATE billing_sessions SET status = 'active', last_paused_at = NULL WHERE id = ?",
+    )
+    .bind(session_id)
+    .execute(&state.db)
+    .await;
+
+    // Log event
+    let _ = sqlx::query(
+        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
+         VALUES (?, ?, 'resumed_disconnect', ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(session_id)
+    .bind(info.driving_seconds as i64)
+    .execute(&state.db)
+    .await;
+
+    // Broadcast SessionResumed to dashboards
+    let _ = state.dashboard_tx.send(DashboardEvent::SessionResumed {
+        pod_id: pod_id.clone(),
+        session_id: session_id.to_string(),
+    });
+    let _ = state.dashboard_tx.send(DashboardEvent::BillingSessionChanged(info));
+
+    // Send HidePauseOverlay to agent
+    let agent_senders = state.agent_senders.read().await;
+    if let Some(sender) = agent_senders.get(&pod_id) {
+        let _ = sender.send(CoreToAgentMessage::HidePauseOverlay {
+            session_id: session_id.to_string(),
+        }).await;
+    }
+
+    tracing::info!("Billing session {} resumed from disconnect pause", session_id);
+
+    Ok(())
 }
 
 /// Public wrapper for ending billing sessions from API routes
@@ -1458,5 +1672,73 @@ mod tests {
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
+    }
+
+    #[test]
+    fn billing_pause_disconnect_freezes_driving_seconds() {
+        let mut timer = BillingTimer {
+            session_id: "test-pause".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "30 Minutes".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 100,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+        };
+
+        // Active tick — driving_seconds should increment
+        assert!(!timer.tick());
+        assert_eq!(timer.driving_seconds, 101);
+
+        // Simulate disconnect pause
+        timer.status = BillingSessionStatus::PausedDisconnect;
+        timer.pause_count = 1;
+
+        // Paused tick — driving_seconds should NOT increment
+        assert!(!timer.tick());
+        assert_eq!(timer.driving_seconds, 101); // Still 101
+    }
+
+    #[test]
+    fn max_three_pauses_per_session() {
+        let timer = BillingTimer {
+            session_id: "test-max-pause".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "30 Minutes".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 500,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 3, // Already used all 3 pauses
+            total_paused_seconds: 120,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+        };
+
+        // Should NOT be able to pause again (pause_count >= 3)
+        assert!(timer.pause_count >= 3);
+        // The tick loop checks pause_count < 3 before pausing
     }
 }

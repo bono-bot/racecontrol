@@ -160,6 +160,18 @@ pub enum CoreToAgentMessage {
     SettingsUpdated {
         settings: std::collections::HashMap<String, String>,
     },
+
+    /// Show pause overlay on kiosk (disconnect detected, billing paused)
+    ShowPauseOverlay {
+        session_id: String,
+        remaining_seconds: u32,
+        pause_count: u32,
+    },
+
+    /// Hide pause overlay on kiosk (session resumed or ended)
+    HidePauseOverlay {
+        session_id: String,
+    },
 }
 
 /// Messages sent from Core Server → Web Dashboard
@@ -288,6 +300,20 @@ pub enum DashboardEvent {
         group_session_id: String,
         ac_session_id: String,
         pod_ids: Vec<String>,
+    },
+
+    /// Billing session paused due to disconnect
+    SessionPaused {
+        pod_id: String,
+        session_id: String,
+        reason: String,
+        pause_count: u32,
+    },
+
+    /// Billing session resumed from disconnect pause
+    SessionResumed {
+        pod_id: String,
+        session_id: String,
     },
 
     /// Single pod activity entry (real-time, as it happens)

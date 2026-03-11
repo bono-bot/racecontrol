@@ -1778,11 +1778,24 @@ async fn resume_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    let cmd = rc_common::protocol::DashboardCommand::ResumeBilling {
-        billing_session_id: id,
+    // Check if this is a disconnect-paused session (needs special handling)
+    let is_disconnect_paused = {
+        let timers = state.billing.active_timers.read().await;
+        timers.values().any(|t| t.session_id == id && t.status == rc_common::types::BillingSessionStatus::PausedDisconnect)
     };
-    billing::handle_dashboard_command(&state, cmd).await;
-    Json(json!({ "ok": true }))
+
+    if is_disconnect_paused {
+        match billing::resume_billing_from_disconnect(&state, &id).await {
+            Ok(()) => Json(json!({ "ok": true })),
+            Err(e) => Json(json!({ "error": e })),
+        }
+    } else {
+        let cmd = rc_common::protocol::DashboardCommand::ResumeBilling {
+            billing_session_id: id,
+        };
+        billing::handle_dashboard_command(&state, cmd).await;
+        Json(json!({ "ok": true }))
+    }
 }
 
 async fn extend_billing(
