@@ -38,13 +38,16 @@ created: 2026-03-11
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 02-01-01 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent overlay::tests::test_format_timer` | ❌ W0 | ⬜ pending |
-| 02-01-02 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent overlay::tests::test_format_lap_time` | ❌ W0 | ⬜ pending |
-| 02-01-03 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent overlay::tests::test_format_sector` | ❌ W0 | ⬜ pending |
-| 02-01-04 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent overlay::tests::test_sector_color` | ❌ W0 | ⬜ pending |
-| 02-01-05 | 01 | 1 | INFRA-02 | unit | `cargo test -p rc-agent overlay::tests::test_compute_layout` | ❌ W0 | ⬜ pending |
-| 02-01-06 | 01 | 2 | INFRA-01 | manual | Deploy to Pod 8, check GDI handle count | N/A | ⬜ pending |
-| 02-01-07 | 01 | 2 | INFRA-02 | manual | Deploy to Pod 8, visual regression check | N/A | ⬜ pending |
+| 02-01-01 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent -- overlay::tests::test_format_timer` | ❌ W0 | ⬜ pending |
+| 02-01-02 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent -- overlay::tests::test_format_lap` | ❌ W0 | ⬜ pending |
+| 02-01-02 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent -- overlay::tests::test_format_sector` | ❌ W0 | ⬜ pending |
+| 02-01-03 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent -- overlay::tests::test_sector_color` | ❌ W0 | ⬜ pending |
+| 02-01-04 | 01 | 2 | INFRA-01 | unit | `cargo test -p rc-agent` | N/A | ⬜ pending |
+| 02-01-05 | 01 | 2 | INFRA-02 | unit | `cargo test -p rc-agent -- overlay::tests::test_compute_layout` | ❌ W0 | ⬜ pending |
+| 02-01-06 | 01 | 3 | INFRA-02 | unit | `cargo test -p rc-agent` | N/A | ⬜ pending |
+| 02-01-06 | 01 | 3 | INFRA-02 | manual | Deploy to Pod 8, visual regression check | N/A | ⬜ pending |
+| 02-01-07 | 01 | 4 | INFRA-01 | unit | `cargo test -p rc-agent` | N/A | ⬜ pending |
+| 02-01-07 | 01 | 4 | INFRA-01 | manual | Deploy to Pod 8, 30-min GDI handle count | N/A | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
