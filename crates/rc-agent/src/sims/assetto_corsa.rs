@@ -217,13 +217,17 @@ impl SimAdapter for AssettoCorsaAdapter {
             self.current_driver, self.current_car, self.current_track, num_sectors, self.max_rpm
         );
 
+        // Snapshot current completed_laps to avoid false lap detection from stale data
+        let initial_laps = Self::read_i32(&graphics, graphics::COMPLETED_LAPS) as u32;
+
         self.physics_handle = Some(physics);
         self.graphics_handle = Some(graphics);
         self.static_handle = Some(static_info);
         self.connected = true;
-        self.last_lap_count = 0;
+        self.last_lap_count = initial_laps;
         self.last_sector_index = -1;
         self.sector_times = [None; 3];
+        tracing::info!("AC: initial completed_laps = {} (skipping stale)", initial_laps);
 
         Ok(())
     }
