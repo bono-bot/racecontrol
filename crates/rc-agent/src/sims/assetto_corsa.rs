@@ -19,6 +19,7 @@ pub struct AssettoCorsaAdapter {
     current_driver: String,
     current_car: String,
     current_track: String,
+    max_rpm: u32,
     // Sector tracking: accumulate splits during a lap
     last_sector_index: i32,
     sector_times: [Option<u32>; 3], // S1, S2, S3 in ms
@@ -100,6 +101,8 @@ mod statics {
     pub const TRACK: usize = 134;       // wchar[33] = 66 bytes UTF-16LE
     pub const PLAYER_NAME: usize = 200; // wchar[33] = 66 bytes UTF-16LE
     pub const NUM_SECTORS: usize = 398; // i32, number of sectors on this track (usually 3)
+    // 402: maxTorque(f32), 406: maxPower(f32), 410: maxRpm(i32)
+    pub const MAX_RPM: usize = 410;     // i32, car's max RPM (replaces hardcoded 18000)
 }
 
 impl AssettoCorsaAdapter {
@@ -111,6 +114,7 @@ impl AssettoCorsaAdapter {
             current_driver: String::new(),
             current_car: String::new(),
             current_track: String::new(),
+            max_rpm: 8000, // default until read from AC static memory
             last_sector_index: -1,
             sector_times: [None; 3],
             #[cfg(windows)]
@@ -205,10 +209,12 @@ impl SimAdapter for AssettoCorsaAdapter {
         self.current_driver = Self::read_wchar_string(&static_info, statics::PLAYER_NAME, 33);
 
         let num_sectors = Self::read_i32(&static_info, statics::NUM_SECTORS);
+        let raw_max_rpm = Self::read_i32(&static_info, statics::MAX_RPM);
+        self.max_rpm = if raw_max_rpm > 0 { raw_max_rpm as u32 } else { 8000 };
 
         tracing::info!(
-            "AC shared memory connected: driver={}, car={}, track={}, sectors={}",
-            self.current_driver, self.current_car, self.current_track, num_sectors
+            "AC shared memory connected: driver={}, car={}, track={}, sectors={}, max_rpm={}",
+            self.current_driver, self.current_car, self.current_track, num_sectors, self.max_rpm
         );
 
         self.physics_handle = Some(physics);
@@ -273,7 +279,7 @@ impl SimAdapter for AssettoCorsaAdapter {
         }
 
         // Detect lap completion: completedLaps incremented
-        if completed_laps > self.last_lap_count && self.last_lap_count > 0 {
+        if completed_laps > self.last_lap_count {
             let lap_ms = if last_lap_time_ms > 0 { last_lap_time_ms as u32 } else { 0 };
 
             if lap_ms > 0 {
@@ -397,6 +403,10 @@ impl SimAdapter for AssettoCorsaAdapter {
         }
         self.connected = false;
         tracing::info!("Disconnected from AC shared memory");
+    }
+
+    fn max_rpm(&self) -> u32 {
+        self.max_rpm
     }
 }
 

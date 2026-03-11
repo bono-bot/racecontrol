@@ -462,7 +462,9 @@ async fn main() -> Result<()> {
             _ = telemetry_interval.tick() => {
                 let Some(ref mut adapter) = adapter else { continue };
                 if !adapter.is_connected() {
-                    let _ = adapter.connect();
+                    if adapter.connect().is_ok() {
+                        overlay.set_max_rpm(adapter.max_rpm());
+                    }
                     continue;
                 }
 

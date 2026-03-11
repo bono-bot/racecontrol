@@ -26,4 +26,7 @@ pub trait SimAdapter: Send + Sync {
 
     /// Disconnect from telemetry source
     fn disconnect(&mut self);
+
+    /// Car's max RPM (for RPM bar scaling). Default 8000 if unknown.
+    fn max_rpm(&self) -> u32 { 8000 }
 }

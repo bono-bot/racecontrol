@@ -42,12 +42,14 @@ struct OverlayData {
     current_lap_time_ms: u32,
     current_sector: u8,
     current_lap_invalid: bool,
+    game_live: bool,
     live_sector1_ms: Option<u32>,
     live_sector2_ms: Option<u32>,
     live_sector3_ms: Option<u32>,
     speed_kmh: f32,
     gear: i8,
     rpm: u32,
+    max_rpm: u32,
     car: String,
     track: String,
     previous_lap: Option<LapRecord>,
@@ -65,12 +67,14 @@ impl Default for OverlayData {
             current_lap_time_ms: 0,
             current_sector: 0,
             current_lap_invalid: false,
+            game_live: false,
             live_sector1_ms: None,
             live_sector2_ms: None,
             live_sector3_ms: None,
             speed_kmh: 0.0,
             gear: 0,
             rpm: 0,
+            max_rpm: 8000,
             car: String::new(),
             track: String::new(),
             previous_lap: None,
@@ -233,8 +237,16 @@ impl HudComponent for SessionTimerSection {
         unsafe {
             draw_text_at(hdc, res.font_label, col_grey, rect.x + 12, rect.y, "SESSION");
 
-            let timer_str = format_timer(data.remaining_seconds);
-            let timer_col = if data.remaining_seconds <= 10 {
+            // Show allocated time until game is live, then show real countdown
+            let display_seconds = if data.game_live {
+                data.remaining_seconds
+            } else {
+                data.allocated_seconds
+            };
+            let timer_str = format_timer(display_seconds);
+            let timer_col = if !data.game_live {
+                col_white // Frozen — waiting for game
+            } else if data.remaining_seconds <= 10 {
                 col_red
             } else if data.remaining_seconds <= 60 {
                 col_amber
@@ -534,7 +546,8 @@ impl RpmBarSection {
             use winapi::shared::windef::RECT;
             use winapi::um::winuser::FillRect;
 
-            let rpm_pct = if data.rpm > 0 { (data.rpm as f32 / 18000.0).min(1.0) } else { 0.0 };
+            let max = if data.max_rpm > 0 { data.max_rpm as f32 } else { 8000.0 };
+            let rpm_pct = if data.rpm > 0 { (data.rpm as f32 / max).min(1.0) } else { 0.0 };
             let rpm_bar_w = (rpm_pct * window_width as f32) as i32;
             let rpm_col = if rpm_pct > 0.90 {
                 rgb(225, 6, 0)
@@ -717,6 +730,12 @@ impl OverlayManager {
         if !data.active {
             return;
         }
+        // Mark game as live once we receive real telemetry (speed or RPM > 0,
+        // or lap_time advancing). This syncs the HUD timer with AC being on track.
+        if !data.game_live && (frame.speed_kmh > 0.0 || frame.rpm > 0 || frame.lap_time_ms > 0) {
+            data.game_live = true;
+            tracing::info!("Overlay: game is LIVE — HUD timer synced");
+        }
         data.current_lap_number = frame.lap_number;
         data.current_lap_time_ms = frame.lap_time_ms;
         data.current_sector = frame.sector;
@@ -724,11 +743,18 @@ impl OverlayManager {
         data.speed_kmh = frame.speed_kmh;
         data.gear = frame.gear;
         data.rpm = frame.rpm;
+        // max_rpm set via set_max_rpm() from adapter connect
         data.car = frame.car.clone();
         data.track = frame.track.clone();
         data.live_sector1_ms = frame.sector1_ms;
         data.live_sector2_ms = frame.sector2_ms;
         data.live_sector3_ms = frame.sector3_ms;
+    }
+
+    /// Set the car's max RPM (read from AC static shared memory at connect).
+    pub fn set_max_rpm(&self, max_rpm: u32) {
+        let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        data.max_rpm = max_rpm;
     }
 
     /// Record a completed lap — update previous_lap and possibly best_lap.
@@ -1158,8 +1184,12 @@ fn format_lap_time(ms: u32) -> String {
 
 fn format_sector(ms: Option<u32>) -> String {
     match ms {
-        Some(v) if v > 0 => format!("{:.1}", v as f64 / 1000.0),
-        _ => "--.--".to_string(),
+        Some(v) if v > 0 => {
+            let secs = v / 1000;
+            let millis = v % 1000;
+            format!("{}.{:03}", secs, millis)
+        }
+        _ => "--.---".to_string(),
     }
 }
 
@@ -1224,11 +1254,11 @@ mod tests {
 
     #[test]
     fn test_format_sector() {
-        assert_eq!(format_sector(None), "--.--");
-        assert_eq!(format_sector(Some(0)), "--.--");
-        assert_eq!(format_sector(Some(32100)), "32.1");
-        assert_eq!(format_sector(Some(1500)), "1.5");
-        assert_eq!(format_sector(Some(65432)), "65.4");
+        assert_eq!(format_sector(None), "--.---");
+        assert_eq!(format_sector(Some(0)), "--.---");
+        assert_eq!(format_sector(Some(32100)), "32.100");
+        assert_eq!(format_sector(Some(1500)), "1.500");
+        assert_eq!(format_sector(Some(65432)), "65.432");
     }
 
     #[test]
