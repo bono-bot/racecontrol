@@ -195,11 +195,465 @@ impl Drop for TempBrush {
     }
 }
 
+// ─── HUD Component System ───────────────────────────────────────────────────
+
+/// Trait for HUD section components. Each section knows how to paint itself.
+#[cfg(windows)]
+trait HudComponent {
+    fn paint(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        rect: &SectionRect,
+        data: &OverlayData,
+        res: &GdiResources,
+    );
+}
+
+/// Session timer section (match arm 0).
+#[cfg(windows)]
+struct SessionTimerSection;
+
+#[cfg(windows)]
+impl HudComponent for SessionTimerSection {
+    fn paint(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        rect: &SectionRect,
+        data: &OverlayData,
+        res: &GdiResources,
+    ) {
+        fn rgb(r: u8, g: u8, b: u8) -> u32 {
+            (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+        }
+        let col_grey: u32 = rgb(85, 85, 85);
+        let col_white: u32 = rgb(255, 255, 255);
+        let col_red: u32 = rgb(225, 6, 0);
+        let col_amber: u32 = rgb(245, 158, 11);
+
+        unsafe {
+            draw_text_at(hdc, res.font_label, col_grey, rect.x + 12, rect.y, "SESSION");
+
+            let timer_str = format_timer(data.remaining_seconds);
+            let timer_col = if data.remaining_seconds <= 10 {
+                col_red
+            } else if data.remaining_seconds <= 60 {
+                col_amber
+            } else {
+                col_white
+            };
+            draw_text_at(hdc, res.font_value, timer_col, rect.x + 12, 28, &timer_str);
+        }
+    }
+}
+
+/// Current lap section with live sector times (match arm 1).
+#[cfg(windows)]
+struct CurrentLapSection;
+
+#[cfg(windows)]
+impl HudComponent for CurrentLapSection {
+    fn paint(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        rect: &SectionRect,
+        data: &OverlayData,
+        res: &GdiResources,
+    ) {
+        fn rgb(r: u8, g: u8, b: u8) -> u32 {
+            (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+        }
+        let col_grey: u32 = rgb(85, 85, 85);
+        let col_white: u32 = rgb(255, 255, 255);
+        let col_red: u32 = rgb(225, 6, 0);
+        let col_purple: u32 = rgb(168, 85, 247);
+        let col_dim: u32 = rgb(68, 68, 68);
+        let col_sector_grey: u32 = rgb(160, 160, 160);
+
+        unsafe {
+            use winapi::shared::windef::RECT;
+            use winapi::um::winuser::FillRect;
+
+            draw_text_at(hdc, res.font_label, col_grey, rect.x + 12, rect.y, "CURRENT LAP");
+
+            let lap_str = format_lap_time(data.current_lap_time_ms);
+            let lap_col = if data.current_lap_invalid { rgb(255, 138, 132) } else { col_white };
+            if data.current_lap_invalid {
+                let inv_brush = TempBrush::new(col_red);
+                let inv_rect = RECT {
+                    left: rect.x + 8,
+                    top: 28 - 2,
+                    right: rect.x + 11,
+                    bottom: 28 + 24,
+                };
+                FillRect(hdc, &inv_rect, inv_brush.handle());
+            }
+            draw_text_at(hdc, res.font_value, lap_col, rect.x + 16, 28, &lap_str);
+
+            // Live sector times
+            let mut sector_x = rect.x + 12;
+            let sectors: [(&str, Option<u32>, Option<u32>, Option<u32>); 3] = [
+                ("S1", data.live_sector1_ms,
+                 data.previous_lap.as_ref().and_then(|p| p.sector1_ms),
+                 data.best_lap.as_ref().and_then(|b| b.sector1_ms)),
+                ("S2", data.live_sector2_ms,
+                 data.previous_lap.as_ref().and_then(|p| p.sector2_ms),
+                 data.best_lap.as_ref().and_then(|b| b.sector2_ms)),
+                ("S3", data.live_sector3_ms,
+                 data.previous_lap.as_ref().and_then(|p| p.sector3_ms),
+                 data.best_lap.as_ref().and_then(|b| b.sector3_ms)),
+            ];
+            for (idx, (label, ms, prev_ms, best_ms)) in sectors.iter().enumerate() {
+                let is_active = data.current_sector == idx as u8 && ms.is_none();
+                let label_col = if is_active { col_white } else { col_dim };
+                draw_text_at(hdc, res.font_sector_label, label_col, sector_x, 56, label);
+                sector_x += 16;
+
+                if ms.is_some() {
+                    let col = sector_color(
+                        *ms, *prev_ms, *best_ms,
+                        col_sector_grey, col_purple, rgb(34, 197, 94), rgb(245, 158, 11),
+                    );
+                    draw_text_at(hdc, res.font_sector, col, sector_x, 55, &format_sector(*ms));
+                } else {
+                    let dash_col = if is_active { col_white } else { col_dim };
+                    draw_text_at(hdc, res.font_sector, dash_col, sector_x, 55, "--.-");
+                }
+                sector_x += 46;
+            }
+        }
+    }
+}
+
+/// Gear + speed + RPM number section (match arm 2).
+#[cfg(windows)]
+struct GearSpeedSection;
+
+#[cfg(windows)]
+impl HudComponent for GearSpeedSection {
+    fn paint(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        rect: &SectionRect,
+        data: &OverlayData,
+        res: &GdiResources,
+    ) {
+        fn rgb(r: u8, g: u8, b: u8) -> u32 {
+            (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+        }
+        let col_white: u32 = rgb(255, 255, 255);
+        let col_dim: u32 = rgb(68, 68, 68);
+
+        unsafe {
+            let gear_str = match data.gear {
+                0 => "N".to_string(),
+                g if g < 0 => "R".to_string(),
+                g => g.to_string(),
+            };
+            draw_text_at(hdc, res.font_gear, col_white, rect.x + 12, 14, &gear_str);
+
+            let speed_str = if data.speed_kmh > 0.0 {
+                format!("{}", data.speed_kmh.round() as i32)
+            } else {
+                "---".to_string()
+            };
+            draw_text_at(hdc, res.font_speed, rgb(187, 187, 187), rect.x + 52, 18, &speed_str);
+            draw_text_at(hdc, res.font_unit, col_dim, rect.x + 52, 38, "KM/H");
+
+            if data.rpm > 0 {
+                let rpm_str = format!("{}", data.rpm);
+                draw_text_at(hdc, res.font_sector_label, col_dim, rect.x + 52, 56, &rpm_str);
+            }
+        }
+    }
+}
+
+/// Previous lap section with sector times (match arm 3).
+#[cfg(windows)]
+struct PrevLapSection;
+
+#[cfg(windows)]
+impl HudComponent for PrevLapSection {
+    fn paint(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        rect: &SectionRect,
+        data: &OverlayData,
+        res: &GdiResources,
+    ) {
+        fn rgb(r: u8, g: u8, b: u8) -> u32 {
+            (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+        }
+        let col_grey: u32 = rgb(85, 85, 85);
+        let col_light_grey: u32 = rgb(229, 231, 235);
+        let col_purple: u32 = rgb(168, 85, 247);
+        let col_dim: u32 = rgb(68, 68, 68);
+        let col_sector_grey: u32 = rgb(160, 160, 160);
+
+        unsafe {
+            draw_text_at(hdc, res.font_label, col_grey, rect.x + 12, rect.y, "PREV");
+
+            if let Some(ref prev) = data.previous_lap {
+                let prev_str = format_lap_time(prev.lap_time_ms);
+                draw_text_at(hdc, res.font_lap, col_light_grey, rect.x + 12, 28, &prev_str);
+
+                let mut sector_x = rect.x + 12;
+                for (label, ms, best_ms) in [
+                    ("S1", prev.sector1_ms, data.best_lap.as_ref().and_then(|b| b.sector1_ms)),
+                    ("S2", prev.sector2_ms, data.best_lap.as_ref().and_then(|b| b.sector2_ms)),
+                    ("S3", prev.sector3_ms, data.best_lap.as_ref().and_then(|b| b.sector3_ms)),
+                ] {
+                    draw_text_at(hdc, res.font_sector_label, col_dim, sector_x, 56, label);
+                    sector_x += 16;
+                    let val_str = format_sector(ms);
+                    let col = sector_color(
+                        ms, None, best_ms,
+                        col_sector_grey, col_purple, rgb(34, 197, 94), rgb(245, 158, 11),
+                    );
+                    draw_text_at(hdc, res.font_sector, col, sector_x, 55, &val_str);
+                    sector_x += 46;
+                }
+            } else {
+                draw_text_at(hdc, res.font_lap, rgb(51, 51, 51), rect.x + 12, 28, "--:--.---");
+            }
+        }
+    }
+}
+
+/// Best lap section with sector times (match arm 4).
+#[cfg(windows)]
+struct BestLapSection;
+
+#[cfg(windows)]
+impl HudComponent for BestLapSection {
+    fn paint(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        rect: &SectionRect,
+        data: &OverlayData,
+        res: &GdiResources,
+    ) {
+        fn rgb(r: u8, g: u8, b: u8) -> u32 {
+            (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+        }
+        let col_purple: u32 = rgb(168, 85, 247);
+
+        unsafe {
+            draw_text_at(hdc, res.font_label, col_purple, rect.x + 12, rect.y, "BEST");
+
+            if let Some(ref best) = data.best_lap {
+                let best_str = format_lap_time(best.lap_time_ms);
+                draw_text_at(hdc, res.font_lap, col_purple, rect.x + 12, 28, &best_str);
+
+                let mut sector_x = rect.x + 12;
+                for (label, ms) in [
+                    ("S1", best.sector1_ms),
+                    ("S2", best.sector2_ms),
+                    ("S3", best.sector3_ms),
+                ] {
+                    draw_text_at(hdc, res.font_sector_label, rgb(120, 60, 180), sector_x, 56, label);
+                    sector_x += 16;
+                    draw_text_at(hdc, res.font_sector, col_purple, sector_x, 55, &format_sector(ms));
+                    sector_x += 46;
+                }
+            } else {
+                draw_text_at(hdc, res.font_lap, rgb(51, 51, 51), rect.x + 12, 28, "--:--.---");
+            }
+        }
+    }
+}
+
+/// Lap counter section with INV badge (match arm 5).
+#[cfg(windows)]
+struct LapCounterSection;
+
+#[cfg(windows)]
+impl HudComponent for LapCounterSection {
+    fn paint(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        rect: &SectionRect,
+        data: &OverlayData,
+        res: &GdiResources,
+    ) {
+        fn rgb(r: u8, g: u8, b: u8) -> u32 {
+            (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+        }
+        let col_grey: u32 = rgb(85, 85, 85);
+        let col_white: u32 = rgb(255, 255, 255);
+        let col_red: u32 = rgb(225, 6, 0);
+
+        unsafe {
+            use winapi::shared::windef::RECT;
+            use winapi::um::winuser::FillRect;
+
+            draw_text_at(hdc, res.font_label, col_grey, rect.x + 12, rect.y, "LAP");
+
+            let lap_num_str = if data.current_lap_number > 0 {
+                data.current_lap_number.to_string()
+            } else {
+                "-".to_string()
+            };
+            draw_text_at(hdc, res.font_value, col_white, rect.x + 12, 28, &lap_num_str);
+
+            // INV badge
+            if data.current_lap_invalid {
+                let badge_x = rect.x + 42;
+                let badge_y = 28 + 2;
+                let badge_brush = TempBrush::new(col_red);
+                let badge_rect = RECT {
+                    left: badge_x,
+                    top: badge_y,
+                    right: badge_x + 30,
+                    bottom: badge_y + 16,
+                };
+                FillRect(hdc, &badge_rect, badge_brush.handle());
+                draw_text_at(hdc, res.font_badge, col_white, badge_x + 4, badge_y + 1, "INV");
+            }
+        }
+    }
+}
+
+/// Full-width RPM color bar at the top of the HUD.
+#[cfg(windows)]
+struct RpmBarSection;
+
+#[cfg(windows)]
+impl RpmBarSection {
+    fn paint(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        window_width: i32,
+        data: &OverlayData,
+        res: &GdiResources,
+    ) {
+        fn rgb(r: u8, g: u8, b: u8) -> u32 {
+            (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+        }
+
+        unsafe {
+            use winapi::shared::windef::RECT;
+            use winapi::um::winuser::FillRect;
+
+            let rpm_pct = if data.rpm > 0 { (data.rpm as f32 / 18000.0).min(1.0) } else { 0.0 };
+            let rpm_bar_w = (rpm_pct * window_width as f32) as i32;
+            let rpm_col = if rpm_pct > 0.90 {
+                rgb(225, 6, 0)
+            } else if rpm_pct > 0.75 {
+                rgb(245, 158, 11)
+            } else if rpm_pct > 0.50 {
+                rgb(234, 179, 8)
+            } else {
+                rgb(34, 197, 94)
+            };
+            let rpm_brush = TempBrush::new(rpm_col);
+            let rpm_bar_rect = RECT { left: 0, top: 0, right: window_width, bottom: 4 };
+            FillRect(hdc, &rpm_bar_rect, res.brush_rpm_bg);
+            let rpm_fill_rect = RECT { left: 0, top: 0, right: rpm_bar_w, bottom: 4 };
+            FillRect(hdc, &rpm_fill_rect, rpm_brush.handle());
+        }
+    }
+}
+
+/// Dispatches paint calls to registered HUD components.
+#[cfg(windows)]
+struct HudRenderer {
+    sections: Vec<Box<dyn HudComponent>>,
+    rpm_bar: RpmBarSection,
+}
+
+#[cfg(windows)]
+impl HudRenderer {
+    fn new() -> Self {
+        Self {
+            sections: vec![
+                Box::new(SessionTimerSection),
+                Box::new(CurrentLapSection),
+                Box::new(GearSpeedSection),
+                Box::new(PrevLapSection),
+                Box::new(BestLapSection),
+                Box::new(LapCounterSection),
+            ],
+            rpm_bar: RpmBarSection,
+        }
+    }
+
+    /// Paint all HUD components: RPM bar, red borders, dividers, then sections.
+    unsafe fn paint_all(
+        &self,
+        hdc: winapi::shared::windef::HDC,
+        window_width: i32,
+        window_height: i32,
+        data: &OverlayData,
+        res: &GdiResources,
+    ) {
+        use winapi::shared::windef::RECT;
+        use winapi::um::wingdi::*;
+        use winapi::um::winuser::FillRect;
+
+        // RPM bar (full-width, top 4px)
+        self.rpm_bar.paint(hdc, window_width, data, res);
+
+        // Red accent borders (cached brush)
+        let top_border = RECT { left: 0, top: 4, right: window_width, bottom: 6 };
+        let bot_border = RECT { left: 0, top: window_height - 2, right: window_width, bottom: window_height };
+        FillRect(hdc, &top_border, res.brush_red);
+        FillRect(hdc, &bot_border, res.brush_red);
+
+        SetBkMode(hdc, TRANSPARENT as i32);
+
+        // Section layout
+        let rects = compute_layout(window_width);
+        let old_pen = SelectObject(hdc, res.pen_divider as *mut _);
+
+        // Dividers between sections
+        for (i, rect) in rects.iter().enumerate() {
+            if i > 0 {
+                MoveToEx(hdc, rect.x, 8, std::ptr::null_mut());
+                LineTo(hdc, rect.x, window_height - 6);
+            }
+        }
+
+        // Paint each section component
+        for (i, component) in self.sections.iter().enumerate() {
+            if let Some(rect) = rects.get(i) {
+                component.paint(hdc, rect, data, res);
+            }
+        }
+
+        // Restore pen
+        SelectObject(hdc, old_pen as *mut _);
+    }
+}
+
+// ─── GDI Handle Leak Detection ──────────────────────────────────────────────
+
+/// How often (in WM_TIMER ticks) to check GDI handle count.
+/// At 200ms/tick, 300 ticks ≈ 60 seconds.
+const GDI_CHECK_INTERVAL: u32 = 300;
+
+/// Maximum allowed drift from baseline before warning.
+const GDI_DRIFT_THRESHOLD: u32 = 5;
+
+/// Returns the current GDI object count for this process.
+#[cfg(windows)]
+fn gdi_handle_count() -> u32 {
+    // GetGuiResources is in user32.dll. Use raw FFI since winapi may not export it.
+    unsafe extern "system" {
+        fn GetGuiResources(hProcess: winapi::shared::ntdef::HANDLE, uiFlags: u32) -> u32;
+    }
+    unsafe {
+        GetGuiResources(winapi::um::processthreadsapi::GetCurrentProcess(), 0) // GR_GDIOBJECTS = 0
+    }
+}
+
 /// Window-thread-local state stored via SetWindowLongPtrW(GWLP_USERDATA).
 #[cfg(windows)]
 struct WindowState {
     data: Arc<Mutex<OverlayData>>,
     res: GdiResources,
+    renderer: HudRenderer,
+    gdi_baseline: u32,
+    timer_tick: u32,
 }
 
 // ─── Manager ─────────────────────────────────────────────────────────────────
@@ -389,9 +843,7 @@ fn win32_window_loop(state: Arc<Mutex<OverlayData>>, hwnd_slot: Arc<Mutex<Option
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use winapi::shared::minwindef::*;
-    use winapi::shared::windef::*;
     use winapi::um::libloaderapi::GetModuleHandleW;
-    use winapi::um::wingdi::*;
     use winapi::um::winuser::*;
 
     fn wide(s: &str) -> Vec<u16> {
@@ -401,11 +853,16 @@ fn win32_window_loop(state: Arc<Mutex<OverlayData>>, hwnd_slot: Arc<Mutex<Option
     let class_name = wide("RacingHudOverlay");
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
-    // Build WindowState with cached GDI resources (created on this thread)
+    // Build WindowState with cached GDI resources and renderer (created on this thread)
     let window_state = unsafe {
+        let res = GdiResources::new();
+        let baseline = gdi_handle_count();
         Box::new(WindowState {
             data: state.clone(),
-            res: GdiResources::new(),
+            res,
+            renderer: HudRenderer::new(),
+            gdi_baseline: baseline,
+            timer_tick: 0,
         })
     };
     let state_ptr = Box::into_raw(window_state);
@@ -509,10 +966,35 @@ unsafe extern "system" fn wnd_proc(
                 let cs = &*(lparam as *const CREATESTRUCTW);
                 // cs.lpCreateParams is the Box<WindowState> raw pointer
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, cs.lpCreateParams as isize);
-                tracing::info!("Overlay: GDI resources cached (13 handles)");
+                let ws = &*(cs.lpCreateParams as *const WindowState);
+                tracing::info!(
+                    "Overlay: GDI resources cached (13 handles), baseline GDI count = {}",
+                    ws.gdi_baseline
+                );
                 0
             }
             WM_TIMER => {
+                // Periodic GDI handle count check for leak detection
+                let ws_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState;
+                if !ws_ptr.is_null() {
+                    let ws = &mut *ws_ptr;
+                    ws.timer_tick += 1;
+                    if ws.timer_tick % GDI_CHECK_INTERVAL == 0 {
+                        let current = gdi_handle_count();
+                        let drift = current.saturating_sub(ws.gdi_baseline);
+                        if drift > GDI_DRIFT_THRESHOLD {
+                            tracing::warn!(
+                                "Overlay: GDI handle drift detected! baseline={}, current={}, drift=+{}",
+                                ws.gdi_baseline, current, drift
+                            );
+                        } else {
+                            tracing::debug!(
+                                "Overlay: GDI handle check OK (baseline={}, current={}, drift=+{})",
+                                ws.gdi_baseline, current, drift
+                            );
+                        }
+                    }
+                }
                 InvalidateRect(hwnd, std::ptr::null(), FALSE);
                 0
             }
@@ -521,7 +1003,7 @@ unsafe extern "system" fn wnd_proc(
                 if !ws_ptr.is_null() {
                     let ws = &*ws_ptr;
                     let data = ws.data.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                    paint_hud(hwnd, &data, &ws.res);
+                    paint_hud(hwnd, &data, &ws.res, &ws.renderer);
                 }
                 0
             }
@@ -529,6 +1011,13 @@ unsafe extern "system" fn wnd_proc(
                 KillTimer(hwnd, TIMER_ID);
                 let ws_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState;
                 if !ws_ptr.is_null() {
+                    let ws = &*ws_ptr;
+                    let final_count = gdi_handle_count();
+                    tracing::info!(
+                        "Overlay: closing — GDI baseline={}, final={}, drift=+{}",
+                        ws.gdi_baseline, final_count,
+                        final_count.saturating_sub(ws.gdi_baseline)
+                    );
                     // Drop WindowState — GdiResources::drop() frees all 13 cached handles
                     drop(Box::from_raw(ws_ptr));
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
@@ -548,14 +1037,15 @@ unsafe extern "system" fn wnd_proc(
 // ─── GDI Painting ────────────────────────────────────────────────────────────
 
 #[cfg(windows)]
-unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData, res: &GdiResources) {
+unsafe fn paint_hud(
+    hwnd: winapi::shared::windef::HWND,
+    data: &OverlayData,
+    res: &GdiResources,
+    renderer: &HudRenderer,
+) {
     use winapi::shared::windef::*;
     use winapi::um::wingdi::*;
     use winapi::um::winuser::*;
-
-    fn rgb(r: u8, g: u8, b: u8) -> u32 {
-        (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
-    }
 
     let mut ps: PAINTSTRUCT = std::mem::zeroed();
     let hdc = BeginPaint(hwnd, &mut ps);
@@ -573,227 +1063,17 @@ unsafe fn paint_hud(hwnd: winapi::shared::windef::HWND, data: &OverlayData, res:
     let mem_bmp = CreateCompatibleBitmap(hdc, w, h);
     let old_bmp = SelectObject(mem_dc, mem_bmp as *mut _);
 
-    // ── Background (cached brush) ──
+    // Background fill (cached brush)
     let bg_rect = RECT { left: 0, top: 0, right: w, bottom: h };
     FillRect(mem_dc, &bg_rect, res.brush_bg);
 
-    // ── RPM color bar (top 4px, full width) ──
-    let rpm_pct = if data.rpm > 0 { (data.rpm as f32 / 18000.0).min(1.0) } else { 0.0 };
-    let rpm_bar_w = (rpm_pct * w as f32) as i32;
-    let rpm_col = if rpm_pct > 0.90 {
-        rgb(225, 6, 0)
-    } else if rpm_pct > 0.75 {
-        rgb(245, 158, 11)
-    } else if rpm_pct > 0.50 {
-        rgb(234, 179, 8)
-    } else {
-        rgb(34, 197, 94)
-    };
-    let rpm_brush = TempBrush::new(rpm_col); // Dynamic color — RAII cleanup
-    let rpm_bar_rect = RECT { left: 0, top: 0, right: w, bottom: 4 };
-    FillRect(mem_dc, &rpm_bar_rect, res.brush_rpm_bg); // Cached
-    let rpm_fill_rect = RECT { left: 0, top: 0, right: rpm_bar_w, bottom: 4 };
-    FillRect(mem_dc, &rpm_fill_rect, rpm_brush.handle());
-    drop(rpm_brush); // Explicit drop for clarity
-
-    // ── Red accent borders (cached brush) ──
-    let top_border = RECT { left: 0, top: 4, right: w, bottom: 6 };
-    let bot_border = RECT { left: 0, top: h - 2, right: w, bottom: h };
-    FillRect(mem_dc, &top_border, res.brush_red);
-    FillRect(mem_dc, &bot_border, res.brush_red);
-
-    SetBkMode(mem_dc, TRANSPARENT as i32);
-
-    // ── Color constants ──
-    let col_white: u32 = rgb(255, 255, 255);
-    let col_grey: u32 = rgb(85, 85, 85);
-    let col_light_grey: u32 = rgb(229, 231, 235);
-    let col_red: u32 = rgb(225, 6, 0);
-    let col_amber: u32 = rgb(245, 158, 11);
-    let col_purple: u32 = rgb(168, 85, 247);
-    let col_dim: u32 = rgb(68, 68, 68);
-    let col_sector_grey: u32 = rgb(160, 160, 160);
-
-    // ── Layout — compute section rectangles ──
-    let rects = compute_layout(w);
-    let value_y = 28;
-    let sector_y = 56;
-
-    let old_pen = SelectObject(mem_dc, res.pen_divider as *mut _);
-
-    for (i, rect) in rects.iter().enumerate() {
-        let sx = rect.x;
-        let label_y = rect.y;
-
-        if i > 0 {
-            MoveToEx(mem_dc, sx, 8, std::ptr::null_mut());
-            LineTo(mem_dc, sx, h - 6);
-        }
-
-        match i {
-            0 => {
-                // ── Session Timer ──
-                draw_text_at(mem_dc, res.font_label, col_grey, sx + 12, label_y, "SESSION");
-
-                let timer_str = format_timer(data.remaining_seconds);
-                let timer_col = if data.remaining_seconds <= 10 {
-                    col_red
-                } else if data.remaining_seconds <= 60 {
-                    col_amber
-                } else {
-                    col_white
-                };
-                draw_text_at(mem_dc, res.font_value, timer_col, sx + 12, value_y, &timer_str);
-            }
-            1 => {
-                // ── Current Lap ──
-                draw_text_at(mem_dc, res.font_label, col_grey, sx + 12, label_y, "CURRENT LAP");
-
-                let lap_str = format_lap_time(data.current_lap_time_ms);
-                let lap_col = if data.current_lap_invalid { rgb(255, 138, 132) } else { col_white };
-                if data.current_lap_invalid {
-                    let inv_brush = TempBrush::new(col_red);
-                    let inv_rect = RECT { left: sx + 8, top: value_y - 2, right: sx + 11, bottom: value_y + 24 };
-                    FillRect(mem_dc, &inv_rect, inv_brush.handle());
-                }
-                draw_text_at(mem_dc, res.font_value, lap_col, sx + 16, value_y, &lap_str);
-
-                // Live sector times
-                let mut sector_x = sx + 12;
-                let sectors: [(&str, Option<u32>, Option<u32>, Option<u32>); 3] = [
-                    ("S1", data.live_sector1_ms,
-                     data.previous_lap.as_ref().and_then(|p| p.sector1_ms),
-                     data.best_lap.as_ref().and_then(|b| b.sector1_ms)),
-                    ("S2", data.live_sector2_ms,
-                     data.previous_lap.as_ref().and_then(|p| p.sector2_ms),
-                     data.best_lap.as_ref().and_then(|b| b.sector2_ms)),
-                    ("S3", data.live_sector3_ms,
-                     data.previous_lap.as_ref().and_then(|p| p.sector3_ms),
-                     data.best_lap.as_ref().and_then(|b| b.sector3_ms)),
-                ];
-                for (idx, (label, ms, prev_ms, best_ms)) in sectors.iter().enumerate() {
-                    let is_active = data.current_sector == idx as u8 && ms.is_none();
-                    let label_col = if is_active { col_white } else { col_dim };
-                    draw_text_at(mem_dc, res.font_sector_label, label_col, sector_x, sector_y, label);
-                    sector_x += 16;
-
-                    if ms.is_some() {
-                        let col = sector_color(
-                            *ms, *prev_ms, *best_ms,
-                            col_sector_grey, col_purple, rgb(34, 197, 94), col_amber,
-                        );
-                        draw_text_at(mem_dc, res.font_sector, col, sector_x, sector_y - 1, &format_sector(*ms));
-                    } else {
-                        let dash_col = if is_active { col_white } else { col_dim };
-                        draw_text_at(mem_dc, res.font_sector, dash_col, sector_x, sector_y - 1, "--.-");
-                    }
-                    sector_x += 46;
-                }
-            }
-            2 => {
-                // ── Gear + Speed ──
-                let gear_str = match data.gear {
-                    0 => "N".to_string(),
-                    g if g < 0 => "R".to_string(),
-                    g => g.to_string(),
-                };
-                draw_text_at(mem_dc, res.font_gear, col_white, sx + 12, 14, &gear_str);
-
-                let speed_str = if data.speed_kmh > 0.0 {
-                    format!("{}", data.speed_kmh.round() as i32)
-                } else {
-                    "---".to_string()
-                };
-                draw_text_at(mem_dc, res.font_speed, rgb(187, 187, 187), sx + 52, 18, &speed_str);
-                draw_text_at(mem_dc, res.font_unit, col_dim, sx + 52, 38, "KM/H");
-
-                if data.rpm > 0 {
-                    let rpm_str = format!("{}", data.rpm);
-                    draw_text_at(mem_dc, res.font_sector_label, col_dim, sx + 52, sector_y, &rpm_str);
-                }
-            }
-            3 => {
-                // ── Previous Lap ──
-                draw_text_at(mem_dc, res.font_label, col_grey, sx + 12, label_y, "PREV");
-
-                if let Some(ref prev) = data.previous_lap {
-                    let prev_str = format_lap_time(prev.lap_time_ms);
-                    draw_text_at(mem_dc, res.font_lap, col_light_grey, sx + 12, value_y, &prev_str);
-
-                    let mut sector_x = sx + 12;
-                    for (label, ms, best_ms) in [
-                        ("S1", prev.sector1_ms, data.best_lap.as_ref().and_then(|b| b.sector1_ms)),
-                        ("S2", prev.sector2_ms, data.best_lap.as_ref().and_then(|b| b.sector2_ms)),
-                        ("S3", prev.sector3_ms, data.best_lap.as_ref().and_then(|b| b.sector3_ms)),
-                    ] {
-                        draw_text_at(mem_dc, res.font_sector_label, col_dim, sector_x, sector_y, label);
-                        sector_x += 16;
-                        let val_str = format_sector(ms);
-                        let col = sector_color(ms, None, best_ms, col_sector_grey, col_purple, rgb(34, 197, 94), col_amber);
-                        draw_text_at(mem_dc, res.font_sector, col, sector_x, sector_y - 1, &val_str);
-                        sector_x += 46;
-                    }
-                } else {
-                    draw_text_at(mem_dc, res.font_lap, rgb(51, 51, 51), sx + 12, value_y, "--:--.---");
-                }
-            }
-            4 => {
-                // ── Best Lap ──
-                draw_text_at(mem_dc, res.font_label, col_purple, sx + 12, label_y, "BEST");
-
-                if let Some(ref best) = data.best_lap {
-                    let best_str = format_lap_time(best.lap_time_ms);
-                    draw_text_at(mem_dc, res.font_lap, col_purple, sx + 12, value_y, &best_str);
-
-                    let mut sector_x = sx + 12;
-                    for (label, ms) in [("S1", best.sector1_ms), ("S2", best.sector2_ms), ("S3", best.sector3_ms)] {
-                        draw_text_at(mem_dc, res.font_sector_label, rgb(120, 60, 180), sector_x, sector_y, label);
-                        sector_x += 16;
-                        draw_text_at(mem_dc, res.font_sector, col_purple, sector_x, sector_y - 1, &format_sector(ms));
-                        sector_x += 46;
-                    }
-                } else {
-                    draw_text_at(mem_dc, res.font_lap, rgb(51, 51, 51), sx + 12, value_y, "--:--.---");
-                }
-            }
-            5 => {
-                // ── Lap Counter ──
-                draw_text_at(mem_dc, res.font_label, col_grey, sx + 12, label_y, "LAP");
-
-                let lap_num_str = if data.current_lap_number > 0 {
-                    data.current_lap_number.to_string()
-                } else {
-                    "-".to_string()
-                };
-                draw_text_at(mem_dc, res.font_value, col_white, sx + 12, value_y, &lap_num_str);
-
-                // INV badge
-                if data.current_lap_invalid {
-                    let badge_x = sx + 42;
-                    let badge_y = value_y + 2;
-                    let badge_brush = TempBrush::new(col_red);
-                    let badge_rect = RECT {
-                        left: badge_x,
-                        top: badge_y,
-                        right: badge_x + 30,
-                        bottom: badge_y + 16,
-                    };
-                    FillRect(mem_dc, &badge_rect, badge_brush.handle());
-                    // badge font from cache
-                    draw_text_at(mem_dc, res.font_badge, col_white, badge_x + 4, badge_y + 1, "INV");
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Restore pen
-    SelectObject(mem_dc, old_pen as *mut _);
+    // Dispatch to component system
+    renderer.paint_all(mem_dc, w, h, data, res);
 
     // Blit double buffer to screen
     BitBlt(hdc, 0, 0, w, h, mem_dc, 0, 0, SRCCOPY);
 
-    // Cleanup double buffer (these are per-paint, not cached)
+    // Cleanup double buffer (per-paint, not cached)
     SelectObject(mem_dc, old_bmp);
     DeleteObject(mem_bmp as *mut _);
     DeleteDC(mem_dc);
