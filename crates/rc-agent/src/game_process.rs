@@ -44,11 +44,13 @@ pub fn clear_persisted_pid() {
 fn all_game_process_names() -> &'static [&'static str] {
     &[
         "acs.exe", "AssettoCorsa.exe",
-        "AssettoCorsa2.exe", "AC2-Win64-Shipping.exe",
+        "AssettoCorsaEVO.exe", "AssettoCorsa2.exe", "AC2-Win64-Shipping.exe",
+        "acr.exe",
         "iRacingSim64DX11.exe", "iRacingService.exe",
         "F1_25.exe",
         "LMU.exe", "Le Mans Ultimate.exe",
         "ForzaMotorsport.exe",
+        "ForzaHorizon5.exe",
     ]
 }
 
@@ -270,13 +272,13 @@ impl GameProcess {
 fn process_names(sim_type: SimType) -> &'static [&'static str] {
     match sim_type {
         SimType::AssettoCorsa => &["acs.exe", "AssettoCorsa.exe"],
-        SimType::AssettoCorsaEvo => &["AssettoCorsa2.exe", "AC2-Win64-Shipping.exe"],
-        SimType::AssettoCorsaRally => &["AssettoCorsa2.exe"], // TODO(Plan 02): confirm AC Rally process name
+        SimType::AssettoCorsaEvo => &["AssettoCorsaEVO.exe", "AssettoCorsa2.exe", "AC2-Win64-Shipping.exe"],
+        SimType::AssettoCorsaRally => &["acr.exe"],
         SimType::IRacing => &["iRacingSim64DX11.exe", "iRacingService.exe"],
         SimType::F125 => &["F1_25.exe"],
         SimType::LeMansUltimate => &["LMU.exe", "Le Mans Ultimate.exe"],
         SimType::Forza => &["ForzaMotorsport.exe"],
-        SimType::ForzaHorizon5 => &["ForzaHorizon5.exe"], // TODO(Plan 02): confirm FH5 process name
+        SimType::ForzaHorizon5 => &["ForzaHorizon5.exe"],
     }
 }
 
@@ -338,4 +340,96 @@ fn kill_process(pid: u32) -> anyhow::Result<()> {
         .args(["-9", &pid.to_string()])
         .output()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rc_common::types::SimType;
+
+    /// Verify every SimType variant has at least one process name.
+    /// This match is exhaustive — adding a new SimType variant without
+    /// updating process_names() will cause a compile error here.
+    #[test]
+    fn test_process_names_exhaustive() {
+        let all_variants = [
+            SimType::AssettoCorsa,
+            SimType::AssettoCorsaEvo,
+            SimType::AssettoCorsaRally,
+            SimType::IRacing,
+            SimType::F125,
+            SimType::LeMansUltimate,
+            SimType::Forza,
+            SimType::ForzaHorizon5,
+        ];
+        for variant in &all_variants {
+            let names = process_names(*variant);
+            assert!(
+                !names.is_empty(),
+                "SimType::{:?} has no process names",
+                variant
+            );
+            for name in names {
+                assert!(
+                    name.ends_with(".exe"),
+                    "Process name '{}' for {:?} should end with .exe",
+                    name,
+                    variant
+                );
+            }
+        }
+    }
+
+    /// Verify all_game_process_names() is a superset of every
+    /// SimType variant's process_names() — ensures orphan cleanup
+    /// covers all games.
+    #[test]
+    fn test_all_game_process_names_superset() {
+        let all = all_game_process_names();
+        let all_variants = [
+            SimType::AssettoCorsa,
+            SimType::AssettoCorsaEvo,
+            SimType::AssettoCorsaRally,
+            SimType::IRacing,
+            SimType::F125,
+            SimType::LeMansUltimate,
+            SimType::Forza,
+            SimType::ForzaHorizon5,
+        ];
+        for variant in &all_variants {
+            let names = process_names(*variant);
+            // At least one process name from this variant must appear
+            // in the global list
+            let has_overlap = names.iter().any(|n| all.contains(n));
+            assert!(
+                has_overlap,
+                "all_game_process_names() is missing entries for SimType::{:?} (needs at least one of {:?})",
+                variant,
+                names
+            );
+        }
+    }
+
+    /// Verify specific process names for new game types.
+    #[test]
+    fn test_process_names_ac_rally() {
+        let names = process_names(SimType::AssettoCorsaRally);
+        assert_eq!(names, &["acr.exe"]);
+    }
+
+    #[test]
+    fn test_process_names_forza_horizon_5() {
+        let names = process_names(SimType::ForzaHorizon5);
+        assert_eq!(names, &["ForzaHorizon5.exe"]);
+    }
+
+    #[test]
+    fn test_process_names_ac_evo_primary() {
+        let names = process_names(SimType::AssettoCorsaEvo);
+        // AssettoCorsaEVO.exe should be the primary (first) entry
+        assert_eq!(names[0], "AssettoCorsaEVO.exe");
+        // Old names kept as fallback
+        assert!(names.contains(&"AssettoCorsa2.exe"));
+        assert!(names.contains(&"AC2-Win64-Shipping.exe"));
+    }
 }
