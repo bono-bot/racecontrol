@@ -1,0 +1,121 @@
+# Requirements: RaceControl Reliability & Connection Hardening
+
+**Defined:** 2026-03-13
+**Core Value:** Pods self-heal, deployments work reliably, customers never see system internals
+
+## v1.0 Requirements
+
+Requirements for milestone v1.0. Each maps to roadmap phases.
+
+### Watchdog & Supervision
+
+- [ ] **WD-01**: Pod restart uses escalating backoff (30s→2m→10m→30m) instead of fixed cooldown
+- [ ] **WD-02**: pod_monitor and pod_healer share backoff state via AppState — no concurrent restarts
+- [ ] **WD-03**: Post-restart verification confirms process running + WebSocket connected + lock screen responsive (60s window)
+- [ ] **WD-04**: Backoff resets to base on confirmed full recovery
+
+### Connection Resilience
+
+- [ ] **CONN-01**: WebSocket ping/pong keepalive prevents drops during game launch CPU spikes
+- [ ] **CONN-02**: Kiosk debounces disconnect events — only shows "Disconnected" after 15s+ confirmed absence
+- [ ] **CONN-03**: rc-agent reconnects automatically with short backoff on WebSocket drop
+
+### Deployment & Config
+
+- [ ] **DEPLOY-01**: rc-agent validates all required config fields at startup, exits non-zero on invalid config
+- [ ] **DEPLOY-02**: Deploy sequence enforces kill→wait→verify-dead→download→size-check→start→verify-reconnect
+- [ ] **DEPLOY-03**: pod-agent /exec returns clear success/failure status (not HTTP 200 for everything)
+- [ ] **DEPLOY-04**: Deploy wipes old config files from pods before writing new config — no stale config remnants
+- [ ] **DEPLOY-05**: Future binary and config updates deploy without disrupting active sessions or requiring manual pod-by-pod fixups — rolling update with backward-compatible transitions
+
+### Alerting
+
+- [ ] **ALERT-01**: Email alert fires when post-restart verification fails or max escalation reached
+- [ ] **ALERT-02**: Rate-limited: max 1 email per pod per 30min, 1 venue-wide per 5min
+
+### Blanking Screen Protocol
+
+- [ ] **SCREEN-01**: Clean branded lock screen visible before session starts and after session ends — no Windows desktop exposed
+- [ ] **SCREEN-02**: All error popups suppressed on pod screens (WerFault, application errors, "Cannot find" dialogs, ConspitLink messages)
+- [ ] **SCREEN-03**: No file path errors or system dialogs leak through to the customer-facing display
+
+### Performance & Latency
+
+- [ ] **PERF-01**: Game launch completes within target time from kiosk "Start" to game visible on pod
+- [ ] **PERF-02**: Lock screen responds to PIN entry within 1-2 seconds
+- [ ] **PERF-03**: WebSocket command round-trip (rc-core → rc-agent → response) stays under low threshold
+- [ ] **PERF-04**: Kiosk UI interactions (page loads, button responses, state updates) feel instant to staff
+
+### Authentication
+
+- [ ] **AUTH-01**: PIN authentication works identically on pod lock screen, customer PWA, and customer kiosk — same validation, same flow, same response time
+
+## Future Requirements
+
+Deferred to v1.x or v2. Tracked but not in current roadmap.
+
+### Alerting Enhancements
+
+- **ALERT-03**: Aggregated multi-pod email alerts — single email when 2+ pods fail simultaneously
+- **ALERT-04**: Partial recovery classification (Session 0 vs full failure) — smarter alert severity
+
+### Deployment Enhancements
+
+- **DEPLOY-06**: Deployment dry-run mode — validate config and binary compatibility without changing anything
+
+### Observability
+
+- **OBS-01**: Activity log persistence across rc-agent restarts — survives reboot for richer debugging context
+- **OBS-02**: Configurable cooldown step tuning in racecontrol.toml without code change
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| HUD overlay features | Deferred to next project (archived in .planning/archive/hud-safety/) |
+| FFB safety | Deferred (archived research available) |
+| New game integrations | Current games only — reliability first |
+| Cloud sync changes | cloud_sync.rs is stable |
+| Customer-facing PWA redesign | Only auth consistency is in scope |
+| SNMP/Prometheus metrics | Over-engineered for 8-pod venue |
+| Auto binary rollback | Config validation + Pod 8 first is sufficient |
+| Sub-second process polling | UDP heartbeat at 6s is already fast enough |
+| Restart on every WebSocket drop | Creates restart storms; keepalive is the fix |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| WD-01 | — | Pending |
+| WD-02 | — | Pending |
+| WD-03 | — | Pending |
+| WD-04 | — | Pending |
+| CONN-01 | — | Pending |
+| CONN-02 | — | Pending |
+| CONN-03 | — | Pending |
+| DEPLOY-01 | — | Pending |
+| DEPLOY-02 | — | Pending |
+| DEPLOY-03 | — | Pending |
+| DEPLOY-04 | — | Pending |
+| DEPLOY-05 | — | Pending |
+| ALERT-01 | — | Pending |
+| ALERT-02 | — | Pending |
+| SCREEN-01 | — | Pending |
+| SCREEN-02 | — | Pending |
+| SCREEN-03 | — | Pending |
+| PERF-01 | — | Pending |
+| PERF-02 | — | Pending |
+| PERF-03 | — | Pending |
+| PERF-04 | — | Pending |
+| AUTH-01 | — | Pending |
+
+**Coverage:**
+- v1.0 requirements: 22 total
+- Mapped to phases: 0
+- Unmapped: 22 ⚠️
+
+---
+*Requirements defined: 2026-03-13*
+*Last updated: 2026-03-13 after initial definition*
