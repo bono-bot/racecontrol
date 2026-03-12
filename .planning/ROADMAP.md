@@ -59,8 +59,8 @@ Plans:
 ## Execution Order
 
 ```
-Phase 1 (FFB Safety)  ──>  Phase 2 (HUD Infra)  ──>  Phase 3 (HUD Layout)  ──>  Phase 4 (Data Accuracy)
-     [URGENT]                 [Foundation]              [Visible Value]           [Polish]
+Phase 1 (FFB Safety)  ──>  Phase 2 (HUD Infra)  ──>  Phase 3 (HUD Layout)  ──>  Phase 4 (Data Accuracy)  ──>  Phase 5 (Watchdog)
+     [URGENT]                 [Foundation]              [Visible Value]           [Polish]                     [Reliability]
 ```
 
 **Rationale:**
@@ -69,5 +69,16 @@ Phase 1 (FFB Safety)  ──>  Phase 2 (HUD Infra)  ──>  Phase 3 (HUD Layout
 - Phase 3 is third because it delivers the visible customer-facing value (the Essentials layout).
 - Phase 4 is last because the data accuracy bugs are edge cases that matter for correctness but do not block the layout work — they refine what Phase 3 displays.
 
+### Phase 5: Watchdog Hardening
+
+**Goal:** Harden the pod supervision stack with escalating restart cooldowns (30s->2m->10m->30m) to prevent crash loops, post-restart self-tests that verify rc-agent health (WebSocket connected, lock screen responding) before declaring recovery successful, and email notifications to alert Uday when pods have persistent issues requiring manual intervention.
+**Requirements:** WD-01, WD-02, WD-03, WD-04, WD-05, WD-06
+**Depends on:** Phase 4
+**Plans:** 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Foundation: EscalatingBackoff state machine, EmailAlerter module, config expansion, AppState fields
+- [ ] 05-02-PLAN.md — Integration: Wire escalating backoff + post-restart verification + email alerts into pod_monitor.rs and pod_healer.rs
+
 ---
-*Created: 2026-03-11 | 19 requirements across 4 phases | Sequential execution*
+*Created: 2026-03-11 | 25 requirements across 5 phases | Sequential execution*
