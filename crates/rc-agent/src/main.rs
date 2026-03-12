@@ -85,6 +85,35 @@ struct GamesConfig {
     forza_horizon_5: GameExeConfig,
 }
 
+/// Detect which games are installed on this pod based on GamesConfig.
+/// A game is considered "installed" if it has an exe_path or steam_app_id configured.
+/// AC (original) is always included — it's the default game on every pod.
+fn detect_installed_games(games: &GamesConfig) -> Vec<SimType> {
+    let mut installed = vec![SimType::AssettoCorsa]; // AC always available (Content Manager)
+    if games.f1_25.exe_path.is_some() || games.f1_25.steam_app_id.is_some() {
+        installed.push(SimType::F125);
+    }
+    if games.iracing.exe_path.is_some() || games.iracing.steam_app_id.is_some() {
+        installed.push(SimType::IRacing);
+    }
+    if games.forza.exe_path.is_some() || games.forza.steam_app_id.is_some() {
+        installed.push(SimType::Forza);
+    }
+    if games.le_mans_ultimate.exe_path.is_some() || games.le_mans_ultimate.steam_app_id.is_some() {
+        installed.push(SimType::LeMansUltimate);
+    }
+    if games.assetto_corsa_evo.exe_path.is_some() || games.assetto_corsa_evo.steam_app_id.is_some() {
+        installed.push(SimType::AssettoCorsaEvo);
+    }
+    if games.assetto_corsa_rally.exe_path.is_some() || games.assetto_corsa_rally.steam_app_id.is_some() {
+        installed.push(SimType::AssettoCorsaRally);
+    }
+    if games.forza_horizon_5.exe_path.is_some() || games.forza_horizon_5.steam_app_id.is_some() {
+        installed.push(SimType::ForzaHorizon5);
+    }
+    installed
+}
+
 #[derive(Debug, Deserialize)]
 struct PodConfig {
     number: u32,
@@ -203,22 +232,7 @@ async fn main() -> Result<()> {
     };
 
     // Determine installed games from config
-    let mut installed_games = vec![SimType::AssettoCorsa]; // AC always available (Content Manager)
-    if config.games.f1_25.exe_path.is_some() || config.games.f1_25.steam_app_id.is_some() {
-        installed_games.push(SimType::F125);
-    }
-    if config.games.iracing.exe_path.is_some() || config.games.iracing.steam_app_id.is_some() {
-        installed_games.push(SimType::IRacing);
-    }
-    if config.games.forza.exe_path.is_some() || config.games.forza.steam_app_id.is_some() {
-        installed_games.push(SimType::Forza);
-    }
-    if config.games.le_mans_ultimate.exe_path.is_some() || config.games.le_mans_ultimate.steam_app_id.is_some() {
-        installed_games.push(SimType::LeMansUltimate);
-    }
-    if config.games.assetto_corsa_evo.exe_path.is_some() || config.games.assetto_corsa_evo.steam_app_id.is_some() {
-        installed_games.push(SimType::AssettoCorsaEvo);
-    }
+    let installed_games = detect_installed_games(&config.games);
     tracing::info!("Installed games: {:?}", installed_games);
 
     // Build pod info
@@ -1474,5 +1488,83 @@ async fn watchdog_ensure_running(exe_name: &str) {
             .args(["/C", &format!("cd /d {} && start /b {}", WATCHDOG_DIR, exe_name)])
             .kill_on_drop(false)
             .spawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_process::GameExeConfig;
+    use rc_common::types::SimType;
+
+    #[test]
+    fn test_installed_games_detection_new_games() {
+        // Configure AC Rally and FH5 with steam_app_id
+        let mut games = GamesConfig::default();
+        games.assetto_corsa_rally = GameExeConfig {
+            steam_app_id: Some(3917090),
+            use_steam: true,
+            ..Default::default()
+        };
+        games.forza_horizon_5 = GameExeConfig {
+            steam_app_id: Some(1551360),
+            use_steam: true,
+            ..Default::default()
+        };
+        let installed = detect_installed_games(&games);
+        // AC is always included
+        assert!(installed.contains(&SimType::AssettoCorsa));
+        // New games should be detected
+        assert!(
+            installed.contains(&SimType::AssettoCorsaRally),
+            "AC Rally not detected with steam_app_id"
+        );
+        assert!(
+            installed.contains(&SimType::ForzaHorizon5),
+            "FH5 not detected with steam_app_id"
+        );
+    }
+
+    #[test]
+    fn test_installed_games_empty_config_only_ac() {
+        // Default config (no games configured) should only have AC
+        let games = GamesConfig::default();
+        let installed = detect_installed_games(&games);
+        assert_eq!(installed, vec![SimType::AssettoCorsa]);
+    }
+
+    #[test]
+    fn test_installed_games_detection_exe_path() {
+        // Test that exe_path also triggers detection
+        let mut games = GamesConfig::default();
+        games.assetto_corsa_rally = GameExeConfig {
+            exe_path: Some("C:\\Games\\acr.exe".to_string()),
+            ..Default::default()
+        };
+        let installed = detect_installed_games(&games);
+        assert!(installed.contains(&SimType::AssettoCorsaRally));
+    }
+
+    #[test]
+    fn test_installed_games_all_configured() {
+        // All games configured — should detect all 8
+        let mut games = GamesConfig::default();
+        games.f1_25 = GameExeConfig { steam_app_id: Some(3059520), ..Default::default() };
+        games.iracing = GameExeConfig { steam_app_id: Some(266410), ..Default::default() };
+        games.forza = GameExeConfig { steam_app_id: Some(2440510), ..Default::default() };
+        games.le_mans_ultimate = GameExeConfig { steam_app_id: Some(2399420), ..Default::default() };
+        games.assetto_corsa_evo = GameExeConfig { steam_app_id: Some(3058630), ..Default::default() };
+        games.assetto_corsa_rally = GameExeConfig { steam_app_id: Some(3917090), ..Default::default() };
+        games.forza_horizon_5 = GameExeConfig { steam_app_id: Some(1551360), ..Default::default() };
+        let installed = detect_installed_games(&games);
+        assert_eq!(installed.len(), 8, "Expected all 8 SimType variants to be detected");
+        assert!(installed.contains(&SimType::AssettoCorsa));
+        assert!(installed.contains(&SimType::F125));
+        assert!(installed.contains(&SimType::IRacing));
+        assert!(installed.contains(&SimType::Forza));
+        assert!(installed.contains(&SimType::LeMansUltimate));
+        assert!(installed.contains(&SimType::AssettoCorsaEvo));
+        assert!(installed.contains(&SimType::AssettoCorsaRally));
+        assert!(installed.contains(&SimType::ForzaHorizon5));
     }
 }

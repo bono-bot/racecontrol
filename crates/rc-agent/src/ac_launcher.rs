@@ -958,14 +958,13 @@ pub fn enforce_safe_state() {
 
     // 1. Kill ALL known game processes
     let game_processes = [
-        "acs.exe",
-        "AssettoCorsa.exe",
-        "Content Manager.exe",
+        "acs.exe", "AssettoCorsa.exe", "Content Manager.exe",
+        "AssettoCorsaEVO.exe", "AssettoCorsa2.exe", "AC2-Win64-Shipping.exe",
+        "acr.exe",
         "F1_25.exe",
-        "iRacingService.exe",
-        "iRacingSim64DX11.exe",
-        "LMU.exe",
-        "ForzaHorizon5.exe",
+        "iRacingService.exe", "iRacingSim64DX11.exe",
+        "LMU.exe", "Le Mans Ultimate.exe",
+        "ForzaMotorsport.exe", "ForzaHorizon5.exe",
     ];
     for proc in &game_processes {
         let _ = Command::new("taskkill").args(["/IM", proc, "/F"]).output();
