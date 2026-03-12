@@ -21,7 +21,7 @@ use crate::wallet;
 use crate::state::AppState;
 use crate::wol;
 use rc_common::types::*;
-use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
+use rc_common::protocol::{CloudAction, CoreToAgentMessage, DashboardEvent};
 
 pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -174,6 +174,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Cloud action queue
         .route("/actions", post(create_action))
         .route("/actions/pending", get(pending_actions))
+        .route("/actions/process", post(process_action_endpoint))
         .route("/actions/{id}/ack", post(ack_action))
         .route("/actions/history", get(action_history))
         // Cloud sync
@@ -5269,6 +5270,7 @@ struct CreateActionRequest {
 
 /// POST /actions — create a new action for the venue to pick up.
 /// Auth: x-terminal-secret header (same as sync endpoints).
+/// When comms_link_url is configured, also pushes the action via relay for sub-second delivery.
 async fn create_action(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -5294,9 +5296,82 @@ async fn create_action(
     match result {
         Ok(_) => {
             tracing::info!("Action queue: created {} ({})", id, body.action_type);
+
+            // Also push via relay for sub-second delivery (fire-and-forget).
+            // If relay fails, venue will still pick up via polling fallback.
+            if let Some(relay_url) = &state.config.cloud.comms_link_url {
+                let relay_action_url = format!("{}/relay/action", relay_url);
+                let relay_payload = json!({
+                    "action_id": &id,
+                    "action_type": &body.action_type,
+                    "payload": &body.payload,
+                });
+                let client = state.http_client.clone();
+                let id_clone = id.clone();
+                tokio::spawn(async move {
+                    match client
+                        .post(&relay_action_url)
+                        .json(&relay_payload)
+                        .timeout(std::time::Duration::from_secs(2))
+                        .send()
+                        .await
+                    {
+                        Ok(resp) if resp.status().is_success() => {
+                            tracing::debug!("Action {} pushed via relay", id_clone);
+                        }
+                        Ok(resp) => {
+                            tracing::debug!("Action relay push returned {}", resp.status());
+                        }
+                        Err(e) => {
+                            tracing::debug!("Action relay push failed (venue will poll): {}", e);
+                        }
+                    }
+                });
+            }
+
             Json(json!({ "ok": true, "id": id, "action_type": body.action_type }))
         }
         Err(e) => Json(json!({ "error": format!("Failed to create action: {}", e) })),
+    }
+}
+
+/// POST /actions/process — receive a pushed action from comms-link relay.
+/// Called by comms-link when it receives a sync_action WS message from the cloud.
+/// Auth: x-terminal-secret header.
+async fn process_action_endpoint(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    // Parse the action from the request body
+    let action: CloudAction = match serde_json::from_value(body.get("action").cloned().unwrap_or(body.clone())) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::warn!("Failed to parse pushed action: {}", e);
+            return Json(json!({ "status": "failed", "error": format!("Invalid action: {}", e) }));
+        }
+    };
+
+    let action_id = body
+        .get("action_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    tracing::info!("Processing pushed action: {}", action_id);
+
+    match crate::action_queue::process_action(&state, &action).await {
+        Ok(()) => {
+            tracing::info!("Pushed action {} completed", action_id);
+            Json(json!({ "status": "completed" }))
+        }
+        Err(e) => {
+            tracing::warn!("Pushed action {} failed: {}", action_id, e);
+            Json(json!({ "status": "failed", "error": e.to_string() }))
+        }
     }
 }
 

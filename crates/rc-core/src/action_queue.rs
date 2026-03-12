@@ -1,10 +1,12 @@
-//! Cloud → rc-core Action Queue
+//! Cloud -> rc-core Action Queue
 //!
-//! Polls the cloud for pending actions every N seconds (default: 3s).
-//! Processes each action (booking, wallet top-up, QR confirm, etc.)
-//! and ACKs back to cloud with status.
+//! Supports dual-mode operation:
+//! - **Relay mode**: Actions are PUSHED to the venue via comms-link relay (sub-second delivery).
+//!   Polling is disabled since actions arrive via POST /actions/process.
+//! - **HTTP fallback**: Polls the cloud for pending actions every N seconds (default: 3s).
 //!
-//! Same pattern as remote_terminal.rs but for structured business actions.
+//! On reconnect transition (fallback -> relay), runs one final poll to drain
+//! any actions queued during the outage before disabling polling.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +14,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::cloud_sync::is_relay_available;
 use crate::state::AppState;
 use rc_common::protocol::{CloudAction, PendingCloudAction};
 
@@ -22,6 +25,9 @@ struct PendingActionsResponse {
 
 /// Spawn the action queue background task.
 /// Only starts if cloud.enabled = true and cloud.api_url is set.
+///
+/// When comms-link relay is available, polling is skipped (actions arrive via push).
+/// When relay is unavailable, falls back to HTTP polling at action_poll_interval_secs.
 pub fn spawn(state: Arc<AppState>) {
     let cloud = &state.config.cloud;
     if !cloud.enabled {
@@ -35,11 +41,13 @@ pub fn spawn(state: Arc<AppState>) {
 
     let secret = cloud.terminal_secret.clone().unwrap_or_default();
     let interval_secs = cloud.action_poll_interval_secs;
+    let has_relay = cloud.comms_link_url.is_some();
 
     tracing::info!(
-        "Action queue enabled: polling every {}s at {}",
+        "Action queue enabled: polling every {}s at {} (relay: {})",
         interval_secs,
-        api_url
+        api_url,
+        if has_relay { "configured" } else { "not configured" }
     );
 
     tokio::spawn(async move {
@@ -47,10 +55,42 @@ pub fn spawn(state: Arc<AppState>) {
         tokio::time::sleep(Duration::from_secs(5)).await;
 
         let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        let mut prev_relay_available = false;
+
         loop {
             interval.tick().await;
-            if let Err(e) = poll_actions(&state, &api_url, &secret).await {
-                tracing::debug!("Action queue poll: {}", e);
+
+            if has_relay {
+                let relay_now = is_relay_available(&state).await;
+
+                if !prev_relay_available && relay_now {
+                    // Transitioning fallback -> relay: run one final poll to drain
+                    // actions created while relay was down. They weren't pushed via relay
+                    // (it was down) and won't be polled after this tick (polling is about
+                    // to be disabled).
+                    tracing::info!(
+                        "Relay reconnected -- running final poll to drain actions queued during outage"
+                    );
+                    if let Err(e) = poll_actions(&state, &api_url, &secret).await {
+                        tracing::debug!("Action queue final drain poll: {}", e);
+                    }
+                } else if relay_now {
+                    // Steady-state relay mode: skip polling, actions arrive via
+                    // POST /actions/process push endpoint
+                    tracing::debug!("Action queue: relay active, skipping poll (actions arrive via push)");
+                } else {
+                    // Fallback mode: relay unavailable, poll normally
+                    if let Err(e) = poll_actions(&state, &api_url, &secret).await {
+                        tracing::debug!("Action queue poll: {}", e);
+                    }
+                }
+
+                prev_relay_available = relay_now;
+            } else {
+                // No relay configured: always poll
+                if let Err(e) = poll_actions(&state, &api_url, &secret).await {
+                    tracing::debug!("Action queue poll: {}", e);
+                }
             }
         }
     });
@@ -109,7 +149,8 @@ async fn poll_actions(
 }
 
 /// Process a single cloud action by dispatching to the appropriate module.
-async fn process_action(state: &Arc<AppState>, action: &CloudAction) -> anyhow::Result<()> {
+/// Public within the crate so routes.rs can call it from the /actions/process endpoint.
+pub(crate) async fn process_action(state: &Arc<AppState>, action: &CloudAction) -> anyhow::Result<()> {
     match action {
         CloudAction::BookingCreated {
             booking_id,
@@ -248,7 +289,7 @@ async fn process_action(state: &Arc<AppState>, action: &CloudAction) -> anyhow::
             body,
             target,
         } => {
-            tracing::info!("Action: Notification '{}' → {}", title, target);
+            tracing::info!("Action: Notification '{}' -> {}", title, target);
 
             // Broadcast to dashboard
             let _ = state.dashboard_tx.send(
