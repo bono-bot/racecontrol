@@ -522,6 +522,22 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Seed new game experiences (AC Rally, AC EVO, Forza Horizon 5, LMU)
+    sqlx::query(
+        "INSERT OR IGNORE INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, sort_order)
+         VALUES
+            ('exp_rally_classic_30', 'Rally Classic', 'assetto_corsa_rally', 'stage_default', 'default', 'A', 30, 'default', 20),
+            ('exp_rally_modern_30', 'Rally Modern', 'assetto_corsa_rally', 'stage_default', 'default', 'A', 30, 'default', 21),
+            ('exp_evo_hotlap_30', 'AC EVO Hot Lap', 'assetto_corsa_evo', 'default', 'default', 'A', 30, 'default', 30),
+            ('exp_evo_hotlap_60', 'AC EVO Hot Lap (Long)', 'assetto_corsa_evo', 'default', 'default', 'A', 60, 'default', 31),
+            ('exp_fh5_freeroam_30', 'Forza Horizon 5', 'forza_horizon_5', 'mexico', 'default', 'A', 30, 'default', 40),
+            ('exp_fh5_freeroam_60', 'Forza Horizon 5 (Long)', 'forza_horizon_5', 'mexico', 'default', 'A', 60, 'default', 41),
+            ('exp_lmu_lemans_30', 'Le Mans Ultimate', 'le_mans_ultimate', 'le_mans', 'default', 'A', 30, 'default', 50),
+            ('exp_lmu_lemans_60', 'Le Mans Ultimate (Long)', 'le_mans_ultimate', 'le_mans', 'default', 'A', 60, 'default', 51)",
+    )
+    .execute(pool)
+    .await?;
+
     // Fix existing rows that were seeded without the ks_ prefix
     sqlx::query(
         "UPDATE kiosk_experiences SET car = 'ks_ferrari_sf15t' WHERE car = 'ferrari_sf15t'"
