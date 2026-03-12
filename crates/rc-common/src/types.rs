@@ -8,12 +8,15 @@ use serde::{Deserialize, Serialize};
 pub enum SimType {
     AssettoCorsa,
     AssettoCorsaEvo,
+    AssettoCorsaRally,
     #[serde(rename = "iracing")]
     IRacing,
     LeMansUltimate,
     #[serde(rename = "f1_25")]
     F125,
     Forza,
+    #[serde(rename = "forza_horizon_5")]
+    ForzaHorizon5,
 }
 
 impl std::fmt::Display for SimType {
@@ -21,10 +24,12 @@ impl std::fmt::Display for SimType {
         match self {
             SimType::AssettoCorsa => write!(f, "Assetto Corsa"),
             SimType::AssettoCorsaEvo => write!(f, "Assetto Corsa Evo"),
+            SimType::AssettoCorsaRally => write!(f, "Assetto Corsa Rally"),
             SimType::IRacing => write!(f, "iRacing"),
             SimType::LeMansUltimate => write!(f, "Le Mans Ultimate"),
             SimType::F125 => write!(f, "F1 25"),
             SimType::Forza => write!(f, "Forza Motorsport"),
+            SimType::ForzaHorizon5 => write!(f, "Forza Horizon 5"),
         }
     }
 }
@@ -63,6 +68,8 @@ pub struct PodInfo {
     pub game_state: Option<GameState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_game: Option<SimType>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub installed_games: Vec<SimType>,
 }
 
 // ─── Driver ──────────────────────────────────────────────────────────────────
@@ -646,4 +653,86 @@ pub struct GroupMemberInfo {
     pub status: String, // pending/accepted/declined/validated/completed/cancelled
     pub pod_id: Option<String>,
     pub pod_number: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sim_type_serde_roundtrip() {
+        let variants = vec![
+            SimType::AssettoCorsa,
+            SimType::AssettoCorsaEvo,
+            SimType::AssettoCorsaRally,
+            SimType::IRacing,
+            SimType::LeMansUltimate,
+            SimType::F125,
+            SimType::Forza,
+            SimType::ForzaHorizon5,
+        ];
+        for variant in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            let parsed: SimType = serde_json::from_str(&json).unwrap();
+            assert_eq!(variant, parsed, "Roundtrip failed for {:?}", variant);
+        }
+    }
+
+    #[test]
+    fn test_sim_type_json_values() {
+        assert_eq!(serde_json::to_string(&SimType::AssettoCorsa).unwrap(), "\"assetto_corsa\"");
+        assert_eq!(serde_json::to_string(&SimType::AssettoCorsaEvo).unwrap(), "\"assetto_corsa_evo\"");
+        assert_eq!(serde_json::to_string(&SimType::AssettoCorsaRally).unwrap(), "\"assetto_corsa_rally\"");
+        assert_eq!(serde_json::to_string(&SimType::IRacing).unwrap(), "\"iracing\"");
+        assert_eq!(serde_json::to_string(&SimType::LeMansUltimate).unwrap(), "\"le_mans_ultimate\"");
+        assert_eq!(serde_json::to_string(&SimType::F125).unwrap(), "\"f1_25\"");
+        assert_eq!(serde_json::to_string(&SimType::Forza).unwrap(), "\"forza\"");
+        assert_eq!(serde_json::to_string(&SimType::ForzaHorizon5).unwrap(), "\"forza_horizon_5\"");
+    }
+
+    #[test]
+    fn test_sim_type_display() {
+        assert_eq!(SimType::AssettoCorsa.to_string(), "Assetto Corsa");
+        assert_eq!(SimType::AssettoCorsaEvo.to_string(), "Assetto Corsa Evo");
+        assert_eq!(SimType::AssettoCorsaRally.to_string(), "Assetto Corsa Rally");
+        assert_eq!(SimType::IRacing.to_string(), "iRacing");
+        assert_eq!(SimType::LeMansUltimate.to_string(), "Le Mans Ultimate");
+        assert_eq!(SimType::F125.to_string(), "F1 25");
+        assert_eq!(SimType::Forza.to_string(), "Forza Motorsport");
+        assert_eq!(SimType::ForzaHorizon5.to_string(), "Forza Horizon 5");
+    }
+
+    #[test]
+    fn test_sim_type_launch_game_message_roundtrip() {
+        use crate::protocol::CoreToAgentMessage;
+
+        // Test with new variant AssettoCorsaRally
+        let msg = CoreToAgentMessage::LaunchGame {
+            sim_type: SimType::AssettoCorsaRally,
+            launch_args: Some("{\"track\":\"rally_stage_1\"}".to_string()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("assetto_corsa_rally"));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::LaunchGame { sim_type, launch_args } = parsed {
+            assert_eq!(sim_type, SimType::AssettoCorsaRally);
+            assert_eq!(launch_args, Some("{\"track\":\"rally_stage_1\"}".to_string()));
+        } else {
+            panic!("Wrong variant after deserialize");
+        }
+
+        // Test with new variant ForzaHorizon5
+        let msg2 = CoreToAgentMessage::LaunchGame {
+            sim_type: SimType::ForzaHorizon5,
+            launch_args: None,
+        };
+        let json2 = serde_json::to_string(&msg2).unwrap();
+        assert!(json2.contains("forza_horizon_5"));
+        let parsed2: CoreToAgentMessage = serde_json::from_str(&json2).unwrap();
+        if let CoreToAgentMessage::LaunchGame { sim_type, .. } = parsed2 {
+            assert_eq!(sim_type, SimType::ForzaHorizon5);
+        } else {
+            panic!("Wrong variant after deserialize");
+        }
+    }
 }
