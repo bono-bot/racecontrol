@@ -12,10 +12,13 @@ interface ExperienceSelectorProps {
 
 const GAME_LABELS: Record<string, string> = {
   assetto_corsa: "Assetto Corsa",
-  f1_25: "F1 25",
+  assetto_corsa_evo: "AC EVO",
   assetto_corsa_rally: "AC Rally",
-  le_mans_ultimate: "LeMans Ultimate",
+  f1_25: "F1 25",
   iracing: "iRacing",
+  le_mans_ultimate: "Le Mans Ultimate",
+  forza: "Forza Motorsport",
+  forza_horizon_5: "Forza Horizon 5",
 };
 
 const CLASS_COLORS: Record<string, string> = {

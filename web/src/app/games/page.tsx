@@ -11,10 +11,13 @@ import type { Pod } from "@/lib/api";
 
 const simLabels: Record<string, string> = {
   assetto_corsa: "Assetto Corsa",
+  assetto_corsa_evo: "AC EVO",
+  assetto_corsa_rally: "AC Rally",
+  f1_25: "F1 25",
   iracing: "iRacing",
   le_mans_ultimate: "Le Mans Ultimate",
-  f1_25: "F1 25",
   forza: "Forza Motorsport",
+  forza_horizon_5: "Forza Horizon 5",
 };
 
 export default function GamesPage() {

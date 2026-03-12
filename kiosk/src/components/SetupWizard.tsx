@@ -27,20 +27,24 @@ const DIFFICULTY_PRESETS: Record<string, { label: string; desc: string }> = {
 
 const GAMES = [
   { id: "assetto_corsa", name: "Assetto Corsa", enabled: true },
-  { id: "assetto_corsa_evo", name: "Assetto Corsa Evo", enabled: true },
+  { id: "assetto_corsa_evo", name: "AC EVO", enabled: true },
+  { id: "assetto_corsa_rally", name: "AC Rally", enabled: true },
   { id: "f1_25", name: "F1 25", enabled: true },
   { id: "iracing", name: "iRacing", enabled: true },
   { id: "le_mans_ultimate", name: "Le Mans Ultimate", enabled: true },
   { id: "forza", name: "Forza Motorsport", enabled: false },
+  { id: "forza_horizon_5", name: "Forza Horizon 5", enabled: true },
 ];
 
 const GAME_LABELS: Record<string, string> = {
   assetto_corsa: "Assetto Corsa",
-  assetto_corsa_evo: "Assetto Corsa Evo",
+  assetto_corsa_evo: "AC EVO",
+  assetto_corsa_rally: "AC Rally",
   f1_25: "F1 25",
   iracing: "iRacing",
   le_mans_ultimate: "Le Mans Ultimate",
   forza: "Forza Motorsport",
+  forza_horizon_5: "Forza Horizon 5",
 };
 
 const CLASS_COLORS: Record<string, string> = {

@@ -44,6 +44,9 @@ function prettyName(raw: string): string {
 function gameLabel(simType: string): { label: string; color: string } {
   const s = (simType || "").toLowerCase();
   if (s.includes("f1") || s === "f1_25" || s === "f1_24") return { label: "F1", color: "bg-red-600" };
+  if (s === "assetto_corsa_rally" || s.includes("acr")) return { label: "ACR", color: "bg-orange-600" };
+  if (s === "assetto_corsa_evo" || s.includes("ace")) return { label: "ACE", color: "bg-teal-600" };
+  if (s === "forza_horizon_5" || s.includes("fh5")) return { label: "FH5", color: "bg-yellow-600" };
   if (s.includes("assetto") || s === "assetto_corsa") return { label: "AC", color: "bg-green-600" };
   if (s.includes("iracing") || s.includes("i_racing") || s === "iracing") return { label: "iR", color: "bg-purple-600" };
   if (s.includes("le_mans") || s === "le_mans_ultimate" || s === "lmu") return { label: "LMU", color: "bg-blue-600" };
