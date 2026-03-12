@@ -12,7 +12,7 @@ Five phases take the pod stack from fragile to self-healing. The foundation (Pha
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: State Wiring & Config Hardening** - Wire EscalatingBackoff/EmailAlerter into AppState; rc-agent fails fast on bad config
+- [x] **Phase 1: State Wiring & Config Hardening** - Wire EscalatingBackoff/EmailAlerter into AppState; rc-agent fails fast on bad config (completed 2026-03-12)
 - [ ] **Phase 2: Watchdog Hardening** - pod_monitor/pod_healer use shared backoff; post-restart verification; email alerts fire
 - [ ] **Phase 3: WebSocket Resilience** - Keepalive prevents drops during game launch; kiosk never flashes "Disconnected"
 - [ ] **Phase 4: Deployment Pipeline Hardening** - Safe kill→verify→download→start sequence enforced; rolling update without disrupting sessions
@@ -101,7 +101,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. State Wiring & Config Hardening | 0/2 | Planning complete | - |
+| 1. State Wiring & Config Hardening | 2/2 | Complete   | 2026-03-12 |
 | 2. Watchdog Hardening | 0/TBD | Not started | - |
 | 3. WebSocket Resilience | 0/TBD | Not started | - |
 | 4. Deployment Pipeline Hardening | 0/TBD | Not started | - |
