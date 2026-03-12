@@ -12,7 +12,7 @@ Five phases take the pod stack from fragile to self-healing. The foundation (Pha
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 1: State Wiring & Config Hardening** - Wire EscalatingBackoff/EmailAlerter into AppState; rc-agent fails fast on bad config (completed 2026-03-12)
+- [ ] **Phase 1: State Wiring & Config Hardening** - Wire EscalatingBackoff/EmailAlerter into AppState; rc-agent fails fast on bad config (gap closure in progress)
 - [ ] **Phase 2: Watchdog Hardening** - pod_monitor/pod_healer use shared backoff; post-restart verification; email alerts fire
 - [ ] **Phase 3: WebSocket Resilience** - Keepalive prevents drops during game launch; kiosk never flashes "Disconnected"
 - [ ] **Phase 4: Deployment Pipeline Hardening** - Safe kill→verify→download→start sequence enforced; rolling update without disrupting sessions
@@ -29,11 +29,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. AppState contains pod_backoffs (one EscalatingBackoff per pod) and email_alerter accessible from any rc-core module without additional imports
   3. pod-agent /exec returns HTTP 4xx or a clear JSON error body when a command fails — HTTP 200 is reserved for actual success
   4. Deploying a new rc-agent config to a pod overwrites or removes the old config file — no stale racecontrol.toml remnants remain after deploy
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — AppState backoff pre-population + rc-agent config validation with branded error
-- [ ] 01-02-PLAN.md — pod-agent /exec honest HTTP status codes + deploy config cleanup script
+- [x] 01-01-PLAN.md — AppState backoff pre-population + rc-agent config validation with branded error
+- [x] 01-02-PLAN.md — pod-agent /exec honest HTTP status codes + deploy config cleanup script
+- [ ] 01-03-PLAN.md — Fix deploy config template to match AgentConfig struct (gap closure)
 
 ### Phase 2: Watchdog Hardening
 **Goal**: pod_monitor uses escalating backoff per pod with exclusive restart ownership; pod_healer reads shared state and defers all restart commands; post-restart verification confirms process + WebSocket + lock screen before declaring recovery; email alerts fire when verification fails or backoff is exhausted
@@ -101,7 +102,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. State Wiring & Config Hardening | 2/2 | Complete   | 2026-03-12 |
+| 1. State Wiring & Config Hardening | 2/3 | Gap closure | - |
 | 2. Watchdog Hardening | 0/TBD | Not started | - |
 | 3. WebSocket Resilience | 0/TBD | Not started | - |
 | 4. Deployment Pipeline Hardening | 0/TBD | Not started | - |
