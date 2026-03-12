@@ -72,6 +72,8 @@ struct GamesConfig {
     #[serde(default)]
     assetto_corsa_evo: GameExeConfig,
     #[serde(default)]
+    assetto_corsa_rally: GameExeConfig,
+    #[serde(default)]
     iracing: GameExeConfig,
     #[serde(default)]
     f1_25: GameExeConfig,
@@ -79,6 +81,8 @@ struct GamesConfig {
     le_mans_ultimate: GameExeConfig,
     #[serde(default)]
     forza: GameExeConfig,
+    #[serde(default)]
+    forza_horizon_5: GameExeConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -889,6 +893,8 @@ async fn main() -> Result<()> {
                                             SimType::LeMansUltimate => 4,
                                             SimType::Forza => 5,
                                             SimType::AssettoCorsaEvo => 6,
+                                            SimType::AssettoCorsaRally => 7,
+                                            SimType::ForzaHorizon5 => 8,
                                         }, std::sync::atomic::Ordering::Relaxed);
 
                                         // Send "launching" state
@@ -1037,10 +1043,12 @@ async fn main() -> Result<()> {
                                         let base_config = match launch_sim {
                                             SimType::AssettoCorsa => &config.games.assetto_corsa,
                                             SimType::AssettoCorsaEvo => &config.games.assetto_corsa_evo,
+                                            SimType::AssettoCorsaRally => &config.games.assetto_corsa_rally,
                                             SimType::IRacing => &config.games.iracing,
                                             SimType::F125 => &config.games.f1_25,
                                             SimType::LeMansUltimate => &config.games.le_mans_ultimate,
                                             SimType::Forza => &config.games.forza,
+                                            SimType::ForzaHorizon5 => &config.games.forza_horizon_5,
                                         };
                                         let mut game_config = base_config.clone();
                                         if let Some(args) = launch_args {

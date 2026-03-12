@@ -47,6 +47,23 @@ pub async fn create_auth_token(
         let _ = cancel_auth_token(state, id).await;
     }
 
+    // Guard: driver cannot be on another pod already
+    let active_on_other = sqlx::query_as::<_, (String,)>(
+        "SELECT pod_id FROM billing_sessions WHERE driver_id = ? AND status IN ('active', 'paused_manual') AND pod_id != ?",
+    )
+    .bind(&driver_id)
+    .bind(&pod_id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    if let Some((other_pod,)) = active_on_other {
+        return Err(format!(
+            "Driver already has an active session on {}",
+            other_pod
+        ));
+    }
+
     // Verify driver exists and get name
     let driver = sqlx::query_as::<_, (String, String)>(
         "SELECT id, name FROM drivers WHERE id = ?",
@@ -162,10 +179,45 @@ pub async fn create_auth_token(
     Ok(info)
 }
 
-// ─── Games That Need Staff Assistance (no auto-spawn) ─────────────────────
+// ─── Game String Parsing ─────────────────────────────────────────────────
 
-fn is_manual_launch_game(game: &str) -> bool {
-    matches!(game, "f1_25" | "f1")
+/// Parse a game string (from kiosk_experiences, custom launch args, etc.) into a SimType.
+/// Returns AssettoCorsa as default fallback for unknown game strings.
+pub fn parse_sim_type(game: &str) -> rc_common::types::SimType {
+    use rc_common::types::SimType;
+    match game {
+        "assetto_corsa" | "ac" => SimType::AssettoCorsa,
+        "assetto_corsa_evo" | "ace" => SimType::AssettoCorsaEvo,
+        "assetto_corsa_rally" | "acr" => SimType::AssettoCorsaRally,
+        "iracing" => SimType::IRacing,
+        "f1_25" | "f1" => SimType::F125,
+        "le_mans_ultimate" | "lmu" => SimType::LeMansUltimate,
+        "forza" => SimType::Forza,
+        "forza_horizon_5" | "fh5" => SimType::ForzaHorizon5,
+        _ => SimType::AssettoCorsa,
+    }
+}
+
+// ─── Game Availability Check ──────────────────────────────────────────────
+
+/// Check if a game is available given a list of installed games.
+/// Returns true if installed_games is empty (backward compat with old agents that don't report games).
+pub fn check_pod_has_game(installed_games: &[rc_common::types::SimType], sim_type: rc_common::types::SimType) -> bool {
+    if installed_games.is_empty() {
+        true // backward compat: old agents don't report games -> assume available
+    } else {
+        installed_games.contains(&sim_type)
+    }
+}
+
+/// Check if the pod has this game installed (from agent registration).
+/// Returns true if pod is not found or has no installed_games data (backward compat with old agents).
+async fn pod_has_game(state: &Arc<AppState>, pod_id: &str, sim_type: rc_common::types::SimType) -> bool {
+    let pods = state.pods.read().await;
+    match pods.get(pod_id) {
+        Some(pod) => check_pod_has_game(&pod.installed_games, sim_type),
+        None => false,
+    }
 }
 
 /// After billing starts, link reservation_id + wallet fields to the billing session.
@@ -253,23 +305,16 @@ pub(crate) async fn launch_or_assist(
         parsed.to_string()
     };
 
-    let sim_type = match game.as_str() {
-        "assetto_corsa" | "ac" => rc_common::types::SimType::AssettoCorsa,
-        "iracing" => rc_common::types::SimType::IRacing,
-        "f1_25" | "f1" => rc_common::types::SimType::F125,
-        "le_mans_ultimate" | "lmu" => rc_common::types::SimType::LeMansUltimate,
-        "forza" => rc_common::types::SimType::Forza,
-        _ => rc_common::types::SimType::AssettoCorsa,
-    };
+    let sim_type = parse_sim_type(&game);
 
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(pod_id) {
-        if is_manual_launch_game(&game) {
-            // F1 25 etc — show assistance screen, don't auto-launch
+        if !pod_has_game(state, pod_id, sim_type).await {
+            // Game not installed on this pod — show assistance screen
             let _ = sender
                 .send(CoreToAgentMessage::ShowAssistanceScreen {
                     driver_name: driver_name.to_string(),
-                    message: "A team member is on the way to set up your session".to_string(),
+                    message: format!("{} is not installed on this pod — staff will assist", game),
                 })
                 .await;
 
@@ -278,11 +323,11 @@ pub(crate) async fn launch_or_assist(
                 pod_id: pod_id.to_string(),
                 driver_name: driver_name.to_string(),
                 game: game.clone(),
-                reason: format!("{} requires manual launch", game),
+                reason: format!("{} is not installed on this pod", game),
             });
 
             tracing::info!(
-                "Assistance needed for {} on pod {} (driver: {})",
+                "Game {} not installed on pod {} — assistance needed (driver: {})",
                 game, pod_id, driver_name
             );
         } else {
@@ -1332,4 +1377,102 @@ pub async fn is_employee(state: &Arc<AppState>, driver_id: &str) -> bool {
         .ok()
         .flatten()
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rc_common::types::SimType;
+
+    // ─── parse_sim_type tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_sim_type_assetto_corsa() {
+        assert_eq!(parse_sim_type("assetto_corsa"), SimType::AssettoCorsa);
+        assert_eq!(parse_sim_type("ac"), SimType::AssettoCorsa);
+    }
+
+    #[test]
+    fn test_parse_sim_type_assetto_corsa_evo() {
+        assert_eq!(parse_sim_type("assetto_corsa_evo"), SimType::AssettoCorsaEvo);
+        assert_eq!(parse_sim_type("ace"), SimType::AssettoCorsaEvo);
+    }
+
+    #[test]
+    fn test_parse_sim_type_assetto_corsa_rally() {
+        assert_eq!(parse_sim_type("assetto_corsa_rally"), SimType::AssettoCorsaRally);
+        assert_eq!(parse_sim_type("acr"), SimType::AssettoCorsaRally);
+    }
+
+    #[test]
+    fn test_parse_sim_type_iracing() {
+        assert_eq!(parse_sim_type("iracing"), SimType::IRacing);
+    }
+
+    #[test]
+    fn test_parse_sim_type_f1() {
+        assert_eq!(parse_sim_type("f1_25"), SimType::F125);
+        assert_eq!(parse_sim_type("f1"), SimType::F125);
+    }
+
+    #[test]
+    fn test_parse_sim_type_lmu() {
+        assert_eq!(parse_sim_type("le_mans_ultimate"), SimType::LeMansUltimate);
+        assert_eq!(parse_sim_type("lmu"), SimType::LeMansUltimate);
+    }
+
+    #[test]
+    fn test_parse_sim_type_forza() {
+        assert_eq!(parse_sim_type("forza"), SimType::Forza);
+    }
+
+    #[test]
+    fn test_parse_sim_type_forza_horizon_5() {
+        assert_eq!(parse_sim_type("forza_horizon_5"), SimType::ForzaHorizon5);
+        assert_eq!(parse_sim_type("fh5"), SimType::ForzaHorizon5);
+    }
+
+    #[test]
+    fn test_parse_sim_type_unknown_defaults_to_ac() {
+        assert_eq!(parse_sim_type("unknown_game"), SimType::AssettoCorsa);
+        assert_eq!(parse_sim_type(""), SimType::AssettoCorsa);
+    }
+
+    // ─── check_pod_has_game tests ────────────────────────────────────────
+
+    #[test]
+    fn test_pod_has_game_empty_list_returns_true() {
+        // Backward compat: old agents don't report installed games
+        let installed: Vec<SimType> = vec![];
+        assert!(check_pod_has_game(&installed, SimType::AssettoCorsa));
+        assert!(check_pod_has_game(&installed, SimType::ForzaHorizon5));
+    }
+
+    #[test]
+    fn test_pod_has_game_installed_returns_true() {
+        let installed = vec![SimType::AssettoCorsa, SimType::F125, SimType::Forza];
+        assert!(check_pod_has_game(&installed, SimType::AssettoCorsa));
+        assert!(check_pod_has_game(&installed, SimType::F125));
+        assert!(check_pod_has_game(&installed, SimType::Forza));
+    }
+
+    #[test]
+    fn test_pod_has_game_not_installed_returns_false() {
+        let installed = vec![SimType::AssettoCorsa, SimType::F125];
+        assert!(!check_pod_has_game(&installed, SimType::IRacing));
+        assert!(!check_pod_has_game(&installed, SimType::LeMansUltimate));
+    }
+
+    #[test]
+    fn test_pod_has_game_new_variants() {
+        let installed = vec![
+            SimType::AssettoCorsa,
+            SimType::AssettoCorsaRally,
+            SimType::ForzaHorizon5,
+        ];
+        assert!(check_pod_has_game(&installed, SimType::AssettoCorsaRally));
+        assert!(check_pod_has_game(&installed, SimType::ForzaHorizon5));
+        assert!(!check_pod_has_game(&installed, SimType::AssettoCorsaEvo));
+        assert!(!check_pod_has_game(&installed, SimType::IRacing));
+    }
 }
