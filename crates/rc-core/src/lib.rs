@@ -13,6 +13,7 @@ pub mod catalog;
 pub mod cloud_sync;
 pub mod config;
 pub mod db;
+pub mod email_alerts;
 pub mod error_aggregator;
 pub mod friends;
 pub mod game_launcher;

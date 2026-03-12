@@ -9,10 +9,12 @@ use crate::ac_camera::CameraController;
 use crate::ac_server::AcServerManager;
 use crate::billing::BillingManager;
 use crate::config::Config;
+use crate::email_alerts::EmailAlerter;
 use crate::game_launcher::GameManager;
 use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
 use rc_common::types::PodInfo;
+use rc_common::watchdog::EscalatingBackoff;
 
 /// Tracks OTP request count and window start per phone number
 pub struct OtpRateLimit {
@@ -54,11 +56,19 @@ pub struct AppState {
     pub api_error_counts: Mutex<HashMap<String, AtomicU32>>,
     /// When the API error counts were last reset
     pub api_error_counts_reset: Mutex<Instant>,
+    /// Per-pod escalating backoff state (shared between pod_monitor and pod_healer)
+    pub pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>,
+    /// Email alerter for watchdog notifications (behind RwLock for async mutation)
+    pub email_alerter: RwLock<EmailAlerter>,
 }
 
 impl AppState {
     pub fn new(config: Config, db: SqlitePool) -> Self {
         let (dashboard_tx, _) = broadcast::channel(1024);
+        // Extract email alert config before config is moved into the struct
+        let email_recipient = config.watchdog.email_recipient.clone();
+        let email_script_path = config.watchdog.email_script_path.clone();
+        let email_enabled = config.watchdog.email_enabled;
         Self {
             config,
             db,
@@ -81,6 +91,12 @@ impl AppState {
             ai_peer_tx: RwLock::new(None),
             api_error_counts: Mutex::new(HashMap::new()),
             api_error_counts_reset: Mutex::new(Instant::now()),
+            pod_backoffs: RwLock::new(HashMap::new()),
+            email_alerter: RwLock::new(EmailAlerter::new(
+                email_recipient,
+                email_script_path,
+                email_enabled,
+            )),
         }
     }
 
