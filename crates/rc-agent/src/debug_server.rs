@@ -87,6 +87,7 @@ async fn serve_status(
         LockScreenState::AwaitingAssistance { .. } => "awaiting_assistance",
         LockScreenState::ScreenBlanked => "screen_blanked",
         LockScreenState::Disconnected => "disconnected",
+        LockScreenState::ConfigError { .. } => "config_error",
     };
 
     let launch_err = last_launch_error.lock().unwrap_or_else(|e| e.into_inner()).clone();

@@ -62,6 +62,12 @@ pub enum LockScreenState {
     ScreenBlanked,
     /// Disconnected from core server — shown during reconnection attempts.
     Disconnected,
+    /// Configuration error — shown when rc-agent.toml is invalid or missing.
+    /// The technical error details are logged to stderr only; this screen shows
+    /// a generic message so customers do not see internal configuration details.
+    ConfigError {
+        message: String,
+    },
 }
 
 /// Events emitted by the lock screen to the agent main loop.
@@ -280,6 +286,19 @@ impl LockScreenManager {
         }
         #[cfg(windows)]
         suppress_notifications(true);
+        self.launch_browser();
+    }
+
+    /// Show a branded configuration error screen.
+    /// The `message` parameter is NOT shown to the customer — a generic message is used instead.
+    /// Technical details should be logged separately via tracing::error!.
+    pub fn show_config_error(&mut self, _message: &str) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::ConfigError {
+                message: "Configuration Error - contact staff".to_string(),
+            };
+        }
         self.launch_browser();
     }
 
@@ -637,6 +656,7 @@ fn render_page(state: &LockScreenState) -> String {
         } => render_assistance_page(driver_name, message),
         LockScreenState::ScreenBlanked => render_blank_page(),
         LockScreenState::Disconnected => render_disconnected_page(),
+        LockScreenState::ConfigError { .. } => render_config_error_page(),
     }
 }
 
@@ -666,6 +686,17 @@ fn render_disconnected_page() -> String {
 <div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Your session will continue. Please wait.</div>
 </div>
 <script>setTimeout(function(){location.reload()},3000)</script>"#,
+    )
+}
+
+fn render_config_error_page() -> String {
+    page_shell(
+        "Racing Point — Configuration Error",
+        r#"<div style="text-align:center;padding-top:30vh">
+<div style="font-family:Enthocentric,sans-serif;font-size:2.5em;color:#E10600;margin-bottom:20px">CONFIGURATION ERROR</div>
+<div class="msg" style="font-size:1.2em;margin-bottom:30px">Configuration Error - contact staff</div>
+<div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Please contact a member of staff to resolve this issue.</div>
+</div>"#,
     )
 }
 
