@@ -49,10 +49,10 @@ completed: 2026-03-13
 
 ## Performance
 
-- **Duration:** ~8 min
+- **Duration:** ~10 min (including human checkpoint verification)
 - **Started:** 2026-03-13T~00:50:00Z
-- **Completed:** 2026-03-13T~00:58:00Z
-- **Tasks:** 1 of 2 (Task 2 is checkpoint:human-verify — awaiting verification on Pod 8)
+- **Completed:** 2026-03-13T~01:00:00Z
+- **Tasks:** 2 of 2 (both complete, including Pod 8 human verification)
 - **Files modified:** 2
 
 ## Accomplishments
@@ -68,8 +68,9 @@ completed: 2026-03-13
 Each task was committed atomically:
 
 1. **Task 1: Fix rc-agent.template.toml to match AgentConfig struct** - `a796132` (fix)
+2. **Task 2: Verify deployed config on Pod 8** - checkpoint:human-verify approved (config written 1337 bytes, rc-agent started without errors)
 
-**Plan metadata:** TBD (after checkpoint verification)
+**Plan metadata:** `c3c2567` (docs: SUMMARY and STATE for deploy config template fix)
 
 ## Files Created/Modified
 - `deploy/rc-agent.template.toml` - Fixed TOML structure: [pod] + [core] sections matching AgentConfig struct
@@ -90,9 +91,9 @@ None - plan executed exactly as written.
 None - no external service configuration required.
 
 ## Next Phase Readiness
-- Task 2 (checkpoint:human-verify): Deploy config to Pod 8 with `--config-only` and verify rc-agent starts without ConfigError lock screen
-- Once verified, DEPLOY-04 is fully closed and phase 1 is complete
-- Phase 2 ready: Email alerting integration
+- DEPLOY-04 fully closed: Pod 8 confirmed rc-agent started with correct [pod]/[core] config (1337 bytes, no errors)
+- Phase 1 (State Wiring & Config Hardening) is complete — all 3 plans done (01-01, 01-02, 01-03)
+- Phase 2 ready: Watchdog Hardening — pod_monitor/pod_healer use shared backoff, post-restart verification, email alerts
 
 ---
 *Phase: 01-state-wiring-config-hardening*

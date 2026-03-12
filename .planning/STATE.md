@@ -3,30 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: "Checkpoint: 01-03 Task 2 human-verify (Pod 8 config deploy)"
-last_updated: "2026-03-12T23:13:10.997Z"
-last_activity: 2026-03-13 — Plan 01-01 complete (pod_backoffs pre-populated, rc-agent config validation hardened)
+stopped_at: "Completed 01-03-PLAN.md — Phase 1 complete"
+last_updated: "2026-03-13T01:00:00.000Z"
+last_activity: 2026-03-13 — Plan 01-03 complete (deploy config template fix verified on Pod 8, DEPLOY-04 closed)
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 3
   completed_plans: 3
----
-
----
-gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: planning
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-03-12T22:27:42.321Z"
-last_activity: 2026-03-13 — Roadmap created, all 22 requirements mapped to 5 phases
-progress:
-  total_phases: 5
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 0
 ---
 
 # Project State
@@ -36,32 +20,31 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** Pods self-heal, deployments work reliably, customers never see system internals
-**Current focus:** Phase 1 — State Wiring & Config Hardening
+**Current focus:** Phase 2 — Watchdog Hardening (Phase 1 complete)
 
 ## Current Position
 
-Phase: 1 of 5 (State Wiring & Config Hardening)
-Plan: 2 of 2 in current phase
-Status: Phase 1 Complete
-Last activity: 2026-03-13 — Plan 01-01 complete (pod_backoffs pre-populated, rc-agent config validation hardened)
+Phase: 1 of 5 complete (State Wiring & Config Hardening — DONE)
+Next: Phase 2 — Watchdog Hardening
+Status: Phase 1 Complete — ready to start Phase 2
 
 Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: ~45 min/plan
+- Total plans completed: 3
+- Average duration: ~21 min/plan
 - Total execution time: ~1.5 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-state-wiring-config-hardening | 2 | 2 | ~45min |
+| 01-state-wiring-config-hardening | 3 | 3 | ~21min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (45min), 01-02 (8.5min)
+- Last 5 plans: 01-01 (45min), 01-02 (8.5min), 01-03 (10min)
 - Trend: On track
 
 *Updated after each plan completion*
@@ -81,6 +64,9 @@ Progress: [██░░░░░░░░] 20%
 - [01-01]: ConfigError lock screen shows generic message only — technical details to tracing::error! — customer never sees internals
 - [01-01]: EscalatingBackoff fields are private in rc-common — tests must use public API (attempt(), ready()) not direct field access
 - [01-01]: wss:// accepted in addition to ws:// for cloud TLS connections
+- [01-03]: Template uses [pod] with number/name/sim and [core] with url — matching AgentConfig/PodConfig/CoreConfig serde layout exactly
+- [01-03]: sim defaults to assetto_corsa in template (primary game at venue) — not a per-pod variable
+- [01-03]: deploy_pod.py script left unchanged — template fix sufficient, script logic correct
 
 ### Pending Todos
 
@@ -94,6 +80,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T23:13:10.995Z
-Stopped at: Checkpoint: 01-03 Task 2 human-verify (Pod 8 config deploy)
+Last session: 2026-03-13T01:00:00.000Z
+Stopped at: Completed 01-03-PLAN.md — Phase 1 complete
 Resume file: None
