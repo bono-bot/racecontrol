@@ -253,6 +253,11 @@ impl Config {
         Self::default_config()
     }
 
+    /// Create a default config suitable for tests.
+    pub fn default_test() -> Self {
+        Self::default_config()
+    }
+
     fn default_config() -> Self {
         Config {
             venue: VenueConfig {

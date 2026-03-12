@@ -1,0 +1,31 @@
+//! RaceControl Core — shared library for the main server binary and integration tests.
+
+pub mod ac_camera;
+pub mod ac_server;
+pub mod accounting;
+pub mod action_queue;
+pub mod activity_log;
+pub mod ai;
+pub mod api;
+pub mod auth;
+pub mod billing;
+pub mod catalog;
+pub mod cloud_sync;
+pub mod config;
+pub mod db;
+pub mod error_aggregator;
+pub mod friends;
+pub mod game_launcher;
+pub mod multiplayer;
+pub mod port_allocator;
+pub mod lap_tracker;
+pub mod pod_healer;
+pub mod pod_monitor;
+pub mod pod_reservation;
+pub mod remote_terminal;
+pub mod scheduler;
+pub mod state;
+pub mod wallet;
+pub mod udp_heartbeat;
+pub mod wol;
+pub mod ws;

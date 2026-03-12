@@ -1,0 +1,964 @@
+//! Integration tests for RaceControl core: wallet, billing, ports, leaderboard.
+//!
+//! Uses in-memory SQLite so tests are fast and isolated.
+
+use std::sync::Arc;
+
+use rc_common::types::{BillingSessionStatus, DrivingState};
+use sqlx::SqlitePool;
+
+// ─── Test Helpers ────────────────────────────────────────────────────────────
+
+/// Create an in-memory SQLite database with all migrations applied.
+async fn create_test_db() -> SqlitePool {
+    // rc-core's db::init_pool needs a file path, so we build the pool manually
+    // and call the migration function indirectly by running the same SQL.
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("Failed to create in-memory SQLite pool");
+
+    // Run the same migration that db/mod.rs uses.
+    // We call the public init via a direct import of the migrate function.
+    // Since migrate is private, we replicate the essential schema here.
+    run_test_migrations(&pool).await;
+
+    pool
+}
+
+/// Replicate essential schema tables needed for integration tests.
+/// This mirrors the production migrate() function in db/mod.rs.
+async fn run_test_migrations(pool: &SqlitePool) {
+    sqlx::query("PRAGMA journal_mode=WAL").execute(pool).await.unwrap();
+    sqlx::query("PRAGMA foreign_keys=ON").execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS drivers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            steam_guid TEXT,
+            iracing_id TEXT,
+            avatar_url TEXT,
+            total_laps INTEGER DEFAULT 0,
+            total_time_ms INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT,
+            has_used_trial BOOLEAN DEFAULT 0,
+            pin_hash TEXT,
+            phone_verified BOOLEAN DEFAULT 0,
+            otp_code TEXT,
+            otp_expires_at TEXT,
+            last_login_at TEXT,
+            dob TEXT,
+            waiver_signed BOOLEAN DEFAULT 0,
+            waiver_signed_at TEXT,
+            waiver_version TEXT,
+            guardian_name TEXT,
+            guardian_phone TEXT,
+            registration_completed BOOLEAN DEFAULT 0,
+            signature_data TEXT,
+            customer_id TEXT,
+            is_employee BOOLEAN DEFAULT 0,
+            referral_code TEXT,
+            nickname TEXT,
+            show_nickname_on_leaderboard BOOLEAN DEFAULT 0,
+            presence TEXT DEFAULT 'hidden'
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pods (
+            id TEXT PRIMARY KEY,
+            number INTEGER NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            ip_address TEXT,
+            sim_type TEXT NOT NULL,
+            status TEXT DEFAULT 'offline',
+            current_driver_id TEXT REFERENCES drivers(id),
+            current_session_id TEXT REFERENCES sessions(id),
+            last_seen TEXT,
+            config_json TEXT
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            sim_type TEXT NOT NULL,
+            track TEXT NOT NULL,
+            car_class TEXT,
+            status TEXT DEFAULT 'pending',
+            max_drivers INTEGER,
+            laps_or_minutes INTEGER,
+            started_at TEXT,
+            ended_at TEXT,
+            config_json TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS laps (
+            id TEXT PRIMARY KEY,
+            session_id TEXT REFERENCES sessions(id),
+            driver_id TEXT REFERENCES drivers(id),
+            pod_id TEXT REFERENCES pods(id),
+            sim_type TEXT NOT NULL,
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            lap_number INTEGER,
+            lap_time_ms INTEGER NOT NULL,
+            sector1_ms INTEGER,
+            sector2_ms INTEGER,
+            sector3_ms INTEGER,
+            valid BOOLEAN DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS personal_bests (
+            driver_id TEXT REFERENCES drivers(id),
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            best_lap_ms INTEGER NOT NULL,
+            lap_id TEXT REFERENCES laps(id),
+            achieved_at TEXT,
+            PRIMARY KEY (driver_id, track, car)
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS track_records (
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            driver_id TEXT REFERENCES drivers(id),
+            best_lap_ms INTEGER NOT NULL,
+            lap_id TEXT REFERENCES laps(id),
+            achieved_at TEXT,
+            PRIMARY KEY (track, car)
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    // Billing tables
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pricing_tiers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            duration_minutes INTEGER NOT NULL,
+            price_paise INTEGER NOT NULL,
+            is_trial BOOLEAN DEFAULT 0,
+            is_active BOOLEAN DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO pricing_tiers (id, name, duration_minutes, price_paise, is_trial, sort_order)
+         VALUES
+            ('tier_30min', '30 Minutes', 30, 70000, 0, 1),
+            ('tier_60min', '1 Hour', 60, 90000, 0, 2),
+            ('tier_trial', 'Free Trial', 5, 0, 1, 0)"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS billing_sessions (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            pod_id TEXT NOT NULL,
+            pricing_tier_id TEXT NOT NULL REFERENCES pricing_tiers(id),
+            allocated_seconds INTEGER NOT NULL,
+            driving_seconds INTEGER DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            custom_price_paise INTEGER,
+            notes TEXT,
+            started_at TEXT,
+            ended_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            experience_id TEXT,
+            car TEXT,
+            track TEXT,
+            sim_type TEXT,
+            reservation_id TEXT,
+            wallet_debit_paise INTEGER,
+            wallet_txn_id TEXT,
+            staff_id TEXT,
+            split_count INTEGER DEFAULT 1,
+            split_duration_minutes INTEGER,
+            discount_paise INTEGER DEFAULT 0,
+            coupon_id TEXT,
+            original_price_paise INTEGER,
+            discount_reason TEXT,
+            pause_count INTEGER DEFAULT 0,
+            total_paused_seconds INTEGER DEFAULT 0,
+            last_paused_at TEXT,
+            refund_paise INTEGER DEFAULT 0
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS billing_events (
+            id TEXT PRIMARY KEY,
+            billing_session_id TEXT NOT NULL REFERENCES billing_sessions(id),
+            event_type TEXT NOT NULL,
+            driving_seconds_at_event INTEGER NOT NULL DEFAULT 0,
+            metadata TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    // Wallet tables
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS wallets (
+            driver_id TEXT PRIMARY KEY REFERENCES drivers(id),
+            balance_paise INTEGER NOT NULL DEFAULT 0,
+            total_credited_paise INTEGER NOT NULL DEFAULT 0,
+            total_debited_paise INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS wallet_transactions (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            amount_paise INTEGER NOT NULL,
+            balance_after_paise INTEGER NOT NULL,
+            txn_type TEXT NOT NULL CHECK(txn_type IN (
+                'topup_cash','topup_card','topup_upi','topup_online',
+                'debit_session','debit_cafe','debit_merchandise','debit_penalty',
+                'refund_session','refund_manual',
+                'bonus','adjustment'
+            )),
+            reference_id TEXT,
+            notes TEXT,
+            staff_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    // Indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_wallet_txn_driver ON wallet_transactions(driver_id)")
+        .execute(pool).await.unwrap();
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_wallet_txn_created ON wallet_transactions(created_at)")
+        .execute(pool).await.unwrap();
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_laps_track_car ON laps(track, car)")
+        .execute(pool).await.unwrap();
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_laps_driver ON laps(driver_id)")
+        .execute(pool).await.unwrap();
+
+    // Accounting tables (needed by wallet credit/debit functions)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS accounts (
+            id TEXT PRIMARY KEY,
+            code INTEGER NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            account_type TEXT NOT NULL CHECK(account_type IN ('asset', 'liability', 'equity', 'revenue', 'expense')),
+            parent_id TEXT REFERENCES accounts(id),
+            description TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    // Seed accounts (subset needed for wallet operations)
+    let accounts = [
+        ("acc_cash", 1000, "Cash", "asset", "Physical cash on hand"),
+        ("acc_card", 1001, "Card Receivable", "asset", "Card payment receivables"),
+        ("acc_upi", 1002, "UPI Receivable", "asset", "UPI payment receivables"),
+        ("acc_online", 1003, "Online Receivable", "asset", "Online payment receivables"),
+        ("acc_wallet_liability", 1100, "Customer Wallet Balances", "liability", "Total outstanding wallet credits"),
+        ("acc_racing_revenue", 2000, "Racing Revenue", "revenue", "Sim racing session revenue"),
+        ("acc_cafe_revenue", 2001, "Cafe Revenue", "revenue", "Cafe sales revenue"),
+        ("acc_merch_revenue", 2002, "Merchandise Revenue", "revenue", "Merchandise sales revenue"),
+        ("acc_bonus_expense", 3000, "Customer Bonuses", "expense", "Referral and promo bonuses"),
+        ("acc_refund_expense", 3001, "Refunds", "expense", "Session refunds"),
+    ];
+    for (id, code, name, acct_type, desc) in &accounts {
+        sqlx::query(
+            "INSERT OR IGNORE INTO accounts (id, code, name, account_type, description) VALUES (?, ?, ?, ?, ?)"
+        )
+        .bind(id).bind(code).bind(name).bind(acct_type).bind(desc)
+        .execute(pool).await.unwrap();
+    }
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS journal_entries (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL DEFAULT (date('now')),
+            description TEXT NOT NULL,
+            reference_type TEXT,
+            reference_id TEXT,
+            staff_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS journal_entry_lines (
+            id TEXT PRIMARY KEY,
+            journal_entry_id TEXT NOT NULL REFERENCES journal_entries(id),
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            debit_paise INTEGER NOT NULL DEFAULT 0,
+            credit_paise INTEGER NOT NULL DEFAULT 0,
+            CHECK(debit_paise >= 0 AND credit_paise >= 0),
+            CHECK(NOT (debit_paise > 0 AND credit_paise > 0))
+        )"
+    ).execute(pool).await.unwrap();
+
+    // Audit log (referenced by accounting module)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY,
+            table_name TEXT NOT NULL,
+            row_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN ('create', 'update', 'delete')),
+            old_values TEXT,
+            new_values TEXT,
+            staff_id TEXT,
+            ip_address TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    // AC sessions table (for port allocator tests referencing DB)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ac_sessions (
+            id TEXT PRIMARY KEY,
+            preset_id TEXT,
+            config_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'starting',
+            pod_ids TEXT,
+            pid INTEGER,
+            join_url TEXT,
+            error_message TEXT,
+            started_at TEXT,
+            ended_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            udp_port INTEGER,
+            tcp_port INTEGER,
+            http_port INTEGER
+        )"
+    ).execute(pool).await.unwrap();
+
+    // Pod activity log (used by billing tick loop)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_activity_log (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            pod_number INTEGER DEFAULT 0,
+            timestamp TEXT DEFAULT (datetime('now')),
+            category TEXT NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT DEFAULT '',
+            source TEXT NOT NULL
+        )"
+    ).execute(pool).await.unwrap();
+
+    // Kiosk settings (referenced by AppState::broadcast_settings)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS kiosk_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )"
+    ).execute(pool).await.unwrap();
+
+    // Pod reservations (referenced by billing expire handler)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_reservations (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            pod_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active'
+                CHECK(status IN ('active','completed','expired','cancelled')),
+            created_at TEXT DEFAULT (datetime('now')),
+            ended_at TEXT,
+            last_activity_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+}
+
+/// Create a minimal AppState backed by the given pool.
+fn create_test_state(pool: SqlitePool) -> Arc<rc_core::state::AppState> {
+    let config = rc_core::config::Config::default_test();
+    Arc::new(rc_core::state::AppState::new(config, pool))
+}
+
+/// Insert a test driver with a wallet.
+async fn seed_test_driver(pool: &SqlitePool, driver_id: &str) {
+    sqlx::query(
+        "INSERT OR IGNORE INTO drivers (id, name, phone) VALUES (?, ?, ?)"
+    )
+    .bind(driver_id)
+    .bind(format!("Test Driver {}", driver_id))
+    .bind("9999999999")
+    .execute(pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO wallets (driver_id, balance_paise, total_credited_paise, total_debited_paise)
+         VALUES (?, 100000, 100000, 0)"
+    )
+    .bind(driver_id)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Insert a test driver with specified wallet balance.
+async fn seed_test_driver_with_balance(pool: &SqlitePool, driver_id: &str, balance_paise: i64) {
+    sqlx::query(
+        "INSERT OR IGNORE INTO drivers (id, name, phone) VALUES (?, ?, ?)"
+    )
+    .bind(driver_id)
+    .bind(format!("Test Driver {}", driver_id))
+    .bind("9999999999")
+    .execute(pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO wallets (driver_id, balance_paise, total_credited_paise, total_debited_paise)
+         VALUES (?, ?, ?, 0)"
+    )
+    .bind(driver_id)
+    .bind(balance_paise)
+    .bind(balance_paise)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Insert a test pod.
+async fn seed_test_pod(pool: &SqlitePool, pod_id: &str, number: u32) {
+    sqlx::query(
+        "INSERT OR IGNORE INTO pods (id, number, name, sim_type, status) VALUES (?, ?, ?, 'assetto_corsa', 'idle')"
+    )
+    .bind(pod_id)
+    .bind(number as i64)
+    .bind(format!("Pod {}", number))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+// =============================================================================
+// Task 1: Test infrastructure verification
+// =============================================================================
+
+#[tokio::test]
+async fn test_db_setup() {
+    let pool = create_test_db().await;
+
+    // Verify key tables exist by querying them
+    let driver_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM drivers")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(driver_count.0, 0, "drivers table should exist and be empty");
+
+    let wallet_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM wallets")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(wallet_count.0, 0, "wallets table should exist and be empty");
+
+    let tier_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM pricing_tiers")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(tier_count.0 >= 3, "pricing_tiers should have seeded tiers");
+
+    let account_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM accounts")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(account_count.0 >= 5, "accounts should have seeded entries");
+
+    // Verify seeding helpers work
+    seed_test_driver(&pool, "test-driver-1").await;
+    seed_test_pod(&pool, "test-pod-1", 1).await;
+
+    let driver_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM drivers")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(driver_count.0, 1, "should have 1 seeded driver");
+
+    let pod_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM pods")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(pod_count.0, 1, "should have 1 seeded pod");
+
+    let balance = sqlx::query_as::<_, (i64,)>(
+        "SELECT balance_paise FROM wallets WHERE driver_id = 'test-driver-1'"
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(balance.0, 100000, "seeded driver wallet should have 100000 paise");
+}
+
+// =============================================================================
+// Task 2: Wallet integration tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_wallet_credit_debit_balance() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "wallet-test-1", 0).await;
+    let state = create_test_state(pool);
+
+    // Credit 100000 paise
+    let balance = rc_core::wallet::credit(
+        &state, "wallet-test-1", 100000, "topup_cash", None, None, None,
+    ).await.unwrap();
+    assert_eq!(balance, 100000, "balance after credit should be 100000");
+
+    // Debit 70000 paise
+    let (balance, _txn_id) = rc_core::wallet::debit(
+        &state, "wallet-test-1", 70000, "debit_session", None, None,
+    ).await.unwrap();
+    assert_eq!(balance, 30000, "balance after debit should be 30000");
+
+    // Verify 2 wallet_transaction rows exist
+    let txn_count = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM wallet_transactions WHERE driver_id = 'wallet-test-1'"
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(txn_count.0, 2, "should have 2 transaction records");
+}
+
+#[tokio::test]
+async fn test_wallet_transaction_recording() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "wallet-test-2", 0).await;
+    let state = create_test_state(pool);
+
+    // Credit 50000 paise with specific txn_type and notes
+    rc_core::wallet::credit(
+        &state, "wallet-test-2", 50000, "topup_cash", None, Some("Cash deposit"), None,
+    ).await.unwrap();
+
+    // Query wallet_transactions and verify details
+    let txn = sqlx::query_as::<_, (i64, i64, String, Option<String>)>(
+        "SELECT amount_paise, balance_after_paise, txn_type, notes
+         FROM wallet_transactions WHERE driver_id = 'wallet-test-2' LIMIT 1"
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    assert_eq!(txn.0, 50000, "amount_paise should be 50000");
+    assert_eq!(txn.1, 50000, "balance_after_paise should be 50000");
+    assert_eq!(txn.2, "topup_cash", "txn_type should be topup_cash");
+    assert_eq!(txn.3, Some("Cash deposit".to_string()), "notes should match");
+}
+
+#[tokio::test]
+async fn test_wallet_insufficient_balance() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "wallet-test-3", 10000).await;
+    let state = create_test_state(pool);
+
+    // Attempt debit 20000 paise — should fail
+    let result = rc_core::wallet::debit(
+        &state, "wallet-test-3", 20000, "debit_session", None, None,
+    ).await;
+
+    assert!(result.is_err(), "debit should fail with insufficient balance");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("Insufficient balance"),
+        "error should mention insufficient balance: {}",
+        err
+    );
+
+    // Verify balance unchanged
+    let balance = rc_core::wallet::get_balance(&state, "wallet-test-3").await.unwrap();
+    assert_eq!(balance, 10000, "balance should remain unchanged at 10000");
+}
+
+// =============================================================================
+// Task 3: Billing integration tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_billing_timer_counting() {
+    use rc_core::billing::BillingTimer;
+
+    let mut timer = BillingTimer {
+        session_id: "sess-1".to_string(),
+        driver_id: "drv-1".to_string(),
+        driver_name: "Test".to_string(),
+        pod_id: "pod-1".to_string(),
+        pricing_tier_name: "30 Minutes".to_string(),
+        allocated_seconds: 1800,
+        driving_seconds: 0,
+        status: BillingSessionStatus::Active,
+        driving_state: DrivingState::Active,
+        started_at: None,
+        warning_5min_sent: false,
+        warning_1min_sent: false,
+        offline_since: None,
+        split_count: 1,
+        split_duration_minutes: None,
+        current_split_number: 1,
+        pause_count: 0,
+        total_paused_seconds: 0,
+        last_paused_at: None,
+        max_pause_duration_secs: 600,
+    };
+
+    // Tick 30 times
+    for _ in 0..30 {
+        timer.tick();
+    }
+
+    assert_eq!(timer.driving_seconds, 30, "driving_seconds should be 30 after 30 ticks");
+    assert_eq!(timer.remaining_seconds(), 1770, "remaining should be 1770");
+}
+
+#[tokio::test]
+async fn test_billing_manual_pause() {
+    use rc_core::billing::BillingTimer;
+
+    let mut timer = BillingTimer {
+        session_id: "sess-2".to_string(),
+        driver_id: "drv-2".to_string(),
+        driver_name: "Test".to_string(),
+        pod_id: "pod-2".to_string(),
+        pricing_tier_name: "30 Minutes".to_string(),
+        allocated_seconds: 1800,
+        driving_seconds: 0,
+        status: BillingSessionStatus::Active,
+        driving_state: DrivingState::Active,
+        started_at: None,
+        warning_5min_sent: false,
+        warning_1min_sent: false,
+        offline_since: None,
+        split_count: 1,
+        split_duration_minutes: None,
+        current_split_number: 1,
+        pause_count: 0,
+        total_paused_seconds: 0,
+        last_paused_at: None,
+        max_pause_duration_secs: 600,
+    };
+
+    // Drive 10 seconds
+    for _ in 0..10 {
+        timer.tick();
+    }
+    assert_eq!(timer.driving_seconds, 10);
+
+    // Pause (manual)
+    timer.status = BillingSessionStatus::PausedManual;
+
+    // Tick 10 more times — should NOT increment
+    for _ in 0..10 {
+        timer.tick();
+    }
+    assert_eq!(timer.driving_seconds, 10, "driving_seconds should stay at 10 during manual pause");
+}
+
+#[tokio::test]
+async fn test_billing_disconnect_pause() {
+    use rc_core::billing::BillingTimer;
+
+    let mut timer = BillingTimer {
+        session_id: "sess-3".to_string(),
+        driver_id: "drv-3".to_string(),
+        driver_name: "Test".to_string(),
+        pod_id: "pod-3".to_string(),
+        pricing_tier_name: "30 Minutes".to_string(),
+        allocated_seconds: 1800,
+        driving_seconds: 0,
+        status: BillingSessionStatus::Active,
+        driving_state: DrivingState::Active,
+        started_at: None,
+        warning_5min_sent: false,
+        warning_1min_sent: false,
+        offline_since: None,
+        split_count: 1,
+        split_duration_minutes: None,
+        current_split_number: 1,
+        pause_count: 0,
+        total_paused_seconds: 0,
+        last_paused_at: None,
+        max_pause_duration_secs: 600,
+    };
+
+    // Drive 5 seconds
+    for _ in 0..5 {
+        timer.tick();
+    }
+    assert_eq!(timer.driving_seconds, 5);
+
+    // Simulate disconnect: set status to PausedDisconnect
+    timer.status = BillingSessionStatus::PausedDisconnect;
+    timer.pause_count = 1;
+
+    // Tick 10 more — driving_seconds should be frozen
+    for _ in 0..10 {
+        timer.tick();
+    }
+    assert_eq!(
+        timer.driving_seconds, 5,
+        "driving_seconds should remain at 5 during disconnect pause"
+    );
+    assert_eq!(
+        timer.status,
+        BillingSessionStatus::PausedDisconnect,
+        "status should remain PausedDisconnect"
+    );
+}
+
+#[tokio::test]
+async fn test_billing_max_pauses() {
+    // Test that after 3 pauses, billing continues even while offline.
+    // This is tested via the tick_all_timers logic which checks pause_count < 3.
+    // Here we test the BillingTimer struct behavior directly.
+    use rc_core::billing::BillingTimer;
+
+    let mut timer = BillingTimer {
+        session_id: "sess-4".to_string(),
+        driver_id: "drv-4".to_string(),
+        driver_name: "Test".to_string(),
+        pod_id: "pod-4".to_string(),
+        pricing_tier_name: "30 Minutes".to_string(),
+        allocated_seconds: 1800,
+        driving_seconds: 0,
+        status: BillingSessionStatus::Active,
+        driving_state: DrivingState::Active,
+        started_at: None,
+        warning_5min_sent: false,
+        warning_1min_sent: false,
+        offline_since: None,
+        split_count: 1,
+        split_duration_minutes: None,
+        current_split_number: 1,
+        pause_count: 3, // Already used all 3 pauses
+        total_paused_seconds: 0,
+        last_paused_at: None,
+        max_pause_duration_secs: 600,
+    };
+
+    // With pause_count = 3 and status = Active, tick should still count
+    // (the tick_all_timers function won't pause on the 4th disconnect)
+    for _ in 0..10 {
+        timer.tick();
+    }
+    assert_eq!(timer.driving_seconds, 10, "with 3 pauses used, billing keeps running");
+    assert_eq!(
+        timer.status,
+        BillingSessionStatus::Active,
+        "status should stay Active (no 4th pause)"
+    );
+}
+
+#[tokio::test]
+async fn test_billing_pause_timeout_refund() {
+    // Test the refund calculation logic:
+    // allocated=1800s, wallet_debit=70000 paise, driven=900s
+    // Remaining = 1800 - 900 = 900s
+    // Refund = (900/1800) * 70000 = 35000 paise
+    let allocated_seconds: i64 = 1800;
+    let wallet_debit_paise: i64 = 70000;
+    let driving_seconds: i64 = 900;
+
+    let remaining = allocated_seconds - driving_seconds;
+    let refund_paise = (remaining as f64 / allocated_seconds as f64 * wallet_debit_paise as f64) as i64;
+
+    assert_eq!(refund_paise, 35000, "refund should be 35000 paise (50% unused)");
+
+    // Also verify via DB: create a session and calculate refund
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "refund-drv", 100000).await;
+    seed_test_pod(&pool, "refund-pod", 1).await;
+    let state = create_test_state(pool);
+
+    // Create a billing session in DB
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, driving_seconds, status, wallet_debit_paise, started_at)
+         VALUES ('bs-refund', 'refund-drv', 'refund-pod', 'tier_30min', 1800, 900, 'paused_disconnect', 70000, datetime('now'))"
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    // Fetch session info as billing.rs does
+    let session_info = sqlx::query_as::<_, (i64, Option<i64>)>(
+        "SELECT allocated_seconds, wallet_debit_paise FROM billing_sessions WHERE id = 'bs-refund'"
+    )
+    .fetch_optional(&state.db)
+    .await
+    .unwrap();
+
+    let (allocated, debit) = session_info.unwrap();
+    let debit = debit.unwrap();
+    let remaining = allocated - driving_seconds;
+    let calc_refund = (remaining as f64 / allocated as f64 * debit as f64) as i64;
+
+    assert_eq!(calc_refund, 35000, "DB-based refund calculation should be 35000");
+
+    // Actually issue the refund and verify wallet
+    let new_balance = rc_core::wallet::refund(
+        &state, "refund-drv", calc_refund, Some("bs-refund"), Some("Auto-refund: disconnect pause timeout"),
+    ).await.unwrap();
+
+    // Original balance was 100000, plus 35000 refund = 135000
+    assert_eq!(new_balance, 135000, "balance after refund should be 135000");
+}
+
+// =============================================================================
+// Task 4: Port allocator and leaderboard tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_port_allocator_unique_ports() {
+    use rc_core::port_allocator::PortAllocator;
+
+    // Use high ports unlikely to conflict
+    let alloc = PortAllocator::new(19600, 18081, 16);
+
+    let p1 = alloc.allocate("session-1").await.unwrap();
+    let p2 = alloc.allocate("session-2").await.unwrap();
+    let p3 = alloc.allocate("session-3").await.unwrap();
+    let p4 = alloc.allocate("session-4").await.unwrap();
+
+    let udp_ports = vec![p1.udp_port, p2.udp_port, p3.udp_port, p4.udp_port];
+    let mut deduped = udp_ports.clone();
+    deduped.sort();
+    deduped.dedup();
+    assert_eq!(udp_ports.len(), deduped.len(), "All UDP ports must be unique");
+
+    let http_ports = vec![p1.http_port, p2.http_port, p3.http_port, p4.http_port];
+    let mut deduped = http_ports.clone();
+    deduped.sort();
+    deduped.dedup();
+    assert_eq!(http_ports.len(), deduped.len(), "All HTTP ports must be unique");
+}
+
+#[tokio::test]
+async fn test_port_allocator_cooldown() {
+    use rc_core::port_allocator::PortAllocator;
+
+    let alloc = PortAllocator::new(19900, 18381, 1);
+
+    let _p1 = alloc.allocate("s1").await.unwrap();
+    alloc.release("s1").await;
+
+    // Only slot is in cooldown — should fail
+    let result = alloc.allocate("s2").await;
+    assert!(result.is_err(), "Should fail when only slot is in cooldown");
+}
+
+#[tokio::test]
+async fn test_wallet_transaction_sync_payload() {
+    let pool = create_test_db().await;
+    seed_test_driver_with_balance(&pool, "sync-drv", 0).await;
+    let state = create_test_state(pool);
+
+    // Insert 3 wallet transactions with known data
+    rc_core::wallet::credit(
+        &state, "sync-drv", 10000, "topup_cash", None, Some("txn1"), None,
+    ).await.unwrap();
+    rc_core::wallet::credit(
+        &state, "sync-drv", 20000, "topup_upi", None, Some("txn2"), None,
+    ).await.unwrap();
+    rc_core::wallet::credit(
+        &state, "sync-drv", 30000, "topup_card", None, Some("txn3"), None,
+    ).await.unwrap();
+
+    // Query all transactions (simulating what the push payload builder would do)
+    let txns = sqlx::query_as::<_, (String, i64, String)>(
+        "SELECT id, amount_paise, txn_type FROM wallet_transactions
+         WHERE driver_id = 'sync-drv' ORDER BY created_at ASC"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+
+    assert_eq!(txns.len(), 3, "all 3 transactions should be in payload");
+    assert_eq!(txns[0].1, 10000, "first txn amount should be 10000");
+    assert_eq!(txns[1].1, 20000, "second txn amount should be 20000");
+    assert_eq!(txns[2].1, 30000, "third txn amount should be 30000");
+    assert_eq!(txns[0].2, "topup_cash");
+    assert_eq!(txns[1].2, "topup_upi");
+    assert_eq!(txns[2].2, "topup_card");
+}
+
+#[tokio::test]
+async fn test_leaderboard_ordering() {
+    let pool = create_test_db().await;
+
+    // Create 5 drivers
+    for i in 1..=5 {
+        let id = format!("lb-drv-{}", i);
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)")
+            .bind(&id)
+            .bind(format!("Racer {}", i))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    // Insert a pod for the laps
+    seed_test_pod(&pool, "lb-pod-1", 1).await;
+
+    // Insert 5 laps with different times on the same track
+    let times = [95000, 88000, 102000, 85500, 91000]; // ms
+    for (i, time_ms) in times.iter().enumerate() {
+        let driver_id = format!("lb-drv-{}", i + 1);
+        let lap_id = format!("lap-{}", i + 1);
+        sqlx::query(
+            "INSERT INTO laps (id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, valid)
+             VALUES (?, ?, 'lb-pod-1', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 1, ?, 1)"
+        )
+        .bind(&lap_id)
+        .bind(&driver_id)
+        .bind(*time_ms as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // Query leaderboard (fastest first)
+    let leaderboard = sqlx::query_as::<_, (String, i64)>(
+        "SELECT d.name, MIN(l.lap_time_ms) as best_time
+         FROM laps l
+         JOIN drivers d ON l.driver_id = d.id
+         WHERE l.track = 'spa' AND l.car = 'ks_ferrari_sf15t' AND l.valid = 1
+         GROUP BY l.driver_id
+         ORDER BY best_time ASC"
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(leaderboard.len(), 5, "should have 5 entries");
+    assert_eq!(leaderboard[0].1, 85500, "fastest lap should be 85500ms");
+    assert_eq!(leaderboard[1].1, 88000, "second fastest should be 88000ms");
+    assert_eq!(leaderboard[2].1, 91000, "third should be 91000ms");
+    assert_eq!(leaderboard[3].1, 95000, "fourth should be 95000ms");
+    assert_eq!(leaderboard[4].1, 102000, "slowest should be 102000ms");
+}

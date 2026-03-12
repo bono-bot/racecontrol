@@ -1,33 +1,3 @@
-mod ac_camera;
-mod ac_server;
-mod accounting;
-mod action_queue;
-mod activity_log;
-mod ai;
-mod api;
-mod auth;
-mod billing;
-mod catalog;
-mod cloud_sync;
-mod config;
-mod db;
-mod error_aggregator;
-mod friends;
-mod game_launcher;
-mod multiplayer;
-mod port_allocator;
-mod lap_tracker;
-mod pod_healer;
-mod pod_monitor;
-mod pod_reservation;
-mod remote_terminal;
-mod scheduler;
-mod state;
-mod wallet;
-mod udp_heartbeat;
-mod wol;
-mod ws;
-
 use axum::Router;
 use axum::routing::get;
 use axum::middleware as axum_mw;
@@ -37,8 +7,15 @@ use tower_http::cors::{CorsLayer, AllowOrigin};
 use axum::http::{HeaderValue, Method};
 use tower_http::trace::TraceLayer;
 
-use config::Config;
-use state::AppState;
+use rc_core::config::Config;
+use rc_core::state::AppState;
+use rc_core::{
+    ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
+    billing, catalog, cloud_sync, config, db, error_aggregator, friends,
+    game_launcher, multiplayer, port_allocator, lap_tracker, pod_healer,
+    pod_monitor, pod_reservation, remote_terminal, scheduler, wallet,
+    udp_heartbeat, wol, ws,
+};
 
 /// Middleware: if a JSON response body contains "JWT decode error", set status to 401
 async fn jwt_error_to_401(
