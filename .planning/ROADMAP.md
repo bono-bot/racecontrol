@@ -74,11 +74,12 @@ Phase 1 (FFB Safety)  ──>  Phase 2 (HUD Infra)  ──>  Phase 3 (HUD Layout
 **Goal:** Harden the pod supervision stack with escalating restart cooldowns (30s->2m->10m->30m) to prevent crash loops, post-restart self-tests that verify rc-agent health (WebSocket connected, lock screen responding) before declaring recovery successful, and email notifications to alert Uday when pods have persistent issues requiring manual intervention.
 **Requirements:** WD-01, WD-02, WD-03, WD-04, WD-05, WD-06
 **Depends on:** Phase 4
-**Plans:** 2 plans
+**Plans:** 2/2 complete
+**Status:** Complete
 
 Plans:
-- [ ] 05-01-PLAN.md — Foundation: EscalatingBackoff state machine, EmailAlerter module, config expansion, AppState fields
-- [ ] 05-02-PLAN.md — Integration: Wire escalating backoff + post-restart verification + email alerts into pod_monitor.rs and pod_healer.rs
+- [x] 05-01-PLAN.md — Foundation: EscalatingBackoff state machine, EmailAlerter module, config expansion, AppState fields
+- [x] 05-02-PLAN.md — Integration: Wire escalating backoff + post-restart verification + email alerts into pod_monitor.rs and pod_healer.rs
 
 ---
 *Created: 2026-03-11 | 25 requirements across 5 phases | Sequential execution*
