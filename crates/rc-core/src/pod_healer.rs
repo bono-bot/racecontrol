@@ -2,24 +2,26 @@
 //!
 //! Runs every 2 minutes (configurable). For each connected pod, collects deep
 //! diagnostics via pod-agent `/exec`, applies safe rule-based fixes (kill zombie
-//! sockets, restart unresponsive rc-agent, clear temp files), and escalates
-//! complex/unfamiliar issues to AI (Claude CLI -> Ollama -> Anthropic).
+//! sockets, clear temp files), and escalates complex/unfamiliar issues to AI
+//! (Claude CLI -> Ollama -> Anthropic).
+//!
+//! rc-agent restarts are deferred to pod_monitor (which owns the shared backoff).
+//! The healer uses the shared EscalatingBackoff from AppState.pod_backoffs for cooldown.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde_json::json;
 
 use crate::activity_log::log_pod_activity;
 use crate::state::AppState;
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
+use rc_common::watchdog::EscalatingBackoff;
 
 const POD_AGENT_PORT: u16 = 8090;
 const POD_AGENT_TIMEOUT: Duration = Duration::from_secs(10);
-const HEAL_COOLDOWN_SECS: i64 = 600; // 10 min cooldown per pod
 
 /// Processes that must NEVER be killed by the healer.
 const PROTECTED_PROCESSES: &[&str] = &[
@@ -41,7 +43,7 @@ const PROTECTED_PROCESSES: &[&str] = &[
     "steam.exe",
     "steamwebhelper.exe",
     "vmsdesktop.exe",
-    // James's machine runs as Pod 1 — these are infrastructure, not suspicious
+    // James's machine runs as Pod 1 -- these are infrastructure, not suspicious
     "claude.exe",
     "ollama.exe",
     "ollama_llama_server.exe",
@@ -57,7 +59,7 @@ const DISK_THRESHOLD_PCT: f64 = 90.0;
 /// Memory threshold (MB free) to flag as low memory.
 const MEMORY_LOW_MB: u64 = 2048;
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+// --- Types -------------------------------------------------------------------
 
 struct PodDiagnostics {
     stale_sockets: Vec<(u32, String)>, // (PID, state like CLOSE_WAIT)
@@ -75,11 +77,7 @@ struct HealAction {
     reason: String,
 }
 
-struct HealCooldown {
-    last_action: DateTime<Utc>,
-}
-
-// ─── Spawn ──────────────────────────────────────────────────────────────────
+// --- Spawn -------------------------------------------------------------------
 
 /// Spawn the pod healer background task.
 pub fn spawn(state: Arc<AppState>) {
@@ -91,31 +89,26 @@ pub fn spawn(state: Arc<AppState>) {
     let interval_secs = state.config.pods.healer_interval_secs as u64;
 
     tracing::info!(
-        "Pod healer starting (interval: {}s, cooldown: {}s)",
+        "Pod healer starting (interval: {}s, shared backoff via AppState)",
         interval_secs,
-        HEAL_COOLDOWN_SECS,
     );
 
     tokio::spawn(async move {
         // Wait for pods to connect before first scan
         tokio::time::sleep(Duration::from_secs(30)).await;
 
-        let mut cooldowns: HashMap<String, HealCooldown> = HashMap::new();
         let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
 
         loop {
             interval.tick().await;
-            heal_all_pods(&state, &mut cooldowns).await;
+            heal_all_pods(&state).await;
         }
     });
 }
 
-// ─── Main Loop ──────────────────────────────────────────────────────────────
+// --- Main Loop ---------------------------------------------------------------
 
-async fn heal_all_pods(
-    state: &Arc<AppState>,
-    cooldowns: &mut HashMap<String, HealCooldown>,
-) {
+async fn heal_all_pods(state: &Arc<AppState>) {
     // Snapshot connected pods
     let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
 
@@ -131,7 +124,7 @@ async fn heal_all_pods(
     tracing::info!("Pod healer: checking {} pods", active_pods.len());
 
     for pod in active_pods {
-        if let Err(e) = heal_pod(state, pod, cooldowns).await {
+        if let Err(e) = heal_pod(state, pod).await {
             tracing::warn!("Pod healer: error checking pod {}: {}", pod.id, e);
         }
     }
@@ -140,7 +133,6 @@ async fn heal_all_pods(
 async fn heal_pod(
     state: &Arc<AppState>,
     pod: &PodInfo,
-    cooldowns: &mut HashMap<String, HealCooldown>,
 ) -> anyhow::Result<()> {
     // First verify pod-agent is reachable
     let ping_url = format!("http://{}:{}/ping", pod.ip_address, POD_AGENT_PORT);
@@ -152,7 +144,7 @@ async fn heal_pod(
         .await;
 
     if ping.is_err() || !ping.as_ref().unwrap().status().is_success() {
-        // Pod-agent unreachable — pod_monitor handles this case
+        // Pod-agent unreachable -- pod_monitor handles this case
         return Ok(());
     }
 
@@ -163,7 +155,7 @@ async fn heal_pod(
     let mut issues: Vec<String> = Vec::new();
     let mut actions: Vec<HealAction> = Vec::new();
 
-    // ─── Rule 1: Stale sockets ──────────────────────────────────────────
+    // --- Rule 1: Stale sockets -----------------------------------------------
     if !diag.stale_sockets.is_empty() {
         for (pid, sock_state) in &diag.stale_sockets {
             if is_protected_pid(state, &pod.ip_address, *pid).await {
@@ -182,36 +174,36 @@ async fn heal_pod(
         }
     }
 
-    // ─── Rule 2: rc-agent lock screen unresponsive ──────────────────────
+    // --- Rule 2: rc-agent lock screen unresponsive ---------------------------
     if !diag.rc_agent_healthy {
         let has_active_ws = state.agent_senders.read().await.contains_key(&pod.id);
         if has_active_ws {
-            // Pod has an active WebSocket connection → rc-agent IS running.
+            // Pod has an active WebSocket connection -> rc-agent IS running.
             // Lock screen port check is a false positive (PowerShell flakiness,
-            // antivirus, transient TCP issue). Do NOT restart — that would kill
+            // antivirus, transient TCP issue). Do NOT restart -- that would kill
             // the WebSocket and cause offline/online flapping.
             tracing::debug!(
-                "Pod healer: {} lock screen unresponsive but WebSocket connected — skipping restart",
+                "Pod healer: {} lock screen unresponsive but WebSocket connected -- skipping restart",
                 pod.id
             );
         } else {
             let has_active_billing = has_active_billing(state, &pod.id).await;
             if has_active_billing {
-                issues.push(format!(
-                    "rc-agent lock screen unresponsive but pod has active billing — NOT restarting"
-                ));
+                issues.push(
+                    "rc-agent lock screen unresponsive but pod has active billing -- NOT restarting"
+                        .to_string(),
+                );
             } else {
-                actions.push(HealAction {
-                    pod_id: pod.id.clone(),
-                    action: "restart_rc_agent".to_string(),
-                    target: "rc-agent.exe".to_string(),
-                    reason: "Lock screen (port 18923) unresponsive, no active billing, no WebSocket".to_string(),
-                });
+                // Defer restart to pod_monitor -- healer should NOT restart rc-agent independently
+                issues.push(
+                    "rc-agent lock screen unresponsive (no WebSocket, no active billing) -- deferring restart to pod_monitor"
+                        .to_string(),
+                );
             }
         }
     }
 
-    // ─── Rule 3: Disk space low ─────────────────────────────────────────
+    // --- Rule 3: Disk space low ----------------------------------------------
     if diag.disk_free_pct < (100.0 - DISK_THRESHOLD_PCT) {
         actions.push(HealAction {
             pod_id: pod.id.clone(),
@@ -221,7 +213,7 @@ async fn heal_pod(
         });
     }
 
-    // ─── Rule 4: Low memory (alert only) ────────────────────────────────
+    // --- Rule 4: Low memory (alert only) -------------------------------------
     if diag.memory_free_mb < MEMORY_LOW_MB {
         issues.push(format!(
             "Low memory: {}MB free / {}MB total",
@@ -229,12 +221,14 @@ async fn heal_pod(
         ));
     }
 
-    // ─── Rule 5: Suspicious processes (alert only) ──────────────────────
+    // --- Rule 5: Suspicious processes (alert only) ---------------------------
     if !diag.suspicious_processes.is_empty() {
         for (name, pid, mem_kb) in &diag.suspicious_processes {
             issues.push(format!(
                 "Suspicious process: {} (PID {}, {}MB RAM)",
-                name, pid, mem_kb / 1024
+                name,
+                pid,
+                mem_kb / 1024
             ));
         }
     }
@@ -244,33 +238,46 @@ async fn heal_pod(
         return Ok(());
     }
 
-    // Check cooldown before executing actions
+    // Check shared backoff before executing heal actions
     let now = Utc::now();
-    let cooldown_ok = match cooldowns.get(&pod.id) {
-        Some(cd) => (now - cd.last_action).num_seconds() > HEAL_COOLDOWN_SECS,
-        None => true,
+    let backoffs = state.pod_backoffs.read().await;
+    let cooldown_ok = match backoffs.get(&pod.id) {
+        Some(backoff) => backoff.ready(now),
+        None => true, // no prior attempts, OK to proceed
     };
+    drop(backoffs); // release read lock before executing actions
 
     // Execute auto-heal actions (if cooldown allows)
     if cooldown_ok && !actions.is_empty() {
         for action in &actions {
             tracing::info!(
                 "Pod healer: [{}] {} -> {} ({})",
-                action.pod_id, action.action, action.target, action.reason
+                action.pod_id,
+                action.action,
+                action.target,
+                action.reason
             );
             let activity_action = match action.action.as_str() {
                 "kill_zombie" => "Zombie Socket Killed",
-                "restart_rc_agent" => "Lock Screen Fixed",
                 "clear_temp" => "Disk Cleaned",
                 _ => "Auto-Fix Applied",
             };
-            log_pod_activity(state, &action.pod_id, "race_engineer", activity_action, &action.reason, "race_engineer");
+            log_pod_activity(
+                state,
+                &action.pod_id,
+                "race_engineer",
+                activity_action,
+                &action.reason,
+                "race_engineer",
+            );
             execute_heal_action(state, &pod.ip_address, action).await;
         }
-        cooldowns.insert(
-            pod.id.clone(),
-            HealCooldown { last_action: now },
-        );
+        // Record heal attempt in shared backoff (so pod_monitor knows healer acted)
+        let mut backoffs = state.pod_backoffs.write().await;
+        let backoff = backoffs
+            .entry(pod.id.clone())
+            .or_insert_with(EscalatingBackoff::new);
+        backoff.record_attempt(now);
     } else if !actions.is_empty() {
         tracing::info!(
             "Pod healer: {} has {} pending actions but cooldown not elapsed",
@@ -282,18 +289,46 @@ async fn heal_pod(
     // Escalate to AI if there are complex issues that rules can't handle
     // (respects same cooldown as heal actions to prevent spamming)
     if !issues.is_empty() && state.config.ai_debugger.enabled && cooldown_ok {
-        log_pod_activity(state, &pod.id, "race_engineer", "AI Analysis Requested", &issues.join("; "), "race_engineer");
-        escalate_to_ai(state, pod, &issues, &actions).await;
-        cooldowns.insert(
-            pod.id.clone(),
-            HealCooldown { last_action: now },
+        log_pod_activity(
+            state,
+            &pod.id,
+            "race_engineer",
+            "AI Analysis Requested",
+            &issues.join("; "),
+            "race_engineer",
         );
+        escalate_to_ai(state, pod, &issues, &actions).await;
+
+        // Send email for persistent issues (3+ issues on a single pod)
+        if issues.len() >= 3 {
+            let body = format!(
+                "Pod {} has {} persistent issues requiring attention:\n\n{}\n\nAI analysis was requested. Check dashboard for suggestions.",
+                pod.id,
+                issues.len(),
+                issues
+                    .iter()
+                    .map(|i| format!("- {}", i))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            let subject = format!(
+                "[RacingPoint] Pod {} -- {} issues detected",
+                pod.id,
+                issues.len()
+            );
+            state
+                .email_alerter
+                .write()
+                .await
+                .send_alert(&pod.id, &subject, &body)
+                .await;
+        }
     }
 
     Ok(())
 }
 
-// ─── Diagnostics Collection ─────────────────────────────────────────────────
+// --- Diagnostics Collection --------------------------------------------------
 
 async fn collect_diagnostics(
     state: &Arc<AppState>,
@@ -445,7 +480,7 @@ async fn check_processes(
         if parts.len() >= 5 {
             let name = parts[0].trim_matches('"').to_lowercase();
             let pid: u32 = parts[1].trim_matches('"').parse().unwrap_or(0);
-            // Mem Usage like "123,456 K" — handle the comma in the number
+            // Mem Usage like "123,456 K" -- handle the comma in the number
             let mem_str = parts[4..]
                 .join(",")
                 .replace('"', "")
@@ -473,13 +508,9 @@ async fn check_processes(
     Ok(suspicious)
 }
 
-// ─── Auto-Heal Actions ─────────────────────────────────────────────────────
+// --- Auto-Heal Actions -------------------------------------------------------
 
-async fn execute_heal_action(
-    state: &Arc<AppState>,
-    pod_ip: &str,
-    action: &HealAction,
-) {
+async fn execute_heal_action(state: &Arc<AppState>, pod_ip: &str, action: &HealAction) {
     let cmd = match action.action.as_str() {
         "kill_zombie" => {
             // Extract PID from target like "PID 1234"
@@ -493,9 +524,6 @@ async fn execute_heal_action(
                 return;
             }
             format!("taskkill /F /PID {}", pid)
-        }
-        "restart_rc_agent" => {
-            r#"cd /d C:\RacingPoint & taskkill /F /IM rc-agent.exe >nul 2>&1 & timeout /t 3 /nobreak >nul & start /b rc-agent.exe"#.to_string()
         }
         "clear_temp" => {
             r#"del /q /s C:\Users\*\AppData\Local\Temp\* >nul 2>&1"#.to_string()
@@ -526,7 +554,7 @@ async fn execute_heal_action(
     }
 }
 
-// ─── AI Escalation ──────────────────────────────────────────────────────────
+// --- AI Escalation -----------------------------------------------------------
 
 async fn escalate_to_ai(
     state: &Arc<AppState>,
@@ -545,7 +573,7 @@ async fn escalate_to_ai(
     };
 
     let context = format!(
-        "POD HEALTH ALERT — Pod {} (#{}, IP: {})\n\n\
+        "POD HEALTH ALERT -- Pod {} (#{}, IP: {})\n\n\
          Issues detected:\n{}\n\n\
          Auto-heal actions taken:\n{}\n\n\
          Pod status: {:?}, Last seen: {:?}, Current game: {:?}",
@@ -576,7 +604,14 @@ async fn escalate_to_ai(
         }),
     ];
 
-    match crate::ai::query_ai(&state.config.ai_debugger, &messages, Some(&state.db), Some("healer")).await {
+    match crate::ai::query_ai(
+        &state.config.ai_debugger,
+        &messages,
+        Some(&state.db),
+        Some("healer"),
+    )
+    .await
+    {
         Ok((suggestion, model)) => {
             tracing::info!(
                 "Pod healer AI suggestion for {} (via {}): {}",
@@ -624,7 +659,7 @@ async fn escalate_to_ai(
     }
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// --- Helpers -----------------------------------------------------------------
 
 /// Execute a command on a pod via pod-agent POST /exec.
 async fn exec_on_pod(
@@ -649,18 +684,11 @@ async fn exec_on_pod(
     }
 
     let body: serde_json::Value = resp.json().await?;
-    Ok(body["stdout"]
-        .as_str()
-        .unwrap_or("")
-        .to_string())
+    Ok(body["stdout"].as_str().unwrap_or("").to_string())
 }
 
 /// Check if a PID belongs to a protected process on the pod.
-async fn is_protected_pid(
-    state: &Arc<AppState>,
-    pod_ip: &str,
-    pid: u32,
-) -> bool {
+async fn is_protected_pid(state: &Arc<AppState>, pod_ip: &str, pid: u32) -> bool {
     let cmd = format!(
         "wmic process where ProcessId={} get Name /format:csv",
         pid
