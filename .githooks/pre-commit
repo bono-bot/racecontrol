@@ -1,0 +1,9 @@
+#!/bin/bash
+# Pre-commit hook: Cross-process impact detection
+# Warns when staged files affect downstream services via DEPENDENCIES.json
+# Advisory only — never blocks commits.
+
+node "$(dirname "$0")/../scripts/check-dependencies.js" 2>/dev/null
+
+# Always exit 0 -- impact detection is advisory only
+exit 0
