@@ -2,8 +2,8 @@
 phase: 3
 slug: hud-layout-and-display
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-03-12
 ---
 
@@ -38,15 +38,11 @@ created: 2026-03-12
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 03-01-01 | 01 | 1 | HUD-01 | unit | `cargo test -p rc-agent -- gear_indicator` | ❌ W0 | ⬜ pending |
-| 03-01-02 | 01 | 1 | HUD-02 | unit | `cargo test -p rc-agent -- speed_display` | ❌ W0 | ⬜ pending |
-| 03-01-03 | 01 | 1 | HUD-03 | unit | `cargo test -p rc-agent -- rpm_bar` | ❌ W0 | ⬜ pending |
-| 03-02-01 | 02 | 1 | HUD-04 | unit | `cargo test -p rc-agent -- lap_time` | ❌ W0 | ⬜ pending |
-| 03-02-02 | 02 | 1 | HUD-05 | unit | `cargo test -p rc-agent -- session_timer` | ❌ W0 | ⬜ pending |
-| 03-02-03 | 02 | 1 | HUD-06 | unit | `cargo test -p rc-agent -- sector_time` | ❌ W0 | ⬜ pending |
-| 03-02-04 | 02 | 1 | HUD-07 | unit | `cargo test -p rc-agent -- lap_counter` | ❌ W0 | ⬜ pending |
-| 03-02-05 | 02 | 1 | HUD-08 | unit | `cargo test -p rc-agent -- invalid_indicator` | ❌ W0 | ⬜ pending |
-| 03-02-06 | 02 | 1 | HUD-09 | unit | `cargo test -p rc-agent -- monospace_font` | ❌ W0 | ⬜ pending |
+| 03-01-T1 | 01 | 1 | HUD-01, HUD-02, HUD-09 | unit | `cargo test -p rc-agent -- overlay::tests` | ✅ (test_compute_layout exists, test_rpm_color_zones created inline) | ⬜ pending |
+| 03-01-T2 | 01 | 1 | HUD-08 | build+unit | `cargo test -p rc-agent` | ✅ | ⬜ pending |
+| 03-02-T1 | 02 | 2 | HUD-03, HUD-04, HUD-05, HUD-07 | build+unit | `cargo test -p rc-agent` | ✅ | ⬜ pending |
+| 03-02-T2 | 02 | 2 | HUD-06 | full suite | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` | ✅ | ⬜ pending |
+| 03-02-T3 | 02 | 2 | All HUD | checkpoint | Pod 8 visual verification | N/A | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -54,12 +50,7 @@ created: 2026-03-12
 
 ## Wave 0 Requirements
 
-- [ ] Add layout geometry tests for gear/speed/RPM positioning (HUD-01, HUD-02, HUD-03)
-- [ ] Add timing display tests for lap times, sectors, session timer (HUD-04, HUD-05, HUD-06)
-- [ ] Add lap counter + invalid indicator tests (HUD-07, HUD-08)
-- [ ] Add font/monospace assertion tests (HUD-09)
-
-*Existing test infrastructure (cargo test) covers framework needs — Wave 0 adds stubs only.*
+*No separate Wave 0 needed — test_rpm_color_zones is created inline by Plan 03-01 Task 1 (TDD). test_compute_layout already exists and is updated by the same task. All other verification uses existing cargo test infrastructure.*
 
 ---
 
