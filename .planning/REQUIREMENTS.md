@@ -88,34 +88,34 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WD-01 | — | Pending |
-| WD-02 | — | Pending |
-| WD-03 | — | Pending |
-| WD-04 | — | Pending |
-| CONN-01 | — | Pending |
-| CONN-02 | — | Pending |
-| CONN-03 | — | Pending |
-| DEPLOY-01 | — | Pending |
-| DEPLOY-02 | — | Pending |
-| DEPLOY-03 | — | Pending |
-| DEPLOY-04 | — | Pending |
-| DEPLOY-05 | — | Pending |
-| ALERT-01 | — | Pending |
-| ALERT-02 | — | Pending |
-| SCREEN-01 | — | Pending |
-| SCREEN-02 | — | Pending |
-| SCREEN-03 | — | Pending |
-| PERF-01 | — | Pending |
-| PERF-02 | — | Pending |
-| PERF-03 | — | Pending |
-| PERF-04 | — | Pending |
-| AUTH-01 | — | Pending |
+| WD-01 | Phase 2 | Pending |
+| WD-02 | Phase 1 | Pending |
+| WD-03 | Phase 2 | Pending |
+| WD-04 | Phase 2 | Pending |
+| CONN-01 | Phase 3 | Pending |
+| CONN-02 | Phase 3 | Pending |
+| CONN-03 | Phase 3 | Pending |
+| DEPLOY-01 | Phase 1 | Pending |
+| DEPLOY-02 | Phase 4 | Pending |
+| DEPLOY-03 | Phase 1 | Pending |
+| DEPLOY-04 | Phase 1 | Pending |
+| DEPLOY-05 | Phase 4 | Pending |
+| ALERT-01 | Phase 2 | Pending |
+| ALERT-02 | Phase 2 | Pending |
+| SCREEN-01 | Phase 5 | Pending |
+| SCREEN-02 | Phase 5 | Pending |
+| SCREEN-03 | Phase 5 | Pending |
+| PERF-01 | Phase 4 | Pending |
+| PERF-02 | Phase 4 | Pending |
+| PERF-03 | Phase 3 | Pending |
+| PERF-04 | Phase 3 | Pending |
+| AUTH-01 | Phase 5 | Pending |
 
 **Coverage:**
 - v1.0 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22 ⚠️
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-13*
-*Last updated: 2026-03-13 after initial definition*
+*Last updated: 2026-03-13 — traceability populated after roadmap creation*
