@@ -1,12 +1,28 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-12T05:02:02.384Z"
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 5
+  completed_plans: 1
+---
+
 # Project State
 
 ## Project Reference
 See: .planning/PROJECT.md (updated 2026-03-11)
 **Core value:** Customers must never be at risk of wrist injury, and drivers must see their lap/sector data clearly.
-**Current focus:** Phase 1
+**Current focus:** Phase 5
+**Last session:** 2026-03-12T05:02:02.381Z
+**Stopped at:** Completed 05-01-PLAN.md
 
 ## Current Phase
-Phase 1: FFB Safety — Eliminate Wrist Injury Risk — Not Started
+Phase 5: Watchdog Hardening — Plan 1 of 2 complete
 
 ## Progress
 | Phase | Name | Status | Notes |
@@ -15,10 +31,12 @@ Phase 1: FFB Safety — Eliminate Wrist Injury Risk — Not Started
 | 2 | HUD Infrastructure | Not Started | 2 requirements (INFRA-01, INFRA-02), blocked by Phase 1 |
 | 3 | HUD Layout and Display | Not Started | 9 requirements (HUD-01 to HUD-09), blocked by Phase 2 |
 | 4 | HUD Data Accuracy | Not Started | 4 requirements (DATA-01 to DATA-04), blocked by Phase 3 |
-| 5 | Watchdog Hardening | Not Started | Escalating cooldown, post-restart self-test, WebSocket verification, email alerts |
+| 5 | Watchdog Hardening | In Progress (1/2 plans) | Plan 01 done: EscalatingBackoff + EmailAlerter + WatchdogConfig + AppState |
 
 ## Decisions Log
-(empty — populated during execution)
+- [05-01] EscalatingBackoff uses Vec<Duration> steps with clamping to last element for cap behavior
+- [05-01] EmailAlerter enforces dual rate limits: per-pod 30min AND venue-wide 5min must both pass
+- [05-01] Email sending uses 15s tokio timeout with kill_on_drop(true) to prevent blocking watchdog loop
 
 ## Known Issues (from Pod 8 test, Mar 11)
 - **FFB too slow:** Wheelbase takes too long to zero after session ends — needs to be faster (zero BEFORE game kill, tighter timeout)

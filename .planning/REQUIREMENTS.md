@@ -30,12 +30,12 @@
 - [ ] **FFB-04**: Graceful fallback — if wheelbase device not found or write fails, log warning and continue (no panic, no block)
 
 ### Watchdog Hardening
-- [ ] **WD-01**: Escalating restart cooldowns: 30s -> 2m -> 10m -> 30m per pod, resets on successful recovery
+- [x] **WD-01**: Escalating restart cooldowns: 30s -> 2m -> 10m -> 30m per pod, resets on successful recovery
 - [ ] **WD-02**: Post-restart self-test: verify rc-agent process running, WebSocket reconnected, and lock screen responsive within 60s of restart
-- [ ] **WD-03**: Email notification to Uday (usingh@racingpoint.in) when a pod hits max escalation or post-restart verification fails
-- [ ] **WD-04**: Email rate limiting: max 1 email per pod per 30 minutes, max 1 venue-wide email per 5 minutes (aggregate multiple pod failures)
+- [x] **WD-03**: Email notification to Uday (usingh@racingpoint.in) when a pod hits max escalation or post-restart verification fails
+- [x] **WD-04**: Email rate limiting: max 1 email per pod per 30 minutes, max 1 venue-wide email per 5 minutes (aggregate multiple pod failures)
 - [ ] **WD-05**: Shared backoff state between pod_monitor and pod_healer to prevent duplicate restart attempts
-- [ ] **WD-06**: Configurable alert settings in racecontrol.toml: email recipient, enable/disable, script path, cooldown durations
+- [x] **WD-06**: Configurable alert settings in racecontrol.toml: email recipient, enable/disable, script path, cooldown durations
 
 ## v2 Requirements (Deferred)
 - [ ] F1 25 HUD support (separate adapter, different telemetry source)
