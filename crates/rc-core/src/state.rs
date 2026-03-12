@@ -91,7 +91,7 @@ impl AppState {
             ai_peer_tx: RwLock::new(None),
             api_error_counts: Mutex::new(HashMap::new()),
             api_error_counts_reset: Mutex::new(Instant::now()),
-            pod_backoffs: RwLock::new(HashMap::new()),
+            pod_backoffs: RwLock::new(create_initial_backoffs()),
             email_alerter: RwLock::new(EmailAlerter::new(
                 email_recipient,
                 email_script_path,
@@ -217,5 +217,67 @@ impl AppState {
             .collect();
         *self.api_error_counts_reset.lock().unwrap() = Instant::now();
         snapshot
+    }
+}
+
+/// Creates the initial pod_backoffs HashMap pre-populated for pods 1–8.
+/// Extracted for testability.
+pub fn create_initial_backoffs() -> HashMap<String, EscalatingBackoff> {
+    let mut backoffs = HashMap::new();
+    for pod_num in 1u32..=8 {
+        backoffs.insert(format!("pod_{}", pod_num), EscalatingBackoff::new());
+    }
+    backoffs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_initial_backoffs_has_exactly_8_entries() {
+        let backoffs = create_initial_backoffs();
+        assert_eq!(backoffs.len(), 8, "Expected exactly 8 pod backoff entries");
+    }
+
+    #[test]
+    fn create_initial_backoffs_keyed_pod_1_through_pod_8() {
+        let backoffs = create_initial_backoffs();
+        for i in 1u32..=8 {
+            let key = format!("pod_{}", i);
+            assert!(backoffs.contains_key(&key), "Missing key: {}", key);
+        }
+    }
+
+    #[test]
+    fn create_initial_backoffs_each_entry_starts_at_attempt_zero() {
+        let backoffs = create_initial_backoffs();
+        for i in 1u32..=8 {
+            let key = format!("pod_{}", i);
+            let backoff = backoffs.get(&key).unwrap();
+            // Use public API: attempt() method and ready() — a fresh backoff is always ready
+            assert_eq!(backoff.attempt(), 0, "pod_{} should start at attempt 0", i);
+            assert!(backoff.ready(chrono::Utc::now()), "pod_{} should have no prior attempt (always ready)", i);
+        }
+    }
+
+    #[test]
+    fn create_initial_backoffs_pod_5_is_some() {
+        let backoffs = create_initial_backoffs();
+        assert!(backoffs.get("pod_5").is_some(), "pod_5 should be pre-populated");
+    }
+
+    #[test]
+    fn or_insert_with_returns_existing_entry_not_duplicate() {
+        let mut backoffs = create_initial_backoffs();
+        // Simulate what pod_monitor does: entry().or_insert_with()
+        // Record an attempt on the pre-existing entry
+        {
+            let entry = backoffs.entry("pod_3".to_string()).or_insert_with(EscalatingBackoff::new);
+            entry.record_attempt(chrono::Utc::now());
+        }
+        // Re-access — should still be at attempt 1 (existing entry was mutated, not replaced)
+        let val = backoffs.get("pod_3").unwrap();
+        assert_eq!(val.attempt(), 1, "or_insert_with should return pre-existing entry, not a new one");
     }
 }
