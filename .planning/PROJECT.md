@@ -1,12 +1,24 @@
 # RaceControl Reliability & Connection Hardening
 
+## Current Milestone: v1.0 Reliability & Clean UX
+
+**Goal:** Make pods self-healing, deployments repeatable, and customer-facing screens always clean — no error popups, no system messages, no visible failures.
+
+**Target features:**
+- Escalating watchdog with post-restart verification
+- WebSocket resilience during game launch
+- Clean deployment lifecycle across all 8 pods
+- Config validation (fail-fast on bad config)
+- Email alerts for persistent failures
+- Blanking screen protocol (clean branded UI always, zero error leakage)
+
 ## What This Is
 
 A reliability overhaul of the RaceControl pod management stack (rc-core, rc-agent, pod-agent) to eliminate fragile connections, cascading debug cycles, and deployment pain. Targets the Racing Point eSports venue's 8 sim racing pods managed from a central server.
 
 ## Core Value
 
-Deploying updates and launching games should work reliably on all 8 pods without manual debugging — the system recovers from failures automatically and reports problems instead of silently breaking.
+Deploying updates and launching games should work reliably on all 8 pods without manual debugging — the system recovers from failures automatically and reports problems instead of silently breaking. The customer never sees system internals.
 
 ## Requirements
 
@@ -31,6 +43,7 @@ Deploying updates and launching games should work reliably on all 8 pods without
 - [ ] Consistent deployment: same binary works identically on all 8 pods
 - [ ] Instruction handling: pod-agent commands are idempotent and return clear success/failure
 - [ ] Kiosk stability: no "disconnected" flash during game launch operations
+- [ ] Blanking screen protocol: clean branded screen before/after sessions, suppress all error popups and system dialogs
 
 ### Out of Scope
 
@@ -44,7 +57,7 @@ Deploying updates and launching games should work reliably on all 8 pods without
 
 - **Venue:** 8 gaming pods (192.168.31.x subnet), 1 server (.23), 1 James workstation (.27)
 - **Stack:** Rust/Axum (rc-core port 8080, rc-agent per-pod), Node.js (pod-agent port 8090), Next.js (kiosk)
-- **Existing pain:** Game launch momentarily shows "disconnected" in kiosk. Deploying new rc-agent binaries fails in multiple ways: binary doesn't start, old process lingers, config mismatch, works on 1 pod but fails on others.
+- **Existing pain:** Game launch momentarily shows "disconnected" in kiosk. Deploying new rc-agent binaries fails in multiple ways: binary doesn't start, old process lingers, config mismatch, works on 1 pod but fails on others. Customers see error popups ("Cannot find rc agent", "Conspit Link is running", "No C:\\" paths) leaking through the lock screen.
 - **Watchdog research:** Phase 05 research from HUD project covers escalating backoff, post-restart health verification, email notifications — ready to implement (see .planning/archive/hud-safety/phases/05-watchdog-hardening/05-RESEARCH.md)
 - **3-tier supervision:** watchdog.bat/pod-agent → pod_monitor.rs → pod_healer.rs
 - **Deploy method:** HTTP download from James (.27:9998) via pod-agent /exec, or pendrive install.bat
@@ -68,4 +81,4 @@ Deploying updates and launching games should work reliably on all 8 pods without
 | Email alerts via send_email.js shell-out | Reuses existing Gmail OAuth, no new deps | — Pending |
 
 ---
-*Last updated: 2026-03-13 after initialization*
+*Last updated: 2026-03-13 after milestone v1.0 scoping*
