@@ -135,6 +135,16 @@ None - no external service configuration required. First-boot email is optional 
 - validate_config() in place — no pod will silently start as "Pod 01" with wrong config
 - Phase 2 (02-watchdog-hardening) can now safely read pod_backoffs without race on first access
 
+## Self-Check: PASSED
+- a7a36f1: FOUND in git log
+- 124b6f4: FOUND in git log
+- crates/rc-core/src/state.rs: FOUND
+- crates/rc-agent/src/lock_screen.rs: FOUND
+- .planning/phases/01-state-wiring-config-hardening/01-01-SUMMARY.md: FOUND
+- All rc-common tests (30): PASSED
+- All rc-core tests (36 including 5 new state tests): PASSED
+- validate_config tests (8): PASSED
+
 ---
 *Phase: 01-state-wiring-config-hardening*
 *Completed: 2026-03-13*
