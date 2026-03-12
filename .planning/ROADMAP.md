@@ -28,7 +28,11 @@
 ## Phase 3: HUD Layout and Display — Essentials-Style Redesign
 **Goal:** Redesign the overlay to the AC Essentials centered layout with all visual elements at glanceable size and position.
 **Requirements:** HUD-01, HUD-02, HUD-03, HUD-04, HUD-05, HUD-06, HUD-07, HUD-08, HUD-09
-**Plans:** P3.1 — Core Layout (Gear, Speed, RPM Bar), P3.2 — Timing Display (Lap Times, Sectors, Session Timer, Lap Counter, Invalid Indicator)
+**Plans:** 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Core Layout: Essentials geometry, Consolas fonts, centered gear, RPM bar, speed
+- [ ] 03-02-PLAN.md — Timing Display: lap times, sectors, session timer, lap counter, invalid indicator + Pod 8 verification
 
 ### Success Criteria
 1. Gear indicator is centered and rendered at 60-80pt equivalent size (observable: readable from 1.5 meters away in driver seating position)
