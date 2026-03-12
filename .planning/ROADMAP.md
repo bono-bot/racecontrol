@@ -29,10 +29,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. AppState contains pod_backoffs (one EscalatingBackoff per pod) and email_alerter accessible from any rc-core module without additional imports
   3. pod-agent /exec returns HTTP 4xx or a clear JSON error body when a command fails — HTTP 200 is reserved for actual success
   4. Deploying a new rc-agent config to a pod overwrites or removes the old config file — no stale racecontrol.toml remnants remain after deploy
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — AppState backoff pre-population + rc-agent config validation with branded error
+- [ ] 01-02-PLAN.md — pod-agent /exec honest HTTP status codes + deploy config cleanup script
 
 ### Phase 2: Watchdog Hardening
 **Goal**: pod_monitor uses escalating backoff per pod with exclusive restart ownership; pod_healer reads shared state and defers all restart commands; post-restart verification confirms process + WebSocket + lock screen before declaring recovery; email alerts fire when verification fails or backoff is exhausted
@@ -100,7 +101,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. State Wiring & Config Hardening | 0/TBD | Not started | - |
+| 1. State Wiring & Config Hardening | 0/2 | Planning complete | - |
 | 2. Watchdog Hardening | 0/TBD | Not started | - |
 | 3. WebSocket Resilience | 0/TBD | Not started | - |
 | 4. Deployment Pipeline Hardening | 0/TBD | Not started | - |
