@@ -1,0 +1,269 @@
+{
+  "version": "1.0",
+  "description": "Master dependency manifest for all inter-process relationships in the RaceControl platform",
+  "last_updated": "2026-03-12",
+
+  "databases": {
+    "racecontrol.db": {
+      "path": "/root/racecontrol/data/racecontrol.db",
+      "schema_source": "crates/rc-core/src/db/mod.rs",
+      "owner": "racecontrol",
+      "readers": [
+        {
+          "service": "racingpoint-dashboard",
+          "repo_path": "/root/racingpoint-dashboard",
+          "access_files": [
+            "src/lib/rc-db.ts",
+            "src/app/api/pods/route.ts",
+            "src/app/api/events/route.ts",
+            "src/app/api/customers/route.ts",
+            "src/app/api/debug/activity/route.ts",
+            "src/app/api/debug/incidents/route.ts",
+            "src/app/api/debug/diagnose/route.ts"
+          ],
+          "tables": [
+            "pods",
+            "drivers",
+            "wallets",
+            "billing_sessions",
+            "billing_events",
+            "pricing_tiers",
+            "bookings",
+            "tournaments",
+            "tournament_registrations",
+            "time_trials",
+            "review_nudges",
+            "memberships",
+            "membership_tiers",
+            "game_launch_events"
+          ],
+          "mode": "readonly"
+        },
+        {
+          "service": "racingpoint-bot",
+          "repo_path": "/root/racingpoint-whatsapp-bot",
+          "access_files": [
+            "src/services/customerContextService.js",
+            "src/services/campaignService.js"
+          ],
+          "tables": [
+            "drivers",
+            "wallets",
+            "wallet_transactions",
+            "billing_sessions",
+            "laps",
+            "personal_bests",
+            "memberships",
+            "membership_tiers",
+            "friendships",
+            "tournament_registrations",
+            "coupons"
+          ],
+          "mode": "readonly"
+        },
+        {
+          "service": "racingpoint-admin",
+          "repo_path": "/root/racingpoint-admin",
+          "access_files": [
+            "src/app/api/badges/route.ts"
+          ],
+          "tables": [
+            "drivers",
+            "laps",
+            "billing_sessions",
+            "track_records",
+            "personal_bests",
+            "group_session_members",
+            "tournament_registrations",
+            "referrals"
+          ],
+          "mode": "readonly"
+        }
+      ]
+    },
+    "admin.db": {
+      "path": "/root/racingpoint-admin/data/admin.db",
+      "schema_source": "/root/racingpoint-admin/src/lib/db.ts",
+      "owner": "racingpoint-admin",
+      "readers": [
+        {
+          "service": "racingpoint-dashboard",
+          "repo_path": "/root/racingpoint-dashboard",
+          "access_files": [
+            "src/lib/admin-db.ts",
+            "src/app/api/menu/route.ts",
+            "src/app/api/sales/route.ts",
+            "src/app/api/auth/send-otp/route.ts",
+            "src/app/api/auth/verify-otp/route.ts",
+            "src/app/api/auth/session/route.ts",
+            "src/app/api/auth/logout/route.ts"
+          ],
+          "tables": [
+            "menu_items",
+            "sales",
+            "sale_items",
+            "employees",
+            "employee_otps",
+            "employee_sessions"
+          ],
+          "mode": "readwrite"
+        }
+      ]
+    },
+    "comms.db": {
+      "path": "/root/racingpoint-api-gateway/data/comms.db",
+      "schema_source": "/root/racingpoint-api-gateway/src/routes/comms.js",
+      "owner": "racingpoint-api-gateway",
+      "readers": []
+    },
+    "whatsapp-conversations.db": {
+      "path": "/root/racingpoint-whatsapp-bot/data/conversations.db",
+      "schema_source": "/root/racingpoint-whatsapp-bot/src/db/database.js",
+      "owner": "racingpoint-bot",
+      "readers": [
+        {
+          "service": "racingpoint-api-gateway",
+          "repo_path": "/root/racingpoint-api-gateway",
+          "access_files": [
+            "src/routes/bookings.js",
+            "src/routes/customers.js"
+          ],
+          "tables": [
+            "bookings"
+          ],
+          "mode": "readonly"
+        }
+      ]
+    },
+    "discord-conversations.db": {
+      "path": "/root/racingpoint-discord-bot/data/conversations.db",
+      "schema_source": "/root/racingpoint-discord-bot/src/db/database.js",
+      "owner": "racingpoint-discord-bot",
+      "readers": [
+        {
+          "service": "racingpoint-api-gateway",
+          "repo_path": "/root/racingpoint-api-gateway",
+          "access_files": [
+            "src/routes/bookings.js",
+            "src/routes/customers.js"
+          ],
+          "tables": [
+            "bookings"
+          ],
+          "mode": "readonly"
+        }
+      ]
+    },
+    "hiring.db": {
+      "path": "/root/racingpoint-hiring-bot/data/hiring.db",
+      "schema_source": "/root/racingpoint-hiring-bot/src/db/database.js",
+      "owner": "racingpoint-hiring",
+      "readers": []
+    }
+  },
+
+  "api_contracts": {
+    "rc-core": {
+      "base_url": "http://localhost:8080/api/v1",
+      "route_source": "crates/rc-core/src/api/routes.rs",
+      "consumers": [
+        {
+          "service": "racingpoint-admin",
+          "proxy_file": "src/app/api/rc/[...path]/route.ts",
+          "endpoints": ["/pods", "/billing/*", "/pricing/*", "/coupons", "/tournaments/*", "/kiosk/*", "/time-trials", "/ops/stats", "/ai/*", "/customer/packages"]
+        },
+        {
+          "service": "racingpoint-dashboard",
+          "proxy_file": "src/app/api/rc/[...path]/route.ts",
+          "endpoints": ["/billing/*", "/pods/*", "/auth/*", "/games/*", "/debug/*", "/wallet/*", "/customer/*"]
+        },
+        {
+          "service": "racingpoint-api-gateway",
+          "proxy_file": "src/routes/racecontrol.js",
+          "endpoints": ["/api/v1/*"]
+        },
+        {
+          "service": "racecontrol-pwa",
+          "client_file": "pwa/src/lib/api.ts",
+          "endpoints": ["/customer/*", "/public/*", "/auth/*"]
+        },
+        {
+          "service": "racingpoint-bot",
+          "client_file": "src/services/racecontrolService.js",
+          "endpoints": ["/bot/lookup", "/bot/pricing", "/bot/book"]
+        }
+      ]
+    },
+    "racingpoint-api-gateway": {
+      "base_url": "http://localhost:3100",
+      "route_source": "/root/racingpoint-api-gateway/src/index.js",
+      "consumers": [
+        {
+          "service": "racingpoint-admin",
+          "endpoints": ["/api/bookings", "/api/customers", "/api/health", "/api/racecontrol/*", "/api/transcribe"]
+        },
+        {
+          "service": "bono-failsafe",
+          "endpoints": ["/api/comms/heartbeat", "/api/comms/messages"]
+        },
+        {
+          "service": "james-failsafe",
+          "endpoints": ["/api/comms/heartbeat", "/api/comms/messages"]
+        },
+        {
+          "service": "racingpoint-bot",
+          "endpoints": ["/api/calendar"]
+        }
+      ]
+    }
+  },
+
+  "sync_boundary": {
+    "cloud_to_venue": {
+      "tables_pulled": [
+        "drivers",
+        "wallets",
+        "pricing_tiers",
+        "pricing_rules",
+        "kiosk_experiences",
+        "kiosk_settings"
+      ],
+      "sync_source": "crates/rc-core/src/cloud_sync.rs",
+      "sync_const": "SYNC_TABLES"
+    },
+    "venue_to_cloud": {
+      "tables_pushed": [
+        "laps",
+        "track_records",
+        "personal_bests",
+        "billing_sessions",
+        "pods",
+        "drivers",
+        "wallets",
+        "wallet_transactions"
+      ],
+      "sync_source": "crates/rc-core/src/cloud_sync.rs"
+    }
+  },
+
+  "pm2_services": {
+    "racecontrol":              { "tier": 0, "port": 8080, "health": "/api/v1/health" },
+    "racingpoint-api-gateway":  { "tier": 1, "port": 3100, "health": "/api/health" },
+    "racecontrol-pwa":          { "tier": 1, "port": 3500, "health": null },
+    "racingpoint-admin":        { "tier": 2, "port": 3200, "health": null },
+    "racingpoint-dashboard":    { "tier": 2, "port": 3400, "health": null },
+    "racingpoint-bot":          { "tier": 2, "port": null, "health": null },
+    "racingpoint-discord-bot":  { "tier": 2, "port": null, "health": null },
+    "racingpoint-hiring":       { "tier": 3, "port": 3050, "health": null },
+    "racingpoint-website":      { "tier": 3, "port": null, "health": null },
+    "racingpoint-website-api":  { "tier": 3, "port": null, "health": null },
+    "bono-failsafe":            { "tier": 3, "port": null, "health": null }
+  },
+
+  "pm2_restart_order": [
+    ["racecontrol"],
+    ["racingpoint-api-gateway", "racecontrol-pwa"],
+    ["racingpoint-admin", "racingpoint-dashboard", "racingpoint-bot", "racingpoint-discord-bot"],
+    ["racingpoint-hiring", "racingpoint-website", "racingpoint-website-api", "bono-failsafe"]
+  ]
+}

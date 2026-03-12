@@ -1,0 +1,28 @@
+{
+  "name": "racecontrol",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://bono-bot: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@github.com/bono-bot/racecontrol.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/bono-bot/racecontrol/issues"
+  },
+  "homepage": "https://github.com/bono-bot/racecontrol#readme",
+  "dependencies": {
+    "better-sqlite3": "^12.6.2"
+  }
+}
