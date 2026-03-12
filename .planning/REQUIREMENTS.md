@@ -10,7 +10,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 ### Watchdog & Supervision
 
 - [ ] **WD-01**: Pod restart uses escalating backoff (30s→2m→10m→30m) instead of fixed cooldown
-- [ ] **WD-02**: pod_monitor and pod_healer share backoff state via AppState — no concurrent restarts
+- [x] **WD-02**: pod_monitor and pod_healer share backoff state via AppState — no concurrent restarts
 - [ ] **WD-03**: Post-restart verification confirms process running + WebSocket connected + lock screen responsive (60s window)
 - [ ] **WD-04**: Backoff resets to base on confirmed full recovery
 
@@ -22,7 +22,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 
 ### Deployment & Config
 
-- [ ] **DEPLOY-01**: rc-agent validates all required config fields at startup, exits non-zero on invalid config
+- [x] **DEPLOY-01**: rc-agent validates all required config fields at startup, exits non-zero on invalid config
 - [ ] **DEPLOY-02**: Deploy sequence enforces kill→wait→verify-dead→download→size-check→start→verify-reconnect
 - [x] **DEPLOY-03**: pod-agent /exec returns clear success/failure status (not HTTP 200 for everything)
 - [x] **DEPLOY-04**: Deploy wipes old config files from pods before writing new config — no stale config remnants
@@ -89,13 +89,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | WD-01 | Phase 2 | Pending |
-| WD-02 | Phase 1 | Pending |
+| WD-02 | Phase 1 | Complete |
 | WD-03 | Phase 2 | Pending |
 | WD-04 | Phase 2 | Pending |
 | CONN-01 | Phase 3 | Pending |
 | CONN-02 | Phase 3 | Pending |
 | CONN-03 | Phase 3 | Pending |
-| DEPLOY-01 | Phase 1 | Pending |
+| DEPLOY-01 | Phase 1 | Complete |
 | DEPLOY-02 | Phase 4 | Pending |
 | DEPLOY-03 | Phase 1 | Complete |
 | DEPLOY-04 | Phase 1 | Complete |

@@ -26,31 +26,30 @@ See: .planning/PROJECT.md (updated 2026-03-13)
 ## Current Position
 
 Phase: 1 of 5 (State Wiring & Config Hardening)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-13 — Roadmap created, all 22 requirements mapped to 5 phases
+Plan: 2 of 2 in current phase
+Status: Phase 1 Complete
+Last activity: 2026-03-13 — Plan 01-01 complete (pod_backoffs pre-populated, rc-agent config validation hardened)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 2
+- Average duration: ~45 min/plan
+- Total execution time: ~1.5 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-state-wiring-config-hardening | 2 | 2 | ~45min |
 
 **Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 01-01 (45min), 01-02 (8.5min)
+- Trend: On track
 
 *Updated after each plan completion*
-| Phase 01 P02 | 510 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -63,6 +62,10 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 01]: Used serial_test to prevent global semaphore contention in pod-agent unit tests
 - [Phase 01]: Committed deploy scripts to racecontrol/deploy/ since deploy-staging/ is not a git repo
 - [Phase 01]: LAN bind falls back to 0.0.0.0 with warning log rather than panicking if 192.168.x.x not detected
+- [01-01]: pod_backoffs keyed "pod_{N}" (underscore, not dash) to match pod_monitor.rs entry() pattern
+- [01-01]: ConfigError lock screen shows generic message only — technical details to tracing::error! — customer never sees internals
+- [01-01]: EscalatingBackoff fields are private in rc-common — tests must use public API (attempt(), ready()) not direct field access
+- [01-01]: wss:// accepted in addition to ws:// for cloud TLS connections
 
 ### Pending Todos
 
@@ -76,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T22:27:42.319Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-03-13T00:45:00Z
+Stopped at: Completed 01-01-PLAN.md (Phase 1 all plans done)
 Resume file: None
