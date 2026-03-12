@@ -46,10 +46,12 @@ Plans:
   3. After a restart command is sent, rc-core waits up to 60s polling at 5s/15s/30s/60s before declaring recovery — a pod that fails to reconnect within 60s triggers an email alert
   4. A pod that fully recovers (process alive + WebSocket connected + lock screen responsive) has its backoff reset to 30s base — not stuck at a longer interval
   5. Staff email receives an alert when a pod fails post-restart verification or hits max escalation; no more than one email per pod per 30 minutes and one venue-wide alert per 5 minutes
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
+- [ ] 02-01-PLAN.md — Shared contracts: WatchdogState enum, AppState fields, DashboardEvent variants, format_alert_body update, /health endpoint
+- [ ] 02-02-PLAN.md — pod_monitor restart lifecycle rewrite with WatchdogState, verification, and email alerts
+- [ ] 02-03-PLAN.md — pod_healer boundary enforcement: skip recovery pods, set needs_restart flag
 
 ### Phase 3: WebSocket Resilience
 **Goal**: WebSocket connections survive game launch CPU spikes through ping/pong keepalive; rc-agent reconnects automatically after any drop; kiosk debounces brief absences so staff never see a spurious "Disconnected" during normal game launch; WebSocket round-trips stay fast
@@ -103,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. State Wiring & Config Hardening | 3/3 | Complete | 2026-03-13 |
-| 2. Watchdog Hardening | 0/TBD | Not started | - |
+| 2. Watchdog Hardening | 0/3 | Planning complete | - |
 | 3. WebSocket Resilience | 0/TBD | Not started | - |
 | 4. Deployment Pipeline Hardening | 0/TBD | Not started | - |
 | 5. Blanking Screen Protocol | 0/TBD | Not started | - |
