@@ -62,6 +62,11 @@ pub struct CloudConfig {
     pub terminal_secret: Option<String>,
     /// PIN for terminal web UI authentication (only Uday knows this)
     pub terminal_pin: Option<String>,
+    /// Localhost URL for the comms-link relay (e.g., "http://localhost:8765" on cloud,
+    /// "http://localhost:8766" on venue). When set, sync routes through the relay for
+    /// real-time 2s sync instead of 30s HTTP polling.
+    #[serde(default)]
+    pub comms_link_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

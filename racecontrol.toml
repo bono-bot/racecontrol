@@ -16,6 +16,7 @@ api_url = "https://app.racingpoint.cloud/api/v1"
 sync_interval_secs = 30
 terminal_secret = "rp-terminal-2026"
 terminal_pin = "261121"
+comms_link_url = "http://localhost:8765"
 
 [watchdog]
 enabled = true

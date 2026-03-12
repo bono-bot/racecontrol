@@ -1,17 +1,23 @@
-//! Cloud sync: pull customer data from cloud rc-core to local.
+//! Cloud sync: bidirectional data sync between cloud and venue rc-core instances.
 //!
-//! Runs as a background task on the local instance.
-//! Calls GET /api/v1/sync/changes?since=<last_sync> on the cloud.
-//! Upserts received records into local SQLite.
+//! Supports dual-mode operation:
+//! - **Relay mode** (2s interval): Routes sync through localhost comms-link relay for real-time sync.
+//! - **HTTP fallback** (30s interval): Direct HTTP to remote cloud URL when relay is unavailable.
+//!
+//! The relay path only pushes deltas (the other side pushes to us independently via /sync/push).
+//! The HTTP fallback path does full bidirectional pull+push in a single cycle.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use crate::state::AppState;
 
 const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,kiosk_experiences,kiosk_settings";
+
+/// Relay sync interval in seconds (fast — localhost only).
+const RELAY_INTERVAL_SECS: u64 = 2;
 
 /// Normalize ISO timestamps ("2026-03-07T23:48:38.123+00:00") to SQLite format ("2026-03-07 23:48:38").
 /// SQLite's datetime('now') uses space separator, but sync_state stores ISO with 'T'.
@@ -25,8 +31,39 @@ fn normalize_timestamp(ts: &str) -> String {
         .to_string()
 }
 
+/// Check if the comms-link relay is available and connected to the remote peer.
+/// Returns false if comms_link_url is not configured, relay is unreachable, or peer is disconnected.
+pub async fn is_relay_available(state: &Arc<AppState>) -> bool {
+    let relay_url = match &state.config.cloud.comms_link_url {
+        Some(url) => url.clone(),
+        None => return false,
+    };
+
+    let health_url = format!("{}/relay/health", relay_url);
+    let result = state
+        .http_client
+        .get(&health_url)
+        .timeout(Duration::from_millis(500))
+        .send()
+        .await;
+
+    match result {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<Value>().await {
+                Ok(body) => body.get("connected").and_then(|v| v.as_bool()).unwrap_or(false),
+                Err(_) => false,
+            }
+        }
+        _ => false,
+    }
+}
+
 /// Spawn the cloud sync background task.
 /// Only starts if cloud.enabled = true and cloud.api_url is set.
+///
+/// When comms_link_url is configured, uses adaptive interval:
+/// - 2s when relay is available (real-time sync via localhost)
+/// - 30s HTTP fallback when relay is down (rate-limited to avoid hammering remote)
 pub fn spawn(state: Arc<AppState>) {
     let cloud = &state.config.cloud;
     if !cloud.enabled {
@@ -42,183 +79,109 @@ pub fn spawn(state: Arc<AppState>) {
         }
     };
 
-    let interval_secs = cloud.sync_interval_secs;
-    tracing::info!(
-        "Cloud sync enabled: {} (every {}s)",
-        api_url,
-        interval_secs
-    );
+    let has_relay = cloud.comms_link_url.is_some();
+    let fallback_interval_secs = cloud.sync_interval_secs;
+
+    if has_relay {
+        tracing::info!(
+            "Cloud sync enabled: {} (relay: {}s, fallback: {}s)",
+            api_url,
+            RELAY_INTERVAL_SECS,
+            fallback_interval_secs
+        );
+    } else {
+        tracing::info!(
+            "Cloud sync enabled: {} (every {}s, no relay configured)",
+            api_url,
+            fallback_interval_secs
+        );
+    }
 
     tokio::spawn(async move {
         // Wait 5s on startup before first sync
         tokio::time::sleep(Duration::from_secs(5)).await;
 
-        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        // Use 2s tick when relay is configured, otherwise use the fallback interval.
+        // When relay is unavailable, we rate-limit HTTP fallback to run only every
+        // fallback_interval_secs by tracking last_http_fallback.
+        let tick_interval = if has_relay {
+            RELAY_INTERVAL_SECS
+        } else {
+            fallback_interval_secs
+        };
+        let mut interval = tokio::time::interval(Duration::from_secs(tick_interval));
+        let mut last_http_fallback = Instant::now() - Duration::from_secs(fallback_interval_secs + 1);
+
         loop {
             interval.tick().await;
-            if let Err(e) = sync_once(&state, &api_url).await {
-                tracing::error!("Cloud sync failed: {}", e);
+
+            if has_relay {
+                let relay_up = is_relay_available(&state).await;
+                if relay_up {
+                    // Relay mode: push deltas via localhost relay (2s cycle)
+                    if let Err(e) = push_via_relay(&state).await {
+                        tracing::error!("Cloud sync relay push failed: {}", e);
+                    }
+                } else {
+                    // Relay unavailable: fall back to HTTP but rate-limit to original interval
+                    if last_http_fallback.elapsed() >= Duration::from_secs(fallback_interval_secs) {
+                        tracing::debug!("Cloud sync: relay unavailable, running HTTP fallback");
+                        if let Err(e) = sync_once_http(&state, &api_url).await {
+                            tracing::error!("Cloud sync HTTP fallback failed: {}", e);
+                        }
+                        last_http_fallback = Instant::now();
+                    }
+                }
+            } else {
+                // No relay configured: always use HTTP
+                if let Err(e) = sync_once_http(&state, &api_url).await {
+                    tracing::error!("Cloud sync failed: {}", e);
+                }
             }
         }
     });
 }
 
-/// Perform a single sync cycle.
-async fn sync_once(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
-    let last_synced = get_last_sync_time(state).await;
+/// Push sync deltas via the comms-link relay (localhost HTTP).
+/// In relay mode, only pushes are needed — the other side pushes to us independently
+/// via the /sync/push endpoint (called by comms-link when it receives WS sync_push).
+async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> {
+    let relay_url = state
+        .config
+        .cloud
+        .comms_link_url
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("comms_link_url not configured"))?;
 
-    let url = format!("{}/sync/changes", cloud_url);
-
-    tracing::debug!("Cloud sync: fetching since {}", last_synced);
-
-    let mut req = state
-        .http_client
-        .get(&url)
-        .query(&[
-            ("since", last_synced.as_str()),
-            ("tables", SYNC_TABLES),
-        ])
-        .timeout(Duration::from_secs(15));
-
-    // Send terminal secret for authentication
-    if let Some(secret) = &state.config.cloud.terminal_secret {
-        req = req.header("x-terminal-secret", secret);
+    let (payload, has_data) = collect_push_payload(state).await?;
+    if !has_data {
+        tracing::debug!("Cloud sync relay: nothing to push");
+        return Ok(());
     }
 
-    let resp = req.send().await?;
+    let url = format!("{}/relay/sync", relay_url);
+    let resp = state
+        .http_client
+        .post(&url)
+        .json(&payload)
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
-        anyhow::bail!("Cloud returned status {}", resp.status());
+        anyhow::bail!("Relay sync returned status {}", resp.status());
     }
 
-    let body: Value = resp.json().await?;
-    let mut total_upserted = 0u64;
+    // Update push timestamp on success
+    update_push_state(state).await;
 
-    // Upsert drivers
-    if let Some(drivers) = body.get("drivers").and_then(|v| v.as_array()) {
-        for driver in drivers {
-            if let Err(e) = upsert_driver(state, driver).await {
-                tracing::warn!("Failed to upsert driver: {}", e);
-            } else {
-                total_upserted += 1;
-            }
-        }
-    }
-
-    // Upsert wallets
-    if let Some(wallets) = body.get("wallets").and_then(|v| v.as_array()) {
-        for wallet in wallets {
-            if let Err(e) = upsert_wallet(state, wallet).await {
-                tracing::warn!("Failed to upsert wallet: {}", e);
-            } else {
-                total_upserted += 1;
-            }
-        }
-    }
-
-    // Upsert pricing_tiers
-    if let Some(tiers) = body.get("pricing_tiers").and_then(|v| v.as_array()) {
-        for tier in tiers {
-            if let Err(e) = upsert_pricing_tier(state, tier).await {
-                tracing::warn!("Failed to upsert pricing tier: {}", e);
-            } else {
-                total_upserted += 1;
-            }
-        }
-    }
-
-    // Upsert pricing_rules (dynamic pricing multipliers)
-    if let Some(rules) = body.get("pricing_rules").and_then(|v| v.as_array()) {
-        for rule in rules {
-            if let Err(e) = upsert_pricing_rule(state, rule).await {
-                tracing::warn!("Failed to upsert pricing rule: {}", e);
-            } else {
-                total_upserted += 1;
-            }
-        }
-    }
-
-    // Upsert kiosk_experiences
-    if let Some(experiences) = body.get("kiosk_experiences").and_then(|v| v.as_array()) {
-        for exp in experiences {
-            if let Err(e) = upsert_kiosk_experience(state, exp).await {
-                tracing::warn!("Failed to upsert kiosk experience: {}", e);
-            } else {
-                total_upserted += 1;
-            }
-        }
-    }
-
-    // Upsert kiosk_settings and broadcast to agents if changed
-    if let Some(settings) = body.get("kiosk_settings").and_then(|v| v.as_object()) {
-        let mut changed = false;
-        for (key, value) in settings {
-            let val_str = value.as_str().unwrap_or(&value.to_string()).to_string();
-            let local = sqlx::query_as::<_, (String,)>(
-                "SELECT value FROM kiosk_settings WHERE key = ?",
-            )
-            .bind(key)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-
-            let needs_update = match &local {
-                Some((v,)) => v != &val_str,
-                None => true,
-            };
-
-            if needs_update {
-                let _ = sqlx::query(
-                    "INSERT INTO kiosk_settings (key, value) VALUES (?, ?)
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                )
-                .bind(key)
-                .bind(&val_str)
-                .execute(&state.db)
-                .await;
-                changed = true;
-                total_upserted += 1;
-            }
-        }
-
-        // Broadcast to connected agents so pods react immediately
-        if changed {
-            let settings_map: std::collections::HashMap<String, String> = settings
-                .iter()
-                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or(&v.to_string()).to_string()))
-                .collect();
-            state.broadcast_settings(&settings_map).await;
-            let agent_count = state.agent_senders.read().await.len();
-            tracing::info!("Cloud sync: kiosk settings updated and broadcast to {} agents", agent_count);
-        }
-    }
-
-    // Update sync timestamp
-    let fallback_ts = chrono::Utc::now().to_rfc3339();
-    let synced_at = body
-        .get("synced_at")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&fallback_ts);
-
-    update_sync_state(state, synced_at, total_upserted).await;
-
-    if total_upserted > 0 {
-        tracing::info!("Cloud sync pull: upserted {} records", total_upserted);
-    } else {
-        tracing::debug!("Cloud sync pull: no new changes");
-    }
-
-    // Phase 2: Push venue data to cloud
-    if let Err(e) = push_to_cloud(state, cloud_url).await {
-        tracing::error!("Cloud sync push failed: {}", e);
-    }
-
+    tracing::debug!("Cloud sync relay: push successful");
     Ok(())
 }
 
-/// Push venue-generated data (laps, billing, pods, leaderboard) to cloud.
-async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
+/// Collect the push payload (shared between relay and HTTP push paths).
+/// Returns (payload, has_data).
+async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, bool)> {
     let last_push = normalize_timestamp(&get_last_push_time(state).await);
     let mut payload = serde_json::json!({});
     let mut has_data = false;
@@ -410,6 +373,168 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
         payload["wallet_transactions"] = serde_json::json!(items);
         has_data = true;
     }
+
+    Ok((payload, has_data))
+}
+
+/// Perform a single HTTP sync cycle (bidirectional pull + push).
+/// This is the original sync path, used as fallback when relay is unavailable.
+async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
+    let last_synced = get_last_sync_time(state).await;
+
+    let url = format!("{}/sync/changes", cloud_url);
+
+    tracing::debug!("Cloud sync: fetching since {}", last_synced);
+
+    let mut req = state
+        .http_client
+        .get(&url)
+        .query(&[
+            ("since", last_synced.as_str()),
+            ("tables", SYNC_TABLES),
+        ])
+        .timeout(Duration::from_secs(15));
+
+    // Send terminal secret for authentication
+    if let Some(secret) = &state.config.cloud.terminal_secret {
+        req = req.header("x-terminal-secret", secret);
+    }
+
+    let resp = req.send().await?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Cloud returned status {}", resp.status());
+    }
+
+    let body: Value = resp.json().await?;
+    let mut total_upserted = 0u64;
+
+    // Upsert drivers
+    if let Some(drivers) = body.get("drivers").and_then(|v| v.as_array()) {
+        for driver in drivers {
+            if let Err(e) = upsert_driver(state, driver).await {
+                tracing::warn!("Failed to upsert driver: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert wallets
+    if let Some(wallets) = body.get("wallets").and_then(|v| v.as_array()) {
+        for wallet in wallets {
+            if let Err(e) = upsert_wallet(state, wallet).await {
+                tracing::warn!("Failed to upsert wallet: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert pricing_tiers
+    if let Some(tiers) = body.get("pricing_tiers").and_then(|v| v.as_array()) {
+        for tier in tiers {
+            if let Err(e) = upsert_pricing_tier(state, tier).await {
+                tracing::warn!("Failed to upsert pricing tier: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert pricing_rules (dynamic pricing multipliers)
+    if let Some(rules) = body.get("pricing_rules").and_then(|v| v.as_array()) {
+        for rule in rules {
+            if let Err(e) = upsert_pricing_rule(state, rule).await {
+                tracing::warn!("Failed to upsert pricing rule: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert kiosk_experiences
+    if let Some(experiences) = body.get("kiosk_experiences").and_then(|v| v.as_array()) {
+        for exp in experiences {
+            if let Err(e) = upsert_kiosk_experience(state, exp).await {
+                tracing::warn!("Failed to upsert kiosk experience: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    // Upsert kiosk_settings and broadcast to agents if changed
+    if let Some(settings) = body.get("kiosk_settings").and_then(|v| v.as_object()) {
+        let mut changed = false;
+        for (key, value) in settings {
+            let val_str = value.as_str().unwrap_or(&value.to_string()).to_string();
+            let local = sqlx::query_as::<_, (String,)>(
+                "SELECT value FROM kiosk_settings WHERE key = ?",
+            )
+            .bind(key)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let needs_update = match &local {
+                Some((v,)) => v != &val_str,
+                None => true,
+            };
+
+            if needs_update {
+                let _ = sqlx::query(
+                    "INSERT INTO kiosk_settings (key, value) VALUES (?, ?)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                )
+                .bind(key)
+                .bind(&val_str)
+                .execute(&state.db)
+                .await;
+                changed = true;
+                total_upserted += 1;
+            }
+        }
+
+        // Broadcast to connected agents so pods react immediately
+        if changed {
+            let settings_map: std::collections::HashMap<String, String> = settings
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or(&v.to_string()).to_string()))
+                .collect();
+            state.broadcast_settings(&settings_map).await;
+            let agent_count = state.agent_senders.read().await.len();
+            tracing::info!("Cloud sync: kiosk settings updated and broadcast to {} agents", agent_count);
+        }
+    }
+
+    // Update sync timestamp
+    let fallback_ts = chrono::Utc::now().to_rfc3339();
+    let synced_at = body
+        .get("synced_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&fallback_ts);
+
+    update_sync_state(state, synced_at, total_upserted).await;
+
+    if total_upserted > 0 {
+        tracing::info!("Cloud sync pull: upserted {} records", total_upserted);
+    } else {
+        tracing::debug!("Cloud sync pull: no new changes");
+    }
+
+    // Phase 2: Push venue data to cloud
+    if let Err(e) = push_to_cloud(state, cloud_url).await {
+        tracing::error!("Cloud sync push failed: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Push venue-generated data (laps, billing, pods, leaderboard) to cloud via direct HTTP.
+async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
+    let (payload, has_data) = collect_push_payload(state).await?;
 
     if !has_data {
         tracing::debug!("Cloud sync push: nothing to push");
