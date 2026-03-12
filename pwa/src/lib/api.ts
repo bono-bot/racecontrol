@@ -1,6 +1,18 @@
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 
+const GATEWAY_URL =
+  process.env.NEXT_PUBLIC_GATEWAY_URL || "/api/payments";
+
+declare global {
+  interface Window {
+    Razorpay: new (options: Record<string, unknown>) => {
+      open: () => void;
+      on: (event: string, handler: (response: unknown) => void) => void;
+    };
+  }
+}
+
 // ─── Auth helpers ──────────────────────────────────────────────────────────
 
 let _redirecting = false;
@@ -493,6 +505,31 @@ export const api = {
     fetchApi<{ transactions?: WalletTransaction[]; error?: string }>(
       `/customer/wallet/transactions?limit=${limit}`
     ),
+
+  bonusTiers: () =>
+    fetchApi<{
+      tiers?: { id: string; min_paise: number; bonus_pct: number; sort_order: number }[];
+    }>("/wallet/bonus-tiers"),
+
+  createTopupOrder: async (amount_paise: number) => {
+    const token = getToken();
+    const res = await fetch(`${GATEWAY_URL}/create-order`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ amount_paise }),
+    });
+    if (!res.ok) throw new Error(`Order creation failed: ${res.status}`);
+    return res.json() as Promise<{
+      order_id: string;
+      amount: number;
+      currency: string;
+      key_id: string;
+      error?: string;
+    }>;
+  },
 
   // Experiences & Booking
   experiences: () =>
