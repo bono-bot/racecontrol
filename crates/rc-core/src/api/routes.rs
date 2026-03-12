@@ -4118,13 +4118,24 @@ async fn ai_training_import(
 
 // ─── Wallet (staff-facing) ───────────────────────────────────────────────────
 
-async fn wallet_bonus_tiers() -> Json<Value> {
-    Json(json!({
-        "tiers": [
-            { "min_paise": 200_000, "bonus_pct": 10 },
-            { "min_paise": 400_000, "bonus_pct": 20 },
-        ]
-    }))
+async fn wallet_bonus_tiers(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let tiers: Vec<(String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT id, min_amount_paise, bonus_percent, sort_order FROM bonus_tiers WHERE is_active = 1 ORDER BY sort_order"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let tiers_json: Vec<Value> = tiers.iter().map(|t| json!({
+        "id": t.0,
+        "min_paise": t.1,
+        "bonus_pct": t.2,
+        "sort_order": t.3,
+    })).collect();
+
+    Json(json!({ "tiers": tiers_json }))
 }
 
 async fn get_wallet(
@@ -4155,6 +4166,7 @@ async fn topup_wallet(
         "cash" => "topup_cash",
         "card" => "topup_card",
         "upi" => "topup_upi",
+        "online" => "topup_online",
         _ => "topup_cash",
     };
 
@@ -4173,10 +4185,15 @@ async fn topup_wallet(
         Err(e) => return Json(json!({ "error": e })),
     };
 
-    // Bonus credit tiers
-    let bonus_pct = if req.amount_paise >= 400_000 { 20 }
-        else if req.amount_paise >= 200_000 { 10 }
-        else { 0 };
+    // Bonus credit tiers — read from DB
+    let bonus_row: Option<(i64,)> = sqlx::query_as(
+        "SELECT bonus_percent FROM bonus_tiers WHERE is_active = 1 AND min_amount_paise <= ? ORDER BY min_amount_paise DESC LIMIT 1"
+    )
+    .bind(req.amount_paise)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+    let bonus_pct = bonus_row.map(|r| r.0).unwrap_or(0);
 
     let bonus_paise = if bonus_pct > 0 {
         let bp = req.amount_paise * bonus_pct / 100;

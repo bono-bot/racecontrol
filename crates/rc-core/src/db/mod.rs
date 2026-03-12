@@ -1696,6 +1696,29 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Bonus tiers table (configurable topup bonus percentages) ────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS bonus_tiers (
+            id TEXT PRIMARY KEY,
+            min_amount_paise INTEGER NOT NULL,
+            bonus_percent INTEGER NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed default bonus tiers
+    sqlx::query(
+        "INSERT OR IGNORE INTO bonus_tiers (id, min_amount_paise, bonus_percent, sort_order)
+         VALUES ('bt_2000', 200000, 10, 1), ('bt_4000', 400000, 20, 2)"
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
