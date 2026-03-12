@@ -112,11 +112,25 @@ pub fn spawn(state: Arc<AppState>) {
         let mut interval = tokio::time::interval(Duration::from_secs(tick_interval));
         let mut last_http_fallback = Instant::now() - Duration::from_secs(fallback_interval_secs + 1);
 
+        // Track previous relay state to log mode changes only once per transition
+        let mut prev_relay_up: Option<bool> = None;
+
         loop {
             interval.tick().await;
 
             if has_relay {
                 let relay_up = is_relay_available(&state).await;
+
+                // Log mode transitions (only on change, not every cycle)
+                if prev_relay_up != Some(relay_up) {
+                    if relay_up {
+                        tracing::info!("Sync mode: relay (comms-link connected)");
+                    } else {
+                        tracing::info!("Sync mode: HTTP fallback (comms-link unavailable)");
+                    }
+                    prev_relay_up = Some(relay_up);
+                }
+
                 if relay_up {
                     // Relay mode: push deltas via localhost relay (2s cycle)
                     if let Err(e) = push_via_relay(&state).await {
@@ -125,7 +139,6 @@ pub fn spawn(state: Arc<AppState>) {
                 } else {
                     // Relay unavailable: fall back to HTTP but rate-limit to original interval
                     if last_http_fallback.elapsed() >= Duration::from_secs(fallback_interval_secs) {
-                        tracing::debug!("Cloud sync: relay unavailable, running HTTP fallback");
                         if let Err(e) = sync_once_http(&state, &api_url).await {
                             tracing::error!("Cloud sync HTTP fallback failed: {}", e);
                         }
@@ -145,6 +158,21 @@ pub fn spawn(state: Arc<AppState>) {
 /// Push sync deltas via the comms-link relay (localhost HTTP).
 /// In relay mode, only pushes are needed — the other side pushes to us independently
 /// via the /sync/push endpoint (called by comms-link when it receives WS sync_push).
+///
+/// ## Anti-loop protection
+///
+/// Sync loops are prevented by the `_push` timestamp in `sync_state`:
+/// 1. After a successful push (relay or HTTP), `update_push_state()` records the current time.
+/// 2. The next `collect_push_payload()` call queries `WHERE created_at > last_push` (or `updated_at >`).
+/// 3. When the OTHER side pushes data to us via `/sync/push` (routes.rs), that handler does NOT
+///    call `update_push_state()` — it only upserts received data into the DB.
+/// 4. The received data has timestamps older than "now", and since our `_push` was updated after
+///    our last outbound push, the received data's timestamps fall before `_push` and won't be
+///    re-collected in our next push cycle.
+///
+/// This means: Cloud pushes to Venue -> Venue receives via /sync/push -> Venue's own push cycle
+/// won't re-push that data because its timestamps are older than Venue's `_push` marker.
+/// The same logic works in reverse (Venue -> Cloud).
 async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> {
     let relay_url = state
         .config
