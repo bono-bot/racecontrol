@@ -12,6 +12,7 @@ use crate::accounting;
 use crate::auth;
 use crate::billing;
 use crate::catalog;
+use crate::cloud_sync;
 use crate::friends;
 use crate::game_launcher;
 use crate::multiplayer;
@@ -6157,11 +6158,32 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
         })
         .collect();
 
+    // Relay status: check if comms-link relay is configured and reachable
+    let relay_configured = state.config.cloud.comms_link_url.is_some();
+    let relay_available = if relay_configured {
+        cloud_sync::is_relay_available(&state).await
+    } else {
+        false
+    };
+
+    // Determine current sync mode
+    let sync_mode = if !state.config.cloud.enabled {
+        "disabled"
+    } else if relay_configured && relay_available {
+        "relay"
+    } else {
+        "http"
+    };
+
     Json(json!({
         "status": "ok",
         "drivers": driver_count,
         "cloud_sync_enabled": state.config.cloud.enabled,
         "cloud_api_url": state.config.cloud.api_url,
+        "relay_configured": relay_configured,
+        "relay_available": relay_available,
+        "sync_mode": sync_mode,
+        "comms_link_url": state.config.cloud.comms_link_url,
         "sync_state": sync_info,
     }))
 }
