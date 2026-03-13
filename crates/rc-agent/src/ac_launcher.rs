@@ -1507,4 +1507,366 @@ mod tests {
         assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("1"),
             "SESS-08: race with empty ai_cars must have CARS=1, no phantom AI");
     }
+
+    // ========== Plan 01-02 Task 1: Race vs AI ==========
+
+    #[test]
+    fn test_write_race_ini_race_5_ai() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_cars":[
+            {"model":"ks_ferrari_488_gt3","skin":"","driver_name":"Marco Rossi","ai_level":90},
+            {"model":"ks_lamborghini_huracan_gt3","skin":"","driver_name":"Carlos Mendes","ai_level":90},
+            {"model":"ks_mercedes_amg_gt3","skin":"","driver_name":"Yuki Tanaka","ai_level":90},
+            {"model":"ks_audi_r8_lms","skin":"","driver_name":"Felix Weber","ai_level":90},
+            {"model":"ks_bmw_m6_gt3","skin":"","driver_name":"Raj Patel","ai_level":90}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        // 5 AI car sections: CAR_1..CAR_5
+        for i in 1..=5 {
+            let key = format!("CAR_{}", i);
+            let car = sections.get(&key).unwrap_or_else(|| panic!("{} must exist", key));
+            assert_eq!(car.get("AI").map(|s| s.as_str()), Some("1"), "{} must have AI=1", key);
+        }
+        assert!(!sections.contains_key("CAR_6"), "No extra CAR_6 section");
+
+        // CARS = 6 (player + 5 AI)
+        let race = sections.get("RACE").expect("RACE must exist");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("6"));
+    }
+
+    #[test]
+    fn test_write_race_ini_race_type3() {
+        let params = test_params("race");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let session = sections.get("SESSION_0").expect("SESSION_0 must exist");
+        assert_eq!(session.get("TYPE").map(|s| s.as_str()), Some("3"), "Race is TYPE=3");
+    }
+
+    #[test]
+    fn test_write_race_ini_race_starting_position() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","starting_position":3,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let session = sections.get("SESSION_0").expect("SESSION_0 must exist");
+        assert_eq!(session.get("STARTING_POSITION").map(|s| s.as_str()), Some("3"));
+    }
+
+    #[test]
+    fn test_write_race_ini_race_0_ai_cars1() {
+        // Race with 0 AI -> CARS=1 (player only, valid per user decision)
+        let params = test_params("race");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("RACE must exist");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("1"));
+    }
+
+    #[test]
+    fn test_write_race_ini_race_19_ai_max() {
+        // 19 AI = CARS=20 (max for single-player)
+        let mut ai_slots = Vec::new();
+        for i in 0..19 {
+            ai_slots.push(format!(
+                r#"{{"model":"ks_ferrari_488_gt3","skin":"","driver_name":"Driver {}","ai_level":90}}"#, i
+            ));
+        }
+        let ai_json = format!("[{}]", ai_slots.join(","));
+        let json = format!(
+            r#"{{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_cars":{},"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}}"#,
+            ai_json
+        );
+        let params: AcLaunchParams = serde_json::from_str(&json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("RACE must exist");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("20"), "19 AI + 1 player = 20");
+    }
+
+    #[test]
+    fn test_write_race_ini_race_25_ai_clamped_to_19() {
+        // 25 AI should be clamped to 19 -> CARS=20
+        let mut ai_slots = Vec::new();
+        for i in 0..25 {
+            ai_slots.push(format!(
+                r#"{{"model":"ks_ferrari_488_gt3","skin":"","driver_name":"Driver {}","ai_level":90}}"#, i
+            ));
+        }
+        let ai_json = format!("[{}]", ai_slots.join(","));
+        let json = format!(
+            r#"{{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_cars":{},"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}}"#,
+            ai_json
+        );
+        let params: AcLaunchParams = serde_json::from_str(&json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("RACE must exist");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("20"), "25 AI clamped to 19 -> CARS=20");
+
+        assert!(sections.contains_key("CAR_19"), "CAR_19 should exist");
+        assert!(!sections.contains_key("CAR_20"), "CAR_20 should NOT exist (clamped)");
+    }
+
+    #[test]
+    fn test_write_race_ini_race_ai_model_and_name() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_cars":[
+            {"model":"ks_bmw_m6_gt3","skin":"","driver_name":"Hans Mueller","ai_level":85}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let car1 = sections.get("CAR_1").expect("CAR_1 must exist");
+        assert_eq!(car1.get("MODEL").map(|s| s.as_str()), Some("ks_bmw_m6_gt3"));
+        assert_eq!(car1.get("DRIVER_NAME").map(|s| s.as_str()), Some("Hans Mueller"));
+        assert_eq!(car1.get("AI").map(|s| s.as_str()), Some("1"));
+    }
+
+    #[test]
+    fn test_write_race_ini_race_ai_skin_empty() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_cars":[
+            {"model":"ks_ferrari_488_gt3","skin":"","driver_name":"Test","ai_level":90}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let car1 = sections.get("CAR_1").expect("CAR_1 must exist");
+        assert_eq!(car1.get("SKIN").map(|s| s.as_str()), Some(""), "AI SKIN must be empty");
+    }
+
+    #[test]
+    fn test_write_race_ini_race_laps_zero() {
+        let params = test_params("race");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("RACE must exist");
+        assert_eq!(race.get("RACE_LAPS").map(|s| s.as_str()), Some("0"), "Time-based race has RACE_LAPS=0");
+    }
+
+    #[test]
+    fn test_write_race_ini_race_ai_level() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_cars":[
+            {"model":"ks_ferrari_488_gt3","skin":"","driver_name":"Test","ai_level":75}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("RACE must exist");
+        assert_eq!(race.get("AI_LEVEL").map(|s| s.as_str()), Some("75"), "AI_LEVEL from first AI car");
+    }
+
+    #[test]
+    fn test_write_race_ini_race_formation_lap() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","formation_lap":true,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let session = sections.get("SESSION_0").expect("SESSION_0 must exist");
+        assert_eq!(session.get("FORMATION_LAP").map(|s| s.as_str()), Some("1"), "Formation lap toggle");
+    }
+
+    // ========== Plan 01-02 Task 2: Track Day + Race Weekend ==========
+
+    #[test]
+    fn test_write_race_ini_trackday_default_ai() {
+        let params = test_params("trackday");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("RACE must exist");
+        let cars: u32 = race.get("CARS").expect("CARS must exist").parse().expect("CARS must be number");
+        assert_eq!(cars, 13, "Trackday default: 12 AI + 1 player = 13");
+
+        // Verify CAR_1..CAR_12 exist with AI=1
+        for i in 1..=12 {
+            let key = format!("CAR_{}", i);
+            let car = sections.get(&key).unwrap_or_else(|| panic!("{} must exist", key));
+            assert_eq!(car.get("AI").map(|s| s.as_str()), Some("1"), "{} must have AI=1", key);
+        }
+        assert!(!sections.contains_key("CAR_13"), "Only 12 default AI cars for Track Day");
+    }
+
+    #[test]
+    fn test_write_race_ini_trackday_mixed_models() {
+        let params = test_params("trackday");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let mut models = std::collections::HashSet::new();
+        for i in 1..=12 {
+            let key = format!("CAR_{}", i);
+            if let Some(car) = sections.get(&key) {
+                if let Some(model) = car.get("MODEL") {
+                    models.insert(model.clone());
+                    assert!(
+                        TRACKDAY_CAR_POOL.contains(&model.as_str()),
+                        "Model {} must be from TRACKDAY_CAR_POOL", model
+                    );
+                }
+            }
+        }
+        assert!(models.len() > 1, "Track Day must have mixed car models, got {} unique", models.len());
+    }
+
+    #[test]
+    fn test_write_race_ini_trackday_type1() {
+        let params = test_params("trackday");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let session = sections.get("SESSION_0").expect("SESSION_0 must exist");
+        assert_eq!(session.get("TYPE").map(|s| s.as_str()), Some("1"), "Track Day is TYPE=1");
+    }
+
+    #[test]
+    fn test_write_race_ini_trackday_explicit_ai() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"trackday","ai_cars":[
+            {"model":"ks_bmw_m6_gt3","skin":"","driver_name":"Test A","ai_level":80},
+            {"model":"ks_porsche_911_gt3_r","skin":"","driver_name":"Test B","ai_level":80}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("RACE must exist");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("3"), "2 explicit AI + 1 player = 3");
+
+        let car1 = sections.get("CAR_1").expect("CAR_1 must exist");
+        assert_eq!(car1.get("MODEL").map(|s| s.as_str()), Some("ks_bmw_m6_gt3"));
+        assert_eq!(car1.get("AI").map(|s| s.as_str()), Some("1"));
+    }
+
+    #[test]
+    fn test_write_race_ini_trackday_ai_all_have_ai1() {
+        let params = test_params("trackday");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        for i in 1..=12 {
+            let key = format!("CAR_{}", i);
+            if let Some(car) = sections.get(&key) {
+                assert_eq!(car.get("AI").map(|s| s.as_str()), Some("1"), "{} must have AI=1", key);
+            }
+        }
+    }
+
+    #[test]
+    fn test_write_race_ini_weekend_3_sessions() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"weekend","duration_minutes":30,"weekend_practice_minutes":10,"weekend_qualify_minutes":10,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        assert!(sections.contains_key("SESSION_0"), "SESSION_0 must exist");
+        assert!(sections.contains_key("SESSION_1"), "SESSION_1 must exist");
+        assert!(sections.contains_key("SESSION_2"), "SESSION_2 must exist");
+    }
+
+    #[test]
+    fn test_write_race_ini_weekend_types() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"weekend","duration_minutes":30,"weekend_practice_minutes":10,"weekend_qualify_minutes":10,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let s0 = sections.get("SESSION_0").expect("SESSION_0");
+        assert_eq!(s0.get("TYPE").map(|s| s.as_str()), Some("1"), "Practice=TYPE=1");
+
+        let s1 = sections.get("SESSION_1").expect("SESSION_1");
+        assert_eq!(s1.get("TYPE").map(|s| s.as_str()), Some("2"), "Qualifying=TYPE=2");
+
+        let s2 = sections.get("SESSION_2").expect("SESSION_2");
+        assert_eq!(s2.get("TYPE").map(|s| s.as_str()), Some("3"), "Race=TYPE=3");
+    }
+
+    #[test]
+    fn test_write_race_ini_weekend_time_allocation() {
+        // Total 60min, practice=10, qualify=10 -> race=40
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"weekend","duration_minutes":60,"weekend_practice_minutes":10,"weekend_qualify_minutes":10,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let s2 = sections.get("SESSION_2").expect("SESSION_2 (Race)");
+        assert_eq!(s2.get("DURATION_MINUTES").map(|s| s.as_str()), Some("40"), "Race gets remaining 40 minutes");
+    }
+
+    #[test]
+    fn test_write_race_ini_weekend_skip_practice() {
+        // practice=0 -> Qualifying=SESSION_0, Race=SESSION_1
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"weekend","duration_minutes":30,"weekend_practice_minutes":0,"weekend_qualify_minutes":10,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let s0 = sections.get("SESSION_0").expect("SESSION_0");
+        assert_eq!(s0.get("TYPE").map(|s| s.as_str()), Some("2"), "With practice skipped, SESSION_0=Qualifying TYPE=2");
+
+        let s1 = sections.get("SESSION_1").expect("SESSION_1");
+        assert_eq!(s1.get("TYPE").map(|s| s.as_str()), Some("3"), "SESSION_1=Race TYPE=3");
+
+        assert!(!sections.contains_key("SESSION_2"), "Only 2 sessions when practice skipped");
+    }
+
+    #[test]
+    fn test_write_race_ini_weekend_with_ai() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"weekend","duration_minutes":30,"weekend_practice_minutes":10,"weekend_qualify_minutes":10,"ai_cars":[
+            {"model":"ks_ferrari_488_gt3","skin":"","driver_name":"AI 1","ai_level":90},
+            {"model":"ks_bmw_m6_gt3","skin":"","driver_name":"AI 2","ai_level":90},
+            {"model":"ks_audi_r8_lms","skin":"","driver_name":"AI 3","ai_level":90},
+            {"model":"ks_mercedes_amg_gt3","skin":"","driver_name":"AI 4","ai_level":90},
+            {"model":"ks_nissan_gtr_gt3","skin":"","driver_name":"AI 5","ai_level":90}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        for i in 1..=5 {
+            let key = format!("CAR_{}", i);
+            let car = sections.get(&key).unwrap_or_else(|| panic!("{} must exist", key));
+            assert_eq!(car.get("AI").map(|s| s.as_str()), Some("1"));
+        }
+        let race = sections.get("RACE").expect("RACE must exist");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("6"), "5 AI + 1 player = 6");
+    }
+
+    #[test]
+    fn test_write_race_ini_weekend_race_starting_position() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"weekend","duration_minutes":30,"weekend_practice_minutes":10,"weekend_qualify_minutes":10,"starting_position":5,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        // Race session (SESSION_2) has starting_position=5
+        let s2 = sections.get("SESSION_2").expect("SESSION_2 (Race)");
+        assert_eq!(s2.get("STARTING_POSITION").map(|s| s.as_str()), Some("5"));
+
+        // Practice always starts from position 1
+        let s0 = sections.get("SESSION_0").expect("SESSION_0");
+        assert_eq!(s0.get("STARTING_POSITION").map(|s| s.as_str()), Some("1"));
+    }
+
+    #[test]
+    fn test_write_race_ini_weekend_insufficient_time() {
+        // SESS-08: practice+qualify >= duration -> race gets minimum 1 minute
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"weekend","duration_minutes":15,"weekend_practice_minutes":10,"weekend_qualify_minutes":10,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let s2 = sections.get("SESSION_2").expect("SESSION_2 (Race)");
+        assert_eq!(s2.get("DURATION_MINUTES").map(|s| s.as_str()), Some("1"), "Minimum 1 minute for race");
+    }
 }
