@@ -83,6 +83,7 @@ pub fn deploy_step_label(state: &DeployState) -> String {
         }
         DeployState::Complete => "Deploy completed successfully".to_string(),
         DeployState::Failed { reason } => format!("Deploy failed: {}", reason),
+        DeployState::WaitingSession => "Waiting for active billing session to end".to_string(),
     }
 }
 

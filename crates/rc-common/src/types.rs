@@ -632,6 +632,8 @@ pub enum DeployState {
     Failed {
         reason: String,
     },
+    /// Pod has an active billing session — deploy is queued until session ends
+    WaitingSession,
 }
 
 impl Default for DeployState {
@@ -641,9 +643,15 @@ impl Default for DeployState {
 }
 
 impl DeployState {
-    /// Returns true if a deploy is actively in progress (not idle, complete, or failed).
+    /// Returns true if a deploy is actively in progress (not idle, complete, failed, or waiting).
     pub fn is_active(&self) -> bool {
-        !matches!(self, DeployState::Idle | DeployState::Complete | DeployState::Failed { .. })
+        !matches!(
+            self,
+            DeployState::Idle
+                | DeployState::Complete
+                | DeployState::Failed { .. }
+                | DeployState::WaitingSession
+        )
     }
 }
 
@@ -799,5 +807,23 @@ mod tests {
         assert!(DeployState::SizeCheck.is_active());
         assert!(DeployState::Starting.is_active());
         assert!(DeployState::VerifyingHealth.is_active());
+    }
+
+    // ── WaitingSession tests (Task 1 - 04-03) ───────────────────────────────
+
+    #[test]
+    fn deploy_state_waiting_session_serializes_to_waiting_session() {
+        let state = DeployState::WaitingSession;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("waiting_session"), "Expected 'waiting_session' in JSON: {}", json);
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::WaitingSession);
+    }
+
+    #[test]
+    fn deploy_state_waiting_session_is_not_active() {
+        // WaitingSession is a queued state — not "active" in the deploy sense
+        // (it doesn't block watchdog; it just defers until session ends)
+        assert!(!DeployState::WaitingSession.is_active());
     }
 }
