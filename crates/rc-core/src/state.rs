@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -15,6 +16,22 @@ use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
 use rc_common::types::PodInfo;
 use rc_common::watchdog::EscalatingBackoff;
+
+/// Watchdog recovery state for a single pod.
+///
+/// Tracks where the watchdog is in the restart/verify cycle so
+/// pod_monitor and pod_healer can coordinate without racing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WatchdogState {
+    /// Pod heartbeat is current — no action needed.
+    Healthy,
+    /// Watchdog sent a restart command; waiting for rc-agent to come back.
+    Restarting { attempt: u32, started_at: DateTime<Utc> },
+    /// Restart command sent; now running post-restart verification checks.
+    Verifying { attempt: u32, started_at: DateTime<Utc> },
+    /// All restart attempts exhausted; manual intervention required.
+    RecoveryFailed { attempt: u32, failed_at: DateTime<Utc> },
+}
 
 /// Tracks OTP request count and window start per phone number
 pub struct OtpRateLimit {
@@ -60,6 +77,10 @@ pub struct AppState {
     pub pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>,
     /// Email alerter for watchdog notifications (behind RwLock for async mutation)
     pub email_alerter: RwLock<EmailAlerter>,
+    /// Per-pod watchdog FSM state (shared between pod_monitor and pod_healer)
+    pub pod_watchdog_states: RwLock<HashMap<String, WatchdogState>>,
+    /// Per-pod restart flag — set by pod_monitor, cleared by pod_healer on recovery
+    pub pod_needs_restart: RwLock<HashMap<String, bool>>,
 }
 
 impl AppState {
@@ -97,6 +118,8 @@ impl AppState {
                 email_script_path,
                 email_enabled,
             )),
+            pod_watchdog_states: RwLock::new(create_initial_watchdog_states()),
+            pod_needs_restart: RwLock::new(create_initial_needs_restart()),
         }
     }
 
@@ -230,9 +253,101 @@ pub fn create_initial_backoffs() -> HashMap<String, EscalatingBackoff> {
     backoffs
 }
 
+/// Creates the initial pod_watchdog_states HashMap pre-populated for pods 1–8.
+/// All pods start Healthy — watchdog FSM transitions from there.
+pub fn create_initial_watchdog_states() -> HashMap<String, WatchdogState> {
+    let mut states = HashMap::new();
+    for pod_num in 1u32..=8 {
+        states.insert(format!("pod_{}", pod_num), WatchdogState::Healthy);
+    }
+    states
+}
+
+/// Creates the initial pod_needs_restart HashMap pre-populated for pods 1–8.
+/// All pods start as false — no restart needed until heartbeat goes stale.
+pub fn create_initial_needs_restart() -> HashMap<String, bool> {
+    let mut needs = HashMap::new();
+    for pod_num in 1u32..=8 {
+        needs.insert(format!("pod_{}", pod_num), false);
+    }
+    needs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── WatchdogState tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn watchdog_state_healthy_is_default_for_all_8_pods() {
+        let states = create_initial_watchdog_states();
+        assert_eq!(states.len(), 8);
+        for i in 1u32..=8 {
+            let key = format!("pod_{}", i);
+            assert!(
+                matches!(states.get(&key), Some(WatchdogState::Healthy)),
+                "pod_{} should default to WatchdogState::Healthy",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn watchdog_state_restarting_has_attempt_and_started_at() {
+        let now = chrono::Utc::now();
+        let s = WatchdogState::Restarting { attempt: 2, started_at: now };
+        match s {
+            WatchdogState::Restarting { attempt, started_at } => {
+                assert_eq!(attempt, 2);
+                assert_eq!(started_at, now);
+            }
+            _ => panic!("Expected Restarting variant"),
+        }
+    }
+
+    #[test]
+    fn watchdog_state_verifying_has_attempt_and_started_at() {
+        let now = chrono::Utc::now();
+        let s = WatchdogState::Verifying { attempt: 1, started_at: now };
+        match s {
+            WatchdogState::Verifying { attempt, started_at } => {
+                assert_eq!(attempt, 1);
+                assert_eq!(started_at, now);
+            }
+            _ => panic!("Expected Verifying variant"),
+        }
+    }
+
+    #[test]
+    fn watchdog_state_recovery_failed_has_attempt_and_failed_at() {
+        let now = chrono::Utc::now();
+        let s = WatchdogState::RecoveryFailed { attempt: 4, failed_at: now };
+        match s {
+            WatchdogState::RecoveryFailed { attempt, failed_at } => {
+                assert_eq!(attempt, 4);
+                assert_eq!(failed_at, now);
+            }
+            _ => panic!("Expected RecoveryFailed variant"),
+        }
+    }
+
+    #[test]
+    fn pod_needs_restart_pre_populated_false_for_8_pods() {
+        let needs = create_initial_needs_restart();
+        assert_eq!(needs.len(), 8);
+        for i in 1u32..=8 {
+            let key = format!("pod_{}", i);
+            assert_eq!(
+                needs.get(&key),
+                Some(&false),
+                "pod_{} should default to false",
+                i
+            );
+        }
+    }
+
+    // ── Backoff tests (existing) ─────────────────────────────────────────────
 
     #[test]
     fn create_initial_backoffs_has_exactly_8_entries() {

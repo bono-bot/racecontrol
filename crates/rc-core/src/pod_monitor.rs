@@ -251,8 +251,11 @@ async fn check_all_pods(
                                 let body = EmailAlerter::format_alert_body(
                                     &pod.id,
                                     "Max escalation reached -- all restart attempts exhausted",
+                                    "Max Escalation",
                                     attempt,
                                     cooldown,
+                                    pod.last_seen,
+                                    "Manual intervention required",
                                 );
                                 let subject = format!(
                                     "[RacingPoint] Pod {} -- max escalation EXHAUSTED",
@@ -275,8 +278,9 @@ async fn check_all_pods(
                         let verify_state = Arc::clone(state);
                         let verify_pod_id = pod.id.clone();
                         let verify_pod_ip = pod.ip_address.clone();
+                        let verify_last_seen = pod.last_seen;
                         tokio::spawn(async move {
-                            verify_restart(verify_state, verify_pod_id, verify_pod_ip).await;
+                            verify_restart(verify_state, verify_pod_id, verify_pod_ip, verify_last_seen).await;
                         });
                     }
                     Ok(resp) => {
@@ -323,8 +327,11 @@ async fn check_all_pods(
                     let body = EmailAlerter::format_alert_body(
                         &pod.id,
                         "Pod fully unreachable",
+                        "Pod Unreachable",
                         attempt,
                         cooldown,
+                        pod.last_seen,
+                        "Check physical connectivity and power",
                     );
                     let subject =
                         format!("[RacingPoint] Pod {} UNREACHABLE", pod.id);
@@ -379,7 +386,7 @@ async fn check_all_pods(
 ///
 /// Runs as a detached tokio task so it does not block the monitor loop.
 /// On full recovery, resets the shared backoff. On failure after 60s, sends email alert.
-async fn verify_restart(state: Arc<AppState>, pod_id: String, pod_ip: String) {
+async fn verify_restart(state: Arc<AppState>, pod_id: String, pod_ip: String, last_seen: Option<DateTime<Utc>>) {
     let check_delays = [5u64, 15, 30, 60];
 
     for delay in check_delays {
@@ -466,11 +473,19 @@ async fn verify_restart(state: Arc<AppState>, pod_id: String, pod_ip: String) {
         .unwrap_or(30);
     drop(backoffs);
 
+    let next_action = if attempt >= 4 {
+        "Manual intervention required"
+    } else {
+        "Pod will retry on next watchdog cycle"
+    };
     let body = EmailAlerter::format_alert_body(
         &pod_id,
         "Restart verification failed after 60s",
+        "Verification Failed",
         attempt,
         cooldown,
+        last_seen,
+        next_action,
     );
     let subject = format!("[RacingPoint] Pod {} restart FAILED", pod_id);
     state

@@ -158,21 +158,40 @@ impl EmailAlerter {
     }
 
     /// Format a readable alert email body with pod info and watchdog state.
+    ///
+    /// # Parameters
+    /// - `pod_id` — e.g. "pod_3"
+    /// - `reason` — human-readable description of what went wrong
+    /// - `failure_type` — short failure category (e.g. "Max Escalation", "Pod Unreachable")
+    /// - `attempt` — current restart attempt number
+    /// - `cooldown_secs` — current escalation cooldown in seconds
+    /// - `last_heartbeat` — timestamp of last successful heartbeat (None if never seen)
+    /// - `next_action` — suggested next action for staff
     pub fn format_alert_body(
         pod_id: &str,
         reason: &str,
+        failure_type: &str,
         attempt: u32,
         cooldown_secs: u64,
+        last_heartbeat: Option<DateTime<Utc>>,
+        next_action: &str,
     ) -> String {
         let now = Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
+        let heartbeat_str = match last_heartbeat {
+            Some(ts) => ts.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            None => "Unknown".to_string(),
+        };
         format!(
             "RaceControl Watchdog Alert\n\
              ==========================\n\
              \n\
              Pod: {pod_id}\n\
+             Failure Type: {failure_type}\n\
              Reason: {reason}\n\
              Restart Attempt: #{attempt}\n\
              Current Cooldown: {cooldown_secs}s\n\
+             Last Heartbeat: {heartbeat_str}\n\
+             Next Action: {next_action}\n\
              Timestamp: {now}\n\
              \n\
              The watchdog has detected a failure and is attempting recovery.\n\
@@ -268,12 +287,65 @@ mod tests {
 
     #[test]
     fn format_alert_body_produces_readable_output() {
-        let body = EmailAlerter::format_alert_body("pod-5", "heartbeat timeout", 3, 600);
+        let body = EmailAlerter::format_alert_body(
+            "pod-5",
+            "heartbeat timeout",
+            "Heartbeat Timeout",
+            3,
+            600,
+            None,
+            "Check pod connectivity",
+        );
         assert!(body.contains("Pod: pod-5"));
         assert!(body.contains("Reason: heartbeat timeout"));
         assert!(body.contains("Restart Attempt: #3"));
         assert!(body.contains("Current Cooldown: 600s"));
         assert!(body.contains("RaceControl Watchdog Alert"));
+    }
+
+    #[test]
+    fn format_alert_body_with_last_heartbeat_some_includes_timestamp() {
+        let ts = Utc::now();
+        let body = EmailAlerter::format_alert_body(
+            "pod-3",
+            "test reason",
+            "Test Failure",
+            1,
+            30,
+            Some(ts),
+            "Retry in 30s",
+        );
+        assert!(body.contains("Last Heartbeat:"));
+        assert!(!body.contains("Last Heartbeat: Unknown"));
+    }
+
+    #[test]
+    fn format_alert_body_with_last_heartbeat_none_shows_unknown() {
+        let body = EmailAlerter::format_alert_body(
+            "pod-7",
+            "never seen",
+            "No Heartbeat",
+            1,
+            30,
+            None,
+            "Manual check required",
+        );
+        assert!(body.contains("Last Heartbeat: Unknown"));
+    }
+
+    #[test]
+    fn format_alert_body_includes_failure_type_and_next_action() {
+        let body = EmailAlerter::format_alert_body(
+            "pod-2",
+            "test",
+            "Max Escalation",
+            5,
+            1800,
+            None,
+            "Manual intervention required",
+        );
+        assert!(body.contains("Max Escalation"));
+        assert!(body.contains("Manual intervention required"));
     }
 
     #[test]

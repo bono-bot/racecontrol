@@ -321,6 +321,27 @@ pub enum DashboardEvent {
 
     /// Batch of recent activity entries (sent on dashboard connect)
     PodActivityList(Vec<PodActivityEntry>),
+
+    /// Watchdog initiated a restart for this pod
+    PodRestarting {
+        pod_id: String,
+        attempt: u32,
+        max_attempts: u32,
+        backoff_label: String,
+    },
+
+    /// Watchdog is verifying restart success for this pod
+    PodVerifying {
+        pod_id: String,
+        attempt: u32,
+    },
+
+    /// All restart attempts exhausted — manual intervention required
+    PodRecoveryFailed {
+        pod_id: String,
+        attempt: u32,
+        reason: String,
+    },
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)
@@ -661,6 +682,63 @@ mod tests {
             assert_eq!(pause_count, 2);
         } else {
             panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_pod_restarting_roundtrip() {
+        let event = DashboardEvent::PodRestarting {
+            pod_id: "pod_1".to_string(),
+            attempt: 2,
+            max_attempts: 4,
+            backoff_label: "2m".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("pod_restarting"), "Expected 'pod_restarting' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::PodRestarting { pod_id, attempt, max_attempts, backoff_label } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(attempt, 2);
+            assert_eq!(max_attempts, 4);
+            assert_eq!(backoff_label, "2m");
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_pod_verifying_roundtrip() {
+        let event = DashboardEvent::PodVerifying {
+            pod_id: "pod_3".to_string(),
+            attempt: 1,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("pod_verifying"), "Expected 'pod_verifying' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::PodVerifying { pod_id, attempt } = parsed {
+            assert_eq!(pod_id, "pod_3");
+            assert_eq!(attempt, 1);
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_pod_recovery_failed_roundtrip() {
+        let event = DashboardEvent::PodRecoveryFailed {
+            pod_id: "pod_8".to_string(),
+            attempt: 4,
+            reason: "All restart attempts exhausted".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("pod_recovery_failed"), "Expected 'pod_recovery_failed' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::PodRecoveryFailed { pod_id, attempt, reason } = parsed {
+            assert_eq!(pod_id, "pod_8");
+            assert_eq!(attempt, 4);
+            assert_eq!(reason, "All restart attempts exhausted");
+        } else {
+            panic!("Wrong variant after roundtrip");
         }
     }
 
