@@ -419,8 +419,10 @@ pub async fn validate_pin(
     let experience_id = row.5;
     let custom_launch_args = row.6;
 
-    // Start billing session — rollback token if billing fails
-    let billing_session_id = match billing::start_billing_session(
+    // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
+    // Billing session will be created by billing::handle_game_status_update() when Live received
+    let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
+    if let Err(e) = billing::defer_billing_start(
         state,
         pod_id.clone(),
         driver_id.clone(),
@@ -433,19 +435,16 @@ pub async fn validate_pin(
     )
     .await
     {
-        Ok(id) => id,
-        Err(e) => {
-            // Rollback: revert token from 'consuming' back to 'pending'
-            let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
-                .bind(&token_id)
-                .execute(&state.db)
-                .await;
-            tracing::error!("Billing start failed for token {}, rolled back to pending: {}", token_id, e);
-            return Err(e);
-        }
-    };
+        // Rollback: revert token from 'consuming' back to 'pending'
+        let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
+            .bind(&token_id)
+            .execute(&state.db)
+            .await;
+        tracing::error!("Defer billing failed for token {}, rolled back to pending: {}", token_id, e);
+        return Err(e);
+    }
 
-    // Finalize token as consumed with billing session ID
+    // Finalize token as consumed (billing_session_id is deferred placeholder)
     if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
@@ -466,18 +465,27 @@ pub async fn validate_pin(
         .flatten()
         .unwrap_or_else(|| "Driver".to_string());
 
-    // Clear lock screen on agent (unless it'll be replaced by assistance screen)
+    // Clear lock screen on agent
     let agent_senders = state.agent_senders.read().await;
     if let Some(sender) = agent_senders.get(&pod_id) {
         let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
     }
     drop(agent_senders);
 
-    // Link reservation to billing session
-    link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
+    // Reservation linking deferred until actual billing session starts on Live
+    // link_reservation_to_billing will be called inside start_billing_session()
 
     // Auto-launch game or show assistance screen
     launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
+
+    // Update pod state to WaitingForGame
+    {
+        let mut pods = state.pods.write().await;
+        if let Some(pod) = pods.get_mut(&pod_id) {
+            pod.current_driver = Some(driver_name.clone());
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+        }
+    }
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -486,7 +494,7 @@ pub async fn validate_pin(
         billing_session_id: billing_session_id.clone(),
     });
 
-    tracing::info!("PIN validated via {:?} on pod {}, billing session {} started", PinSource::Pod, pod_id, billing_session_id);
+    tracing::info!("PIN validated via {:?} on pod {}, billing deferred (waiting for LIVE)", PinSource::Pod, pod_id);
 
     Ok(billing_session_id)
 }
@@ -531,8 +539,9 @@ pub async fn validate_qr(
         return Err("QR token is not assigned to this customer".to_string());
     }
 
-    // Start billing session — rollback token if billing fails
-    let billing_session_id = match billing::start_billing_session(
+    // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
+    let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
+    if let Err(e) = billing::defer_billing_start(
         state,
         pod_id.clone(),
         driver_id.clone(),
@@ -545,19 +554,16 @@ pub async fn validate_qr(
     )
     .await
     {
-        Ok(id) => id,
-        Err(e) => {
-            // Rollback: revert token from 'consuming' back to 'pending'
-            let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
-                .bind(&token_id)
-                .execute(&state.db)
-                .await;
-            tracing::error!("Billing start failed for QR token {}, rolled back to pending: {}", token_id, e);
-            return Err(e);
-        }
-    };
+        // Rollback: revert token from 'consuming' back to 'pending'
+        let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
+            .bind(&token_id)
+            .execute(&state.db)
+            .await;
+        tracing::error!("Defer billing failed for QR token {}, rolled back to pending: {}", token_id, e);
+        return Err(e);
+    }
 
-    // Finalize token as consumed with billing session ID
+    // Finalize token as consumed (billing_session_id is deferred placeholder)
     if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
@@ -585,11 +591,19 @@ pub async fn validate_qr(
     }
     drop(agent_senders);
 
-    // Link reservation to billing session
-    link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
+    // Reservation linking deferred until actual billing session starts on Live
 
     // Auto-launch game or show assistance screen
     launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
+
+    // Update pod state to WaitingForGame
+    {
+        let mut pods = state.pods.write().await;
+        if let Some(pod) = pods.get_mut(&pod_id) {
+            pod.current_driver = Some(driver_name.clone());
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+        }
+    }
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -598,7 +612,7 @@ pub async fn validate_qr(
         billing_session_id: billing_session_id.clone(),
     });
 
-    tracing::info!("QR validated on pod {}, billing session {} started", pod_id, billing_session_id);
+    tracing::info!("QR validated on pod {}, billing deferred (waiting for LIVE)", pod_id);
 
     Ok(billing_session_id)
 }
@@ -631,8 +645,9 @@ pub async fn start_now(
     let experience_id = row.5;
     let custom_launch_args = row.6;
 
-    // Start billing session — rollback token if billing fails
-    let billing_session_id = match billing::start_billing_session(
+    // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
+    let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
+    if let Err(e) = billing::defer_billing_start(
         state,
         pod_id.clone(),
         driver_id.clone(),
@@ -645,19 +660,16 @@ pub async fn start_now(
     )
     .await
     {
-        Ok(id) => id,
-        Err(e) => {
-            // Rollback: revert token from 'consuming' back to 'pending'
-            let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
-                .bind(&token_id)
-                .execute(&state.db)
-                .await;
-            tracing::error!("Billing start failed for token {}, rolled back to pending: {}", token_id, e);
-            return Err(e);
-        }
-    };
+        // Rollback: revert token from 'consuming' back to 'pending'
+        let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
+            .bind(&token_id)
+            .execute(&state.db)
+            .await;
+        tracing::error!("Defer billing failed for token {}, rolled back to pending: {}", token_id, e);
+        return Err(e);
+    }
 
-    // Finalize token as consumed with billing session ID
+    // Finalize token as consumed (billing_session_id is deferred placeholder)
     if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
@@ -685,11 +697,19 @@ pub async fn start_now(
     }
     drop(agent_senders);
 
-    // Link reservation to billing session
-    link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
+    // Reservation linking deferred until actual billing session starts on Live
 
     // Auto-launch game or show assistance screen
     launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
+
+    // Update pod state to WaitingForGame
+    {
+        let mut pods = state.pods.write().await;
+        if let Some(pod) = pods.get_mut(&pod_id) {
+            pod.current_driver = Some(driver_name.clone());
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+        }
+    }
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -698,7 +718,7 @@ pub async fn start_now(
         billing_session_id: billing_session_id.clone(),
     });
 
-    tracing::info!("Start Now on pod {}: token {} consumed, billing session {} started", pod_id, token_id, billing_session_id);
+    tracing::info!("Start Now on pod {}: token {} consumed, billing deferred (waiting for LIVE)", pod_id, token_id);
 
     Ok(billing_session_id)
 }
@@ -1193,8 +1213,9 @@ pub async fn validate_pin_kiosk(
     // Use the customer's chosen pod if provided, otherwise the token's assigned pod
     let pod_id = chosen_pod_id.unwrap_or(token_pod_id);
 
-    // Start billing session — rollback token if billing fails
-    let billing_session_id = match billing::start_billing_session(
+    // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
+    let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
+    if let Err(e) = billing::defer_billing_start(
         state,
         pod_id.clone(),
         driver_id.clone(),
@@ -1207,19 +1228,16 @@ pub async fn validate_pin_kiosk(
     )
     .await
     {
-        Ok(id) => id,
-        Err(e) => {
-            // Rollback: revert token from 'consuming' back to 'pending'
-            let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
-                .bind(&token_id)
-                .execute(&state.db)
-                .await;
-            tracing::error!("Billing start failed for token {}, rolled back to pending: {}", token_id, e);
-            return Err(e);
-        }
-    };
+        // Rollback: revert token from 'consuming' back to 'pending'
+        let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
+            .bind(&token_id)
+            .execute(&state.db)
+            .await;
+        tracing::error!("Defer billing failed for token {}, rolled back to pending: {}", token_id, e);
+        return Err(e);
+    }
 
-    // Finalize token as consumed with billing session ID
+    // Finalize token as consumed (billing_session_id is deferred placeholder)
     if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
@@ -1276,11 +1294,19 @@ pub async fn validate_pin_kiosk(
     }
     drop(agent_senders);
 
-    // Link reservation to billing session
-    link_reservation_to_billing(state, &billing_session_id, &driver_id).await;
+    // Reservation linking deferred until actual billing session starts on Live
 
     // Auto-launch game or show assistance screen
     launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
+
+    // Update pod state to WaitingForGame
+    {
+        let mut pods = state.pods.write().await;
+        if let Some(pod) = pods.get_mut(&pod_id) {
+            pod.current_driver = Some(driver_name.clone());
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+        }
+    }
 
     // Broadcast consumed event
     let _ = state.dashboard_tx.send(DashboardEvent::AuthTokenConsumed {
@@ -1290,8 +1316,8 @@ pub async fn validate_pin_kiosk(
     });
 
     tracing::info!(
-        "PIN validated via {:?} on pod {} (#{}) driver {}, billing session {}",
-        PinSource::Kiosk, pod_id, pod_number, driver_name, billing_session_id
+        "PIN validated via {:?} on pod {} (#{}) driver {}, billing deferred (waiting for LIVE)",
+        PinSource::Kiosk, pod_id, pod_number, driver_name
     );
 
     Ok(KioskPinResult {

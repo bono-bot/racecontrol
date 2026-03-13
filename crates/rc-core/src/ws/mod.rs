@@ -381,12 +381,9 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             }
                         }
                         AgentMessage::GameStatusUpdate { pod_id, ac_status } => {
-                            // Phase 03 Plan 03 will wire this to billing lifecycle.
-                            // For now, log the status change.
-                            tracing::info!(
-                                "AC STATUS update from pod {}: {:?}",
-                                pod_id, ac_status
-                            );
+                            tracing::info!("Pod {} AC STATUS: {:?}", pod_id, ac_status);
+                            log_pod_activity(&state, pod_id, "game", &format!("AC Status: {:?}", ac_status), "", "agent");
+                            billing::handle_game_status_update(&state, pod_id, *ac_status, &cmd_tx).await;
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
