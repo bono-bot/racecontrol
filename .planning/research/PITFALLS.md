@@ -1,139 +1,221 @@
 # Pitfalls Research
 
-**Domain:** Pod management / process supervision / WebSocket hardening / deployment pipelines (Windows gaming venue)
+**Domain:** Windows LAN kiosk URL reliability — local DNS, static IPs, Edge kiosk mode, process supervision, port conflicts
 **Researched:** 2026-03-13
-**Confidence:** HIGH (derived from codebase inspection + archived Phase 05 research + targeted web research)
+**Confidence:** HIGH (combination of verified production issues already hit in v1.0 + current Microsoft docs + community post-mortems)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Declaring Recovery from HTTP 200 on Restart Command
+### Pitfall 1: Session 0 GUI Blindness (Already Hit in v1.0 — Do Not Repeat)
 
 **What goes wrong:**
-`pod-agent /exec` returns HTTP 200 when the restart shell command is delivered. The monitor marks the pod recovered. But `start /b rc-agent.exe` exits immediately — it only launches the process. If rc-agent crashes on startup (bad config, port already bound, missing file), the HTTP 200 still arrived and recovery is falsely declared. The pod stays marked Online while it is actually dead.
+Any Windows service (SYSTEM account) that restarts rc-agent also restarts it in Session 0. The lock screen at `127.0.0.1:18923` is a GUI surface — it requires Session 1. The process is alive, the WebSocket reconnects, and the HTTP server binds the port — but `msedge --kiosk 127.0.0.1:18923` in Session 0 displays nothing. Customers see a blank pod.
 
 **Why it happens:**
-The restart command (`start /b rc-agent.exe`) is fire-and-forget. pod-agent reports success for command delivery, not for process health. The monitor has no follow-up check.
+Windows Session 0 Isolation (introduced Vista, permanent since Win7) prohibits Session 0 processes from rendering to the interactive desktop. SYSTEM services, NSSM-managed services, and any `sc.exe`-started process inherits Session 0. The process looks healthy from a networking standpoint because the HTTP server is running.
 
 **How to avoid:**
-After every restart command succeeds, spawn a separate tokio task that polls at +5s, +15s, +30s, +60s checking: (a) `tasklist | findstr rc-agent` via pod-agent exec, (b) `state.agent_senders.contains_key(&pod_id)` for WebSocket reconnect. Only declare recovery when both pass. See existing `check_rc_agent_health()` pattern in `pod_healer.rs` for the lock screen probe approach.
+- Never start rc-agent from a Windows Service (SYSTEM). The HKLM `Run` key (`start-rcagent.bat`) is the correct pattern — it executes at user login in Session 1.
+- For the staff kiosk (Next.js on Server .23), use the same HKLM `Run` key pattern OR a Task Scheduler task with trigger "At log on of specific user" and option "Run only when user is logged on." This guarantees Session 1.
+- The critical test: after restart, can you actually see the window on screen? Process running + port open is a necessary but not sufficient check.
 
 **Warning signs:**
-Activity log shows "Agent Restarted" followed immediately by another offline detection cycle. Kiosk shows the pod bouncing between Online/Offline every 2 minutes.
+`netstat -ano` shows port 18923 or 3000 LISTENING; `tasklist` shows msedge.exe and node.exe; but the physical monitor shows a black screen or Windows desktop.
 
-**Phase to address:** WebSocket & watchdog hardening phase (covers post-restart verification requirement)
+**Phase to address:** Phase 1 (diagnose) must confirm Session 1 startup for all services. Phase 2 (staff kiosk pinning) must use HKLM Run or Scheduled Task "Run only when logged on."
 
 ---
 
-### Pitfall 2: File Lock on Binary Replace (Windows)
+### Pitfall 2: Edge `--kiosk` Flag Silently Drops on Auto-Update
 
 **What goes wrong:**
-Deploying a new `rc-agent.exe` fails silently or with "access denied" because the old process still holds a file lock on the executable. The new binary never lands. pod-agent reports the download command succeeded, but `rc-agent.exe` on disk is still the old version. The pod restarts into the old binary.
+Edge auto-updates in the background on all 8 pods. After an update, Edge may: (a) show a white screen on launch (confirmed with Edge 128.0.2739.42), (b) ignore `--kiosk` and open the normal browser frame, (c) launch into the "Welcome to Edge" first-run experience despite `--no-first-run`, or (d) require a profile migration step that blocks the kiosk URL from loading.
+
+In the Edge 128 incident, organizations had to roll back to version 124 venue-wide. A hotfix was released in 128.0.2739.54 but this confirms updates can break kiosk behavior between patch versions.
 
 **Why it happens:**
-Windows locks executable files while they are running. Unlike Linux (where the inode is unlinked and the new file replaces it), Windows prevents overwriting a running `.exe`. `taskkill /F /IM rc-agent.exe` kills the process but the OS may not release the file handle instantly, especially if antivirus (Defender) is scanning the terminated process.
+Microsoft periodically changes how kiosk mode responds to command-line flags. Edge updates ship silently to Windows machines without operator approval unless Group Policy blocks them. InPrivate mode (which `--kiosk` forces) can break when the profile directory has incompatible cached state from a prior version.
 
 **How to avoid:**
-Enforce the kill → wait → verify-dead → download sequence with an explicit delay after kill. Use `tasklist | findstr rc-agent` to confirm the process is gone before downloading. Add a 2-3 second sleep between kill and download in the deploy command chain. The current restart command already has `timeout /t 2` — keep it and ensure deploy scripts do the same. Verify binary size after download before starting.
+- Block Edge auto-updates on pods via Group Policy: `Computer Configuration → Administrative Templates → Microsoft Edge Update → Update Policy Override`. Set to "Updates disabled" or "Manual updates only."
+- Pin to a known-good Edge version using a Group Policy template or simply disable `EdgeUpdate` service on pods: `sc config edgeupdate start=disabled && sc config edgeupdatem start=disabled`.
+- Add Edge version to the deploy verification checklist. Know the current version on all pods (`msedge --version` via pod-agent).
+- Never rely on `--no-first-run` alone. Also pass `--user-data-dir=C:\RacingPoint\EdgeKiosk` to isolate the profile from system Edge updates affecting the default profile.
 
 **Warning signs:**
-Deploy reports success but `rc-agent --version` output is unchanged. Binary size on pod matches old build. New features absent after "successful" deploy.
+Pod lock screen shows blank white or the normal Edge chrome (address bar visible). Staff kiosk shows pod as Online but customers report broken screen. Edge version changed in Task Manager or `msedge --version` output differs from expected.
 
-**Phase to address:** Deployment pipeline hardening phase
+**Phase to address:** Phase 2 (pod lock screen fix) must pin Edge version + add `--user-data-dir` flag.
 
 ---
 
-### Pitfall 3: Session 0 GUI Blindness After Remote Restart
+### Pitfall 3: `.local` DNS Conflicts with mDNS
 
 **What goes wrong:**
-pod-agent runs as SYSTEM. When it restarts rc-agent via `start /b rc-agent.exe`, the new process spawns in Windows Session 0 (the non-interactive SYSTEM session). All GUI surfaces — lock screen, overlay — are invisible to the customer sitting at the pod. The process is running and the WebSocket reconnects, so all monitoring shows green. The customer sees a blank screen.
+If the custom hostname chosen uses the `.local` TLD (e.g., `kiosk.local`), Windows 11's built-in mDNS resolver (via dnscache service) handles it differently than a conventional unicast DNS query. Resolution is unreliable: it depends on multicast UDP packets reaching all clients, which any managed switch, VLAN, or firewall rule can silently block. Worse, installing Apple Bonjour on any pod (e.g., from iTunes, Apple Music, or some gaming peripherals) creates a second mDNS responder that conflicts with Windows' native one, causing resolution to flip between correct and incorrect IPs.
+
+On Windows 10 1809+, Microsoft changed the precedence of `.local` resolution: mDNS now takes priority over the Windows HOSTS file for `.local` names on some configurations, meaning hosts file entries can be overridden by a multicast response from a different device.
 
 **Why it happens:**
-Windows isolates GUI from Session 0 as a security boundary (Session 0 Isolation, introduced Vista). Processes spawned from SYSTEM services inherit Session 0 and cannot draw to the user desktop (Session 1).
+`.local` is a special-use domain standardized for mDNS (RFC 6762). It was never intended for use with authoritative DNS servers. Windows resolvers implement a complex fallback chain (mDNS → LLMNR → DNS → NetBIOS), and the order changed between Windows 10 versions.
 
 **How to avoid:**
-Post-restart verification must treat "WebSocket connected but lock screen (port 18923) unresponsive" as a **partial recovery**, not full recovery. Log it as "Session 0 restart — GUI will restore on next login/reboot." Do NOT trigger an email alert for Session 0 partial recovery — it is expected and resolves itself. The HKLM Run key (`start-rcagent.bat`) handles Session 1 startup at next login. True failure is WebSocket also not connected.
+- Use a non-`.local` TLD for the custom hostname. `.rp` or `.racingpoint` are safe choices — they are not delegated TLDs, not used by mDNS, and Windows resolves them via the hosts file or DNS server only.
+- The simplest reliable approach for a small LAN: add entries to `C:\Windows\System32\drivers\etc\hosts` on every client. `kiosk.rp` → `192.168.31.23`. No DNS server needed, zero mDNS interference.
+- If deploying a DNS server (e.g., dnsmasq on the router or a Pi-hole), avoid `.local` in the zone and configure Windows clients to use the DNS server IP as their primary DNS.
 
 **Warning signs:**
-Lock screen health check fails (port 18923 returns 0) but WebSocket sender exists for that pod_id. Customer reports blank screen after pod restarts but staff kiosk shows pod as Online.
+`ping kiosk.local` works from James's machine (.27) but fails from pods. Hostname resolves correctly after `ipconfig /flushdns` but breaks again after 60 seconds. Resolution varies between pods. `nslookup kiosk.local` returns the wrong IP.
 
-**Phase to address:** WebSocket & watchdog hardening phase (post-restart verification logic)
+**Phase to address:** Phase 3 (local DNS) must choose `.rp` or similar non-`.local` TLD. Hosts-file deployment must cover all 8 pods + server + James's workstation.
 
 ---
 
-### Pitfall 4: WebSocket Drop During Game Launch CPU Spike
+### Pitfall 4: DHCP Drift Survives "Static IP" Configuration
 
 **What goes wrong:**
-Launching a sim (Assetto Corsa, F1, Forza) causes a CPU spike on the pod (shader compilation, asset loading) lasting 5-30 seconds. During this spike, rc-agent's tokio runtime is starved. The WebSocket ping/pong cycle misses its deadline. rc-core sees a missed pong and closes the connection as stale. The kiosk briefly shows "disconnected" and may trigger a false offline detection.
+Setting a static IP on the Windows NIC (via `netsh` or Settings) on the server eliminates DHCP for that adapter — but the server was showing `.23` in monitoring while DHCP had drifted it to `.51` (as already observed). If a static IP is set to the drifted address (`.51`) rather than the intended address (`.23`), nothing breaks immediately. But if the router DHCP pool also contains `.51`, a lease conflict occurs when another device gets `.51` from DHCP. Additionally, if the static IP is set only in Windows (not as a DHCP reservation in the router), a router firmware update, factory reset, or ISP modem replacement erases no configuration — but power cycling the server may cause APIPA address assignment if the NIC resets before the IP is re-applied.
 
 **Why it happens:**
-A single-threaded or under-resourced tokio runtime on the pod cannot service both game launch I/O and WebSocket keepalive simultaneously. The hyper/tungstenite default ping timeout is typically 20-30 seconds — tight enough to trip during heavy launch load.
+Static IPs configured at the OS level survive router resets but are invisible to the router's DHCP conflict detection. The router may still lease the same IP to another device that joins the LAN, causing an IP collision that manifests as intermittent packet loss rather than a clean failure.
 
 **How to avoid:**
-Two strategies, both needed:
-1. **Server-side tolerance:** In rc-core, do not act on a single missed heartbeat. The existing 6s UDP heartbeat timeout is already a dead-pod threshold — preserve it but add a grace window (require 2-3 consecutive missed heartbeats before marking offline). Do not trigger a restart on first miss.
-2. **Client-side keepalive:** In rc-agent's WebSocket loop, send application-level pings (not just relying on tungstenite's protocol-level ping) every 10s. This gives rc-core evidence the agent is alive even if the protocol-level ping races with game launch.
-3. **Kiosk suppression:** If a pod transitions Online→Offline→Online within a short window (< 30s), suppress the "disconnected" flash in the kiosk by debouncing the status display.
+Two-layer static IP strategy:
+1. Set a DHCP reservation in the router for Server `.23` MAC address `30-56-0F-05-xx-xx` (check and record actual MAC). This prevents the router from leasing `.23` to anyone else.
+2. Also set the NIC to a static IP on the server. Both layers together mean: even if the router resets and loses the reservation, the server holds `.23`; even if Windows networking glitches, the reservation ensures the router won't give `.23` away.
+3. Document the server MAC address. After any router firmware update, re-enter the reservation first thing.
+4. Place the static IPs (.23, .27, etc.) outside the DHCP pool range. If the router's pool is `.100-200`, static assignments at `.23` and `.27` are never in the pool and cannot conflict.
 
 **Warning signs:**
-Activity log shows pods going offline at the same time customers launch games. "Disconnected" flashes in kiosk last 5-15 seconds then resolve without any manual action. UDP heartbeat gaps align with game launch events.
+`arp -a` on any pod shows two entries for `.23` or `.51`. Staff kiosk loads intermittently. `ping 192.168.31.23` shows request timeouts mixed with replies. Router DHCP lease table shows `.51` still assigned to another device.
 
-**Phase to address:** WebSocket connection resilience phase
+**Phase to address:** Phase 1 (diagnosis) must verify the server's current IP situation. Phase 3 (static IP + DNS) must implement both layers simultaneously.
 
 ---
 
-### Pitfall 5: Concurrent Restart from Monitor + Healer
+### Pitfall 5: Windows DNS Cache Survives Hosts File Changes
 
 **What goes wrong:**
-`pod_monitor.rs` (10s check interval) and `pod_healer.rs` (120s interval) both detect an unhealthy pod and both issue restart commands within seconds of each other. The pod gets killed and restarted twice. If billing was active, the second kill interrupts the first startup. Race conditions in the restart command chain (`taskkill → timeout → start`) compound.
+After updating `C:\Windows\System32\drivers\etc\hosts` on a pod to point `kiosk.rp` at `192.168.31.23`, the change may not take effect immediately. The Windows DNS Client service (dnscache) caches negative and positive lookups. Background processes (Edge, Windows Update, telemetry) continuously make DNS queries that re-populate the cache. `ipconfig /flushdns` on one pod flushes the cache but another pod may have cached a stale entry that won't expire for the default TTL. Edge also maintains its own internal DNS cache that is separate from the OS cache and is not cleared by `ipconfig /flushdns` — it requires `edge://net-internals/#dns` or a browser restart.
 
 **Why it happens:**
-Monitor and healer run on independent tokio intervals with no shared lock or coordination state. Both check health conditions that can be true simultaneously (missed heartbeat + stale socket).
+Windows dnscache service has its own TTL (default positive: 86400s, negative: 300s). Adding a hosts file entry does not flush the existing cache — the service reads the hosts file at query time but may serve the cached response instead. Edge's internal DNS resolver is Chromium's `//net` stack, which has its own independent cache.
 
 **How to avoid:**
-Share a single `EscalatingBackoff` per pod in `AppState`. Both monitor and healer read from it before acting. Assign ownership: pod_monitor owns restart commands; pod_healer owns diagnostics (kill zombies, clear temp, check disk). Healer should check `last_restart_attempt` timestamp and skip restart if monitor acted in the last 60s.
+- After updating the hosts file on a pod, run `ipconfig /flushdns` AND restart Edge (kill all msedge.exe processes). The flush + restart combination clears both caches.
+- For deployment automation via pod-agent: chain the hosts file write, `ipconfig /flushdns`, and `taskkill /F /IM msedge.exe` into one command sequence.
+- Verify resolution from within the pod using `nslookup kiosk.rp 127.0.0.1` — not just `ping`, which may use a cached route.
 
 **Warning signs:**
-Activity log shows two "Agent Restarted" entries within 10 seconds for the same pod. rc-agent fails to start because it was killed mid-startup.
+`nslookup kiosk.rp` returns correct IP but typing `kiosk.rp` in Edge still shows "site cannot be reached." Hosts file edit was deployed but the issue reappears on the next Edge launch. Different pods resolve the same hostname to different IPs.
 
-**Phase to address:** WebSocket & watchdog hardening phase (shared backoff state requirement)
+**Phase to address:** Phase 3 (DNS) deployment scripts must include flush + browser restart. Do not mark "DNS deployed" as done until verified from Edge, not just from command line.
 
 ---
 
-### Pitfall 6: Email Storm on Venue-Wide Network Event
+### Pitfall 6: Port 8080 and 3000 Have Silent Competitors on Windows
 
 **What goes wrong:**
-A router reboot, switch failure, or DHCP re-lease takes all 8 pods offline simultaneously. Each pod's independent escalation state triggers an email alert. Uday receives 8 emails within 60 seconds, or more if retry logic fires. He cannot determine whether it is a single venue-wide event or 8 independent failures.
+rc-core runs on port 8080. Next.js dev server runs on port 3000. Both are "common" ports with known squatters on Windows:
+- Port 8080: Hyper-V Management Service uses it when Hyper-V is installed. Jenkins, Apache Tomcat, and various Windows SDK tools claim 8080. On Windows Server, IIS Application Pool defaults to 8080 as a secondary binding.
+- Port 3000: Some Bluetooth stack implementations claim 3000. iTunes/Bonjour uses port 3689 but some versions used 3000 during transition.
+- Port 80: HTTP.sys (`Microsoft-HTTPAPI/2.0`) binds port 80 by default on Windows when IIS or WinRM is installed, even without explicit configuration. This matters if the plan is to serve the kiosk on port 80 without a reverse proxy.
+
+On gaming PCs, ports 9996 (AC), 20777 (F1), 5300 (Forza), 6789 (iRacing) are already reserved by rc-agent for game telemetry — any of these would conflict with UDP listeners from actual running games if rc-agent starts before the game initializes the UDP socket.
 
 **Why it happens:**
-Per-pod email rate limiting (1 email/pod/30min) does not prevent simultaneous multi-pod emails. 8 pods × 1 email = 8 emails in one burst.
+Windows does not warn when a new service starts and finds a port already bound. The new service either silently fails to bind (returning no error if using `SO_REUSEADDR` incorrectly), or the old service is pre-empted depending on start order. The issue only surfaces when both services are running simultaneously.
 
 **How to avoid:**
-Add a venue-level rate limit layer: max 1 email per 5 minutes across all pods. When multiple pods are offline within the same detection window (e.g., 3+ pods offline within 30s), aggregate into a single email: "Venue-wide outage detected: Pods 1, 3, 5, 7 offline." Include the count to signal it is likely infrastructure, not individual pod failures.
+- Verify port availability on the server before choosing ports: `netstat -ano | findstr :8080` and `netstat -ano | findstr :3000`.
+- For the Next.js production build on the server, use port 3200 (already used by `racingpoint-admin`) or an uncontested port like 3100 or 3050. Avoid port 3000 in production.
+- Disable HTTP.sys on gaming pods if any future kiosk page is served on port 80: `netsh http delete urlacl url=http://+:80/` or disable `W3SVC` if IIS is installed.
+- For rc-core port 8080, verify with `netstat -ano | findstr :8080 | findstr LISTEN` on the server — if anything other than rc-core is listed, investigate before assuming rc-core bound successfully.
 
 **Warning signs:**
-Multiple pods going offline within the same 30-second monitor cycle. Email subject lines show multiple pod numbers arriving within seconds of each other.
+rc-core or Next.js starts without error message but returns connection refused. `netstat -ano` shows the expected port is LISTENING under a different PID than rc-core or node.exe. Server startup logs show "address already in use" (Rust: `AddrInUse` error code) — but only if error handling is not silently swallowed.
 
-**Phase to address:** Watchdog alerting phase
+**Phase to address:** Phase 1 (diagnosis) must run `netstat -ano` on the server and record what currently holds each relevant port. Phase 2 (staff kiosk pinning) must verify port selection before deploying.
 
 ---
 
-### Pitfall 7: Config Validation Failure is Silent
+### Pitfall 7: Next.js Production Build Requires Explicit Build Step Before Serving
 
 **What goes wrong:**
-A deployed rc-agent binary starts successfully (process is alive, port opens) but silently uses default/fallback values because a required config field is missing or mis-typed in `rc-agent.toml`. Features that depend on missing config (billing rates, game UDP ports, pod ID) either do not work or use wrong values. Monitoring shows the pod as healthy.
+Running `next start` on the server without a prior `next build` serves either stale content from a previous build or fails entirely with "Could not find a production build." If the server runs `next dev` instead of `next build && next start`, the kiosk works but is 3-5x slower, recompiles on each request, and crashes if the CPU is under load. The distinction between dev and prod mode is easy to miss when setting up auto-start for the first time.
 
 **Why it happens:**
-Rust `config` crate and `serde` with `#[serde(default)]` silently substitute defaults. A config file deployed with wrong field names (e.g., `billing_rate` vs `billing_rate_per_minute`) loads without error, using the default value of 0 or empty string.
+Next.js dev mode (`next dev`) and prod mode (`next start`) use the same port but behave completely differently. A startup script that calls `npm start` from the wrong directory or without the correct package.json `start` script will launch dev mode transparently.
 
 **How to avoid:**
-Add a `validate()` method called at startup that checks required fields are non-empty/non-zero and returns an error that causes rc-agent to exit with a non-zero code. Key fields to validate: `pod_id`, `core_url`, billing rates (must be > 0), pod IP. Log the config on startup at INFO level so deployed config is visible in logs. Never use `#[serde(default)]` on fields that would silently break billing if absent.
+- The auto-start script must call `next build` first (once), then `next start`. The HKLM Run or Scheduled Task must point to a script that runs `next start` only (build is a one-time step performed during deploy, not startup).
+- Verify production mode is active: `next start` output includes "ready - started server on 0.0.0.0:PORT" without webpack compilation messages. Dev mode prints "event compiled client and server files."
+- Use `cross-env NODE_ENV=production next start` to make the environment explicit.
 
 **Warning signs:**
-Pod connects to WebSocket but billing shows ₹0 sessions. Pod ID shows as empty string in kiosk. Lock screen accepts any PIN.
+The kiosk URL works but is slow on first load. Server CPU spikes to 100% when a new page is opened. `next start` output shows webpack compilation lines. Port 3000 is bound but the kiosk shows an error about missing `.next` directory.
 
-**Phase to address:** Deployment & config validation phase
+**Phase to address:** Phase 2 (staff kiosk pinning) deploy script must include explicit `npm run build` before configuring auto-start.
+
+---
+
+### Pitfall 8: NSSM Is Abandoned — Use Task Scheduler or SC Instead
+
+**What goes wrong:**
+NSSM (Non-Sucking Service Manager) is the commonly cited solution for running Node.js/Next.js as a Windows service. It is unmaintained (last release 2017), flagged by Windows Defender and other AV as "potentially unwanted software" (because malware extensively uses it), and leaves undescribed events in the Windows Event Log because the event manifest is never registered. On Windows 11 22H2+, NSSM-created services have caused intermittent startup failures that only manifest after Windows Feature Updates.
+
+**Why it happens:**
+NSSM was the de-facto standard 2012-2018. Most tutorials and Stack Overflow answers still recommend it because they were written during that window. The project stagnation is not obvious until you check the GitHub commit date.
+
+**How to avoid:**
+Two preferred alternatives:
+1. **Task Scheduler with "At logon" trigger** (for Session 1 GUI processes like the kiosk staff terminal and Edge kiosk): Use `schtasks /create` with trigger `ONLOGON` and the "Run only when user is logged on" security option. This is the same approach used for rc-agent via HKLM Run.
+2. **`sc.exe` with a wrapper .bat** (for background non-GUI services like rc-core on the server): `sc create rccore binPath="C:\RacingPoint\rc-core.exe" start=auto` with `sc failure rccore actions= restart/5000/restart/30000/restart/60000`. Native Windows services with native recovery actions. No third-party dependency.
+3. **PM2 with pm2-windows-service** is acceptable for Next.js on the server but requires setting `PM2_HOME` as a system environment variable (not user-level) and using `pm2-windows-service` rather than `pm2 startup`. The npm-start script in `package.json` must call `next start`, not `next dev`.
+
+**Warning signs:**
+Defender quarantines or flags `nssm.exe`. Service fails to start after a Windows Feature Update. Event Viewer shows `Event ID 0: The description for Event ID 0 from source NSSM cannot be found` repeatedly.
+
+**Phase to address:** Phase 2 (staff kiosk pinning) must choose sc.exe or Task Scheduler for rc-core/Next.js auto-start. Do not introduce NSSM.
+
+---
+
+### Pitfall 9: Edge `StartupBoost` Launches a Background Edge Instance Before the Kiosk Launch
+
+**What goes wrong:**
+Edge's `StartupBoostEnabled` policy (enabled by default in managed and unmanaged installs since Edge 88) launches an Edge process in the background at Windows startup. This background process holds the default Edge profile open. When rc-agent then launches Edge with `--kiosk 127.0.0.1:18923 --user-data-dir=C:\RacingPoint\EdgeKiosk`, if `--user-data-dir` is not set, the new instance tries to reuse the already-open profile and either: (a) spawns a second window that is not in kiosk mode (the existing lock screen bug), or (b) the startup-boost instance prevents `--kiosk` from applying correctly, showing normal Edge UI. Microsoft explicitly lists `StartupBoostEnabled` as a feature that does not work with kiosk mode and must be disabled.
+
+**Why it happens:**
+StartupBoost pre-loads the Edge browser process before any user intent. It does not respect command-line flags passed to subsequent Edge invocations because it was launched without those flags. This conflicts with `--kiosk` which requires Edge to start fresh with those flags applied.
+
+**How to avoid:**
+Disable `StartupBoostEnabled` on all pods via Group Policy: `Computer Configuration → Administrative Templates → Microsoft Edge → StartupBoostEnabled = Disabled`. Or via registry: `HKLM\SOFTWARE\Policies\Microsoft\Edge\StartupBoostEnabled = 0 (DWORD)`.
+Also disable `BackgroundModeEnabled` for the same reason — another policy Microsoft lists as incompatible with kiosk mode.
+
+**Warning signs:**
+Task Manager shows `msedge.exe` processes running before any user opens a browser. The Edge kiosk window sometimes shows the address bar (normal mode) instead of full-screen kiosk. Edge kiosk stacking (multiple windows) that the close_browser() fix addressed in v1.0 recurs after an Edge update.
+
+**Phase to address:** Phase 2 (pod lock screen fix) must disable `StartupBoostEnabled` and `BackgroundModeEnabled` on all pods before configuring Edge kiosk launch.
+
+---
+
+### Pitfall 10: `127.0.0.1` Only Works If rc-agent Is Already Listening When Edge Opens
+
+**What goes wrong:**
+rc-agent serves the lock screen on `127.0.0.1:18923`. If Edge is launched before rc-agent's HTTP server has finished binding the port, Edge shows "ERR_CONNECTION_REFUSED" and does not retry. In kiosk mode there is no address bar and no refresh mechanism — the customer sees the error page permanently until the tab is manually reloaded (impossible in kiosk mode) or the session restarts. This is distinct from the HKLM Run startup issue — it can also happen when rc-agent restarts mid-session and Edge was already open.
+
+**Why it happens:**
+Edge in kiosk mode loads the URL once at launch. Unlike a normal browser where the user can press F5, kiosk mode suppresses the refresh gesture. `ERR_CONNECTION_REFUSED` in kiosk mode is a dead end with no recovery path visible to the customer.
+
+**How to avoid:**
+The v1.0 "TCP readiness" fix (rc-agent waits for HTTP server before signaling Edge to launch) addresses the startup case — verify it is actually active and not regressed. For the crash-restart case, the recovery flow must: (1) kill the Edge kiosk instance, (2) wait for rc-agent HTTP server to respond (poll `127.0.0.1:18923/health`), (3) relaunch Edge. A direct Edge `--kiosk` relaunch without waiting for the server will reproduce the error.
+
+**Warning signs:**
+Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects (rc-agent is alive) but the pod screen shows the browser error page. This typically happens 3-8 seconds after rc-agent restarts (before the HTTP server finishes binding).
+
+**Phase to address:** Phase 2 (pod lock screen fix) — verify the TCP readiness check is in the relaunch path, not just the startup path.
 
 ---
 
@@ -141,11 +223,12 @@ Pod connects to WebSocket but billing shows ₹0 sessions. Pod ID shows as empty
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Fixed restart cooldowns (120s/600s) | Simple to implement | Crash-looping pod restarts every 2 min forever, hammering a broken pod | Never — replace with escalating backoff |
-| `tasklist` text parsing for health checks | Works without extra tooling | Breaks if process name changes, returns false positive if another process contains "rc-agent" in name | Only for MVP, replace with PID-based check |
-| `start /b rc-agent.exe` from SYSTEM (Session 0 restart) | Reuses pod-agent exec infrastructure | Lock screen/overlay invisible until reboot | Acceptable as best-effort — document the limitation |
-| Single-source heartbeat (UDP only) | Simple liveness check | UDP packets drop under CPU load — same spike that causes game launch issues also causes false offline detection | Never rely on UDP alone — require missed heartbeat count > 1 |
-| `unwrap()` on config deserialization | Faster to write | Process panics on first malformed config, no useful error message | Never in production |
+| Use `next dev` for the kiosk server | No build step, instant changes | 3-5x slower, crashes under CPU load, not production-safe | Never — dev mode in production is always wrong |
+| Use NSSM for Windows service management | One command setup | AV flags binary, maintenance nightmares after Win11 updates, abandoned project | Never — use sc.exe or Task Scheduler |
+| Set static IP without DHCP reservation | Server holds its IP immediately | Router reset causes IP conflict with another device | Only if you can guarantee the router will never reset |
+| Use `.local` TLD for local hostname | Familiar pattern, "just works" on Mac | mDNS conflicts on Windows, Bonjour fights, resolution flips | Never — use `.rp` or another safe TLD |
+| Rely on `ipconfig /flushdns` alone after hosts file change | One command, seems sufficient | Edge internal DNS cache is separate and not flushed | Never sufficient — must also restart Edge |
+| Skip `--user-data-dir` on Edge kiosk launch | Simpler launch command | Startup Boost conflict, profile corruption on update, multiple Edge instances fighting | Never — always isolate the kiosk profile |
 
 ---
 
@@ -153,11 +236,11 @@ Pod connects to WebSocket but billing shows ₹0 sessions. Pod ID shows as empty
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| pod-agent `/exec` | Treating HTTP 200 as "command succeeded" | HTTP 200 = command delivered. Check actual output or follow-up with health poll |
-| `send_email.js` shell-out | Assuming Node.js and credentials exist on Racing-Point-Server (.23) | Verify `node --version` on server before deploying. Use absolute paths to script and credential file. Gracefully swallow email failures — never let them block watchdog |
-| `taskkill /F /IM rc-agent.exe` | Killing parent process only | Use `/T` flag to kill process tree, otherwise child processes (WebView2, game subprocesses) linger and hold file locks |
-| Windows Defender real-time scanning | Defender scans newly downloaded binary, holds file lock for 1-3 seconds | Add `C:\RacingPoint\` to Defender exclusions (already done per MEMORY.md), verify exclusion is present before deploy |
-| `state.agent_senders` as WebSocket health indicator | Sender exists but connection is actually broken (channel full, closed) | Verify sender is responsive by attempting to send a ping message and checking for error, not just `contains_key()` |
+| Edge kiosk mode | Starting Edge without killing existing msedge.exe first | `close_browser()` must kill both `msedge.exe` AND `msedgewebview2.exe` before relaunching kiosk (already fixed in 80ec001, verify it stays) |
+| Windows hosts file | Writing hosts file entries in wrong format or with Windows CRLF | Use `192.168.31.23 kiosk.rp` with LF line endings; extra whitespace or CRLF causes silent resolution failure on some Windows versions |
+| PM2 on Windows | Setting `PM2_HOME` as user environment variable only | Must be set as SYSTEM environment variable; user-level PM2_HOME is not visible to the service user account |
+| Next.js `next start` | Running from wrong working directory | Must run from the directory containing `.next/` folder; use `--cwd` or set working directory explicitly in Task Scheduler or sc.exe |
+| Windows Firewall | Forgetting new ports after static IP change | Adding rc-core or Next.js on a new port requires a new inbound firewall rule; `netsh advfirewall firewall add rule name="RaceControl" dir=in action=allow protocol=TCP localport=<PORT>` |
 
 ---
 
@@ -165,10 +248,9 @@ Pod connects to WebSocket but billing shows ₹0 sessions. Pod ID shows as empty
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Blocking tokio task in pod_monitor loop | All 8 pods paused waiting for one slow pod-agent exec call | Always use `tokio::spawn` for per-pod work; never `.await` pod-agent HTTP inside the main loop | First time a pod-agent call takes > 10s (network issue, slow pod) |
-| Polling all 8 pods sequentially | Monitor cycle takes 8x longer than expected, last pod checked has stale data | Fan-out with `futures::join_all` or `tokio::spawn` per pod | Immediately visible if one pod's pod-agent is slow |
-| Post-restart verification spawning unbounded tasks | 8 pods restart simultaneously → 8 verification tasks spawned → each spawns sub-tasks | Cap concurrent verification tasks with a semaphore; share state | All 8 pods offline simultaneously (venue-wide event) |
-| Email shell-out blocking the alerter | `tokio::process::Command` called without timeout → alerter blocks indefinitely if Node.js hangs | Always add `.kill_on_drop(true)` and a timeout on the Command future | First time `send_email.js` encounters a network issue |
+| Next.js dev mode in production | Page loads take 3-5 seconds, CPU spikes on navigation | Enforce `next build && next start` in all deployment scripts | Immediately — from first customer use |
+| DNS query for every lock screen load | Sub-second latency added to every lock screen render | Use IP address or hosts file; avoid making the kiosk URL depend on upstream DNS resolution | Any time LAN DNS latency exceeds 50ms |
+| Edge kiosk profile on spinning disk | Lock screen takes 4-8 seconds to show | Point `--user-data-dir` to an SSD path (C: drive on pods is typically SSD; verify) | When pods have spinning disk OS drive |
 
 ---
 
@@ -176,9 +258,9 @@ Pod connects to WebSocket but billing shows ₹0 sessions. Pod ID shows as empty
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| pod-agent `/exec` endpoint accepts arbitrary commands with no auth | Any process on the LAN can run arbitrary commands on pods | pod-agent already runs on LAN-internal ports — verify it is not exposed on public interfaces. Do not add auth complexity; keep it LAN-only |
-| Config file contains credentials in plaintext (toml) | If config is accidentally committed to git, credentials leak | Keep sensitive fields (API keys, tokens) in environment variables or a separate secrets file not tracked by git |
-| Restart commands logged verbatim including any embedded credentials | Log scraping reveals secrets | Never embed credentials in restart commands. Pass via config file, not command arguments |
+| Leaving Edge kiosk address bar accessible via `--kiosk` but wrong type | Customer can navigate away from lock screen, escape kiosk | Use `--edge-kiosk-type=fullscreen` which disables the address bar entirely; verify F11 and Ctrl+N are blocked |
+| Hosts file writable by non-admin users | Any process running as the customer user can redirect `kiosk.rp` to any IP | Hosts file should be owned by SYSTEM with read-only permissions for non-admin users; verify `icacls C:\Windows\System32\drivers\etc\hosts` on pods |
+| pm2-windows-service running as SYSTEM with full Node.js access | Compromise of Next.js app = full system access | Run the service under a restricted local user account, not SYSTEM, for Next.js on the server |
 
 ---
 
@@ -186,21 +268,22 @@ Pod connects to WebSocket but billing shows ₹0 sessions. Pod ID shows as empty
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Kiosk shows "Disconnected" flash during every game launch | Customer and staff panic thinking the pod is broken; interrupts immersion | Debounce the kiosk status display: only show "Disconnected" if offline state persists > 15s. Game launch spikes last 5-30s, so threshold eliminates false alarms |
-| Email alert with raw pod_id (UUID) in subject | Uday cannot identify which physical pod is affected | Always include human-readable pod name ("Pod 3 — 192.168.31.28") in alerts alongside UUID |
-| No differentiation between "restarting" and "offline" in kiosk | Staff cannot tell if a pod is being healed vs. hard-failed | Add a "Recovering" status distinct from "Offline" during the post-restart verification window |
+| `ERR_CONNECTION_REFUSED` in kiosk mode | Customer stuck on error page with no recovery path | Kiosk URL must point to a page that exists independently of rc-agent status — a static fallback HTML served by a separate lightweight server, or use a retry page |
+| Staff kiosk URL changes when server IP drifts | Staff bookmarks stop working; IT support calls | Pin server to static IP AND provide hostname (`kiosk.rp`) so staff always have a stable URL regardless of IP changes |
+| No visual indicator when kiosk service is starting up | Staff see "site cannot be reached" and think system is broken | Add a splash screen or status page that is served immediately at startup (even before Next.js hydrates) |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Binary deploy:** Verify with `tasklist` that old process is dead AND new binary size matches expected before declaring success
-- [ ] **Restart command:** rc-agent process running does not mean it is healthy — also check WebSocket reconnect in `agent_senders`
-- [ ] **Config validation:** rc-agent starting without error does not mean config is correct — log effective config on startup and check billing rates are non-zero
-- [ ] **Email alerting:** `send_email.js` running on James's machine does not mean it works on Racing-Point-Server (.23) — verify Node.js installed on server separately
-- [ ] **Escalating backoff:** Backoff state reset on recovery must be tested — a pod that recovers and fails again should restart at 30s, not 30m
-- [ ] **Defender exclusions:** `C:\RacingPoint\` excluded on all 8 pods — must be verified individually, not assumed from one pod's config
-- [ ] **Process tree kill:** `/F /IM` kills only the named process — child processes (subprocesses spawned by rc-agent or games) may linger and hold locks unless `/T` is added
+- [ ] **Static IP on server:** Verify with `ipconfig /all` on the server that the IP is marked as static (not DHCP), AND verify the DHCP reservation is in the router admin panel.
+- [ ] **Hosts file deployed:** After deploying hosts file to a pod, verify from Edge (not just `nslookup`) by navigating to `kiosk.rp` in a non-kiosk Edge window on that pod.
+- [ ] **Edge version pinned:** Run `msedge --version` via pod-agent on all 8 pods and confirm they are all on the same known-good version. Do not assume updates are blocked without verifying `EdgeUpdate` service is disabled.
+- [ ] **Kiosk launch script uses `--user-data-dir`:** Check the rc-agent kiosk launch command in source code — if `--user-data-dir` is absent, the kiosk is vulnerable to startup boost conflicts.
+- [ ] **StartupBoost disabled:** Verify via `reg query HKLM\SOFTWARE\Policies\Microsoft\Edge /v StartupBoostEnabled` on a pod. If the key is absent, StartupBoost is enabled by default.
+- [ ] **Next.js running in production mode:** SSH/exec to server and check `next start` output or `NODE_ENV` — look for webpack compilation messages that indicate dev mode.
+- [ ] **Port conflicts checked:** On the server, run `netstat -ano | findstr LISTEN` before deploying and confirm rc-core (port 8080) and Next.js kiosk are the only processes on their respective ports.
+- [ ] **TCP readiness in relaunch path:** rc-agent restart test — kill rc-agent, wait for it to restart, observe whether Edge shows ERR_CONNECTION_REFUSED or correctly waits. The readiness check must cover the restart path, not just cold boot.
 
 ---
 
@@ -208,13 +291,13 @@ Pod connects to WebSocket but billing shows ₹0 sessions. Pod ID shows as empty
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| False recovery declaration (HTTP 200 but process dead) | LOW | Post-restart verification catches it within 60s; next monitor cycle will re-trigger restart with escalated cooldown |
-| File lock on binary replace | LOW | Re-run deploy with explicit kill + 5s wait + verify-dead step; confirm Defender exclusions are in place |
-| Session 0 blind restart | LOW | Log the partial recovery; wait for next customer login which triggers HKLM Run key and Session 1 startup |
-| WebSocket drop during game launch | LOW | rc-agent reconnects automatically; debounce in kiosk prevents staff action. If persistent, check tokio worker thread count on pod |
-| Concurrent monitor + healer restart | MEDIUM | Identify via activity log timestamps; shared backoff state prevents recurrence. If binary is corrupted mid-restart, run manual deploy via pendrive |
-| Email storm on venue-wide event | LOW | Delete duplicate emails; add venue-level rate limiter before next occurrence |
-| Silent config mismatch | MEDIUM | Check rc-agent startup logs for effective config dump; redeploy correct toml via pod-agent; verify billing rates in kiosk |
+| Session 0 blind restart | LOW | Wait for next customer login (HKLM Run fires in Session 1); no manual action needed if HKLM Run is installed correctly |
+| Edge white screen after update | MEDIUM | Roll back Edge via pod-agent: kill edgeupdate, download prior MSI, install silently; disable EdgeUpdate service to prevent recurrence |
+| DNS resolution failure (.local conflict) | LOW | Switch to hosts file entries for `kiosk.rp`; deploy via pod-agent to all pods in sequence |
+| DHCP drift (IP collision) | MEDIUM | Set server NIC to static IP; update router DHCP reservation; `arp -d *` on affected pods to flush stale ARP cache |
+| Port conflict on 8080 or 3000 | MEDIUM | `netstat -ano` to identify competing process; disable or relocate competing service; change rc-core or Next.js port if needed and update all config references |
+| NSSM flagged by AV | MEDIUM | Stop and delete the NSSM service; reinstall using sc.exe or Task Scheduler; may need to temporarily disable Defender real-time scanning to complete migration |
+| ERR_CONNECTION_REFUSED in kiosk | LOW | Via pod-agent: kill msedge, verify rc-agent port 18923 is up, relaunch Edge; add HTTP readiness poll to relaunch script to prevent recurrence |
 
 ---
 
@@ -222,25 +305,32 @@ Pod connects to WebSocket but billing shows ₹0 sessions. Pod ID shows as empty
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| HTTP 200 false recovery | Post-restart verification (watchdog phase) | Unit test: mock pod-agent returning 200, confirm monitor waits for process + WS check before declaring healthy |
-| File lock on binary replace | Deployment pipeline hardening | Deploy to Pod 8, verify new binary version via `rc-agent --version` output |
-| Session 0 GUI blindness | Watchdog hardening (post-restart verification) | Confirm "partial recovery" log appears; confirm no email alert sent for Session 0 case |
-| WebSocket drop on game launch | WebSocket connection resilience phase | Simulate game launch on Pod 8, verify kiosk shows no "Disconnected" flash |
-| Concurrent restart (monitor + healer) | Shared backoff state (watchdog phase) | Unit test: trigger both monitor and healer conditions simultaneously, confirm only one restart fires |
-| Email storm | Venue-level rate limiting (alerting phase) | Unit test: fire alerts for all 8 pods within 1s, confirm only 1 aggregated email sent |
-| Silent config mismatch | Config validation phase | Unit test: start rc-agent with missing `pod_id` field, confirm process exits with error |
+| Session 0 GUI blindness | Phase 1 (diagnose) + Phase 2 (auto-start) | After reboot, verify kiosk screen is visible on physical monitor, not just `tasklist` showing process running |
+| Edge auto-update breaking kiosk | Phase 2 (pod lock screen fix) | `reg query` confirms EdgeUpdate disabled; run `msedge --version` after simulated update block |
+| `.local` TLD mDNS conflicts | Phase 3 (local DNS) | Test from all 8 pods using `nslookup kiosk.rp` and Edge navigation; confirm no Bonjour service installed |
+| DHCP drift | Phase 1 (diagnose) + Phase 3 (static IP) | `ping 192.168.31.23` from all pods returns consistent <1ms; `ipconfig /all` on server shows static assignment |
+| DNS cache staleness | Phase 3 (DNS deploy scripts) | After hosts file deploy, test from Edge (not just nslookup); include flush + Edge restart in deploy sequence |
+| Port 8080/3000 conflicts | Phase 1 (diagnose) | Document current port occupancy; `netstat -ano` baseline on server before any changes |
+| Next.js dev vs prod | Phase 2 (staff kiosk) | `next start` output has no webpack lines; page load < 500ms for cached routes |
+| NSSM dependency | Phase 2 (auto-start) | `sc query` shows service type as `WIN32_OWN_PROCESS` without NSSM wrapper; no NSSM binary on server |
+| StartupBoost conflict | Phase 2 (pod lock screen) | Registry key present and set to 0; no background msedge.exe processes before any user opens browser |
+| ERR_CONNECTION_REFUSED in kiosk | Phase 2 (pod lock screen) | Restart rc-agent, observe Edge kiosk — should show lock screen within 5 seconds, not error page |
 
 ---
 
 ## Sources
 
-- **Codebase inspection (HIGH):** `pod_monitor.rs`, `pod_healer.rs`, `udp_heartbeat.rs`, `pod-agent/src/main.rs`, `rc-agent/src/main.rs` — pitfalls derived from actual code paths
-- **Archived Phase 05 research (HIGH):** `.planning/archive/hud-safety/phases/05-watchdog-hardening/05-RESEARCH.md` — Session 0 blindness, flapping, email storm, stale backoff state, concurrent restart, Node.js availability
-- **MEMORY.md (HIGH):** Session 0 fix history, Defender exclusions, deploy sequence rules, `taskkill /T` tree-kill requirement
-- **[Axum WebSocket discussions](https://github.com/tokio-rs/axum/discussions/1216) (MEDIUM):** No automatic reconnect in standard; backoff with jitter required; tungstenite auto-responds to pings but application-level ping still needed
-- **[Microsoft: taskkill cannot stop process](https://support.microsoft.com/en-us/topic/you-cannot-stop-a-process-by-using-the-taskkill.exe-utility-in-windows-69bd6757-72de-6484-3503-359fd0c0d53c) (MEDIUM):** Windows file lock behavior; process tree kill requirement
-- **[Kudu: Dealing with locked files during deployment](https://github.com/projectkudu/kudu/wiki/Dealing-with-locked-files-during-deployment) (MEDIUM):** Kill-before-replace pattern; file lock timing after process termination
+- **MEMORY.md / v1.0 codebase (HIGH):** Session 0 fix history (HKLM Run key), close_browser() edge stacking fix (80ec001), TCP readiness overlay fix — all confirmed production bugs already hit
+- **[Microsoft: Configure Edge kiosk mode](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-configure-kiosk-mode) (HIGH):** `StartupBoostEnabled` and `BackgroundModeEnabled` listed as incompatible with kiosk mode; `--user-data-dir` flag; kiosk type options
+- **[Edge 128 kiosk white screen bug](https://learn.microsoft.com/en-us/answers/questions/2403205/white-screen-on-kiosk-mode-after-ms-edge-updated-t) (HIGH):** Confirmed production regression; fix in 128.0.2739.54; organizations rolled back to 124
+- **[Microsoft: Kiosk mode troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-client/shell-experience/kiosk-mode-issues-troubleshooting) (HIGH):** Sign-in issues, automatic logon, AssignedAccess log channel
+- **[Task Scheduler GUI app with "run whether logged on or not"](https://learn.microsoft.com/en-us/archive/msdn-technet-forums/d0ed7784-3475-4218-95c4-477d84233cb3) (HIGH):** Confirmed: GUI apps run in background session, invisible on desktop
+- **[NSSM SaltStack deprecation issue](https://github.com/saltstack/salt/issues/59148) (MEDIUM):** Confirms project abandoned, AV flagging, Windows 11 compatibility issues
+- **[mDNS .local conflicts on Windows](https://community.start9.com/t/solved-mdns-on-windows-11-partially-works/1859) (MEDIUM):** Windows 11 native mDNS vs Bonjour conflict confirmed
+- **[Windows DNS resolver .local behavior change 1803→1809](https://social.technet.microsoft.com/Forums/en-US/966ba488-6f79-412f-9873-21155ff635e6/resolving-domain-local-changed-behavoir-from-windows-10-1803-to-windows-10-1809) (MEDIUM):** Confirmed behavior change in how Windows prioritizes mDNS over DNS for .local
+- **[HTTP.sys / Microsoft-HTTPAPI/2.0 port 80 occupancy](https://learn.microsoft.com/en-us/archive/msdn-technet-forums/bcc1f713-1fc9-42c9-8b9e-0a172d34c1c6) (HIGH):** Confirmed default Windows behavior
+- **[PM2 Windows service PM2_HOME requirement](https://blog.cloudboost.io/nodejs-pm2-startup-on-windows-db0906328d75) (MEDIUM):** Confirmed system-level PM2_HOME requirement; startup type "Automatic delayed" recommendation
 
 ---
-*Pitfalls research for: RaceControl Reliability & Connection Hardening*
+*Pitfalls research for: RaceControl v2.0 — Kiosk URL Reliability (Windows LAN kiosk context)*
 *Researched: 2026-03-13*

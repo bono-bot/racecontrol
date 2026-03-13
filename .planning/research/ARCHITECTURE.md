@@ -1,355 +1,372 @@
 # Architecture Research
 
-**Domain:** Pod supervision, connection resilience, deployment reliability
+**Domain:** Kiosk URL reliability — permanent service hosting, local DNS, pod lock screen resilience
 **Researched:** 2026-03-13
 **Confidence:** HIGH — derived from direct codebase inspection of all relevant modules
 
 ## Standard Architecture
 
-### System Overview
+### System Overview (v2.0 target state)
 
 ```
-Racing-Point-Server (.23) — rc-core (port 8080)
-┌──────────────────────────────────────────────────────────────┐
-│  AppState (Arc<AppState>)                                     │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  │
-│  │  pod_monitor   │  │  pod_healer    │  │  email_alerts  │  │
-│  │  (10s loop)    │  │  (120s loop)   │  │  EmailAlerter  │  │
-│  └───────┬────────┘  └───────┬────────┘  └───────┬────────┘  │
-│          │                   │                   │           │
-│  ┌───────▼───────────────────▼───────────────────▼────────┐  │
-│  │  Shared state: agent_senders, pod_backoffs,             │  │
-│  │  udp_heartbeat timestamps, billing state, DB            │  │
-│  └───────────────────────────────────────────────────────-─┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  udp_heartbeat.rs — receives UDP from all pods (6s TTL)  │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────┬────────────────────────────────────────┘
-                      │ WebSocket (ws://<pod>:8080)
-                      │ HTTP (pod-agent :8090)
-                      │ UDP heartbeat (server :9996/20777/etc)
-          ────────────┼─────────────────────────
-          │           │           │           │
-    Pod 1 (.89)  Pod 2 (.33)  ...        Pod 8 (.91)
-    ┌──────────────────────────────────────────┐
-    │  rc-agent (port 18923 lock screen HTTP)  │
-    │  pod-agent (port 8090 exec HTTP)         │
-    │  watchdog.bat / HKLM Run key             │
-    └──────────────────────────────────────────┘
+Racing-Point-Server (.23 — static IP)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  rc-core (Rust/Axum, port 8080) — unchanged, already supervised by no        │
+│  watchdog (deleted Mar 11). Started by staff manually or via HKLM Run key.   │
+│                                                                               │
+│  NEXT.JS KIOSK SERVER (NEW)                                                   │
+│  node .next/standalone/.../server.js  — port 3300                            │
+│  Started as: HKLM\...\Run\RCKiosk → start-kiosk.bat                         │
+│  Serves: http://192.168.31.23:3300/kiosk  (or http://kiosk.rp/kiosk)        │
+│                                                                               │
+│  WINDOWS DNS SUFFIX / HOSTS FILE (NEW)                                        │
+│  C:\Windows\System32\drivers\etc\hosts on every machine that needs kiosk.rp  │
+│  192.168.31.23  kiosk.rp                                                     │
+│  192.168.31.23  api.rp                                                       │
+└─────────────────────────────────────────────────────────────────────────────-┘
+                      │ WebSocket ws://192.168.31.23:8080/ws/agent
+                      │ HTTP      http://192.168.31.23:8080/api/v1
+                      │ UDP heartbeat (server receives on :9996/20777/etc)
+          ────────────┼───────────────────────────────────────
+          │           │           │                        │
+    Pod 1 (.89)  Pod 2 (.33)  ...                    Pod 8 (.91)
+    ┌──────────────────────────────────────────────────────────┐
+    │  rc-agent — lock screen HTTP :18923                      │
+    │    ├── HKLM Run key (start-rcagent.bat) — Session 1      │
+    │    ├── start_server() — binds :18923 FIRST               │
+    │    ├── show_disconnected() if WS not yet connected        │
+    │    └── retry_loop: poll :18923 before launching Edge      │
+    │  pod-agent (Node.js :8090) — remote exec                 │
+    └──────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | Owned By |
-|-----------|----------------|----------|
-| `pod_monitor.rs` | Detects heartbeat staleness, owns restart decisions, calls pod-agent /exec | rc-core |
-| `pod_healer.rs` | Deep diagnostics (disk, mem, zombie procs), rule-based auto-fix, AI escalation | rc-core |
-| `email_alerts.rs` | Rate-limited email notifications via send_email.js shell-out | rc-core |
-| `rc-common/watchdog.rs` | `EscalatingBackoff` struct shared between monitor and healer | rc-common |
-| `udp_heartbeat.rs` (core) | Receives UDP from pods, updates last-seen map in AppState | rc-core |
-| `udp_heartbeat.rs` (agent) | Sends UDP heartbeat to rc-core every 2s | rc-agent |
-| `pod-agent` (Node.js, :8090) | Remote exec endpoint, local process watchdog, HTTP file download | each pod |
-| `watchdog.bat` + HKLM Run | Local process revival on pod, Session 1 startup guarantee | each pod |
-| `ws/mod.rs` | WebSocket server, maintains `agent_senders` map by pod_id | rc-core |
+| Component | Responsibility | What Changes in v2.0 |
+|-----------|---------------|----------------------|
+| `rc-core` (Rust, :8080) | API, WebSocket hub, billing, cloud sync | No code changes — only startup supervision |
+| Next.js kiosk server | Staff terminal + customer PIN grid | NEW: pinned to .23, production build, auto-start |
+| `rc-agent` lock screen (:18923) | Per-pod auth UI, customer screens | MODIFY: fallback page if WS not ready; retry loop before Edge launch |
+| Windows hosts file | LAN name resolution | NEW: kiosk.rp → .23, api.rp → .23 on .27 and .23 |
+| HKLM Run key (server) | Auto-start kiosk on server boot | NEW: start-kiosk.bat for Next.js server |
+| HKLM Run key (pods) | Auto-start rc-agent Session 1 | Exists. Keep. No change. |
+| pod-agent (:8090) | Remote exec for deploy | Unchanged |
 
 ## Recommended Project Structure
 
 Changes relative to current codebase:
 
 ```
-crates/rc-common/src/
-    watchdog.rs          DONE — EscalatingBackoff struct + 14 tests
+C:\RacingPoint\                      (on Racing-Point-Server .23)
+    start-rcagent.bat                EXISTING — rc-core auto-start
+    start-kiosk.bat                  NEW — Next.js kiosk auto-start
+    racecontrol.toml                 EXISTING — no changes needed
 
-crates/rc-core/src/
-    email_alerts.rs      DONE — EmailAlerter + 10 tests
-    pod_monitor.rs       MODIFY — use EscalatingBackoff, add post-restart verification,
-                                  share backoff state via AppState
-    pod_healer.rs        MODIFY — use shared EscalatingBackoff, remove restart ownership
-                                  (defer to pod_monitor), keep diagnostics/healing
-    config.rs            MODIFY — add WatchdogConfig with email fields, backoff tuning
-    state.rs             MODIFY — add pod_backoffs: HashMap<PodId, EscalatingBackoff>
-                                  and email_alerter: Arc<Mutex<EmailAlerter>>
-    ws/mod.rs            MODIFY — WebSocket ping/pong keepalive to prevent drop during
-                                  game launch / CPU spikes
+C:\Users\bono\racingpoint\racecontrol\kiosk\
+    .next\standalone\               EXISTING — production build already present
+    next.config.ts                  EXISTING — output: "standalone", basePath: "/kiosk"
+
+kiosk\src\lib\api.ts                EXISTING — already uses window.location.hostname:8080
+                                    → VERIFY: hardcoded "8080" is correct for prod; no change needed
+                                    → VERIFY: NEXT_PUBLIC_API_URL env var is unset (hostname detection fires)
+
+C:\Windows\System32\drivers\etc\hosts
+    (on .23 server)                 ADD: 192.168.31.23  kiosk.rp api.rp
+    (on .27 James workstation)      ADD: 192.168.31.23  kiosk.rp api.rp
+
+crates\rc-agent\src\lock_screen.rs  MODIFY: show_disconnected() on :18923 before WS connects
+                                    MODIFY: wait_for_server() in launch_browser() — poll :18923
+                                            before spawning Edge (prevents "site cannot be reached")
 ```
 
 ### Structure Rationale
 
-- **EscalatingBackoff in rc-common:** Both pod_monitor and pod_healer need it. Placing it in rc-common avoids a circular dep between the two rc-core modules and makes it unit-testable in isolation.
-- **EmailAlerter in rc-core:** Owns Gmail shell-out. Lives in rc-core because only rc-core has access to AppState and pod health data. rc-agent never sends emails directly.
-- **Shared backoff in AppState:** The single source of truth for per-pod restart state. Prevents pod_monitor and pod_healer from making simultaneous restart decisions.
+- **Standalone Next.js on .23:** The `next build` output with `output: "standalone"` already exists at `kiosk/.next/standalone/`. It needs only `node server.js` to run. Hosting it on the same machine as rc-core (.23) means kiosk URL and API URL share one machine to keep stable. Staff tap one address regardless of which room they're in.
+- **Hosts file over router DNS:** The Asus/TP-Link home routers on 192.168.31.x typically support custom DNS host records, but configuration requires router admin access and survives router firmware updates inconsistently. Windows hosts file is applied via one-time command, is persistent across reboots, and works even if the router is factory-reset. Scope: only .23 and .27 need the name; pods use raw IPs in rc-agent.toml and don't browse to kiosk.rp.
+- **HKLM Run key for kiosk auto-start:** This is the pattern already proven for rc-agent on all 8 pods (Session 1 fix). It fires for any user login — both the Racing-Point staff user and the auto-login account. Simpler than a Windows Service and avoids Session 0 GUI problems. The kiosk is a CLI Node.js process (no GUI), so Session 0 vs. 1 does not matter for it.
+- **Lock screen HTTP readiness check:** rc-agent currently calls `close_browser()` then immediately spawns Edge pointing at `http://127.0.0.1:18923`. The HTTP server is started via `tokio::spawn` — it binds asynchronously. If Edge races ahead of the tokio task, the first request gets "connection refused" and Edge shows "Site cannot be reached". The fix is a synchronous probe in `launch_browser()`: retry `GET http://127.0.0.1:18923/` up to 10 times with 100ms sleep before spawning Edge.
+- **Disconnected state on early startup:** rc-agent's main.rs starts the lock screen server before connecting to rc-core (`start_server()` is called, then `show_config_error()` path). When config is valid, `show_disconnected()` should be called immediately after `start_server()` so the screen shows a branded "Connecting..." message instead of a blank browser error during the 1-3s WebSocket connection window.
 
 ## Architectural Patterns
 
-### Pattern 1: Shared Escalating Backoff via AppState
+### Pattern 1: HTTP Readiness Probe Before Browser Launch
 
-**What:** `AppState` holds a `HashMap<String, EscalatingBackoff>` (keyed by pod_id). Both `pod_monitor` and `pod_healer` access it through the same `Arc<RwLock<...>>`. Only `pod_monitor` may call `record_attempt`. `pod_healer` reads the state to decide whether to defer.
+**What:** `launch_browser()` in `lock_screen.rs` polls `http://127.0.0.1:18923/` with a short timeout before calling `std::process::Command::new(edge_path).spawn()`. If the server is not yet bound, the probe retries with exponential backoff up to a fixed maximum, then launches Edge regardless (avoids infinite hang on server startup failure).
 
-**When to use:** Any restart decision in either monitor or healer tier.
+**When to use:** Every time `launch_browser()` is called, including the initial `show_disconnected()` call on startup.
 
-**Trade-offs:** Adds a lock acquisition on every monitor cycle (10s), but the map has at most 8 entries and the critical section is microseconds.
+**Trade-offs:** Adds up to ~500ms delay before browser appears. This is invisible to the user since rc-agent starts 1-3 seconds before the lock screen would be interactive anyway.
 
 **Example:**
 ```rust
-// In state.rs
-pub struct AppState {
-    // ... existing fields ...
-    pub pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>,
-    pub email_alerter: Mutex<EmailAlerter>,
-}
-
-// In pod_monitor.rs — restart decision
-let mut backoffs = state.pod_backoffs.write().await;
-let backoff = backoffs.entry(pod_id.clone()).or_insert_with(EscalatingBackoff::new);
-if backoff.ready(now) {
-    backoff.record_attempt(now);
-    // issue restart
-} else {
-    tracing::debug!("Pod {} restart cooldown not elapsed", pod_id);
-}
-
-// In pod_healer.rs — respect monitor ownership
-let backoffs = state.pod_backoffs.read().await;
-if let Some(b) = backoffs.get(pod_id) {
-    if b.exhausted() {
-        // pod_monitor owns restart; healer focuses on diagnostics
+fn wait_for_lock_screen_server(port: u16) {
+    // Poll up to 10 times with 100ms sleep = max 1s wait
+    for attempt in 0..10 {
+        if std::net::TcpStream::connect_timeout(
+            &format!("127.0.0.1:{}", port).parse().unwrap(),
+            std::time::Duration::from_millis(100),
+        ).is_ok() {
+            return; // server is ready
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if attempt == 9 {
+            tracing::warn!("Lock screen server not ready after 1s — launching Edge anyway");
+        }
     }
 }
 ```
 
-### Pattern 2: Post-Restart Verification as Detached Task
+**Integration point:** Called at the top of `launch_browser()` before any Edge spawn attempt. No changes to `LockScreenManager` API.
 
-**What:** After sending a restart command, `tokio::spawn` a verification task that does NOT hold any locks. It checks at 5s, 15s, 30s, 60s. Uses three signals: (a) `tasklist` via pod-agent, (b) `state.agent_senders.contains_key`, (c) lock screen HTTP 200 at :18923. Reports partial recovery (Session 0: process + WS but no lock screen) vs full recovery vs failure.
+### Pattern 2: Disconnected State on rc-agent Startup
 
-**When to use:** After every restart attempt in pod_monitor. Never block the 10s loop.
+**What:** After `start_server()` is called and config is validated successfully, rc-agent's main loop calls `lock_screen.show_disconnected()` before entering the WebSocket connection loop. This renders a branded "Connecting to server..." page immediately, replacing the blank/white Edge window that currently appears during the WS handshake window.
 
-**Trade-offs:** Verification happens in the background. The monitor loop may run 1-2 more cycles before verification completes — that is correct. The cooldown timer already prevents duplicate restarts during verification.
+**When to use:** Once in `main.rs`, after successful config load and `start_server()`, before the first `connect_async()` attempt.
 
-**Example:**
-```rust
-// After restart command issued in pod_monitor:
-let state_clone = Arc::clone(&state);
-let pod_id_clone = pod_id.clone();
-let pod_ip_clone = pod_ip.clone();
-tokio::spawn(async move {
-    verify_restart_health(state_clone, pod_id_clone, pod_ip_clone).await;
-});
+**Trade-offs:** None significant. `LockScreenState::Disconnected` already exists and renders correctly. This is a one-line addition.
 
-// verify_restart_health checks at intervals and:
-// - On success: calls backoff.reset() via state.pod_backoffs
-// - On partial (Session 0): logs known limitation, does NOT trigger email
-// - On failure: sends email alert via state.email_alerter
+**Integration point:** `rc-agent/src/main.rs` — between `early_lock_screen` teardown and first WebSocket connect attempt. The main `LockScreenManager` takes over from `early_lock_screen` after config loads.
+
+### Pattern 3: Next.js Production Server as Windows Run Key
+
+**What:** A `start-kiosk.bat` file on Racing-Point-Server (.23) runs `node C:\RacingPoint\kiosk\.next\standalone\...\server.js` with `PORT=3300` set. This bat file is registered under `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\RCKiosk`. On server reboot, the logged-in user session starts Node.js automatically.
+
+**When to use:** One-time setup. Rerun only when deploying a new kiosk build.
+
+**Trade-offs:** HKLM Run fires per user-login, not as a Windows Service. If the server reboots and nobody logs in, the kiosk is not running. For Racing Point's usage pattern (server is logged in 24/7 with auto-login), this is fine. If a Windows Service is ever needed, the same `server.js` can run via NSSM with no code changes.
+
+**Example (start-kiosk.bat):**
+```bat
+@echo off
+set PORT=3300
+set HOSTNAME=0.0.0.0
+cd /D C:\RacingPoint\kiosk
+node .next\standalone\racingpoint\racecontrol\kiosk\server.js
 ```
 
-### Pattern 3: WebSocket Keepalive for Connection Resilience
+**Integration point:** One-time deploy to .23. No Rust code changes. No changes to kiosk Next.js source.
 
-**What:** The WebSocket handler in `ws/mod.rs` sends ping frames on a timer (every 30s). The rc-agent WebSocket client responds with pong. On the server side, a pong-watchdog closes the connection if no pong is received within 10s of a ping. rc-agent's reconnect loop (already present) then re-establishes within 5s.
+### Pattern 4: Windows Hosts File for LAN Name Resolution
 
-**When to use:** Prevents the "disconnected" flash in the kiosk during game launch. Game launch causes a ~5s CPU spike; without pings the OS TCP stack may buffer and the WebSocket appears dead.
+**What:** `C:\Windows\System32\drivers\etc\hosts` on .23 and .27 gets two entries: `192.168.31.23 kiosk.rp` and `192.168.31.23 api.rp`. Staff type `http://kiosk.rp:3300/kiosk` instead of `http://192.168.31.23:3300/kiosk`. Pods do not need this — they use the raw IP already configured in rc-agent.toml.
 
-**Trade-offs:** Adds 30s-periodic overhead across 8 concurrent WS connections — negligible on the server.
+**When to use:** One-time setup on each machine where staff browse. Applied via `Add-Content` in PowerShell (one command, run as admin).
 
-### Pattern 4: Config Validation Fail-Fast at Startup
+**Trade-offs:** Not automatic — new machines need the entry added manually. But the IP .23 is static (MAC-based DHCP reservation or manual assignment), so the entry does not expire. Router-based DNS would auto-propagate but requires router admin access and survives firmware updates unreliably.
 
-**What:** rc-agent validates all required config fields in `main.rs` before spawning any async tasks. Missing fields emit a clear error and exit with code 1. This prevents the current failure mode where rc-agent starts silently and crashes later during game launch.
-
-**When to use:** In rc-agent's main.rs immediately after `Config::load()`.
-
-**Trade-offs:** Makes misconfigured deploys fail loudly, which is always preferable to silent partial operation.
+**Example (PowerShell, run as admin on .23 and .27):**
+```powershell
+Add-Content C:\Windows\System32\drivers\etc\hosts "`n192.168.31.23  kiosk.rp api.rp"
+```
 
 ## Data Flow
 
-### Supervision Signal Flow
+### Startup Ordering (Server .23)
 
 ```
-rc-agent (pod)
+.23 boots → auto-login fires HKLM Run keys
     │
-    ├─── UDP heartbeat every 2s ─────────────────► udp_heartbeat.rs (core)
-    │                                                    │ updates last_seen map
-    │                                                    ▼
-    │                                              pod_monitor.rs (10s loop)
-    │                                                    │ stale > 30s?
-    │                                                    ▼
-    │                                              EscalatingBackoff.ready()?
-    │                                                    │ YES
-    │                                                    ▼
-    │◄─── POST /exec restart cmd ──────────────── pod-agent (:8090)
-    │                                                    │
-    │                                              tokio::spawn verify_restart
-    │                                                    │ 5s/15s/30s/60s checks
-    ├─── WebSocket connected? ────────────────────► state.agent_senders
-    ├─── lock screen HTTP? ───────────────────────► pod-agent /exec powershell
-    │                                                    │ result
-    │                                                    ▼
-    │                                              backoff.reset()  OR
-    │                                              EmailAlerter.send_alert()
+    ├── start-rcagent.bat (existing) → rc-core starts on :8080
+    │     └── rc-core ready: ~3-5s (config load + DB init)
+    │
+    └── start-kiosk.bat (NEW) → node server.js starts on :3300
+          └── kiosk ready: ~2-4s (Next.js cold start)
+
+Staff browser → http://kiosk.rp:3300/kiosk
+    │
+    └── Next.js kiosk page loads
+          │
+          └── useKioskSocket() connects: ws://192.168.31.23:8080/ws/dashboard
+                └── rc-core must be up (if not, 3s retry loop in useKioskSocket)
 ```
 
-### Restart Ownership Decision Flow
+### Pod Lock Screen Startup Ordering
 
 ```
-pod_monitor detects stale heartbeat
+Pod boots → HKLM Run key fires
     │
-    ├── billing active? ──► SKIP (never restart during paid session)
-    │
-    ├── backoff.ready()? ──► NO → log "cooldown not elapsed", continue
-    │
-    └── YES → record_attempt → send restart cmd → spawn verify task
-                                                        │
-pod_healer detects rc-agent unhealthy (120s loop)       │
-    │                                                   │
-    ├── backoff.exhausted()? ──► YES → diagnostics only, no restart
-    │                                  email alert if not rate-limited
-    │
-    └── NO + backoff.ready() ──► defer to pod_monitor (do NOT restart)
-                                  log "deferring restart to pod_monitor"
+    └── start-rcagent.bat → rc-agent starts in Session 1
+          │
+          ├── start_server() — binds :18923 (tokio::spawn)
+          │
+          ├── show_disconnected() ← NEW: render immediately after start_server
+          │     │
+          │     └── launch_browser()
+          │           ├── wait_for_lock_screen_server() ← NEW: probe :18923 up to 1s
+          │           └── msedge.exe --kiosk http://127.0.0.1:18923
+          │                 └── renders "Connecting..." branded page
+          │
+          └── connect_async(ws://192.168.31.23:8080/ws/agent) — 1-3s
+                │
+                ├── SUCCESS → SetLockScreen messages update UI state
+                │             (Edge polls :18923 every 1s — page refreshes automatically)
+                │
+                └── FAILURE → reconnect loop (1s × 3 then exponential to 30s)
+                              lock screen stays on "Disconnected" page
+                              NO "Site cannot be reached" error
 ```
 
-### Deployment Reliability Flow
+### DNS Resolution Flow (Staff browsing)
 
 ```
-James (.27) builds binary
+Staff types: http://kiosk.rp:3300/kiosk (or http://kiosk.rp/kiosk via nginx proxy — future)
     │
-    ├── cargo test --workspace ──► all green?
+    └── Windows resolves kiosk.rp
+          │
+          ├── hosts file has "192.168.31.23  kiosk.rp" → resolves to .23
+          │
+          └── TCP connect to 192.168.31.23:3300
+                └── Next.js kiosk server responds with 200
+                      └── page loads, WS connects to :8080
+```
+
+### Kiosk API Call Flow (Unchanged)
+
+```
+Kiosk page action (e.g., "Start Billing")
     │
-    └── YES → copy to deploy-staging/
-               start HTTP server (:9998)
-               POST /exec to Pod 8 only:
-                 taskkill rc-agent → delete old → download new →
-                 size check → start → verify WS reconnects
-                 │
-                 SUCCESS? ──► deploy to remaining 7 pods in sequence
-                 FAILURE? ──► stop, investigate
+    └── api.ts: fetchApi("/billing/start", ...)
+          │
+          └── API_BASE = http://${window.location.hostname}:8080
+                         (when served from kiosk.rp, hostname = kiosk.rp = .23 = correct)
+                │
+                └── POST http://192.168.31.23:8080/api/v1/billing/start
+                      └── rc-core processes, responds
 ```
 
-### Email Alert Decision Flow
-
-```
-Trigger: post-restart verification failure OR backoff.exhausted()
-    │
-    EmailAlerter.should_send(pod_id, now)
-    │
-    ├── enabled? ──► NO → skip silently
-    ├── per-pod cooldown elapsed (30min)? ──► NO → log "rate-limited", skip
-    ├── venue-wide cooldown elapsed (5min)? ──► NO → log "rate-limited", skip
-    │
-    └── ALL PASS → node send_email.js usingh@racingpoint.in <subject> <body>
-                    15s timeout, logs warning on failure, never panics
-                    record_sent(pod_id, now) on success
-```
-
-## Build Order (Phase Dependencies)
-
-The requirements fall into four dependency layers. Each layer must be complete before the next can be integrated and tested.
-
-```
-Layer 1 — Shared primitives (no deps on other new work)
-  rc-common/watchdog.rs    DONE
-  rc-core/email_alerts.rs  DONE
-
-Layer 2 — State wiring (depends on Layer 1)
-  state.rs: add pod_backoffs + email_alerter to AppState
-  config.rs: add WatchdogConfig with email fields + backoff step tuning
-  → Gate: cargo test -p rc-core -- config (all pass)
-
-Layer 3 — Monitor + healer integration (depends on Layer 2)
-  pod_monitor.rs: use shared backoff, add post-restart verify task
-  pod_healer.rs: read shared backoff, remove restart ownership
-  ws/mod.rs: WebSocket ping/pong keepalive
-  → Gate: cargo test -p rc-core -- pod_monitor (all pass)
-           Manual: kiosk no longer flashes "disconnected" on game launch
-
-Layer 4 — Agent hardening (independent of Layers 2-3, depends only on Layer 1)
-  rc-agent config validation fail-fast
-  pod-agent idempotent deploy command
-  → Gate: deploy to Pod 8, verify binary swap works cleanly
-           deploy to remaining 7 pods
-```
+**Note on API_BASE:** `api.ts` already computes `http://${window.location.hostname}:8080`. When the kiosk is served from `kiosk.rp:3300`, `window.location.hostname` is `kiosk.rp`, which resolves to .23. This means API calls automatically target the correct server. No code change needed. This design is forward-compatible with a future nginx proxy on port 80.
 
 ## Integration Points
 
-### Internal Boundaries
+### Internal Boundaries (What Changes vs. Stays Same)
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| pod_monitor ↔ pod_healer | Shared `pod_backoffs` in AppState via `RwLock` | pod_monitor writes (record_attempt, reset); pod_healer reads only |
-| pod_monitor / pod_healer ↔ pod-agent | HTTP POST /exec with JSON `{cmd: "..."}` | Field is `cmd` not `command` — existing pitfall |
-| pod_monitor ↔ email_alerter | `state.email_alerter: Mutex<EmailAlerter>` | Lock for send_alert call; 15s timeout prevents blocking |
-| rc-core ws ↔ rc-agent | WebSocket persistent connection + ping/pong | `agent_senders` map keyed by pod_id |
-| rc-core ↔ rc-agent (liveness) | UDP heartbeat every 2s, 6s stale threshold | Parallel to WebSocket — heartbeat can be alive while WS is down |
-| email_alerter ↔ send_email.js | tokio::process::Command shell-out | Node.js must be on Racing-Point-Server (.23); verify before deploy |
+| Boundary | Communication | Change in v2.0 |
+|----------|---------------|----------------|
+| Staff browser ↔ kiosk Next.js | HTTP on :3300 | NEW: permanent host on .23, HKLM Run startup |
+| kiosk Next.js ↔ rc-core | HTTP /api/v1 on :8080, WS /ws/dashboard | No change — hostname-relative URL already works |
+| rc-agent lock screen ↔ Edge | HTTP on :18923, Edge polls every 1s | MODIFY: readiness probe + show_disconnected on startup |
+| rc-agent ↔ rc-core | WebSocket ws://.23:8080/ws/agent | No change — existing reconnect loop is correct |
+| pod-agent ↔ rc-core | HTTP POST /exec on :8090 | No change |
+| .23/.27 ↔ kiosk.rp name | Windows hosts file lookup | NEW: one-time hosts file entry |
 
-### External Dependencies
+### What Must NOT Change
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| send_email.js (Node.js) | Shell-out via `tokio::process::Command` | Requires Node.js on .23, credentials at configured path |
-| Gmail OAuth2 | Handled entirely by send_email.js | rc-core never touches OAuth2 tokens directly |
-| pod-agent (:8090) | reqwest HTTP client from rc-core | Must be reachable; WoL fallback if not |
+- `rc-agent.toml` on pods: `core.url = "ws://192.168.31.23:8080/ws/agent"` — pods use raw IP, not DNS name. Correct. No change.
+- `kiosk/src/lib/api.ts` API_BASE: already correct — `http://${window.location.hostname}:8080`. No change.
+- `kiosk/src/hooks/useKioskSocket.ts` WS_URL: already correct — `ws://${window.location.hostname}:8080/ws/dashboard`. No change.
+- `next.config.ts`: `output: "standalone"` and `basePath: "/kiosk"` — correct. No change.
+- rc-core CORS: already allows `origin.starts_with("http://192.168.31.")` — kiosk.rp resolves to .23 which is in this range. No change needed. If kiosk.rp is ever used directly (not resolved to .23 in the browser origin header), a `|| origin.contains("kiosk.rp")` guard may be needed.
+- `LockScreenState::Disconnected` — already exists, already renders a branded page. No new state variants needed.
+
+### Build Order (Phase Dependencies)
+
+The four v2.0 work items are largely independent. The dependency graph is shallow.
+
+```
+Layer 1 — Investigation (no code, inform all other layers)
+  Read error/debug logs from pods and server
+  Identify which failure mode is most common:
+    (a) Edge gets "Site cannot be reached" before :18923 binds
+    (b) Pod reboots and nobody types a URL — no kiosk starts
+    (c) rc-agent crashes — Edge shows stale/blank page
+    (d) DHCP drift — .23 gets a new IP, all hardcoded URLs break
+  → Output: confirmed root cause list
+
+Layer 2 — Server-side (independent of pod changes)
+  A) Deploy Next.js production build to permanent location on .23
+  B) Register HKLM Run key for kiosk auto-start (start-kiosk.bat)
+  C) Add hosts file entries on .23 and .27
+  D) Verify rc-core CORS allows kiosk.rp origin if needed
+  → Gate: http://kiosk.rp:3300/kiosk loads, WS connects, pod list appears
+
+Layer 3 — Pod lock screen hardening (requires Layer 1 diagnosis)
+  A) Add wait_for_lock_screen_server() probe in lock_screen.rs launch_browser()
+  B) Call show_disconnected() immediately after start_server() in main.rs
+  → Gate: reboot a pod, verify "Connecting..." appears within 5s, no browser error page
+
+Layer 4 — Static IP enforcement (blocks all other layers' DHCP drift risk)
+  A) Configure static IP .23 for Racing-Point-Server (DHCP reservation by MAC or
+     manual IP assignment on the server's NIC)
+  B) Verify no DHCP drift after 48h
+  → Gate: ping 192.168.31.23 from all pods, confirm consistent response
+```
+
+**Ordering rationale:**
+- Layer 1 (investigation) must come first — implementing fixes without confirmed root causes risks solving the wrong problem
+- Layer 4 (static IP) is technically a prerequisite for all other layers, but in practice .23's DHCP has been stable. It should be scheduled early but not block Layer 2/3 development
+- Layer 2 and Layer 3 are fully independent — they can be developed in parallel if desired
+- Layer 2 has higher business value (staff terminal is used every session) and zero risk of breaking existing functionality
+- Layer 3 requires a Rust compile and pod deploy — schedule it after Layer 2 is validated
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Restart Without Verification
+### Anti-Pattern 1: Router-Based DNS
 
-**What people do:** Send restart command, check HTTP 200, declare recovery success.
+**What people do:** Configure custom DNS records on the LAN router (Asus/TP-Link) admin panel so that `kiosk.rp` resolves for all devices automatically.
 
-**Why it's wrong:** `start /b rc-agent.exe` always returns exit 0 even if rc-agent crashes 1 second after launch (bad config, missing DLL, port conflict). The pod appears recovered but is dead.
+**Why it's wrong:** Router firmware updates erase custom DNS config without warning. At Racing Point, the router has been factory-reset before. DHCP-assigned router address may also drift. DNS TTL issues on Windows cause stale caching. A hosts file entry on two machines (.23 and .27) is more durable and requires zero router access.
 
-**Do this instead:** Spawn a verification task. Confirm process alive via tasklist AND WebSocket reconnected AND lock screen responsive within 60s.
+**Do this instead:** Windows hosts file on .23 and .27. Pods don't need the name — they use raw IPs.
 
-### Anti-Pattern 2: Both Monitor and Healer Restart Same Pod
+### Anti-Pattern 2: Next.js Dev Server in Production
 
-**What people do:** Independent timers in pod_monitor (10s) and pod_healer (120s) both detect rc-agent down and both issue restart commands.
+**What people do:** `npm run dev` on the server, relied on as the permanent kiosk URL. The dev server is already compiled (`.next/standalone/` exists) but dev mode is used instead.
 
-**Why it's wrong:** Causes double-kill of the restarting process. Activity log shows contradictory state. Hard to debug.
+**Why it's wrong:** Dev server hot-reloads on every file change (causes the kiosk to blink/reload during unrelated work), consumes 2-3x more RAM, and exits on any unhandled exception. The standalone build is already compiled — using dev mode adds cost and fragility for zero benefit.
 
-**Do this instead:** Share `EscalatingBackoff` in AppState. Only pod_monitor owns restart decisions. pod_healer defers: it reads the shared backoff and only escalates diagnostics/email when the backoff is exhausted.
+**Do this instead:** `node .next/standalone/.../server.js` with `PORT=3300`. Already built. Just needs a startup script.
 
-### Anti-Pattern 3: Blocking the Monitor Loop for Verification
+### Anti-Pattern 3: Spawning Edge Before :18923 Binds
 
-**What people do:** Await the post-restart health check inline in the 10s monitor loop.
+**What people do:** Call `launch_browser()` immediately after `start_server()` (which spawns a tokio task). The tokio task may not have bound the port yet. Edge gets "connection refused" on the first GET and shows a browser error page.
 
-**Why it's wrong:** Verification takes up to 60s. Blocking the loop means all 7 other pods go unchecked during that window. A pod that went offline at second 5 of a 60s wait gets a 65s response time.
+**Why it's wrong:** Browser error pages have no auto-retry. The customer sees a broken screen that persists until rc-agent re-triggers a lock screen state update (which only happens on a WebSocket message). If the WebSocket also hasn't connected yet, the screen stays broken indefinitely.
 
-**Do this instead:** `tokio::spawn` the verification task. The loop continues checking all 8 pods every 10s regardless.
+**Do this instead:** `wait_for_lock_screen_server()` probe in `launch_browser()`. At most 1s delay, invisible to the user.
 
-### Anti-Pattern 4: Per-Pod Email Without Venue-Wide Aggregation
+### Anti-Pattern 4: Hardcoding IPs in api.ts
 
-**What people do:** Emit one email per failing pod immediately.
+**What people do:** Set `NEXT_PUBLIC_API_URL=http://192.168.31.23:8080` in a `.env` file baked into the Next.js build.
 
-**Why it's wrong:** A network switch reboot or power flicker takes all 8 pods offline simultaneously — 8 emails in 10 seconds.
+**Why it's wrong:** If the server IP changes (DHCP drift, hardware swap), the kiosk is broken and requires a new build + deploy. The current `window.location.hostname`-relative approach is already correct — it derives the API host from where the kiosk is served, which is always the same machine as rc-core.
 
-**Do this instead:** Venue-wide cooldown (5 min) in EmailAlerter across all pods. Already implemented in `email_alerts.rs`.
+**Do this instead:** Leave `api.ts` unchanged. The hostname-relative detection already works correctly.
 
-### Anti-Pattern 5: Fixed Global Cooldown
+### Anti-Pattern 5: Windows Service for Next.js Kiosk
 
-**What people do:** Use a single `const HEAL_COOLDOWN_SECS: u64 = 600` across all pods.
+**What people do:** Install Node.js kiosk server as a Windows Service (via NSSM or sc.exe) to guarantee it runs regardless of login state.
 
-**Why it's wrong:** A pod in a crash loop (bad binary, hardware fault) will restart every 600s indefinitely, preventing staff from noticing the problem needs manual attention.
+**Why it's wrong for this venue:** The server has auto-login enabled. A Windows Service runs in Session 0 (fine for a Node.js HTTP server with no GUI), but adds NSSM as a dependency, complicates upgrades (stop service → replace binary → start service vs. kill process → restart bat), and requires admin intervention to manage. The HKLM Run key pattern already works for rc-agent on 8 pods. Apply the same pattern.
 
-**Do this instead:** EscalatingBackoff. After 4 attempts the cooldown reaches 30min and `exhausted()` returns true — at that point the email alert fires and staff intervene.
+**Do this instead:** HKLM Run key + `start-kiosk.bat`. Consistent with existing rc-agent pattern. Can be upgraded to a Service later if the server ever stops having auto-login.
 
 ## Scaling Considerations
 
-This system is fixed at 8 pods. Scaling is not a concern. The relevant reliability concern is the inverse: what happens when the system is under-loaded (all pods idle) vs overloaded (all 8 pods in session simultaneously triggering game launches).
+This is a fixed 8-pod venue. Scaling to more pods or machines is not a concern. The relevant reliability axis is "survives venue incidents":
 
-| Scenario | Risk | Mitigation |
-|----------|------|------------|
-| All 8 pods game-launch simultaneously | CPU spike on server, WS drops | WebSocket ping/pong keepalive (Pattern 3) |
-| Network switch reboot | All 8 pods go offline | Venue-wide email rate limiting, WoL fallback |
-| rc-core restart during session | All WS connections drop | rc-agent reconnect loop re-establishes within 5s |
-| Bad binary deployed to all 8 pods | All pods dead | Deploy-to-one-first protocol (Pod 8 gate) |
+| Incident | Impact Without v2.0 | Impact With v2.0 |
+|----------|--------------------|-----------------------|
+| Server reboot | Kiosk URL unreachable until staff manually starts it | HKLM Run key restarts kiosk automatically |
+| Pod reboot | Lock screen shows "Site cannot be reached" until rc-agent starts | Readiness probe prevents browser error |
+| DHCP drift (.23 gets new IP) | All kiosk URLs and rc-agent.toml break | Static IP assignment prevents drift |
+| rc-agent crash mid-session | Lock screen stuck on last state or browser error | show_disconnected() fires on reconnect; customer sees branded screen |
+| Staff types wrong URL | 404 or "refused" | kiosk.rp always resolves, no manual IP recall needed |
 
 ## Sources
 
-- `crates/rc-common/src/watchdog.rs` — EscalatingBackoff implementation (HIGH)
-- `crates/rc-core/src/email_alerts.rs` — EmailAlerter implementation (HIGH)
-- `crates/rc-core/src/pod_monitor.rs` — existing PodRecoveryState, restart cmd, 10s loop (HIGH)
-- `crates/rc-core/src/pod_healer.rs` — HealCooldown, check_rc_agent_health pattern (HIGH)
-- `crates/rc-core/src/state.rs` — AppState shape, agent_senders map (HIGH)
-- `.planning/archive/hud-safety/phases/05-watchdog-hardening/05-RESEARCH.md` — full watchdog architecture analysis, Session 0 pitfalls (HIGH)
-- `.planning/PROJECT.md` — requirements scope, constraints, stack decisions (HIGH)
+- `crates/rc-agent/src/lock_screen.rs` — `launch_browser()`, `start_server()`, `LockScreenState::Disconnected` (HIGH)
+- `crates/rc-agent/src/main.rs` — startup sequence: `start_server()` before config load, `early_lock_screen` pattern (HIGH)
+- `kiosk/src/lib/api.ts` — `API_BASE` hostname-relative detection (HIGH)
+- `kiosk/src/hooks/useKioskSocket.ts` — `WS_URL` hostname-relative, 3s reconnect loop (HIGH)
+- `kiosk/next.config.ts` — `output: "standalone"`, `basePath: "/kiosk"` (HIGH)
+- `kiosk/package.json` — `start: "next start -p 3300"`, confirms production port (HIGH)
+- `kiosk/.next/standalone/` — standalone build already compiled (HIGH — verified via ls)
+- `crates/rc-core/src/main.rs` — CORS allows `192.168.31.*` origins (HIGH)
+- `racecontrol.toml` — server binds `0.0.0.0:8080` confirming it accepts LAN requests (HIGH)
+- `MEMORY.md` — HKLM Run key pattern from Session 0 fix (HIGH), network map confirming .23 IP (HIGH), pod deploy kit pattern (HIGH)
+- `.planning/PROJECT.md` — v2.0 requirements: investigation-first, static IP, DNS name, lock screen fallback (HIGH)
 
 ---
-*Architecture research for: RaceControl Reliability & Connection Hardening*
+*Architecture research for: RaceControl v2.0 Kiosk URL Reliability*
 *Researched: 2026-03-13*
