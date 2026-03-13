@@ -13,7 +13,7 @@ Five phases take the pod stack from fragile to self-healing. The foundation (Pha
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: State Wiring & Config Hardening** - Wire EscalatingBackoff/EmailAlerter into AppState; rc-agent fails fast on bad config (complete)
-- [x] **Phase 2: Watchdog Hardening** - pod_monitor/pod_healer use shared backoff; post-restart verification; email alerts fire (completed 2026-03-13)
+- [x] **Phase 2: Watchdog Hardening** - pod_monitor/pod_healer use shared backoff; post-restart verification; email alerts fire (completed 2026-03-13)
 - [ ] **Phase 3: WebSocket Resilience** - Keepalive prevents drops during game launch; kiosk never flashes "Disconnected"
 - [ ] **Phase 4: Deployment Pipeline Hardening** - Safe kill→verify→download→start sequence enforced; rolling update without disrupting sessions
 - [ ] **Phase 5: Blanking Screen Protocol** - Clean branded pod screens always; zero error popup leakage; PIN auth identical across all surfaces
@@ -63,10 +63,12 @@ Plans:
   3. The kiosk only shows "Disconnected" after 15 or more consecutive seconds of confirmed absence — a sub-15s drop is invisible to staff
   4. WebSocket command round-trips (rc-core issues command → rc-agent responds) complete in well under a second during normal operation
   5. Kiosk page loads, button responses, and pod status updates feel instant — no perceptible lag during normal operation
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TBD
+- [ ] 03-01-PLAN.md — WS keepalive ping + app-level round-trip measurement (protocol + rc-core)
+- [ ] 03-02-PLAN.md — rc-agent fast-then-backoff reconnect + Ping/Pong handler
+- [ ] 03-03-PLAN.md — Kiosk 15s disconnect debounce + React.memo pod card optimization
 
 ### Phase 4: Deployment Pipeline Hardening
 **Goal**: Every rc-agent deploy follows kill→wait→verify-dead→download→size-check→start→verify-reconnect sequence automatically; no binary file lock issues; new binaries work identically on all 8 pods; active sessions are not disrupted by rolling updates
@@ -90,7 +92,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Between sessions, every pod shows only the branded Racing Point lock screen — Windows desktop, taskbar, file explorer, and any application windows are not visible to the customer
   2. A WerFault dialog, "Cannot find rc agent" popup, ConspitLink message, or any system dialog that would normally appear on the customer screen is suppressed — it does not appear on the pod display
-  3. No file path strings, drive letters, or system error text (e.g., "C:\\RacingPoint\\", "rc-agent.exe has stopped working") are ever visible on the customer-facing screen
+  3. No file path strings, drive letters, or system error text (e.g., "C:\\RaceControl\\", "rc-agent.exe has stopped working") are ever visible on the customer-facing screen
   4. Entering a PIN on the pod lock screen, the customer PWA, and the staff kiosk all behave the same way: same validation logic, same accepted/rejected response, same response time
 **Plans**: TBD
 
@@ -106,6 +108,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. State Wiring & Config Hardening | 3/3 | Complete | 2026-03-13 |
 | 2. Watchdog Hardening | 3/3 | Complete   | 2026-03-13 |
-| 3. WebSocket Resilience | 0/TBD | Not started | - |
+| 3. WebSocket Resilience | 0/3 | Not started | - |
 | 4. Deployment Pipeline Hardening | 0/TBD | Not started | - |
 | 5. Blanking Screen Protocol | 0/TBD | Not started | - |
