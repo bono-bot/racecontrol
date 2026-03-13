@@ -9,10 +9,10 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 
 ### Watchdog & Supervision
 
-- [ ] **WD-01**: Pod restart uses escalating backoff (30s→2m→10m→30m) instead of fixed cooldown
+- [x] **WD-01**: Pod restart uses escalating backoff (30s→2m→10m→30m) instead of fixed cooldown
 - [x] **WD-02**: pod_monitor and pod_healer share backoff state via AppState — no concurrent restarts
-- [ ] **WD-03**: Post-restart verification confirms process running + WebSocket connected + lock screen responsive (60s window)
-- [ ] **WD-04**: Backoff resets to base on confirmed full recovery
+- [x] **WD-03**: Post-restart verification confirms process running + WebSocket connected + lock screen responsive (60s window)
+- [x] **WD-04**: Backoff resets to base on confirmed full recovery
 
 ### Connection Resilience
 
@@ -30,7 +30,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 
 ### Alerting
 
-- [ ] **ALERT-01**: Email alert fires when post-restart verification fails or max escalation reached
+- [x] **ALERT-01**: Email alert fires when post-restart verification fails or max escalation reached
 - [ ] **ALERT-02**: Rate-limited: max 1 email per pod per 30min, 1 venue-wide per 5min
 
 ### Blanking Screen Protocol
@@ -88,10 +88,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WD-01 | Phase 2 | Pending |
+| WD-01 | Phase 2 | Complete |
 | WD-02 | Phase 1 | Complete |
-| WD-03 | Phase 2 | Pending |
-| WD-04 | Phase 2 | Pending |
+| WD-03 | Phase 2 | Complete |
+| WD-04 | Phase 2 | Complete |
 | CONN-01 | Phase 3 | Pending |
 | CONN-02 | Phase 3 | Pending |
 | CONN-03 | Phase 3 | Pending |
@@ -100,7 +100,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEPLOY-03 | Phase 1 | Complete |
 | DEPLOY-04 | Phase 1 | Complete |
 | DEPLOY-05 | Phase 4 | Pending |
-| ALERT-01 | Phase 2 | Pending |
+| ALERT-01 | Phase 2 | Complete |
 | ALERT-02 | Phase 2 | Pending |
 | SCREEN-01 | Phase 5 | Pending |
 | SCREEN-02 | Phase 5 | Pending |

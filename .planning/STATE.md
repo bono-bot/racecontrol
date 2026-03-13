@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Phase 2 context gathered
-last_updated: "2026-03-12T23:37:12.343Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-03-13T00:04:34.494Z"
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
 ---
 
 ---
@@ -62,6 +62,7 @@ Progress: [██░░░░░░░░] 20%
 - Trend: On track
 
 *Updated after each plan completion*
+| Phase 02-watchdog-hardening P01 | 6 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Progress: [██░░░░░░░░] 20%
 - [01-03]: Template uses [pod] with number/name/sim and [core] with url — matching AgentConfig/PodConfig/CoreConfig serde layout exactly
 - [01-03]: sim defaults to assetto_corsa in template (primary game at venue) — not a per-pod variable
 - [01-03]: deploy_pod.py script left unchanged — template fix sufficient, script logic correct
+- [Phase 02-01]: WatchdogState defined in rc-core not rc-common — it is a core-side FSM, not a shared protocol type
+- [Phase 02-01]: health_response_body() extracted as pure fn for testability; /health always returns 200, JSON body distinguishes ok/degraded
+- [Phase 02-01]: verify_restart gains last_seen param so email alerts carry accurate heartbeat context at failure time
 
 ### Pending Todos
 
@@ -94,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T23:37:12.341Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-watchdog-hardening/02-CONTEXT.md
+Last session: 2026-03-13T00:04:34.491Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
