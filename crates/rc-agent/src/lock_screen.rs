@@ -570,6 +570,19 @@ async fn serve_lock_screen(
                 return;
             }
 
+            // GET /health — lock screen liveness endpoint for post-restart verification
+            if first_line.contains("GET /health") {
+                let current = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let body = health_response_body(&current);
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes()).await;
+                return;
+            }
+
             if first_line.starts_with("POST /pin") {
                 // Parse PIN from URL-encoded form body
                 let pin = request
@@ -902,6 +915,86 @@ fn generate_qr_svg(data: &str) -> String {
                 html_escape(&msg)
             )
         }
+    }
+}
+
+// ─── Health Check Helper ─────────────────────────────────────────────────────
+
+/// Returns the JSON body for GET /health based on the current lock screen state.
+///
+/// Returns `{"status":"ok"}` when lock screen is actively showing something
+/// (PinEntry, QrDisplay, ActiveSession, SessionSummary, BetweenSessions, AssistanceScreen).
+/// Returns `{"status":"degraded"}` when Hidden, Disconnected, or ConfigError.
+///
+/// The HTTP 200 status itself signals "server is alive". This JSON body provides
+/// extra state context for monitoring and future use.
+pub fn health_response_body(state: &LockScreenState) -> String {
+    let is_active = !matches!(
+        state,
+        LockScreenState::Hidden
+            | LockScreenState::Disconnected
+            | LockScreenState::ConfigError { .. }
+    );
+    let status_str = if is_active { "ok" } else { "degraded" };
+    format!(r#"{{"status":"{}"}}"#, status_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_ok_for_pin_entry() {
+        let state = LockScreenState::PinEntry {
+            token_id: "tok-1".to_string(),
+            driver_name: "Alonso".to_string(),
+            pricing_tier_name: "30min".to_string(),
+            allocated_seconds: 1800,
+            pin_error: None,
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn health_ok_for_active_session() {
+        let state = LockScreenState::ActiveSession {
+            driver_name: "Alonso".to_string(),
+            remaining_seconds: 900,
+            allocated_seconds: 1800,
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn health_degraded_for_hidden() {
+        let state = LockScreenState::Hidden;
+        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+    }
+
+    #[test]
+    fn health_degraded_for_disconnected() {
+        let state = LockScreenState::Disconnected;
+        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+    }
+
+    #[test]
+    fn health_degraded_for_config_error() {
+        let state = LockScreenState::ConfigError {
+            message: "missing pod number".to_string(),
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+    }
+
+    #[test]
+    fn health_ok_for_qr_display() {
+        let state = LockScreenState::QrDisplay {
+            token_id: "tok-2".to_string(),
+            qr_payload: "https://racingpoint.in/auth/qr/tok-2".to_string(),
+            driver_name: "Hamilton".to_string(),
+            pricing_tier_name: "60min".to_string(),
+            allocated_seconds: 3600,
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
     }
 }
 
