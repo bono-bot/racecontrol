@@ -50,3 +50,6 @@ rand = "0.8"
 # Windows process management
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi"] }
+
+[dev-dependencies]
+tempfile = "3"
