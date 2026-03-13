@@ -129,27 +129,119 @@ All 8 pods need the following Phase 9 changes:
 
 ## DIAG-02: Server Port Audit
 
-*Pending — requires RDP to Server (.23). See Plan 06-02.*
+**Collected:** 2026-03-13 via pod-agent on .4:8090 (server HAS pod-agent — MEMORY was incorrect)
+**Method:** `netstat -ano | findstr LISTENING` + `wmic process` via pod-agent `/exec`
+
+### Server Hostname: Racing-Point-Server
+### Server Current IP: 192.168.31.4 (drifted from .23 via DHCP)
+
+### Listening Ports
+
+| Port | Bind | PID | Process | Notes |
+|------|------|-----|---------|-------|
+| 135 | 0.0.0.0 | 920 | svchost.exe | RPC Endpoint Mapper |
+| 445 | 0.0.0.0 | 4 | System | SMB file sharing |
+| 5040 | 0.0.0.0 | 6324 | svchost.exe | SSDP helper |
+| 5357 | 0.0.0.0 | 4 | System | Web Services on Devices |
+| 7680 | 0.0.0.0 | 4240 | svchost.exe (DoSvc) | Delivery Optimization |
+| **8090** | **0.0.0.0** | **9104** | **pod-agent.exe** | **Pod agent — remote mgmt available** |
+| 45021 | 0.0.0.0 | 8812 | java.exe | Unknown Java application |
+| 5600 | 127.0.0.1 | 12016 | Unknown | Localhost only |
+| 5939 | 127.0.0.1 | 5224 | Unknown (likely AnyDesk) | Remote desktop tool |
+| 6463 | 127.0.0.1 | 30876 | Unknown (likely Discord RPC) | Discord on server |
+| 45600 | 127.0.0.1 | 4904 | Unknown (likely DeskIn) | Remote access |
+| 42050 | [::1] | 15636 | OneDrive.Sync.Service.exe | OneDrive sync |
+| 139 | 192.168.31.4 | 4 | System | NetBIOS session |
+
+### Critical Missing Ports
+
+| Port | Expected Service | Status |
+|------|-----------------|--------|
+| **3300** | Staff kiosk (Next.js) | **NOT LISTENING** — kiosk not deployed |
+| **8080** | rc-core (Rust/Axum) | **NOT LISTENING** — rc-core not running |
+| 3389 | RDP | Not listed (may use different protocol) |
+| 22 | SSH | Not listening |
+
+**Impact:** rc-core not running on the server confirms DIAG-01's root cause — all pods timeout connecting to ws://192.168.31.23:8080/ws/agent (which is doubly broken: wrong IP AND service down).
 
 ---
 
 ## DIAG-04: Server IP and MAC
 
-*Pending — requires RDP to Server (.23). See Plan 06-02.*
+**Collected:** 2026-03-13 via pod-agent on .4:8090
+
+### Active NIC
+
+| Property | Value |
+|----------|-------|
+| Hostname | Racing-Point-Server |
+| NIC | Marvell AQtion 10Gbit Network Adapter ("Ethernet 2") |
+| **MAC** | **BC-FC-E7-2C-F2-CE** |
+| IP | 192.168.31.4 |
+| DHCP | **Yes** — lease from 192.168.31.1 |
+| Lease Obtained | 13 March 2026 10:05:13 |
+| Lease Expires | **14 March 2026 01:05:14** (expires tonight!) |
+| Subnet | 255.255.255.0 |
+| Gateway | 192.168.31.1 |
+
+### Secondary NIC (disconnected)
+
+| Property | Value |
+|----------|-------|
+| NIC | Realtek PCIe 2.5GbE Family Controller ("Ethernet") |
+| MAC | 10-FF-E0-80-B1-A7 |
+| DHCP | No (static, but disconnected) |
+
+### Wi-Fi Adapters (all disconnected)
+
+- MediaTek Wi-Fi 7 MT7925 x3 (MACs: 3E-0A-F3-64-B4-47, 3E-0A-F3-64-D4-27, 3C-0A-F3-64-F4-07)
+
+### IP Drift History
+
+| Date | IP | How discovered |
+|------|-----|---------------|
+| Original | .51 | Initial setup |
+| Unknown | .23 | DHCP drift (was assumed stable) |
+| 2026-03-13 | **.4** | Current — discovered via mDNS ping |
+
+### .23 Identity (NOT the server)
+
+The old IP .23 now belongs to an unknown device:
+- MAC: 16-55-fe-10-e0-6e (locally administered — likely a phone/tablet)
+- No NetBIOS name
+- Ping latency: 46ms (vs 1ms for server — wireless device)
+- All 8 pods are trying to connect to this device instead of the server
 
 ---
 
-## Phase 7 Prerequisites (Partial — awaiting DIAG-02/04)
+## DIAG-02/04 Correction: Server Has Pod-Agent
+
+**MEMORY said:** "Server (.23) has NO pod-agent — requires direct RDP for commands"
+**Reality:** pod-agent.exe is running on the server at port 8090 (PID 9104)
+
+This means:
+- Phase 7 can deploy kiosk and configure server remotely via pod-agent
+- No RDP needed for server management
+- Server can be treated like pods for remote exec
+- MEMORY.md must be updated
+
+---
+
+## Phase 7 Prerequisites (COMPLETE)
 
 | Prerequisite | Status | Value |
 |-------------|--------|-------|
-| Server MAC address | PENDING | Needs RDP to server |
-| DHCP reservation needed? | PENDING | Needs RDP to server |
-| Port 3300 free on server? | PENDING | Needs server port audit |
-| rc-core running on 8080? | PENDING | Needs server port audit |
+| Server MAC address | **CONFIRMED** | BC-FC-E7-2C-F2-CE (Marvell AQtion 10Gbit) |
+| DHCP reservation needed? | **YES** | DHCP enabled, lease expires 14 Mar 01:05 — will drift again |
+| Port 3300 free on server? | **YES** | Not listening — safe to deploy kiosk |
+| Port 8080 free on server? | **YES** | Not listening — rc-core needs to be started |
+| rc-core running on 8080? | **NO** | Not running — universal root cause confirmed |
+| Kiosk running on 3300? | **NO** | Not deployed yet |
+| Pod-agent on server? | **YES** | pod-agent.exe on 8090 — remote deploy possible |
 | Edge version consistent? | CONFIRMED | 145.0.3800.97 on all 8 pods |
 | StartupBoost needs disabling? | CONFIRMED | All 8 pods (not set = default enabled) |
 | BackgroundMode needs disabling? | CONFIRMED | All 8 pods (not set = default enabled) |
 | EdgeUpdate needs disabling? | CONFIRMED | All 8 pods (STOPPED but not disabled) |
-| rc-core reachable from pods? | NO | Pod 8 logs show WebSocket timeout to .23:8080 |
-| Log files available? | NO | Only Pod 8 has logs; Pods 1-7 need logging script |
+| rc-core reachable from pods? | **NO** | Pods hardcoded to .23, server is at .4, and rc-core isn't running anyway |
+| Log files available? | **NO** | Only Pod 8 has logs; Pods 1-7 need logging script |
+| .23 identity | **UNKNOWN DEVICE** | Phone/tablet with locally administered MAC |

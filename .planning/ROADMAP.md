@@ -25,7 +25,7 @@ Phases: State Wiring & Config Hardening → Watchdog Hardening → WebSocket Res
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 6: Diagnosis** - Confirm actual URL failure modes before touching anything
+- [x] **Phase 6: Diagnosis** - Confirm actual URL failure modes before touching anything
 - [ ] **Phase 7: Server-Side Pinning** - Lock server IP and auto-start kiosk as production build
 - [ ] **Phase 8: Pod Lock Screen Hardening** - Rust compile + deploy: readiness probe + branded waiting state
 - [ ] **Phase 9: Edge Browser Hardening** - Disable auto-update, StartupBoost, BackgroundMode on all pods
@@ -43,11 +43,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Staff can read a port audit of Server (.23) showing which ports are occupied and whether any conflict with port 3300 or 8080
   3. Staff can confirm the Edge version and the current values of StartupBoostEnabled, BackgroundModeEnabled, and EdgeUpdate service status on every pod
   4. Staff can confirm whether Server (.23) holds a static IP or a DHCP lease, and can read its MAC address for use in the DHCP reservation
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
-- [ ] 06-01-PLAN.md — Collect rc-agent logs and Edge settings baseline from all 8 pods
-- [ ] 06-02-PLAN.md — Server port audit and IP/MAC identification via RDP
+- [x] 06-01-PLAN.md — Collect rc-agent logs and Edge settings baseline from all 8 pods
+- [x] 06-02-PLAN.md — Server port audit and IP/MAC identification (via pod-agent, not RDP)
 
 ### Phase 7: Server-Side Pinning
 **Goal**: The staff kiosk is reachable at a stable, named address from any device on the LAN and survives server reboots without manual intervention — with zero changes to pods
@@ -116,7 +116,7 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 3. WebSocket Resilience | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 4. Deployment Pipeline Hardening | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 5. Blanking Screen Protocol | v1.0 | 3/3 | Complete | 2026-03-13 |
-| 6. Diagnosis | 1/2 | In Progress|  | - |
+| 6. Diagnosis | v2.0 | 2/2 | Complete | 2026-03-13 |
 | 7. Server-Side Pinning | v2.0 | 0/TBD | Not started | - |
 | 8. Pod Lock Screen Hardening | v2.0 | 0/TBD | Not started | - |
 | 9. Edge Browser Hardening | v2.0 | 0/TBD | Not started | - |
