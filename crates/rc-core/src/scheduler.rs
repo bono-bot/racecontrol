@@ -1,4 +1,4 @@
-//! Smart Scheduling — auto-wake pods before bookings, auto-shutdown after hours,
+//! Smart Scheduling — auto-wake pods before bookings,
 //! dynamic pricing suggestions based on peak/off-peak patterns.
 
 use std::sync::Arc;
@@ -26,9 +26,7 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
 
     // Load operating hours from kiosk_settings
     let open = get_setting(state, "business_hours_start").await.unwrap_or_else(|| "10:00".into());
-    let close = get_setting(state, "business_hours_end").await.unwrap_or_else(|| "22:00".into());
     let open_time = NaiveTime::parse_from_str(&open, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(10, 0, 0).unwrap());
-    let close_time = NaiveTime::parse_from_str(&close, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(22, 0, 0).unwrap());
 
     // Check if auto-scheduling is enabled
     let enabled = get_setting(state, "scheduler_enabled").await.unwrap_or_else(|| "true".into());
@@ -127,64 +125,6 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
             .bind(uuid::Uuid::new_v4().to_string())
             .execute(&state.db)
             .await;
-        }
-    }
-
-    // ─── After hours: shutdown idle pods ─────────────────────────────────────
-    let post_close_mins: u32 = get_setting(state, "scheduler_post_close_minutes").await
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(15);
-
-    let minutes_after_close = minutes_between(close_time, time_now);
-    if minutes_after_close >= post_close_mins as i64 {
-        // Check if any billing sessions are still active — don't shutdown those pods
-        let active_pods: Vec<String> = {
-            let timers = state.billing.active_timers.read().await;
-            timers.keys().cloned().collect()
-        };
-
-        let pods = state.pods.read().await;
-        let online_idle_pods: Vec<(String, String)> = pods.iter()
-            .filter(|(id, p)| matches!(p.status, PodStatus::Idle | PodStatus::Error) && !active_pods.contains(id))
-            .map(|(id, p)| {
-                (id.clone(), p.ip_address.clone())
-            })
-            .collect();
-        drop(pods);
-
-        if !online_idle_pods.is_empty() {
-            let today = now.format("%Y-%m-%d").to_string();
-            let already_shutdown = sqlx::query_as::<_, (i64,)>(
-                "SELECT COUNT(*) FROM scheduler_events
-                 WHERE event_type = 'close_shutdown' AND date(created_at) = ?",
-            )
-            .bind(&today)
-            .fetch_one(&state.db)
-            .await?
-            .0;
-
-            if already_shutdown == 0 {
-                tracing::info!(
-                    "[scheduler] After hours — shutting down {} idle pods",
-                    online_idle_pods.len()
-                );
-
-                for (pod_id, ip) in &online_idle_pods {
-                    if !ip.is_empty() {
-                        let _ = wol::shutdown_pod(&state.http_client, ip).await;
-                        tracing::info!("[scheduler] Shutdown sent to pod {} ({})", pod_id, ip);
-                    }
-                }
-
-                let _ = sqlx::query(
-                    "INSERT INTO scheduler_events (id, event_type, details, created_at)
-                     VALUES (?, 'close_shutdown', ?, datetime('now'))",
-                )
-                .bind(uuid::Uuid::new_v4().to_string())
-                .bind(format!("Shutdown {} idle pods after hours", online_idle_pods.len()))
-                .execute(&state.db)
-                .await;
-            }
         }
     }
 
