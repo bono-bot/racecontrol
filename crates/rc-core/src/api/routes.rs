@@ -259,7 +259,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Deploy
         .route("/deploy/status", get(deploy_status))
         .route("/deploy/rolling", post(deploy_rolling_handler))
-        .route("/deploy/:pod_id", post(deploy_single_pod))
+        .route("/deploy/{pod_id}", post(deploy_single_pod))
 }
 
 async fn health() -> Json<Value> {
