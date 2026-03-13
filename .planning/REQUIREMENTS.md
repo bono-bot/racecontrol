@@ -7,9 +7,9 @@
 
 ### Diagnosis & Investigation
 
-- [ ] **DIAG-01**: Staff can collect error/debug logs from all 8 pods and server to confirm actual URL failure patterns
+- [x] **DIAG-01**: Staff can collect error/debug logs from all 8 pods and server to confirm actual URL failure patterns
 - [ ] **DIAG-02**: Staff can run a port audit on Server (.23) to identify port conflicts before deploying the kiosk
-- [ ] **DIAG-03**: Staff can verify Edge version and kiosk mode settings (StartupBoost, EdgeUpdate, BackgroundMode) across all pods
+- [x] **DIAG-03**: Staff can verify Edge version and kiosk mode settings (StartupBoost, EdgeUpdate, BackgroundMode) across all pods
 - [ ] **DIAG-04**: Staff can confirm Server (.23) IP assignment type (DHCP vs static) and retrieve MAC address for DHCP reservation
 
 ### Staff Kiosk Hosting
@@ -81,9 +81,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DIAG-01 | Phase 6 | Pending |
+| DIAG-01 | Phase 6 | Complete |
 | DIAG-02 | Phase 6 | Pending |
-| DIAG-03 | Phase 6 | Pending |
+| DIAG-03 | Phase 6 | Complete |
 | DIAG-04 | Phase 6 | Pending |
 | HOST-01 | Phase 7 | Pending |
 | HOST-02 | Phase 7 | Pending |
