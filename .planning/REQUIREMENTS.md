@@ -35,8 +35,8 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 
 ### Blanking Screen Protocol
 
-- [ ] **SCREEN-01**: Clean branded lock screen visible before session starts and after session ends — no Windows desktop exposed
-- [ ] **SCREEN-02**: All error popups suppressed on pod screens (WerFault, application errors, "Cannot find" dialogs, ConspitLink messages)
+- [x] **SCREEN-01**: Clean branded lock screen visible before session starts and after session ends — no Windows desktop exposed
+- [x] **SCREEN-02**: All error popups suppressed on pod screens (WerFault, application errors, "Cannot find" dialogs, ConspitLink messages)
 - [ ] **SCREEN-03**: No file path errors or system dialogs leak through to the customer-facing display
 
 ### Performance & Latency
@@ -102,8 +102,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEPLOY-05 | Phase 4 | Complete |
 | ALERT-01 | Phase 2 | Complete |
 | ALERT-02 | Phase 2 | Complete |
-| SCREEN-01 | Phase 5 | Pending |
-| SCREEN-02 | Phase 5 | Pending |
+| SCREEN-01 | Phase 5 | Complete |
+| SCREEN-02 | Phase 5 | Complete |
 | SCREEN-03 | Phase 5 | Pending |
 | PERF-01 | Phase 4 | Complete |
 | PERF-02 | Phase 5 | Pending |

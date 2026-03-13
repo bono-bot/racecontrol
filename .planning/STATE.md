@@ -3,10 +3,25 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-13T03:38:59.136Z"
+progress:
+  total_phases: 5
+  completed_phases: 4
+  total_plans: 15
+  completed_plans: 13
+  percent: 87
+---
+
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: executing
 stopped_at: Phase 04 complete — verification passed (human_needed items approved), PERF-02 moved to Phase 5
 last_updated: "2026-03-13T14:00:00.000Z"
 progress:
-  total_phases: 5
+  [█████████░] 87%
   completed_phases: 4
   total_plans: 12
   completed_plans: 12
@@ -112,6 +127,7 @@ Progress: [████████░░] 80%
 | Phase 04-deployment-pipeline P01 | 6 | 4 tasks | 6 files |
 | Phase 04-deployment-pipeline P02 | 6 | 2 tasks | 4 files |
 | Phase 04-deployment-pipeline P03 | 20 | 4 tasks | 9 files |
+| Phase 05-blanking-screen-protocol P01 | 28 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -159,6 +175,9 @@ Progress: [████████░░] 80%
 - [Phase 04-03]: DeployRolling WS handler replaced inline implementation with deploy_rolling() call for DRY behavior
 - [Phase 04-03]: Pod IDs use pod_N (underscore) format throughout — plan context showed pod-N (dash), adapted to match existing AppState maps
 - [Phase 04-03]: POST /api/deploy/rolling route placed before /deploy/:pod_id to avoid Axum path conflict
+- [Phase 05-01]: LaunchSplash is active customer-facing state — health returns ok, is_idle_or_blanked() returns false
+- [Phase 05-01]: Lock screen before game kill: all session-ending handlers follow show_lock_screen -> sleep(500ms) -> game.stop() -> enforce_safe_state()
+- [Phase 05-01]: DIALOG_PROCESSES pub const in ac_launcher.rs — single source of truth for 5 dialog processes in both enforce_safe_state and cleanup_after_session
 
 ### Pending Todos
 
@@ -172,6 +191,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T02:19:44Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-03-13T03:38:59.134Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
