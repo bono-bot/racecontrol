@@ -1263,6 +1263,18 @@ async fn main() -> Result<()> {
     } // end reconnection loop
 }
 
+/// Compute reconnect delay based on attempt number.
+/// First 3 attempts: 1s each (fast retry for brief CPU spike blips).
+/// After that: exponential backoff 2s, 4s, 8s, 16s, capped at 30s.
+fn reconnect_delay_for_attempt(attempt: u32) -> Duration {
+    if attempt < 3 {
+        Duration::from_secs(1)
+    } else {
+        let exp = (attempt - 2).min(5);
+        Duration::from_secs(2u64.pow(exp)).min(Duration::from_secs(30))
+    }
+}
+
 /// Validate agent configuration. Returns Err with all issues found (not fail-fast).
 ///
 /// Rules:
@@ -1594,6 +1606,27 @@ mod tests {
         config.core.url = "ws://127.0.0.1:8080/ws/agent".to_string();
         // This SHOULD pass (valid explicit config, not a sneaky default)
         assert!(validate_config(&config).is_ok(), "Explicitly valid config should pass");
+    }
+
+    #[test]
+    fn test_reconnect_delay_fast_retries() {
+        assert_eq!(reconnect_delay_for_attempt(0), Duration::from_secs(1));
+        assert_eq!(reconnect_delay_for_attempt(1), Duration::from_secs(1));
+        assert_eq!(reconnect_delay_for_attempt(2), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_reconnect_delay_exponential_backoff() {
+        assert_eq!(reconnect_delay_for_attempt(3), Duration::from_secs(2));
+        assert_eq!(reconnect_delay_for_attempt(4), Duration::from_secs(4));
+        assert_eq!(reconnect_delay_for_attempt(5), Duration::from_secs(8));
+        assert_eq!(reconnect_delay_for_attempt(6), Duration::from_secs(16));
+    }
+
+    #[test]
+    fn test_reconnect_delay_cap() {
+        assert_eq!(reconnect_delay_for_attempt(7), Duration::from_secs(30));
+        assert_eq!(reconnect_delay_for_attempt(100), Duration::from_secs(30));
     }
 }
 
