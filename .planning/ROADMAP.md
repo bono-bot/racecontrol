@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Watchdog Hardening** - pod_monitor/pod_healer use shared backoff; post-restart verification; email alerts fire (completed 2026-03-13)
 - [x] **Phase 3: WebSocket Resilience** - Keepalive prevents drops during game launch; kiosk never flashes "Disconnected" (completed 2026-03-13)
 - [x] **Phase 4: Deployment Pipeline Hardening** - Safe kill→verify→download→start sequence enforced; rolling update without disrupting sessions (completed 2026-03-13)
-- [ ] **Phase 5: Blanking Screen Protocol** - Clean branded pod screens always; zero error popup leakage; PIN auth identical across all surfaces
+- [x] **Phase 5: Blanking Screen Protocol** - Clean branded pod screens always; zero error popup leakage; PIN auth identical across all surfaces (code complete 2026-03-13 — on-site deployment deferred)
 
 ## Phase Details
 
@@ -95,11 +95,12 @@ Plans:
   2. A WerFault dialog, "Cannot find rc agent" popup, ConspitLink message, or any system dialog that would normally appear on the customer screen is suppressed — it does not appear on the pod display
   3. No file path strings, drive letters, or system error text (e.g., "C:\\RaceControl\\", "rc-agent.exe has stopped working") are ever visible on the customer-facing screen
   4. Entering a PIN on the pod lock screen, the customer PWA, and the staff kiosk all behave the same way: same validation logic, same accepted/rejected response, same response time
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Screen transitions + dialog suppression (LaunchSplash state, session-end ordering fix, extended kill list)
-- [ ] 05-02-PLAN.md — PIN auth unification + pod lockdown script (validate_pin_inner, PinSource enum, registry lockdown)
+- [x] 05-01-PLAN.md — Screen transitions + dialog suppression (LaunchSplash state, session-end ordering fix, extended kill list)
+- [x] 05-02-PLAN.md — PIN auth unification + pod lockdown script (validate_pin_inner, PinSource enum, registry lockdown)
+- [x] 05-03-PLAN.md — Deploy to Pod 8 + on-site verification (deferred — manual deployment at venue)
 
 ## Progress
 
@@ -112,4 +113,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Watchdog Hardening | 3/3 | Complete   | 2026-03-13 |
 | 3. WebSocket Resilience | 3/3 | Complete | 2026-03-13 |
 | 4. Deployment Pipeline Hardening | 3/3 | Complete   | 2026-03-13 |
-| 5. Blanking Screen Protocol | 2/3 | In Progress|  |
+| 5. Blanking Screen Protocol | 3/3 | Complete (code) — on-site deploy deferred | 2026-03-13 |
