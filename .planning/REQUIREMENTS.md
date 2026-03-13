@@ -106,7 +106,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SCREEN-02 | Phase 5 | Pending |
 | SCREEN-03 | Phase 5 | Pending |
 | PERF-01 | Phase 4 | Complete |
-| PERF-02 | Phase 4 | Pending |
+| PERF-02 | Phase 5 | Pending |
 | PERF-03 | Phase 3 | Complete |
 | PERF-04 | Phase 3 | Complete |
 | AUTH-01 | Phase 5 | Pending |

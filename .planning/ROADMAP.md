@@ -73,24 +73,23 @@ Plans:
 ### Phase 4: Deployment Pipeline Hardening
 **Goal**: Every rc-agent deploy follows kill→wait→verify-dead→download→size-check→start→verify-reconnect sequence automatically; no binary file lock issues; new binaries work identically on all 8 pods; active sessions are not disrupted by rolling updates
 **Depends on**: Phase 2
-**Requirements**: DEPLOY-02, DEPLOY-05, PERF-01, PERF-02
+**Requirements**: DEPLOY-02, DEPLOY-05, PERF-01
 **Success Criteria** (what must be TRUE):
   1. Deploying a new rc-agent binary to a pod that has a running process always succeeds — the old process is killed and verified dead before the new binary is written, eliminating Windows file lock failures
   2. A deploy sequence that fails mid-way (e.g., binary size check fails) reports failure clearly and leaves the pod in a known state — it does not silently leave a partial install
   3. A binary deployed to Pod 8 and verified healthy can be rolled out to all 8 pods without disrupting any pod that has an active paying session in progress
   4. Game launch completes within the expected time window from kiosk "Start" to game visible on pod screen
-  5. PIN entry on the pod lock screen responds and transitions within 1-2 seconds
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Deploy protocol types + shared enums (DeployState, DeployCommand, DashboardEvent variants)
-- [ ] 04-02-PLAN.md — Deploy executor: kill→verify→download→size-check→start→verify-reconnect sequence
-- [ ] 04-03-PLAN.md — Rolling deploy with session-aware scheduling + kiosk deploy UI
+- [x] 04-01-PLAN.md — Deploy protocol types + shared enums (DeployState, DeployCommand, DashboardEvent variants)
+- [x] 04-02-PLAN.md — Deploy executor: kill→verify→download→size-check→start→verify-reconnect sequence
+- [x] 04-03-PLAN.md — Rolling deploy with session-aware scheduling + kiosk deploy UI
 
 ### Phase 5: Blanking Screen Protocol
 **Goal**: Pod screens show a clean branded lock screen before and after every session with no Windows desktop or file system ever visible; all error popups and system dialogs are suppressed or intercepted before reaching the customer display; PIN auth behaves identically on pod lock screen, customer PWA, and customer kiosk
 **Depends on**: Phase 3
-**Requirements**: SCREEN-01, SCREEN-02, SCREEN-03, AUTH-01
+**Requirements**: SCREEN-01, SCREEN-02, SCREEN-03, AUTH-01, PERF-02
 **Success Criteria** (what must be TRUE):
   1. Between sessions, every pod shows only the branded Racing Point lock screen — Windows desktop, taskbar, file explorer, and any application windows are not visible to the customer
   2. A WerFault dialog, "Cannot find rc agent" popup, ConspitLink message, or any system dialog that would normally appear on the customer screen is suppressed — it does not appear on the pod display
