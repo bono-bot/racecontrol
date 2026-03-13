@@ -393,6 +393,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             tracing::warn!("Pod {} game crashed (billing_active={})", pod_id, billing_active);
                             log_pod_activity(&state, pod_id, "game", "Game Crashed", &format!("billing_active={}", billing_active), "agent");
                         }
+                        AgentMessage::ContentManifest(manifest) => {
+                            if let Some(ref pod_id) = registered_pod_id {
+                                let car_count = manifest.cars.len();
+                                let track_count = manifest.tracks.len();
+                                tracing::info!("Pod {} content manifest: {} cars, {} tracks", pod_id, car_count, track_count);
+                                log_pod_activity(&state, pod_id, "content", "Content Scanned",
+                                    &format!("{} cars, {} tracks", car_count, track_count), "agent");
+                                state.pod_manifests.write().await.insert(pod_id.clone(), manifest.clone());
+                            }
+                        }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");

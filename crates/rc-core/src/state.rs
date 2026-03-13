@@ -14,7 +14,7 @@ use crate::email_alerts::EmailAlerter;
 use crate::game_launcher::GameManager;
 use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
-use rc_common::types::{DeployState, PodInfo};
+use rc_common::types::{ContentManifest, DeployState, PodInfo};
 use rc_common::watchdog::EscalatingBackoff;
 
 /// Watchdog recovery state for a single pod.
@@ -81,6 +81,8 @@ pub struct AppState {
     pub pod_watchdog_states: RwLock<HashMap<String, WatchdogState>>,
     /// Per-pod restart flag — set by pod_monitor, cleared by pod_healer on recovery
     pub pod_needs_restart: RwLock<HashMap<String, bool>>,
+    /// Per-pod content manifest cache (populated when agent sends ContentManifest after Register)
+    pub pod_manifests: RwLock<HashMap<String, ContentManifest>>,
     /// Per-pod deploy lifecycle state (active deploy blocks watchdog restart)
     pub pod_deploy_states: RwLock<HashMap<String, DeployState>>,
     /// Per-pod pending deploy binary URLs (set when pod has active billing at rolling deploy time)
@@ -125,6 +127,7 @@ impl AppState {
             )),
             pod_watchdog_states: RwLock::new(create_initial_watchdog_states()),
             pod_needs_restart: RwLock::new(create_initial_needs_restart()),
+            pod_manifests: RwLock::new(HashMap::new()),
             pod_deploy_states: RwLock::new(create_initial_deploy_states()),
             pending_deploys: RwLock::new(HashMap::new()),
         }

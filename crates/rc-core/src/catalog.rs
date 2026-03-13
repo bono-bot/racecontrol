@@ -1,5 +1,12 @@
+use std::collections::HashSet;
+
 use serde::Serialize;
 use serde_json::{json, Value};
+
+use rc_common::types::ContentManifest;
+
+/// Maximum AI cars in single-player AC (20 slots total, 1 for player)
+const MAX_AI_SINGLE_PLAYER: u32 = 19;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackEntry {
@@ -307,6 +314,164 @@ pub fn get_catalog() -> Value {
     })
 }
 
+// ─── Filtered Catalog ────────────────────────────────────────────────────────
+
+/// Return the AC catalog filtered to only content present in the pod's manifest.
+///
+/// - If `manifest` is `None`, returns the full static catalog (fallback mode).
+/// - If `manifest` is `Some`, filters cars/tracks to only IDs in the manifest
+///   and enriches track entries with `available_session_types`, `max_ai`, and `configs`.
+pub fn get_filtered_catalog(manifest: Option<&ContentManifest>) -> Value {
+    let manifest = match manifest {
+        Some(m) => m,
+        None => return get_catalog(),
+    };
+
+    let car_ids: HashSet<&str> = manifest.cars.iter().map(|c| c.id.as_str()).collect();
+    let track_ids: HashSet<&str> = manifest.tracks.iter().map(|t| t.id.as_str()).collect();
+
+    // Filter featured cars
+    let featured_cars: Vec<Value> = FEATURED_CARS
+        .iter()
+        .filter(|c| car_ids.contains(c.id))
+        .map(|c| json!({ "id": c.id, "name": c.name, "category": c.category }))
+        .collect();
+
+    // Filter all cars
+    let all_cars: Vec<Value> = ALL_CAR_IDS
+        .iter()
+        .filter(|id| car_ids.contains(**id))
+        .map(|id| {
+            let featured = FEATURED_CARS.iter().find(|c| c.id == *id);
+            match featured {
+                Some(c) => json!({ "id": c.id, "name": c.name, "category": c.category }),
+                None => json!({ "id": id, "name": id_to_display_name(id), "category": "Other" }),
+            }
+        })
+        .collect();
+
+    // Filter featured tracks (enriched)
+    let featured_tracks: Vec<Value> = FEATURED_TRACKS
+        .iter()
+        .filter(|t| track_ids.contains(t.id))
+        .map(|t| {
+            let mut entry = json!({ "id": t.id, "name": t.name, "category": t.category, "country": t.country });
+            enrich_track_entry(&mut entry, t.id, manifest);
+            entry
+        })
+        .collect();
+
+    // Filter all tracks (enriched)
+    let all_tracks: Vec<Value> = ALL_TRACK_IDS
+        .iter()
+        .filter(|id| track_ids.contains(**id))
+        .map(|id| {
+            let featured = FEATURED_TRACKS.iter().find(|t| t.id == *id);
+            let mut entry = match featured {
+                Some(t) => json!({ "id": t.id, "name": t.name, "category": t.category, "country": t.country }),
+                None => json!({ "id": id, "name": id_to_display_name(id), "category": "Other", "country": "" }),
+            };
+            enrich_track_entry(&mut entry, id, manifest);
+            entry
+        })
+        .collect();
+
+    json!({
+        "tracks": {
+            "featured": featured_tracks,
+            "all": all_tracks,
+        },
+        "cars": {
+            "featured": featured_cars,
+            "all": all_cars,
+        },
+        "categories": {
+            "tracks": ["F1 Circuits", "Real Circuits", "Indian Circuits", "Street / Touge", "Other"],
+            "cars": ["F1 2025", "GT3", "Supercars", "Porsche", "JDM", "Classics", "Other"],
+        }
+    })
+}
+
+/// Enrich a track JSON entry with session type availability, max_ai, and configs from manifest.
+fn enrich_track_entry(entry: &mut Value, track_id: &str, manifest: &ContentManifest) {
+    let track_manifest = manifest.tracks.iter().find(|t| t.id == track_id);
+    let has_ai = track_manifest
+        .map(|t| t.configs.iter().any(|c| c.has_ai))
+        .unwrap_or(false);
+
+    let mut session_types = vec!["practice", "hotlap"];
+    if has_ai {
+        session_types.push("race");
+        session_types.push("trackday");
+        session_types.push("race_weekend");
+    }
+
+    // max_ai = min(max_pit_count - 1, MAX_AI_SINGLE_PLAYER)
+    // Default to MAX_AI_SINGLE_PLAYER if all configs have pit_count=None
+    let max_pit_count = track_manifest
+        .map(|t| {
+            t.configs.iter()
+                .filter_map(|c| c.pit_count)
+                .max()
+        })
+        .flatten();
+
+    let max_ai = match max_pit_count {
+        Some(pits) => std::cmp::min(pits.saturating_sub(1), MAX_AI_SINGLE_PLAYER),
+        None => MAX_AI_SINGLE_PLAYER,
+    };
+
+    let configs: Vec<String> = track_manifest
+        .map(|t| t.configs.iter().map(|c| c.config.clone()).collect())
+        .unwrap_or_default();
+
+    entry["available_session_types"] = json!(session_types);
+    entry["max_ai"] = json!(max_ai);
+    entry["configs"] = json!(configs);
+}
+
+/// Validate that a car/track/session_type combo is installed on the pod.
+///
+/// Returns `Ok(())` if valid, `Err(reason)` if the combo should be rejected.
+/// When `manifest` is `None` (no cached manifest), allows anything (fallback mode).
+pub fn validate_launch_combo(
+    manifest: Option<&ContentManifest>,
+    car_id: &str,
+    track_id: &str,
+    session_type: &str,
+) -> Result<(), String> {
+    let manifest = match manifest {
+        Some(m) => m,
+        None => return Ok(()), // Fallback mode: no manifest cached, allow anything
+    };
+
+    // Validate car exists (skip if empty -- kiosk bookings may send empty car for non-AC games)
+    if !car_id.is_empty() && !manifest.cars.iter().any(|c| c.id == car_id) {
+        return Err(format!("car '{}' not installed on pod", car_id));
+    }
+
+    // Validate track exists (skip if empty)
+    if !track_id.is_empty() {
+        let track = manifest.tracks.iter().find(|t| t.id == track_id);
+        match track {
+            None => return Err(format!("track '{}' not installed on pod", track_id)),
+            Some(t) => {
+                // For race/trackday, require AI lines
+                if matches!(session_type, "race" | "trackday") {
+                    if !t.configs.iter().any(|c| c.has_ai) {
+                        return Err(format!(
+                            "track '{}' has no AI lines — cannot use session type '{}'",
+                            track_id, session_type
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 // ─── Difficulty Presets ──────────────────────────────────────────────────────
 
 /// Build launch_args JSON with difficulty/transmission/conditions encoded
@@ -351,4 +516,195 @@ pub fn build_custom_launch_args(
             "weather": "clear",
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rc_common::types::{ContentManifest, CarManifestEntry, TrackManifestEntry, TrackConfigManifest};
+
+    /// Helper: build a manifest with specific car IDs and track entries
+    fn make_manifest(car_ids: &[&str], tracks: Vec<TrackManifestEntry>) -> ContentManifest {
+        ContentManifest {
+            cars: car_ids.iter().map(|id| CarManifestEntry { id: id.to_string() }).collect(),
+            tracks,
+        }
+    }
+
+    /// Helper: build a track manifest entry
+    fn make_track(id: &str, configs: Vec<(&str, bool, Option<u32>)>) -> TrackManifestEntry {
+        TrackManifestEntry {
+            id: id.to_string(),
+            configs: configs.into_iter().map(|(config, has_ai, pit_count)| {
+                TrackConfigManifest { config: config.to_string(), has_ai, pit_count }
+            }).collect(),
+        }
+    }
+
+    // ── get_filtered_catalog tests ───────────────────────────────────────
+
+    #[test]
+    fn filtered_catalog_none_manifest_returns_full_catalog() {
+        let full = get_catalog();
+        let filtered = get_filtered_catalog(None);
+        assert_eq!(
+            full["cars"]["all"].as_array().unwrap().len(),
+            filtered["cars"]["all"].as_array().unwrap().len(),
+            "None manifest should return full catalog"
+        );
+        assert_eq!(
+            full["tracks"]["all"].as_array().unwrap().len(),
+            filtered["tracks"]["all"].as_array().unwrap().len(),
+        );
+    }
+
+    #[test]
+    fn filtered_catalog_filters_all_cars_to_manifest_only() {
+        let manifest = make_manifest(
+            &["bmw_z4_gt3", "ks_ferrari_488_gt3"],
+            vec![],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let all_cars = result["cars"]["all"].as_array().unwrap();
+        assert_eq!(all_cars.len(), 2);
+        let ids: Vec<&str> = all_cars.iter().map(|c| c["id"].as_str().unwrap()).collect();
+        assert!(ids.contains(&"bmw_z4_gt3"));
+        assert!(ids.contains(&"ks_ferrari_488_gt3"));
+    }
+
+    #[test]
+    fn filtered_catalog_filters_all_tracks_to_manifest_only() {
+        let manifest = make_manifest(
+            &[],
+            vec![make_track("spa", vec![("", true, Some(24))])],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let all_tracks = result["tracks"]["all"].as_array().unwrap();
+        assert_eq!(all_tracks.len(), 1);
+        assert_eq!(all_tracks[0]["id"].as_str().unwrap(), "spa");
+    }
+
+    #[test]
+    fn filtered_catalog_featured_cars_also_filtered() {
+        // ferrari_sf25 is in FEATURED_CARS but not in manifest -> excluded
+        let manifest = make_manifest(
+            &["bmw_z4_gt3"],
+            vec![],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let featured = result["cars"]["featured"].as_array().unwrap();
+        // bmw_z4_gt3 IS in FEATURED_CARS, so it should appear
+        let ids: Vec<&str> = featured.iter().map(|c| c["id"].as_str().unwrap()).collect();
+        assert!(ids.contains(&"bmw_z4_gt3"), "bmw_z4_gt3 should be in featured");
+        assert!(!ids.contains(&"ferrari_sf25"), "ferrari_sf25 not in manifest");
+    }
+
+    #[test]
+    fn filtered_catalog_track_without_ai_excludes_race_and_trackday() {
+        let manifest = make_manifest(
+            &[],
+            vec![make_track("spa", vec![("", false, Some(24))])],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let track = &result["tracks"]["all"].as_array().unwrap()[0];
+        let session_types: Vec<String> = track["available_session_types"]
+            .as_array().unwrap()
+            .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        assert!(session_types.iter().any(|s| s == "practice"));
+        assert!(session_types.iter().any(|s| s == "hotlap"));
+        assert!(!session_types.iter().any(|s| s == "race"), "no AI -> no race");
+        assert!(!session_types.iter().any(|s| s == "trackday"), "no AI -> no trackday");
+    }
+
+    #[test]
+    fn filtered_catalog_track_with_ai_includes_race_and_trackday() {
+        let manifest = make_manifest(
+            &[],
+            vec![make_track("spa", vec![("", true, Some(24))])],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let track = &result["tracks"]["all"].as_array().unwrap()[0];
+        let session_types: Vec<String> = track["available_session_types"]
+            .as_array().unwrap()
+            .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        assert!(session_types.iter().any(|s| s == "race"));
+        assert!(session_types.iter().any(|s| s == "trackday"));
+    }
+
+    #[test]
+    fn filtered_catalog_track_includes_pit_count_max_across_configs() {
+        let manifest = make_manifest(
+            &[],
+            vec![make_track("spa", vec![
+                ("", true, Some(20)),
+                ("gp", true, Some(30)),
+            ])],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let track = &result["tracks"]["all"].as_array().unwrap()[0];
+        // max_ai = min(max_pit_count - 1, 19) = min(29, 19) = 19
+        assert_eq!(track["max_ai"].as_u64().unwrap(), 19);
+    }
+
+    #[test]
+    fn filtered_catalog_track_pit_count_none_defaults_to_19() {
+        let manifest = make_manifest(
+            &[],
+            vec![make_track("spa", vec![("", true, None)])],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let track = &result["tracks"]["all"].as_array().unwrap()[0];
+        assert_eq!(track["max_ai"].as_u64().unwrap(), 19);
+    }
+
+    // ── validate_launch_combo tests ──────────────────────────────────────
+
+    #[test]
+    fn validate_launch_combo_rejects_car_not_in_manifest() {
+        let manifest = make_manifest(
+            &["bmw_z4_gt3"],
+            vec![make_track("spa", vec![("", true, Some(24))])],
+        );
+        let result = validate_launch_combo(Some(&manifest), "ferrari_sf25", "spa", "practice");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("car"));
+    }
+
+    #[test]
+    fn validate_launch_combo_rejects_track_not_in_manifest() {
+        let manifest = make_manifest(
+            &["bmw_z4_gt3"],
+            vec![make_track("spa", vec![("", true, Some(24))])],
+        );
+        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "monza", "practice");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("track"));
+    }
+
+    #[test]
+    fn validate_launch_combo_rejects_race_on_track_without_ai() {
+        let manifest = make_manifest(
+            &["bmw_z4_gt3"],
+            vec![make_track("spa", vec![("", false, Some(24))])],
+        );
+        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "spa", "race");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("AI"));
+    }
+
+    #[test]
+    fn validate_launch_combo_accepts_valid_combo() {
+        let manifest = make_manifest(
+            &["bmw_z4_gt3"],
+            vec![make_track("spa", vec![("", true, Some(24))])],
+        );
+        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "spa", "race");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_launch_combo_none_manifest_accepts_anything() {
+        let result = validate_launch_combo(None, "any_car", "any_track", "race");
+        assert!(result.is_ok(), "No manifest = fallback mode, accept anything");
+    }
 }
