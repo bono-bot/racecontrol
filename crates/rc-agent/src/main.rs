@@ -418,7 +418,7 @@ async fn main() -> Result<()> {
     // On disconnect, retry with exponential backoff. All local state
     // (lock screen, kiosk, HID/UDP monitors, game process) persists across
     // reconnections — only the WebSocket is re-established.
-    let mut reconnect_delay = Duration::from_secs(1);
+    let mut reconnect_attempt: u32 = 0;
 
     loop {
         // Connect to core server
@@ -430,21 +430,23 @@ async fn main() -> Result<()> {
 
         let (ws_stream, _) = match ws_result {
             Ok(Ok(stream)) => {
-                reconnect_delay = Duration::from_secs(1); // Reset backoff on success
+                reconnect_attempt = 0; // Reset on successful connection
                 stream
             }
             Ok(Err(e)) => {
-                tracing::warn!("Failed to connect to core: {}. Retrying in {:?}...", e, reconnect_delay);
+                let delay = reconnect_delay_for_attempt(reconnect_attempt);
+                tracing::warn!("Failed to connect to core: {}. Attempt {}. Retrying in {:?}...", e, reconnect_attempt, delay);
                 lock_screen.show_disconnected();
-                tokio::time::sleep(reconnect_delay).await;
-                reconnect_delay = (reconnect_delay * 2).min(Duration::from_secs(30));
+                tokio::time::sleep(delay).await;
+                reconnect_attempt += 1;
                 continue;
             }
             Err(_) => {
-                tracing::warn!("Connection to core timed out. Retrying in {:?}...", reconnect_delay);
+                let delay = reconnect_delay_for_attempt(reconnect_attempt);
+                tracing::warn!("Connection to core timed out. Attempt {}. Retrying in {:?}...", reconnect_attempt, delay);
                 lock_screen.show_disconnected();
-                tokio::time::sleep(reconnect_delay).await;
-                reconnect_delay = (reconnect_delay * 2).min(Duration::from_secs(30));
+                tokio::time::sleep(delay).await;
+                reconnect_attempt += 1;
                 continue;
             }
         };
@@ -460,8 +462,10 @@ async fn main() -> Result<()> {
         });
         let json = serde_json::to_string(&register_msg)?;
         if ws_tx.send(Message::Text(json.into())).await.is_err() {
-            tracing::warn!("Failed to register with core, reconnecting...");
-            tokio::time::sleep(reconnect_delay).await;
+            let delay = reconnect_delay_for_attempt(reconnect_attempt);
+            tracing::warn!("Failed to register with core. Attempt {}. Reconnecting in {:?}...", reconnect_attempt, delay);
+            tokio::time::sleep(delay).await;
+            reconnect_attempt += 1;
             continue;
         }
         tracing::info!("Connected and registered as Pod #{}", config.pod.number);
@@ -1225,6 +1229,15 @@ async fn main() -> Result<()> {
                                     tracing::warn!("PIN failed: {}", reason);
                                     lock_screen.show_pin_error(&reason);
                                 }
+                                rc_common::protocol::CoreToAgentMessage::Ping { id } => {
+                                    let pong = rc_common::protocol::AgentMessage::Pong { id };
+                                    if let Ok(json) = serde_json::to_string(&pong) {
+                                        if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                                            tracing::error!("Failed to send Pong, connection lost");
+                                            break;
+                                        }
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -1241,7 +1254,7 @@ async fn main() -> Result<()> {
 
         // Connection lost — update UDP heartbeat status and show disconnected
         heartbeat_status.ws_connected.store(false, std::sync::atomic::Ordering::Relaxed);
-        tracing::warn!("Disconnected from core server, will reconnect in {:?}...", reconnect_delay);
+        tracing::warn!("Disconnected from core server");
 
         // If no billing active, enforce safe state on disconnect — kill any orphaned games
         if !heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1258,8 +1271,10 @@ async fn main() -> Result<()> {
             lock_screen.show_disconnected();
         }
 
-        tokio::time::sleep(reconnect_delay).await;
-        reconnect_delay = (reconnect_delay * 2).min(Duration::from_secs(30));
+        let delay = reconnect_delay_for_attempt(reconnect_attempt);
+        tracing::warn!("Attempt {}. Reconnecting in {:?}...", reconnect_attempt, delay);
+        tokio::time::sleep(delay).await;
+        reconnect_attempt += 1;
     } // end reconnection loop
 }
 
