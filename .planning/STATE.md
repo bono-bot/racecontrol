@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-13T00:04:34.494Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-03-13T00:10:42.143Z"
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 ---
@@ -63,6 +63,7 @@ Progress: [██░░░░░░░░] 20%
 
 *Updated after each plan completion*
 | Phase 02-watchdog-hardening P01 | 6 | 2 tasks | 5 files |
+| Phase 02-watchdog-hardening P03 | 4 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,10 @@ Progress: [██░░░░░░░░] 20%
 - [Phase 02-01]: WatchdogState defined in rc-core not rc-common — it is a core-side FSM, not a shared protocol type
 - [Phase 02-01]: health_response_body() extracted as pure fn for testability; /health always returns 200, JSON body distinguishes ok/degraded
 - [Phase 02-01]: verify_restart gains last_seen param so email alerts carry accurate heartbeat context at failure time
+- [Phase 02-03]: Healer reads pod_watchdog_states but never writes it — FSM transitions are pod_monitor exclusive
+- [Phase 02-03]: needs_restart set only for Rule 2 no-WS failure — disk/memory/zombie issues are healer-only, no restart flag
+- [Phase 02-03]: Healer reads backoff.ready() for cooldown gating but does NOT call record_attempt() — advancing backoff is monitor-only
+- [Phase 02-03]: should_skip_for_watchdog_state() extracted as pure fn — tests verify skip logic without async AppState
 
 ### Pending Todos
 
@@ -98,6 +103,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T00:04:34.491Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-03-13T00:10:42.141Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
