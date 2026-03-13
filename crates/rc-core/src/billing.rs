@@ -106,6 +106,9 @@ impl BillingTimer {
             split_count: self.split_count,
             split_duration_minutes: self.split_duration_minutes,
             current_split_number: self.current_split_number,
+            elapsed_seconds: None,
+            cost_paise: None,
+            rate_per_min_paise: None,
         }
     }
 
@@ -284,6 +287,11 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     remaining_seconds: remaining,
                     allocated_seconds: allocated,
                     driver_name,
+                    elapsed_seconds: None,
+                    cost_paise: None,
+                    rate_per_min_paise: None,
+                    paused: None,
+                    minutes_to_value_tier: None,
                 }).await;
             }
         }

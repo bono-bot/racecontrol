@@ -266,15 +266,36 @@ pub enum DrivingState {
     NoDevice,
 }
 
+// ─── AC Status ─────────────────────────────────────────────────────────────
+
+/// Assetto Corsa shared memory STATUS field values.
+/// Maps to graphics::STATUS: 0=Off, 1=Replay, 2=Live, 3=Pause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcStatus {
+    /// AC not running or in menu (STATUS=0)
+    Off,
+    /// Watching replay (STATUS=1)
+    Replay,
+    /// Car is on track, driving (STATUS=2) -- billing trigger
+    Live,
+    /// Game paused via ESC menu (STATUS=3) -- billing pauses
+    Pause,
+}
+
 // ─── Billing ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BillingSessionStatus {
     Pending,
+    /// Game launched, waiting for AC STATUS=LIVE before billing starts
+    WaitingForGame,
     Active,
     PausedManual,
     PausedDisconnect,
+    /// Billing paused because AC STATUS=PAUSE (customer hit ESC)
+    PausedGamePause,
     Completed,
     EndedEarly,
     Cancelled,
@@ -299,6 +320,15 @@ pub struct BillingSessionInfo {
     pub split_duration_minutes: Option<u32>,
     /// Which sub-session is currently running (1-indexed). 1 = first or only session.
     pub current_split_number: u32,
+    /// Elapsed driving seconds (count-up model). None for legacy countdown sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_seconds: Option<u32>,
+    /// Running cost in paise. None for legacy countdown sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_paise: Option<i64>,
+    /// Current rate per minute in paise (2330 standard, 1500 value). None for legacy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_per_min_paise: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -891,6 +921,98 @@ mod tests {
         assert!(DeployState::SizeCheck.is_active());
         assert!(DeployState::Starting.is_active());
         assert!(DeployState::VerifyingHealth.is_active());
+    }
+
+    // ── AcStatus tests (Phase 03 Plan 01) ─────────────────────────────────
+
+    #[test]
+    fn ac_status_serde_roundtrip_all_variants() {
+        let variants = vec![
+            (AcStatus::Off, "\"off\""),
+            (AcStatus::Replay, "\"replay\""),
+            (AcStatus::Live, "\"live\""),
+            (AcStatus::Pause, "\"pause\""),
+        ];
+        for (variant, expected_json) in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(json, expected_json, "Serialize failed for {:?}", variant);
+            let parsed: AcStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(variant, parsed, "Roundtrip failed for {:?}", variant);
+        }
+    }
+
+    #[test]
+    fn billing_session_status_paused_game_pause_roundtrip() {
+        let status = BillingSessionStatus::PausedGamePause;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"paused_game_pause\"");
+        let parsed: BillingSessionStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, BillingSessionStatus::PausedGamePause);
+    }
+
+    #[test]
+    fn billing_session_status_waiting_for_game_roundtrip() {
+        let status = BillingSessionStatus::WaitingForGame;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"waiting_for_game\"");
+        let parsed: BillingSessionStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, BillingSessionStatus::WaitingForGame);
+    }
+
+    #[test]
+    fn billing_session_info_with_new_optional_fields_roundtrip() {
+        let info = BillingSessionInfo {
+            id: "sess-1".to_string(),
+            driver_id: "drv-1".to_string(),
+            driver_name: "Test Driver".to_string(),
+            pod_id: "pod_1".to_string(),
+            pricing_tier_name: "per-minute".to_string(),
+            allocated_seconds: 10800,
+            driving_seconds: 900,
+            remaining_seconds: 9900,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            elapsed_seconds: Some(900),
+            cost_paise: Some(34950),
+            rate_per_min_paise: Some(2330),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"elapsed_seconds\":900"));
+        assert!(json.contains("\"cost_paise\":34950"));
+        assert!(json.contains("\"rate_per_min_paise\":2330"));
+        let parsed: BillingSessionInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.elapsed_seconds, Some(900));
+        assert_eq!(parsed.cost_paise, Some(34950));
+        assert_eq!(parsed.rate_per_min_paise, Some(2330));
+    }
+
+    #[test]
+    fn billing_session_info_without_optional_fields_backward_compat() {
+        // Old-format BillingSessionInfo without new fields should deserialize with None
+        let json = r#"{
+            "id": "sess-1",
+            "driver_id": "drv-1",
+            "driver_name": "Test",
+            "pod_id": "pod_1",
+            "pricing_tier_name": "30 Minutes",
+            "allocated_seconds": 1800,
+            "driving_seconds": 100,
+            "remaining_seconds": 1700,
+            "status": "active",
+            "driving_state": "active",
+            "started_at": null,
+            "split_count": 1,
+            "split_duration_minutes": null,
+            "current_split_number": 1
+        }"#;
+        let parsed: BillingSessionInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.elapsed_seconds, None);
+        assert_eq!(parsed.cost_paise, None);
+        assert_eq!(parsed.rate_per_min_paise, None);
     }
 
     // ── WaitingSession tests (Task 1 - 04-03) ───────────────────────────────

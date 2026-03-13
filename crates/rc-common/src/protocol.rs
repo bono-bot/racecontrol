@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    AcLanSessionConfig, AcPresetSummary, AcServerInfo,
+    AcLanSessionConfig, AcPresetSummary, AcServerInfo, AcStatus,
     AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DeployState, DrivingState, GameLaunchInfo,
     GroupSessionInfo, Leaderboard, LapData, PodActivityEntry, PodInfo, SessionInfo, SimType,
     TelemetryFrame,
@@ -52,6 +52,9 @@ pub enum AgentMessage {
 
     /// Response to CoreToAgentMessage::Ping — carries same id back for round-trip measurement
     Pong { id: u64 },
+
+    /// Agent reports AC shared memory STATUS change (Off/Replay/Live/Pause)
+    GameStatusUpdate { pod_id: String, ac_status: AcStatus },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -122,11 +125,26 @@ pub enum CoreToAgentMessage {
     /// Blank the screen (show black screen)
     BlankScreen,
 
-    /// Billing timer tick — sent every second to update pod lock screen countdown
+    /// Billing timer tick — sent every second to update pod overlay
     BillingTick {
         remaining_seconds: u32,
         allocated_seconds: u32,
         driver_name: String,
+        /// Elapsed driving seconds (count-up model). None for legacy countdown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        elapsed_seconds: Option<u32>,
+        /// Running cost in paise. None for legacy countdown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost_paise: Option<i64>,
+        /// Current rate per minute in paise. None for legacy countdown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rate_per_min_paise: Option<i64>,
+        /// Whether billing is currently paused (game pause). None for legacy.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        paused: Option<bool>,
+        /// Minutes remaining until value tier kicks in. None if already on value tier.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        minutes_to_value_tier: Option<u32>,
     },
 
     /// Sub-session ended (billing expired but pod has active reservation — multi-session)
@@ -663,6 +681,11 @@ mod tests {
             remaining_seconds: 1500,
             allocated_seconds: 1800,
             driver_name: "Test Driver".to_string(),
+            elapsed_seconds: None,
+            cost_paise: None,
+            rate_per_min_paise: None,
+            paused: None,
+            minutes_to_value_tier: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("billing_tick"));
@@ -825,6 +848,100 @@ mod tests {
             assert_eq!(session_id, "sess-1");
             assert_eq!(reason, "disconnect");
             assert_eq!(pause_count, 1);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    // ── Phase 03 Plan 01 tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_game_status_update_roundtrip() {
+        use crate::types::AcStatus;
+        let msg = AgentMessage::GameStatusUpdate {
+            pod_id: "pod_3".to_string(),
+            ac_status: AcStatus::Live,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("game_status_update"), "Expected 'game_status_update' in: {}", json);
+        assert!(json.contains("\"ac_status\":\"live\""));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::GameStatusUpdate { pod_id, ac_status } = parsed {
+            assert_eq!(pod_id, "pod_3");
+            assert_eq!(ac_status, AcStatus::Live);
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_game_status_update_all_ac_statuses() {
+        use crate::types::AcStatus;
+        for status in [AcStatus::Off, AcStatus::Replay, AcStatus::Live, AcStatus::Pause] {
+            let msg = AgentMessage::GameStatusUpdate {
+                pod_id: "pod_1".to_string(),
+                ac_status: status,
+            };
+            let json = serde_json::to_string(&msg).unwrap();
+            let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+            if let AgentMessage::GameStatusUpdate { ac_status, .. } = parsed {
+                assert_eq!(ac_status, status, "Roundtrip failed for {:?}", status);
+            } else {
+                panic!("Wrong variant");
+            }
+        }
+    }
+
+    #[test]
+    fn test_billing_tick_with_new_optional_fields() {
+        let msg = CoreToAgentMessage::BillingTick {
+            remaining_seconds: 9900,
+            allocated_seconds: 10800,
+            driver_name: "Test Driver".to_string(),
+            elapsed_seconds: Some(900),
+            cost_paise: Some(34950),
+            rate_per_min_paise: Some(2330),
+            paused: Some(false),
+            minutes_to_value_tier: Some(15),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"elapsed_seconds\":900"));
+        assert!(json.contains("\"cost_paise\":34950"));
+        assert!(json.contains("\"rate_per_min_paise\":2330"));
+        assert!(json.contains("\"paused\":false"));
+        assert!(json.contains("\"minutes_to_value_tier\":15"));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::BillingTick {
+            remaining_seconds, elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_value_tier, ..
+        } = parsed {
+            assert_eq!(remaining_seconds, 9900);
+            assert_eq!(elapsed_seconds, Some(900));
+            assert_eq!(cost_paise, Some(34950));
+            assert_eq!(rate_per_min_paise, Some(2330));
+            assert_eq!(paused, Some(false));
+            assert_eq!(minutes_to_value_tier, Some(15));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_billing_tick_backward_compat_old_format() {
+        // Old-format BillingTick without new fields should still deserialize
+        let json = r#"{"type":"billing_tick","data":{"remaining_seconds":1500,"allocated_seconds":1800,"driver_name":"Test"}}"#;
+        let parsed: CoreToAgentMessage = serde_json::from_str(json).unwrap();
+        if let CoreToAgentMessage::BillingTick {
+            remaining_seconds, allocated_seconds, driver_name,
+            elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_value_tier,
+        } = parsed {
+            assert_eq!(remaining_seconds, 1500);
+            assert_eq!(allocated_seconds, 1800);
+            assert_eq!(driver_name, "Test");
+            assert_eq!(elapsed_seconds, None);
+            assert_eq!(cost_paise, None);
+            assert_eq!(rate_per_min_paise, None);
+            assert_eq!(paused, None);
+            assert_eq!(minutes_to_value_tier, None);
         } else {
             panic!("Wrong variant");
         }

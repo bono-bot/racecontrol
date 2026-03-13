@@ -198,6 +198,11 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                         remaining_seconds: remaining,
                                         allocated_seconds,
                                         driver_name: driver_name.clone(),
+                                        elapsed_seconds: None,
+                                        cost_paise: None,
+                                        rate_per_min_paise: None,
+                                        paused: None,
+                                        minutes_to_value_tier: None,
                                     }).await;
                                     // Restore pod state (agent Register overwrites with Idle)
                                     {
@@ -374,6 +379,14 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     );
                                 }
                             }
+                        }
+                        AgentMessage::GameStatusUpdate { pod_id, ac_status } => {
+                            // Phase 03 Plan 03 will wire this to billing lifecycle.
+                            // For now, log the status change.
+                            tracing::info!(
+                                "AC STATUS update from pod {}: {:?}",
+                                pod_id, ac_status
+                            );
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
