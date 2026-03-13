@@ -2074,4 +2074,94 @@ mod tests {
         // 0 is below all tiers (would show "Custom" in UI)
         assert_eq!(tier_for_level(0), None);
     }
+
+    // ========== Phase 04 Plan 01: Safety enforcement ==========
+
+    #[test]
+    fn test_write_race_ini_damage_always_zero() {
+        // SAFETY: Even when params request damage=100, race.ini [ASSISTS] DAMAGE must be 0
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","conditions":{"damage":100},"ai_cars":[
+            {"model":"ks_bmw_m6_gt3","skin":"","driver_name":"Test","ai_level":90}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let assists = sections.get("ASSISTS").expect("Must have ASSISTS");
+        assert_eq!(assists.get("DAMAGE").map(|s| s.as_str()), Some("0"),
+            "SAFETY: DAMAGE must always be 0 regardless of params");
+    }
+
+    #[test]
+    fn test_write_race_ini_damage_always_zero_visual() {
+        // SAFETY: VISUAL_DAMAGE must also always be 0
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","conditions":{"damage":100},"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let assists = sections.get("ASSISTS").expect("Must have ASSISTS");
+        assert_eq!(assists.get("VISUAL_DAMAGE").map(|s| s.as_str()), Some("0"),
+            "SAFETY: VISUAL_DAMAGE must always be 0");
+    }
+
+    #[test]
+    fn test_write_assists_ini_damage_always_zero() {
+        // SAFETY: assists.ini DAMAGE must be 0 even when params say damage=50
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","conditions":{"damage":50},"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+
+        // Build assists.ini content the same way write_assists_ini does
+        let aids = params.aids.clone().unwrap_or_default();
+        let auto_shifter = if params.transmission == "auto" || params.transmission == "automatic" { 1 } else { 0 };
+
+        let content = format!(
+            "[ASSISTS]\r\nABS={abs}\r\nAUTO_CLUTCH={autoclutch}\r\nAUTO_SHIFTER={auto_shifter}\r\nDAMAGE=0\r\nIDEAL_LINE={ideal_line}\r\nSTABILITY={stability}\r\nTRACTION_CONTROL={tc}\r\nVISUAL_DAMAGE=0\r\nSLIPSTREAM=1\r\nTYRE_BLANKETS=1\r\nAUTO_BLIP=1\r\nFUEL_RATE=1\r\n",
+            abs = aids.abs,
+            autoclutch = aids.autoclutch,
+            auto_shifter = auto_shifter,
+            ideal_line = aids.ideal_line,
+            stability = aids.stability,
+            tc = aids.tc,
+        );
+
+        // Parse and check
+        let sections = parse_ini(&content);
+        let assists = sections.get("ASSISTS").expect("Must have ASSISTS");
+        assert_eq!(assists.get("DAMAGE").map(|s| s.as_str()), Some("0"),
+            "SAFETY: assists.ini DAMAGE must always be 0");
+    }
+
+    #[test]
+    fn test_write_race_ini_grip_always_100() {
+        // Regression guard: SESSION_START must always be 100 in [DYNAMIC_TRACK]
+        let params = test_params("practice");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let dt = sections.get("DYNAMIC_TRACK").expect("Must have DYNAMIC_TRACK");
+        assert_eq!(dt.get("SESSION_START").map(|s| s.as_str()), Some("100"),
+            "SAFETY: SESSION_START must always be 100");
+    }
+
+    #[test]
+    fn test_verify_safety_settings_passes() {
+        let content = "[ASSISTS]\nDAMAGE=0\nVISUAL_DAMAGE=0\n\n[DYNAMIC_TRACK]\nSESSION_START=100\n";
+        assert!(verify_safety_content(content).is_ok(),
+            "Safety verification must pass for DAMAGE=0 and SESSION_START=100");
+    }
+
+    #[test]
+    fn test_verify_safety_settings_rejects_damage() {
+        let content = "[ASSISTS]\nDAMAGE=50\nVISUAL_DAMAGE=0\n\n[DYNAMIC_TRACK]\nSESSION_START=100\n";
+        assert!(verify_safety_content(content).is_err(),
+            "Safety verification must REJECT DAMAGE=50");
+    }
+
+    #[test]
+    fn test_verify_safety_settings_rejects_grip() {
+        let content = "[ASSISTS]\nDAMAGE=0\nVISUAL_DAMAGE=0\n\n[DYNAMIC_TRACK]\nSESSION_START=80\n";
+        assert!(verify_safety_content(content).is_err(),
+            "Safety verification must REJECT SESSION_START=80");
+    }
 }

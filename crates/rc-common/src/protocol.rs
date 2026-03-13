@@ -1056,4 +1056,33 @@ mod tests {
             panic!("Wrong variant");
         }
     }
+
+    // ── Phase 04 Plan 01: Safety enforcement protocol messages ──────────
+
+    #[test]
+    fn test_ffb_zeroed_roundtrip() {
+        let msg = AgentMessage::FfbZeroed { pod_id: "pod-1".into() };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("ffb_zeroed"), "Expected 'ffb_zeroed' in: {}", json);
+        let back: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::FfbZeroed { pod_id } = back {
+            assert_eq!(pod_id, "pod-1");
+        } else {
+            panic!("Wrong variant after roundtrip: expected FfbZeroed");
+        }
+    }
+
+    #[test]
+    fn test_game_crashed_roundtrip() {
+        let msg = AgentMessage::GameCrashed { pod_id: "pod-1".into(), billing_active: true };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("game_crashed"), "Expected 'game_crashed' in: {}", json);
+        let back: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::GameCrashed { pod_id, billing_active } = back {
+            assert_eq!(pod_id, "pod-1");
+            assert!(billing_active);
+        } else {
+            panic!("Wrong variant after roundtrip: expected GameCrashed");
+        }
+    }
 }
