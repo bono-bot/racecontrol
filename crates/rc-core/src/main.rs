@@ -138,7 +138,12 @@ async fn kiosk_proxy(
             let status = StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             let mut builder = axum::response::Response::builder().status(status);
             for (key, val) in r.headers() {
-                builder = builder.header(key.as_str(), val.as_bytes());
+                let k = key.as_str();
+                // Skip hop-by-hop headers that conflict with the final response
+                if k == "transfer-encoding" || k == "connection" || k == "keep-alive" {
+                    continue;
+                }
+                builder = builder.header(k, val.as_bytes());
             }
             let body = r.bytes().await.unwrap_or_default();
             builder.body(axum::body::Body::from(body)).unwrap().into_response()
