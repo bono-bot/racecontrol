@@ -11,6 +11,8 @@ import type {
   AuthTokenInfo,
   PodActivityEntry,
   PendingSplitContinuation,
+  DeployProgressEvent,
+  DeployState,
 } from "@/lib/types";
 
 const WS_URL =
@@ -49,6 +51,7 @@ export function useKioskSocket() {
   const [cameraFocus, setCameraFocus] = useState<{ pod_id: string; driver_name: string; reason: string } | null>(null);
   const [activityLog, setActivityLog] = useState<PodActivityEntry[]>([]);
   const [pendingSplitContinuation, setPendingSplitContinuation] = useState<PendingSplitContinuation | null>(null);
+  const [deployStates, setDeployStates] = useState<Map<string, DeployState>>(new Map());
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -269,6 +272,15 @@ export function useKioskSocket() {
             setActivityLog(entries);
             break;
           }
+          case "deploy_progress": {
+            const event = msg.data as DeployProgressEvent;
+            setDeployStates((prev) => {
+              const next = new Map(prev);
+              next.set(event.pod_id, event.state);
+              return next;
+            });
+            break;
+          }
         }
       } catch (e) {
         console.warn("[Kiosk] Parse error:", e);
@@ -317,6 +329,10 @@ export function useKioskSocket() {
     setPendingSplitContinuation(null);
   }, []);
 
+  const sendDeployRolling = useCallback((binaryUrl: string) => {
+    sendCommand("deploy_rolling", { binary_url: binaryUrl });
+  }, [sendCommand]);
+
   return {
     connected,
     pods,
@@ -333,5 +349,7 @@ export function useKioskSocket() {
     sendCommand,
     pendingSplitContinuation,
     clearPendingSplitContinuation,
+    deployStates,
+    sendDeployRolling,
   };
 }

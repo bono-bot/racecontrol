@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { KioskExperience, KioskSettings } from "@/lib/types";
+import { DeployPanel } from "@/components/DeployPanel";
+import { useKioskSocket } from "@/hooks/useKioskSocket";
 
 export default function SettingsPage() {
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
   const [settings, setSettings] = useState<KioskSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const { deployStates, sendDeployRolling } = useKioskSocket();
 
   useEffect(() => {
     loadData();
@@ -143,6 +146,22 @@ export default function SettingsPage() {
                 </button>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* Deploy */}
+        <section>
+          <div className="border-b border-rp-border pb-2 mb-4">
+            <h2 className="text-lg font-semibold">Agent Deploy</h2>
+            <p className="text-xs text-rp-grey mt-0.5">
+              Roll out a new rc-agent binary to all pods without disrupting active sessions.
+            </p>
+          </div>
+          <div className="bg-rp-card border border-rp-border rounded p-4">
+            <DeployPanel
+              deployStates={deployStates}
+              onDeploy={sendDeployRolling}
+            />
           </div>
         </section>
       </div>

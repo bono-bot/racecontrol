@@ -9,7 +9,8 @@ export type DeployState =
   | { state: 'starting' }
   | { state: 'verifying_health' }
   | { state: 'complete' }
-  | { state: 'failed'; detail: { reason: string } };
+  | { state: 'failed'; detail: { reason: string } }
+  | { state: 'waiting_session' };
 
 export interface DeployPodStatus {
   pod_id: string;
