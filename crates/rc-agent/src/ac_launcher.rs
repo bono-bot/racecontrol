@@ -104,6 +104,7 @@ pub struct AiCarSlot {
 }
 
 fn default_ai_level() -> u32 { 90 }
+fn default_session_ai_level() -> u32 { 87 } // Semi-Pro midpoint
 fn default_session_type() -> String { "practice".to_string() }
 fn default_starting_position() -> u32 { 1 }
 
@@ -167,6 +168,13 @@ pub struct AcLaunchParams {
     pub server_http_port: u16,
     #[serde(default)]
     pub server_password: String,
+
+    // --- Difficulty tier configuration ---
+    /// Session-wide AI difficulty level (0-100). Controls AI_LEVEL in race.ini.
+    /// Maps to DifficultyTier for display: Rookie(70-79), Amateur(80-84),
+    /// Semi-Pro(85-89), Pro(90-95), Alien(96-100). Default: 87 (Semi-Pro).
+    #[serde(default = "default_session_ai_level")]
+    pub ai_level: u32,
 
     // --- Session type configuration ---
     #[serde(default = "default_session_type")]
@@ -429,7 +437,7 @@ const MAX_AI_SINGLE_PLAYER: usize = 19;
 const DEFAULT_TRACKDAY_AI_COUNT: usize = 12;
 
 /// Generate default Track Day AI with mixed car classes.
-fn generate_trackday_ai(count: usize) -> Vec<AiCarSlot> {
+fn generate_trackday_ai(count: usize, ai_level: u32) -> Vec<AiCarSlot> {
     use rand::seq::SliceRandom;
     let mut rng = rand::thread_rng();
 
@@ -442,7 +450,7 @@ fn generate_trackday_ai(count: usize) -> Vec<AiCarSlot> {
             model: cars[i % cars.len()].to_string(),
             skin: String::new(), // AC picks random installed skin
             driver_name: names[i].clone(),
-            ai_level: 85, // Medium difficulty for casual track day
+            ai_level,
         }
     }).collect()
 }
@@ -453,7 +461,7 @@ fn generate_trackday_ai(count: usize) -> Vec<AiCarSlot> {
 fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
     if params.session_type == "trackday" && params.ai_cars.is_empty() {
         let count = DEFAULT_TRACKDAY_AI_COUNT.min(MAX_AI_SINGLE_PLAYER);
-        generate_trackday_ai(count)
+        generate_trackday_ai(count, params.ai_level)
     } else {
         let capped = params.ai_cars.len().min(MAX_AI_SINGLE_PLAYER);
         if params.ai_cars.len() > MAX_AI_SINGLE_PLAYER {
@@ -462,7 +470,12 @@ fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
                 params.ai_cars.len(), MAX_AI_SINGLE_PLAYER, MAX_AI_SINGLE_PLAYER
             );
         }
-        params.ai_cars.iter().take(capped).cloned().collect()
+        params.ai_cars.iter().take(capped).map(|slot| {
+            AiCarSlot {
+                ai_level: params.ai_level,
+                ..slot.clone()
+            }
+        }).collect()
     }
 }
 
@@ -579,16 +592,10 @@ fn write_race_config_section(ini: &mut String, params: &AcLaunchParams, ai_count
         params.track_config.clone()
     };
 
-    let ai_level = if !params.ai_cars.is_empty() {
-        params.ai_cars[0].ai_level
-    } else {
-        90 // default
-    };
-
     let total_cars = 1 + ai_count;
 
     let _ = writeln!(ini, "\n[RACE]");
-    let _ = writeln!(ini, "AI_LEVEL={}", ai_level);
+    let _ = writeln!(ini, "AI_LEVEL={}", params.ai_level);
     let _ = writeln!(ini, "CARS={}", total_cars);
     let _ = writeln!(ini, "CONFIG_TRACK={}", track_config);
     let _ = writeln!(ini, "DRIFT_MODE=0");
@@ -1726,15 +1733,16 @@ mod tests {
 
     #[test]
     fn test_write_race_ini_race_ai_level() {
-        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_cars":[
-            {"model":"ks_ferrari_488_gt3","skin":"","driver_name":"Test","ai_level":75}
+        // Session-wide ai_level controls [RACE] AI_LEVEL (not per-car ai_level)
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_level":75,"ai_cars":[
+            {"model":"ks_ferrari_488_gt3","skin":"","driver_name":"Test","ai_level":90}
         ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
         let params: AcLaunchParams = serde_json::from_str(json).unwrap();
         let ini = build_race_ini_string(&params);
         let sections = parse_ini(&ini);
 
         let race = sections.get("RACE").expect("RACE must exist");
-        assert_eq!(race.get("AI_LEVEL").map(|s| s.as_str()), Some("75"), "AI_LEVEL from first AI car");
+        assert_eq!(race.get("AI_LEVEL").map(|s| s.as_str()), Some("75"), "AI_LEVEL from session-wide ai_level");
     }
 
     #[test]
@@ -1939,6 +1947,62 @@ mod tests {
 
         let s2 = sections.get("SESSION_2").expect("SESSION_2 (Race)");
         assert_eq!(s2.get("DURATION_MINUTES").map(|s| s.as_str()), Some("1"), "Minimum 1 minute for race");
+    }
+
+    // --- Phase 2 Task 2 TDD tests: Session-wide ai_level on AcLaunchParams ---
+
+    #[test]
+    fn test_backward_compat_no_ai_level_field() {
+        // JSON without ai_level field must deserialize successfully with default 87 (Semi-Pro)
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json)
+            .expect("Existing JSON without ai_level must still deserialize");
+        assert_eq!(params.ai_level, 87, "Default ai_level must be 87 (Semi-Pro midpoint)");
+    }
+
+    #[test]
+    fn test_race_ini_uses_session_ai_level() {
+        // Session-wide ai_level:75 must override per-car ai_level:90 in race.ini [RACE] AI_LEVEL
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_level":75,"ai_cars":[
+            {"model":"ks_bmw_m3","skin":"","driver_name":"AI 1","ai_level":90}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.ai_level, 75);
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+        let race = sections.get("RACE").expect("RACE section");
+        assert_eq!(race.get("AI_LEVEL").map(|s| s.as_str()), Some("75"),
+            "race.ini AI_LEVEL must use session-wide ai_level, not per-car ai_level");
+    }
+
+    #[test]
+    fn test_effective_ai_cars_inherits_session_ai_level() {
+        // AI car slots must inherit session-wide ai_level instead of keeping per-car ai_level
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_level":75,"ai_cars":[
+            {"model":"ks_bmw_m3","skin":"","driver_name":"AI 1","ai_level":90},
+            {"model":"ks_audi_r8_lms","skin":"","driver_name":"AI 2","ai_level":95}
+        ],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ai_cars = effective_ai_cars(&params);
+        assert_eq!(ai_cars.len(), 2);
+        for (i, slot) in ai_cars.iter().enumerate() {
+            assert_eq!(slot.ai_level, 75,
+                "AI car slot {} must inherit session-wide ai_level 75, got {}", i, slot.ai_level);
+        }
+    }
+
+    #[test]
+    fn test_trackday_default_ai_inherits_session_ai_level() {
+        // Trackday with ai_level:75 and empty ai_cars must generate AI slots with ai_level=75
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"trackday","ai_level":75,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.ai_level, 75);
+        let ai_cars = effective_ai_cars(&params);
+        assert!(!ai_cars.is_empty(), "Trackday must generate default AI");
+        for (i, slot) in ai_cars.iter().enumerate() {
+            assert_eq!(slot.ai_level, 75,
+                "Trackday AI slot {} must inherit session ai_level 75, got {}", i, slot.ai_level);
+        }
     }
 
     // --- Phase 2 Task 1 TDD tests: DifficultyTier enum and tier_for_level ---
