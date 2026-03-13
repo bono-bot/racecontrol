@@ -1719,6 +1719,30 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Multiplayer Results ──────────────────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS multiplayer_results (
+            id TEXT PRIMARY KEY,
+            group_session_id TEXT NOT NULL,
+            ac_session_id TEXT,
+            driver_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            best_lap_ms INTEGER,
+            total_time_ms INTEGER,
+            laps_completed INTEGER DEFAULT 0,
+            dnf INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_multiplayer_results_group ON multiplayer_results(group_session_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_multiplayer_results_driver ON multiplayer_results(driver_id)")
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

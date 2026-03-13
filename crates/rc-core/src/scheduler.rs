@@ -188,6 +188,9 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
         }
     }
 
+    // ─── Multiplayer invite timeout cleanup ──────────────────────────────
+    crate::multiplayer::cleanup_stale_invites(state).await;
+
     // ─── Peak hour tracking ──────────────────────────────────────────────────
     // Every hour on the hour, snapshot active session count for analytics
     if time_now.minute() == 0 {

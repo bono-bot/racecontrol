@@ -542,6 +542,9 @@ pub async fn start_ac_server(
 }
 
 pub async fn stop_ac_server(state: &Arc<AppState>, session_id: &str) -> anyhow::Result<()> {
+    // Collect results BEFORE killing the process
+    let _ = collect_results(state, session_id).await;
+
     let assigned_pods;
     let mut killed_via_fallback = false;
 
@@ -818,6 +821,216 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
     }
 }
 
+// ─── Result Collection ──────────────────────────────────────────────────────
+
+/// A single driver's result from an AC dedicated server session.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MultiplayerResult {
+    pub position: u32,
+    pub driver_name: String,
+    pub guid: String,
+    pub best_lap_ms: Option<i64>,
+    pub total_time_ms: Option<i64>,
+    pub laps_completed: u32,
+}
+
+/// Matches the AC dedicated server JSON result format.
+/// Uses serde(rename) for PascalCase field names and serde(default) for leniency.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct AcResultFile {
+    #[serde(rename = "Result", default)]
+    pub result: Vec<AcResultEntry>,
+    #[serde(rename = "TrackName", default)]
+    pub track_name: String,
+    #[serde(rename = "TrackConfig", default)]
+    pub track_config: String,
+    #[serde(rename = "Type", default)]
+    pub session_type: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct AcResultEntry {
+    #[serde(rename = "DriverName", default)]
+    pub driver_name: String,
+    #[serde(rename = "DriverGuid", default)]
+    pub driver_guid: String,
+    #[serde(rename = "CarId", default)]
+    pub car_id: u32,
+    #[serde(rename = "CarModel", default)]
+    pub car_model: String,
+    #[serde(rename = "BestLap", default)]
+    pub best_lap: i64,
+    #[serde(rename = "TotalTime", default)]
+    pub total_time: i64,
+    #[serde(rename = "LapCount", default)]
+    pub lap_count: u32,
+    #[serde(rename = "HasFinished", default)]
+    pub has_finished: bool,
+}
+
+/// Parse AC result files from a server session directory and return structured results.
+/// Reads JSON files from `{server_dir}/results/` directory.
+/// Returns empty vec if directory doesn't exist or contains no valid results.
+pub fn parse_ac_results(server_dir: &Path) -> Vec<MultiplayerResult> {
+    let results_dir = server_dir.join("results");
+    if !results_dir.exists() {
+        tracing::debug!("No results directory found at {:?}", results_dir);
+        return vec![];
+    }
+
+    let mut all_results: Vec<MultiplayerResult> = Vec::new();
+
+    let entries = match std::fs::read_dir(&results_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!("Failed to read results directory {:?}: {}", results_dir, e);
+            return vec![];
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Failed to read result file {:?}: {}", path, e);
+                continue;
+            }
+        };
+
+        let result_file: AcResultFile = match serde_json::from_str(&content) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("Failed to parse result file {:?}: {}", path, e);
+                continue;
+            }
+        };
+
+        for (i, entry) in result_file.result.iter().enumerate() {
+            all_results.push(MultiplayerResult {
+                position: (i + 1) as u32,
+                driver_name: entry.driver_name.clone(),
+                guid: entry.driver_guid.clone(),
+                best_lap_ms: if entry.best_lap > 0 { Some(entry.best_lap) } else { None },
+                total_time_ms: if entry.total_time > 0 { Some(entry.total_time) } else { None },
+                laps_completed: entry.lap_count,
+            });
+        }
+    }
+
+    all_results
+}
+
+/// Collect results from an AC server session, persist to multiplayer_results table.
+/// Called from stop_ac_server before killing the process.
+pub async fn collect_results(
+    state: &Arc<AppState>,
+    session_id: &str,
+) -> anyhow::Result<Vec<MultiplayerResult>> {
+    // Get server_dir from instance
+    let server_dir = {
+        let instances = state.ac_server.instances.read().await;
+        instances.get(session_id).map(|i| i.server_dir.clone())
+    };
+
+    let server_dir = match server_dir {
+        Some(d) => d,
+        None => {
+            tracing::debug!("No in-memory instance for session {} — skipping result collection", session_id);
+            return Ok(vec![]);
+        }
+    };
+
+    let results = parse_ac_results(&server_dir);
+    if results.is_empty() {
+        tracing::info!("No results to collect for AC session {}", session_id);
+        return Ok(vec![]);
+    }
+
+    // Find the group_session_id linked to this ac_session_id
+    let group_session_id: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM group_sessions WHERE ac_session_id = ?",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let group_session_id = match group_session_id {
+        Some(id) => id,
+        None => {
+            tracing::info!("AC session {} not linked to a group session — skipping result persistence", session_id);
+            return Ok(results);
+        }
+    };
+
+    // Get member mappings: pod_id -> driver_id (to match AC results to our drivers)
+    let members: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT driver_id, pod_id FROM group_session_members WHERE group_session_id = ?",
+    )
+    .bind(&group_session_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    // Build a name->driver_id mapping for matching
+    let mut name_to_driver: HashMap<String, String> = HashMap::new();
+    for (driver_id, _pod_id) in &members {
+        let name: Option<String> = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
+            .bind(driver_id)
+            .fetch_optional(&state.db)
+            .await?;
+        if let Some(name) = name {
+            name_to_driver.insert(name.to_lowercase(), driver_id.clone());
+        }
+    }
+
+    // Persist results
+    for result in &results {
+        let result_id = uuid::Uuid::new_v4().to_string();
+
+        // Try to match driver by name (case-insensitive)
+        let driver_id = name_to_driver
+            .get(&result.driver_name.to_lowercase())
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let _ = sqlx::query(
+            "INSERT INTO multiplayer_results (id, group_session_id, ac_session_id, driver_id, position, best_lap_ms, total_time_ms, laps_completed, dnf)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&result_id)
+        .bind(&group_session_id)
+        .bind(session_id)
+        .bind(&driver_id)
+        .bind(result.position as i64)
+        .bind(result.best_lap_ms)
+        .bind(result.total_time_ms)
+        .bind(result.laps_completed as i64)
+        .bind(if result.laps_completed == 0 { 1i64 } else { 0i64 })
+        .execute(&state.db)
+        .await;
+    }
+
+    tracing::info!(
+        "Collected {} results for AC session {} (group {})",
+        results.len(),
+        session_id,
+        group_session_id,
+    );
+
+    Ok(results)
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 fn detect_lan_ip() -> String {
@@ -828,4 +1041,197 @@ fn detect_lan_ip() -> String {
         })
         .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ac_result_file_deserialization() {
+        let json = r#"{
+            "TrackName": "monza",
+            "TrackConfig": "",
+            "Type": "RACE",
+            "Result": [
+                {
+                    "DriverName": "Alice",
+                    "DriverGuid": "steam_123",
+                    "CarId": 0,
+                    "CarModel": "ks_ferrari_488_gt3",
+                    "BestLap": 98500,
+                    "TotalTime": 590000,
+                    "LapCount": 6,
+                    "HasFinished": true
+                },
+                {
+                    "DriverName": "Bob",
+                    "DriverGuid": "steam_456",
+                    "CarId": 1,
+                    "CarModel": "ks_ferrari_488_gt3",
+                    "BestLap": 99200,
+                    "TotalTime": 600000,
+                    "LapCount": 6,
+                    "HasFinished": true
+                }
+            ]
+        }"#;
+
+        let result_file: AcResultFile = serde_json::from_str(json).unwrap();
+        assert_eq!(result_file.result.len(), 2);
+        assert_eq!(result_file.result[0].driver_name, "Alice");
+        assert_eq!(result_file.result[0].best_lap, 98500);
+        assert_eq!(result_file.result[0].lap_count, 6);
+        assert_eq!(result_file.result[1].driver_name, "Bob");
+        assert_eq!(result_file.track_name, "monza");
+        assert_eq!(result_file.session_type, "RACE");
+    }
+
+    #[test]
+    fn test_ac_result_file_maps_to_multiplayer_result() {
+        let json = r#"{
+            "TrackName": "spa",
+            "TrackConfig": "",
+            "Type": "RACE",
+            "Result": [
+                {
+                    "DriverName": "Driver1",
+                    "DriverGuid": "guid_1",
+                    "CarId": 0,
+                    "CarModel": "car1",
+                    "BestLap": 120000,
+                    "TotalTime": 720000,
+                    "LapCount": 5,
+                    "HasFinished": true
+                },
+                {
+                    "DriverName": "Driver2",
+                    "DriverGuid": "guid_2",
+                    "CarId": 1,
+                    "CarModel": "car1",
+                    "BestLap": 0,
+                    "TotalTime": 0,
+                    "LapCount": 0,
+                    "HasFinished": false
+                }
+            ]
+        }"#;
+
+        let result_file: AcResultFile = serde_json::from_str(json).unwrap();
+
+        // Map to MultiplayerResult
+        let results: Vec<MultiplayerResult> = result_file
+            .result
+            .iter()
+            .enumerate()
+            .map(|(i, entry)| MultiplayerResult {
+                position: (i + 1) as u32,
+                driver_name: entry.driver_name.clone(),
+                guid: entry.driver_guid.clone(),
+                best_lap_ms: if entry.best_lap > 0 { Some(entry.best_lap) } else { None },
+                total_time_ms: if entry.total_time > 0 { Some(entry.total_time) } else { None },
+                laps_completed: entry.lap_count,
+            })
+            .collect();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].position, 1);
+        assert_eq!(results[0].driver_name, "Driver1");
+        assert_eq!(results[0].best_lap_ms, Some(120000));
+        assert_eq!(results[0].total_time_ms, Some(720000));
+        assert_eq!(results[0].laps_completed, 5);
+
+        // DNF driver — zero best_lap and total_time
+        assert_eq!(results[1].position, 2);
+        assert_eq!(results[1].best_lap_ms, None);
+        assert_eq!(results[1].total_time_ms, None);
+        assert_eq!(results[1].laps_completed, 0);
+    }
+
+    #[test]
+    fn test_parse_ac_results_from_directory() {
+        use std::fs;
+
+        // Create a temporary directory structure mimicking AC server output
+        let temp_dir = std::env::temp_dir().join("ac_test_results");
+        let results_dir = temp_dir.join("results");
+        let _ = fs::remove_dir_all(&temp_dir); // clean up from previous runs
+        fs::create_dir_all(&results_dir).unwrap();
+
+        let json = r#"{
+            "TrackName": "imola",
+            "TrackConfig": "",
+            "Type": "RACE",
+            "Result": [
+                {
+                    "DriverName": "TestDriver",
+                    "DriverGuid": "test_guid",
+                    "CarId": 0,
+                    "CarModel": "bmw_m3_gt2",
+                    "BestLap": 95000,
+                    "TotalTime": 480000,
+                    "LapCount": 5,
+                    "HasFinished": true
+                }
+            ]
+        }"#;
+        fs::write(results_dir.join("race_result.json"), json).unwrap();
+
+        let results = parse_ac_results(&temp_dir);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].driver_name, "TestDriver");
+        assert_eq!(results[0].guid, "test_guid");
+        assert_eq!(results[0].best_lap_ms, Some(95000));
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_ac_results_empty_dir() {
+        use std::fs;
+
+        let temp_dir = std::env::temp_dir().join("ac_test_empty");
+        let results_dir = temp_dir.join("results");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&results_dir).unwrap();
+
+        let results = parse_ac_results(&temp_dir);
+        assert!(results.is_empty());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_ac_results_no_dir() {
+        let temp_dir = std::env::temp_dir().join("ac_test_nonexistent_xyz");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let results = parse_ac_results(&temp_dir);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_ac_result_lenient_parsing() {
+        // Missing optional fields should not cause parse failure
+        let json = r#"{
+            "Result": [
+                {
+                    "DriverName": "Partial",
+                    "DriverGuid": "",
+                    "CarId": 0,
+                    "CarModel": "",
+                    "BestLap": 0,
+                    "TotalTime": 0,
+                    "LapCount": 0,
+                    "HasFinished": false
+                }
+            ]
+        }"#;
+
+        let result_file: AcResultFile = serde_json::from_str(json).unwrap();
+        assert_eq!(result_file.result.len(), 1);
+        assert_eq!(result_file.track_name, ""); // default
+        assert_eq!(result_file.session_type, ""); // default
+    }
 }

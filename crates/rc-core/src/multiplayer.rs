@@ -760,19 +760,22 @@ async fn start_ac_lan_for_group(
                 laps: 10,
                 wait_time_secs: 10,
             }],
-            entries: pod_ids
-                .iter()
-                .enumerate()
-                .map(|(i, pid)| rc_common::types::AcEntrySlot {
-                    car_model: car.clone(),
-                    skin: String::new(),
-                    driver_name: String::new(),
-                    guid: String::new(),
-                    ballast: 0,
-                    restrictor: 0,
-                    pod_id: Some(pid.clone()),
-                })
-                .collect(),
+            entries: {
+                let mut entry_slots = Vec::new();
+                for (_i, (driver_id, pod_id)) in members.iter().enumerate() {
+                    let (dname, dguid) = get_driver_entry_info(state, driver_id).await;
+                    entry_slots.push(rc_common::types::AcEntrySlot {
+                        car_model: car.clone(),
+                        skin: String::new(),
+                        driver_name: dname,
+                        guid: dguid,
+                        ballast: 0,
+                        restrictor: 0,
+                        pod_id: Some(pod_id.clone()),
+                    });
+                }
+                entry_slots
+            },
             weather: vec![rc_common::types::AcWeatherConfig {
                 graphics: "3_clear".to_string(),
                 base_temperature_ambient: 26,
@@ -1006,4 +1009,106 @@ async fn get_pod_number(state: &Arc<AppState>, pod_id: &str) -> Option<u32> {
 
 fn canonical_pair<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
     if a < b { (a, b) } else { (b, a) }
+}
+
+/// Get driver name and steam_guid for AC entry list population.
+async fn get_driver_entry_info(state: &Arc<AppState>, driver_id: &str) -> (String, String) {
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT name, steam_guid FROM drivers WHERE id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    match row {
+        Some((name, guid)) => (
+            name.unwrap_or_else(|| "Driver".to_string()),
+            guid.unwrap_or_default(),
+        ),
+        None => ("Driver".to_string(), String::new()),
+    }
+}
+
+/// Cleanup stale group session invites.
+/// Cancels group_sessions with status 'forming' that are older than 5 minutes.
+/// Pending members get status 'timeout', pods are released.
+/// If no accepted members remain, the session is cancelled.
+pub async fn cleanup_stale_invites(state: &Arc<AppState>) {
+    // Find stale forming sessions (older than 5 minutes)
+    let stale_sessions: Vec<(String,)> = match sqlx::query_as(
+        "SELECT id FROM group_sessions
+         WHERE status = 'forming'
+           AND created_at < datetime('now', '-5 minutes')",
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::error!("[cleanup_stale_invites] DB error: {}", e);
+            return;
+        }
+    };
+
+    if stale_sessions.is_empty() {
+        return;
+    }
+
+    tracing::info!(
+        "[cleanup_stale_invites] Found {} stale forming sessions",
+        stale_sessions.len()
+    );
+
+    for (session_id,) in &stale_sessions {
+        // Timeout pending members
+        let _ = sqlx::query(
+            "UPDATE group_session_members SET status = 'timeout'
+             WHERE group_session_id = ? AND status = 'pending'",
+        )
+        .bind(session_id)
+        .execute(&state.db)
+        .await;
+
+        // Check if any members have accepted/validated status
+        let accepted_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM group_session_members
+             WHERE group_session_id = ? AND status IN ('accepted', 'validated')",
+        )
+        .bind(session_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+
+        if accepted_count == 0 {
+            // No accepted members — cancel the session
+            let _ = sqlx::query(
+                "UPDATE group_sessions SET status = 'cancelled' WHERE id = ?",
+            )
+            .bind(session_id)
+            .execute(&state.db)
+            .await;
+
+            tracing::info!(
+                "[cleanup_stale_invites] Cancelled stale session {} (no accepted members)",
+                session_id
+            );
+        } else {
+            tracing::info!(
+                "[cleanup_stale_invites] Session {} has {} accepted members — keeping active",
+                session_id,
+                accepted_count
+            );
+        }
+
+        // Release pods for timed-out members by clearing pod_id
+        let _ = sqlx::query(
+            "UPDATE group_session_members SET pod_id = NULL
+             WHERE group_session_id = ? AND status = 'timeout'",
+        )
+        .bind(session_id)
+        .execute(&state.db)
+        .await;
+    }
 }
