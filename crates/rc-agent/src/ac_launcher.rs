@@ -257,6 +257,9 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     // Step 2b: Set FFB strength
     set_ffb(&params.ffb)?;
 
+    // Step 2c: Post-write safety verification — refuse to launch if DAMAGE!=0 or grip!=100
+    verify_safety_settings()?;
+
     // Step 3: Launch AC
     // - Multiplayer: use Content Manager (handles server join handshake)
     // - Single-player: launch acs.exe directly (race.ini already written above)
@@ -483,14 +486,13 @@ fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
 
 fn write_assists_section(ini: &mut String, params: &AcLaunchParams) {
     let aids = params.aids.clone().unwrap_or_default();
-    let damage = params.conditions.as_ref().map(|c| c.damage).unwrap_or(0);
     let auto_shifter = if params.transmission == "auto" || params.transmission == "automatic" { 1 } else { 0 };
 
     let _ = writeln!(ini, "[ASSISTS]");
     let _ = writeln!(ini, "ABS={}", aids.abs);
     let _ = writeln!(ini, "AUTO_CLUTCH={}", aids.autoclutch);
     let _ = writeln!(ini, "AUTO_SHIFTER={}", auto_shifter);
-    let _ = writeln!(ini, "DAMAGE={}", damage);
+    let _ = writeln!(ini, "DAMAGE=0"); // SAFETY: always 0, never from params
     let _ = writeln!(ini, "IDEAL_LINE={}", aids.ideal_line);
     let _ = writeln!(ini, "STABILITY={}", aids.stability);
     let _ = writeln!(ini, "TRACTION_CONTROL={}", aids.tc);
@@ -766,15 +768,14 @@ fn write_assists_ini(params: &AcLaunchParams) -> Result<()> {
         .join("assists.ini");
 
     let aids = params.aids.clone().unwrap_or_default();
-    let damage = params.conditions.as_ref().map(|c| c.damage).unwrap_or(0);
     let auto_shifter = if params.transmission == "auto" || params.transmission == "automatic" { 1 } else { 0 };
 
+    // SAFETY: DAMAGE is always 0, never from params
     let content = format!(
-        "[ASSISTS]\r\nABS={abs}\r\nAUTO_CLUTCH={autoclutch}\r\nAUTO_SHIFTER={auto_shifter}\r\nDAMAGE={damage}\r\nIDEAL_LINE={ideal_line}\r\nSTABILITY={stability}\r\nTRACTION_CONTROL={tc}\r\nVISUAL_DAMAGE=0\r\nSLIPSTREAM=1\r\nTYRE_BLANKETS=1\r\nAUTO_BLIP=1\r\nFUEL_RATE=1\r\n",
+        "[ASSISTS]\r\nABS={abs}\r\nAUTO_CLUTCH={autoclutch}\r\nAUTO_SHIFTER={auto_shifter}\r\nDAMAGE=0\r\nIDEAL_LINE={ideal_line}\r\nSTABILITY={stability}\r\nTRACTION_CONTROL={tc}\r\nVISUAL_DAMAGE=0\r\nSLIPSTREAM=1\r\nTYRE_BLANKETS=1\r\nAUTO_BLIP=1\r\nFUEL_RATE=1\r\n",
         abs = aids.abs,
         autoclutch = aids.autoclutch,
         auto_shifter = auto_shifter,
-        damage = damage,
         ideal_line = aids.ideal_line,
         stability = aids.stability,
         tc = aids.tc,
@@ -786,10 +787,43 @@ fn write_assists_ini(params: &AcLaunchParams) -> Result<()> {
     let mut file = std::fs::File::create(&assists_ini_path)?;
     file.write_all(content.as_bytes())?;
     tracing::info!(
-        "Wrote assists.ini: DAMAGE={}, AUTO_SHIFTER={} (transmission={})",
-        damage, auto_shifter, params.transmission
+        "Wrote assists.ini: DAMAGE=0 (hardcoded), AUTO_SHIFTER={} (transmission={})",
+        auto_shifter, params.transmission
     );
     Ok(())
+}
+
+/// Post-write verification: check INI content string for safety-critical values.
+/// Returns Err if DAMAGE!=0 or SESSION_START!=100.
+/// Used by tests and by verify_safety_settings().
+fn verify_safety_content(content: &str) -> Result<()> {
+    let has_safe_damage = content.lines().any(|line| line.trim() == "DAMAGE=0");
+    if !has_safe_damage {
+        anyhow::bail!("SAFETY VIOLATION: race.ini DAMAGE is not 0 -- refusing to launch AC");
+    }
+
+    let has_safe_grip = content.lines().any(|line| line.trim() == "SESSION_START=100");
+    if !has_safe_grip {
+        anyhow::bail!("SAFETY VIOLATION: race.ini SESSION_START is not 100 -- refusing to launch AC");
+    }
+
+    tracing::info!("[safety] Post-write verification passed: DAMAGE=0, SESSION_START=100");
+    Ok(())
+}
+
+/// Post-write verification: re-read race.ini from disk and confirm safety-critical values.
+/// Returns Err if DAMAGE!=0 or SESSION_START!=100, refusing to launch.
+fn verify_safety_settings() -> Result<()> {
+    let race_ini_path = dirs_next::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+        .join("Assetto Corsa")
+        .join("cfg")
+        .join("race.ini");
+
+    let content = std::fs::read_to_string(&race_ini_path)
+        .map_err(|e| anyhow::anyhow!("Cannot read race.ini for safety verification: {}", e))?;
+
+    verify_safety_content(&content)
 }
 
 /// Find Content Manager executable on the pod.

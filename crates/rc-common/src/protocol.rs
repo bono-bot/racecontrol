@@ -55,6 +55,12 @@ pub enum AgentMessage {
 
     /// Agent reports AC shared memory STATUS change (Off/Replay/Live/Pause)
     GameStatusUpdate { pod_id: String, ac_status: AcStatus },
+
+    /// Agent reports FFB safety action completed (zeroed wheelbase torque)
+    FfbZeroed { pod_id: String },
+
+    /// Agent reports game crash detected (process disappeared unexpectedly)
+    GameCrashed { pod_id: String, billing_active: bool },
 }
 
 /// Messages sent from Core Server → Pod Agent
