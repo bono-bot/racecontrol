@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Kiosk URL Reliability
 status: active
-stopped_at: Phase 6 COMPLETE — all 4 DIAG requirements fulfilled
-last_updated: "2026-03-13"
-last_activity: 2026-03-13 — Phase 6 Diagnosis complete, Phase 7 unblocked
+stopped_at: Phase 7 Plan 01 COMPLETE — server pinned to .23, inventory done
+last_updated: "2026-03-14"
+last_activity: 2026-03-14 — Plan 07-01 executed, server at .23, Plan 07-02 next
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 17
+  total_plans: 4
+  completed_plans: 3
+  percent: 25
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** Every URL in the venue always works — staff kiosk, customer PIN grid, pod lock screens are permanently accessible with zero manual intervention.
-**Current focus:** Phase 6 COMPLETE — ready for Phase 7
+**Current focus:** Phase 7 Plan 01 COMPLETE — server pinned to .23, Plan 02 next
 
 ## Current Position
 
-Phase: 6 of 11 (Diagnosis) — COMPLETE
-Plan: 2 of 2 in current phase — ALL DONE
-Status: Phase 6 complete, Phase 7 ready to plan
-Last activity: 2026-03-13 — DIAG-02/04 collected via pod-agent on server
+Phase: 7 of 11 (Server-Side Pinning) — IN PROGRESS
+Plan: 1 of 2 in current phase — Plan 01 done, Plan 02 next
+Status: Server at .23, inventory complete, ready for deployment (Plan 02)
+Last activity: 2026-03-14 — DHCP reservation + server inventory via pod-agent
 
-Progress: [█░░░░░░░░░] 17%
+Progress: [██░░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2 (v2.0)
-- Average duration: ~12min
-- Total execution time: ~25min
+- Total plans completed: 3 (v2.0)
+- Average duration: ~13min
+- Total execution time: ~40min
 
 **By Phase:**
 
@@ -45,6 +45,7 @@ Progress: [█░░░░░░░░░] 17%
 |-------|-------|-------|----------|
 | 06-diagnosis P01 | 1 | 2 tasks, 1 file | 15min |
 | 06-diagnosis P02 | 1 | 2 tasks, 1 file | 10min |
+| 07-server-pinning P01 | 1 | 2 tasks, 0 files | 15min |
 
 ## Accumulated Context
 
@@ -62,6 +63,11 @@ Progress: [█░░░░░░░░░] 17%
 - [Phase 06-diagnosis]: Server HAS pod-agent on 8090 — MEMORY was wrong (no RDP needed for server management)
 - [Phase 06-diagnosis]: .23 is NOT the server — unknown device (phone/tablet) with locally administered MAC
 - [Phase 06-diagnosis]: java.exe on server port 45021 — unknown, not blocking, investigate if conflicts arise
+- [Phase 07-server-pinning]: Router is TP-Link EX220 (not Xiaomi as previously documented)
+- [Phase 07-server-pinning]: DHCP reservation created: MAC BC-FC-E7-2C-F2-CE → IP .23
+- [Phase 07-server-pinning]: Server inventory: No Node.js, no racecontrol.toml, no rc-core — all must be deployed in Plan 02
+- [Phase 07-server-pinning]: Server auto-login: ADMIN user, Session 2, Active — HKLM Run keys will fire at boot
+- [Phase 07-server-pinning]: C:\RacingPoint contains nginx + pod-agent only — clean target for deployment
 
 ### Pending Todos
 
@@ -72,10 +78,11 @@ None.
 - ~~Server MAC address needed~~ → RESOLVED: BC-FC-E7-2C-F2-CE
 - rc-core CORS may need `kiosk.rp` origin guard — verify during Phase 7 before going live
 - ~~Kiosk port confirmation~~ → RESOLVED: 3300 (not listening on server, free to use)
-- Server DHCP lease expires nightly (~01:05) — Phase 7 must pin IP ASAP
+- ~~Server DHCP lease expires nightly~~ → RESOLVED: DHCP reservation pinned to .23
+- Node.js must be installed on server before Plan 02 can deploy kiosk
 
 ## Session Continuity
 
-Last session: 2026-03-13
-Stopped at: Phase 6 COMPLETE — all 4 DIAG requirements fulfilled
+Last session: 2026-03-14
+Stopped at: Phase 7 Plan 01 COMPLETE — server at .23, Plan 02 next
 Resume file: None

@@ -61,7 +61,7 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Pin server IP to .23 via DHCP reservation and inventory server
+- [x] 07-01-PLAN.md — Pin server IP to .23 via DHCP reservation and inventory server
 - [ ] 07-02-PLAN.md — Build, deploy, and auto-start rc-core + kiosk on server with CORS fix and hosts entry
 
 ### Phase 8: Pod Lock Screen Hardening
@@ -121,7 +121,7 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 4. Deployment Pipeline Hardening | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 5. Blanking Screen Protocol | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 6. Diagnosis | v2.0 | 2/2 | Complete | 2026-03-13 |
-| 7. Server-Side Pinning | v2.0 | 0/2 | Not started | - |
+| 7. Server-Side Pinning | v2.0 | 1/2 | In progress | - |
 | 8. Pod Lock Screen Hardening | v2.0 | 0/TBD | Not started | - |
 | 9. Edge Browser Hardening | v2.0 | 0/TBD | Not started | - |
 | 10. Staff Dashboard Controls | v2.0 | 0/TBD | Not started | - |

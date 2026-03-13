@@ -1,10 +1,12 @@
 use axum::Router;
 use axum::routing::get;
 use axum::middleware as axum_mw;
+use axum::extract::State;
+use axum::response::IntoResponse;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::{CorsLayer, AllowOrigin};
-use axum::http::{HeaderValue, Method};
+use axum::http::{HeaderValue, Method, StatusCode};
 use tower_http::trace::TraceLayer;
 
 use rc_core::config::Config;
@@ -85,6 +87,67 @@ async fn jwt_error_to_401(
     }
 
     axum::response::Response::from_parts(parts, body)
+}
+
+/// Reverse proxy: forwards /kiosk* and /_next/* to the local Next.js kiosk on port 3300.
+/// This bypasses Windows Smart App Control which blocks node.exe from accepting network connections.
+async fn kiosk_proxy(
+    State(state): State<Arc<AppState>>,
+    req: axum::extract::Request,
+) -> impl IntoResponse {
+    let path_and_query = req.uri().path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+
+    // Only proxy kiosk-related paths
+    if !path_and_query.starts_with("/kiosk") && !path_and_query.starts_with("/_next") {
+        return (StatusCode::NOT_FOUND, "Not found").into_response();
+    }
+
+    let url = format!("http://127.0.0.1:3300{}", path_and_query);
+    let method = req.method().clone();
+
+    // Forward select headers (skip host, connection, etc.)
+    let mut proxy_headers = reqwest::header::HeaderMap::new();
+    for (key, val) in req.headers() {
+        let name = key.as_str();
+        if name != "host" && name != "connection" {
+            if let Ok(k) = reqwest::header::HeaderName::from_bytes(key.as_ref()) {
+                if let Ok(v) = reqwest::header::HeaderValue::from_bytes(val.as_bytes()) {
+                    proxy_headers.insert(k, v);
+                }
+            }
+        }
+    }
+
+    let body_bytes = match axum::body::to_bytes(req.into_body(), 10_000_000).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Body too large").into_response(),
+    };
+
+    let resp = state.http_client
+        .request(method, &url)
+        .headers(proxy_headers)
+        .body(body_bytes)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) => {
+            let status = StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let mut builder = axum::response::Response::builder().status(status);
+            for (key, val) in r.headers() {
+                builder = builder.header(key.as_str(), val.as_bytes());
+            }
+            let body = r.bytes().await.unwrap_or_default();
+            builder.body(axum::body::Body::from(body)).unwrap().into_response()
+        }
+        Err(e) => {
+            tracing::warn!("Kiosk proxy error: {e}");
+            (StatusCode::BAD_GATEWAY, "Kiosk unavailable").into_response()
+        }
+    }
 }
 
 #[tokio::main]
@@ -253,6 +316,8 @@ async fn main() -> anyhow::Result<()> {
                 "version": env!("CARGO_PKG_VERSION"),
             }))
         }))
+        // Reverse proxy: kiosk UI + Next.js assets → localhost:3300
+        .fallback(kiosk_proxy)
         .layer(axum_mw::from_fn(jwt_error_to_401))
         .layer(
             CorsLayer::new()
@@ -261,6 +326,7 @@ async fn main() -> anyhow::Result<()> {
                     origin.starts_with("http://localhost:")
                         || origin.starts_with("http://127.0.0.1:")
                         || origin.starts_with("http://192.168.31.")
+                        || origin.starts_with("http://kiosk.rp")
                         || origin.contains("racingpoint.cloud")
                 }))
                 .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE, Method::OPTIONS])
