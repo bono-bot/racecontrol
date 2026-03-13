@@ -51,6 +51,52 @@ pub async fn compute_dynamic_price(
     }
 }
 
+// ─── Session Cost Calculation ──────────────────────────────────────────────
+
+/// Result of per-minute session cost calculation.
+pub struct SessionCost {
+    /// Total cost in paise for the entire elapsed duration
+    pub total_paise: i64,
+    /// Current rate per minute in paise (2330 standard, 1500 value)
+    pub rate_per_min_paise: i64,
+    /// Current pricing tier name
+    pub tier_name: &'static str,
+    /// Minutes remaining until value tier kicks in. None if already on value tier.
+    pub minutes_to_next_tier: Option<u32>,
+}
+
+/// Compute session cost from elapsed seconds using retroactive two-tier pricing.
+///
+/// - Under 30 min: Rs.23.3/min (2330 paise/min) -- "standard" tier
+/// - 30 min and above: Rs.15/min (1500 paise/min) -- "value" tier (retroactive)
+///
+/// Retroactive means that when crossing 30 min, the cheaper rate applies to the
+/// ENTIRE session, not just the time after 30 min.
+pub fn compute_session_cost(elapsed_seconds: u32) -> SessionCost {
+    let elapsed_minutes = elapsed_seconds as f64 / 60.0;
+
+    if elapsed_seconds >= 1800 {
+        // 30+ minutes: value tier (retroactive)
+        let cost = (elapsed_minutes * 1500.0).round() as i64;
+        SessionCost {
+            total_paise: cost,
+            rate_per_min_paise: 1500,
+            tier_name: "value",
+            minutes_to_next_tier: None,
+        }
+    } else {
+        // Under 30 minutes: standard tier
+        let cost = (elapsed_minutes * 2330.0).round() as i64;
+        let minutes_to_value = 30u32.saturating_sub(elapsed_seconds / 60);
+        SessionCost {
+            total_paise: cost,
+            rate_per_min_paise: 2330,
+            tier_name: "standard",
+            minutes_to_next_tier: Some(minutes_to_value),
+        }
+    }
+}
+
 // ─── BillingTimer ───────────────────────────────────────────────────────────
 
 /// In-memory timer for an active billing session on a pod
@@ -61,6 +107,7 @@ pub struct BillingTimer {
     pub pod_id: String,
     pub pricing_tier_name: String,
     pub allocated_seconds: u32,
+    /// Legacy field: tracks driving time. In count-up model, mirrors elapsed_seconds for compat.
     pub driving_seconds: u32,
     pub status: BillingSessionStatus,
     pub driving_state: DrivingState,
@@ -83,6 +130,12 @@ pub struct BillingTimer {
     pub last_paused_at: Option<DateTime<Utc>>,
     /// Maximum pause duration before auto-end (10 minutes)
     pub max_pause_duration_secs: u32,
+    /// Elapsed billable seconds (counts UP from 0 when Active)
+    pub elapsed_seconds: u32,
+    /// Seconds spent in PausedGamePause state (counts UP, resets on resume)
+    pub pause_seconds: u32,
+    /// Hard maximum session length in seconds (default 10800 = 3 hours)
+    pub max_session_seconds: u32,
 }
 
 impl BillingTimer {
@@ -91,36 +144,55 @@ impl BillingTimer {
     }
 
     pub fn to_info(&self) -> BillingSessionInfo {
+        let cost = self.current_cost();
         BillingSessionInfo {
             id: self.session_id.clone(),
             driver_id: self.driver_id.clone(),
             driver_name: self.driver_name.clone(),
             pod_id: self.pod_id.clone(),
             pricing_tier_name: self.pricing_tier_name.clone(),
-            allocated_seconds: self.allocated_seconds,
-            driving_seconds: self.driving_seconds,
-            remaining_seconds: self.remaining_seconds(),
+            // Legacy fields: populated with sensible values for backward compat
+            allocated_seconds: self.max_session_seconds,
+            driving_seconds: self.elapsed_seconds,
+            remaining_seconds: self.max_session_seconds.saturating_sub(self.elapsed_seconds),
             status: self.status,
             driving_state: self.driving_state,
             started_at: self.started_at,
             split_count: self.split_count,
             split_duration_minutes: self.split_duration_minutes,
             current_split_number: self.current_split_number,
-            elapsed_seconds: None,
-            cost_paise: None,
-            rate_per_min_paise: None,
+            // New count-up fields
+            elapsed_seconds: Some(self.elapsed_seconds),
+            cost_paise: Some(cost.total_paise),
+            rate_per_min_paise: Some(cost.rate_per_min_paise),
         }
     }
 
-    /// Tick the timer by 1 second. Returns true if time has expired.
-    /// Timer always counts down for active sessions regardless of driving state.
+    /// Tick the timer by 1 second. Returns true if session should auto-end.
+    ///
+    /// - Active: increments elapsed_seconds + driving_seconds. Returns true on hard max cap.
+    /// - PausedGamePause: increments pause_seconds. Returns true on 10-min pause timeout.
+    /// - WaitingForGame: no increments, returns false.
+    /// - Other statuses: returns false (existing behavior).
     pub fn tick(&mut self) -> bool {
-        if self.status != BillingSessionStatus::Active {
-            return false;
+        match self.status {
+            BillingSessionStatus::Active => {
+                self.elapsed_seconds += 1;
+                self.driving_seconds += 1;
+                self.elapsed_seconds >= self.max_session_seconds
+            }
+            BillingSessionStatus::PausedGamePause => {
+                self.pause_seconds += 1;
+                self.pause_seconds >= 600 // 10-min pause timeout
+            }
+            BillingSessionStatus::WaitingForGame => false,
+            _ => false,
         }
+    }
 
-        self.driving_seconds += 1;
-        self.remaining_seconds() == 0
+    /// Get the current session cost based on elapsed seconds.
+    pub fn current_cost(&self) -> SessionCost {
+        compute_session_cost(self.elapsed_seconds)
     }
 }
 
@@ -651,19 +723,21 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&Utc));
 
+        let driving_secs = row.6 as u32;
+        let allocated_secs = row.5 as u32;
         let timer = BillingTimer {
             session_id: row.0.clone(),
             driver_id: row.1.clone(),
             driver_name: row.2.clone(),
             pod_id: row.3.clone(),
             pricing_tier_name: row.4.clone(),
-            allocated_seconds: row.5 as u32,
-            driving_seconds: row.6 as u32,
+            allocated_seconds: allocated_secs,
+            driving_seconds: driving_secs,
             status,
             driving_state: DrivingState::Idle, // Will be updated when agent reconnects
             started_at,
-            warning_5min_sent: (row.5 as u32).saturating_sub(row.6 as u32) <= 300,
-            warning_1min_sent: (row.5 as u32).saturating_sub(row.6 as u32) <= 60,
+            warning_5min_sent: allocated_secs.saturating_sub(driving_secs) <= 300,
+            warning_1min_sent: allocated_secs.saturating_sub(driving_secs) <= 60,
             offline_since: None,
             split_count: row.9.unwrap_or(1) as u32,
             split_duration_minutes: row.10.map(|m| m as u32),
@@ -672,6 +746,9 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             total_paused_seconds: 0,
             last_paused_at: None,
             max_pause_duration_secs: 600,
+            elapsed_seconds: driving_secs,
+            pause_seconds: 0,
+            max_session_seconds: allocated_secs,
         };
 
         tracing::info!(
@@ -930,6 +1007,9 @@ pub async fn start_billing_session(
         total_paused_seconds: 0,
         last_paused_at: None,
         max_pause_duration_secs: 600,
+        elapsed_seconds: 0,
+        pause_seconds: 0,
+        max_session_seconds: allocated_seconds,
     };
 
     let info = timer.to_info();
@@ -1616,6 +1696,9 @@ mod tests {
             total_paused_seconds: 0,
             last_paused_at: None,
             max_pause_duration_secs: 600,
+            elapsed_seconds: 0,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
         };
 
         // Should count when driving
@@ -1657,12 +1740,15 @@ mod tests {
             total_paused_seconds: 0,
             last_paused_at: None,
             max_pause_duration_secs: 600,
+            elapsed_seconds: 2,
+            pause_seconds: 0,
+            max_session_seconds: 3,
         };
 
         // One more tick should expire
         assert!(timer.tick());
         assert_eq!(timer.driving_seconds, 3);
-        assert_eq!(timer.remaining_seconds(), 0);
+        assert_eq!(timer.elapsed_seconds, 3);
     }
 
     #[test]
@@ -1688,6 +1774,9 @@ mod tests {
             total_paused_seconds: 0,
             last_paused_at: None,
             max_pause_duration_secs: 600,
+            elapsed_seconds: 1000,
+            pause_seconds: 0,
+            max_session_seconds: 3600,
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
@@ -1716,6 +1805,9 @@ mod tests {
             total_paused_seconds: 0,
             last_paused_at: None,
             max_pause_duration_secs: 600,
+            elapsed_seconds: 100,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
         };
 
         // Active tick — driving_seconds should increment
@@ -1754,6 +1846,9 @@ mod tests {
             total_paused_seconds: 120,
             last_paused_at: None,
             max_pause_duration_secs: 600,
+            elapsed_seconds: 500,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
         };
 
         // Should NOT be able to pause again (pause_count >= 3)
@@ -1785,5 +1880,301 @@ mod tests {
         let remaining_3 = allocated - driving_seconds_3;
         let refund_3 = (remaining_3 as f64 / allocated as f64 * wallet_debit_paise as f64) as i64;
         assert_eq!(refund_3, 0);
+    }
+
+    // ── Phase 03 Plan 01 Task 2: compute_session_cost + count-up timer ──────
+
+    #[test]
+    fn cost_zero_seconds() {
+        let cost = compute_session_cost(0);
+        assert_eq!(cost.total_paise, 0);
+        assert_eq!(cost.rate_per_min_paise, 2330);
+        assert_eq!(cost.tier_name, "standard");
+        assert_eq!(cost.minutes_to_next_tier, Some(30));
+    }
+
+    #[test]
+    fn cost_15_minutes_standard_tier() {
+        let cost = compute_session_cost(900); // 15 min
+        assert_eq!(cost.total_paise, 34950); // 15 * 2330
+        assert_eq!(cost.rate_per_min_paise, 2330);
+        assert_eq!(cost.tier_name, "standard");
+        assert_eq!(cost.minutes_to_next_tier, Some(15));
+    }
+
+    #[test]
+    fn cost_29_59_standard_tier() {
+        let cost = compute_session_cost(1799); // 29:59
+        assert_eq!(cost.tier_name, "standard");
+        assert_eq!(cost.rate_per_min_paise, 2330);
+        // At 29:59 (1799s), elapsed_seconds/60 = 29, so 30-29 = 1 minute to value tier
+        assert_eq!(cost.minutes_to_next_tier, Some(1));
+    }
+
+    #[test]
+    fn cost_30_minutes_retroactive_value_tier() {
+        let cost = compute_session_cost(1800); // exactly 30 min
+        assert_eq!(cost.total_paise, 45000); // 30 * 1500 -- retroactive!
+        assert_eq!(cost.rate_per_min_paise, 1500);
+        assert_eq!(cost.tier_name, "value");
+        assert_eq!(cost.minutes_to_next_tier, None);
+    }
+
+    #[test]
+    fn cost_45_minutes_value_tier() {
+        let cost = compute_session_cost(2700); // 45 min
+        assert_eq!(cost.total_paise, 67500); // 45 * 1500
+        assert_eq!(cost.rate_per_min_paise, 1500);
+        assert_eq!(cost.tier_name, "value");
+    }
+
+    #[test]
+    fn cost_3_hours_value_tier() {
+        let cost = compute_session_cost(10800); // 180 min
+        assert_eq!(cost.total_paise, 270000); // 180 * 1500
+        assert_eq!(cost.rate_per_min_paise, 1500);
+        assert_eq!(cost.tier_name, "value");
+        assert_eq!(cost.minutes_to_next_tier, None);
+    }
+
+    #[test]
+    fn timer_countup_active_increments_elapsed() {
+        let mut timer = BillingTimer {
+            session_id: "test-countup".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "per-minute".into(),
+            allocated_seconds: 10800,
+            driving_seconds: 0,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 0,
+            pause_seconds: 0,
+            max_session_seconds: 10800,
+        };
+
+        assert!(!timer.tick());
+        assert_eq!(timer.elapsed_seconds, 1);
+        assert_eq!(timer.driving_seconds, 1); // compat alias
+
+        assert!(!timer.tick());
+        assert_eq!(timer.elapsed_seconds, 2);
+    }
+
+    #[test]
+    fn timer_paused_game_pause_freezes_elapsed_increments_pause() {
+        let mut timer = BillingTimer {
+            session_id: "test-pause".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "per-minute".into(),
+            allocated_seconds: 10800,
+            driving_seconds: 100,
+            status: BillingSessionStatus::PausedGamePause,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 100,
+            pause_seconds: 0,
+            max_session_seconds: 10800,
+        };
+
+        assert!(!timer.tick());
+        assert_eq!(timer.elapsed_seconds, 100); // frozen
+        assert_eq!(timer.pause_seconds, 1);     // incrementing
+    }
+
+    #[test]
+    fn timer_hard_max_cap_triggers_end() {
+        let mut timer = BillingTimer {
+            session_id: "test-cap".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "per-minute".into(),
+            allocated_seconds: 10800,
+            driving_seconds: 10799,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 10799,
+            pause_seconds: 0,
+            max_session_seconds: 10800,
+        };
+
+        assert!(timer.tick()); // Should return true (elapsed == max)
+        assert_eq!(timer.elapsed_seconds, 10800);
+    }
+
+    #[test]
+    fn timer_pause_timeout_triggers_end() {
+        let mut timer = BillingTimer {
+            session_id: "test-timeout".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "per-minute".into(),
+            allocated_seconds: 10800,
+            driving_seconds: 500,
+            status: BillingSessionStatus::PausedGamePause,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 500,
+            pause_seconds: 599,
+            max_session_seconds: 10800,
+        };
+
+        // One more tick should hit 600s pause timeout
+        assert!(timer.tick());
+        assert_eq!(timer.pause_seconds, 600);
+        assert_eq!(timer.elapsed_seconds, 500); // Still frozen
+    }
+
+    #[test]
+    fn timer_current_cost_returns_session_cost() {
+        let timer = BillingTimer {
+            session_id: "test-cost".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "per-minute".into(),
+            allocated_seconds: 10800,
+            driving_seconds: 900,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 900,
+            pause_seconds: 0,
+            max_session_seconds: 10800,
+        };
+
+        let cost = timer.current_cost();
+        assert_eq!(cost.total_paise, 34950);
+        assert_eq!(cost.rate_per_min_paise, 2330);
+        assert_eq!(cost.tier_name, "standard");
+    }
+
+    #[test]
+    fn timer_to_info_populates_optional_fields() {
+        let timer = BillingTimer {
+            session_id: "test-info".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "per-minute".into(),
+            allocated_seconds: 10800,
+            driving_seconds: 900,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 900,
+            pause_seconds: 0,
+            max_session_seconds: 10800,
+        };
+
+        let info = timer.to_info();
+        assert_eq!(info.elapsed_seconds, Some(900));
+        assert_eq!(info.cost_paise, Some(34950));
+        assert_eq!(info.rate_per_min_paise, Some(2330));
+        // Legacy fields still populated
+        assert_eq!(info.driving_seconds, 900);
+        assert_eq!(info.allocated_seconds, 10800);
+        assert_eq!(info.remaining_seconds, 9900);
+    }
+
+    #[test]
+    fn timer_waiting_for_game_no_increments() {
+        let mut timer = BillingTimer {
+            session_id: "test-waiting".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "per-minute".into(),
+            allocated_seconds: 10800,
+            driving_seconds: 0,
+            status: BillingSessionStatus::WaitingForGame,
+            driving_state: DrivingState::Idle,
+            started_at: None,
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 0,
+            pause_seconds: 0,
+            max_session_seconds: 10800,
+        };
+
+        assert!(!timer.tick());
+        assert_eq!(timer.elapsed_seconds, 0);
+        assert_eq!(timer.driving_seconds, 0);
+        assert_eq!(timer.pause_seconds, 0);
     }
 }
