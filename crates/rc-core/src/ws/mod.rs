@@ -7,7 +7,9 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc;
+use tokio::time::{interval, Duration, MissedTickBehavior};
 
 use crate::ac_camera;
 use crate::ac_server;
@@ -50,12 +52,58 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<CoreToAgentMessage>(64);
     let mut registered_pod_id: Option<String> = None;
 
-    // Spawn task to forward commands from mpsc to WebSocket sender
+    // Shared state for pending application-level ping measurement
+    // send_task writes (id, Instant) when it sends a Ping; receive loop reads+clears it on Pong
+    static PING_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let pending_ping: Arc<tokio::sync::Mutex<Option<(u64, Instant)>>> = Arc::new(tokio::sync::Mutex::new(None));
+    let pending_ping_send = pending_ping.clone();
+
+    // Spawn task to forward commands from mpsc to WebSocket sender.
+    // Also sends WS-level keepalive ping every 15s (CONN-01) and
+    // an app-level measurement Ping every 30s (PERF-03).
     let send_task = tokio::spawn(async move {
-        while let Some(cmd) = cmd_rx.recv().await {
-            if let Ok(json) = serde_json::to_string(&cmd) {
-                if ws_sender.send(Message::Text(json.into())).await.is_err() {
-                    break;
+        let mut ping_interval = interval(Duration::from_secs(15));
+        ping_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        let mut measure_interval = interval(Duration::from_secs(30));
+        measure_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        // Consume the immediate first tick so the first real tick fires after the full interval
+        ping_interval.tick().await;
+        measure_interval.tick().await;
+
+        loop {
+            tokio::select! {
+                cmd = cmd_rx.recv() => {
+                    match cmd {
+                        Some(cmd) => {
+                            if let Ok(json) = serde_json::to_string(&cmd) {
+                                if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        None => break, // Channel closed — handle_agent is exiting
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    // WS-level keepalive ping to prevent TCP idle timeout during CPU spikes
+                    tracing::trace!("WS ping sent (conn_id={})", conn_id);
+                    if ws_sender.send(Message::Ping(vec![].into())).await.is_err() {
+                        break;
+                    }
+                }
+                _ = measure_interval.tick() => {
+                    // Application-level ping for round-trip latency measurement
+                    let ping_id = PING_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let msg = CoreToAgentMessage::Ping { id: ping_id };
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        // Record send time before sending
+                        *pending_ping_send.lock().await = Some((ping_id, Instant::now()));
+                        if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -298,6 +346,34 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             tracing::info!("PIN entered on pod {}", pod_id);
                             log_pod_activity(&state, pod_id, "auth", "PIN Entered", "", "agent");
                             auth::handle_pin_entered(&state, pod_id.clone(), pin.clone()).await;
+                        }
+                        AgentMessage::Pong { id } => {
+                            // Application-level round-trip measurement response
+                            let mut guard = pending_ping.lock().await;
+                            if let Some((pending_id, sent_at)) = guard.take() {
+                                if pending_id == *id {
+                                    let elapsed_ms = sent_at.elapsed().as_millis();
+                                    let fallback_label = format!("conn_{}", conn_id);
+                                    let label = registered_pod_id.as_deref().unwrap_or(&fallback_label);
+                                    if elapsed_ms > 200 {
+                                        tracing::warn!(
+                                            "WS round-trip slow: {} took {}ms (threshold 200ms)",
+                                            label, elapsed_ms
+                                        );
+                                    } else {
+                                        tracing::debug!(
+                                            "WS round-trip: {}ms ({})",
+                                            elapsed_ms, label
+                                        );
+                                    }
+                                } else {
+                                    // Stale pong (id mismatch) — discard
+                                    tracing::debug!(
+                                        "Stale pong id={} (expected {}), discarding",
+                                        id, pending_id
+                                    );
+                                }
+                            }
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
