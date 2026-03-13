@@ -258,6 +258,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/audit-log", get(query_audit_log))
         // Deploy
         .route("/deploy/status", get(deploy_status))
+        .route("/deploy/rolling", post(deploy_rolling_handler))
         .route("/deploy/:pod_id", post(deploy_single_pod))
 }
 
@@ -9722,4 +9723,48 @@ async fn deploy_status(State(state): State<Arc<AppState>>) -> Json<Value> {
         })
         .collect();
     Json(json!({ "pods": statuses }))
+}
+
+/// POST /api/deploy/rolling — Start a canary-first rolling deploy to all pods.
+/// Returns 202 Accepted immediately; rolling deploy runs as background task.
+/// Returns 409 Conflict if any deploy is already active.
+///
+/// Body: { "binary_url": "http://192.168.31.27:9998/rc-agent.exe" }
+async fn deploy_rolling_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DeployRequest>,
+) -> (axum::http::StatusCode, Json<Value>) {
+    // Reject if any deploy is already in progress (guards against double-trigger)
+    {
+        let deploy_states = state.pod_deploy_states.read().await;
+        let any_active = deploy_states
+            .values()
+            .any(|s| s.is_active());
+        if any_active {
+            return (
+                axum::http::StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "A deploy is already in progress on one or more pods",
+                    "hint": "Check GET /api/deploy/status for current state"
+                })),
+            );
+        }
+    }
+
+    let state_clone = Arc::clone(&state);
+    let binary_url = req.binary_url.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::deploy::deploy_rolling(state_clone, binary_url).await {
+            tracing::error!("Rolling deploy failed: {}", e);
+        }
+    });
+
+    (
+        axum::http::StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "rolling_deploy_started",
+            "canary": "pod_8",
+            "binary_url": req.binary_url
+        })),
+    )
 }

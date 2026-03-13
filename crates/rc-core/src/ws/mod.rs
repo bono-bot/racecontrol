@@ -637,41 +637,18 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                             }
                         }
                         DashboardCommand::DeployRolling { binary_url } => {
-                            // Rolling deploy: spawn individual deploys for all known pods
-                            // (canary on Pod 8 first, then the rest in order).
-                            // The rolling coordinator is implemented in the API route;
-                            // the WS command path provides a secondary trigger.
-                            let pod_entries: Vec<(String, String)> = {
-                                let pods = cmd_state.pods.read().await;
-                                let mut entries: Vec<(String, String)> =
-                                    pods.iter()
-                                        .map(|(id, p)| (id.clone(), p.ip_address.clone()))
-                                        .collect();
-                                // Sort: pod_8 canary first, then ascending
-                                entries.sort_by_key(|(id, _)| {
-                                    if id == "pod_8" { 0u32 } else {
-                                        id.strip_prefix("pod_")
-                                            .and_then(|n| n.parse::<u32>().ok())
-                                            .unwrap_or(99)
-                                    }
-                                });
-                                entries
-                            };
-                            for (pod_id, pod_ip) in pod_entries {
-                                let deploy_state = Arc::clone(&cmd_state);
-                                let deploy_url = binary_url.clone();
-                                tokio::spawn(async move {
-                                    crate::deploy::deploy_pod(
-                                        deploy_state,
-                                        pod_id,
-                                        pod_ip,
-                                        deploy_url,
-                                    )
-                                    .await;
-                                });
-                                // Brief delay between pods to avoid concurrent disk/network load
-                                tokio::time::sleep(Duration::from_secs(5)).await;
-                            }
+                            // Rolling deploy via kiosk WebSocket command.
+                            // Delegates to deploy_rolling() which handles:
+                            //   - Canary-first (pod_8), halt on canary failure
+                            //   - WaitingSession for pods with active billing
+                            //   - Session-end hook triggers deferred deploys
+                            let deploy_state = Arc::clone(&cmd_state);
+                            let deploy_url = binary_url.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = crate::deploy::deploy_rolling(deploy_state, deploy_url).await {
+                                    tracing::error!("Rolling deploy via dashboard failed: {}", e);
+                                }
+                            });
                         }
                         DashboardCommand::CancelDeploy { pod_id } => {
                             // Mark the deploy state as Failed to signal cancellation.
