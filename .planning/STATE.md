@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Kiosk URL Reliability
 status: active
-stopped_at: Phase 7 Plan 01 COMPLETE — server pinned to .23, inventory done
+stopped_at: Phase 7 Plan 02 COMPLETE — rc-core proxy committed, deployment pending physical server access
 last_updated: "2026-03-14"
-last_activity: 2026-03-14 — Plan 07-01 executed, server at .23, Plan 07-02 next
+last_activity: 2026-03-14 — rc-core reverse proxy committed, binary staged, server deploy blocked by SAC
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 25
+  completed_plans: 4
+  percent: 50
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** Every URL in the venue always works — staff kiosk, customer PIN grid, pod lock screens are permanently accessible with zero manual intervention.
-**Current focus:** Phase 7 Plan 01 COMPLETE — server pinned to .23, Plan 02 next
+**Current focus:** Phase 7 COMPLETE (code) — server deployment pending physical access, Phase 8 next after deploy
 
 ## Current Position
 
-Phase: 7 of 11 (Server-Side Pinning) — IN PROGRESS
-Plan: 1 of 2 in current phase — Plan 01 done, Plan 02 next
-Status: Server at .23, inventory complete, ready for deployment (Plan 02)
-Last activity: 2026-03-14 — DHCP reservation + server inventory via pod-agent
+Phase: 7 of 11 (Server-Side Pinning) — Code complete, deployment pending
+Plan: 2 of 2 in current phase — BOTH DONE
+Status: rc-core proxy code committed (ea9a728, 3db7403), binary staged at deploy-staging/racecontrol.exe. Server deployment blocked by Windows SAC — requires physical access to .23.
+Last activity: 2026-03-14 — rc-core reverse proxy + CORS fix committed, 21MB binary staged
 
-Progress: [██░░░░░░░░] 25%
+Progress: [███░░░░░░░] 35%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3 (v2.0)
-- Average duration: ~13min
-- Total execution time: ~40min
+- Total plans completed: 4 (v2.0)
+- Average duration: ~20min
+- Total execution time: ~80min
 
 **By Phase:**
 
@@ -46,6 +46,7 @@ Progress: [██░░░░░░░░] 25%
 | 06-diagnosis P01 | 1 | 2 tasks, 1 file | 15min |
 | 06-diagnosis P02 | 1 | 2 tasks, 1 file | 10min |
 | 07-server-pinning P01 | 1 | 2 tasks, 0 files | 15min |
+| 07-server-pinning P02 | 1 | 2 tasks, 1 file | 30min |
 
 ## Accumulated Context
 
@@ -68,6 +69,9 @@ Progress: [██░░░░░░░░] 25%
 - [Phase 07-server-pinning]: Server inventory: No Node.js, no racecontrol.toml, no rc-core — all must be deployed in Plan 02
 - [Phase 07-server-pinning]: Server auto-login: ADMIN user, Session 2, Active — HKLM Run keys will fire at boot
 - [Phase 07-server-pinning]: C:\RacingPoint contains nginx + pod-agent only — clean target for deployment
+- [Phase 07-server-pinning P02]: Windows SAC blocks node.exe from accepting network connections — route kiosk traffic through rc-core Axum reverse proxy instead of direct port 3300 access
+- [Phase 07-server-pinning P02]: SAC also blocks pod-agent/WinRM on server — physical access required for server deployment; code committed and binary staged at deploy-staging
+- [Phase 07-server-pinning P02]: Kiosk proxy paths: /kiosk* and /_next/* forwarded to localhost:3300; access point is kiosk.rp:8080/kiosk not :3300
 
 ### Pending Todos
 
@@ -76,13 +80,14 @@ None.
 ### Blockers/Concerns
 
 - ~~Server MAC address needed~~ → RESOLVED: BC-FC-E7-2C-F2-CE
-- rc-core CORS may need `kiosk.rp` origin guard — verify during Phase 7 before going live
+- ~~rc-core CORS may need `kiosk.rp` origin guard~~ → RESOLVED: added in ea9a728
 - ~~Kiosk port confirmation~~ → RESOLVED: 3300 (not listening on server, free to use)
 - ~~Server DHCP lease expires nightly~~ → RESOLVED: DHCP reservation pinned to .23
-- Node.js must be installed on server before Plan 02 can deploy kiosk
+- ~~Node.js must be installed on server~~ → RESOLVED: kiosk runs through rc-core proxy, no direct node.exe network access needed
+- **OPEN: Server deployment requires physical access** — SAC blocks WinRM/pod-agent remote exec. Steps documented in 07-02-SUMMARY.md "User Setup Required". Binary staged at deploy-staging/racecontrol.exe (21MB).
 
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Phase 7 Plan 01 COMPLETE — server at .23, Plan 02 next
+Stopped at: Phase 7 Plan 02 COMPLETE — rc-core proxy committed, deployment pending physical server access
 Resume file: None

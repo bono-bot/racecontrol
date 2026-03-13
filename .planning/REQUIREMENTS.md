@@ -14,10 +14,10 @@
 
 ### Staff Kiosk Hosting
 
-- [ ] **HOST-01**: Staff kiosk runs as a production Next.js build on Server (.23) — no dev server
-- [ ] **HOST-02**: Staff kiosk auto-starts on Server (.23) boot via HKLM Run key (Session 1)
+- [x] **HOST-01**: Staff kiosk runs as a production Next.js build on Server (.23) — no dev server
+- [x] **HOST-02**: Staff kiosk auto-starts on Server (.23) boot via HKLM Run key (Session 1)
 - [ ] **HOST-03**: Server (.23) IP is pinned via DHCP reservation at the router so it never drifts
-- [ ] **HOST-04**: Staff can access the kiosk at `kiosk.rp` from any device on the LAN via hosts file entries
+- [x] **HOST-04**: Staff can access the kiosk at `kiosk.rp` from any device on the LAN via hosts file entries
 
 ### Pod Lock Screen Resilience
 
@@ -85,10 +85,10 @@
 | DIAG-02 | Phase 6 | Pending |
 | DIAG-03 | Phase 6 | Complete |
 | DIAG-04 | Phase 6 | Pending |
-| HOST-01 | Phase 7 | Pending |
-| HOST-02 | Phase 7 | Pending |
+| HOST-01 | Phase 7 | Complete |
+| HOST-02 | Phase 7 | Complete |
 | HOST-03 | Phase 7 | Pending |
-| HOST-04 | Phase 7 | Pending |
+| HOST-04 | Phase 7 | Complete |
 | LOCK-01 | Phase 8 | Pending |
 | LOCK-02 | Phase 8 | Pending |
 | LOCK-03 | Phase 8 | Pending |

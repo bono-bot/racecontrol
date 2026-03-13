@@ -26,7 +26,7 @@ Phases: State Wiring & Config Hardening → Watchdog Hardening → WebSocket Res
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 6: Diagnosis** - Confirm actual URL failure modes before touching anything
-- [ ] **Phase 7: Server-Side Pinning** - Lock server IP and auto-start kiosk as production build
+- [x] **Phase 7: Server-Side Pinning** - Lock server IP and auto-start kiosk as production build (completed 2026-03-13)
 - [ ] **Phase 8: Pod Lock Screen Hardening** - Rust compile + deploy: readiness probe + branded waiting state
 - [ ] **Phase 9: Edge Browser Hardening** - Disable auto-update, StartupBoost, BackgroundMode on all pods
 - [ ] **Phase 10: Staff Dashboard Controls** - Power management and kiosk lockdown controls in the UI
@@ -58,11 +58,11 @@ Plans:
   2. After a full server reboot, the kiosk is accessible at `http://kiosk.rp:3300/kiosk` within 60 seconds — no manual start needed
   3. Server IP address remains .23 across router restarts and lease renewals (DHCP reservation confirmed in router admin)
   4. The kiosk runs from a production Next.js build (`next build` output), not the development server
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 07-01-PLAN.md — Pin server IP to .23 via DHCP reservation and inventory server
-- [ ] 07-02-PLAN.md — Build, deploy, and auto-start rc-core + kiosk on server with CORS fix and hosts entry
+- [x] 07-02-PLAN.md — rc-core reverse proxy + CORS fix committed; server deployment pending physical access to .23
 
 ### Phase 8: Pod Lock Screen Hardening
 **Goal**: Pod lock screens never show a browser error page — pods display a branded waiting state on startup and recover gracefully when rc-agent restarts
@@ -121,7 +121,7 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 4. Deployment Pipeline Hardening | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 5. Blanking Screen Protocol | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 6. Diagnosis | v2.0 | 2/2 | Complete | 2026-03-13 |
-| 7. Server-Side Pinning | v2.0 | 1/2 | In progress | - |
+| 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
 | 8. Pod Lock Screen Hardening | v2.0 | 0/TBD | Not started | - |
 | 9. Edge Browser Hardening | v2.0 | 0/TBD | Not started | - |
 | 10. Staff Dashboard Controls | v2.0 | 0/TBD | Not started | - |
