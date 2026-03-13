@@ -601,6 +601,52 @@ pub struct AiDebugSuggestion {
     pub created_at: DateTime<Utc>,
 }
 
+// ─── Deploy Types ────────────────────────────────────────────────────────────
+
+/// Deploy lifecycle state for a single pod.
+/// Tracks progress through the kill->verify->download->start->verify sequence.
+/// Used by the deploy executor (rc-core) and displayed in the kiosk dashboard.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state", content = "detail")]
+#[serde(rename_all = "snake_case")]
+pub enum DeployState {
+    /// No deploy in progress
+    Idle,
+    /// Sending taskkill to rc-agent.exe
+    Killing,
+    /// Polling for process to exit after kill signal
+    WaitingDead,
+    /// Downloading new binary from HTTP server
+    Downloading {
+        progress_pct: u8,
+    },
+    /// Verifying downloaded binary size meets minimum threshold
+    SizeCheck,
+    /// Starting new rc-agent.exe process
+    Starting,
+    /// Waiting for process alive + WebSocket + lock screen health
+    VerifyingHealth,
+    /// Deploy completed successfully
+    Complete,
+    /// Deploy failed at some step
+    Failed {
+        reason: String,
+    },
+}
+
+impl Default for DeployState {
+    fn default() -> Self {
+        DeployState::Idle
+    }
+}
+
+impl DeployState {
+    /// Returns true if a deploy is actively in progress (not idle, complete, or failed).
+    pub fn is_active(&self) -> bool {
+        !matches!(self, DeployState::Idle | DeployState::Complete | DeployState::Failed { .. })
+    }
+}
+
 // ─── Friends & Multiplayer Types ────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -646,4 +692,112 @@ pub struct GroupMemberInfo {
     pub status: String, // pending/accepted/declined/validated/completed/cancelled
     pub pod_id: Option<String>,
     pub pod_number: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn deploy_state_idle_roundtrip() {
+        let state = DeployState::Idle;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("idle"));
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::Idle);
+    }
+
+    #[test]
+    fn deploy_state_killing_roundtrip() {
+        let state = DeployState::Killing;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("killing"));
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::Killing);
+    }
+
+    #[test]
+    fn deploy_state_waiting_dead_roundtrip() {
+        let state = DeployState::WaitingDead;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("waiting_dead"));
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::WaitingDead);
+    }
+
+    #[test]
+    fn deploy_state_downloading_roundtrip() {
+        let state = DeployState::Downloading { progress_pct: 50 };
+        let json = serde_json::to_string(&state).unwrap();
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::Downloading { progress_pct: 50 });
+    }
+
+    #[test]
+    fn deploy_state_size_check_roundtrip() {
+        let state = DeployState::SizeCheck;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("size_check"));
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::SizeCheck);
+    }
+
+    #[test]
+    fn deploy_state_starting_roundtrip() {
+        let state = DeployState::Starting;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("starting"));
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::Starting);
+    }
+
+    #[test]
+    fn deploy_state_verifying_health_roundtrip() {
+        let state = DeployState::VerifyingHealth;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("verifying_health"));
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::VerifyingHealth);
+    }
+
+    #[test]
+    fn deploy_state_complete_roundtrip() {
+        let state = DeployState::Complete;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("complete"));
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::Complete);
+    }
+
+    #[test]
+    fn deploy_state_failed_roundtrip() {
+        let state = DeployState::Failed { reason: "binary too small".to_string() };
+        let json = serde_json::to_string(&state).unwrap();
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::Failed { reason: "binary too small".to_string() });
+    }
+
+    #[test]
+    fn deploy_state_default_is_idle() {
+        let state = DeployState::default();
+        assert_eq!(state, DeployState::Idle);
+    }
+
+    #[test]
+    fn deploy_state_is_active_false_for_idle_complete_failed() {
+        assert!(!DeployState::Idle.is_active());
+        assert!(!DeployState::Complete.is_active());
+        assert!(!DeployState::Failed { reason: "x".into() }.is_active());
+    }
+
+    #[test]
+    fn deploy_state_is_active_true_for_in_progress_states() {
+        assert!(DeployState::Killing.is_active());
+        assert!(DeployState::WaitingDead.is_active());
+        assert!(DeployState::Downloading { progress_pct: 0 }.is_active());
+        assert!(DeployState::SizeCheck.is_active());
+        assert!(DeployState::Starting.is_active());
+        assert!(DeployState::VerifyingHealth.is_active());
+    }
 }
