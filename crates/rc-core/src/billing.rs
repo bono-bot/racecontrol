@@ -376,7 +376,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut events_to_broadcast = Vec::new();
     let mut expired_sessions = Vec::new();
     let mut warnings = Vec::new();
-    let mut agent_ticks: Vec<(String, u32, u32, String)> = Vec::new();
+    let mut agent_ticks: Vec<(String, u32, u32, String, Option<u32>, Option<i64>, Option<i64>, Option<bool>, Option<u32>)> = Vec::new();
     let mut pause_timeout_end: Vec<(String, String, u32, String)> = Vec::new();
     let mut new_pauses: Vec<(String, String, u32)> = Vec::new(); // pod_id, session_id, pause_count
 
@@ -404,6 +404,37 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             } else {
                 // Broadcast paused tick to dashboards (so they see the session is paused)
                 events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
+            }
+            continue;
+        }
+
+        // Handle PausedGamePause — send paused tick to agent (overlay shows PAUSED badge)
+        if timer.status == BillingSessionStatus::PausedGamePause {
+            timer.pause_seconds += 1;
+            timer.total_paused_seconds += 1;
+
+            // Check 10-min pause timeout
+            if timer.pause_seconds > timer.max_pause_duration_secs {
+                tracing::info!(
+                    "Game-pause timeout for session {} on pod {} ({}s paused) — auto-ending",
+                    timer.session_id, pod_id, timer.pause_seconds
+                );
+                pause_timeout_end.push((
+                    pod_id.clone(),
+                    timer.session_id.clone(),
+                    timer.driving_seconds,
+                    timer.driver_id.clone(),
+                ));
+            } else {
+                let cost = timer.current_cost();
+                events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
+                agent_ticks.push((
+                    pod_id.clone(), timer.remaining_seconds(), timer.allocated_seconds,
+                    timer.driver_name.clone(),
+                    Some(timer.elapsed_seconds), Some(cost.total_paise),
+                    Some(cost.rate_per_min_paise), Some(true),
+                    cost.minutes_to_next_tier,
+                ));
             }
             continue;
         }
@@ -466,8 +497,14 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         }
 
         // Broadcast tick to dashboards and agents
+        let cost = timer.current_cost();
         events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
-        agent_ticks.push((pod_id.clone(), remaining, timer.allocated_seconds, timer.driver_name.clone()));
+        agent_ticks.push((
+            pod_id.clone(), remaining, timer.allocated_seconds, timer.driver_name.clone(),
+            Some(timer.elapsed_seconds), Some(cost.total_paise),
+            Some(cost.rate_per_min_paise), Some(false),
+            cost.minutes_to_next_tier,
+        ));
 
         if expired {
             timer.status = BillingSessionStatus::Completed;
@@ -507,20 +544,20 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         let _ = state.dashboard_tx.send(event);
     }
 
-    // Send billing ticks to agents (for pod lock screen timer)
+    // Send billing ticks to agents (for pod lock screen timer + overlay taxi meter)
     if !agent_ticks.is_empty() {
         let agent_senders = state.agent_senders.read().await;
-        for (pod_id, remaining, allocated, driver_name) in agent_ticks {
+        for (pod_id, remaining, allocated, driver_name, elapsed, cost, rate, paused, min_to_tier) in agent_ticks {
             if let Some(sender) = agent_senders.get(&pod_id) {
                 let _ = sender.send(CoreToAgentMessage::BillingTick {
                     remaining_seconds: remaining,
                     allocated_seconds: allocated,
                     driver_name,
-                    elapsed_seconds: None,
-                    cost_paise: None,
-                    rate_per_min_paise: None,
-                    paused: None,
-                    minutes_to_value_tier: None,
+                    elapsed_seconds: elapsed,
+                    cost_paise: cost,
+                    rate_per_min_paise: rate,
+                    paused,
+                    minutes_to_value_tier: min_to_tier,
                 }).await;
             }
         }
