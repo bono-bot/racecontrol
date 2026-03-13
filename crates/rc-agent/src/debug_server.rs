@@ -85,6 +85,7 @@ async fn serve_status(
         LockScreenState::SessionSummary { .. } => "session_summary",
         LockScreenState::BetweenSessions { .. } => "between_sessions",
         LockScreenState::AwaitingAssistance { .. } => "awaiting_assistance",
+        LockScreenState::LaunchSplash { .. } => "launch_splash",
         LockScreenState::ScreenBlanked => "screen_blanked",
         LockScreenState::Disconnected => "disconnected",
         LockScreenState::ConfigError { .. } => "config_error",
