@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     AcLanSessionConfig, AcPresetSummary, AcServerInfo, AcStatus,
-    AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DeployState, DrivingState, GameLaunchInfo,
-    GroupSessionInfo, Leaderboard, LapData, PodActivityEntry, PodInfo, SessionInfo, SimType,
-    TelemetryFrame,
+    AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, ContentManifest, DeployState, DrivingState,
+    GameLaunchInfo, GroupSessionInfo, Leaderboard, LapData, PodActivityEntry, PodInfo, SessionInfo,
+    SimType, TelemetryFrame,
 };
 
 /// Summary of deploy state for a single pod — used in DeployStatusList
@@ -61,6 +61,9 @@ pub enum AgentMessage {
 
     /// Agent reports game crash detected (process disappeared unexpectedly)
     GameCrashed { pod_id: String, billing_active: bool },
+
+    /// Pod reports installed AC content at startup/reconnect
+    ContentManifest(ContentManifest),
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -1089,6 +1092,182 @@ mod tests {
             assert!(billing_active);
         } else {
             panic!("Wrong variant after roundtrip: expected GameCrashed");
+        }
+    }
+
+    // ── Phase 05 Plan 01: ContentManifest serde tests ────────────────────
+
+    #[test]
+    fn test_content_manifest_roundtrip() {
+        use crate::types::{ContentManifest, CarManifestEntry, TrackManifestEntry, TrackConfigManifest};
+
+        let manifest = ContentManifest {
+            cars: vec![
+                CarManifestEntry { id: "ks_ferrari_488_gt3".to_string() },
+                CarManifestEntry { id: "ks_porsche_911_gt3_r".to_string() },
+            ],
+            tracks: vec![
+                TrackManifestEntry {
+                    id: "monza".to_string(),
+                    configs: vec![TrackConfigManifest {
+                        config: "".to_string(),
+                        has_ai: true,
+                        pit_count: Some(29),
+                    }],
+                },
+                TrackManifestEntry {
+                    id: "spa".to_string(),
+                    configs: vec![
+                        TrackConfigManifest {
+                            config: "gp".to_string(),
+                            has_ai: true,
+                            pit_count: Some(40),
+                        },
+                        TrackConfigManifest {
+                            config: "drift".to_string(),
+                            has_ai: false,
+                            pit_count: None,
+                        },
+                    ],
+                },
+            ],
+        };
+        let json = serde_json::to_string(&manifest).unwrap();
+        let parsed: ContentManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.cars.len(), 2);
+        assert_eq!(parsed.cars[0].id, "ks_ferrari_488_gt3");
+        assert_eq!(parsed.cars[1].id, "ks_porsche_911_gt3_r");
+        assert_eq!(parsed.tracks.len(), 2);
+        assert_eq!(parsed.tracks[0].id, "monza");
+        assert_eq!(parsed.tracks[0].configs.len(), 1);
+        assert_eq!(parsed.tracks[0].configs[0].config, "");
+        assert!(parsed.tracks[0].configs[0].has_ai);
+        assert_eq!(parsed.tracks[0].configs[0].pit_count, Some(29));
+        assert_eq!(parsed.tracks[1].id, "spa");
+        assert_eq!(parsed.tracks[1].configs.len(), 2);
+    }
+
+    #[test]
+    fn test_content_manifest_agent_message_wire_format() {
+        use crate::types::{ContentManifest, CarManifestEntry, TrackManifestEntry, TrackConfigManifest};
+
+        let manifest = ContentManifest {
+            cars: vec![CarManifestEntry { id: "bmw_z4_gt3".to_string() }],
+            tracks: vec![TrackManifestEntry {
+                id: "imola".to_string(),
+                configs: vec![TrackConfigManifest {
+                    config: "".to_string(),
+                    has_ai: true,
+                    pit_count: Some(24),
+                }],
+            }],
+        };
+        let msg = AgentMessage::ContentManifest(manifest);
+        let json = serde_json::to_string(&msg).unwrap();
+        // Verify wire format: {"type":"content_manifest","data":{...}}
+        assert!(json.contains("\"type\":\"content_manifest\""), "Expected type=content_manifest in: {}", json);
+        assert!(json.contains("\"data\":{"), "Expected data field in: {}", json);
+        // Roundtrip
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::ContentManifest(m) = parsed {
+            assert_eq!(m.cars.len(), 1);
+            assert_eq!(m.cars[0].id, "bmw_z4_gt3");
+            assert_eq!(m.tracks.len(), 1);
+            assert_eq!(m.tracks[0].id, "imola");
+            assert!(m.tracks[0].configs[0].has_ai);
+            assert_eq!(m.tracks[0].configs[0].pit_count, Some(24));
+        } else {
+            panic!("Wrong variant after roundtrip: expected ContentManifest");
+        }
+    }
+
+    #[test]
+    fn test_content_manifest_agent_message_roundtrip() {
+        use crate::types::{ContentManifest, CarManifestEntry, TrackManifestEntry, TrackConfigManifest};
+
+        let manifest = ContentManifest {
+            cars: vec![
+                CarManifestEntry { id: "ks_audi_r8_lms".to_string() },
+                CarManifestEntry { id: "ks_lamborghini_huracan_gt3".to_string() },
+                CarManifestEntry { id: "ks_mclaren_650s_gt3".to_string() },
+            ],
+            tracks: vec![
+                TrackManifestEntry {
+                    id: "nurburgring".to_string(),
+                    configs: vec![
+                        TrackConfigManifest { config: "gp".to_string(), has_ai: true, pit_count: Some(30) },
+                        TrackConfigManifest { config: "nordschleife".to_string(), has_ai: true, pit_count: Some(30) },
+                        TrackConfigManifest { config: "sprint".to_string(), has_ai: false, pit_count: None },
+                    ],
+                },
+            ],
+        };
+        let msg = AgentMessage::ContentManifest(manifest);
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::ContentManifest(m) = parsed {
+            assert_eq!(m.cars.len(), 3);
+            assert_eq!(m.tracks.len(), 1);
+            assert_eq!(m.tracks[0].configs.len(), 3);
+            assert_eq!(m.tracks[0].configs[0].config, "gp");
+            assert!(m.tracks[0].configs[0].has_ai);
+            assert_eq!(m.tracks[0].configs[0].pit_count, Some(30));
+            assert_eq!(m.tracks[0].configs[2].config, "sprint");
+            assert!(!m.tracks[0].configs[2].has_ai);
+            assert_eq!(m.tracks[0].configs[2].pit_count, None);
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_content_manifest_track_config_with_ai_and_pits_roundtrip() {
+        use crate::types::TrackConfigManifest;
+
+        let config = TrackConfigManifest {
+            config: "gp".to_string(),
+            has_ai: true,
+            pit_count: Some(15),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: TrackConfigManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.config, "gp");
+        assert!(parsed.has_ai);
+        assert_eq!(parsed.pit_count, Some(15));
+    }
+
+    #[test]
+    fn test_content_manifest_track_config_no_ai_no_pits_roundtrip() {
+        use crate::types::TrackConfigManifest;
+
+        let config = TrackConfigManifest {
+            config: "drift".to_string(),
+            has_ai: false,
+            pit_count: None,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: TrackConfigManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.config, "drift");
+        assert!(!parsed.has_ai);
+        assert_eq!(parsed.pit_count, None);
+    }
+
+    #[test]
+    fn test_content_manifest_empty_roundtrip() {
+        use crate::types::ContentManifest;
+
+        let manifest = ContentManifest {
+            cars: vec![],
+            tracks: vec![],
+        };
+        let msg = AgentMessage::ContentManifest(manifest);
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::ContentManifest(m) = parsed {
+            assert!(m.cars.is_empty());
+            assert!(m.tracks.is_empty());
+        } else {
+            panic!("Wrong variant after roundtrip: expected ContentManifest");
         }
     }
 }

@@ -739,6 +739,32 @@ pub struct GroupMemberInfo {
     pub pod_number: Option<u32>,
 }
 
+// -- Content Manifest (Phase 05) --
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentManifest {
+    pub cars: Vec<CarManifestEntry>,
+    pub tracks: Vec<TrackManifestEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CarManifestEntry {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackManifestEntry {
+    pub id: String,
+    pub configs: Vec<TrackConfigManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackConfigManifest {
+    pub config: String,       // "" for default layout
+    pub has_ai: bool,
+    pub pit_count: Option<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
