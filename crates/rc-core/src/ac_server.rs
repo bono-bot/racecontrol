@@ -1234,4 +1234,30 @@ mod tests {
         assert_eq!(result_file.track_name, ""); // default
         assert_eq!(result_file.session_type, ""); // default
     }
+
+    // ── Phase 04 Plan 01: Server config safety overrides ────────────────
+
+    #[test]
+    fn test_server_cfg_damage_always_zero() {
+        // SAFETY: Even when config has damage_multiplier=100, output must have DAMAGE_MULTIPLIER=0
+        let mut config = AcLanSessionConfig::default();
+        config.damage_multiplier = 100;
+        let ini = generate_server_cfg_ini(&config);
+        assert!(ini.contains("DAMAGE_MULTIPLIER=0"),
+            "SAFETY: DAMAGE_MULTIPLIER must always be 0, got INI:\n{}", ini);
+        assert!(!ini.contains("DAMAGE_MULTIPLIER=100"),
+            "SAFETY: DAMAGE_MULTIPLIER=100 must NOT appear in output");
+    }
+
+    #[test]
+    fn test_server_cfg_grip_always_100() {
+        // SAFETY: Even when config has session_start=50, output must have SESSION_START=100
+        let mut config = AcLanSessionConfig::default();
+        config.dynamic_track.session_start = 50;
+        let ini = generate_server_cfg_ini(&config);
+        assert!(ini.contains("SESSION_START=100"),
+            "SAFETY: SESSION_START must always be 100, got INI:\n{}", ini);
+        assert!(!ini.contains("SESSION_START=50"),
+            "SAFETY: SESSION_START=50 must NOT appear in output");
+    }
 }
