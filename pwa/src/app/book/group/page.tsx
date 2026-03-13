@@ -20,9 +20,6 @@ export default function GroupSessionPage() {
       ]);
       if (gRes.group_session) {
         setGroup(gRes.group_session);
-      } else {
-        router.push("/book");
-        return;
       }
       if (pRes.driver) {
         setDriverId(pRes.driver.id);
@@ -77,7 +74,31 @@ export default function GroupSessionPage() {
     );
   }
 
-  if (!group) return null;
+  if (!group) {
+    return (
+      <div className="px-4 pt-12 pb-24 max-w-lg mx-auto text-center">
+        <p className="text-rp-grey text-sm mb-1">Multiplayer</p>
+        <h1 className="text-2xl font-bold text-white mb-4">
+          No Active Group Session
+        </h1>
+        <p className="text-neutral-400 text-sm mb-8">
+          Create a multiplayer session to race against your friends on LAN.
+        </p>
+        <button
+          onClick={() => router.push("/book/multiplayer")}
+          className="bg-rp-red hover:bg-rp-red/90 text-white font-semibold px-8 py-3 rounded-xl transition-colors"
+        >
+          Create Multiplayer Session
+        </button>
+        <button
+          onClick={() => router.push("/book")}
+          className="block mx-auto mt-4 text-rp-grey text-sm"
+        >
+          Back to Booking
+        </button>
+      </div>
+    );
+  }
 
   const myMember = group.members.find((m) => m.driver_id === driverId);
   const isPending = myMember?.status === "pending";
