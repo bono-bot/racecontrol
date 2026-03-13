@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::RwLock;
 
 use crate::activity_log::log_pod_activity;
+use crate::catalog;
 use crate::state::AppState;
 use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionStatus, GameLaunchInfo, GameState, SimType};
@@ -74,6 +75,20 @@ async fn launch_game(
     sim_type: SimType,
     launch_args: Option<String>,
 ) -> Result<(), String> {
+    // Validate launch combo against pod's content manifest
+    if let Some(ref args_json) = launch_args {
+        if let Ok(args) = serde_json::from_str::<serde_json::Value>(args_json) {
+            let car = args.get("car").and_then(|v| v.as_str()).unwrap_or("");
+            let track = args.get("track").and_then(|v| v.as_str()).unwrap_or("");
+            let session_type = args.get("session_type").and_then(|v| v.as_str()).unwrap_or("");
+            let manifest = state.pod_manifests.read().await.get(pod_id).cloned();
+            if let Err(reason) = catalog::validate_launch_combo(manifest.as_ref(), car, track, session_type) {
+                tracing::warn!("Launch rejected for pod {}: {}", pod_id, reason);
+                return Err(reason);
+            }
+        }
+    }
+
     // Check if a game is currently launching (avoid double-launch race)
     {
         let games = state.game_launcher.active_games.read().await;

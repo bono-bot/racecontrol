@@ -4463,8 +4463,21 @@ async fn customer_experiences(State(state): State<Arc<AppState>>) -> Json<Value>
 
 // ─── AC Catalog ─────────────────────────────────────────────────────────────
 
-async fn customer_ac_catalog() -> Json<Value> {
-    Json(catalog::get_catalog())
+#[derive(Debug, Deserialize)]
+struct CatalogQuery {
+    pod_id: Option<String>,
+}
+
+async fn customer_ac_catalog(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<CatalogQuery>,
+) -> Json<Value> {
+    let manifest = if let Some(ref pod_id) = query.pod_id {
+        state.pod_manifests.read().await.get(pod_id).cloned()
+    } else {
+        None
+    };
+    Json(catalog::get_filtered_catalog(manifest.as_ref()))
 }
 
 // ─── Customer Booking ───────────────────────────────────────────────────────
@@ -4951,17 +4964,24 @@ async fn customer_continue_session(
                 reason: "Game requires manual launch".to_string(),
             });
         } else {
-            let launch_args = serde_json::json!({
-                "car": car, "track": track, "driver": "Driver",
-                "transmission": "auto",
-                "aids": { "abs": 1, "tc": 1, "stability": 1, "autoclutch": 1, "ideal_line": 1 },
-                "conditions": { "damage": 0 }
-            }).to_string();
-            if let Some(sender) = agent_senders.get(&reservation.pod_id) {
-                let _ = sender.send(rc_common::protocol::CoreToAgentMessage::LaunchGame {
-                    sim_type,
-                    launch_args: Some(launch_args),
-                }).await;
+            // Validate car/track combo against pod's content manifest
+            let manifest = state.pod_manifests.read().await.get(&reservation.pod_id).cloned();
+            if let Err(reason) = catalog::validate_launch_combo(manifest.as_ref(), &car, &track, "") {
+                tracing::warn!("customer_book_session: launch rejected for pod {}: {}", reservation.pod_id, reason);
+                crate::activity_log::log_pod_activity(&state, &reservation.pod_id, "content", "Launch Rejected", &reason, "core");
+            } else {
+                let launch_args = serde_json::json!({
+                    "car": car, "track": track, "driver": "Driver",
+                    "transmission": "auto",
+                    "aids": { "abs": 1, "tc": 1, "stability": 1, "autoclutch": 1, "ideal_line": 1 },
+                    "conditions": { "damage": 0 }
+                }).to_string();
+                if let Some(sender) = agent_senders.get(&reservation.pod_id) {
+                    let _ = sender.send(rc_common::protocol::CoreToAgentMessage::LaunchGame {
+                        sim_type,
+                        launch_args: Some(launch_args),
+                    }).await;
+                }
             }
         }
 

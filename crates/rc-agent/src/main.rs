@@ -506,6 +506,17 @@ async fn main() -> Result<()> {
             continue;
         }
         tracing::info!("Connected and registered as Pod #{}", config.pod.number);
+
+        // Send content manifest after registration so core knows what's installed
+        let manifest = content_scanner::scan_ac_content();
+        tracing::info!("Scanned AC content: {} cars, {} tracks", manifest.cars.len(), manifest.tracks.len());
+        let manifest_msg = AgentMessage::ContentManifest(manifest);
+        if let Ok(json) = serde_json::to_string(&manifest_msg) {
+            if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                tracing::warn!("Failed to send content manifest");
+            }
+        }
+
         heartbeat_status.ws_connected.store(true, std::sync::atomic::Ordering::Relaxed);
         let ws_connect_time = tokio::time::Instant::now();
 
