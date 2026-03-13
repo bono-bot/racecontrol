@@ -83,6 +83,9 @@ pub struct AppState {
     pub pod_needs_restart: RwLock<HashMap<String, bool>>,
     /// Per-pod deploy lifecycle state (active deploy blocks watchdog restart)
     pub pod_deploy_states: RwLock<HashMap<String, DeployState>>,
+    /// Per-pod pending deploy binary URLs (set when pod has active billing at rolling deploy time)
+    /// When a billing session ends, the deploy is triggered automatically.
+    pub pending_deploys: RwLock<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -123,6 +126,7 @@ impl AppState {
             pod_watchdog_states: RwLock::new(create_initial_watchdog_states()),
             pod_needs_restart: RwLock::new(create_initial_needs_restart()),
             pod_deploy_states: RwLock::new(create_initial_deploy_states()),
+            pending_deploys: RwLock::new(HashMap::new()),
         }
     }
 

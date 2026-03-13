@@ -262,6 +262,14 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     drop(pods);   // Release pods read lock
     drop(timers); // Release write lock before DB/broadcast
 
+    // Trigger any pending (deferred) rolling deploys for pods whose sessions just ended
+    for (pod_id, _, _, _) in &expired_sessions {
+        crate::deploy::check_and_trigger_pending_deploy(state, pod_id).await;
+    }
+    for (pod_id, _, _, _) in &pause_timeout_end {
+        crate::deploy::check_and_trigger_pending_deploy(state, pod_id).await;
+    }
+
     // Broadcast events to dashboards
     for event in events_to_broadcast {
         let _ = state.dashboard_tx.send(event);
@@ -1159,6 +1167,9 @@ async fn end_billing_session(
 
             timers.remove(&pod_id);
             drop(timers);
+
+            // Trigger any pending (deferred) rolling deploy for this pod
+            crate::deploy::check_and_trigger_pending_deploy(state, &pod_id).await;
 
             let event_type = match end_status {
                 BillingSessionStatus::EndedEarly => "ended_early",
