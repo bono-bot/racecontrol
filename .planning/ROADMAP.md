@@ -43,7 +43,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Staff can read a port audit of Server (.23) showing which ports are occupied and whether any conflict with port 3300 or 8080
   3. Staff can confirm the Edge version and the current values of StartupBoostEnabled, BackgroundModeEnabled, and EdgeUpdate service status on every pod
   4. Staff can confirm whether Server (.23) holds a static IP or a DHCP lease, and can read its MAC address for use in the DHCP reservation
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Collect rc-agent logs and Edge settings baseline from all 8 pods
+- [ ] 06-02-PLAN.md — Server port audit and IP/MAC identification via RDP
 
 ### Phase 7: Server-Side Pinning
 **Goal**: The staff kiosk is reachable at a stable, named address from any device on the LAN and survives server reboots without manual intervention — with zero changes to pods
@@ -112,7 +116,7 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 3. WebSocket Resilience | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 4. Deployment Pipeline Hardening | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 5. Blanking Screen Protocol | v1.0 | 3/3 | Complete | 2026-03-13 |
-| 6. Diagnosis | v2.0 | 0/TBD | Not started | - |
+| 6. Diagnosis | v2.0 | 0/2 | Not started | - |
 | 7. Server-Side Pinning | v2.0 | 0/TBD | Not started | - |
 | 8. Pod Lock Screen Hardening | v2.0 | 0/TBD | Not started | - |
 | 9. Edge Browser Hardening | v2.0 | 0/TBD | Not started | - |
