@@ -17,7 +17,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 ### Connection Resilience
 
 - [ ] **CONN-01**: WebSocket ping/pong keepalive prevents drops during game launch CPU spikes
-- [ ] **CONN-02**: Kiosk debounces disconnect events — only shows "Disconnected" after 15s+ confirmed absence
+- [x] **CONN-02**: Kiosk debounces disconnect events — only shows "Disconnected" after 15s+ confirmed absence
 - [ ] **CONN-03**: rc-agent reconnects automatically with short backoff on WebSocket drop
 
 ### Deployment & Config
@@ -44,7 +44,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 - [ ] **PERF-01**: Game launch completes within target time from kiosk "Start" to game visible on pod
 - [ ] **PERF-02**: Lock screen responds to PIN entry within 1-2 seconds
 - [ ] **PERF-03**: WebSocket command round-trip (rc-core → rc-agent → response) stays under low threshold
-- [ ] **PERF-04**: Kiosk UI interactions (page loads, button responses, state updates) feel instant to staff
+- [x] **PERF-04**: Kiosk UI interactions (page loads, button responses, state updates) feel instant to staff
 
 ### Authentication
 
@@ -93,7 +93,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WD-03 | Phase 2 | Complete |
 | WD-04 | Phase 2 | Complete |
 | CONN-01 | Phase 3 | Pending |
-| CONN-02 | Phase 3 | Pending |
+| CONN-02 | Phase 3 | Complete |
 | CONN-03 | Phase 3 | Pending |
 | DEPLOY-01 | Phase 1 | Complete |
 | DEPLOY-02 | Phase 4 | Pending |
@@ -108,7 +108,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERF-01 | Phase 4 | Pending |
 | PERF-02 | Phase 4 | Pending |
 | PERF-03 | Phase 3 | Pending |
-| PERF-04 | Phase 3 | Pending |
+| PERF-04 | Phase 3 | Complete |
 | AUTH-01 | Phase 5 | Pending |
 
 **Coverage:**
