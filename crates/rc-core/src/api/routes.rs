@@ -256,6 +256,9 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/accounting/balance-sheet", get(balance_sheet))
         .route("/accounting/journal", get(list_journal_entries))
         .route("/audit-log", get(query_audit_log))
+        // Deploy
+        .route("/deploy/status", get(deploy_status))
+        .route("/deploy/:pod_id", post(deploy_single_pod))
 }
 
 async fn health() -> Json<Value> {
@@ -9620,4 +9623,103 @@ async fn query_audit_log(
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
+}
+
+// ── Deploy endpoints ─────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct DeployRequest {
+    binary_url: String,
+}
+
+/// POST /api/deploy/:pod_id — Deploy rc-agent binary to a single pod.
+/// Returns 202 Accepted immediately; deploy runs as background task.
+/// Returns 409 Conflict if deploy is already in progress or pod has active billing.
+/// Returns 404 if pod not found.
+async fn deploy_single_pod(
+    Path(pod_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DeployRequest>,
+) -> (axum::http::StatusCode, Json<Value>) {
+    // Check pod exists and get IP
+    let pod_ip = {
+        let pods = state.pods.read().await;
+        pods.get(&pod_id).map(|p| p.ip_address.clone())
+    };
+
+    let pod_ip = match pod_ip {
+        Some(ip) => ip,
+        None => {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Pod not found", "pod_id": pod_id })),
+            );
+        }
+    };
+
+    // Check for active billing session — cannot deploy to a pod mid-session
+    let has_billing = state
+        .billing
+        .active_timers
+        .read()
+        .await
+        .contains_key(&pod_id);
+    if has_billing {
+        return (
+            axum::http::StatusCode::CONFLICT,
+            Json(json!({
+                "error": "Pod has active billing session. Cannot deploy during active session.",
+                "pod_id": pod_id
+            })),
+        );
+    }
+
+    // Check for concurrent deploy in progress
+    {
+        let deploy_states = state.pod_deploy_states.read().await;
+        if let Some(ds) = deploy_states.get(&pod_id) {
+            if ds.is_active() {
+                return (
+                    axum::http::StatusCode::CONFLICT,
+                    Json(json!({
+                        "error": "Deploy already in progress",
+                        "pod_id": pod_id,
+                        "current_state": format!("{:?}", ds)
+                    })),
+                );
+            }
+        }
+    }
+
+    // Spawn deploy as background task (non-blocking)
+    let deploy_state = Arc::clone(&state);
+    let deploy_pod_id = pod_id.clone();
+    let deploy_binary_url = req.binary_url.clone();
+    tokio::spawn(async move {
+        crate::deploy::deploy_pod(deploy_state, deploy_pod_id, pod_ip, deploy_binary_url).await;
+    });
+
+    (
+        axum::http::StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "deploy_started",
+            "pod_id": pod_id,
+            "binary_url": req.binary_url
+        })),
+    )
+}
+
+/// GET /api/deploy/status — Get deploy state for all pods.
+async fn deploy_status(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let deploy_states = state.pod_deploy_states.read().await;
+    let statuses: Vec<Value> = deploy_states
+        .iter()
+        .map(|(pod_id, ds)| {
+            json!({
+                "pod_id": pod_id,
+                "state": ds,
+            })
+        })
+        .collect();
+    Json(json!({ "pods": statuses }))
 }

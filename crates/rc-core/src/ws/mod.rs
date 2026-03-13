@@ -600,6 +600,106 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                                 ac_camera::set_mode(&cmd_state, cam_mode).await;
                             }
                         }
+                        DashboardCommand::DeployPod { pod_id, binary_url } => {
+                            // Look up pod IP
+                            let pod_ip = {
+                                let pods = cmd_state.pods.read().await;
+                                pods.get(pod_id).map(|p| p.ip_address.clone())
+                            };
+                            if let Some(pod_ip) = pod_ip {
+                                // Check no active deploy in progress
+                                let is_active = {
+                                    let ds = cmd_state.pod_deploy_states.read().await;
+                                    ds.get(pod_id).map(|s| s.is_active()).unwrap_or(false)
+                                };
+                                if !is_active {
+                                    let deploy_state = Arc::clone(&cmd_state);
+                                    let deploy_pod_id = pod_id.clone();
+                                    let deploy_pod_ip = pod_ip;
+                                    let deploy_url = binary_url.clone();
+                                    tokio::spawn(async move {
+                                        crate::deploy::deploy_pod(
+                                            deploy_state,
+                                            deploy_pod_id,
+                                            deploy_pod_ip,
+                                            deploy_url,
+                                        )
+                                        .await;
+                                    });
+                                } else {
+                                    tracing::warn!(
+                                        "DeployPod [{}]: deploy already in progress — ignoring",
+                                        pod_id
+                                    );
+                                }
+                            } else {
+                                tracing::warn!("DeployPod: unknown pod_id {}", pod_id);
+                            }
+                        }
+                        DashboardCommand::DeployRolling { binary_url } => {
+                            // Rolling deploy: spawn individual deploys for all known pods
+                            // (canary on Pod 8 first, then the rest in order).
+                            // The rolling coordinator is implemented in the API route;
+                            // the WS command path provides a secondary trigger.
+                            let pod_entries: Vec<(String, String)> = {
+                                let pods = cmd_state.pods.read().await;
+                                let mut entries: Vec<(String, String)> =
+                                    pods.iter()
+                                        .map(|(id, p)| (id.clone(), p.ip_address.clone()))
+                                        .collect();
+                                // Sort: pod_8 canary first, then ascending
+                                entries.sort_by_key(|(id, _)| {
+                                    if id == "pod_8" { 0u32 } else {
+                                        id.strip_prefix("pod_")
+                                            .and_then(|n| n.parse::<u32>().ok())
+                                            .unwrap_or(99)
+                                    }
+                                });
+                                entries
+                            };
+                            for (pod_id, pod_ip) in pod_entries {
+                                let deploy_state = Arc::clone(&cmd_state);
+                                let deploy_url = binary_url.clone();
+                                tokio::spawn(async move {
+                                    crate::deploy::deploy_pod(
+                                        deploy_state,
+                                        pod_id,
+                                        pod_ip,
+                                        deploy_url,
+                                    )
+                                    .await;
+                                });
+                                // Brief delay between pods to avoid concurrent disk/network load
+                                tokio::time::sleep(Duration::from_secs(5)).await;
+                            }
+                        }
+                        DashboardCommand::CancelDeploy { pod_id } => {
+                            // Mark the deploy state as Failed to signal cancellation.
+                            // The running deploy_pod() task checks is_cancelled() at each step
+                            // and exits early if it finds a Failed state.
+                            let mut deploy_states = cmd_state.pod_deploy_states.write().await;
+                            if let Some(ds) = deploy_states.get(pod_id) {
+                                if ds.is_active() {
+                                    let cancel_state = rc_common::types::DeployState::Failed {
+                                        reason: "Cancelled by staff".to_string(),
+                                    };
+                                    deploy_states
+                                        .insert(pod_id.clone(), cancel_state.clone());
+                                    let _ = cmd_state.dashboard_tx.send(
+                                        rc_common::protocol::DashboardEvent::DeployProgress {
+                                            pod_id: pod_id.clone(),
+                                            state: cancel_state,
+                                            message: "Deploy cancelled by staff".to_string(),
+                                            timestamp: chrono::Utc::now().to_rfc3339(),
+                                        },
+                                    );
+                                    tracing::info!(
+                                        "Deploy [{}]: cancelled by staff via dashboard",
+                                        pod_id
+                                    );
+                                }
+                            }
+                        }
                         _ => {
                             billing::handle_dashboard_command(&cmd_state, cmd).await;
                         }
