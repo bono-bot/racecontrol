@@ -41,6 +41,9 @@ pub enum AgentMessage {
 
     /// Customer entered PIN on lock screen
     PinEntered { pod_id: String, pin: String },
+
+    /// Response to CoreToAgentMessage::Ping — carries same id back for round-trip measurement
+    Pong { id: u64 },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -172,6 +175,9 @@ pub enum CoreToAgentMessage {
     HidePauseOverlay {
         session_id: String,
     },
+
+    /// Application-level ping for round-trip latency measurement — agent must respond with AgentMessage::Pong { id }
+    Ping { id: u64 },
 }
 
 /// Messages sent from Core Server → Web Dashboard
@@ -739,6 +745,32 @@ mod tests {
             assert_eq!(reason, "All restart attempts exhausted");
         } else {
             panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_core_to_agent_ping_roundtrip() {
+        let msg = CoreToAgentMessage::Ping { id: 42 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("ping"), "Expected 'ping' in: {}", json);
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::Ping { id } = parsed {
+            assert_eq!(id, 42);
+        } else {
+            panic!("Wrong variant after roundtrip: expected Ping");
+        }
+    }
+
+    #[test]
+    fn test_agent_pong_roundtrip() {
+        let msg = AgentMessage::Pong { id: 99 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("pong"), "Expected 'pong' in: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::Pong { id } = parsed {
+            assert_eq!(id, 99);
+        } else {
+            panic!("Wrong variant after roundtrip: expected Pong");
         }
     }
 
