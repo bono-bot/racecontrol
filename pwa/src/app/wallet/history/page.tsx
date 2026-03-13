@@ -138,7 +138,10 @@ export default function WalletHistoryPage() {
               />
             </svg>
           </button>
-          <h1 className="text-2xl font-bold text-white">Transaction History</h1>
+          <h1 className="text-2xl font-bold text-white flex-1">Transaction History</h1>
+          <a href="/wallet/topup" className="bg-rp-red text-white text-sm font-semibold px-4 py-2 rounded-lg">
+            Top Up
+          </a>
         </div>
 
         {/* Summary */}

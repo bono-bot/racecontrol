@@ -74,6 +74,9 @@ export default function DashboardPage() {
           <p className="text-2xl font-bold text-white">
             {((profile?.wallet_balance_paise || 0) / 100).toFixed(0)} credits
           </p>
+          <a href="/wallet/topup" className="text-rp-red text-xs font-medium mt-1 inline-block">
+            + Top Up
+          </a>
         </div>
         <a
           href="/book"
