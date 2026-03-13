@@ -31,7 +31,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 ### Alerting
 
 - [x] **ALERT-01**: Email alert fires when post-restart verification fails or max escalation reached
-- [ ] **ALERT-02**: Rate-limited: max 1 email per pod per 30min, 1 venue-wide per 5min
+- [x] **ALERT-02**: Rate-limited: max 1 email per pod per 30min, 1 venue-wide per 5min
 
 ### Blanking Screen Protocol
 
@@ -101,7 +101,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEPLOY-04 | Phase 1 | Complete |
 | DEPLOY-05 | Phase 4 | Pending |
 | ALERT-01 | Phase 2 | Complete |
-| ALERT-02 | Phase 2 | Pending |
+| ALERT-02 | Phase 2 | Complete |
 | SCREEN-01 | Phase 5 | Pending |
 | SCREEN-02 | Phase 5 | Pending |
 | SCREEN-03 | Phase 5 | Pending |

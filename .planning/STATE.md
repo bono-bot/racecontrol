@@ -63,6 +63,7 @@ Progress: [██░░░░░░░░] 20%
 
 *Updated after each plan completion*
 | Phase 02-watchdog-hardening P01 | 6 | 2 tasks | 5 files |
+| Phase 02-watchdog-hardening P02 | 18 | 2 tasks | 1 files |
 | Phase 02-watchdog-hardening P03 | 4 | 2 tasks | 1 files |
 
 ## Accumulated Context
@@ -90,6 +91,10 @@ Progress: [██░░░░░░░░] 20%
 - [Phase 02-03]: needs_restart set only for Rule 2 no-WS failure — disk/memory/zombie issues are healer-only, no restart flag
 - [Phase 02-03]: Healer reads backoff.ready() for cooldown gating but does NOT call record_attempt() — advancing backoff is monitor-only
 - [Phase 02-03]: should_skip_for_watchdog_state() extracted as pure fn — tests verify skip logic without async AppState
+- [Phase 02-02]: Partial recovery (process+WS ok, lock screen fail) is FAILED — lock screen is essential for customer flow, no special-case
+- [Phase 02-02]: is_closed() replaces contains_key() for WS liveness — stale sender entries can linger in map after receiver drops
+- [Phase 02-02]: determine_failure_reason() + failure_type_from_reason() extracted as pure fns — enables testing failure path without network
+- [Phase 02-02]: check_lock_screen URL updated to /health (from /) to align with Plan 01 /health endpoint addition
 
 ### Pending Todos
 
@@ -98,7 +103,7 @@ None yet.
 ### Blockers/Concerns
 
 - Node.js on Racing-Point-Server (.23) must be verified before Phase 2 deploys email alerting — run `node --version` on .23; install Node.js LTS if absent
-- agent_senders channel liveness: `contains_key` check is not sufficient — implement send-ping-and-check-error pattern in Phase 2
+- agent_senders channel liveness: RESOLVED in 02-02 — is_closed() now used in pod_monitor; pod_healer resolved in 02-03
 - Defender exclusions must be verified individually on all 8 pods before Phase 4 deployment hardening
 
 ## Session Continuity
