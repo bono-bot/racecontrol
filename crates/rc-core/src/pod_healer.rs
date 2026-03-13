@@ -6,7 +6,8 @@
 //! (Claude CLI -> Ollama -> Anthropic).
 //!
 //! rc-agent restarts are deferred to pod_monitor (which owns the shared backoff).
-//! The healer uses the shared EscalatingBackoff from AppState.pod_backoffs for cooldown.
+//! The healer reads the shared EscalatingBackoff from AppState.pod_backoffs for cooldown
+//! gating but does NOT advance the backoff (advancing is pod_monitor's exclusive responsibility).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +19,6 @@ use crate::activity_log::log_pod_activity;
 use crate::state::{AppState, WatchdogState};
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{AiDebugSuggestion, PodInfo, PodStatus, SimType};
-use rc_common::watchdog::EscalatingBackoff;
 
 const POD_AGENT_PORT: u16 = 8090;
 const POD_AGENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -209,13 +209,31 @@ async fn heal_pod(
             let has_active_billing = has_active_billing(state, &pod.id).await;
             if has_active_billing {
                 issues.push(
-                    "rc-agent lock screen unresponsive but pod has active billing -- NOT restarting"
+                    "rc-agent lock screen unresponsive but pod has active billing -- NOT flagging restart"
                         .to_string(),
                 );
             } else {
-                // Defer restart to pod_monitor -- healer should NOT restart rc-agent independently
+                // No WebSocket, no billing -- this is a genuine rc-agent failure.
+                // Set needs_restart flag so pod_monitor triggers restart on next cycle.
+                {
+                    let mut needs = state.pod_needs_restart.write().await;
+                    needs.insert(pod.id.clone(), true);
+                }
+                tracing::info!(
+                    "Pod healer: {} lock screen unresponsive, no WebSocket -- flagged for restart",
+                    pod.id
+                );
+                log_pod_activity(
+                    state,
+                    &pod.id,
+                    "race_engineer",
+                    "Restart Flagged",
+                    "Lock screen unresponsive + no WebSocket -- deferred to pod_monitor",
+                    "race_engineer",
+                );
+                // Still add to issues for potential AI escalation context
                 issues.push(
-                    "rc-agent lock screen unresponsive (no WebSocket, no active billing) -- deferring restart to pod_monitor"
+                    "rc-agent lock screen unresponsive (no WebSocket) -- restart flagged for pod_monitor"
                         .to_string(),
                 );
             }
@@ -291,12 +309,9 @@ async fn heal_pod(
             );
             execute_heal_action(state, &pod.ip_address, action).await;
         }
-        // Record heal attempt in shared backoff (so pod_monitor knows healer acted)
-        let mut backoffs = state.pod_backoffs.write().await;
-        let backoff = backoffs
-            .entry(pod.id.clone())
-            .or_insert_with(EscalatingBackoff::new);
-        backoff.record_attempt(now);
+        // NOTE: The healer does NOT call record_attempt() here.
+        // Advancing the backoff is pod_monitor's exclusive responsibility.
+        // The healer only reads backoff.ready() to avoid spamming heal actions.
     } else if !actions.is_empty() {
         tracing::info!(
             "Pod healer: {} has {} pending actions but cooldown not elapsed",
