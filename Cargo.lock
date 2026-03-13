@@ -1649,6 +1649,7 @@ dependencies = [
  "hidapi",
  "mdns-sd",
  "qrcode",
+ "rand 0.8.5",
  "rc-common",
  "reqwest",
  "serde",

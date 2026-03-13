@@ -926,6 +926,12 @@ async fn main() -> Result<()> {
                                                 server_port: 0,
                                                 server_http_port: 0,
                                                 server_password: String::new(),
+                                                session_type: "practice".to_string(),
+                                                ai_cars: Vec::new(),
+                                                starting_position: 1,
+                                                formation_lap: false,
+                                                weekend_practice_minutes: 0,
+                                                weekend_qualify_minutes: 0,
                                             }),
                                             None => ac_launcher::AcLaunchParams {
                                                 car: "ks_ferrari_sf15t".to_string(),
@@ -943,6 +949,12 @@ async fn main() -> Result<()> {
                                                 server_port: 0,
                                                 server_http_port: 0,
                                                 server_password: String::new(),
+                                                session_type: "practice".to_string(),
+                                                ai_cars: Vec::new(),
+                                                starting_position: 1,
+                                                formation_lap: false,
+                                                weekend_practice_minutes: 0,
+                                                weekend_qualify_minutes: 0,
                                             },
                                         };
 

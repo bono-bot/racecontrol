@@ -44,6 +44,9 @@ qrcode = "0.13"
 # Cross-platform directory paths (Documents, etc.)
 dirs-next = "2"
 
+# Random selection for AI driver name pool
+rand = "0.8"
+
 # Windows process management
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi"] }

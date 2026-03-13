@@ -6,6 +6,7 @@
 use std::process::Command;
 use std::path::Path;
 use std::io::Write;
+use std::fmt::Write as FmtWrite;
 use anyhow::Result;
 use serde::Deserialize;
 
@@ -20,6 +21,49 @@ pub const DIALOG_PROCESSES: &[&str] = &[
     "SystemSettings.exe",
     "msiexec.exe",
 ];
+
+/// Configuration for a single AI opponent car slot in race.ini
+#[derive(Debug, Clone, Deserialize)]
+pub struct AiCarSlot {
+    pub model: String,
+    pub skin: String,
+    pub driver_name: String,
+    #[serde(default = "default_ai_level")]
+    pub ai_level: u32, // 0-100
+}
+
+fn default_ai_level() -> u32 { 90 }
+fn default_session_type() -> String { "practice".to_string() }
+fn default_starting_position() -> u32 { 1 }
+
+/// Pool of realistic AI driver names, shuffled per session.
+/// Covers international diversity: Italian, British, Japanese, Indian, French, German, Brazilian, etc.
+const AI_DRIVER_NAMES: &[&str] = &[
+    "Marco Rossi", "James Mitchell", "Carlos Mendes", "Yuki Tanaka",
+    "Liam O'Brien", "Alessandro Bianchi", "Felix Weber", "Raj Patel",
+    "Pierre Dubois", "Hans Mueller", "Takeshi Kimura", "David Chen",
+    "Matteo Ferrari", "Oliver Thompson", "Fernando Almeida", "Kenji Sato",
+    "Arjun Sharma", "Jean-Paul Laurent", "Stefan Braun", "Lucas Silva",
+    "Ethan Williams", "Vincenzo Moretti", "Hiroshi Nakamura", "Ravi Kumar",
+    "Antoine Mercier", "Maximilian Richter", "Tomoko Hayashi", "Andre Costa",
+    "Gabriel Martinez", "Noah Anderson", "Sergio Conti", "Akira Yamamoto",
+    "Vikram Singh", "Christoph Hartmann", "Raphael Bertrand", "Thiago Oliveira",
+    "Sebastian Kraft", "Ivan Petrov", "Diego Herrera", "Samuel Johnson",
+    "Roberto Marchetti", "Kazuki Watanabe", "Anil Gupta", "Julien Moreau",
+    "Henrik Lindberg", "Mateus Santos", "William Clarke", "Lorenzo Romano",
+    "Taro Fujimoto", "Prashant Reddy", "Nicolas Lefevre", "Kurt Zimmerman",
+    "Renato Barbosa", "Michael O'Connor", "Emilio Gentile", "Sho Taniguchi",
+    "Deepak Verma", "Philippe Girard", "Markus Bauer", "Leonardo Ricci",
+];
+
+/// Pick N unique AI driver names from the pool, shuffled randomly.
+fn pick_ai_names(count: usize) -> Vec<String> {
+    use rand::seq::SliceRandom;
+    let mut rng = rand::thread_rng();
+    let mut names: Vec<&str> = AI_DRIVER_NAMES.to_vec();
+    names.shuffle(&mut rng);
+    names.into_iter().take(count).map(|s| s.to_string()).collect()
+}
 
 /// AC launch parameters parsed from the `launch_args` JSON
 #[derive(Debug, Clone, Deserialize)]
@@ -52,6 +96,27 @@ pub struct AcLaunchParams {
     pub server_http_port: u16,
     #[serde(default)]
     pub server_password: String,
+
+    // --- Session type configuration ---
+    #[serde(default = "default_session_type")]
+    pub session_type: String, // "practice", "race", "hotlap", "trackday", "weekend"
+
+    // --- AI opponent configuration ---
+    #[serde(default)]
+    pub ai_cars: Vec<AiCarSlot>,
+
+    // --- Race-specific settings ---
+    #[serde(default = "default_starting_position")]
+    pub starting_position: u32, // 1-indexed grid position
+    #[serde(default)]
+    pub formation_lap: bool,
+
+    // --- Race Weekend sub-session time allocation ---
+    #[serde(default)]
+    pub weekend_practice_minutes: u32,
+    #[serde(default)]
+    pub weekend_qualify_minutes: u32,
+    // Race gets remaining time from the billing pool
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -1019,5 +1084,99 @@ mod tests {
                 proc
             );
         }
+    }
+
+    // --- Task 1 TDD tests: Deserialization contracts ---
+
+    #[test]
+    fn test_ac_launch_params_default_session_type() {
+        // Existing JSON (no session_type field) must default to "practice"
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json)
+            .expect("Existing JSON must still deserialize");
+        assert_eq!(params.session_type, "practice");
+        assert!(params.ai_cars.is_empty());
+        assert_eq!(params.starting_position, 1);
+        assert!(!params.formation_lap);
+        assert_eq!(params.weekend_practice_minutes, 0);
+        assert_eq!(params.weekend_qualify_minutes, 0);
+    }
+
+    #[test]
+    fn test_ac_launch_params_hotlap_empty_ai() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"hotlap","ai_cars":[],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json)
+            .expect("Hotlap JSON must deserialize");
+        assert_eq!(params.session_type, "hotlap");
+        assert!(params.ai_cars.is_empty());
+    }
+
+    #[test]
+    fn test_ac_launch_params_all_new_fields() {
+        let json = r#"{
+            "car":"ks_ferrari_488","track":"monza",
+            "session_type":"race",
+            "ai_cars":[{"model":"ks_bmw_m3","skin":"01_white","driver_name":"Marco","ai_level":85}],
+            "starting_position":3,
+            "formation_lap":true,
+            "weekend_practice_minutes":10,
+            "weekend_qualify_minutes":5,
+            "server_ip":"","server_port":0,"server_http_port":0,"server_password":""
+        }"#;
+        let params: AcLaunchParams = serde_json::from_str(json)
+            .expect("Full JSON must deserialize");
+        assert_eq!(params.session_type, "race");
+        assert_eq!(params.ai_cars.len(), 1);
+        assert_eq!(params.ai_cars[0].model, "ks_bmw_m3");
+        assert_eq!(params.ai_cars[0].skin, "01_white");
+        assert_eq!(params.ai_cars[0].driver_name, "Marco");
+        assert_eq!(params.ai_cars[0].ai_level, 85);
+        assert_eq!(params.starting_position, 3);
+        assert!(params.formation_lap);
+        assert_eq!(params.weekend_practice_minutes, 10);
+        assert_eq!(params.weekend_qualify_minutes, 5);
+    }
+
+    #[test]
+    fn test_ai_car_slot_deserialization() {
+        let json = r#"{"model":"ks_bmw_m3","skin":"02_red","driver_name":"Carlos","ai_level":92}"#;
+        let slot: AiCarSlot = serde_json::from_str(json)
+            .expect("AiCarSlot must deserialize");
+        assert_eq!(slot.model, "ks_bmw_m3");
+        assert_eq!(slot.skin, "02_red");
+        assert_eq!(slot.driver_name, "Carlos");
+        assert_eq!(slot.ai_level, 92);
+    }
+
+    #[test]
+    fn test_ai_car_slot_default_ai_level() {
+        let json = r#"{"model":"ks_bmw_m3","skin":"02_red","driver_name":"Carlos"}"#;
+        let slot: AiCarSlot = serde_json::from_str(json)
+            .expect("AiCarSlot must deserialize without ai_level");
+        assert_eq!(slot.ai_level, 90, "Default ai_level must be 90");
+    }
+
+    #[test]
+    fn test_ai_driver_names_pool_size() {
+        assert!(
+            AI_DRIVER_NAMES.len() >= 50,
+            "AI_DRIVER_NAMES must have at least 50 names, got {}",
+            AI_DRIVER_NAMES.len()
+        );
+    }
+
+    #[test]
+    fn test_pick_ai_names_exact_count() {
+        let names = pick_ai_names(5);
+        assert_eq!(names.len(), 5, "pick_ai_names(5) must return exactly 5 names");
+        // All unique
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), 5, "All 5 names must be unique");
+    }
+
+    #[test]
+    fn test_pick_ai_names_zero() {
+        let names = pick_ai_names(0);
+        assert!(names.is_empty(), "pick_ai_names(0) must return empty vec");
     }
 }
