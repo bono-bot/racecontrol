@@ -8,7 +8,7 @@ use std::path::Path;
 use std::io::Write;
 use std::fmt::Write as FmtWrite;
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::lock_screen;
 
@@ -21,6 +21,77 @@ pub const DIALOG_PROCESSES: &[&str] = &[
     "SystemSettings.exe",
     "msiexec.exe",
 ];
+
+/// Racing-themed difficulty tiers controlling AI_LEVEL only.
+/// Assists are completely independent (user decision).
+/// AI_AGGRESSION is not used (deferred -- uncertain CSP support).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DifficultyTier {
+    Rookie,
+    Amateur,
+    SemiPro,
+    Pro,
+    Alien,
+}
+
+impl DifficultyTier {
+    /// AI_LEVEL range (inclusive) for this tier.
+    pub fn range(&self) -> (u32, u32) {
+        match self {
+            DifficultyTier::Rookie => (70, 79),
+            DifficultyTier::Amateur => (80, 84),
+            DifficultyTier::SemiPro => (85, 89),
+            DifficultyTier::Pro => (90, 95),
+            DifficultyTier::Alien => (96, 100),
+        }
+    }
+
+    /// Recommended midpoint AI_LEVEL for this tier.
+    pub fn midpoint(&self) -> u32 {
+        match self {
+            DifficultyTier::Rookie => 75,
+            DifficultyTier::Amateur => 82,
+            DifficultyTier::SemiPro => 87,
+            DifficultyTier::Pro => 93,
+            DifficultyTier::Alien => 98,
+        }
+    }
+
+    /// Human-readable display name for the tier.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            DifficultyTier::Rookie => "Rookie",
+            DifficultyTier::Amateur => "Amateur",
+            DifficultyTier::SemiPro => "Semi-Pro",
+            DifficultyTier::Pro => "Pro",
+            DifficultyTier::Alien => "Alien",
+        }
+    }
+
+    /// All tiers in difficulty order (easiest to hardest).
+    pub fn all() -> Vec<DifficultyTier> {
+        vec![
+            DifficultyTier::Rookie,
+            DifficultyTier::Amateur,
+            DifficultyTier::SemiPro,
+            DifficultyTier::Pro,
+            DifficultyTier::Alien,
+        ]
+    }
+}
+
+/// Map an AI_LEVEL value (0-100) to its difficulty tier.
+/// Returns None for values outside all tier ranges (0-69, 101+), indicating "Custom".
+pub fn tier_for_level(ai_level: u32) -> Option<DifficultyTier> {
+    for tier in DifficultyTier::all() {
+        let (low, high) = tier.range();
+        if ai_level >= low && ai_level <= high {
+            return Some(tier);
+        }
+    }
+    None
+}
 
 /// Configuration for a single AI opponent car slot in race.ini
 #[derive(Debug, Clone, Deserialize)]
@@ -1868,5 +1939,75 @@ mod tests {
 
         let s2 = sections.get("SESSION_2").expect("SESSION_2 (Race)");
         assert_eq!(s2.get("DURATION_MINUTES").map(|s| s.as_str()), Some("1"), "Minimum 1 minute for race");
+    }
+
+    // --- Phase 2 Task 1 TDD tests: DifficultyTier enum and tier_for_level ---
+
+    #[test]
+    fn test_tier_boundaries() {
+        // Below all tiers
+        assert_eq!(tier_for_level(69), None);
+        // Rookie: 70-79
+        assert_eq!(tier_for_level(70), Some(DifficultyTier::Rookie));
+        assert_eq!(tier_for_level(79), Some(DifficultyTier::Rookie));
+        // Amateur: 80-84
+        assert_eq!(tier_for_level(80), Some(DifficultyTier::Amateur));
+        assert_eq!(tier_for_level(84), Some(DifficultyTier::Amateur));
+        // SemiPro: 85-89
+        assert_eq!(tier_for_level(85), Some(DifficultyTier::SemiPro));
+        assert_eq!(tier_for_level(89), Some(DifficultyTier::SemiPro));
+        // Pro: 90-95
+        assert_eq!(tier_for_level(90), Some(DifficultyTier::Pro));
+        assert_eq!(tier_for_level(95), Some(DifficultyTier::Pro));
+        // Alien: 96-100
+        assert_eq!(tier_for_level(96), Some(DifficultyTier::Alien));
+        assert_eq!(tier_for_level(100), Some(DifficultyTier::Alien));
+        // Above all tiers
+        assert_eq!(tier_for_level(101), None);
+    }
+
+    #[test]
+    fn test_tier_midpoints() {
+        assert_eq!(DifficultyTier::Rookie.midpoint(), 75);
+        assert_eq!(DifficultyTier::Amateur.midpoint(), 82);
+        assert_eq!(DifficultyTier::SemiPro.midpoint(), 87);
+        assert_eq!(DifficultyTier::Pro.midpoint(), 93);
+        assert_eq!(DifficultyTier::Alien.midpoint(), 98);
+    }
+
+    #[test]
+    fn test_tier_ranges() {
+        assert_eq!(DifficultyTier::Rookie.range(), (70, 79));
+        assert_eq!(DifficultyTier::Amateur.range(), (80, 84));
+        assert_eq!(DifficultyTier::SemiPro.range(), (85, 89));
+        assert_eq!(DifficultyTier::Pro.range(), (90, 95));
+        assert_eq!(DifficultyTier::Alien.range(), (96, 100));
+    }
+
+    #[test]
+    fn test_tier_display_names() {
+        assert_eq!(DifficultyTier::Rookie.display_name(), "Rookie");
+        assert_eq!(DifficultyTier::Amateur.display_name(), "Amateur");
+        assert_eq!(DifficultyTier::SemiPro.display_name(), "Semi-Pro");
+        assert_eq!(DifficultyTier::Pro.display_name(), "Pro");
+        assert_eq!(DifficultyTier::Alien.display_name(), "Alien");
+    }
+
+    #[test]
+    fn test_tier_all_ordering() {
+        let all = DifficultyTier::all();
+        assert_eq!(all, vec![
+            DifficultyTier::Rookie,
+            DifficultyTier::Amateur,
+            DifficultyTier::SemiPro,
+            DifficultyTier::Pro,
+            DifficultyTier::Alien,
+        ]);
+    }
+
+    #[test]
+    fn test_tier_for_level_zero() {
+        // 0 is below all tiers (would show "Custom" in UI)
+        assert_eq!(tier_for_level(0), None);
     }
 }
