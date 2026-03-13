@@ -1,3 +1,29 @@
+// ── Deploy Types ────────────────────────────────────────────────────────────
+
+export type DeployState =
+  | { state: 'idle' }
+  | { state: 'killing' }
+  | { state: 'waiting_dead' }
+  | { state: 'downloading'; detail: { progress_pct: number } }
+  | { state: 'size_check' }
+  | { state: 'starting' }
+  | { state: 'verifying_health' }
+  | { state: 'complete' }
+  | { state: 'failed'; detail: { reason: string } };
+
+export interface DeployPodStatus {
+  pod_id: string;
+  state: DeployState;
+  last_updated: string;
+}
+
+export interface DeployProgressEvent {
+  pod_id: string;
+  state: DeployState;
+  message: string;
+  timestamp: string;
+}
+
 // ─── Pod Types ────────────────────────────────────────────────────────────
 
 export type PodStatus = "offline" | "idle" | "in_session" | "error" | "disabled";
