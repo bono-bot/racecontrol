@@ -2,10 +2,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     AcLanSessionConfig, AcPresetSummary, AcServerInfo,
-    AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DrivingState, GameLaunchInfo,
+    AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DeployState, DrivingState, GameLaunchInfo,
     GroupSessionInfo, Leaderboard, LapData, PodActivityEntry, PodInfo, SessionInfo, SimType,
     TelemetryFrame,
 };
+
+/// Summary of deploy state for a single pod — used in DeployStatusList
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeployPodStatus {
+    pub pod_id: String,
+    pub state: DeployState,
+    pub last_updated: String,
+}
 
 /// Messages sent from Pod Agent → Core Server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -348,6 +356,17 @@ pub enum DashboardEvent {
         attempt: u32,
         reason: String,
     },
+
+    /// Deploy progress update for a pod (streamed during deploy sequence)
+    DeployProgress {
+        pod_id: String,
+        state: DeployState,
+        message: String,
+        timestamp: String,
+    },
+
+    /// All pod deploy states (sent on dashboard connect, like PodList)
+    DeployStatusList(Vec<DeployPodStatus>),
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)
@@ -526,6 +545,22 @@ pub enum DashboardCommand {
     SetCameraMode {
         mode: String,
         enabled: Option<bool>,
+    },
+
+    /// Deploy rc-agent binary to a single pod
+    DeployPod {
+        pod_id: String,
+        binary_url: String,
+    },
+
+    /// Rolling deploy to all pods (Pod 8 canary first)
+    DeployRolling {
+        binary_url: String,
+    },
+
+    /// Cancel an in-progress deploy for a pod
+    CancelDeploy {
+        pod_id: String,
     },
 }
 
@@ -790,6 +825,116 @@ mod tests {
             assert_eq!(session_id, "sess-1");
             assert_eq!(reason, "disconnect");
             assert_eq!(pause_count, 1);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_deploy_progress_killing_roundtrip() {
+        let event = DashboardEvent::DeployProgress {
+            pod_id: "pod_8".to_string(),
+            state: crate::types::DeployState::Killing,
+            message: "Sending taskkill to rc-agent.exe".to_string(),
+            timestamp: "2026-03-13T10:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("deploy_progress"), "Expected 'deploy_progress' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::DeployProgress { pod_id, state, message, .. } = parsed {
+            assert_eq!(pod_id, "pod_8");
+            assert_eq!(state, crate::types::DeployState::Killing);
+            assert_eq!(message, "Sending taskkill to rc-agent.exe");
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_deploy_progress_failed_roundtrip() {
+        let event = DashboardEvent::DeployProgress {
+            pod_id: "pod_3".to_string(),
+            state: crate::types::DeployState::Failed { reason: "binary too small (1024 bytes)".to_string() },
+            message: "Deploy failed: binary size check".to_string(),
+            timestamp: "2026-03-13T10:05:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::DeployProgress { state, .. } = parsed {
+            assert!(matches!(state, crate::types::DeployState::Failed { .. }));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_deploy_status_list_roundtrip() {
+        let list = DashboardEvent::DeployStatusList(vec![
+            DeployPodStatus {
+                pod_id: "pod_1".to_string(),
+                state: crate::types::DeployState::Idle,
+                last_updated: "2026-03-13T10:00:00Z".to_string(),
+            },
+            DeployPodStatus {
+                pod_id: "pod_8".to_string(),
+                state: crate::types::DeployState::Complete,
+                last_updated: "2026-03-13T10:01:00Z".to_string(),
+            },
+        ]);
+        let json = serde_json::to_string(&list).unwrap();
+        assert!(json.contains("deploy_status_list"), "Expected 'deploy_status_list' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::DeployStatusList(statuses) = parsed {
+            assert_eq!(statuses.len(), 2);
+            assert_eq!(statuses[0].pod_id, "pod_1");
+            assert_eq!(statuses[1].pod_id, "pod_8");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_command_deploy_pod_roundtrip() {
+        let cmd = DashboardCommand::DeployPod {
+            pod_id: "pod_8".to_string(),
+            binary_url: "http://192.168.31.27:9998/rc-agent.exe".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("deploy_pod"));
+        let parsed: DashboardCommand = serde_json::from_str(&json).unwrap();
+        if let DashboardCommand::DeployPod { pod_id, binary_url } = parsed {
+            assert_eq!(pod_id, "pod_8");
+            assert_eq!(binary_url, "http://192.168.31.27:9998/rc-agent.exe");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_command_deploy_rolling_roundtrip() {
+        let cmd = DashboardCommand::DeployRolling {
+            binary_url: "http://192.168.31.27:9998/rc-agent.exe".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("deploy_rolling"));
+        let parsed: DashboardCommand = serde_json::from_str(&json).unwrap();
+        if let DashboardCommand::DeployRolling { binary_url } = parsed {
+            assert_eq!(binary_url, "http://192.168.31.27:9998/rc-agent.exe");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_command_cancel_deploy_roundtrip() {
+        let cmd = DashboardCommand::CancelDeploy {
+            pod_id: "pod_5".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("cancel_deploy"));
+        let parsed: DashboardCommand = serde_json::from_str(&json).unwrap();
+        if let DashboardCommand::CancelDeploy { pod_id } = parsed {
+            assert_eq!(pod_id, "pod_5");
         } else {
             panic!("Wrong variant");
         }
