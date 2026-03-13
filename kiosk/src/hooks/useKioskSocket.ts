@@ -36,6 +36,7 @@ export type { AssistanceRequest };
 
 export function useKioskSocket() {
   const ws = useRef<WebSocket | null>(null);
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [connected, setConnected] = useState(false);
   const [pods, setPods] = useState<Map<string, Pod>>(new Map());
   const [latestTelemetry, setLatestTelemetry] = useState<Map<string, TelemetryFrame>>(new Map());
@@ -64,6 +65,11 @@ export function useKioskSocket() {
     const socket = new WebSocket(WS_URL);
 
     socket.onopen = () => {
+      // Clear any pending disconnect timer -- we reconnected in time
+      if (disconnectTimerRef.current !== null) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
       setConnected(true);
       console.log("[Kiosk] Connected to RaceControl");
     };
@@ -270,8 +276,17 @@ export function useKioskSocket() {
     };
 
     socket.onclose = () => {
-      setConnected(false);
       console.log("[Kiosk] Disconnected, retrying in 3s...");
+      // Debounce UI update -- only show disconnected after 15s of confirmed absence
+      // This prevents false "Disconnected" flashes during game launch CPU spikes
+      if (disconnectTimerRef.current === null) {
+        disconnectTimerRef.current = setTimeout(() => {
+          setConnected(false);
+          disconnectTimerRef.current = null;
+          console.log("[Kiosk] 15s debounce expired -- marking disconnected");
+        }, 15_000);
+      }
+      // Retry connection immediately (separate from UI debounce)
       setTimeout(connect, 3000);
     };
 
@@ -286,6 +301,11 @@ export function useKioskSocket() {
     connect();
     return () => {
       ws.current?.close();
+      // Clean up debounce timer on unmount
+      if (disconnectTimerRef.current !== null) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
     };
   }, [connect]);
 
