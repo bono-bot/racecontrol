@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-13T03:38:59.136Z"
+stopped_at: Completed 05-02-PLAN.md — Phase 5 complete, all requirements closed
+last_updated: "2026-03-13T03:46:18.841Z"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
   percent: 87
 ---
 
@@ -128,6 +128,7 @@ Progress: [████████░░] 80%
 | Phase 04-deployment-pipeline P02 | 6 | 2 tasks | 4 files |
 | Phase 04-deployment-pipeline P03 | 20 | 4 tasks | 9 files |
 | Phase 05-blanking-screen-protocol P01 | 28 | 2 tasks | 4 files |
+| Phase 05-blanking-screen-protocol P02 | 35 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -178,6 +179,9 @@ Progress: [████████░░] 80%
 - [Phase 05-01]: LaunchSplash is active customer-facing state — health returns ok, is_idle_or_blanked() returns false
 - [Phase 05-01]: Lock screen before game kill: all session-ending handlers follow show_lock_screen -> sleep(500ms) -> game.stop() -> enforce_safe_state()
 - [Phase 05-01]: DIALOG_PROCESSES pub const in ac_launcher.rs — single source of truth for 5 dialog processes in both enforce_safe_state and cleanup_after_session
+- [Phase 05-02]: INVALID_PIN_MESSAGE const uses em dash — identical error text across pod WS, kiosk HTTP, and PWA HTTP entry points
+- [Phase 05-02]: PinSource enum is logging-only — business logic (SQL, billing) is source-agnostic with no branching on source
+- [Phase 05-02]: pod-lockdown.ps1 is a one-time deploy artifact, not rc-agent runtime code — lockdown survives agent restarts
 
 ### Pending Todos
 
@@ -191,6 +195,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T03:38:59.134Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-03-13T03:46:18.839Z
+Stopped at: Completed 05-02-PLAN.md — Phase 5 complete, all requirements closed
 Resume file: None

@@ -37,18 +37,18 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 
 - [x] **SCREEN-01**: Clean branded lock screen visible before session starts and after session ends — no Windows desktop exposed
 - [x] **SCREEN-02**: All error popups suppressed on pod screens (WerFault, application errors, "Cannot find" dialogs, ConspitLink messages)
-- [ ] **SCREEN-03**: No file path errors or system dialogs leak through to the customer-facing display
+- [x] **SCREEN-03**: No file path errors or system dialogs leak through to the customer-facing display
 
 ### Performance & Latency
 
 - [x] **PERF-01**: Game launch completes within target time from kiosk "Start" to game visible on pod
-- [ ] **PERF-02**: Lock screen responds to PIN entry within 1-2 seconds
+- [x] **PERF-02**: Lock screen responds to PIN entry within 1-2 seconds
 - [x] **PERF-03**: WebSocket command round-trip (rc-core → rc-agent → response) stays under low threshold
 - [x] **PERF-04**: Kiosk UI interactions (page loads, button responses, state updates) feel instant to staff
 
 ### Authentication
 
-- [ ] **AUTH-01**: PIN authentication works identically on pod lock screen, customer PWA, and customer kiosk — same validation, same flow, same response time
+- [x] **AUTH-01**: PIN authentication works identically on pod lock screen, customer PWA, and customer kiosk — same validation, same flow, same response time
 
 ## Future Requirements
 
@@ -104,12 +104,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALERT-02 | Phase 2 | Complete |
 | SCREEN-01 | Phase 5 | Complete |
 | SCREEN-02 | Phase 5 | Complete |
-| SCREEN-03 | Phase 5 | Pending |
+| SCREEN-03 | Phase 5 | Complete |
 | PERF-01 | Phase 4 | Complete |
-| PERF-02 | Phase 5 | Pending |
+| PERF-02 | Phase 5 | Complete |
 | PERF-03 | Phase 3 | Complete |
 | PERF-04 | Phase 3 | Complete |
-| AUTH-01 | Phase 5 | Pending |
+| AUTH-01 | Phase 5 | Complete |
 
 **Coverage:**
 - v1.0 requirements: 22 total
