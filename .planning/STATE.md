@@ -67,11 +67,11 @@ See: .planning/PROJECT.md (updated 2026-03-13)
 
 ## Current Position
 
-Phase: 3 of 5 complete (WebSocket Resilience — DONE)
-Next: Phase 4 — Deployment Pipeline Hardening
-Status: Phase 3 Complete — ready to start Phase 4
+Phase: 4 of 5 — Deployment Pipeline Hardening (Plan 2 of 4 complete)
+Next: Phase 4 Plan 03 — Rolling deploy + kiosk deploy UI
+Status: Executing Phase 4
 
-Progress: [██████░░░░] 60%
+Progress: [███████░░░] 70%
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Progress: [██████░░░░] 60%
 | Phase 02-watchdog-hardening P03 | 4 | 2 tasks | 1 files |
 | Phase 03-websocket-resilience P03 | 2 | 2 tasks | 2 files |
 | Phase 04-deployment-pipeline P01 | 6 | 4 tasks | 6 files |
+| Phase 04-deployment-pipeline P02 | 6 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,11 @@ Progress: [██████░░░░] 60%
 - [Phase 04-01]: DeployState uses serde(tag=state, content=detail) — consistent with protocol.rs adjacently-tagged enums; TS union uses { state: 'x' } discriminant matching Rust output
 - [Phase 04-01]: DeployPodStatus placed in protocol.rs (not types.rs) — it is a protocol-level DTO, not a domain type
 - [Phase 04-01]: is_active() returns false for Idle/Complete/Failed — all terminal/no-op states from the watchdog perspective
+- [Phase 04-02]: Binary URL validated via HEAD request before killing old process — prevents leaving pod without agent on URL errors
+- [Phase 04-02]: CancelDeploy sets Failed state in AppState; deploy_pod() checks is_cancelled() at each async step boundary
+- [Phase 04-02]: DeployRolling sorts Pod 8 canary first, then ascending, with 5s inter-pod delay
+- [Phase 04-02]: Config write failure is non-fatal — proceeds with existing config, logs warning
+- [Phase 04-02]: POST /api/deploy/:pod_id returns 409 for active billing sessions AND active deploys
 
 ### Pending Todos
 
@@ -145,6 +151,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T01:59:35.465Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-13T02:07:17Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

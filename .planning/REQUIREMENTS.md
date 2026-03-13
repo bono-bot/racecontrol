@@ -26,7 +26,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 - [x] **DEPLOY-02**: Deploy sequence enforces kill→wait→verify-dead→download→size-check→start→verify-reconnect
 - [x] **DEPLOY-03**: pod-agent /exec returns clear success/failure status (not HTTP 200 for everything)
 - [x] **DEPLOY-04**: Deploy wipes old config files from pods before writing new config — no stale config remnants
-- [ ] **DEPLOY-05**: Future binary and config updates deploy without disrupting active sessions or requiring manual pod-by-pod fixups — rolling update with backward-compatible transitions
+- [x] **DEPLOY-05**: Future binary and config updates deploy without disrupting active sessions or requiring manual pod-by-pod fixups — rolling update with backward-compatible transitions
 
 ### Alerting
 
@@ -99,7 +99,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEPLOY-02 | Phase 4 | Complete |
 | DEPLOY-03 | Phase 1 | Complete |
 | DEPLOY-04 | Phase 1 | Complete |
-| DEPLOY-05 | Phase 4 | Pending |
+| DEPLOY-05 | Phase 4 | Complete |
 | ALERT-01 | Phase 2 | Complete |
 | ALERT-02 | Phase 2 | Complete |
 | SCREEN-01 | Phase 5 | Pending |
