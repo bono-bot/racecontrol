@@ -81,40 +81,40 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DIAG-01 | — | Pending |
-| DIAG-02 | — | Pending |
-| DIAG-03 | — | Pending |
-| DIAG-04 | — | Pending |
-| HOST-01 | — | Pending |
-| HOST-02 | — | Pending |
-| HOST-03 | — | Pending |
-| HOST-04 | — | Pending |
-| LOCK-01 | — | Pending |
-| LOCK-02 | — | Pending |
-| LOCK-03 | — | Pending |
-| KIOSK-01 | — | Pending |
-| KIOSK-02 | — | Pending |
-| PWR-01 | — | Pending |
-| PWR-02 | — | Pending |
-| PWR-03 | — | Pending |
-| PWR-04 | — | Pending |
-| PWR-05 | — | Pending |
-| PWR-06 | — | Pending |
-| BRAND-01 | — | Pending |
-| BRAND-02 | — | Pending |
-| BRAND-03 | — | Pending |
-| SESS-01 | — | Pending |
-| SESS-02 | — | Pending |
-| SESS-03 | — | Pending |
-| EDGE-01 | — | Pending |
-| EDGE-02 | — | Pending |
-| EDGE-03 | — | Pending |
+| DIAG-01 | Phase 6 | Pending |
+| DIAG-02 | Phase 6 | Pending |
+| DIAG-03 | Phase 6 | Pending |
+| DIAG-04 | Phase 6 | Pending |
+| HOST-01 | Phase 7 | Pending |
+| HOST-02 | Phase 7 | Pending |
+| HOST-03 | Phase 7 | Pending |
+| HOST-04 | Phase 7 | Pending |
+| LOCK-01 | Phase 8 | Pending |
+| LOCK-02 | Phase 8 | Pending |
+| LOCK-03 | Phase 8 | Pending |
+| KIOSK-01 | Phase 10 | Pending |
+| KIOSK-02 | Phase 10 | Pending |
+| PWR-01 | Phase 10 | Pending |
+| PWR-02 | Phase 10 | Pending |
+| PWR-03 | Phase 10 | Pending |
+| PWR-04 | Phase 10 | Pending |
+| PWR-05 | Phase 10 | Pending |
+| PWR-06 | Phase 10 | Pending |
+| BRAND-01 | Phase 11 | Pending |
+| BRAND-02 | Phase 11 | Pending |
+| BRAND-03 | Phase 11 | Pending |
+| SESS-01 | Phase 11 | Pending |
+| SESS-02 | Phase 11 | Pending |
+| SESS-03 | Phase 11 | Pending |
+| EDGE-01 | Phase 9 | Pending |
+| EDGE-02 | Phase 9 | Pending |
+| EDGE-03 | Phase 9 | Pending |
 
 **Coverage:**
 - v2.0 requirements: 28 total
-- Mapped to phases: 0
-- Unmapped: 28
+- Mapped to phases: 28
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-13*
-*Last updated: 2026-03-13 after initial definition*
+*Last updated: 2026-03-13 after roadmap created (phases 6–11)*
