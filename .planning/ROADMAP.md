@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: State Wiring & Config Hardening** - Wire EscalatingBackoff/EmailAlerter into AppState; rc-agent fails fast on bad config (complete)
 - [x] **Phase 2: Watchdog Hardening** - pod_monitor/pod_healer use shared backoff; post-restart verification; email alerts fire (completed 2026-03-13)
-- [ ] **Phase 3: WebSocket Resilience** - Keepalive prevents drops during game launch; kiosk never flashes "Disconnected"
+- [x] **Phase 3: WebSocket Resilience** - Keepalive prevents drops during game launch; kiosk never flashes "Disconnected" (completed 2026-03-13)
 - [ ] **Phase 4: Deployment Pipeline Hardening** - Safe kill→verify→download→start sequence enforced; rolling update without disrupting sessions
 - [ ] **Phase 5: Blanking Screen Protocol** - Clean branded pod screens always; zero error popup leakage; PIN auth identical across all surfaces
 
@@ -66,9 +66,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — WS keepalive ping + app-level round-trip measurement (protocol + rc-core)
-- [ ] 03-02-PLAN.md — rc-agent fast-then-backoff reconnect + Ping/Pong handler
-- [ ] 03-03-PLAN.md — Kiosk 15s disconnect debounce + React.memo pod card optimization
+- [x] 03-01-PLAN.md — WS keepalive ping + app-level round-trip measurement (protocol + rc-core)
+- [x] 03-02-PLAN.md — rc-agent fast-then-backoff reconnect + Ping/Pong handler
+- [x] 03-03-PLAN.md — Kiosk 15s disconnect debounce + React.memo pod card optimization
 
 ### Phase 4: Deployment Pipeline Hardening
 **Goal**: Every rc-agent deploy follows kill→wait→verify-dead→download→size-check→start→verify-reconnect sequence automatically; no binary file lock issues; new binaries work identically on all 8 pods; active sessions are not disrupted by rolling updates
@@ -108,6 +108,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. State Wiring & Config Hardening | 3/3 | Complete | 2026-03-13 |
 | 2. Watchdog Hardening | 3/3 | Complete   | 2026-03-13 |
-| 3. WebSocket Resilience | 1/3 | In Progress|  |
-| 4. Deployment Pipeline Hardening | 0/TBD | Not started | - |
+| 3. WebSocket Resilience | 3/3 | Complete | 2026-03-13 |
+| 4. Deployment Pipeline Hardening | 0/TBD | Planning |  |
 | 5. Blanking Screen Protocol | 0/TBD | Not started | - |
