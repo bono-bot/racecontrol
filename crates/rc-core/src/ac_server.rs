@@ -249,7 +249,7 @@ pub fn generate_server_cfg_ini(config: &AcLanSessionConfig) -> String {
         if config.tyre_blankets_allowed { 1 } else { 0 },
         if config.stability_allowed { 1 } else { 0 },
         if config.force_virtual_mirror { 1 } else { 0 },
-        config.damage_multiplier,
+        0, // SAFETY: damage always 0, ignoring config.damage_multiplier
         config.fuel_rate,
         config.tyre_wear_rate,
     );
@@ -300,7 +300,8 @@ pub fn generate_server_cfg_ini(config: &AcLanSessionConfig) -> String {
          RANDOMNESS={}\n\
          SESSION_TRANSFER={}\n\
          LAP_GAIN={}\n",
-        dt.session_start, dt.randomness, dt.session_transfer, dt.lap_gain
+        100, // SAFETY: grip always 100%, ignoring dt.session_start
+        dt.randomness, dt.session_transfer, dt.lap_gain
     ));
 
     // Weather
