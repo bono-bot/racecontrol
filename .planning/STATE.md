@@ -3,10 +3,25 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-13T01:59:35.468Z"
+progress:
+  total_phases: 5
+  completed_phases: 3
+  total_plans: 12
+  completed_plans: 10
+  percent: 83
+---
+
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: executing
 stopped_at: Phase 03 complete — all 3 plans executed, verification passed
 last_updated: "2026-03-13T12:00:00.000Z"
 progress:
-  total_phases: 5
+  [████████░░] 83%
   completed_phases: 3
   total_plans: 9
   completed_plans: 9
@@ -80,6 +95,7 @@ Progress: [██████░░░░] 60%
 | Phase 02-watchdog-hardening P02 | 18 | 2 tasks | 1 files |
 | Phase 02-watchdog-hardening P03 | 4 | 2 tasks | 1 files |
 | Phase 03-websocket-resilience P03 | 2 | 2 tasks | 2 files |
+| Phase 04-deployment-pipeline P01 | 6 | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -113,6 +129,9 @@ Progress: [██████░░░░] 60%
 - [Phase 03-03]: disconnectTimerRef is useRef not useState -- timer state change must not trigger re-render
 - [Phase 03-03]: React.memo uses default shallow equality -- Map copy in setPods preserves object identity for unchanged pod entries
 - [Phase 03-03]: Sub-components (TransmissionToggle, FfbToggle) are NOT memoized -- they have local state that memo could interfere with
+- [Phase 04-01]: DeployState uses serde(tag=state, content=detail) — consistent with protocol.rs adjacently-tagged enums; TS union uses { state: 'x' } discriminant matching Rust output
+- [Phase 04-01]: DeployPodStatus placed in protocol.rs (not types.rs) — it is a protocol-level DTO, not a domain type
+- [Phase 04-01]: is_active() returns false for Idle/Complete/Failed — all terminal/no-op states from the watchdog perspective
 
 ### Pending Todos
 
@@ -126,6 +145,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T12:00:00.000Z
-Stopped at: Phase 03 complete — verification passed (10/10 must-haves)
+Last session: 2026-03-13T01:59:35.465Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None

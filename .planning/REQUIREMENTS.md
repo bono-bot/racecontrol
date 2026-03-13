@@ -23,7 +23,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 ### Deployment & Config
 
 - [x] **DEPLOY-01**: rc-agent validates all required config fields at startup, exits non-zero on invalid config
-- [ ] **DEPLOY-02**: Deploy sequence enforces kill→wait→verify-dead→download→size-check→start→verify-reconnect
+- [x] **DEPLOY-02**: Deploy sequence enforces kill→wait→verify-dead→download→size-check→start→verify-reconnect
 - [x] **DEPLOY-03**: pod-agent /exec returns clear success/failure status (not HTTP 200 for everything)
 - [x] **DEPLOY-04**: Deploy wipes old config files from pods before writing new config — no stale config remnants
 - [ ] **DEPLOY-05**: Future binary and config updates deploy without disrupting active sessions or requiring manual pod-by-pod fixups — rolling update with backward-compatible transitions
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CONN-02 | Phase 3 | Complete |
 | CONN-03 | Phase 3 | Complete |
 | DEPLOY-01 | Phase 1 | Complete |
-| DEPLOY-02 | Phase 4 | Pending |
+| DEPLOY-02 | Phase 4 | Complete |
 | DEPLOY-03 | Phase 1 | Complete |
 | DEPLOY-04 | Phase 1 | Complete |
 | DEPLOY-05 | Phase 4 | Pending |

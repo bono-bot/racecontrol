@@ -111,5 +111,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. State Wiring & Config Hardening | 3/3 | Complete | 2026-03-13 |
 | 2. Watchdog Hardening | 3/3 | Complete   | 2026-03-13 |
 | 3. WebSocket Resilience | 3/3 | Complete | 2026-03-13 |
-| 4. Deployment Pipeline Hardening | 0/3 | Planned |  |
+| 4. Deployment Pipeline Hardening | 1/3 | In Progress|  |
 | 5. Blanking Screen Protocol | 0/TBD | Not started | - |
