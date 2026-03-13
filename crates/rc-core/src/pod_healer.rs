@@ -161,6 +161,20 @@ async fn heal_pod(
         return Ok(());
     }
 
+    // Skip pods with active deploy -- deploy executor manages lifecycle
+    {
+        let deploy_states = state.pod_deploy_states.read().await;
+        if let Some(deploy_state) = deploy_states.get(&pod.id) {
+            if deploy_state.is_active() {
+                tracing::debug!(
+                    "Pod healer: {} has active deploy ({:?}) -- skipping diagnostic",
+                    pod.id, deploy_state
+                );
+                return Ok(());
+            }
+        }
+    }
+
     // Collect diagnostics
     let diag = collect_diagnostics(state, &pod.ip_address).await?;
 

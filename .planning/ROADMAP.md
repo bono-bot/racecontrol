@@ -80,10 +80,12 @@ Plans:
   3. A binary deployed to Pod 8 and verified healthy can be rolled out to all 8 pods without disrupting any pod that has an active paying session in progress
   4. Game launch completes within the expected time window from kiosk "Start" to game visible on pod screen
   5. PIN entry on the pod lock screen responds and transitions within 1-2 seconds
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md — Deploy protocol types + shared enums (DeployState, DeployCommand, DashboardEvent variants)
+- [ ] 04-02-PLAN.md — Deploy executor: kill→verify→download→size-check→start→verify-reconnect sequence
+- [ ] 04-03-PLAN.md — Rolling deploy with session-aware scheduling + kiosk deploy UI
 
 ### Phase 5: Blanking Screen Protocol
 **Goal**: Pod screens show a clean branded lock screen before and after every session with no Windows desktop or file system ever visible; all error popups and system dialogs are suppressed or intercepted before reaching the customer display; PIN auth behaves identically on pod lock screen, customer PWA, and customer kiosk
@@ -109,5 +111,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. State Wiring & Config Hardening | 3/3 | Complete | 2026-03-13 |
 | 2. Watchdog Hardening | 3/3 | Complete   | 2026-03-13 |
 | 3. WebSocket Resilience | 3/3 | Complete | 2026-03-13 |
-| 4. Deployment Pipeline Hardening | 0/TBD | Planning |  |
+| 4. Deployment Pipeline Hardening | 0/3 | Planned |  |
 | 5. Blanking Screen Protocol | 0/TBD | Not started | - |

@@ -14,7 +14,7 @@ use crate::email_alerts::EmailAlerter;
 use crate::game_launcher::GameManager;
 use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
-use rc_common::types::PodInfo;
+use rc_common::types::{DeployState, PodInfo};
 use rc_common::watchdog::EscalatingBackoff;
 
 /// Watchdog recovery state for a single pod.
@@ -81,6 +81,8 @@ pub struct AppState {
     pub pod_watchdog_states: RwLock<HashMap<String, WatchdogState>>,
     /// Per-pod restart flag — set by pod_monitor, cleared by pod_healer on recovery
     pub pod_needs_restart: RwLock<HashMap<String, bool>>,
+    /// Per-pod deploy lifecycle state (active deploy blocks watchdog restart)
+    pub pod_deploy_states: RwLock<HashMap<String, DeployState>>,
 }
 
 impl AppState {
@@ -120,6 +122,7 @@ impl AppState {
             )),
             pod_watchdog_states: RwLock::new(create_initial_watchdog_states()),
             pod_needs_restart: RwLock::new(create_initial_needs_restart()),
+            pod_deploy_states: RwLock::new(create_initial_deploy_states()),
         }
     }
 
@@ -273,6 +276,16 @@ pub fn create_initial_needs_restart() -> HashMap<String, bool> {
     needs
 }
 
+/// Creates the initial pod_deploy_states HashMap pre-populated for pods 1-8.
+/// All pods start Idle -- no deploy in progress.
+pub fn create_initial_deploy_states() -> HashMap<String, DeployState> {
+    let mut states = HashMap::new();
+    for pod_num in 1u32..=8 {
+        states.insert(format!("pod_{}", pod_num), DeployState::Idle);
+    }
+    states
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +355,23 @@ mod tests {
                 needs.get(&key),
                 Some(&false),
                 "pod_{} should default to false",
+                i
+            );
+        }
+    }
+
+    // ── Deploy state tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn create_initial_deploy_states_has_8_entries_all_idle() {
+        let states = create_initial_deploy_states();
+        assert_eq!(states.len(), 8);
+        for i in 1u32..=8 {
+            let key = format!("pod_{}", i);
+            assert_eq!(
+                states.get(&key),
+                Some(&DeployState::Idle),
+                "pod_{} should default to DeployState::Idle",
                 i
             );
         }

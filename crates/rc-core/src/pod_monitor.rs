@@ -218,6 +218,21 @@ async fn check_all_pods(
             _ => {}
         }
 
+        // Skip pods with active deploy (deploy executor manages lifecycle)
+        {
+            let deploy_states = state.pod_deploy_states.read().await;
+            if let Some(deploy_state) = deploy_states.get(&pod.id) {
+                if deploy_state.is_active() {
+                    tracing::debug!(
+                        "Pod {} has active deploy ({:?}) -- skipping watchdog",
+                        pod.id,
+                        deploy_state
+                    );
+                    continue;
+                }
+            }
+        }
+
         // Check shared backoff -- is it ready for another attempt?
         let mut backoffs = state.pod_backoffs.write().await;
         let backoff = backoffs.entry(pod.id.clone()).or_insert_with(|| {
