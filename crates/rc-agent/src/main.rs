@@ -847,7 +847,7 @@ async fn main() -> Result<()> {
                                     // Minimize all background windows for a clean game view
                                     tokio::task::spawn_blocking(|| ac_launcher::minimize_background_windows());
                                 }
-                                rc_common::protocol::CoreToAgentMessage::BillingTick { remaining_seconds, allocated_seconds: _, driver_name: _ } => {
+                                rc_common::protocol::CoreToAgentMessage::BillingTick { remaining_seconds, allocated_seconds: _, driver_name: _, .. } => {
                                     lock_screen.update_remaining(remaining_seconds);
                                     overlay.update_billing(remaining_seconds);
                                 }

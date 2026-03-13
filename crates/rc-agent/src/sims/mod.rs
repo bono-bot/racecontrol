@@ -2,7 +2,7 @@ pub mod assetto_corsa;
 pub mod f1_25;
 
 use anyhow::Result;
-use rc_common::types::{SimType, TelemetryFrame, SessionInfo, LapData};
+use rc_common::types::{AcStatus, SimType, TelemetryFrame, SessionInfo, LapData};
 
 /// Trait that all sim adapters must implement
 pub trait SimAdapter: Send + Sync {
@@ -29,4 +29,7 @@ pub trait SimAdapter: Send + Sync {
 
     /// Car's max RPM (for RPM bar scaling). Default 8000 if unknown.
     fn max_rpm(&self) -> u32 { 8000 }
+
+    /// Read the sim's current AC_STATUS from shared memory. Only meaningful for AC.
+    fn read_ac_status(&self) -> Option<AcStatus> { None }
 }

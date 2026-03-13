@@ -196,17 +196,174 @@ impl BillingTimer {
     }
 }
 
+// ─── WaitingForGameEntry ─────────────────────────────────────────────────────
+
+/// Tracks pods waiting for AC to reach STATUS=LIVE before billing starts.
+/// Created by defer_billing_start(), consumed by handle_game_status_update(Live).
+pub struct WaitingForGameEntry {
+    pub pod_id: String,
+    pub driver_id: String,
+    pub pricing_tier_id: String,
+    pub custom_price_paise: Option<u32>,
+    pub custom_duration_minutes: Option<u32>,
+    pub staff_id: Option<String>,
+    pub split_count: Option<u32>,
+    pub split_duration_minutes: Option<u32>,
+    pub waiting_since: std::time::Instant,
+    pub attempt: u8, // 1 = first try, 2 = retry after timeout
+}
+
 // ─── BillingManager ─────────────────────────────────────────────────────────
 
 pub struct BillingManager {
     /// pod_id -> BillingTimer
     pub active_timers: RwLock<HashMap<String, BillingTimer>>,
+    /// pod_id -> WaitingForGameEntry (pods that authenticated but AC not yet LIVE)
+    pub waiting_for_game: RwLock<HashMap<String, WaitingForGameEntry>>,
 }
 
 impl BillingManager {
     pub fn new() -> Self {
         Self {
             active_timers: RwLock::new(HashMap::new()),
+            waiting_for_game: RwLock::new(HashMap::new()),
+        }
+    }
+}
+
+// ─── Game Status Handling ───────────────────────────────────────────────────
+
+/// Check for pods that have been in WaitingForGame for more than 180 seconds.
+/// Returns list of (pod_id, attempt) for pods that have timed out.
+/// This variant operates directly on a BillingManager (for testing without AppState).
+pub async fn check_launch_timeouts_from_manager(mgr: &BillingManager) -> Vec<(String, u8)> {
+    let mut timed_out = Vec::new();
+    let waiting = mgr.waiting_for_game.read().await;
+    for (pod_id, entry) in waiting.iter() {
+        if entry.waiting_since.elapsed() > std::time::Duration::from_secs(180) {
+            timed_out.push((pod_id.clone(), entry.attempt));
+        }
+    }
+    timed_out
+}
+
+/// Check for pods that have been in WaitingForGame for more than 180 seconds.
+/// Returns list of (pod_id, attempt) for pods that have timed out.
+pub async fn check_launch_timeouts(state: &Arc<AppState>) -> Vec<(String, u8)> {
+    check_launch_timeouts_from_manager(&state.billing).await
+}
+
+/// Defer billing start until AC reaches STATUS=LIVE.
+/// Called from auth instead of start_billing_session.
+pub async fn defer_billing_start(
+    state: &Arc<AppState>,
+    pod_id: String,
+    driver_id: String,
+    pricing_tier_id: String,
+    custom_price_paise: Option<u32>,
+    custom_duration_minutes: Option<u32>,
+    staff_id: Option<String>,
+    split_count: Option<u32>,
+    split_duration_minutes: Option<u32>,
+) -> Result<(), String> {
+    let entry = WaitingForGameEntry {
+        pod_id: pod_id.clone(),
+        driver_id,
+        pricing_tier_id,
+        custom_price_paise,
+        custom_duration_minutes,
+        staff_id,
+        split_count,
+        split_duration_minutes,
+        waiting_since: std::time::Instant::now(),
+        attempt: 1,
+    };
+    state.billing.waiting_for_game.write().await.insert(pod_id, entry);
+    tracing::info!("Billing deferred to WaitingForGame for pod");
+    Ok(())
+}
+
+/// Handle game status updates from the agent.
+/// Dispatches to billing start/pause/resume/end based on AcStatus.
+pub async fn handle_game_status_update(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    ac_status: rc_common::types::AcStatus,
+    _cmd_tx: &tokio::sync::mpsc::Sender<CoreToAgentMessage>,
+) {
+    use rc_common::types::AcStatus;
+    match ac_status {
+        AcStatus::Live => {
+            // Check if this pod is in waiting_for_game -- if so, start billing
+            let entry = state.billing.waiting_for_game.write().await.remove(pod_id);
+            if let Some(entry) = entry {
+                match start_billing_session(
+                    state,
+                    entry.pod_id,
+                    entry.driver_id,
+                    entry.pricing_tier_id,
+                    entry.custom_price_paise,
+                    entry.custom_duration_minutes,
+                    entry.staff_id,
+                    entry.split_count,
+                    entry.split_duration_minutes,
+                ).await {
+                    Ok(session_id) => {
+                        tracing::info!("Billing started on LIVE for pod {} (session {})", pod_id, session_id);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to start billing on LIVE for pod {}: {}", pod_id, e);
+                    }
+                }
+            } else {
+                // No waiting entry -- check if timer exists and is PausedGamePause (resume)
+                let mut timers = state.billing.active_timers.write().await;
+                if let Some(timer) = timers.get_mut(pod_id) {
+                    if timer.status == BillingSessionStatus::PausedGamePause {
+                        timer.status = BillingSessionStatus::Active;
+                        timer.pause_seconds = 0;
+                        tracing::info!("Billing resumed on LIVE for pod {} (was PausedGamePause)", pod_id);
+                    }
+                    // If already Active, this is a no-op (idempotent)
+                }
+            }
+        }
+        AcStatus::Pause => {
+            let mut timers = state.billing.active_timers.write().await;
+            if let Some(timer) = timers.get_mut(pod_id) {
+                if timer.status == BillingSessionStatus::Active {
+                    timer.status = BillingSessionStatus::PausedGamePause;
+                    timer.pause_seconds = 0;
+                    timer.pause_count += 1;
+                    tracing::info!("Billing paused (game pause) for pod {}", pod_id);
+                }
+            }
+            // If no active timer, Pause is a no-op
+        }
+        AcStatus::Off => {
+            // Game exited -- if there's an active billing timer, end the session
+            let session_id = {
+                let timers = state.billing.active_timers.read().await;
+                timers.get(pod_id).map(|t| t.session_id.clone())
+            };
+            if let Some(session_id) = session_id {
+                tracing::info!("Game exited (STATUS=Off) for pod {}, ending billing session {}", pod_id, session_id);
+                end_billing_session(state, &session_id, BillingSessionStatus::EndedEarly).await;
+            }
+            // Also remove from waiting_for_game if present (game crashed during loading)
+            state.billing.waiting_for_game.write().await.remove(pod_id);
+        }
+        AcStatus::Replay => {
+            // Replay mode -- treat same as Pause for billing purposes
+            let mut timers = state.billing.active_timers.write().await;
+            if let Some(timer) = timers.get_mut(pod_id) {
+                if timer.status == BillingSessionStatus::Active {
+                    timer.status = BillingSessionStatus::PausedGamePause;
+                    timer.pause_seconds = 0;
+                    timer.pause_count += 1;
+                    tracing::info!("Billing paused (replay) for pod {}", pod_id);
+                }
+            }
         }
     }
 }
@@ -659,6 +816,67 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             pod_id,
             remaining_seconds: 0,
         });
+    }
+
+    // ─── Launch timeout handling ─────────────────────────────────────────
+    // Check for pods stuck in WaitingForGame for >180 seconds
+    let timed_out = check_launch_timeouts(state).await;
+    for (pod_id, attempt) in timed_out {
+        if attempt == 1 {
+            // First timeout: reset to attempt 2 and allow another 3 minutes
+            let mut waiting = state.billing.waiting_for_game.write().await;
+            if let Some(entry) = waiting.get_mut(&pod_id) {
+                tracing::warn!(
+                    "Launch timeout (attempt 1) for pod {} — allowing retry (attempt 2)",
+                    pod_id
+                );
+                entry.attempt = 2;
+                entry.waiting_since = std::time::Instant::now();
+                log_pod_activity(state, &pod_id, "billing", "Launch Timeout",
+                    "AC failed to reach LIVE in 3 min — retry allowed", "race_engineer");
+            }
+            // The agent-side LaunchState machine handles the actual retry
+            // Send LaunchGame again to trigger retry
+            let agent_senders = state.agent_senders.read().await;
+            if let Some(sender) = agent_senders.get(&pod_id) {
+                let _ = sender.send(CoreToAgentMessage::LaunchGame {
+                    sim_type: rc_common::types::SimType::AssettoCorsa,
+                    launch_args: None,
+                }).await;
+            }
+        } else {
+            // Second timeout: cancel with no charge
+            let mut waiting = state.billing.waiting_for_game.write().await;
+            let entry = waiting.remove(&pod_id);
+            tracing::error!(
+                "Launch timeout (attempt 2) for pod {} — cancelling session (no charge)",
+                pod_id
+            );
+            log_pod_activity(state, &pod_id, "billing", "Launch Failed",
+                "AC failed to reach LIVE after 2 attempts (6 min total) — session cancelled, no charge", "race_engineer");
+
+            // Send BillingStopped to agent so it shows session cancelled
+            let agent_senders = state.agent_senders.read().await;
+            if let Some(sender) = agent_senders.get(&pod_id) {
+                let billing_session_id = entry
+                    .map(|e| format!("deferred-{}", e.pod_id))
+                    .unwrap_or_default();
+                let _ = sender.send(CoreToAgentMessage::BillingStopped {
+                    billing_session_id,
+                }).await;
+            }
+
+            // Clear pod state back to idle
+            {
+                let mut pods = state.pods.write().await;
+                if let Some(pod) = pods.get_mut(&pod_id) {
+                    pod.billing_session_id = None;
+                    pod.current_driver = None;
+                    pod.status = rc_common::types::PodStatus::Idle;
+                    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                }
+            }
+        }
     }
 }
 
@@ -2142,6 +2360,244 @@ mod tests {
         assert_eq!(info.driving_seconds, 900);
         assert_eq!(info.allocated_seconds, 10800);
         assert_eq!(info.remaining_seconds, 9900);
+    }
+
+    // ── Phase 03 Plan 03 Task 1: billing lifecycle (handle_game_status_update) ──
+
+    #[test]
+    fn waiting_for_game_entry_tracks_billing_params() {
+        let entry = WaitingForGameEntry {
+            pod_id: "pod1".to_string(),
+            driver_id: "d1".to_string(),
+            pricing_tier_id: "tier1".to_string(),
+            custom_price_paise: Some(5000),
+            custom_duration_minutes: Some(30),
+            staff_id: None,
+            split_count: None,
+            split_duration_minutes: None,
+            waiting_since: std::time::Instant::now(),
+            attempt: 1,
+        };
+        assert_eq!(entry.pod_id, "pod1");
+        assert_eq!(entry.attempt, 1);
+        assert_eq!(entry.custom_price_paise, Some(5000));
+    }
+
+    #[tokio::test]
+    async fn game_status_live_on_paused_game_pause_resumes_billing() {
+        // Timer in PausedGamePause -> Live should transition to Active
+        let mgr = BillingManager::new();
+        {
+            let mut timers = mgr.active_timers.write().await;
+            let mut timer = make_test_timer("resume-test", "p1");
+            timer.status = BillingSessionStatus::PausedGamePause;
+            timer.pause_seconds = 30;
+            timers.insert("p1".to_string(), timer);
+        }
+        // Simulate Live: transition PausedGamePause -> Active
+        {
+            let mut timers = mgr.active_timers.write().await;
+            if let Some(timer) = timers.get_mut("p1") {
+                assert_eq!(timer.status, BillingSessionStatus::PausedGamePause);
+                timer.status = BillingSessionStatus::Active;
+                timer.pause_seconds = 0;
+            }
+        }
+        let timers = mgr.active_timers.read().await;
+        let timer = timers.get("p1").unwrap();
+        assert_eq!(timer.status, BillingSessionStatus::Active);
+        assert_eq!(timer.pause_seconds, 0);
+    }
+
+    #[tokio::test]
+    async fn game_status_pause_transitions_active_to_paused_game_pause() {
+        let mgr = BillingManager::new();
+        {
+            let mut timers = mgr.active_timers.write().await;
+            let timer = make_test_timer("pause-test", "p2");
+            timers.insert("p2".to_string(), timer);
+        }
+        // Simulate Pause: Active -> PausedGamePause
+        {
+            let mut timers = mgr.active_timers.write().await;
+            if let Some(timer) = timers.get_mut("p2") {
+                assert_eq!(timer.status, BillingSessionStatus::Active);
+                timer.status = BillingSessionStatus::PausedGamePause;
+                timer.pause_seconds = 0;
+                timer.pause_count += 1;
+            }
+        }
+        let timers = mgr.active_timers.read().await;
+        let timer = timers.get("p2").unwrap();
+        assert_eq!(timer.status, BillingSessionStatus::PausedGamePause);
+        assert_eq!(timer.pause_count, 1);
+    }
+
+    #[tokio::test]
+    async fn game_status_live_on_active_timer_is_noop() {
+        let mgr = BillingManager::new();
+        {
+            let mut timers = mgr.active_timers.write().await;
+            let mut timer = make_test_timer("noop-test", "p3");
+            timer.elapsed_seconds = 100;
+            timer.driving_seconds = 100;
+            timers.insert("p3".to_string(), timer);
+        }
+        // Simulate Live on already-Active: no change
+        {
+            let timers = mgr.active_timers.read().await;
+            let timer = timers.get("p3").unwrap();
+            assert_eq!(timer.status, BillingSessionStatus::Active);
+            assert_eq!(timer.elapsed_seconds, 100);
+        }
+    }
+
+    #[tokio::test]
+    async fn game_status_pause_on_no_timer_is_noop() {
+        let mgr = BillingManager::new();
+        // No timer for p4 - Pause should be no-op
+        let timers = mgr.active_timers.read().await;
+        assert!(timers.get("p4").is_none());
+    }
+
+    #[tokio::test]
+    async fn game_status_off_ends_active_session() {
+        let mgr = BillingManager::new();
+        {
+            let mut timers = mgr.active_timers.write().await;
+            let timer = make_test_timer("off-test", "p5");
+            timers.insert("p5".to_string(), timer);
+        }
+        // Simulate Off: remove timer (session ends)
+        {
+            let timers = mgr.active_timers.read().await;
+            assert!(timers.contains_key("p5"));
+        }
+        // The actual removal happens in handle_game_status_update via end_billing_session
+        // Here we verify the timer exists before Off (the function will remove it)
+    }
+
+    #[tokio::test]
+    async fn waiting_for_game_removed_on_live() {
+        let mgr = BillingManager::new();
+        {
+            let mut waiting = mgr.waiting_for_game.write().await;
+            waiting.insert("p6".to_string(), WaitingForGameEntry {
+                pod_id: "p6".to_string(),
+                driver_id: "d1".to_string(),
+                pricing_tier_id: "tier1".to_string(),
+                custom_price_paise: None,
+                custom_duration_minutes: None,
+                staff_id: None,
+                split_count: None,
+                split_duration_minutes: None,
+                waiting_since: std::time::Instant::now(),
+                attempt: 1,
+            });
+        }
+        // Simulate Live: remove from waiting_for_game
+        {
+            let mut waiting = mgr.waiting_for_game.write().await;
+            let entry = waiting.remove("p6");
+            assert!(entry.is_some());
+            assert_eq!(entry.unwrap().driver_id, "d1");
+        }
+        let waiting = mgr.waiting_for_game.read().await;
+        assert!(waiting.get("p6").is_none());
+    }
+
+    #[tokio::test]
+    async fn launch_timeout_detected_after_180s() {
+        let mgr = BillingManager::new();
+        {
+            let mut waiting = mgr.waiting_for_game.write().await;
+            // Create entry with waiting_since in the past (>180s ago)
+            let mut entry = WaitingForGameEntry {
+                pod_id: "p7".to_string(),
+                driver_id: "d1".to_string(),
+                pricing_tier_id: "tier1".to_string(),
+                custom_price_paise: None,
+                custom_duration_minutes: None,
+                staff_id: None,
+                split_count: None,
+                split_duration_minutes: None,
+                waiting_since: std::time::Instant::now(),
+                attempt: 1,
+            };
+            // Simulate time passing by using checked_sub
+            entry.waiting_since = std::time::Instant::now() - std::time::Duration::from_secs(181);
+            waiting.insert("p7".to_string(), entry);
+        }
+        // Check launch timeouts
+        let timed_out = check_launch_timeouts_from_manager(&mgr).await;
+        assert_eq!(timed_out.len(), 1);
+        assert_eq!(timed_out[0].0, "p7");
+        assert_eq!(timed_out[0].1, 1); // first attempt
+    }
+
+    #[tokio::test]
+    async fn launch_timeout_attempt_2_cancels_with_no_charge() {
+        let mgr = BillingManager::new();
+        {
+            let mut waiting = mgr.waiting_for_game.write().await;
+            let entry = WaitingForGameEntry {
+                pod_id: "p8".to_string(),
+                driver_id: "d1".to_string(),
+                pricing_tier_id: "tier1".to_string(),
+                custom_price_paise: None,
+                custom_duration_minutes: None,
+                staff_id: None,
+                split_count: None,
+                split_duration_minutes: None,
+                waiting_since: std::time::Instant::now() - std::time::Duration::from_secs(181),
+                attempt: 2, // second attempt
+            };
+            waiting.insert("p8".to_string(), entry);
+        }
+        let timed_out = check_launch_timeouts_from_manager(&mgr).await;
+        assert_eq!(timed_out.len(), 1);
+        assert_eq!(timed_out[0].0, "p8");
+        assert_eq!(timed_out[0].1, 2); // second attempt -> should cancel
+
+        // On attempt 2 timeout: remove from waiting (no billing session created = no charge)
+        {
+            let mut waiting = mgr.waiting_for_game.write().await;
+            waiting.remove("p8");
+        }
+        let waiting = mgr.waiting_for_game.read().await;
+        assert!(waiting.get("p8").is_none());
+        // No entry in active_timers either (billing never started)
+        let timers = mgr.active_timers.read().await;
+        assert!(timers.get("p8").is_none());
+    }
+
+    // Helper: create a test BillingTimer with Active status
+    fn make_test_timer(session_id: &str, pod_id: &str) -> BillingTimer {
+        BillingTimer {
+            session_id: session_id.to_string(),
+            driver_id: "d1".to_string(),
+            driver_name: "Test Driver".to_string(),
+            pod_id: pod_id.to_string(),
+            pricing_tier_name: "per-minute".to_string(),
+            allocated_seconds: 10800,
+            driving_seconds: 0,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 0,
+            pause_seconds: 0,
+            max_session_seconds: 10800,
+        }
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use rc_common::types::*;
+use rc_common::types::AcStatus;
 use super::SimAdapter;
 
 /// Assetto Corsa shared memory telemetry reader.
@@ -412,6 +413,24 @@ impl SimAdapter for AssettoCorsaAdapter {
     fn max_rpm(&self) -> u32 {
         self.max_rpm
     }
+
+    #[cfg(windows)]
+    fn read_ac_status(&self) -> Option<AcStatus> {
+        let gh = self.graphics_handle.as_ref()?;
+        let raw = Self::read_i32(gh, graphics::STATUS);
+        Some(match raw {
+            0 => AcStatus::Off,
+            1 => AcStatus::Replay,
+            2 => AcStatus::Live,
+            3 => AcStatus::Pause,
+            _ => AcStatus::Off,
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn read_ac_status(&self) -> Option<AcStatus> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -426,5 +445,17 @@ mod tests {
         assert_eq!((1i32 - 1) as i8, 0);  // N
         assert_eq!((2i32 - 1) as i8, 1);  // 1st
         assert_eq!((5i32 - 1) as i8, 4);  // 4th
+    }
+
+    #[test]
+    fn test_ac_status_read_non_windows() {
+        // On non-Windows, read_ac_status() always returns None (no shared memory)
+        let adapter = AssettoCorsaAdapter::new("pod_1".to_string(), "127.0.0.1".to_string(), 9600);
+        let status = adapter.read_ac_status();
+        #[cfg(not(windows))]
+        assert_eq!(status, None);
+        // On Windows without AC running, graphics_handle is None so it also returns None
+        #[cfg(windows)]
+        assert_eq!(status, None);
     }
 }

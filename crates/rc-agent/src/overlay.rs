@@ -54,6 +54,16 @@ struct OverlayData {
     track: String,
     previous_lap: Option<LapRecord>,
     best_lap: Option<LapRecord>,
+    // New billing fields (taxi meter model)
+    elapsed_seconds: u32,
+    cost_paise: i64,
+    rate_per_min_paise: i64,
+    paused: bool,
+    waiting_for_game: bool,
+    minutes_to_value_tier: Option<u32>,
+    rate_upgrade_shown: bool,
+    rate_unlocked_display_until: Option<std::time::Instant>,
+    last_minutes_to_value_tier: Option<u32>,
 }
 
 impl Default for OverlayData {
@@ -79,6 +89,15 @@ impl Default for OverlayData {
             track: String::new(),
             previous_lap: None,
             best_lap: None,
+            elapsed_seconds: 0,
+            cost_paise: 0,
+            rate_per_min_paise: 2330,
+            paused: false,
+            waiting_for_game: false,
+            minutes_to_value_tier: None,
+            rate_upgrade_shown: false,
+            rate_unlocked_display_until: None,
+            last_minutes_to_value_tier: None,
         }
     }
 }
@@ -233,27 +252,84 @@ impl HudComponent for SessionTimerSection {
         let col_white: u32 = rgb(255, 255, 255);
         let col_red: u32 = rgb(225, 6, 0);
         let col_amber: u32 = rgb(245, 158, 11);
+        let col_green: u32 = rgb(34, 197, 94);
+
+        // Detect taxi meter mode: use new rendering when any taxi meter field is populated
+        let use_taxi_meter = data.elapsed_seconds > 0 || data.waiting_for_game || data.paused;
 
         unsafe {
-            draw_text_at(hdc, res.font_label, col_grey, rect.x + 12, rect.y, "SESSION");
+            if use_taxi_meter {
+                // ─── Taxi Meter Rendering ─────────────────────────────────
+                draw_text_at(hdc, res.font_label, col_grey, rect.x + 12, rect.y, "SESSION");
 
-            // Show allocated time until game is live, then show real countdown
-            let display_seconds = if data.game_live {
-                data.remaining_seconds
+                if data.waiting_for_game {
+                    // Waiting for game to reach LIVE status
+                    draw_text_at(hdc, res.font_value, col_white, rect.x + 12, 28, "00:00");
+                    draw_text_at(hdc, res.font_sector, col_white, rect.x + 12, 54, &format_cost(0));
+                    draw_text_at(hdc, res.font_badge, col_amber, rect.x + 12, 72, "WAITING FOR GAME");
+                } else if data.paused {
+                    // Game paused — show frozen timer + cost + PAUSED badge
+                    let timer_str = format_timer(data.elapsed_seconds);
+                    draw_text_at(hdc, res.font_value, col_white, rect.x + 12, 28, &timer_str);
+                    draw_text_at(hdc, res.font_sector, col_white, rect.x + 12, 54, &format_cost(data.cost_paise));
+
+                    // PAUSED badge with red background
+                    use winapi::shared::windef::RECT;
+                    use winapi::um::winuser::FillRect;
+                    let badge_x = rect.x + 70;
+                    let badge_y = 54;
+                    let badge_brush = TempBrush::new(col_red);
+                    let badge_rect = RECT {
+                        left: badge_x,
+                        top: badge_y,
+                        right: badge_x + 48,
+                        bottom: badge_y + 16,
+                    };
+                    FillRect(hdc, &badge_rect, badge_brush.handle());
+                    draw_text_at(hdc, res.font_badge, col_white, badge_x + 4, badge_y + 1, "PAUSED");
+                } else {
+                    // Normal driving — elapsed timer counting up + running cost
+                    let timer_str = format_timer(data.elapsed_seconds);
+                    draw_text_at(hdc, res.font_value, col_white, rect.x + 12, 28, &timer_str);
+                    draw_text_at(hdc, res.font_sector, col_white, rect.x + 12, 54, &format_cost(data.cost_paise));
+
+                    // 30-min celebration: "VALUE RATE UNLOCKED!" in green
+                    if let Some(until) = data.rate_unlocked_display_until {
+                        if std::time::Instant::now() < until {
+                            draw_text_at(hdc, res.font_sector, col_green, rect.x + 12, 72, "VALUE RATE UNLOCKED!");
+                        }
+                    }
+                    // Rate upgrade prompt (only if celebration not showing)
+                    else if data.rate_upgrade_shown {
+                        if let Some(mins) = data.minutes_to_value_tier {
+                            if mins <= 5 && mins > 0 {
+                                let prompt = format!("Drive {} more min for Rs.15/min!", mins);
+                                draw_text_at(hdc, res.font_badge, col_green, rect.x + 12, 72, &prompt);
+                            }
+                        }
+                    }
+                }
             } else {
-                data.allocated_seconds
-            };
-            let timer_str = format_timer(display_seconds);
-            let timer_col = if !data.game_live {
-                col_white // Frozen — waiting for game
-            } else if data.remaining_seconds <= 10 {
-                col_red
-            } else if data.remaining_seconds <= 60 {
-                col_amber
-            } else {
-                col_white
-            };
-            draw_text_at(hdc, res.font_value, timer_col, rect.x + 12, 28, &timer_str);
+                // ─── Legacy Countdown Rendering ───────────────────────────
+                draw_text_at(hdc, res.font_label, col_grey, rect.x + 12, rect.y, "SESSION");
+
+                let display_seconds = if data.game_live {
+                    data.remaining_seconds
+                } else {
+                    data.allocated_seconds
+                };
+                let timer_str = format_timer(display_seconds);
+                let timer_col = if !data.game_live {
+                    col_white
+                } else if data.remaining_seconds <= 10 {
+                    col_red
+                } else if data.remaining_seconds <= 60 {
+                    col_amber
+                } else {
+                    col_white
+                };
+                draw_text_at(hdc, res.font_value, timer_col, rect.x + 12, 28, &timer_str);
+            }
         }
     }
 }
@@ -716,6 +792,78 @@ impl OverlayManager {
         self.open_window();
     }
 
+    /// Activate overlay for open-ended billing (taxi meter model).
+    pub fn activate_v2(&mut self, driver_name: String) {
+        {
+            let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *data = OverlayData {
+                active: true,
+                driver_name,
+                waiting_for_game: true,
+                elapsed_seconds: 0,
+                cost_paise: 0,
+                game_live: false,
+                paused: false,
+                rate_unlocked_display_until: None,
+                last_minutes_to_value_tier: None,
+                ..OverlayData::default()
+            };
+        }
+
+        #[cfg(windows)]
+        self.open_window();
+    }
+
+    /// Update billing with taxi meter fields from BillingTick v2.
+    pub fn update_billing_v2(
+        &self,
+        elapsed_seconds: u32,
+        cost_paise: i64,
+        rate_per_min_paise: i64,
+        paused: bool,
+        minutes_to_value_tier: Option<u32>,
+    ) {
+        let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if !data.active {
+            return;
+        }
+        data.elapsed_seconds = elapsed_seconds;
+        data.cost_paise = cost_paise;
+        data.rate_per_min_paise = rate_per_min_paise;
+        data.paused = paused;
+
+        // Determine game live / waiting state
+        if paused {
+            data.waiting_for_game = false;
+        } else if elapsed_seconds > 0 {
+            data.waiting_for_game = false;
+            data.game_live = true;
+        }
+
+        // Rate upgrade prompt: show when within 5 minutes of value tier
+        if let Some(mins) = minutes_to_value_tier {
+            if mins <= 5 && mins > 0 {
+                data.rate_upgrade_shown = true;
+            }
+        } else {
+            // Already on value tier
+            data.rate_upgrade_shown = false;
+        }
+
+        // 30-min celebration: detect tier crossing
+        if let Some(prev) = data.last_minutes_to_value_tier {
+            if prev > 0 && minutes_to_value_tier.is_none() {
+                // Just crossed into value tier
+                data.rate_unlocked_display_until =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+                data.rate_upgrade_shown = false;
+            }
+        }
+
+        data.minutes_to_value_tier = minutes_to_value_tier;
+        data.last_minutes_to_value_tier = minutes_to_value_tier;
+    }
+
     /// Update billing timer from BillingTick.
     pub fn update_billing(&self, remaining_seconds: u32) {
         let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -1166,6 +1314,12 @@ unsafe fn draw_text_at(
 
 // ─── Formatting Helpers ──────────────────────────────────────────────────────
 
+/// Format cost in paise to customer-facing "Rs.X" string.
+/// Uses floor division for customer-friendly rounding (Pitfall 6).
+fn format_cost(paise: i64) -> String {
+    format!("Rs.{}", paise / 100)
+}
+
 fn format_timer(seconds: u32) -> String {
     let m = seconds / 60;
     let s = seconds % 60;
@@ -1319,5 +1473,102 @@ mod tests {
 
         // No prev, has best, slower => yellow
         assert_eq!(sector_color(Some(31000), None, Some(30000), default, purple, green, yellow), yellow);
+    }
+
+    // ─── Taxi Meter Tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_format_cost() {
+        assert_eq!(format_cost(0), "Rs.0");
+        assert_eq!(format_cost(35000), "Rs.350");
+        assert_eq!(format_cost(67500), "Rs.675");
+        assert_eq!(format_cost(99), "Rs.0");   // floor division
+        assert_eq!(format_cost(150), "Rs.1");
+    }
+
+    #[test]
+    fn test_overlay_data_taxi_meter_defaults() {
+        let data = OverlayData::default();
+        assert_eq!(data.elapsed_seconds, 0);
+        assert_eq!(data.cost_paise, 0);
+        assert!(!data.waiting_for_game);
+        assert!(!data.paused);
+        assert!(data.rate_unlocked_display_until.is_none());
+    }
+
+    #[test]
+    fn test_update_billing_v2_sets_fields() {
+        let mut overlay = OverlayManager::new();
+        overlay.activate_v2("Test Driver".to_string());
+        overlay.update_billing_v2(923, 35000, 2330, false, Some(15));
+
+        let data = overlay.state.lock().unwrap();
+        assert_eq!(data.elapsed_seconds, 923);
+        assert_eq!(data.cost_paise, 35000);
+        assert_eq!(data.rate_per_min_paise, 2330);
+        assert!(!data.paused);
+        assert!(data.game_live);
+        assert!(!data.waiting_for_game);
+        assert_eq!(data.minutes_to_value_tier, Some(15));
+    }
+
+    #[test]
+    fn test_update_billing_v2_paused() {
+        let mut overlay = OverlayManager::new();
+        overlay.activate_v2("Test Driver".to_string());
+        overlay.update_billing_v2(600, 23300, 2330, true, Some(20));
+
+        let data = overlay.state.lock().unwrap();
+        assert!(data.paused);
+        assert!(!data.waiting_for_game);
+    }
+
+    #[test]
+    fn test_activate_v2_sets_waiting() {
+        let mut overlay = OverlayManager::new();
+        overlay.activate_v2("Test Driver".to_string());
+
+        let data = overlay.state.lock().unwrap();
+        assert!(data.waiting_for_game);
+        assert_eq!(data.elapsed_seconds, 0);
+        assert!(!data.game_live);
+        assert!(data.active);
+        assert_eq!(data.driver_name, "Test Driver");
+    }
+
+    #[test]
+    fn test_30min_celebration_trigger() {
+        let mut overlay = OverlayManager::new();
+        overlay.activate_v2("Test Driver".to_string());
+
+        // Simulate being close to tier crossing
+        overlay.update_billing_v2(1700, 39710, 2330, false, Some(1));
+
+        // Now cross the tier: minutes_to_value_tier goes from Some(1) to None
+        overlay.update_billing_v2(1800, 42000, 1500, false, None);
+
+        let data = overlay.state.lock().unwrap();
+        assert!(data.rate_unlocked_display_until.is_some());
+        let until = data.rate_unlocked_display_until.unwrap();
+        // Should be ~10 seconds in the future
+        let remaining = until.duration_since(std::time::Instant::now());
+        assert!(remaining.as_secs() >= 8 && remaining.as_secs() <= 10);
+    }
+
+    #[test]
+    fn test_30min_celebration_clears() {
+        let mut overlay = OverlayManager::new();
+        overlay.activate_v2("Test Driver".to_string());
+
+        // Trigger celebration
+        overlay.update_billing_v2(1700, 39710, 2330, false, Some(1));
+        overlay.update_billing_v2(1800, 42000, 1500, false, None);
+
+        // Subsequent update should NOT re-trigger (last_minutes_to_value_tier is now None)
+        overlay.update_billing_v2(1860, 43500, 1500, false, None);
+
+        let data = overlay.state.lock().unwrap();
+        // rate_unlocked_display_until should still be the original value, not reset
+        assert!(data.rate_unlocked_display_until.is_some());
     }
 }
