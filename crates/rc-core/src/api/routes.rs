@@ -147,6 +147,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/customer/group-session", get(customer_group_session))
         .route("/customer/group-session/{id}/accept", post(customer_accept_group_invite))
         .route("/customer/group-session/{id}/decline", post(customer_decline_group_invite))
+        .route("/customer/multiplayer-results/{group_session_id}", get(customer_multiplayer_results))
         // Telemetry (PWA)
         .route("/customer/telemetry", get(customer_telemetry))
         // Waivers (admin-facing)
@@ -187,6 +188,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/terminal/commands", get(terminal_list).post(terminal_submit))
         .route("/terminal/commands/pending", get(terminal_pending))
         .route("/terminal/commands/{id}/result", post(terminal_result))
+        .route("/terminal/book-multiplayer", post(terminal_book_multiplayer))
+        .route("/terminal/group-sessions", get(terminal_group_sessions))
         // Staff
         .route("/staff/validate-pin", post(staff_validate_pin))
         .route("/staff", get(list_staff).post(create_staff))
@@ -9734,6 +9737,181 @@ async fn query_audit_log(
                 "created_at": r.8,
             })).collect();
             Json(json!({ "entries": entries, "count": entries.len() }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+// ─── Terminal Multiplayer ─────────────────────────────────────────────────────
+
+/// POST /terminal/book-multiplayer — Staff-initiated multiplayer booking (skips friendship checks)
+async fn terminal_book_multiplayer(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<Value>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let driver_ids: Vec<String> = match req.get("driver_ids").and_then(|v| v.as_array()) {
+        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        None => return Json(json!({ "error": "Missing 'driver_ids' array" })),
+    };
+
+    let pod_ids: Vec<String> = match req.get("pod_ids").and_then(|v| v.as_array()) {
+        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        None => return Json(json!({ "error": "Missing 'pod_ids' array" })),
+    };
+
+    let pricing_tier_id = match req.get("pricing_tier_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return Json(json!({ "error": "Missing 'pricing_tier_id'" })),
+    };
+
+    let experience_id = req.get("experience_id").and_then(|v| v.as_str());
+    let game = req.get("game").and_then(|v| v.as_str());
+    let track = req.get("track").and_then(|v| v.as_str());
+    let car = req.get("car").and_then(|v| v.as_str());
+
+    match multiplayer::staff_book_multiplayer(
+        &state,
+        driver_ids,
+        pod_ids,
+        experience_id,
+        &pricing_tier_id,
+        game,
+        track,
+        car,
+    )
+    .await
+    {
+        Ok(info) => Json(json!({ "status": "ok", "group_session": info })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+/// GET /terminal/group-sessions — List recent group sessions for POS dashboard
+async fn terminal_group_sessions(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let sessions = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String)>(
+        "SELECT gs.id, gs.host_driver_id, gs.status, gs.shared_pin,
+                COALESCE(ke.name, 'Unknown'), gs.total_members, gs.validated_count,
+                gs.created_at
+         FROM group_sessions gs
+         LEFT JOIN kiosk_experiences ke ON ke.id = gs.experience_id
+         ORDER BY gs.created_at DESC
+         LIMIT 20",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match sessions {
+        Ok(rows) => {
+            let mut sessions_json = Vec::new();
+            for (id, host_id, status, pin, exp_name, total, validated, created) in &rows {
+                let host_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
+                    .bind(host_id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "Unknown".to_string());
+
+                // Get members
+                let members = sqlx::query_as::<_, (String, String, String, Option<String>, Option<u32>)>(
+                    "SELECT gsm.driver_id, COALESCE(d.name, 'Unknown'), gsm.status, gsm.pod_id,
+                            (SELECT number FROM pods WHERE id = gsm.pod_id)
+                     FROM group_session_members gsm
+                     LEFT JOIN drivers d ON d.id = gsm.driver_id
+                     WHERE gsm.group_session_id = ?
+                     ORDER BY gsm.role DESC, gsm.invited_at",
+                )
+                .bind(id)
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
+
+                let members_json: Vec<Value> = members
+                    .iter()
+                    .map(|(did, dname, mstatus, pod_id, pod_num)| {
+                        json!({
+                            "driver_id": did,
+                            "driver_name": dname,
+                            "status": mstatus,
+                            "pod_id": pod_id,
+                            "pod_number": pod_num,
+                        })
+                    })
+                    .collect();
+
+                sessions_json.push(json!({
+                    "id": id,
+                    "host_driver_id": host_id,
+                    "host_name": host_name,
+                    "status": status,
+                    "shared_pin": pin,
+                    "experience_name": exp_name,
+                    "total_members": total,
+                    "validated_count": validated,
+                    "created_at": created,
+                    "members": members_json,
+                }));
+            }
+            Json(json!({ "group_sessions": sessions_json }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+// ─── Customer Multiplayer Results ─────────────────────────────────────────────
+
+/// GET /customer/multiplayer-results/{group_session_id} — Get race results for a group session
+async fn customer_multiplayer_results(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(group_session_id): Path<String>,
+) -> Json<Value> {
+    let _driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let rows = sqlx::query_as::<_, (String, String, i64, Option<i64>, Option<i64>, i64, i64)>(
+        "SELECT mr.id, COALESCE(d.name, 'Unknown'), mr.position, mr.best_lap_ms, mr.total_time_ms,
+                mr.laps_completed, mr.dnf
+         FROM multiplayer_results mr
+         LEFT JOIN drivers d ON d.id = mr.driver_id
+         WHERE mr.group_session_id = ?
+         ORDER BY mr.position ASC",
+    )
+    .bind(&group_session_id)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(results) => {
+            let results_json: Vec<Value> = results
+                .iter()
+                .map(|(id, name, pos, best_lap, total_time, laps, dnf)| {
+                    json!({
+                        "id": id,
+                        "driver_name": name,
+                        "position": pos,
+                        "best_lap_ms": best_lap,
+                        "total_time_ms": total_time,
+                        "laps_completed": laps,
+                        "dnf": dnf == &1,
+                    })
+                })
+                .collect();
+            Json(json!({ "results": results_json }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
