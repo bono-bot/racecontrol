@@ -11,6 +11,16 @@ use serde::Deserialize;
 
 use crate::lock_screen;
 
+/// Dialog/system processes that must be killed between sessions to ensure a clean kiosk state.
+/// Includes crash reporters, settings windows, and system dialogs that can appear after a game crash.
+pub const DIALOG_PROCESSES: &[&str] = &[
+    "WerFault.exe",
+    "WerFaultSecure.exe",
+    "ApplicationFrameHost.exe",
+    "SystemSettings.exe",
+    "msiexec.exe",
+];
+
 /// AC launch parameters parsed from the `launch_args` JSON
 #[derive(Debug, Clone, Deserialize)]
 pub struct AcLaunchParams {
@@ -909,9 +919,11 @@ pub fn cleanup_after_session() {
     let _ = Command::new("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
     tracing::info!("[cleanup] Killed AC + Content Manager (Conspit Link kept alive)");
 
-    // 2. Kill error/crash dialogs
-    let _ = Command::new("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
-    tracing::info!("[cleanup] Dismissed error dialogs");
+    // 2. Kill error/crash dialogs and system popups
+    for proc in DIALOG_PROCESSES {
+        let _ = Command::new("taskkill").args(["/IM", proc, "/F"]).output();
+    }
+    tracing::info!("[cleanup] Dismissed error dialogs and system popups");
 
     // 3. Minimize all background windows, bring lock screen to foreground
     let ps_script = r#"
@@ -971,8 +983,11 @@ pub fn enforce_safe_state() {
     }
     tracing::info!("[safe-state] All game processes killed");
 
-    // 2. Kill error/crash dialogs
-    let _ = Command::new("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
+    // 2. Kill error/crash dialogs and system popups
+    for proc in DIALOG_PROCESSES {
+        let _ = Command::new("taskkill").args(["/IM", proc, "/F"]).output();
+    }
+    tracing::info!("[safe-state] Dismissed error dialogs and system popups");
 
     // 3. Ensure Conspit Link is alive (it's the wheelbase driver — always needed)
     ensure_conspit_link_running();
@@ -982,4 +997,27 @@ pub fn enforce_safe_state() {
     lock_screen::enforce_kiosk_foreground();
 
     tracing::info!("[safe-state] Safe state enforced — pod ready for next customer");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dialog_processes_contains_required() {
+        let required = [
+            "WerFault.exe",
+            "WerFaultSecure.exe",
+            "ApplicationFrameHost.exe",
+            "SystemSettings.exe",
+            "msiexec.exe",
+        ];
+        for proc in &required {
+            assert!(
+                DIALOG_PROCESSES.contains(proc),
+                "DIALOG_PROCESSES must contain '{}'",
+                proc
+            );
+        }
+    }
 }

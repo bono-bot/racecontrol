@@ -1,82 +1,98 @@
-# Racing HUD & Wheelbase Safety Overhaul
+# RaceControl Reliability & Connection Hardening
+
+## Current State
+
+**Shipped:** v1.0 RaceControl HUD & Safety (2026-03-13)
+
+The pod management stack (rc-core, rc-agent, kiosk) now self-heals, deploys reliably, and shows clean branded screens to customers at all times. All 22 v1.0 requirements are code-complete. On-site deployment of Phase 5 (blanking screen protocol) is pending manual execution at the venue.
+
+### What v1.0 Delivered
+
+- **Watchdog hardening**: Escalating backoff (30s→2m→10m→30m), post-restart verification (process + WS + lock screen), email alerts on persistent failures
+- **WebSocket resilience**: WS-level ping/pong keepalive (15s), app-level Ping/Pong (30s), fast-then-backoff reconnect (1s×3 then exponential to 30s), kiosk 15s disconnect debounce
+- **Deployment pipeline**: DeployState FSM (9 states), HEAD-before-kill URL validation, canary-first (Pod 8), session-aware rolling deploy with WaitingSession + pending_deploys + session-end hook
+- **Blanking screen protocol**: Lock-screen-before-kill ordering, LaunchSplash branded screen, extended dialog suppression (5 processes), PIN auth unification, pod lockdown (taskbar hidden, Win key blocked)
+- **Config hardening**: rc-agent fails fast on bad config with branded error screen, deploy template matches AgentConfig struct
 
 ## What This Is
 
-A focused improvement to rc-agent's Racing HUD overlay and wheelbase session-end handling. The HUD needs to be redesigned to follow Assetto Corsa's Essentials app layout — large centered gear, prominent RPM bar, visible sector times and lap times with proper game timer sync. Additionally, the wheelbase must send a zero-force command when the game closes to prevent dangerous uncontrolled rotation.
+A reliability overhaul of the RaceControl pod management stack (rc-core, rc-agent, pod-agent) to eliminate fragile connections, cascading debug cycles, and deployment pain. Targets the Racing Point eSports venue's 8 sim racing pods managed from a central server.
 
 ## Core Value
 
-**Customers must never be at risk of wrist injury from the wheelbase, and drivers must see their lap/sector data clearly during a session.**
+Deploying updates and launching games should work reliably on all 8 pods without manual debugging — the system recovers from failures automatically and reports problems instead of silently breaking. The customer never sees system internals.
 
 ## Requirements
 
-### Validated
+### Validated (v1.0 — Shipped)
 
-- ✓ Win32 GDI overlay renders on top of game — existing (`overlay.rs`)
-- ✓ Speed, gear display working — existing
-- ✓ RPM bar (top 4px color bar) functional — existing
-- ✓ HID input reading from Conspit Ares wheelbase (VID:0x1209 PID:0xFFB0) — existing
-- ✓ AC shared memory telemetry adapter populates sector times — existing (`assetto_corsa.rs`)
-- ✓ Session cleanup kills game processes on billing end — existing (`ac_launcher.rs`)
-- ✓ Lap completion tracking with previous/best comparison — existing
-
-### Active
-
-- [ ] **HUD-01**: Redesign overlay to AC Essentials layout — large centered gear indicator, RPM arc/bar prominently visible
-- [ ] **HUD-02**: Display sector times (S1, S2, S3) live as each sector completes, with F1-style color coding (purple=best, green=faster, yellow=slower)
-- [ ] **HUD-03**: Display lap times — current lap timer, previous lap, personal best
-- [ ] **HUD-04**: Increase RPM font/indicator size significantly (currently 16pt, needs ~24-32pt or visual arc)
-- [ ] **HUD-05**: Sync HUD timer with AC game session time (from shared memory `iSessionTime`), not billing countdown
-- [ ] **HUD-06**: Show lap count (current lap number)
-- [ ] **FFB-01**: Send zero-force HID output report to wheelbase before killing game process on session end
-- [ ] **FFB-02**: Send zero-force on any game crash/unexpected exit detected by watchdog
+- ✓ WebSocket connection between rc-core and rc-agent — existing
+- ✓ Pod-agent HTTP exec endpoint for remote commands — existing
+- ✓ Game launch from staff kiosk — existing
+- ✓ UDP heartbeat for pod liveness detection (6s timeout) — existing
+- ✓ Pod monitoring and healing (pod_monitor.rs, pod_healer.rs) — existing
+- ✓ Lock screen with PIN auth — existing
+- ✓ Billing lifecycle (start/stop/idle) — existing
+- ✓ Escalating watchdog backoff (WD-01)
+- ✓ Shared backoff state in AppState (WD-02)
+- ✓ Post-restart verification (WD-03)
+- ✓ Backoff reset on recovery (WD-04)
+- ✓ WebSocket keepalive ping/pong (CONN-01)
+- ✓ Kiosk disconnect debounce (CONN-02)
+- ✓ Auto-reconnect with backoff (CONN-03)
+- ✓ Config validation at startup (DEPLOY-01)
+- ✓ Safe deploy sequence (DEPLOY-02)
+- ✓ Honest exec status codes (DEPLOY-03)
+- ✓ Stale config cleanup (DEPLOY-04)
+- ✓ Rolling deploy without session disruption (DEPLOY-05)
+- ✓ Email alerts on failure (ALERT-01)
+- ✓ Rate-limited alerts (ALERT-02)
+- ✓ Clean branded screens (SCREEN-01, SCREEN-02, SCREEN-03)
+- ✓ PIN auth unification (AUTH-01)
+- ✓ Performance targets met (PERF-01 through PERF-04)
 
 ### Out of Scope
 
-- F1 25 HUD redesign — AC only for now, F1 comes later
-- FFB strength adjustment UI — just need safe shutdown for now
-- Full telemetry dashboard (that's the kiosk's job) — HUD is glanceable only
-- Billing countdown on HUD — user wants game time, not billing time
+- HUD overlay features — deferred to next project (archived in .planning/archive/hud-safety/)
+- FFB safety — deferred (archived research available)
+- New game integrations — current games only
+- Cloud sync changes — cloud_sync.rs is stable
+- Customer-facing PWA changes
 
 ## Context
 
-**Current HUD state:** The overlay bar renders but sector times and lap times are showing as dashes (`--.-`). Speed and gear work. RPM bar is a thin 4px strip across the top. The overall layout is a horizontal 6-section bar — functional but not optimized for glanceability at speed.
-
-**AC Essentials reference:** The Essentials app for Assetto Corsa is the gold standard for in-game HUDs. Key design elements:
-- Centered gear number (very large, 60-80pt equivalent)
-- RPM shown as arc/bar with color zones (green→yellow→red)
-- Sector splits below gear with color coding
-- Clean dark semi-transparent background
-- Minimal chrome, maximum readability
-
-**Wheelbase safety:** When billing ends, `ac_launcher.rs` calls `taskkill /IM acs.exe`. The game dies instantly, and the wheelbase (Conspit Ares 8Nm via OpenFFBoard firmware) retains its last FFB state — which can be full force to one side. No zero-force HID output report is sent. This is a **real injury risk** — 8Nm of sudden uncontrolled torque can hurt wrists and damage the wheelbase mount.
-
-**HID protocol:** rc-agent already opens the device for reading (`hidapi`, `read_timeout`). Writing requires `write()` or `send_feature_report()`. OpenFFBoard uses USB HID PID reports for FFB — a zero-force report needs to be determined from the OpenFFBoard protocol spec.
-
-**Codebase map:** See `.planning/codebase/` for full architecture. Key files:
-- `crates/rc-agent/src/overlay.rs` (848 lines) — HUD rendering
-- `crates/rc-agent/src/driving_detector.rs` (282 lines) — HID input
-- `crates/rc-agent/src/main.rs` (1416 lines) — HID monitor, session lifecycle
-- `crates/rc-agent/src/ac_launcher.rs` (987 lines) — session cleanup
-- `crates/rc-agent/src/sims/assetto_corsa.rs` (417 lines) — AC telemetry
+- **Venue:** 8 gaming pods (192.168.31.x subnet), 1 server (.23), 1 James workstation (.27)
+- **Stack:** Rust/Axum (rc-core port 8080, rc-agent per-pod), Node.js (pod-agent port 8090), Next.js (kiosk)
+- **Crates:** rc-common (shared types/protocol), rc-core (server), rc-agent (pod client)
 
 ## Constraints
 
-- **Platform**: Windows 11, Win32 GDI only (no web overlay, no browser dependency)
-- **Performance**: Paint must complete in <5ms at 200ms intervals (60fps game underneath)
-- **Hardware**: Conspit Ares 8Nm (OpenFFBoard VID:0x1209 PID:0xFFB0) — must not brick device
-- **Safety**: FFB zero-force MUST execute before game process kill. Failure = default to safe (center/stop)
-- **Scope**: AC only for this milestone. F1 25 adapter untouched.
+- **Rust/Axum:** rc-core and rc-agent must stay Rust — no language change
+- **Pod-agent:** Node.js, runs on each pod alongside rc-agent
+- **No new dependencies:** Use existing crate deps where possible (tokio, reqwest, serde, chrono, tracing)
+- **Email via send_email.js:** Reuse existing Gmail auth, don't add SMTP crate
+- **Windows:** All pods run Windows 11, Session 1 requirement for GUI processes
+- **Backward compat:** Changes must not break existing billing, game launch, or lock screen
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Essentials-style centered layout over horizontal bar | User request + Essentials is proven UX for racing | — Pending |
-| Game session time over billing countdown | Driver cares about track time, not money timer | — Pending |
-| Win32 GDI (keep existing) over switching to DirectX | Works reliably, no dependency changes, fast enough | — Pending |
-| Zero-force via HID write before taskkill | Only reliable way to disarm FFB before game death | — Pending |
-| AC only, F1 later | Focus and ship quality for most-used sim first | — Pending |
+| Archive HUD project, start reliability-first | Can't add features on fragile base | Shipped v1.0 |
+| Reuse watchdog hardening research | Research already done, high confidence | Shipped v1.0 |
+| EscalatingBackoff in rc-common | Shared between core and agent | Shipped v1.0 |
+| Email alerts via send_email.js shell-out | Reuses existing Gmail OAuth, no new deps | Shipped v1.0 |
+| Pod 8 canary-first deployment | Catch issues on one pod before rolling to all | Shipped v1.0 |
+| Lock screen before game kill | Prevents desktop flash during session end | Shipped v1.0 |
+| Registry-based pod lockdown | Survives rc-agent restarts, one-time apply | Shipped v1.0 |
+
+## Next Milestone Goals
+
+To be defined via `/gsd:new-milestone`. Candidates:
+- HUD overlay with live sector times and telemetry
+- FFB safety (zero wheelbase torque on session boundary)
+- Cloud dashboard for remote monitoring
+- On-site deployment automation improvements
 
 ---
-*Last updated: 2026-03-11 after initialization*
+*Last updated: 2026-03-13 — v1.0 shipped*

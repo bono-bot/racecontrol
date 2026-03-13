@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import type {
   Pod,
   TelemetryFrame,
@@ -73,7 +73,7 @@ function formatLapTime(ms: number): string {
   return `${mins}:${parseFloat(secs) < 10 ? "0" : ""}${secs}`;
 }
 
-export function KioskPodCard({
+export const KioskPodCard = React.memo(function KioskPodCard({
   pod,
   telemetry,
   billing,
@@ -471,7 +471,7 @@ export function KioskPodCard({
       </div>
     </div>
   );
-}
+});
 
 function TransmissionToggle({ podId }: { podId: string }) {
   const [mode, setMode] = useState<"auto" | "manual">("auto");

@@ -12,6 +12,23 @@ use crate::state::AppState;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
 use rc_common::types::AuthTokenInfo;
 
+// ─── PIN Validation Constants ─────────────────────────────────────────────
+
+/// Standardized PIN error message — identical across pod lock screen, kiosk, and PWA paths.
+/// AUTH-01 requires identical error message on all 3 entry points.
+pub(crate) const INVALID_PIN_MESSAGE: &str =
+    "Invalid PIN \u{2014} please try again or see reception.";
+
+// ─── PinSource Enum ────────────────────────────────────────────────────────
+
+/// Source of PIN entry — used for logging only. Validation behavior is identical across all sources.
+#[derive(Debug, Clone, Copy)]
+pub enum PinSource {
+    Pod,   // Entered on physical pod lock screen
+    Kiosk, // Staff kiosk endpoint
+    Pwa,   // Customer PWA (goes through kiosk endpoint)
+}
+
 // ─── JWT Claims ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -392,7 +409,7 @@ pub async fn validate_pin(
     .fetch_optional(&state.db)
     .await
     .map_err(|e| format!("DB error: {}", e))?
-    .ok_or_else(|| "Invalid PIN or no pending assignment for this pod".to_string())?;
+    .ok_or_else(|| INVALID_PIN_MESSAGE.to_string())?;
 
     let token_id = row.0;
     let driver_id = row.1;
@@ -469,7 +486,7 @@ pub async fn validate_pin(
         billing_session_id: billing_session_id.clone(),
     });
 
-    tracing::info!("PIN validated on pod {}, billing session {} started", pod_id, billing_session_id);
+    tracing::info!("PIN validated via {:?} on pod {}, billing session {} started", PinSource::Pod, pod_id, billing_session_id);
 
     Ok(billing_session_id)
 }
@@ -1162,7 +1179,7 @@ pub async fn validate_pin_kiosk(
         .map_err(|e| format!("DB error: {}", e))?
     };
 
-    let row = row.ok_or_else(|| "Invalid PIN. Please check with reception.".to_string())?;
+    let row = row.ok_or_else(|| INVALID_PIN_MESSAGE.to_string())?;
 
     let token_id = row.0;
     let token_pod_id = row.1;
@@ -1273,8 +1290,8 @@ pub async fn validate_pin_kiosk(
     });
 
     tracing::info!(
-        "Kiosk PIN validated: pod {} (#{}) driver {}, billing session {}",
-        pod_id, pod_number, driver_name, billing_session_id
+        "PIN validated via {:?} on pod {} (#{}) driver {}, billing session {}",
+        PinSource::Kiosk, pod_id, pod_number, driver_name, billing_session_id
     );
 
     Ok(KioskPinResult {
@@ -1379,6 +1396,8 @@ pub async fn is_employee(state: &Arc<AppState>, driver_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+// ─── Tests ─────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1474,5 +1493,108 @@ mod tests {
         assert!(check_pod_has_game(&installed, SimType::ForzaHorizon5));
         assert!(!check_pod_has_game(&installed, SimType::AssettoCorsaEvo));
         assert!(!check_pod_has_game(&installed, SimType::IRacing));
+    }
+
+    /// AUTH-01: Verify the standardized PIN error message is correct.
+    /// Both validate_pin() and validate_pin_kiosk() must return this exact string.
+    #[test]
+    fn pin_error_message_is_standardized() {
+        assert!(
+            INVALID_PIN_MESSAGE.contains("Invalid PIN"),
+            "Error message must start with 'Invalid PIN'"
+        );
+        assert!(
+            INVALID_PIN_MESSAGE.contains("reception"),
+            "Error message must mention 'reception'"
+        );
+        // Verify the em dash is used (not a double dash)
+        assert!(
+            INVALID_PIN_MESSAGE.contains('\u{2014}'),
+            "Error message must use em dash (U+2014), not double dash"
+        );
+        assert_eq!(
+            INVALID_PIN_MESSAGE,
+            "Invalid PIN \u{2014} please try again or see reception."
+        );
+    }
+
+    /// AUTH-01: Verify PinSource enum has all three required variants.
+    /// This is a compile-time check — if any variant is missing, this test won't compile.
+    #[test]
+    fn pin_source_has_all_variants() {
+        let _pod = PinSource::Pod;
+        let _kiosk = PinSource::Kiosk;
+        let _pwa = PinSource::Pwa;
+
+        // Verify Debug formatting works for tracing
+        let pod_str = format!("{:?}", PinSource::Pod);
+        let kiosk_str = format!("{:?}", PinSource::Kiosk);
+        let pwa_str = format!("{:?}", PinSource::Pwa);
+        assert_eq!(pod_str, "Pod");
+        assert_eq!(kiosk_str, "Kiosk");
+        assert_eq!(pwa_str, "Pwa");
+    }
+
+    /// PERF-02 proxy: Verify in-memory SQLite query completes within 200ms.
+    /// Production uses local SQLite which is even faster than in-memory for reads.
+    #[tokio::test]
+    async fn pin_validation_timing_proxy() {
+        use std::time::Instant;
+
+        // Create in-memory SQLite pool
+        let pool = sqlx::SqlitePool::connect(":memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+
+        // Create minimal auth_tokens table
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS auth_tokens (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                driver_id TEXT NOT NULL,
+                pricing_tier_id TEXT NOT NULL,
+                auth_type TEXT NOT NULL,
+                token TEXT NOT NULL,
+                status TEXT NOT NULL,
+                custom_price_paise INTEGER,
+                custom_duration_minutes INTEGER,
+                experience_id TEXT,
+                custom_launch_args TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                billing_session_id TEXT,
+                consumed_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create auth_tokens table");
+
+        let start = Instant::now();
+
+        // Run the exact UPDATE/RETURNING query used by validate_pin() with a non-matching PIN
+        let _result = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+            "UPDATE auth_tokens SET status = 'consuming'
+             WHERE id = (
+                 SELECT id FROM auth_tokens
+                 WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
+                   AND expires_at > datetime('now')
+                 LIMIT 1
+             ) AND status = 'pending'
+             RETURNING id, driver_id, pricing_tier_id, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args",
+        )
+        .bind("pod_1")
+        .bind("9999")
+        .fetch_optional(&pool)
+        .await;
+
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed.as_millis() < 200,
+            "PIN validation query took {}ms — must be under 200ms (PERF-02)",
+            elapsed.as_millis()
+        );
+
+        pool.close().await;
     }
 }

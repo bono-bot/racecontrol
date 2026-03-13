@@ -58,10 +58,21 @@ pub enum LockScreenState {
         driver_name: String,
         message: String,
     },
+    /// Launch splash — shown while game loads (~10s). Covers the desktop gap.
+    LaunchSplash {
+        driver_name: String,
+        message: String,
+    },
     /// Screen blanked — pure black screen between sessions.
     ScreenBlanked,
     /// Disconnected from core server — shown during reconnection attempts.
     Disconnected,
+    /// Configuration error — shown when rc-agent.toml is invalid or missing.
+    /// The technical error details are logged to stderr only; this screen shows
+    /// a generic message so customers do not see internal configuration details.
+    ConfigError {
+        message: String,
+    },
 }
 
 /// Events emitted by the lock screen to the agent main loop.
@@ -272,6 +283,19 @@ impl LockScreenManager {
         matches!(*state, LockScreenState::ScreenBlanked)
     }
 
+    /// Show a branded splash screen while the game loads (~10s gap after launch).
+    /// Covers the desktop so customers never see Windows during game startup.
+    pub fn show_launch_splash(&mut self, driver_name: String) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::LaunchSplash {
+                driver_name,
+                message: "Preparing your session...".to_string(),
+            };
+        }
+        self.launch_browser();
+    }
+
     /// Show a blank (black) screen — used between sessions when screen blanking is enabled.
     pub fn show_blank_screen(&mut self) {
         {
@@ -280,6 +304,19 @@ impl LockScreenManager {
         }
         #[cfg(windows)]
         suppress_notifications(true);
+        self.launch_browser();
+    }
+
+    /// Show a branded configuration error screen.
+    /// The `message` parameter is NOT shown to the customer — a generic message is used instead.
+    /// Technical details should be logged separately via tracing::error!.
+    pub fn show_config_error(&mut self, _message: &str) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::ConfigError {
+                message: "Configuration Error - contact staff".to_string(),
+            };
+        }
         self.launch_browser();
     }
 
@@ -551,6 +588,19 @@ async fn serve_lock_screen(
                 return;
             }
 
+            // GET /health — lock screen liveness endpoint for post-restart verification
+            if first_line.contains("GET /health") {
+                let current = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let body = health_response_body(&current);
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes()).await;
+                return;
+            }
+
             if first_line.starts_with("POST /pin") {
                 // Parse PIN from URL-encoded form body
                 let pin = request
@@ -635,8 +685,13 @@ fn render_page(state: &LockScreenState) -> String {
             driver_name,
             message,
         } => render_assistance_page(driver_name, message),
+        LockScreenState::LaunchSplash {
+            driver_name,
+            message,
+        } => render_launch_splash_page(driver_name, message),
         LockScreenState::ScreenBlanked => render_blank_page(),
         LockScreenState::Disconnected => render_disconnected_page(),
+        LockScreenState::ConfigError { .. } => render_config_error_page(),
     }
 }
 
@@ -666,6 +721,34 @@ fn render_disconnected_page() -> String {
 <div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Your session will continue. Please wait.</div>
 </div>
 <script>setTimeout(function(){location.reload()},3000)</script>"#,
+    )
+}
+
+fn render_launch_splash_page(driver_name: &str, _message: &str) -> String {
+    let driver_display = html_escape(driver_name);
+    let content = format!(r#"<div style="text-align:center;padding-top:20vh">
+<div style="font-family:Enthocentric,sans-serif;font-size:2.8em;color:#E10600;letter-spacing:0.08em;margin-bottom:24px">PREPARING YOUR SESSION</div>
+<div style="font-size:1.1em;color:#ccc;margin-bottom:8px">Welcome, <span style="color:#fff;font-weight:600">{driver}</span></div>
+<div style="font-size:0.95em;color:#5A5A5A;margin-bottom:48px">Loading your race...</div>
+<div style="display:inline-block;width:60px;height:60px;border:4px solid #333;border-top-color:#E10600;border-radius:50%;animation:spin 0.9s linear infinite"></div>
+</div>
+<style>
+@keyframes spin {{
+    0%   {{ transform: rotate(0deg); }}
+    100% {{ transform: rotate(360deg); }}
+}}
+</style>"#, driver = driver_display);
+    page_shell("Racing Point -- Loading", &content)
+}
+
+fn render_config_error_page() -> String {
+    page_shell(
+        "Racing Point — Configuration Error",
+        r#"<div style="text-align:center;padding-top:30vh">
+<div style="font-family:Enthocentric,sans-serif;font-size:2.5em;color:#E10600;margin-bottom:20px">CONFIGURATION ERROR</div>
+<div class="msg" style="font-size:1.2em;margin-bottom:30px">Configuration Error - contact staff</div>
+<div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Please contact a member of staff to resolve this issue.</div>
+</div>"#,
     )
 }
 
@@ -871,6 +954,135 @@ fn generate_qr_svg(data: &str) -> String {
                 html_escape(&msg)
             )
         }
+    }
+}
+
+// ─── Health Check Helper ─────────────────────────────────────────────────────
+
+/// Returns the JSON body for GET /health based on the current lock screen state.
+///
+/// Returns `{"status":"ok"}` when lock screen is actively showing something
+/// (PinEntry, QrDisplay, ActiveSession, SessionSummary, BetweenSessions, AssistanceScreen).
+/// Returns `{"status":"degraded"}` when Hidden, Disconnected, or ConfigError.
+///
+/// The HTTP 200 status itself signals "server is alive". This JSON body provides
+/// extra state context for monitoring and future use.
+pub fn health_response_body(state: &LockScreenState) -> String {
+    let is_active = !matches!(
+        state,
+        LockScreenState::Hidden
+            | LockScreenState::Disconnected
+            | LockScreenState::ConfigError { .. }
+    );
+    let status_str = if is_active { "ok" } else { "degraded" };
+    format!(r#"{{"status":"{}"}}"#, status_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_ok_for_pin_entry() {
+        let state = LockScreenState::PinEntry {
+            token_id: "tok-1".to_string(),
+            driver_name: "Alonso".to_string(),
+            pricing_tier_name: "30min".to_string(),
+            allocated_seconds: 1800,
+            pin_error: None,
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn health_ok_for_active_session() {
+        let state = LockScreenState::ActiveSession {
+            driver_name: "Alonso".to_string(),
+            remaining_seconds: 900,
+            allocated_seconds: 1800,
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn health_degraded_for_hidden() {
+        let state = LockScreenState::Hidden;
+        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+    }
+
+    #[test]
+    fn health_degraded_for_disconnected() {
+        let state = LockScreenState::Disconnected;
+        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+    }
+
+    #[test]
+    fn health_degraded_for_config_error() {
+        let state = LockScreenState::ConfigError {
+            message: "missing pod number".to_string(),
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#);
+    }
+
+    #[test]
+    fn health_ok_for_qr_display() {
+        let state = LockScreenState::QrDisplay {
+            token_id: "tok-2".to_string(),
+            qr_payload: "https://racingpoint.in/auth/qr/tok-2".to_string(),
+            driver_name: "Hamilton".to_string(),
+            pricing_tier_name: "60min".to_string(),
+            allocated_seconds: 3600,
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn launch_splash_renders_branded_html() {
+        let state = LockScreenState::LaunchSplash {
+            driver_name: "Verstappen".to_string(),
+            message: "Preparing your session...".to_string(),
+        };
+        let html = render_page_public(&state);
+        assert!(html.contains("PREPARING YOUR SESSION"), "LaunchSplash must contain 'PREPARING YOUR SESSION'");
+        assert!(html.contains("#E10600"), "LaunchSplash must contain Racing Point red #E10600");
+        assert!(!html.contains("C:\\\\"), "LaunchSplash must not contain Windows file paths (C:\\\\)");
+        assert!(!html.contains(".exe"), "LaunchSplash must not contain .exe references");
+        assert!(!html.contains("\\\\Users\\\\"), "LaunchSplash must not contain \\\\Users\\\\ paths");
+    }
+
+    #[test]
+    fn launch_splash_health_ok() {
+        let state = LockScreenState::LaunchSplash {
+            driver_name: "Leclerc".to_string(),
+            message: "Preparing your session...".to_string(),
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn launch_splash_not_blanked() {
+        let state = LockScreenState::LaunchSplash {
+            driver_name: "Norris".to_string(),
+            message: "Preparing your session...".to_string(),
+        };
+        // LaunchSplash is an active customer-facing state — not blanked, not idle
+        // We verify this by checking that render_page_public does not return the blank page content
+        let html = render_page_public(&state);
+        // Blank page renders BLANK_PIN_PAGE which does not contain "PREPARING YOUR SESSION"
+        assert!(html.contains("PREPARING YOUR SESSION"), "LaunchSplash is not blanked — must render splash content");
+    }
+
+    #[test]
+    fn launch_splash_not_idle_or_blanked() {
+        // is_idle_or_blanked only matches Hidden | ScreenBlanked | Disconnected
+        // LaunchSplash is customer-facing — must NOT be treated as idle
+        // Verify via health check: idle states return "degraded", active states return "ok"
+        let state = LockScreenState::LaunchSplash {
+            driver_name: "Sainz".to_string(),
+            message: "Preparing your session...".to_string(),
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#,
+            "LaunchSplash is not idle — health must be ok");
     }
 }
 

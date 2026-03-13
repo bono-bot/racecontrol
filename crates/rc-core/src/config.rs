@@ -225,6 +225,18 @@ pub struct WatchdogConfig {
     pub heartbeat_timeout_secs: i64,
     #[serde(default = "default_restart_cooldown")]
     pub restart_cooldown_secs: i64,
+    #[serde(default = "default_false")]
+    pub email_enabled: bool,
+    #[serde(default = "default_email_recipient")]
+    pub email_recipient: String,
+    #[serde(default = "default_email_script_path")]
+    pub email_script_path: String,
+    #[serde(default = "default_email_pod_cooldown")]
+    pub email_pod_cooldown_secs: i64,
+    #[serde(default = "default_email_venue_cooldown")]
+    pub email_venue_cooldown_secs: i64,
+    #[serde(default)]
+    pub escalation_steps_secs: Vec<u64>,
 }
 
 impl Default for WatchdogConfig {
@@ -234,6 +246,12 @@ impl Default for WatchdogConfig {
             check_interval_secs: default_watchdog_interval(),
             heartbeat_timeout_secs: default_heartbeat_timeout(),
             restart_cooldown_secs: default_restart_cooldown(),
+            email_enabled: false,
+            email_recipient: default_email_recipient(),
+            email_script_path: default_email_script_path(),
+            email_pod_cooldown_secs: default_email_pod_cooldown(),
+            email_venue_cooldown_secs: default_email_venue_cooldown(),
+            escalation_steps_secs: Vec::new(),
         }
     }
 }
@@ -328,3 +346,61 @@ fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_ollama_model() -> String { "racing-point-ops".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }
 fn default_healer_interval() -> u32 { 120 }
+fn default_false() -> bool { false }
+fn default_email_recipient() -> String { "usingh@racingpoint.in".to_string() }
+fn default_email_script_path() -> String { "send_email.js".to_string() }
+fn default_email_pod_cooldown() -> i64 { 1800 }
+fn default_email_venue_cooldown() -> i64 { 300 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watchdog_config_deserializes_with_defaults() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+
+[server]
+
+[database]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse with defaults");
+        assert!(config.watchdog.enabled);
+        assert!(!config.watchdog.email_enabled);
+        assert_eq!(config.watchdog.email_recipient, "usingh@racingpoint.in");
+        assert_eq!(config.watchdog.email_script_path, "send_email.js");
+        assert_eq!(config.watchdog.email_pod_cooldown_secs, 1800);
+        assert_eq!(config.watchdog.email_venue_cooldown_secs, 300);
+        assert!(config.watchdog.escalation_steps_secs.is_empty());
+    }
+
+    #[test]
+    fn watchdog_config_deserializes_with_explicit_email_values() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+
+[server]
+
+[database]
+
+[watchdog]
+enabled = true
+email_enabled = true
+email_recipient = "ops@example.com"
+email_script_path = "/opt/send.js"
+email_pod_cooldown_secs = 3600
+email_venue_cooldown_secs = 600
+escalation_steps_secs = [10, 30, 60, 120]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse explicit values");
+        assert!(config.watchdog.email_enabled);
+        assert_eq!(config.watchdog.email_recipient, "ops@example.com");
+        assert_eq!(config.watchdog.email_script_path, "/opt/send.js");
+        assert_eq!(config.watchdog.email_pod_cooldown_secs, 3600);
+        assert_eq!(config.watchdog.email_venue_cooldown_secs, 600);
+        assert_eq!(config.watchdog.escalation_steps_secs, vec![10, 30, 60, 120]);
+    }
+}

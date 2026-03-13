@@ -2,10 +2,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     AcLanSessionConfig, AcPresetSummary, AcServerInfo,
-    AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DrivingState, GameLaunchInfo,
+    AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, DeployState, DrivingState, GameLaunchInfo,
     GroupSessionInfo, Leaderboard, LapData, PodActivityEntry, PodInfo, SessionInfo, SimType,
     TelemetryFrame,
 };
+
+/// Summary of deploy state for a single pod — used in DeployStatusList
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeployPodStatus {
+    pub pod_id: String,
+    pub state: DeployState,
+    pub last_updated: String,
+}
 
 /// Messages sent from Pod Agent → Core Server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +49,9 @@ pub enum AgentMessage {
 
     /// Customer entered PIN on lock screen
     PinEntered { pod_id: String, pin: String },
+
+    /// Response to CoreToAgentMessage::Ping — carries same id back for round-trip measurement
+    Pong { id: u64 },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -172,6 +183,9 @@ pub enum CoreToAgentMessage {
     HidePauseOverlay {
         session_id: String,
     },
+
+    /// Application-level ping for round-trip latency measurement — agent must respond with AgentMessage::Pong { id }
+    Ping { id: u64 },
 }
 
 /// Messages sent from Core Server → Web Dashboard
@@ -321,6 +335,38 @@ pub enum DashboardEvent {
 
     /// Batch of recent activity entries (sent on dashboard connect)
     PodActivityList(Vec<PodActivityEntry>),
+
+    /// Watchdog initiated a restart for this pod
+    PodRestarting {
+        pod_id: String,
+        attempt: u32,
+        max_attempts: u32,
+        backoff_label: String,
+    },
+
+    /// Watchdog is verifying restart success for this pod
+    PodVerifying {
+        pod_id: String,
+        attempt: u32,
+    },
+
+    /// All restart attempts exhausted — manual intervention required
+    PodRecoveryFailed {
+        pod_id: String,
+        attempt: u32,
+        reason: String,
+    },
+
+    /// Deploy progress update for a pod (streamed during deploy sequence)
+    DeployProgress {
+        pod_id: String,
+        state: DeployState,
+        message: String,
+        timestamp: String,
+    },
+
+    /// All pod deploy states (sent on dashboard connect, like PodList)
+    DeployStatusList(Vec<DeployPodStatus>),
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)
@@ -500,6 +546,22 @@ pub enum DashboardCommand {
         mode: String,
         enabled: Option<bool>,
     },
+
+    /// Deploy rc-agent binary to a single pod
+    DeployPod {
+        pod_id: String,
+        binary_url: String,
+    },
+
+    /// Rolling deploy to all pods (Pod 8 canary first)
+    DeployRolling {
+        binary_url: String,
+    },
+
+    /// Cancel an in-progress deploy for a pod
+    CancelDeploy {
+        pod_id: String,
+    },
 }
 
 #[cfg(test)]
@@ -665,6 +727,89 @@ mod tests {
     }
 
     #[test]
+    fn test_dashboard_event_pod_restarting_roundtrip() {
+        let event = DashboardEvent::PodRestarting {
+            pod_id: "pod_1".to_string(),
+            attempt: 2,
+            max_attempts: 4,
+            backoff_label: "2m".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("pod_restarting"), "Expected 'pod_restarting' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::PodRestarting { pod_id, attempt, max_attempts, backoff_label } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(attempt, 2);
+            assert_eq!(max_attempts, 4);
+            assert_eq!(backoff_label, "2m");
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_pod_verifying_roundtrip() {
+        let event = DashboardEvent::PodVerifying {
+            pod_id: "pod_3".to_string(),
+            attempt: 1,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("pod_verifying"), "Expected 'pod_verifying' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::PodVerifying { pod_id, attempt } = parsed {
+            assert_eq!(pod_id, "pod_3");
+            assert_eq!(attempt, 1);
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_pod_recovery_failed_roundtrip() {
+        let event = DashboardEvent::PodRecoveryFailed {
+            pod_id: "pod_8".to_string(),
+            attempt: 4,
+            reason: "All restart attempts exhausted".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("pod_recovery_failed"), "Expected 'pod_recovery_failed' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::PodRecoveryFailed { pod_id, attempt, reason } = parsed {
+            assert_eq!(pod_id, "pod_8");
+            assert_eq!(attempt, 4);
+            assert_eq!(reason, "All restart attempts exhausted");
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_core_to_agent_ping_roundtrip() {
+        let msg = CoreToAgentMessage::Ping { id: 42 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("ping"), "Expected 'ping' in: {}", json);
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::Ping { id } = parsed {
+            assert_eq!(id, 42);
+        } else {
+            panic!("Wrong variant after roundtrip: expected Ping");
+        }
+    }
+
+    #[test]
+    fn test_agent_pong_roundtrip() {
+        let msg = AgentMessage::Pong { id: 99 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("pong"), "Expected 'pong' in: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::Pong { id } = parsed {
+            assert_eq!(id, 99);
+        } else {
+            panic!("Wrong variant after roundtrip: expected Pong");
+        }
+    }
+
+    #[test]
     fn test_dashboard_event_session_paused() {
         let event = DashboardEvent::SessionPaused {
             pod_id: "pod_1".to_string(),
@@ -680,6 +825,116 @@ mod tests {
             assert_eq!(session_id, "sess-1");
             assert_eq!(reason, "disconnect");
             assert_eq!(pause_count, 1);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_deploy_progress_killing_roundtrip() {
+        let event = DashboardEvent::DeployProgress {
+            pod_id: "pod_8".to_string(),
+            state: crate::types::DeployState::Killing,
+            message: "Sending taskkill to rc-agent.exe".to_string(),
+            timestamp: "2026-03-13T10:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("deploy_progress"), "Expected 'deploy_progress' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::DeployProgress { pod_id, state, message, .. } = parsed {
+            assert_eq!(pod_id, "pod_8");
+            assert_eq!(state, crate::types::DeployState::Killing);
+            assert_eq!(message, "Sending taskkill to rc-agent.exe");
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_deploy_progress_failed_roundtrip() {
+        let event = DashboardEvent::DeployProgress {
+            pod_id: "pod_3".to_string(),
+            state: crate::types::DeployState::Failed { reason: "binary too small (1024 bytes)".to_string() },
+            message: "Deploy failed: binary size check".to_string(),
+            timestamp: "2026-03-13T10:05:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::DeployProgress { state, .. } = parsed {
+            assert!(matches!(state, crate::types::DeployState::Failed { .. }));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_event_deploy_status_list_roundtrip() {
+        let list = DashboardEvent::DeployStatusList(vec![
+            DeployPodStatus {
+                pod_id: "pod_1".to_string(),
+                state: crate::types::DeployState::Idle,
+                last_updated: "2026-03-13T10:00:00Z".to_string(),
+            },
+            DeployPodStatus {
+                pod_id: "pod_8".to_string(),
+                state: crate::types::DeployState::Complete,
+                last_updated: "2026-03-13T10:01:00Z".to_string(),
+            },
+        ]);
+        let json = serde_json::to_string(&list).unwrap();
+        assert!(json.contains("deploy_status_list"), "Expected 'deploy_status_list' in: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::DeployStatusList(statuses) = parsed {
+            assert_eq!(statuses.len(), 2);
+            assert_eq!(statuses[0].pod_id, "pod_1");
+            assert_eq!(statuses[1].pod_id, "pod_8");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_command_deploy_pod_roundtrip() {
+        let cmd = DashboardCommand::DeployPod {
+            pod_id: "pod_8".to_string(),
+            binary_url: "http://192.168.31.27:9998/rc-agent.exe".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("deploy_pod"));
+        let parsed: DashboardCommand = serde_json::from_str(&json).unwrap();
+        if let DashboardCommand::DeployPod { pod_id, binary_url } = parsed {
+            assert_eq!(pod_id, "pod_8");
+            assert_eq!(binary_url, "http://192.168.31.27:9998/rc-agent.exe");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_command_deploy_rolling_roundtrip() {
+        let cmd = DashboardCommand::DeployRolling {
+            binary_url: "http://192.168.31.27:9998/rc-agent.exe".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("deploy_rolling"));
+        let parsed: DashboardCommand = serde_json::from_str(&json).unwrap();
+        if let DashboardCommand::DeployRolling { binary_url } = parsed {
+            assert_eq!(binary_url, "http://192.168.31.27:9998/rc-agent.exe");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_dashboard_command_cancel_deploy_roundtrip() {
+        let cmd = DashboardCommand::CancelDeploy {
+            pod_id: "pod_5".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("cancel_deploy"));
+        let parsed: DashboardCommand = serde_json::from_str(&json).unwrap();
+        if let DashboardCommand::CancelDeploy { pod_id } = parsed {
+            assert_eq!(pod_id, "pod_5");
         } else {
             panic!("Wrong variant");
         }

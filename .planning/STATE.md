@@ -1,26 +1,27 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: "RaceControl HUD & Safety"
+status: completed
+stopped_at: "Milestone v1.0 archived — all 5 phases shipped"
+last_updated: "2026-03-13T05:00:00.000Z"
+progress:
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 15
+  completed_plans: 15
+  percent: 100
+---
+
 # Project State
 
-## Project Reference
-See: .planning/PROJECT.md (updated 2026-03-11)
-**Core value:** Customers must never be at risk of wrist injury, and drivers must see their lap/sector data clearly.
-**Current focus:** Phase 1
+## Milestone: v1.0 RaceControl HUD & Safety — COMPLETE
 
-## Current Phase
-Phase 1: FFB Safety — Eliminate Wrist Injury Risk — Not Started
+**Shipped:** 2026-03-13
+**Archive:** .planning/milestones/v1.0-ROADMAP.md, .planning/milestones/v1.0-REQUIREMENTS.md
 
-## Progress
-| Phase | Name | Status | Notes |
-|-------|------|--------|-------|
-| 1 | FFB Safety | Not Started | 4 requirements (FFB-01 to FFB-04), safety-critical |
-| 2 | HUD Infrastructure | Not Started | 2 requirements (INFRA-01, INFRA-02), blocked by Phase 1 |
-| 3 | HUD Layout and Display | Not Started | 9 requirements (HUD-01 to HUD-09), blocked by Phase 2 |
-| 4 | HUD Data Accuracy | Not Started | 4 requirements (DATA-01 to DATA-04), blocked by Phase 3 |
+All 5 phases code-complete. 22/22 requirements met. On-site Phase 5 deployment deferred to manual execution at venue.
 
-## Decisions Log
-(empty — populated during execution)
+## Next Steps
 
-## Known Issues
-(empty — populated during execution)
-
----
-*Created: 2026-03-11*
+Run `/gsd:new-milestone` to start the next milestone.

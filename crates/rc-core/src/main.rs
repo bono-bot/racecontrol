@@ -17,6 +17,49 @@ use rc_core::{
     udp_heartbeat, wol, ws,
 };
 
+/// Sends a test email on first boot to verify Gmail OAuth works.
+/// Uses a flag file (`./data/email_verified.flag`) to prevent repeat sends.
+/// The flag is written regardless of send success to prevent spam on misconfiguration.
+async fn maybe_send_first_boot_email(state: &std::sync::Arc<AppState>) {
+    const FLAG_PATH: &str = "./data/email_verified.flag";
+
+    // Check if we've already run the first-boot email check
+    if std::path::Path::new(FLAG_PATH).exists() {
+        return;
+    }
+
+    // Ensure the data directory exists
+    if let Err(e) = std::fs::create_dir_all("./data") {
+        tracing::warn!("Could not create ./data directory for email flag: {}", e);
+    }
+
+    // Write the flag file first (prevents spam even if send fails)
+    if let Err(e) = std::fs::write(FLAG_PATH, "1") {
+        tracing::warn!("Could not write email_verified.flag: {}", e);
+    }
+
+    // Check if email alerts are enabled by checking should_send (disabled alerter always returns false)
+    {
+        let alerter = state.email_alerter.read().await;
+        if !alerter.should_send("system", chrono::Utc::now()) {
+            tracing::info!("First-boot email check: email alerts disabled or rate-limited, skipping.");
+            return;
+        }
+    }
+
+    // Attempt to send the test email
+    tracing::info!("First-boot: sending test email to verify Gmail OAuth...");
+    let mut alerter = state.email_alerter.write().await;
+    alerter
+        .send_alert(
+            "system",
+            "RaceControl Started - Email Alerts Active",
+            "RaceControl has started successfully. Email alerts are configured and working.",
+        )
+        .await;
+    tracing::info!("First-boot email send attempted. Check logs for delivery status.");
+}
+
 /// Middleware: if a JSON response body contains "JWT decode error", set status to 401
 async fn jwt_error_to_401(
     req: axum::extract::Request,
@@ -81,6 +124,9 @@ async fn main() -> anyhow::Result<()> {
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     let state = Arc::new(AppState::new(config, pool));
+
+    // First-boot email test: verify Gmail OAuth works on initial setup
+    maybe_send_first_boot_email(&state).await;
 
     // Clean up orphaned acServer processes from previous run
     // (must happen after AppState is built so port_allocator can track freed ports)

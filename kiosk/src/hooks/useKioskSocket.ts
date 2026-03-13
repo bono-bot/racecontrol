@@ -11,6 +11,8 @@ import type {
   AuthTokenInfo,
   PodActivityEntry,
   PendingSplitContinuation,
+  DeployProgressEvent,
+  DeployState,
 } from "@/lib/types";
 
 const WS_URL =
@@ -36,6 +38,7 @@ export type { AssistanceRequest };
 
 export function useKioskSocket() {
   const ws = useRef<WebSocket | null>(null);
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [connected, setConnected] = useState(false);
   const [pods, setPods] = useState<Map<string, Pod>>(new Map());
   const [latestTelemetry, setLatestTelemetry] = useState<Map<string, TelemetryFrame>>(new Map());
@@ -48,6 +51,7 @@ export function useKioskSocket() {
   const [cameraFocus, setCameraFocus] = useState<{ pod_id: string; driver_name: string; reason: string } | null>(null);
   const [activityLog, setActivityLog] = useState<PodActivityEntry[]>([]);
   const [pendingSplitContinuation, setPendingSplitContinuation] = useState<PendingSplitContinuation | null>(null);
+  const [deployStates, setDeployStates] = useState<Map<string, DeployState>>(new Map());
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -64,6 +68,11 @@ export function useKioskSocket() {
     const socket = new WebSocket(WS_URL);
 
     socket.onopen = () => {
+      // Clear any pending disconnect timer -- we reconnected in time
+      if (disconnectTimerRef.current !== null) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
       setConnected(true);
       console.log("[Kiosk] Connected to RaceControl");
     };
@@ -263,6 +272,15 @@ export function useKioskSocket() {
             setActivityLog(entries);
             break;
           }
+          case "deploy_progress": {
+            const event = msg.data as DeployProgressEvent;
+            setDeployStates((prev) => {
+              const next = new Map(prev);
+              next.set(event.pod_id, event.state);
+              return next;
+            });
+            break;
+          }
         }
       } catch (e) {
         console.warn("[Kiosk] Parse error:", e);
@@ -270,8 +288,17 @@ export function useKioskSocket() {
     };
 
     socket.onclose = () => {
-      setConnected(false);
       console.log("[Kiosk] Disconnected, retrying in 3s...");
+      // Debounce UI update -- only show disconnected after 15s of confirmed absence
+      // This prevents false "Disconnected" flashes during game launch CPU spikes
+      if (disconnectTimerRef.current === null) {
+        disconnectTimerRef.current = setTimeout(() => {
+          setConnected(false);
+          disconnectTimerRef.current = null;
+          console.log("[Kiosk] 15s debounce expired -- marking disconnected");
+        }, 15_000);
+      }
+      // Retry connection immediately (separate from UI debounce)
       setTimeout(connect, 3000);
     };
 
@@ -286,6 +313,11 @@ export function useKioskSocket() {
     connect();
     return () => {
       ws.current?.close();
+      // Clean up debounce timer on unmount
+      if (disconnectTimerRef.current !== null) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
     };
   }, [connect]);
 
@@ -296,6 +328,10 @@ export function useKioskSocket() {
   const clearPendingSplitContinuation = useCallback(() => {
     setPendingSplitContinuation(null);
   }, []);
+
+  const sendDeployRolling = useCallback((binaryUrl: string) => {
+    sendCommand("deploy_rolling", { binary_url: binaryUrl });
+  }, [sendCommand]);
 
   return {
     connected,
@@ -313,5 +349,7 @@ export function useKioskSocket() {
     sendCommand,
     pendingSplitContinuation,
     clearPendingSplitContinuation,
+    deployStates,
+    sendDeployRolling,
   };
 }
