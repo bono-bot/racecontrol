@@ -23,7 +23,7 @@
 
 - [ ] **LOCK-01**: Pod startup waits for rc-agent HTTP server (port 18923) to be ready before launching Edge kiosk browser
 - [ ] **LOCK-02**: Pod lock screen shows a branded "Connecting..." page on startup instead of a blank window or browser error
-- [ ] **LOCK-03**: Pod lock screen HTML auto-retries connection to rc-agent and recovers without manual intervention when rc-agent restarts
+- [x] **LOCK-03**: Pod lock screen HTML auto-retries connection to rc-agent and recovers without manual intervention when rc-agent restarts
 
 ### Kiosk Mode Control
 
@@ -91,7 +91,7 @@
 | HOST-04 | Phase 7 | Complete |
 | LOCK-01 | Phase 8 | Pending |
 | LOCK-02 | Phase 8 | Pending |
-| LOCK-03 | Phase 8 | Pending |
+| LOCK-03 | Phase 8 | Complete |
 | KIOSK-01 | Phase 10 | Pending |
 | KIOSK-02 | Phase 10 | Pending |
 | PWR-01 | Phase 10 | Pending |

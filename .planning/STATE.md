@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Kiosk URL Reliability
 status: active
+stopped_at: Completed 08-02-PLAN.md — watchdog-rcagent.bat created and committed
+last_updated: "2026-03-13T23:56:44.924Z"
+last_activity: 2026-03-14 — rc-core reverse proxy + CORS fix committed, 21MB binary staged
+progress:
+  total_phases: 6
+  completed_phases: 2
+  total_plans: 7
+  completed_plans: 5
+  percent: 96
+---
+
+---
+gsd_state_version: 1.0
+milestone: v2.0
+milestone_name: Kiosk URL Reliability
+status: active
 stopped_at: Phase 7 Plan 02 COMPLETE — rc-core proxy committed, deployment pending physical server access
 last_updated: "2026-03-14"
 last_activity: 2026-03-14 — rc-core reverse proxy committed, binary staged, server deploy blocked by SAC
 progress:
-  total_phases: 6
+  [██████████] 96%
   completed_phases: 2
   total_plans: 4
   completed_plans: 4
@@ -47,6 +63,7 @@ Progress: [███░░░░░░░] 35%
 | 06-diagnosis P02 | 1 | 2 tasks, 1 file | 10min |
 | 07-server-pinning P01 | 1 | 2 tasks, 0 files | 15min |
 | 07-server-pinning P02 | 1 | 2 tasks, 1 file | 30min |
+| Phase 08-pod-lock-screen-hardening P02 | 5min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -72,6 +89,7 @@ Progress: [███░░░░░░░] 35%
 - [Phase 07-server-pinning P02]: Windows SAC blocks node.exe from accepting network connections — route kiosk traffic through rc-core Axum reverse proxy instead of direct port 3300 access
 - [Phase 07-server-pinning P02]: SAC also blocks pod-agent/WinRM on server — physical access required for server deployment; code committed and binary staged at deploy-staging
 - [Phase 07-server-pinning P02]: Kiosk proxy paths: /kiosk* and /_next/* forwarded to localhost:3300; access point is kiosk.rp:8080/kiosk not :3300
+- [Phase 08-pod-lock-screen-hardening]: Use scheduled-task watchdog (not loop) for rc-agent — one-shot script invoked by schtasks /SC MINUTE, calls start-rcagent.bat on crash
 
 ### Pending Todos
 
@@ -88,6 +106,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14
-Stopped at: Phase 7 Plan 02 COMPLETE — rc-core proxy committed, deployment pending physical server access
+Last session: 2026-03-13T23:56:44.921Z
+Stopped at: Completed 08-02-PLAN.md — watchdog-rcagent.bat created and committed
 Resume file: None

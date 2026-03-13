@@ -72,7 +72,7 @@ Plans:
   1. On pod reboot, the Edge kiosk window shows the branded lock screen (never "Site cannot be reached") within 10 seconds of the desktop appearing
   2. When rc-agent is not yet running, the pod screen shows a branded "Connecting..." page — no blank window, no browser error
   3. When rc-agent crashes and restarts mid-session, the pod screen automatically recovers to the lock screen within 30 seconds — no staff intervention required
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 08-01-PLAN.md — Add StartupConnecting state with readiness probe and branded HTML (LOCK-01, LOCK-02)
@@ -127,7 +127,7 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 5. Blanking Screen Protocol | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 6. Diagnosis | v2.0 | 2/2 | Complete | 2026-03-13 |
 | 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
-| 8. Pod Lock Screen Hardening | v2.0 | 0/3 | Planned | - |
+| 8. Pod Lock Screen Hardening | 1/3 | In Progress|  | - |
 | 9. Edge Browser Hardening | v2.0 | 0/TBD | Not started | - |
 | 10. Staff Dashboard Controls | v2.0 | 0/TBD | Not started | - |
 | 11. Customer Experience Polish | v2.0 | 0/TBD | Not started | - |
