@@ -28,6 +28,7 @@ use ai_debugger::{AiDebuggerConfig, PodStateSnapshot};
 use game_process::GameExeConfig;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::*;
+use rc_common::types::AcStatus;
 use sims::SimAdapter;
 use sims::assetto_corsa::AssettoCorsaAdapter;
 use sims::f1_25::F125Adapter;
@@ -168,6 +169,17 @@ fn default_core_url() -> String { "ws://127.0.0.1:8080/ws/agent".to_string() }
 fn default_wheelbase_vid() -> u16 { 0x1209 }
 fn default_wheelbase_pid() -> u16 { 0xFFB0 }
 fn default_telemetry_ports() -> Vec<u16> { vec![9996, 20777, 5300, 6789, 5555] }
+
+/// Tracks the state of a game launch attempt for timeout/retry handling.
+/// BILL-01: 3-minute launch timeout with auto-retry once, cancel on second fail (no charge).
+enum LaunchState {
+    Idle,
+    WaitingForLive {
+        launched_at: std::time::Instant,
+        attempt: u8, // 1 or 2
+    },
+    Live,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -357,6 +369,11 @@ async fn main() -> Result<()> {
 
     // Game process state
     let mut game_process: Option<game_process::GameProcess> = None;
+
+    // AC STATUS polling state for billing trigger (Pitfall 1: stale shared memory, Pitfall 3: debounce)
+    let mut last_ac_status: Option<AcStatus> = None;
+    let mut ac_status_stable_since: Option<std::time::Instant> = None;
+    let mut launch_state = LaunchState::Idle;
 
     // AI debugger result channel
     let (ai_result_tx, mut ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
@@ -561,6 +578,84 @@ async fn main() -> Result<()> {
                         adapter.disconnect();
                     }
                 }
+
+                // Poll AC STATUS for billing trigger (only when game process is alive)
+                // Pitfall 1: guard with game_process.is_some() to avoid stale shared memory reads
+                if game_process.is_some() {
+                    if let Some(current_status) = adapter.read_ac_status() {
+                        let status_changed = last_ac_status.map_or(true, |prev| prev != current_status);
+                        if status_changed {
+                            // Debounce: require STATUS to be stable for 1 second before reporting
+                            // (prevents flapping on rapid ESC press — see RESEARCH.md Pitfall 3)
+                            ac_status_stable_since = Some(std::time::Instant::now());
+                            last_ac_status = Some(current_status);
+                        }
+                        // Send GameStatusUpdate only after STATUS has been stable for 1s
+                        if let (Some(stable_since), Some(status)) = (ac_status_stable_since, last_ac_status) {
+                            if stable_since.elapsed() >= Duration::from_secs(1) {
+                                let msg = AgentMessage::GameStatusUpdate {
+                                    pod_id: pod_id.clone(),
+                                    ac_status: status,
+                                };
+                                if let Ok(json) = serde_json::to_string(&msg) {
+                                    let _ = ws_tx.send(Message::Text(json.into())).await;
+                                }
+                                ac_status_stable_since = None; // sent, stop re-sending until next change
+
+                                // Update LaunchState on successful STATUS=LIVE
+                                if status == AcStatus::Live {
+                                    launch_state = LaunchState::Live;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check launch timeout (3-min per CONTEXT.md locked decision, BILL-01)
+                if let LaunchState::WaitingForLive { launched_at, attempt } = &launch_state {
+                    if launched_at.elapsed() > Duration::from_secs(180) {
+                        if *attempt < 2 {
+                            // First timeout — auto-retry once
+                            tracing::warn!("AC launch timeout (attempt {}), retrying...", attempt);
+                            if let Some(ref mut proc) = game_process {
+                                let _ = proc.stop();
+                            }
+                            game_process = None;
+
+                            // Signal core that game is no longer running
+                            let msg = AgentMessage::GameStatusUpdate {
+                                pod_id: pod_id.clone(),
+                                ac_status: AcStatus::Off,
+                            };
+                            if let Ok(json) = serde_json::to_string(&msg) {
+                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                            }
+
+                            // Update launch state to attempt 2 and wait for core to re-send LaunchGame
+                            launch_state = LaunchState::WaitingForLive {
+                                launched_at: std::time::Instant::now(),
+                                attempt: attempt + 1,
+                            };
+                        } else {
+                            // Second timeout — cancel entirely, no charge
+                            tracing::error!("AC launch failed twice, cancelling session (no charge)");
+                            if let Some(ref mut proc) = game_process {
+                                let _ = proc.stop();
+                            }
+                            game_process = None;
+                            launch_state = LaunchState::Idle;
+
+                            // Notify core of launch failure so it can cancel the session (no billing)
+                            let msg = AgentMessage::GameStatusUpdate {
+                                pod_id: pod_id.clone(),
+                                ac_status: AcStatus::Off,
+                            };
+                            if let Ok(json) = serde_json::to_string(&msg) {
+                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                            }
+                        }
+                    }
+                }
             }
             // Process driving detector signals from HID/UDP tasks
             Some(signal) = signal_rx.recv() => {
@@ -664,6 +759,10 @@ async fn main() -> Result<()> {
 
                             game_process = None;
                             game_process::clear_persisted_pid();
+                            // Reset STATUS tracking on game crash
+                            last_ac_status = None;
+                            ac_status_stable_since = None;
+                            launch_state = LaunchState::Idle;
 
                             // If billing is active and game crashed, arm crash recovery timer.
                             // Gives core 30s to send SessionEnded; otherwise force-reset.
@@ -767,6 +866,10 @@ async fn main() -> Result<()> {
                 tracing::warn!("[crash-recovery] 30s timeout — core did not send SessionEnded. Force-resetting pod.");
                 heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
                 overlay.deactivate();
+                // Reset STATUS tracking and LaunchState
+                last_ac_status = None;
+                ac_status_stable_since = None;
+                launch_state = LaunchState::Idle;
                 // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
                 lock_screen.show_blank_screen();
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -842,18 +945,43 @@ async fn main() -> Result<()> {
                                     blank_timer_armed = false; // cancel any pending auto-blank
                                     // Cache driver_name for use in LaunchGame splash screen
                                     current_driver_name = Some(driver_name.clone());
-                                    overlay.activate(driver_name.clone(), allocated_seconds);
+                                    // If allocated_seconds is the hard max cap (10800) or 0, this is open-ended billing — use v2 taxi meter
+                                    if allocated_seconds == 0 || allocated_seconds >= 10800 {
+                                        overlay.activate_v2(driver_name.clone());
+                                    } else {
+                                        // Legacy fixed-duration billing — use existing activate
+                                        overlay.activate(driver_name.clone(), allocated_seconds);
+                                    }
                                     lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
                                     // Minimize all background windows for a clean game view
                                     tokio::task::spawn_blocking(|| ac_launcher::minimize_background_windows());
                                 }
-                                rc_common::protocol::CoreToAgentMessage::BillingTick { remaining_seconds, allocated_seconds: _, driver_name: _, .. } => {
-                                    lock_screen.update_remaining(remaining_seconds);
-                                    overlay.update_billing(remaining_seconds);
+                                rc_common::protocol::CoreToAgentMessage::BillingTick {
+                                    remaining_seconds, allocated_seconds: _, driver_name: _,
+                                    elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_value_tier,
+                                } => {
+                                    lock_screen.update_remaining(remaining_seconds); // keep legacy lock screen update
+                                    // Use v2 billing update if new fields are present (core has been updated)
+                                    if let (Some(elapsed), Some(cost), Some(rate)) = (elapsed_seconds, cost_paise, rate_per_min_paise) {
+                                        overlay.update_billing_v2(
+                                            elapsed,
+                                            cost,
+                                            rate,
+                                            paused.unwrap_or(false),
+                                            minutes_to_value_tier,
+                                        );
+                                    } else {
+                                        // Fallback to legacy countdown update (old core version)
+                                        overlay.update_billing(remaining_seconds);
+                                    }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingStopped { billing_session_id } => {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
                                     overlay.deactivate();
+                                    // Reset STATUS tracking and LaunchState
+                                    last_ac_status = None;
+                                    ac_status_stable_since = None;
+                                    launch_state = LaunchState::Idle;
                                     // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
                                     // Fallback — SessionEnded is the preferred message with summary data
                                     lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
@@ -877,6 +1005,10 @@ async fn main() -> Result<()> {
                                     heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
                                     crash_recovery_armed = false; // cancel crash timer — core responded
                                     overlay.deactivate();
+                                    // Reset STATUS tracking and LaunchState
+                                    last_ac_status = None;
+                                    ac_status_stable_since = None;
+                                    launch_state = LaunchState::Idle;
 
                                     // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
                                     lock_screen.show_session_summary(
@@ -990,6 +1122,12 @@ async fn main() -> Result<()> {
                                         let msg = AgentMessage::GameStateUpdate(info);
                                         let json_str = serde_json::to_string(&msg)?;
                                         let _ = ws_tx.send(Message::Text(json_str.into())).await;
+
+                                        // Track launch for timeout handling (BILL-01: 3-min timeout)
+                                        launch_state = LaunchState::WaitingForLive {
+                                            launched_at: std::time::Instant::now(),
+                                            attempt: 1,
+                                        };
 
                                         // Run blocking launch sequence in spawn_blocking
                                         let pod_id_clone = pod_id.clone();
@@ -1170,6 +1308,10 @@ async fn main() -> Result<()> {
                                 rc_common::protocol::CoreToAgentMessage::StopGame => {
                                     heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                                     heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
+                                    // Reset STATUS tracking and LaunchState
+                                    last_ac_status = None;
+                                    ac_status_stable_since = None;
+                                    launch_state = LaunchState::Idle;
                                     if let Some(ref mut game) = game_process {
                                         tracing::info!("Stopping game: {:?}", game.sim_type);
                                         let sim = game.sim_type;
@@ -1234,6 +1376,10 @@ async fn main() -> Result<()> {
                                     );
                                     crash_recovery_armed = false; // cancel crash timer
                                     overlay.deactivate();
+                                    // Reset STATUS tracking and LaunchState
+                                    last_ac_status = None;
+                                    ac_status_stable_since = None;
+                                    launch_state = LaunchState::Idle;
 
                                     // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
                                     lock_screen.show_between_sessions(
