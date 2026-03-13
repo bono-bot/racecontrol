@@ -1,4 +1,4 @@
-# RaceControl Reliability & Connection Hardening
+# RaceControl
 
 ## Current State
 
@@ -14,13 +14,26 @@ The pod management stack (rc-core, rc-agent, kiosk) now self-heals, deploys reli
 - **Blanking screen protocol**: Lock-screen-before-kill ordering, LaunchSplash branded screen, extended dialog suppression (5 processes), PIN auth unification, pod lockdown (taskbar hidden, Win key blocked)
 - **Config hardening**: rc-agent fails fast on bad config with branded error screen, deploy template matches AgentConfig struct
 
+## Current Milestone: v2.0 Kiosk URL Reliability
+
+**Goal:** Eliminate all "Site cannot be reached" and 404 errors across the venue — every kiosk URL works permanently after any reboot, crash, or network change.
+
+**Target features:**
+- Diagnose current failure modes from error/debug logs across pods and server
+- Pin staff kiosk (Next.js) permanently to Server (.23) with production build and auto-start
+- Establish local DNS name (e.g. kiosk.rp) + static IP so staff always type the same URL
+- Fix pod lock screens to handle rc-agent not started or crashed (fallback/auto-retry instead of browser error)
+- Ensure all kiosk URLs survive reboots, DHCP drift, service crashes, and port conflicts
+
+**Investigation-first approach:** Use existing debug/error logs to map the actual failure patterns before implementing fixes.
+
 ## What This Is
 
-A reliability overhaul of the RaceControl pod management stack (rc-core, rc-agent, pod-agent) to eliminate fragile connections, cascading debug cycles, and deployment pain. Targets the Racing Point eSports venue's 8 sim racing pods managed from a central server.
+The RaceControl pod management stack (rc-core, rc-agent, pod-agent) for Racing Point eSports venue's 8 sim racing pods managed from a central server. Includes staff kiosk terminal (Next.js) for pod management and customer PIN entry, plus per-pod lock screens served by rc-agent.
 
 ## Core Value
 
-Deploying updates and launching games should work reliably on all 8 pods without manual debugging — the system recovers from failures automatically and reports problems instead of silently breaking. The customer never sees system internals.
+Every URL in the venue always works — staff kiosk terminal, customer PIN grid, and pod lock screens are permanently accessible with zero manual intervention after reboots, crashes, or network changes.
 
 ## Requirements
 
@@ -86,13 +99,12 @@ Deploying updates and launching games should work reliably on all 8 pods without
 | Lock screen before game kill | Prevents desktop flash during session end | Shipped v1.0 |
 | Registry-based pod lockdown | Survives rc-agent restarts, one-time apply | Shipped v1.0 |
 
-## Next Milestone Goals
+## Future Milestone Candidates
 
-To be defined via `/gsd:new-milestone`. Candidates:
 - HUD overlay with live sector times and telemetry
 - FFB safety (zero wheelbase torque on session boundary)
 - Cloud dashboard for remote monitoring
 - On-site deployment automation improvements
 
 ---
-*Last updated: 2026-03-13 — v1.0 shipped*
+*Last updated: 2026-03-13 after milestone v2.0 started*
