@@ -217,6 +217,7 @@ export interface SessionDetailSession {
   total_laps: number;
   best_lap_ms: number | null;
   average_lap_ms: number | null;
+  group_session_id: string | null;
 }
 
 export interface SessionDetail {
@@ -321,6 +322,18 @@ export interface GroupMemberInfo {
   status: string;
   pod_id: string | null;
   pod_number: number | null;
+}
+
+// ─── Multiplayer Results Types ────────────────────────────────────────────
+
+export interface MultiplayerResultInfo {
+  position: number;
+  driver_name: string;
+  driver_id: string;
+  best_lap_ms: number | null;
+  total_time_ms: number | null;
+  laps_completed: number;
+  dnf: boolean;
 }
 
 // ─── Share Report Types ───────────────────────────────────────────────────
@@ -707,6 +720,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ pricing_tier_id, friend_ids, ...(experience_id ? { experience_id } : {}), ...(custom ? { custom } : {}) }),
       }
+    ),
+
+  multiplayerResults: (groupSessionId: string) =>
+    fetchApi<{ results?: MultiplayerResultInfo[]; error?: string }>(
+      `/customer/multiplayer-results/${encodeURIComponent(groupSessionId)}`
     ),
 
   groupSession: () =>
