@@ -764,16 +764,27 @@ async fn main() -> Result<()> {
                             ac_status_stable_since = None;
                             launch_state = LaunchState::Idle;
 
-                            // If billing is active and game crashed, arm crash recovery timer.
+                            // If billing is active and game crashed, zero FFB immediately then arm crash recovery timer.
                             // Gives core 30s to send SessionEnded; otherwise force-reset.
                             if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
-                                tracing::warn!("Game crashed during active billing — arming 30s crash recovery timer");
+                                tracing::warn!("Game crashed during active billing — zeroing FFB immediately");
+                                // SAFETY: Zero FFB immediately on crash during billing
+                                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                // Report crash + FFB status to core
+                                let crash_msg = AgentMessage::GameCrashed { pod_id: pod_id.clone(), billing_active: true };
+                                let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_msg).unwrap_or_default().into())).await;
+                                let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                                // Arm recovery timer
                                 crash_recovery_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(30));
                                 crash_recovery_armed = true;
                             } else {
-                                // No billing active — enforce safe state immediately
+                                // No billing active — enforce safe state immediately (FFB first, awaited)
                                 tracing::info!("Game exited with no active billing — enforcing safe state");
-                                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
+                                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                                tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                                 lock_screen.show_blank_screen();
                             }
                         }
@@ -856,8 +867,11 @@ async fn main() -> Result<()> {
                 } else {
                     tracing::info!("Auto-blanking screen after session summary");
                     lock_screen.show_blank_screen();
-                    // Final cleanup pass via unified safe state
-                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
+                    // Final cleanup pass — FFB zero first (awaited), then safe state
+                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                    let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                 }
             }
             // Crash recovery: game crashed during billing, core didn't send SessionEnded in 30s
@@ -870,16 +884,21 @@ async fn main() -> Result<()> {
                 last_ac_status = None;
                 ac_status_stable_since = None;
                 launch_state = LaunchState::Idle;
-                // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
+                // SAFETY: Zero FFB FIRST (awaited), before any game cleanup
+                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                // STEP 1: Show lock screen (covers desktop before game cleanup)
                 lock_screen.show_blank_screen();
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                // STEP 2: Stop game and clean up AFTER lock screen is visible
+                // STEP 2: Report FFB status
+                let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                // STEP 3: Stop game and clean up AFTER FFB is zeroed
                 if let Some(ref mut game) = game_process {
                     let _ = game.stop();
                     game_process = None;
                 }
                 if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
+                tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                 current_driver_name = None;
                 // Notify core that we force-ended
                 let msg = AgentMessage::GameStateUpdate(GameLaunchInfo {
@@ -982,17 +1001,22 @@ async fn main() -> Result<()> {
                                     last_ac_status = None;
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
-                                    // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
-                                    // Fallback — SessionEnded is the preferred message with summary data
+                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
+                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // Show lock screen (covers desktop before game is killed)
                                     lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                                    // STEP 2: Stop game and clean up AFTER lock screen is visible
+                                    // Stop game and clean up AFTER FFB is zeroed
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
                                     }
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
+                                    // Report FFB status
+                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                    let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                                     current_driver_name = None;
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SessionEnded {
@@ -1010,25 +1034,30 @@ async fn main() -> Result<()> {
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
 
-                                    // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
+                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
+                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+
+                                    // Show session summary lock screen
                                     lock_screen.show_session_summary(
                                         driver_name, total_laps, best_lap_ms, driving_seconds,
                                     );
-                                    // Brief yield — let Edge kiosk window initialize before we kill the game
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                                    // STEP 2: Stop game and clean up AFTER lock screen is visible
+                                    // Stop game and clean up AFTER FFB is zeroed
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
                                     }
                                     // Disconnect telemetry adapter
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                                    // Full cleanup via unified safe state
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
+                                    // Report FFB status
+                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                    let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                                     current_driver_name = None;
 
-                                    // STEP 3: Auto-blank timer unchanged
+                                    // Auto-blank timer unchanged
                                     blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(15));
                                     blank_timer_armed = true;
                                 }
@@ -1312,6 +1341,12 @@ async fn main() -> Result<()> {
                                     last_ac_status = None;
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
+                                    // SAFETY: Zero FFB BEFORE killing the game (awaited)
+                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // Report FFB status
+                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                    let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                     if let Some(ref mut game) = game_process {
                                         tracing::info!("Stopping game: {:?}", game.sim_type);
                                         let sim = game.sim_type;
@@ -1381,22 +1416,28 @@ async fn main() -> Result<()> {
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
 
-                                    // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
+                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
+                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+
+                                    // Show between-sessions lock screen
                                     lock_screen.show_between_sessions(
                                         driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
                                         current_split_number, total_splits,
                                     );
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                                    // STEP 2: Stop game and clean up AFTER lock screen is visible
+                                    // Stop game and clean up AFTER FFB is zeroed
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
                                     }
                                     // Disconnect telemetry adapter
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                                    // Full cleanup via unified safe state
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
+                                    // Report FFB status
+                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                    let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {
                                     tracing::info!("Assistance screen for {}: {}", driver_name, message);
@@ -1477,12 +1518,16 @@ async fn main() -> Result<()> {
         if !heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
             tracing::info!("No active billing on disconnect — enforcing safe state");
             overlay.deactivate();
+            // SAFETY: Zero FFB FIRST (awaited), before game cleanup
+            { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+            tracing::info!("FFB zeroed on disconnect (ws_tx unavailable for FfbZeroed message)");
+            tokio::time::sleep(Duration::from_millis(500)).await;
             if let Some(ref mut game) = game_process {
                 let _ = game.stop();
                 game_process = None;
             }
             if let Some(ref mut adp) = adapter { adp.disconnect(); }
-            { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
+            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
             lock_screen.show_blank_screen();
         } else {
             lock_screen.show_disconnected();
