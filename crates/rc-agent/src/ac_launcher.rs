@@ -333,7 +333,334 @@ pub fn set_ffb(preset: &str) -> Result<()> {
     Ok(())
 }
 
-/// Write race.ini with AUTOSPAWN=1 and the given car/track/driver
+/// Default Track Day car pool -- mixed GT3/Supercars for realistic traffic.
+const TRACKDAY_CAR_POOL: &[&str] = &[
+    // GT3 class
+    "ks_ferrari_488_gt3",
+    "ks_lamborghini_huracan_gt3",
+    "ks_mercedes_amg_gt3",
+    "ks_audi_r8_lms",
+    "ks_bmw_m6_gt3",
+    "ks_nissan_gtr_gt3",
+    "ks_porsche_911_gt3_r",
+    "ks_mclaren_650s_gt3",
+    // Road supercars (close enough in pace for track day)
+    "ks_ferrari_488_gtb",
+    "ks_lamborghini_huracan_performante",
+    "ks_porsche_911_gt3_cup_2017",
+    "ks_mclaren_p1",
+];
+
+/// Maximum AI opponents for single-player (20 total slots including player).
+const MAX_AI_SINGLE_PLAYER: usize = 19;
+
+/// Default AI count for Track Day when no custom AI is specified (midpoint of 10-15 range).
+const DEFAULT_TRACKDAY_AI_COUNT: usize = 12;
+
+/// Generate default Track Day AI with mixed car classes.
+fn generate_trackday_ai(count: usize) -> Vec<AiCarSlot> {
+    use rand::seq::SliceRandom;
+    let mut rng = rand::thread_rng();
+
+    let names = pick_ai_names(count);
+    let mut cars: Vec<&str> = TRACKDAY_CAR_POOL.to_vec();
+    cars.shuffle(&mut rng);
+
+    (0..count).map(|i| {
+        AiCarSlot {
+            model: cars[i % cars.len()].to_string(),
+            skin: String::new(), // AC picks random installed skin
+            driver_name: names[i].clone(),
+            ai_level: 85, // Medium difficulty for casual track day
+        }
+    }).collect()
+}
+
+/// Compute the effective AI car list for a session, applying defaults and caps.
+/// Track Day with empty ai_cars generates default mixed traffic.
+/// All modes are capped at MAX_AI_SINGLE_PLAYER (19).
+fn effective_ai_cars(params: &AcLaunchParams) -> Vec<AiCarSlot> {
+    if params.session_type == "trackday" && params.ai_cars.is_empty() {
+        let count = DEFAULT_TRACKDAY_AI_COUNT.min(MAX_AI_SINGLE_PLAYER);
+        generate_trackday_ai(count)
+    } else {
+        let capped = params.ai_cars.len().min(MAX_AI_SINGLE_PLAYER);
+        if params.ai_cars.len() > MAX_AI_SINGLE_PLAYER {
+            tracing::warn!(
+                "AI car count {} exceeds max {}, clamping to {}",
+                params.ai_cars.len(), MAX_AI_SINGLE_PLAYER, MAX_AI_SINGLE_PLAYER
+            );
+        }
+        params.ai_cars.iter().take(capped).cloned().collect()
+    }
+}
+
+// --- Composable INI section writers ---
+
+fn write_assists_section(ini: &mut String, params: &AcLaunchParams) {
+    let aids = params.aids.clone().unwrap_or_default();
+    let damage = params.conditions.as_ref().map(|c| c.damage).unwrap_or(0);
+    let auto_shifter = if params.transmission == "auto" || params.transmission == "automatic" { 1 } else { 0 };
+
+    let _ = writeln!(ini, "[ASSISTS]");
+    let _ = writeln!(ini, "ABS={}", aids.abs);
+    let _ = writeln!(ini, "AUTO_CLUTCH={}", aids.autoclutch);
+    let _ = writeln!(ini, "AUTO_SHIFTER={}", auto_shifter);
+    let _ = writeln!(ini, "DAMAGE={}", damage);
+    let _ = writeln!(ini, "IDEAL_LINE={}", aids.ideal_line);
+    let _ = writeln!(ini, "STABILITY={}", aids.stability);
+    let _ = writeln!(ini, "TRACTION_CONTROL={}", aids.tc);
+    let _ = writeln!(ini, "VISUAL_DAMAGE=0");
+    let _ = writeln!(ini, "SLIPSTREAM=1");
+    let _ = writeln!(ini, "TYRE_BLANKETS=1");
+    let _ = writeln!(ini, "AUTO_BLIP=1");
+    let _ = writeln!(ini, "FUEL_RATE=1");
+}
+
+fn write_autospawn_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[AUTOSPAWN]");
+    let _ = writeln!(ini, "ACTIVE=1");
+    let _ = writeln!(ini, "\n[BENCHMARK]");
+    let _ = writeln!(ini, "ACTIVE=0");
+}
+
+fn write_player_car_section(ini: &mut String, params: &AcLaunchParams) {
+    let _ = writeln!(ini, "\n[CAR_0]");
+    let _ = writeln!(ini, "SETUP=");
+    let _ = writeln!(ini, "SKIN={}", params.skin);
+    let _ = writeln!(ini, "MODEL={}", params.car);
+    let _ = writeln!(ini, "MODEL_CONFIG=");
+    let _ = writeln!(ini, "BALLAST=0");
+    let _ = writeln!(ini, "RESTRICTOR=0");
+    let _ = writeln!(ini, "DRIVER_NAME={}", params.driver);
+    let _ = writeln!(ini, "NATIONALITY=IND");
+    let _ = writeln!(ini, "NATION_CODE=IND");
+}
+
+fn write_ai_car_sections(ini: &mut String, ai_cars: &[AiCarSlot]) {
+    for (i, ai_car) in ai_cars.iter().enumerate() {
+        let car_index = i + 1; // CAR_0 is player, AI starts at CAR_1
+        let _ = writeln!(ini, "\n[CAR_{}]", car_index);
+        let _ = writeln!(ini, "SETUP=");
+        let _ = writeln!(ini, "SKIN="); // Empty -- AC picks random installed skin
+        let _ = writeln!(ini, "MODEL={}", ai_car.model);
+        let _ = writeln!(ini, "MODEL_CONFIG=");
+        let _ = writeln!(ini, "BALLAST=0");
+        let _ = writeln!(ini, "RESTRICTOR=0");
+        let _ = writeln!(ini, "DRIVER_NAME={}", ai_car.driver_name);
+        let _ = writeln!(ini, "NATIONALITY=");
+        let _ = writeln!(ini, "NATION_CODE=");
+        let _ = writeln!(ini, "AI=1");
+    }
+}
+
+fn write_dynamic_track_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[DYNAMIC_TRACK]");
+    let _ = writeln!(ini, "LAP_GAIN=0");
+    let _ = writeln!(ini, "RANDOMNESS=0");
+    let _ = writeln!(ini, "SESSION_START=100");
+    let _ = writeln!(ini, "SESSION_TRANSFER=100");
+}
+
+fn write_ghost_car_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[GHOST_CAR]");
+    let _ = writeln!(ini, "ENABLED=0");
+    let _ = writeln!(ini, "FILE=");
+    let _ = writeln!(ini, "LOAD=0");
+    let _ = writeln!(ini, "PLAYING=0");
+    let _ = writeln!(ini, "RECORDING=0");
+    let _ = writeln!(ini, "SECONDS_ADVANTAGE=0");
+}
+
+fn write_groove_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[GROOVE]");
+    let _ = writeln!(ini, "VIRTUAL_LAPS=10");
+    let _ = writeln!(ini, "MAX_LAPS=30");
+    let _ = writeln!(ini, "STARTING_LAPS=0");
+}
+
+fn write_header_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[HEADER]");
+    let _ = writeln!(ini, "VERSION=2");
+}
+
+fn write_lap_invalidator_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[LAP_INVALIDATOR]");
+    let _ = writeln!(ini, "ALLOWED_TYRES_OUT=-1");
+}
+
+fn write_lighting_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[LIGHTING]");
+    let _ = writeln!(ini, "CLOUD_SPEED=0.200");
+    let _ = writeln!(ini, "SUN_ANGLE=16");
+    let _ = writeln!(ini, "TIME_MULT=1.0");
+}
+
+fn write_options_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[OPTIONS]");
+    let _ = writeln!(ini, "USE_MPH=0");
+}
+
+fn write_race_config_section(ini: &mut String, params: &AcLaunchParams, ai_count: usize) {
+    let track_config = if params.track_config.is_empty() {
+        String::new()
+    } else {
+        params.track_config.clone()
+    };
+
+    let ai_level = if !params.ai_cars.is_empty() {
+        params.ai_cars[0].ai_level
+    } else {
+        90 // default
+    };
+
+    let total_cars = 1 + ai_count;
+
+    let _ = writeln!(ini, "\n[RACE]");
+    let _ = writeln!(ini, "AI_LEVEL={}", ai_level);
+    let _ = writeln!(ini, "CARS={}", total_cars);
+    let _ = writeln!(ini, "CONFIG_TRACK={}", track_config);
+    let _ = writeln!(ini, "DRIFT_MODE=0");
+    let _ = writeln!(ini, "FIXED_SETUP=0");
+    let _ = writeln!(ini, "JUMP_START_PENALTY=0");
+    let _ = writeln!(ini, "MODEL={}", params.car);
+    let _ = writeln!(ini, "MODEL_CONFIG=");
+    let _ = writeln!(ini, "PENALTIES=1");
+    let _ = writeln!(ini, "RACE_LAPS=0"); // Time-based race (runs for billing duration)
+    let _ = writeln!(ini, "SKIN={}", params.skin);
+    let _ = writeln!(ini, "TRACK={}", params.track);
+}
+
+fn write_remote_section(ini: &mut String, params: &AcLaunchParams) {
+    let remote_active = if params.game_mode == "multi" { 1 } else { 0 };
+    let _ = writeln!(ini, "\n[REMOTE]");
+    let _ = writeln!(ini, "ACTIVE={}", remote_active);
+    let _ = writeln!(ini, "GUID=");
+    let _ = writeln!(ini, "NAME={}", params.driver);
+    let _ = writeln!(ini, "PASSWORD={}", params.server_password);
+    let _ = writeln!(ini, "SERVER_IP={}", params.server_ip);
+    let _ = writeln!(ini, "SERVER_PORT={}", params.server_port);
+    let _ = writeln!(ini, "TEAM=");
+}
+
+fn write_replay_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[REPLAY]");
+    let _ = writeln!(ini, "ACTIVE=0");
+    let _ = writeln!(ini, "FILENAME=");
+}
+
+fn write_restart_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[RESTART]");
+    let _ = writeln!(ini, "ACTIVE=0");
+}
+
+/// Write a single session block to the INI string.
+fn write_session_block(ini: &mut String, index: usize, name: &str, session_type: u32, duration: u32, starting_pos: u32, formation_lap: bool) {
+    let _ = writeln!(ini, "\n[SESSION_{}]", index);
+    let _ = writeln!(ini, "NAME={}", name);
+    let _ = writeln!(ini, "DURATION_MINUTES={}", duration);
+    let _ = writeln!(ini, "SPAWN_SET={}", if session_type == 4 { "START" } else { "PIT" });
+    let _ = writeln!(ini, "TYPE={}", session_type);
+    let _ = writeln!(ini, "LAPS=0");
+    let _ = writeln!(ini, "STARTING_POSITION={}", starting_pos);
+    if formation_lap {
+        let _ = writeln!(ini, "FORMATION_LAP=1");
+    }
+}
+
+/// Write session blocks based on session_type.
+fn write_session_blocks(ini: &mut String, params: &AcLaunchParams) {
+    match params.session_type.as_str() {
+        "hotlap" => {
+            // Hotlap: TYPE=4, single session, start from track start line
+            write_session_block(ini, 0, "Hotlap", 4, params.duration_minutes, 1, false);
+        }
+        "race" => {
+            // Race vs AI: TYPE=3, single race session
+            write_session_block(ini, 0, "Race", 3, params.duration_minutes, params.starting_position, params.formation_lap);
+        }
+        "trackday" => {
+            // Track Day: TYPE=1 (practice-style open session with AI traffic)
+            write_session_block(ini, 0, "Track Day", 1, params.duration_minutes, 1, false);
+        }
+        "weekend" => {
+            // Race Weekend: P -> Q -> R sequence
+            // Time allocation: practice and qualify use their dedicated fields,
+            // race gets remaining time (minimum 1 minute).
+            let mut session_index = 0;
+
+            if params.weekend_practice_minutes > 0 {
+                write_session_block(ini, session_index, "Practice", 1, params.weekend_practice_minutes, 1, false);
+                session_index += 1;
+            }
+
+            if params.weekend_qualify_minutes > 0 {
+                write_session_block(ini, session_index, "Qualifying", 2, params.weekend_qualify_minutes, 1, false);
+                session_index += 1;
+            }
+
+            // Race gets remaining time, minimum 1 minute
+            let race_time = params.duration_minutes
+                .saturating_sub(params.weekend_practice_minutes)
+                .saturating_sub(params.weekend_qualify_minutes)
+                .max(1);
+            write_session_block(ini, session_index, "Race", 3, race_time, params.starting_position, params.formation_lap);
+        }
+        _ => {
+            // Default: Practice (TYPE=1)
+            write_session_block(ini, 0, "Practice", 1, params.duration_minutes, 1, false);
+        }
+    }
+}
+
+fn write_temperature_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[TEMPERATURE]");
+    let _ = writeln!(ini, "AMBIENT=22");
+    let _ = writeln!(ini, "ROAD=28");
+}
+
+fn write_weather_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[WEATHER]");
+    let _ = writeln!(ini, "NAME=3_clear");
+}
+
+fn write_wind_section(ini: &mut String) {
+    let _ = writeln!(ini, "\n[WIND]");
+    let _ = writeln!(ini, "DIRECTION_DEG=0");
+    let _ = writeln!(ini, "SPEED_KMH_MAX=0");
+    let _ = writeln!(ini, "SPEED_KMH_MIN=0");
+}
+
+/// Build the complete race.ini content as a String (composable builder).
+/// Used by write_race_ini() and by tests.
+fn build_race_ini_string(params: &AcLaunchParams) -> String {
+    let ai_cars = effective_ai_cars(params);
+    let mut ini = String::with_capacity(4096);
+
+    write_assists_section(&mut ini, params);
+    write_autospawn_section(&mut ini);
+    write_player_car_section(&mut ini, params);
+    write_ai_car_sections(&mut ini, &ai_cars);
+    write_dynamic_track_section(&mut ini);
+    write_ghost_car_section(&mut ini);
+    write_groove_section(&mut ini);
+    write_header_section(&mut ini);
+    write_lap_invalidator_section(&mut ini);
+    write_lighting_section(&mut ini);
+    write_options_section(&mut ini);
+    write_race_config_section(&mut ini, params, ai_cars.len());
+    write_remote_section(&mut ini, params);
+    write_replay_section(&mut ini);
+    write_restart_section(&mut ini);
+    write_session_blocks(&mut ini, params);
+    write_temperature_section(&mut ini);
+    write_weather_section(&mut ini);
+    write_wind_section(&mut ini);
+
+    ini
+}
+
+/// Write race.ini with composable section builders for all session types.
 fn write_race_ini(params: &AcLaunchParams) -> Result<()> {
     let race_ini_path = dirs_next::document_dir()
         .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
@@ -341,153 +668,12 @@ fn write_race_ini(params: &AcLaunchParams) -> Result<()> {
         .join("cfg")
         .join("race.ini");
 
-    let track_config = if params.track_config.is_empty() {
-        String::new()
-    } else {
-        params.track_config.clone()
-    };
-
-    let aids = params.aids.clone().unwrap_or_default();
-    let damage = params.conditions.as_ref().map(|c| c.damage).unwrap_or(0);
-    let auto_shifter = if params.transmission == "auto" || params.transmission == "automatic" { 1 } else { 0 };
-
-    let content = format!(r#"[ASSISTS]
-ABS={abs}
-AUTO_CLUTCH={autoclutch}
-AUTO_SHIFTER={auto_shifter}
-DAMAGE={damage}
-IDEAL_LINE={ideal_line}
-STABILITY={stability}
-TRACTION_CONTROL={tc}
-VISUAL_DAMAGE=0
-SLIPSTREAM=1
-TYRE_BLANKETS=1
-AUTO_BLIP=1
-FUEL_RATE=1
-
-[AUTOSPAWN]
-ACTIVE=1
-
-[BENCHMARK]
-ACTIVE=0
-
-[CAR_0]
-SETUP=
-SKIN={skin}
-MODEL={car}
-MODEL_CONFIG=
-BALLAST=0
-RESTRICTOR=0
-DRIVER_NAME={driver}
-NATIONALITY=IND
-NATION_CODE=IND
-
-[DYNAMIC_TRACK]
-LAP_GAIN=0
-RANDOMNESS=0
-SESSION_START=100
-SESSION_TRANSFER=100
-
-[GHOST_CAR]
-ENABLED=0
-FILE=
-LOAD=0
-PLAYING=0
-RECORDING=0
-SECONDS_ADVANTAGE=0
-
-[GROOVE]
-VIRTUAL_LAPS=10
-MAX_LAPS=30
-STARTING_LAPS=0
-
-[HEADER]
-VERSION=2
-
-[LAP_INVALIDATOR]
-ALLOWED_TYRES_OUT=-1
-
-[LIGHTING]
-CLOUD_SPEED=0.200
-SUN_ANGLE=16
-TIME_MULT=1.0
-
-[OPTIONS]
-USE_MPH=0
-
-[RACE]
-AI_LEVEL=100
-CARS=1
-CONFIG_TRACK={track_config}
-DRIFT_MODE=0
-FIXED_SETUP=0
-JUMP_START_PENALTY=0
-MODEL={car}
-MODEL_CONFIG=
-PENALTIES=1
-RACE_LAPS=0
-SKIN={skin}
-TRACK={track}
-
-[REMOTE]
-ACTIVE={remote_active}
-GUID=
-NAME={driver}
-PASSWORD={server_password}
-SERVER_IP={server_ip}
-SERVER_PORT={server_port}
-TEAM=
-
-[REPLAY]
-ACTIVE=0
-FILENAME=
-
-[RESTART]
-ACTIVE=0
-
-[SESSION_0]
-NAME=Practice
-DURATION_MINUTES={duration_minutes}
-SPAWN_SET=PIT
-TYPE=1
-LAPS=0
-STARTING_POSITION=1
-
-[TEMPERATURE]
-AMBIENT=22
-ROAD=28
-
-[WEATHER]
-NAME=3_clear
-
-[WIND]
-DIRECTION_DEG=0
-SPEED_KMH_MAX=0
-SPEED_KMH_MIN=0"#,
-        abs = aids.abs,
-        autoclutch = aids.autoclutch,
-        auto_shifter = auto_shifter,
-        damage = damage,
-        ideal_line = aids.ideal_line,
-        stability = aids.stability,
-        tc = aids.tc,
-        car = params.car,
-        track = params.track,
-        track_config = track_config,
-        driver = params.driver,
-        skin = params.skin,
-        duration_minutes = params.duration_minutes,
-        remote_active = if params.game_mode == "multi" { 1 } else { 0 },
-        server_ip = params.server_ip,
-        server_port = params.server_port,
-        server_password = params.server_password,
-    );
+    let content = build_race_ini_string(params);
 
     if let Some(parent) = race_ini_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut file = std::fs::File::create(&race_ini_path)?;
-    file.write_all(content.as_bytes())?;
+    std::fs::write(&race_ini_path, content.as_bytes())?;
     tracing::info!("Wrote race.ini to {}", race_ini_path.display());
     Ok(())
 }
@@ -1178,5 +1364,147 @@ mod tests {
     fn test_pick_ai_names_zero() {
         let names = pick_ai_names(0);
         assert!(names.is_empty(), "pick_ai_names(0) must return empty vec");
+    }
+
+    // --- Task 2 TDD tests: Composable INI builder ---
+
+    /// Parse INI string into HashMap<section_name, HashMap<key, value>>
+    fn parse_ini(content: &str) -> std::collections::HashMap<String, std::collections::HashMap<String, String>> {
+        let mut sections = std::collections::HashMap::new();
+        let mut current_section = String::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('[') && line.ends_with(']') {
+                current_section = line[1..line.len()-1].to_string();
+                sections.entry(current_section.clone())
+                    .or_insert_with(std::collections::HashMap::new);
+            } else if let Some(eq_pos) = line.find('=') {
+                let key = line[..eq_pos].trim().to_string();
+                let value = line[eq_pos+1..].trim().to_string();
+                if !current_section.is_empty() {
+                    sections.entry(current_section.clone())
+                        .or_insert_with(std::collections::HashMap::new)
+                        .insert(key, value);
+                }
+            }
+        }
+        sections
+    }
+
+    /// Helper to build a minimal AcLaunchParams for testing
+    fn test_params(session_type: &str) -> AcLaunchParams {
+        let json = format!(
+            r#"{{"car":"ks_ferrari_488","track":"monza","session_type":"{}","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}}"#,
+            session_type
+        );
+        serde_json::from_str(&json).expect("test params must deserialize")
+    }
+
+    #[test]
+    fn test_write_race_ini_practice() {
+        let params = test_params("practice");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let session = sections.get("SESSION_0").expect("Must have SESSION_0");
+        assert_eq!(session.get("TYPE").map(|s| s.as_str()), Some("1"), "Practice TYPE must be 1");
+        assert_eq!(session.get("SPAWN_SET").map(|s| s.as_str()), Some("PIT"));
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("1"), "Solo practice CARS must be 1");
+
+        // No AI car sections for solo practice
+        assert!(sections.get("CAR_1").is_none(), "Practice must have no CAR_1 section");
+    }
+
+    #[test]
+    fn test_write_race_ini_hotlap() {
+        let params = test_params("hotlap");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let session = sections.get("SESSION_0").expect("Must have SESSION_0");
+        assert_eq!(session.get("TYPE").map(|s| s.as_str()), Some("4"), "Hotlap TYPE must be 4");
+        assert_eq!(session.get("SPAWN_SET").map(|s| s.as_str()), Some("START"));
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("1"), "Solo hotlap CARS must be 1");
+    }
+
+    #[test]
+    fn test_write_race_ini_default_is_practice() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let session = sections.get("SESSION_0").expect("Must have SESSION_0");
+        assert_eq!(session.get("TYPE").map(|s| s.as_str()), Some("1"), "Default must be Practice TYPE=1");
+    }
+
+    #[test]
+    fn test_write_race_ini_practice_with_aids() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","aids":{"abs":0,"tc":0,"stability":0,"autoclutch":0,"ideal_line":1},"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let assists = sections.get("ASSISTS").expect("Must have ASSISTS");
+        assert_eq!(assists.get("ABS").map(|s| s.as_str()), Some("0"));
+        assert_eq!(assists.get("TRACTION_CONTROL").map(|s| s.as_str()), Some("0"));
+        assert_eq!(assists.get("IDEAL_LINE").map(|s| s.as_str()), Some("1"));
+    }
+
+    #[test]
+    fn test_write_race_ini_solo_cars_count() {
+        let params = test_params("practice");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("1"));
+    }
+
+    #[test]
+    fn test_write_race_ini_multi_remote_active() {
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","game_mode":"multi","server_ip":"192.168.1.100","server_port":9600,"server_http_port":8081,"server_password":"test123"}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let remote = sections.get("REMOTE").expect("Must have REMOTE");
+        assert_eq!(remote.get("ACTIVE").map(|s| s.as_str()), Some("1"), "Multiplayer REMOTE ACTIVE must be 1");
+        assert_eq!(remote.get("SERVER_IP").map(|s| s.as_str()), Some("192.168.1.100"));
+        assert_eq!(remote.get("SERVER_PORT").map(|s| s.as_str()), Some("9600"));
+        assert_eq!(remote.get("PASSWORD").map(|s| s.as_str()), Some("test123"));
+    }
+
+    #[test]
+    fn test_write_race_ini_has_all_required_sections() {
+        let params = test_params("practice");
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let required_sections = [
+            "ASSISTS", "AUTOSPAWN", "CAR_0", "RACE", "SESSION_0",
+            "WEATHER", "TEMPERATURE", "WIND", "DYNAMIC_TRACK",
+            "GHOST_CAR", "GROOVE", "HEADER", "LAP_INVALIDATOR",
+            "LIGHTING", "OPTIONS", "REMOTE", "REPLAY", "RESTART",
+        ];
+        for section in &required_sections {
+            assert!(sections.contains_key(*section), "Missing required section: {}", section);
+        }
+    }
+
+    #[test]
+    fn test_write_race_ini_no_phantom_ai() {
+        // SESS-08: race mode with empty ai_cars must still have CARS=1 (player only)
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_cars":[],"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
+        let params: AcLaunchParams = serde_json::from_str(json).unwrap();
+        let ini = build_race_ini_string(&params);
+        let sections = parse_ini(&ini);
+
+        let race = sections.get("RACE").expect("Must have RACE");
+        assert_eq!(race.get("CARS").map(|s| s.as_str()), Some("1"),
+            "SESS-08: race with empty ai_cars must have CARS=1, no phantom AI");
     }
 }
