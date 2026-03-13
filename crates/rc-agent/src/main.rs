@@ -488,6 +488,9 @@ async fn main() -> Result<()> {
         let mut crash_recovery_timer: std::pin::Pin<Box<tokio::time::Sleep>> =
             Box::pin(tokio::time::sleep(Duration::from_secs(86400))); // dormant
         let mut crash_recovery_armed = false;
+        // Cache driver_name from BillingStarted for use in LaunchGame splash screen.
+        // LaunchGame message does not carry driver_name — must be cached here.
+        let mut current_driver_name: Option<String> = None;
 
         loop {
             tokio::select! {
@@ -745,13 +748,17 @@ async fn main() -> Result<()> {
                 tracing::warn!("[crash-recovery] 30s timeout — core did not send SessionEnded. Force-resetting pod.");
                 heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
                 overlay.deactivate();
+                // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
+                lock_screen.show_blank_screen();
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                // STEP 2: Stop game and clean up AFTER lock screen is visible
                 if let Some(ref mut game) = game_process {
                     let _ = game.stop();
                     game_process = None;
                 }
                 if let Some(ref mut adp) = adapter { adp.disconnect(); }
                 { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
-                lock_screen.show_blank_screen();
+                current_driver_name = None;
                 // Notify core that we force-ended
                 let msg = AgentMessage::GameStateUpdate(GameLaunchInfo {
                     pod_id: pod_id.clone(),
@@ -814,6 +821,8 @@ async fn main() -> Result<()> {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
                                     heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
                                     blank_timer_armed = false; // cancel any pending auto-blank
+                                    // Cache driver_name for use in LaunchGame splash screen
+                                    current_driver_name = Some(driver_name.clone());
                                     overlay.activate(driver_name.clone(), allocated_seconds);
                                     lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
                                     // Minimize all background windows for a clean game view
@@ -826,8 +835,18 @@ async fn main() -> Result<()> {
                                 rc_common::protocol::CoreToAgentMessage::BillingStopped { billing_session_id } => {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
                                     overlay.deactivate();
+                                    // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
                                     // Fallback — SessionEnded is the preferred message with summary data
                                     lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                    // STEP 2: Stop game and clean up AFTER lock screen is visible
+                                    if let Some(ref mut game) = game_process {
+                                        let _ = game.stop();
+                                        game_process = None;
+                                    }
+                                    if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
+                                    current_driver_name = None;
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SessionEnded {
                                     billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds,
@@ -839,7 +858,15 @@ async fn main() -> Result<()> {
                                     heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
                                     crash_recovery_armed = false; // cancel crash timer — core responded
                                     overlay.deactivate();
-                                    // Stop the game if still running
+
+                                    // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
+                                    lock_screen.show_session_summary(
+                                        driver_name, total_laps, best_lap_ms, driving_seconds,
+                                    );
+                                    // Brief yield — let Edge kiosk window initialize before we kill the game
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                                    // STEP 2: Stop game and clean up AFTER lock screen is visible
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
@@ -848,10 +875,9 @@ async fn main() -> Result<()> {
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
                                     // Full cleanup via unified safe state
                                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
-                                    // Show session summary, then auto-blank after 15s
-                                    lock_screen.show_session_summary(
-                                        driver_name, total_laps, best_lap_ms, driving_seconds,
-                                    );
+                                    current_driver_name = None;
+
+                                    // STEP 3: Auto-blank timer unchanged
                                     blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(15));
                                     blank_timer_armed = true;
                                 }
@@ -911,6 +937,11 @@ async fn main() -> Result<()> {
                                             SimType::Forza => 5,
                                             SimType::AssettoCorsaEvo => 6,
                                         }, std::sync::atomic::Ordering::Relaxed);
+
+                                        // Show branded splash screen while game loads (~10s gap)
+                                        // Must be before spawn_blocking so the screen is visible during the long load
+                                        let splash_name = current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
+                                        lock_screen.show_launch_splash(splash_name);
 
                                         // Send "launching" state
                                         let info = GameLaunchInfo {
@@ -1166,7 +1197,15 @@ async fn main() -> Result<()> {
                                     );
                                     crash_recovery_armed = false; // cancel crash timer
                                     overlay.deactivate();
-                                    // Stop the game
+
+                                    // STEP 1: Show lock screen FIRST (covers desktop before game is killed)
+                                    lock_screen.show_between_sessions(
+                                        driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
+                                        current_split_number, total_splits,
+                                    );
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                                    // STEP 2: Stop game and clean up AFTER lock screen is visible
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
@@ -1175,11 +1214,6 @@ async fn main() -> Result<()> {
                                     if let Some(ref mut adp) = adapter { adp.disconnect(); }
                                     // Full cleanup via unified safe state
                                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); ac_launcher::enforce_safe_state(); }); }
-                                    // Show between-sessions screen
-                                    lock_screen.show_between_sessions(
-                                        driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
-                                        current_split_number, total_splits,
-                                    );
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {
                                     tracing::info!("Assistance screen for {}: {}", driver_name, message);
