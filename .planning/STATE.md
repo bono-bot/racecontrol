@@ -81,11 +81,11 @@ See: .planning/PROJECT.md (updated 2026-03-13)
 
 ## Current Position
 
-Phase: 4 of 5 — Deployment Pipeline Hardening (Plan 2 of 4 complete)
-Next: Phase 4 Plan 03 — Rolling deploy + kiosk deploy UI
+Phase: 4 of 5 — Deployment Pipeline Hardening (Plan 3 of 4 complete)
+Next: Phase 4 Plan 04 — Integration testing + final validation
 Status: Executing Phase 4
 
-Progress: [███████░░░] 70%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -111,6 +111,7 @@ Progress: [███████░░░] 70%
 | Phase 03-websocket-resilience P03 | 2 | 2 tasks | 2 files |
 | Phase 04-deployment-pipeline P01 | 6 | 4 tasks | 6 files |
 | Phase 04-deployment-pipeline P02 | 6 | 2 tasks | 4 files |
+| Phase 04-deployment-pipeline P03 | 20 | 4 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,12 @@ Progress: [███████░░░] 70%
 - [Phase 04-02]: DeployRolling sorts Pod 8 canary first, then ascending, with 5s inter-pod delay
 - [Phase 04-02]: Config write failure is non-fatal — proceeds with existing config, logs warning
 - [Phase 04-02]: POST /api/deploy/:pod_id returns 409 for active billing sessions AND active deploys
+- [Phase 04-03]: WaitingSession is_active() returns false — queued state, not actively deploying; watchdog must not block on it
+- [Phase 04-03]: deploy_rolling() resolves pod IPs at call time from AppState.pods — only deploys to known/connected pods
+- [Phase 04-03]: Session-end hook wired at both billing timer removal points: tick_all_timers (natural/pause-timeout) and end_billing_session (manual/early end)
+- [Phase 04-03]: DeployRolling WS handler replaced inline implementation with deploy_rolling() call for DRY behavior
+- [Phase 04-03]: Pod IDs use pod_N (underscore) format throughout — plan context showed pod-N (dash), adapted to match existing AppState maps
+- [Phase 04-03]: POST /api/deploy/rolling route placed before /deploy/:pod_id to avoid Axum path conflict
 
 ### Pending Todos
 
@@ -165,6 +172,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T02:16:15.472Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-blanking-screen-protocol/05-CONTEXT.md
+Last session: 2026-03-13T02:19:44Z
+Stopped at: Completed 04-03-PLAN.md
+Resume file: None

@@ -41,7 +41,7 @@ Requirements for milestone v1.0. Each maps to roadmap phases.
 
 ### Performance & Latency
 
-- [ ] **PERF-01**: Game launch completes within target time from kiosk "Start" to game visible on pod
+- [x] **PERF-01**: Game launch completes within target time from kiosk "Start" to game visible on pod
 - [ ] **PERF-02**: Lock screen responds to PIN entry within 1-2 seconds
 - [x] **PERF-03**: WebSocket command round-trip (rc-core → rc-agent → response) stays under low threshold
 - [x] **PERF-04**: Kiosk UI interactions (page loads, button responses, state updates) feel instant to staff
@@ -105,7 +105,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SCREEN-01 | Phase 5 | Pending |
 | SCREEN-02 | Phase 5 | Pending |
 | SCREEN-03 | Phase 5 | Pending |
-| PERF-01 | Phase 4 | Pending |
+| PERF-01 | Phase 4 | Complete |
 | PERF-02 | Phase 4 | Pending |
 | PERF-03 | Phase 3 | Complete |
 | PERF-04 | Phase 3 | Complete |

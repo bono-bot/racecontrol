@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: State Wiring & Config Hardening** - Wire EscalatingBackoff/EmailAlerter into AppState; rc-agent fails fast on bad config (complete)
 - [x] **Phase 2: Watchdog Hardening** - pod_monitor/pod_healer use shared backoff; post-restart verification; email alerts fire (completed 2026-03-13)
 - [x] **Phase 3: WebSocket Resilience** - Keepalive prevents drops during game launch; kiosk never flashes "Disconnected" (completed 2026-03-13)
-- [ ] **Phase 4: Deployment Pipeline Hardening** - Safe kill→verify→download→start sequence enforced; rolling update without disrupting sessions
+- [x] **Phase 4: Deployment Pipeline Hardening** - Safe kill→verify→download→start sequence enforced; rolling update without disrupting sessions (completed 2026-03-13)
 - [ ] **Phase 5: Blanking Screen Protocol** - Clean branded pod screens always; zero error popup leakage; PIN auth identical across all surfaces
 
 ## Phase Details
@@ -111,5 +111,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. State Wiring & Config Hardening | 3/3 | Complete | 2026-03-13 |
 | 2. Watchdog Hardening | 3/3 | Complete   | 2026-03-13 |
 | 3. WebSocket Resilience | 3/3 | Complete | 2026-03-13 |
-| 4. Deployment Pipeline Hardening | 2/3 | In Progress|  |
+| 4. Deployment Pipeline Hardening | 3/3 | Complete   | 2026-03-13 |
 | 5. Blanking Screen Protocol | 0/TBD | Not started | - |
