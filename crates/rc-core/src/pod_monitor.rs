@@ -506,10 +506,10 @@ async fn check_all_pods(
 ///
 /// Runs as a detached tokio task so it does not block the monitor loop.
 /// On full recovery, resets the shared backoff and sets WatchdogState to Healthy.
-/// On failure after 60s (including partial recovery), sets RecoveryFailed and sends email alert.
+/// On failure after 60s, sets RecoveryFailed and sends email alert.
 ///
-/// Partial recovery (process + WS ok, lock screen fail) is treated as FAILED per CONTEXT.md:
-/// customers cannot use a pod without the lock screen.
+/// Partial recovery (process + WS ok, lock screen fail) is treated as SUCCESS:
+/// rc-agent is alive (Session 0 or game in foreground). Restarting would kill active games.
 async fn verify_restart(
     state: Arc<AppState>,
     pod_id: String,
@@ -609,15 +609,31 @@ async fn verify_restart(
         }
 
         if process_ok && ws_ok && !lock_ok {
-            // Partial recovery -- lock screen unresponsive.
-            // Per CONTEXT.md decision: partial recovery IS failure.
-            // Customers cannot use pod without lock screen.
-            // Do NOT return early -- fall through to continue loop and eventually fail path.
+            // WS connected means rc-agent is alive. Lock screen may be unresponsive
+            // because rc-agent is in Session 0 (no GUI) or a game is in foreground.
+            // Do NOT restart -- that would kill the running game and disrupt customers.
             tracing::warn!(
-                "Pod {} partial recovery at {}s: WS connected but lock screen unresponsive -- treating as FAILED",
+                "Pod {} partial recovery at {}s: WS connected but lock screen unresponsive -- accepting as recovered (Session 0 or game active)",
                 pod_id,
                 delay
             );
+
+            // Reset backoff and mark healthy since rc-agent IS running
+            {
+                let mut backoffs = state.pod_backoffs.write().await;
+                if let Some(b) = backoffs.get_mut(&pod_id) {
+                    b.reset();
+                }
+            }
+            {
+                let mut wd_states = state.pod_watchdog_states.write().await;
+                wd_states.insert(pod_id.clone(), WatchdogState::Healthy);
+            }
+            let pods = state.pods.read().await;
+            if let Some(pod) = pods.get(&pod_id) {
+                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+            }
+            return;
         }
     }
 
@@ -836,7 +852,8 @@ mod tests {
 
     #[test]
     fn failure_reason_no_lock_screen_when_process_and_ws_ok() {
-        // This is the partial recovery case -- treated as FAILED
+        // This is the partial recovery case -- now treated as SUCCESS (early return before this helper)
+        // but the helper itself still returns "no_lock_screen" for logging purposes
         assert_eq!(determine_failure_reason(true, true, false), "no_lock_screen");
     }
 
