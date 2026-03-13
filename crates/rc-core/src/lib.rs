@@ -12,6 +12,7 @@ pub mod billing;
 pub mod catalog;
 pub mod cloud_sync;
 pub mod config;
+pub mod deploy;
 pub mod db;
 pub mod email_alerts;
 pub mod error_aggregator;
