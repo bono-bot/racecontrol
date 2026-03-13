@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
-import type { SessionDetailSession, LapRecord, ShareReport } from "@/lib/api";
+import type { SessionDetailSession, LapRecord, ShareReport, MultiplayerResultInfo } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
@@ -105,6 +105,8 @@ export default function SessionDetailPage() {
   const [shareReport, setShareReport] = useState<ShareReport | null>(null);
   const [showShare, setShowShare] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
+  const [mpResults, setMpResults] = useState<MultiplayerResultInfo[]>([]);
+  const [myDriverId, setMyDriverId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -112,21 +114,39 @@ export default function SessionDetailPage() {
       return;
     }
 
-    api
-      .sessionDetail(sessionId)
-      .then((res) => {
-        if (res.error) {
-          setError(res.error);
+    async function loadSession() {
+      try {
+        const [detailRes, profileRes] = await Promise.all([
+          api.sessionDetail(sessionId),
+          api.profile(),
+        ]);
+        if (detailRes.error) {
+          setError(detailRes.error);
         } else {
-          setSession(res.session);
-          setLaps(res.laps || []);
+          setSession(detailRes.session);
+          setLaps(detailRes.laps || []);
+
+          // Fetch multiplayer results if this is a group session
+          if (detailRes.session?.group_session_id) {
+            try {
+              const mpRes = await api.multiplayerResults(
+                detailRes.session.group_session_id
+              );
+              if (mpRes.results) setMpResults(mpRes.results);
+            } catch {
+              // Silently fail — results may not be available yet
+            }
+          }
         }
-        setLoading(false);
-      })
-      .catch(() => {
+        if (profileRes.driver) {
+          setMyDriverId(profileRes.driver.id);
+        }
+      } catch {
         setError("Failed to load session");
-        setLoading(false);
-      });
+      }
+      setLoading(false);
+    }
+    loadSession();
   }, [router, sessionId]);
 
   const handleShare = async () => {
@@ -352,6 +372,80 @@ export default function SessionDetailPage() {
                   </p>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Multiplayer Race Results ──────────────────────────────────── */}
+        {mpResults.length > 0 && (
+          <div className="bg-rp-card border border-rp-border rounded-xl overflow-hidden mb-4">
+            <div className="px-4 py-3 border-b border-rp-border flex items-center gap-2">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4 text-yellow-400">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <h2 className="text-sm font-medium text-white">Race Results</h2>
+              <span className="text-rp-grey text-xs ml-auto">Multiplayer</span>
+            </div>
+            <div>
+              {mpResults.map((result) => {
+                const isMe = result.driver_id === myDriverId;
+                const posColor =
+                  result.position === 1
+                    ? "text-yellow-400"
+                    : result.position === 2
+                    ? "text-neutral-300"
+                    : result.position === 3
+                    ? "text-amber-600"
+                    : "text-neutral-500";
+                return (
+                  <div
+                    key={result.driver_id}
+                    className={`px-4 py-3 border-b border-rp-border/50 last:border-b-0 flex items-center gap-3 ${
+                      isMe ? "bg-rp-red/5" : ""
+                    }`}
+                  >
+                    {/* Position */}
+                    <span className={`text-lg font-bold w-8 text-center ${posColor}`}>
+                      #{result.position}
+                    </span>
+
+                    {/* Driver info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-medium text-sm truncate">
+                        {result.driver_name}
+                        {isMe && (
+                          <span className="ml-1 text-xs text-rp-red">(You)</span>
+                        )}
+                        {result.position === 1 && (
+                          <span className="ml-1 text-yellow-400 text-xs">Winner</span>
+                        )}
+                      </p>
+                      <p className="text-rp-grey text-xs">
+                        {result.laps_completed} lap{result.laps_completed !== 1 ? "s" : ""}
+                        {result.dnf ? (
+                          <span className="ml-2 text-red-400 font-medium">DNF</span>
+                        ) : result.total_time_ms ? (
+                          <span className="ml-2 text-neutral-400">
+                            Total: {formatLapTime(result.total_time_ms)}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+
+                    {/* Best lap */}
+                    <div className="text-right">
+                      {result.best_lap_ms ? (
+                        <p className="text-neutral-300 font-mono text-sm">
+                          {formatLapTime(result.best_lap_ms)}
+                        </p>
+                      ) : (
+                        <p className="text-neutral-500 text-xs">No time</p>
+                      )}
+                      <p className="text-rp-grey text-[10px]">Best lap</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
