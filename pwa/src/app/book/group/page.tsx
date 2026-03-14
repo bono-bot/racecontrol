@@ -112,9 +112,33 @@ export default function GroupSessionPage() {
       <h1 className="text-2xl font-bold text-white mb-2">
         {group.experience_name}
       </h1>
-      <p className="text-rp-grey text-xs mb-8">
+      <p className="text-rp-grey text-xs mb-6">
         Hosted by {group.host_name} &middot; {group.pricing_tier_name}
       </p>
+
+      {/* Session Info Cards */}
+      {group.track && (
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          <div className="bg-rp-card border border-rp-border rounded-xl p-3 text-center">
+            <p className="text-xs text-rp-grey mb-1">Track</p>
+            <p className="text-sm font-semibold text-white truncate">
+              {formatDisplayName(group.track)}
+            </p>
+          </div>
+          <div className="bg-rp-card border border-rp-border rounded-xl p-3 text-center">
+            <p className="text-xs text-rp-grey mb-1">Car</p>
+            <p className="text-sm font-semibold text-white truncate">
+              {formatDisplayName(group.car || '')}
+            </p>
+          </div>
+          <div className="bg-rp-card border border-rp-border rounded-xl p-3 text-center">
+            <p className="text-xs text-rp-grey mb-1">AI Opponents</p>
+            <p className="text-sm font-semibold text-white">
+              {group.ai_count ?? 0}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Shared PIN */}
       {(myMember?.status === "accepted" || myMember?.status === "validated" || isHost) && (
@@ -206,12 +230,26 @@ export default function GroupSessionPage() {
         <div className="flex items-center justify-center gap-2">
           <div className="w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
           <span className="text-amber-400 text-sm">
-            Waiting for all players to check in...
+            {(() => {
+              const remaining = group.members.filter(
+                (m) => m.status !== "validated"
+              ).length;
+              return remaining > 0
+                ? `Waiting for ${remaining} player${remaining !== 1 ? "s" : ""} to check in...`
+                : "Waiting for all players to check in...";
+            })()}
           </span>
         </div>
       ) : null}
     </div>
   );
+}
+
+function formatDisplayName(id: string): string {
+  return id
+    .replace(/^ks_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function MemberStatus({ status }: { status: string }) {
