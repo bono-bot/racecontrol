@@ -17,7 +17,7 @@ use crate::activity_log::log_pod_activity;
 use crate::auth;
 use crate::billing;
 use crate::game_launcher;
-use crate::state::AppState;
+use crate::state::{AppState, CachedAssistState};
 use rc_common::protocol::{
     AgentMessage, AiChannelMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent,
 };
@@ -392,6 +392,54 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         AgentMessage::GameCrashed { pod_id, billing_active } => {
                             tracing::warn!("Pod {} game crashed (billing_active={})", pod_id, billing_active);
                             log_pod_activity(&state, pod_id, "game", "Game Crashed", &format!("billing_active={}", billing_active), "agent");
+                        }
+                        AgentMessage::AssistChanged { pod_id, assist_type, enabled, confirmed } => {
+                            tracing::info!(
+                                "Pod {} assist changed: {} = {} (confirmed: {})",
+                                pod_id, assist_type, enabled, confirmed
+                            );
+                            log_pod_activity(&state, pod_id, "game", "Assist Changed",
+                                &format!("{} = {} (confirmed: {})", assist_type, enabled, confirmed), "agent");
+                            // Update assist cache with the changed value
+                            {
+                                let mut cache = state.assist_cache.write().await;
+                                let entry = cache.entry(pod_id.clone()).or_default();
+                                match assist_type.as_str() {
+                                    "abs" => entry.abs = if *enabled { 1 } else { 0 },
+                                    "tc" => entry.tc = if *enabled { 1 } else { 0 },
+                                    "transmission" => entry.auto_shifter = *enabled,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        AgentMessage::FfbGainChanged { pod_id, percent } => {
+                            tracing::info!("Pod {} FFB gain changed to {}%", pod_id, percent);
+                            log_pod_activity(&state, pod_id, "game", "FFB Gain Changed",
+                                &format!("{}%", percent), "agent");
+                            // Update FFB percent in assist cache
+                            {
+                                let mut cache = state.assist_cache.write().await;
+                                let entry = cache.entry(pod_id.clone()).or_default();
+                                entry.ffb_percent = *percent;
+                            }
+                        }
+                        AgentMessage::AssistState { pod_id, abs, tc, auto_shifter, ffb_percent } => {
+                            tracing::info!(
+                                "Pod {} assist state: ABS={} TC={} auto_shifter={} FFB={}%",
+                                pod_id, abs, tc, auto_shifter, ffb_percent
+                            );
+                            log_pod_activity(&state, pod_id, "game", "Assist State",
+                                &format!("ABS={} TC={} auto_shifter={} FFB={}%", abs, tc, auto_shifter, ffb_percent), "agent");
+                            // Replace entire cached state for this pod with fresh data from agent
+                            {
+                                let mut cache = state.assist_cache.write().await;
+                                cache.insert(pod_id.clone(), CachedAssistState {
+                                    abs: *abs,
+                                    tc: *tc,
+                                    auto_shifter: *auto_shifter,
+                                    ffb_percent: *ffb_percent,
+                                });
+                            }
                         }
                         AgentMessage::ContentManifest(manifest) => {
                             if let Some(ref pod_id) = registered_pod_id {
