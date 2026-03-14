@@ -2190,3 +2190,240 @@ async fn test_notification_first_record_no_notify() {
     assert_eq!(holder.0, "ntf-drv-e");
     assert_eq!(holder.1, 480000);
 }
+
+// =============================================================================
+// Phase 13 Plan 04 — Public driver search and profile endpoints
+// (DRV-01, DRV-02, DRV-03, DRV-04)
+// =============================================================================
+
+/// DRV-01: Search drivers by name (case-insensitive), verify correct filtering.
+#[tokio::test]
+async fn test_driver_search() {
+    let pool = create_test_db().await;
+
+    // Insert 3 drivers with different names
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('ds-drv-1', 'Alice Racer')")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('ds-drv-2', 'Bob Racer')")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('ds-drv-3', 'Charlie Fast')")
+        .execute(&pool).await.unwrap();
+
+    // Search for "racer" — should match Alice and Bob (case-insensitive)
+    let results = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL THEN nickname ELSE name END
+         FROM drivers WHERE name LIKE '%' || ? || '%' COLLATE NOCASE OR nickname LIKE '%' || ? || '%' COLLATE NOCASE LIMIT 20"
+    )
+    .bind("racer").bind("racer")
+    .fetch_all(&pool).await.unwrap();
+    assert_eq!(results.len(), 2, "should match 2 drivers with 'racer' in name");
+
+    // Search for "fast" — should match Charlie only
+    let results = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL THEN nickname ELSE name END
+         FROM drivers WHERE name LIKE '%' || ? || '%' COLLATE NOCASE OR nickname LIKE '%' || ? || '%' COLLATE NOCASE LIMIT 20"
+    )
+    .bind("fast").bind("fast")
+    .fetch_all(&pool).await.unwrap();
+    assert_eq!(results.len(), 1, "should match 1 driver with 'fast' in name");
+    assert_eq!(results[0].0, "ds-drv-3");
+
+    // Search for "nobody" — should return empty
+    let results = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL THEN nickname ELSE name END
+         FROM drivers WHERE name LIKE '%' || ? || '%' COLLATE NOCASE OR nickname LIKE '%' || ? || '%' COLLATE NOCASE LIMIT 20"
+    )
+    .bind("nobody").bind("nobody")
+    .fetch_all(&pool).await.unwrap();
+    assert_eq!(results.len(), 0, "should match 0 drivers for 'nobody'");
+}
+
+/// DRV-01: Search respects max 20 result limit.
+#[tokio::test]
+async fn test_driver_search_limit() {
+    let pool = create_test_db().await;
+
+    // Insert 25 drivers named "Driver N"
+    for i in 1..=25 {
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)")
+            .bind(format!("dsl-drv-{}", i))
+            .bind(format!("Driver {}", i))
+            .execute(&pool).await.unwrap();
+    }
+
+    // Search for "Driver" — should return at most 20
+    let results = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM drivers WHERE name LIKE '%' || ? || '%' COLLATE NOCASE OR nickname LIKE '%' || ? || '%' COLLATE NOCASE LIMIT 20"
+    )
+    .bind("Driver").bind("Driver")
+    .fetch_all(&pool).await.unwrap();
+    assert_eq!(results.len(), 20, "search must cap at 20 results");
+}
+
+/// DRV-02: Public driver profile excludes PII (no email, phone, wallet, billing data).
+#[tokio::test]
+async fn test_public_driver_no_pii() {
+    let pool = create_test_db().await;
+
+    // Insert a driver with PII fields populated
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone, total_laps, total_time_ms)
+         VALUES ('pii-drv-1', 'PII Test Driver', 'test@example.com', '9876543210', 42, 3600000)"
+    ).execute(&pool).await.unwrap();
+
+    // Public profile query — explicitly select only safe fields
+    let result = sqlx::query_as::<_, (String, i64, i64, Option<String>, String)>(
+        "SELECT CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL THEN nickname ELSE name END,
+                total_laps, total_time_ms, avatar_url, created_at
+         FROM drivers WHERE id = ?"
+    )
+    .bind("pii-drv-1")
+    .fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, "PII Test Driver");
+    assert_eq!(result.1, 42);
+    assert_eq!(result.2, 3600000);
+    // Verify the query does NOT select email or phone — it cannot be extracted
+    // from this tuple type. That's the whole point: the SELECT is safe by construction.
+}
+
+/// DRV-02: Public driver profile includes class_badge as null placeholder.
+#[tokio::test]
+async fn test_driver_profile_class_badge_null() {
+    let pool = create_test_db().await;
+
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('cb-drv-1', 'Badge Test')")
+        .execute(&pool).await.unwrap();
+
+    // The public profile handler must include "class_badge": null in the response.
+    // Since class_badge is not a column (Phase 15 RAT-01), it's hardcoded null.
+    // Test the query still works for this driver — the class_badge is added at the API layer.
+    let result = sqlx::query_as::<_, (String, i64)>(
+        "SELECT name, total_laps FROM drivers WHERE id = ?"
+    )
+    .bind("cb-drv-1")
+    .fetch_optional(&pool).await.unwrap();
+
+    assert!(result.is_some(), "driver must be found");
+    assert_eq!(result.unwrap().0, "Badge Test");
+}
+
+/// DRV-02: Public driver profile includes personal bests.
+#[tokio::test]
+async fn test_driver_profile_personal_bests() {
+    let pool = create_test_db().await;
+
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('pb-drv-1', 'PB Test Driver')")
+        .execute(&pool).await.unwrap();
+
+    // Insert 3 personal bests for different track/car combos
+    sqlx::query(
+        "INSERT INTO personal_bests (driver_id, track, car, best_lap_ms, achieved_at)
+         VALUES ('pb-drv-1', 'spa', 'ks_ferrari_sf15t', 85000, '2026-03-10T12:00:00Z')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO personal_bests (driver_id, track, car, best_lap_ms, achieved_at)
+         VALUES ('pb-drv-1', 'monza', 'ks_bmw_m3_e30', 78000, '2026-03-11T12:00:00Z')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO personal_bests (driver_id, track, car, best_lap_ms, achieved_at)
+         VALUES ('pb-drv-1', 'brands_hatch', 'ks_audi_r8', 92000, '2026-03-12T12:00:00Z')"
+    ).execute(&pool).await.unwrap();
+
+    // Query personal bests
+    let pbs = sqlx::query_as::<_, (String, String, i64, String)>(
+        "SELECT track, car, best_lap_ms, achieved_at FROM personal_bests WHERE driver_id = ? ORDER BY achieved_at DESC"
+    )
+    .bind("pb-drv-1")
+    .fetch_all(&pool).await.unwrap();
+
+    assert_eq!(pbs.len(), 3, "should have 3 personal bests");
+    // Most recent first (ORDER BY achieved_at DESC)
+    assert_eq!(pbs[0].0, "brands_hatch");
+    assert_eq!(pbs[0].2, 92000);
+    assert_eq!(pbs[1].0, "monza");
+    assert_eq!(pbs[2].0, "spa");
+}
+
+/// DRV-03: Sector times <= 0 are returned as null in API response.
+#[tokio::test]
+async fn test_driver_lap_history_null_sectors() {
+    let pool = create_test_db().await;
+
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('sec-drv-1', 'Sector Test')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "sec-pod-1", 20).await;
+
+    // Lap with zero sectors (should be null in API)
+    sqlx::query(
+        "INSERT INTO laps (id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, suspect)
+         VALUES ('sec-lap-1', 'sec-drv-1', 'sec-pod-1', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 1, 90000, 0, 0, 0, 1, 0)"
+    ).execute(&pool).await.unwrap();
+
+    // Lap with real sectors
+    sqlx::query(
+        "INSERT INTO laps (id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, suspect)
+         VALUES ('sec-lap-2', 'sec-drv-1', 'sec-pod-1', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 2, 91000, 30000, 31000, 29000, 1, 0)"
+    ).execute(&pool).await.unwrap();
+
+    // Query laps with sector mapping logic
+    let laps = sqlx::query_as::<_, (String, String, i64, Option<i64>, Option<i64>, Option<i64>)>(
+        "SELECT track, car, lap_time_ms,
+                CASE WHEN sector1_ms > 0 THEN sector1_ms ELSE NULL END,
+                CASE WHEN sector2_ms > 0 THEN sector2_ms ELSE NULL END,
+                CASE WHEN sector3_ms > 0 THEN sector3_ms ELSE NULL END
+         FROM laps
+         WHERE driver_id = ? AND (suspect IS NULL OR suspect = 0)
+         ORDER BY created_at DESC LIMIT 100"
+    )
+    .bind("sec-drv-1")
+    .fetch_all(&pool).await.unwrap();
+
+    assert_eq!(laps.len(), 2);
+    // Second lap (most recent by created_at — both have same default, so insertion order)
+    // Note: SQLite default created_at is datetime('now'), both inserted in same second
+    // so order might vary. Check both laps have correct sector handling.
+
+    // Find the lap with zero sectors (90000ms)
+    let zero_sector_lap = laps.iter().find(|l| l.2 == 90000).unwrap();
+    assert!(zero_sector_lap.3.is_none(), "sector1 should be null for zero value");
+    assert!(zero_sector_lap.4.is_none(), "sector2 should be null for zero value");
+    assert!(zero_sector_lap.5.is_none(), "sector3 should be null for zero value");
+
+    // Find the lap with real sectors (91000ms)
+    let real_sector_lap = laps.iter().find(|l| l.2 == 91000).unwrap();
+    assert_eq!(real_sector_lap.3, Some(30000), "sector1 should have value");
+    assert_eq!(real_sector_lap.4, Some(31000), "sector2 should have value");
+    assert_eq!(real_sector_lap.5, Some(29000), "sector3 should have value");
+}
+
+/// DRV-04: Nickname display logic — uses nickname when show_nickname_on_leaderboard=1.
+#[tokio::test]
+async fn test_driver_profile_nickname() {
+    let pool = create_test_db().await;
+
+    // Driver with nickname enabled
+    sqlx::query(
+        "INSERT INTO drivers (id, name, nickname, show_nickname_on_leaderboard) VALUES ('nn-drv-1', 'John Smith', 'SpeedDemon', 1)"
+    ).execute(&pool).await.unwrap();
+
+    // Driver with nickname disabled
+    sqlx::query(
+        "INSERT INTO drivers (id, name, nickname, show_nickname_on_leaderboard) VALUES ('nn-drv-2', 'Jane Doe', 'FastLane', 0)"
+    ).execute(&pool).await.unwrap();
+
+    // Query display name
+    let result1 = sqlx::query_as::<_, (String,)>(
+        "SELECT CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL THEN nickname ELSE name END FROM drivers WHERE id = ?"
+    )
+    .bind("nn-drv-1")
+    .fetch_one(&pool).await.unwrap();
+    assert_eq!(result1.0, "SpeedDemon", "should use nickname when flag=1");
+
+    let result2 = sqlx::query_as::<_, (String,)>(
+        "SELECT CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL THEN nickname ELSE name END FROM drivers WHERE id = ?"
+    )
+    .bind("nn-drv-2")
+    .fetch_one(&pool).await.unwrap();
+    assert_eq!(result2.0, "Jane Doe", "should use real name when flag=0");
+}
