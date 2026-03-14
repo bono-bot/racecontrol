@@ -64,6 +64,29 @@ pub enum AgentMessage {
 
     /// Pod reports installed AC content at startup/reconnect
     ContentManifest(ContentManifest),
+
+    /// Assist change confirmed (response to SetAssist)
+    AssistChanged {
+        pod_id: String,
+        assist_type: String,
+        enabled: bool,
+        confirmed: bool,
+    },
+
+    /// FFB gain change confirmed (response to SetFfbGain)
+    FfbGainChanged {
+        pod_id: String,
+        percent: u8,
+    },
+
+    /// Full assist state (response to QueryAssistState)
+    AssistState {
+        pod_id: String,
+        abs: u8,
+        tc: u8,
+        auto_shifter: bool,
+        ffb_percent: u8,
+    },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -213,6 +236,20 @@ pub enum CoreToAgentMessage {
 
     /// Application-level ping for round-trip latency measurement — agent must respond with AgentMessage::Pong { id }
     Ping { id: u64 },
+
+    /// Toggle a driving assist mid-session via SendInput (Phase 6)
+    SetAssist {
+        assist_type: String,
+        enabled: bool,
+    },
+
+    /// Set FFB gain as percentage (10-100) via HID (Phase 6)
+    SetFfbGain {
+        percent: u8,
+    },
+
+    /// Query current assist state from agent (Phase 6)
+    QueryAssistState,
 }
 
 /// Messages sent from Core Server → Web Dashboard
@@ -1268,6 +1305,155 @@ mod tests {
             assert!(m.tracks.is_empty());
         } else {
             panic!("Wrong variant after roundtrip: expected ContentManifest");
+        }
+    }
+
+    // ── Phase 06 Plan 01: Mid-session control protocol messages ─────────
+
+    #[test]
+    fn test_mid_session_set_assist_roundtrip() {
+        let msg = CoreToAgentMessage::SetAssist {
+            assist_type: "abs".to_string(),
+            enabled: true,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("set_assist"), "Expected 'set_assist' in: {}", json);
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::SetAssist { assist_type, enabled } = parsed {
+            assert_eq!(assist_type, "abs");
+            assert!(enabled);
+        } else {
+            panic!("Wrong variant after roundtrip: expected SetAssist");
+        }
+    }
+
+    #[test]
+    fn test_mid_session_set_assist_tc_off() {
+        let msg = CoreToAgentMessage::SetAssist {
+            assist_type: "tc".to_string(),
+            enabled: false,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::SetAssist { assist_type, enabled } = parsed {
+            assert_eq!(assist_type, "tc");
+            assert!(!enabled);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_mid_session_set_assist_transmission() {
+        let msg = CoreToAgentMessage::SetAssist {
+            assist_type: "transmission".to_string(),
+            enabled: true,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::SetAssist { assist_type, enabled } = parsed {
+            assert_eq!(assist_type, "transmission");
+            assert!(enabled);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_mid_session_set_ffb_gain_roundtrip() {
+        let msg = CoreToAgentMessage::SetFfbGain { percent: 85 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("set_ffb_gain"), "Expected 'set_ffb_gain' in: {}", json);
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::SetFfbGain { percent } = parsed {
+            assert_eq!(percent, 85);
+        } else {
+            panic!("Wrong variant after roundtrip: expected SetFfbGain");
+        }
+    }
+
+    #[test]
+    fn test_mid_session_query_assist_state_roundtrip() {
+        let msg = CoreToAgentMessage::QueryAssistState;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("query_assist_state"), "Expected 'query_assist_state' in: {}", json);
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, CoreToAgentMessage::QueryAssistState));
+    }
+
+    #[test]
+    fn test_mid_session_assist_changed_roundtrip() {
+        let msg = AgentMessage::AssistChanged {
+            pod_id: "pod_1".to_string(),
+            assist_type: "abs".to_string(),
+            enabled: false,
+            confirmed: true,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("assist_changed"), "Expected 'assist_changed' in: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::AssistChanged { pod_id, assist_type, enabled, confirmed } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(assist_type, "abs");
+            assert!(!enabled);
+            assert!(confirmed);
+        } else {
+            panic!("Wrong variant after roundtrip: expected AssistChanged");
+        }
+    }
+
+    #[test]
+    fn test_mid_session_ffb_gain_changed_roundtrip() {
+        let msg = AgentMessage::FfbGainChanged {
+            pod_id: "pod_3".to_string(),
+            percent: 70,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("ffb_gain_changed"), "Expected 'ffb_gain_changed' in: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::FfbGainChanged { pod_id, percent } = parsed {
+            assert_eq!(pod_id, "pod_3");
+            assert_eq!(percent, 70);
+        } else {
+            panic!("Wrong variant after roundtrip: expected FfbGainChanged");
+        }
+    }
+
+    #[test]
+    fn test_mid_session_assist_state_roundtrip() {
+        let msg = AgentMessage::AssistState {
+            pod_id: "pod_5".to_string(),
+            abs: 2,
+            tc: 0,
+            auto_shifter: true,
+            ffb_percent: 85,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("assist_state"), "Expected 'assist_state' in: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::AssistState { pod_id, abs, tc, auto_shifter, ffb_percent } = parsed {
+            assert_eq!(pod_id, "pod_5");
+            assert_eq!(abs, 2);
+            assert_eq!(tc, 0);
+            assert!(auto_shifter);
+            assert_eq!(ffb_percent, 85);
+        } else {
+            panic!("Wrong variant after roundtrip: expected AssistState");
+        }
+    }
+
+    #[test]
+    fn test_mid_session_set_ffb_gain_boundary_values() {
+        // Test min (10%) and max (100%) gain values
+        for percent in [10u8, 50, 100] {
+            let msg = CoreToAgentMessage::SetFfbGain { percent };
+            let json = serde_json::to_string(&msg).unwrap();
+            let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+            if let CoreToAgentMessage::SetFfbGain { percent: p } = parsed {
+                assert_eq!(p, percent);
+            } else {
+                panic!("Wrong variant for percent={}", percent);
+            }
         }
     }
 }

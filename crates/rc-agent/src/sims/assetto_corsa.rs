@@ -61,6 +61,10 @@ mod physics {
     pub const RPMS: usize = 20;      // i32, engine RPM
     pub const STEER_ANGLE: usize = 24; // f32, radians
     pub const SPEED_KMH: usize = 28;  // f32, km/h
+    // Assist state fields (Phase 6: mid-session controls)
+    pub const TC: usize = 204;           // f32, 0.0=off, >0=active level
+    pub const ABS: usize = 252;          // f32, 0.0=off, >0=active level
+    pub const AUTO_SHIFTER_ON: usize = 264; // i32, 0=manual, 1=auto
 }
 
 // Graphics (acpmf_graphics) — updates ~10Hz
@@ -143,6 +147,31 @@ impl AssettoCorsaAdapter {
             let ptr = handle.ptr.add(offset);
             std::ptr::read_unaligned(ptr as *const i32)
         }
+    }
+
+    /// Read current assist state from AC physics shared memory.
+    ///
+    /// Returns (abs_level, tc_level, auto_shifter) where:
+    /// - abs_level: 0=off, 1-4=active level
+    /// - tc_level: 0=off, 1-4=active level
+    /// - auto_shifter: true=automatic, false=manual
+    #[cfg(windows)]
+    pub fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
+        let ph = self.physics_handle.as_ref()?;
+
+        let abs_val = Self::read_f32(ph, physics::ABS);
+        let tc_val = Self::read_f32(ph, physics::TC);
+        let auto_shifter = Self::read_i32(ph, physics::AUTO_SHIFTER_ON);
+
+        let abs = if abs_val > 0.0 { (abs_val as u8).max(1) } else { 0 };
+        let tc = if tc_val > 0.0 { (tc_val as u8).max(1) } else { 0 };
+
+        Some((abs, tc, auto_shifter != 0))
+    }
+
+    #[cfg(not(windows))]
+    pub fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
+        None
     }
 
     #[cfg(windows)]
@@ -445,6 +474,28 @@ mod tests {
         assert_eq!((1i32 - 1) as i8, 0);  // N
         assert_eq!((2i32 - 1) as i8, 1);  // 1st
         assert_eq!((5i32 - 1) as i8, 4);  // 4th
+    }
+
+    #[test]
+    fn test_assist_state_offsets() {
+        // Verify that the physics shared memory offsets are correct
+        assert_eq!(super::physics::TC, 204, "TC offset should be 204");
+        assert_eq!(super::physics::ABS, 252, "ABS offset should be 252");
+        assert_eq!(super::physics::AUTO_SHIFTER_ON, 264, "AUTO_SHIFTER_ON offset should be 264");
+
+        // Verify offsets are after SPEED_KMH (28) and before the struct boundary
+        assert!(super::physics::TC > super::physics::SPEED_KMH);
+        assert!(super::physics::ABS > super::physics::TC);
+        assert!(super::physics::AUTO_SHIFTER_ON > super::physics::ABS);
+    }
+
+    #[test]
+    fn test_read_assist_state_non_windows() {
+        // On non-Windows (or without AC running), read_assist_state returns None
+        let adapter = AssettoCorsaAdapter::new("pod_1".to_string(), "127.0.0.1".to_string(), 9600);
+        let state = adapter.read_assist_state();
+        // Without shared memory handle, it returns None
+        assert_eq!(state, None);
     }
 
     #[test]

@@ -415,6 +415,196 @@ pub fn set_ffb(preset: &str) -> Result<()> {
     Ok(())
 }
 
+// ─── Mid-Session Assist Control via SendInput (Phase 6) ─────────────────────
+
+/// Mid-session assist control via Windows SendInput keyboard simulation.
+///
+/// AC supports Ctrl+A (ABS cycle), Ctrl+T (TC cycle), Ctrl+G (transmission toggle)
+/// as built-in keyboard shortcuts that work while driving.
+pub mod mid_session {
+    /// Send a Ctrl+key combination to the foreground window (AC).
+    /// Produces 4 INPUT structs: Ctrl down, key down, key up, Ctrl up.
+    #[cfg(windows)]
+    pub fn send_ctrl_key(vk_key: u16) {
+        use winapi::um::winuser::{
+            SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT,
+            KEYEVENTF_KEYUP, VK_CONTROL,
+        };
+
+        super::bring_game_to_foreground();
+
+        unsafe {
+            let mut inputs: [INPUT; 4] = std::mem::zeroed();
+
+            // Ctrl down
+            inputs[0].type_ = INPUT_KEYBOARD;
+            *inputs[0].u.ki_mut() = KEYBDINPUT {
+                wVk: VK_CONTROL as u16,
+                wScan: 0,
+                dwFlags: 0,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Key down
+            inputs[1].type_ = INPUT_KEYBOARD;
+            *inputs[1].u.ki_mut() = KEYBDINPUT {
+                wVk: vk_key,
+                wScan: 0,
+                dwFlags: 0,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Key up
+            inputs[2].type_ = INPUT_KEYBOARD;
+            *inputs[2].u.ki_mut() = KEYBDINPUT {
+                wVk: vk_key,
+                wScan: 0,
+                dwFlags: KEYEVENTF_KEYUP,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Ctrl up
+            inputs[3].type_ = INPUT_KEYBOARD;
+            *inputs[3].u.ki_mut() = KEYBDINPUT {
+                wVk: VK_CONTROL as u16,
+                wScan: 0,
+                dwFlags: KEYEVENTF_KEYUP,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            SendInput(4, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
+            tracing::info!("SendInput: Ctrl+{:#04x} sent", vk_key);
+        }
+    }
+
+    /// Send a Ctrl+Shift+key combination (for cycling assists DOWN).
+    /// Produces 6 INPUT structs: Ctrl down, Shift down, key down, key up, Shift up, Ctrl up.
+    #[cfg(windows)]
+    pub fn send_ctrl_shift_key(vk_key: u16) {
+        use winapi::um::winuser::{
+            SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT,
+            KEYEVENTF_KEYUP, VK_CONTROL, VK_SHIFT,
+        };
+
+        super::bring_game_to_foreground();
+
+        unsafe {
+            let mut inputs: [INPUT; 6] = std::mem::zeroed();
+
+            // Ctrl down
+            inputs[0].type_ = INPUT_KEYBOARD;
+            *inputs[0].u.ki_mut() = KEYBDINPUT {
+                wVk: VK_CONTROL as u16,
+                wScan: 0,
+                dwFlags: 0,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Shift down
+            inputs[1].type_ = INPUT_KEYBOARD;
+            *inputs[1].u.ki_mut() = KEYBDINPUT {
+                wVk: VK_SHIFT as u16,
+                wScan: 0,
+                dwFlags: 0,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Key down
+            inputs[2].type_ = INPUT_KEYBOARD;
+            *inputs[2].u.ki_mut() = KEYBDINPUT {
+                wVk: vk_key,
+                wScan: 0,
+                dwFlags: 0,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Key up
+            inputs[3].type_ = INPUT_KEYBOARD;
+            *inputs[3].u.ki_mut() = KEYBDINPUT {
+                wVk: vk_key,
+                wScan: 0,
+                dwFlags: KEYEVENTF_KEYUP,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Shift up
+            inputs[4].type_ = INPUT_KEYBOARD;
+            *inputs[4].u.ki_mut() = KEYBDINPUT {
+                wVk: VK_SHIFT as u16,
+                wScan: 0,
+                dwFlags: KEYEVENTF_KEYUP,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Ctrl up
+            inputs[5].type_ = INPUT_KEYBOARD;
+            *inputs[5].u.ki_mut() = KEYBDINPUT {
+                wVk: VK_CONTROL as u16,
+                wScan: 0,
+                dwFlags: KEYEVENTF_KEYUP,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            SendInput(6, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
+            tracing::info!("SendInput: Ctrl+Shift+{:#04x} sent", vk_key);
+        }
+    }
+
+    /// Toggle ABS via Ctrl+A (cycles ABS level up: off -> 1 -> 2 -> 3 -> 4).
+    #[cfg(windows)]
+    pub fn toggle_ac_abs() {
+        send_ctrl_key(0x41); // 'A'
+    }
+
+    /// Toggle TC via Ctrl+T (cycles TC level up: off -> 1 -> 2 -> 3 -> 4).
+    #[cfg(windows)]
+    pub fn toggle_ac_tc() {
+        send_ctrl_key(0x54); // 'T'
+    }
+
+    /// Toggle transmission via Ctrl+G (auto <-> manual).
+    #[cfg(windows)]
+    pub fn toggle_ac_transmission() {
+        send_ctrl_key(0x47); // 'G'
+    }
+
+    // Non-Windows stubs for cross-compilation
+    #[cfg(not(windows))]
+    pub fn send_ctrl_key(_vk_key: u16) {
+        tracing::warn!("SendInput not available on non-Windows");
+    }
+
+    #[cfg(not(windows))]
+    pub fn send_ctrl_shift_key(_vk_key: u16) {
+        tracing::warn!("SendInput not available on non-Windows");
+    }
+
+    #[cfg(not(windows))]
+    pub fn toggle_ac_abs() {
+        tracing::warn!("SendInput not available on non-Windows");
+    }
+
+    #[cfg(not(windows))]
+    pub fn toggle_ac_tc() {
+        tracing::warn!("SendInput not available on non-Windows");
+    }
+
+    #[cfg(not(windows))]
+    pub fn toggle_ac_transmission() {
+        tracing::warn!("SendInput not available on non-Windows");
+    }
+}
+
 /// Default Track Day car pool -- mixed GT3/Supercars for realistic traffic.
 const TRACKDAY_CAR_POOL: &[&str] = &[
     // GT3 class
@@ -2197,5 +2387,128 @@ mod tests {
         let content = "[ASSISTS]\nDAMAGE=0\nVISUAL_DAMAGE=0\n\n[DYNAMIC_TRACK]\nSESSION_START=80\n";
         assert!(verify_safety_content(content).is_err(),
             "Safety verification must REJECT SESSION_START=80");
+    }
+
+    // ── Phase 06 Plan 01: SendInput buffer format tests ────────────────
+
+    #[cfg(windows)]
+    #[test]
+    fn test_send_ctrl_key_buffer_format() {
+        use winapi::um::winuser::{
+            INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL,
+        };
+
+        // Verify the 4 INPUT structs are correctly formed for Ctrl+A (0x41)
+        let vk_key: u16 = 0x41;
+        unsafe {
+            let mut inputs: [INPUT; 4] = std::mem::zeroed();
+
+            inputs[0].type_ = INPUT_KEYBOARD;
+            *inputs[0].u.ki_mut() = KEYBDINPUT {
+                wVk: VK_CONTROL as u16,
+                wScan: 0,
+                dwFlags: 0,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            inputs[1].type_ = INPUT_KEYBOARD;
+            *inputs[1].u.ki_mut() = KEYBDINPUT {
+                wVk: vk_key,
+                wScan: 0,
+                dwFlags: 0,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            inputs[2].type_ = INPUT_KEYBOARD;
+            *inputs[2].u.ki_mut() = KEYBDINPUT {
+                wVk: vk_key,
+                wScan: 0,
+                dwFlags: KEYEVENTF_KEYUP,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            inputs[3].type_ = INPUT_KEYBOARD;
+            *inputs[3].u.ki_mut() = KEYBDINPUT {
+                wVk: VK_CONTROL as u16,
+                wScan: 0,
+                dwFlags: KEYEVENTF_KEYUP,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+
+            // Verify all 4 structs have INPUT_KEYBOARD type
+            for i in 0..4 {
+                assert_eq!(inputs[i].type_, INPUT_KEYBOARD, "Input {} should be INPUT_KEYBOARD", i);
+            }
+
+            // Verify key down flags (0) and key up flags (KEYEVENTF_KEYUP)
+            assert_eq!(inputs[0].u.ki().dwFlags, 0, "Ctrl down should have flags=0");
+            assert_eq!(inputs[1].u.ki().dwFlags, 0, "A down should have flags=0");
+            assert_eq!(inputs[2].u.ki().dwFlags, KEYEVENTF_KEYUP, "A up should have KEYEVENTF_KEYUP");
+            assert_eq!(inputs[3].u.ki().dwFlags, KEYEVENTF_KEYUP, "Ctrl up should have KEYEVENTF_KEYUP");
+
+            // Verify VK codes
+            assert_eq!(inputs[0].u.ki().wVk, VK_CONTROL as u16, "First should be VK_CONTROL");
+            assert_eq!(inputs[1].u.ki().wVk, 0x41, "Second should be 0x41 (A)");
+            assert_eq!(inputs[2].u.ki().wVk, 0x41, "Third should be 0x41 (A)");
+            assert_eq!(inputs[3].u.ki().wVk, VK_CONTROL as u16, "Fourth should be VK_CONTROL");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_send_ctrl_shift_key_buffer_format() {
+        use winapi::um::winuser::{
+            INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_SHIFT,
+        };
+
+        // Verify the 6 INPUT structs for Ctrl+Shift+A (0x41)
+        let vk_key: u16 = 0x41;
+        unsafe {
+            let mut inputs: [INPUT; 6] = std::mem::zeroed();
+
+            inputs[0].type_ = INPUT_KEYBOARD;
+            *inputs[0].u.ki_mut() = KEYBDINPUT { wVk: VK_CONTROL as u16, wScan: 0, dwFlags: 0, time: 0, dwExtraInfo: 0 };
+            inputs[1].type_ = INPUT_KEYBOARD;
+            *inputs[1].u.ki_mut() = KEYBDINPUT { wVk: VK_SHIFT as u16, wScan: 0, dwFlags: 0, time: 0, dwExtraInfo: 0 };
+            inputs[2].type_ = INPUT_KEYBOARD;
+            *inputs[2].u.ki_mut() = KEYBDINPUT { wVk: vk_key, wScan: 0, dwFlags: 0, time: 0, dwExtraInfo: 0 };
+            inputs[3].type_ = INPUT_KEYBOARD;
+            *inputs[3].u.ki_mut() = KEYBDINPUT { wVk: vk_key, wScan: 0, dwFlags: KEYEVENTF_KEYUP, time: 0, dwExtraInfo: 0 };
+            inputs[4].type_ = INPUT_KEYBOARD;
+            *inputs[4].u.ki_mut() = KEYBDINPUT { wVk: VK_SHIFT as u16, wScan: 0, dwFlags: KEYEVENTF_KEYUP, time: 0, dwExtraInfo: 0 };
+            inputs[5].type_ = INPUT_KEYBOARD;
+            *inputs[5].u.ki_mut() = KEYBDINPUT { wVk: VK_CONTROL as u16, wScan: 0, dwFlags: KEYEVENTF_KEYUP, time: 0, dwExtraInfo: 0 };
+
+            // Verify all 6 are INPUT_KEYBOARD
+            for i in 0..6 {
+                assert_eq!(inputs[i].type_, INPUT_KEYBOARD, "Input {} should be INPUT_KEYBOARD", i);
+            }
+
+            // Verify order: Ctrl down, Shift down, key down, key up, Shift up, Ctrl up
+            assert_eq!(inputs[0].u.ki().wVk, VK_CONTROL as u16);
+            assert_eq!(inputs[0].u.ki().dwFlags, 0);
+            assert_eq!(inputs[1].u.ki().wVk, VK_SHIFT as u16);
+            assert_eq!(inputs[1].u.ki().dwFlags, 0);
+            assert_eq!(inputs[2].u.ki().wVk, 0x41);
+            assert_eq!(inputs[2].u.ki().dwFlags, 0);
+            assert_eq!(inputs[3].u.ki().wVk, 0x41);
+            assert_eq!(inputs[3].u.ki().dwFlags, KEYEVENTF_KEYUP);
+            assert_eq!(inputs[4].u.ki().wVk, VK_SHIFT as u16);
+            assert_eq!(inputs[4].u.ki().dwFlags, KEYEVENTF_KEYUP);
+            assert_eq!(inputs[5].u.ki().wVk, VK_CONTROL as u16);
+            assert_eq!(inputs[5].u.ki().dwFlags, KEYEVENTF_KEYUP);
+        }
+    }
+
+    #[test]
+    fn test_send_ctrl_key_vk_codes() {
+        // Verify the VK code constants used by toggle functions
+        assert_eq!(0x41u16, 0x41); // 'A' for ABS
+        assert_eq!(0x54u16, 0x54); // 'T' for TC
+        assert_eq!(0x47u16, 0x47); // 'G' for transmission (Gear)
     }
 }

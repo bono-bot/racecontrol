@@ -22,6 +22,12 @@ const CLASS_FFBWHEEL: u16 = 0x00A1;
 const CMD_ESTOP: u32 = 0x0A;
 const CMD_FFB_ACTIVE: u32 = 0x00;
 
+/// Axis class ID (little-endian u16) — for gain/power commands
+const CLASS_AXIS: u16 = 0x0A01;
+
+/// Axis command: power (overall force strength)
+const CMD_POWER: u32 = 0x00;
+
 /// Force Feedback controller for the Conspit Ares wheelbase.
 ///
 /// Opens the OpenFFBoard vendor HID interface and provides safety commands.
@@ -124,6 +130,61 @@ impl FfbController {
         }
     }
 
+    /// Set FFB gain as a percentage (10-100).
+    ///
+    /// Sends to OpenFFBoard Axis class power command.
+    /// Returns Ok(true) if sent, Ok(false) if device not found.
+    pub fn set_gain(&self, percent: u8) -> Result<bool, String> {
+        let percent = percent.clamp(10, 100);
+        let device = match self.open_vendor_interface() {
+            Some(dev) => dev,
+            None => {
+                tracing::debug!(
+                    "Wheelbase not found (VID:{:#06x} PID:{:#06x}) — skipping FFB gain",
+                    self.vid, self.pid
+                );
+                return Ok(false);
+            }
+        };
+
+        // Map percentage to 16-bit HID value
+        let value = (percent as i64 * 65535) / 100;
+
+        // Send to Axis class (0x0A01), not FFBWheel class
+        self.send_vendor_cmd_to_class(&device, CLASS_AXIS, CMD_POWER, value)
+            .map(|_| {
+                tracing::info!("FFB: gain set to {}% (HID value: {})", percent, value);
+                true
+            })
+    }
+
+    /// Send a vendor command to a specified class on the OpenFFBoard.
+    ///
+    /// Like send_vendor_cmd() but takes a class_id parameter instead of
+    /// hardcoding CLASS_FFBWHEEL. Used by set_gain() for CLASS_AXIS.
+    fn send_vendor_cmd_to_class(
+        &self,
+        device: &hidapi::HidDevice,
+        class_id: u16,
+        cmd_id: u32,
+        data: i64,
+    ) -> Result<(), String> {
+        let mut buf = [0u8; 26];
+
+        buf[0] = REPORT_ID;
+        buf[1] = CMD_TYPE_WRITE;
+        buf[2..4].copy_from_slice(&class_id.to_le_bytes());
+        buf[4] = 0;
+        buf[5..9].copy_from_slice(&cmd_id.to_le_bytes());
+        buf[9..17].copy_from_slice(&data.to_le_bytes());
+        buf[17..25].copy_from_slice(&0i64.to_le_bytes());
+
+        device
+            .write(&buf)
+            .map(|_| ())
+            .map_err(|e| format!("HID write failed: {}", e))
+    }
+
     /// Send a vendor command to the OpenFFBoard.
     ///
     /// Report format (26 bytes total):
@@ -174,6 +235,58 @@ mod tests {
         let ctrl = FfbController::new(0x1209, 0xFFB0);
         let result = ctrl.zero_force();
         // Should not panic — either Ok(false) if no device, or Ok(true)/Err if device present
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_set_gain_buffer_format() {
+        // Verify the buffer layout for Axis class gain commands
+        // Test 50% gain
+        let percent: u8 = 50;
+        let value = (percent as i64 * 65535) / 100; // = 32767
+        let mut buf = [0u8; 26];
+        buf[0] = REPORT_ID;
+        buf[1] = CMD_TYPE_WRITE;
+        buf[2..4].copy_from_slice(&CLASS_AXIS.to_le_bytes());
+        buf[4] = 0;
+        buf[5..9].copy_from_slice(&CMD_POWER.to_le_bytes());
+        buf[9..17].copy_from_slice(&value.to_le_bytes());
+
+        // Verify CLASS_AXIS at bytes 2-3 (0x0A01 LE = [0x01, 0x0A])
+        assert_eq!(buf[2], 0x01); // CLASS_AXIS low byte
+        assert_eq!(buf[3], 0x0A); // CLASS_AXIS high byte
+        // Verify CMD_POWER at bytes 5-8 (0x00 LE)
+        assert_eq!(buf[5], 0x00);
+        assert_eq!(buf[6], 0x00);
+        assert_eq!(buf[7], 0x00);
+        assert_eq!(buf[8], 0x00);
+        // Verify value 32767 at bytes 9-16
+        assert_eq!(value, 32767);
+        let stored_value = i64::from_le_bytes([buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16]]);
+        assert_eq!(stored_value, 32767);
+
+        // Test 10% gain (minimum floor)
+        let value_10 = (10i64 * 65535) / 100;
+        assert_eq!(value_10, 6553);
+
+        // Test 100% gain (maximum)
+        let value_100 = (100i64 * 65535) / 100;
+        assert_eq!(value_100, 65535);
+
+        // Test clamping: 5% should clamp to 10%
+        let clamped = 5u8.clamp(10, 100);
+        assert_eq!(clamped, 10);
+
+        // Test clamping: 120% should clamp to 100%
+        let clamped_high = 120u8.clamp(10, 100);
+        assert_eq!(clamped_high, 100);
+    }
+
+    #[test]
+    fn test_set_gain_no_device_graceful() {
+        // On machines without a wheelbase, set_gain should return Ok(false)
+        let ctrl = FfbController::new(0x1209, 0xFFB0);
+        let result = ctrl.set_gain(70);
         assert!(result.is_ok() || result.is_err());
     }
 

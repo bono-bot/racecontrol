@@ -64,6 +64,9 @@ struct OverlayData {
     rate_upgrade_shown: bool,
     rate_unlocked_display_until: Option<std::time::Instant>,
     last_minutes_to_value_tier: Option<u32>,
+    // Toast notification (Phase 6: mid-session controls)
+    toast_message: Option<String>,
+    toast_until: Option<std::time::Instant>,
 }
 
 impl Default for OverlayData {
@@ -98,6 +101,8 @@ impl Default for OverlayData {
             rate_upgrade_shown: false,
             rate_unlocked_display_until: None,
             last_minutes_to_value_tier: None,
+            toast_message: None,
+            toast_until: None,
         }
     }
 }
@@ -711,6 +716,37 @@ impl HudRenderer {
 
         // Restore pen
         SelectObject(hdc, old_pen as *mut _);
+
+        // Toast notification (Phase 6: mid-session controls)
+        if let Some(ref msg) = data.toast_message {
+            if let Some(until) = data.toast_until {
+                if std::time::Instant::now() < until {
+                    fn rgb(r: u8, g: u8, b: u8) -> u32 {
+                        (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+                    }
+                    let col_white: u32 = rgb(255, 255, 255);
+                    let col_red: u32 = rgb(225, 6, 0); // Racing Red #E10600
+
+                    // Draw toast badge at top-center, below the accent border
+                    let toast_w = 160i32;
+                    let toast_h = 22i32;
+                    let toast_x = (window_width - toast_w).max(0) / 2;
+                    let toast_y = 8; // Just below the red accent border at y=6
+
+                    use winapi::shared::windef::RECT;
+                    use winapi::um::winuser::FillRect;
+                    let toast_brush = TempBrush::new(col_red);
+                    let toast_rect = RECT {
+                        left: toast_x,
+                        top: toast_y,
+                        right: toast_x + toast_w,
+                        bottom: toast_y + toast_h,
+                    };
+                    FillRect(hdc, &toast_rect, toast_brush.handle());
+                    draw_text_at(hdc, res.font_badge, col_white, toast_x + 8, toast_y + 4, msg);
+                }
+            }
+        }
     }
 }
 
@@ -934,6 +970,16 @@ impl OverlayManager {
     }
 
     /// Deactivate overlay — close window, restore taskbar, clear state.
+    /// Show a toast notification on the overlay for 3 seconds.
+    ///
+    /// Replaces any existing toast (no stacking). Used for mid-session
+    /// assist/FFB change confirmations (e.g., "ABS: OFF", "FFB: 85%").
+    pub fn show_toast(&self, message: String) {
+        let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        data.toast_message = Some(message);
+        data.toast_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
+    }
+
     pub fn deactivate(&mut self) {
         {
             let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -1570,5 +1616,52 @@ mod tests {
         let data = overlay.state.lock().unwrap();
         // rate_unlocked_display_until should still be the original value, not reset
         assert!(data.rate_unlocked_display_until.is_some());
+    }
+
+    // ── Phase 06 Plan 01: Toast notification tests ───────────────────
+
+    #[test]
+    fn test_toast_show_sets_fields() {
+        let overlay = OverlayManager::new();
+        overlay.show_toast("ABS: OFF".to_string());
+
+        let data = overlay.state.lock().unwrap();
+        assert_eq!(data.toast_message, Some("ABS: OFF".to_string()));
+        assert!(data.toast_until.is_some());
+        let until = data.toast_until.unwrap();
+        let remaining = until.duration_since(std::time::Instant::now());
+        // Should be approximately 3 seconds in the future (allow some slack for test timing)
+        assert!(remaining.as_secs() >= 2 && remaining.as_secs() <= 3,
+            "Toast should expire in ~3 seconds, got {} ms", remaining.as_millis());
+    }
+
+    #[test]
+    fn test_toast_replace_no_stacking() {
+        let overlay = OverlayManager::new();
+        overlay.show_toast("ABS: OFF".to_string());
+        overlay.show_toast("TC: ON".to_string());
+
+        let data = overlay.state.lock().unwrap();
+        // Second toast should replace the first
+        assert_eq!(data.toast_message, Some("TC: ON".to_string()));
+    }
+
+    #[test]
+    fn test_toast_defaults_none() {
+        let data = OverlayData::default();
+        assert!(data.toast_message.is_none());
+        assert!(data.toast_until.is_none());
+    }
+
+    #[test]
+    fn test_toast_expired_is_past() {
+        let overlay = OverlayManager::new();
+        overlay.show_toast("FFB: 85%".to_string());
+
+        let data = overlay.state.lock().unwrap();
+        // The toast_until should be in the future (not expired)
+        let until = data.toast_until.unwrap();
+        assert!(std::time::Instant::now() < until,
+            "Toast should not be expired immediately after creation");
     }
 }
