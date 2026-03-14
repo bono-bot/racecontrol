@@ -124,3 +124,9 @@ None — script is ready for deployment via pod-agent. Deployment is documented 
 ---
 *Phase: 08-pod-lock-screen-hardening*
 *Completed: 2026-03-14*
+
+## Self-Check: PASSED
+
+- deploy-staging/watchdog-rcagent.bat: FOUND
+- 08-02-SUMMARY.md: FOUND
+- Commit 04a9744: FOUND

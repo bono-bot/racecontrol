@@ -67,17 +67,21 @@ billing_sessions and wallet_transactions were ALREADY synced in cloud_sync.rs. O
 - Plan 04-01: Public session summary shows first name only (split_whitespace().next()) for privacy
 - Plan 04-01: Receipt formatting extracted to pure helper functions (format_wa_phone, format_receipt_message) for testability
 - Plan 04-01: 5-second HTTP timeout on WhatsApp receipt -- best-effort, never blocks session end
+- **BILLING CREDITS MIGRATION (cc3da21, 2026-03-14):** Switched from INR/rupees to credits (1 credit = Rs.1 = 100 paise). compute_session_cost() rewritten from 2-tier retroactive to 3-tier non-retroactive. Rates now DB-driven via billing_rates table + admin CRUD. Default: 25cr/min (0-30), 20cr/min (31-60), 15cr/min (60+). All UI shows "cr" not "₹". billing_rates added to SYNC_TABLES for cloud pull. Protocol field renamed: minutes_to_value_tier → minutes_to_next_tier (serde alias for compat).
 
 ### Existing Infrastructure (do NOT rebuild)
 
 - BillingManager + BillingTimer: complete lifecycle management in rc-core/billing.rs
-- compute_session_cost(): two-tier retroactive pricing, fully tested
+- compute_session_cost(): **3-tier non-retroactive** pricing with DB-driven rates (BillingRateTier cache, refreshed every 60s)
+- billing_rates table: DB-driven per-minute rates with CRUD API at /billing/rates — admin-configurable, no code deploy needed
+- BillingManager.rate_tiers: RwLock<Vec<BillingRateTier>> in-memory cache — called every second per active pod
 - Dynamic pricing rules: peak/off-peak multipliers and group discounts
 - wallet module: credit/debit + double-entry journal entries
 - POST /billing/{id}/refund: exists, just needs audit_log
 - GET /billing/sessions/{id}: exists, needs /detail extension
-- cloud_sync.rs: relay + HTTP fallback infrastructure, ALL 3 billing tables now pushed
+- cloud_sync.rs: relay + HTTP fallback infrastructure, ALL 3 billing tables + billing_rates now synced
 - billing_events table: all lifecycle events already logged (started, paused, resumed, warnings, expired)
+- All UI (web admin, overlay, PWA) displays "credits" (X cr) — internal storage remains paise
 
 ### Pending Todos
 

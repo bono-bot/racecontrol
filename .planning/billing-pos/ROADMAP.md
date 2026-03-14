@@ -133,3 +133,9 @@ Recommended execution order given single-developer velocity:
 1 -> 4 -> 5 -> 2 -> 3
 
 Rationale: Phase 1 unblocks cloud. While cloud API builds (Phase 2), PWA and kiosk work (Phases 4/5) can run. Cloud analytics (Phase 3) is last -- needs both sync data and the UI patterns established in Phase 2.
+
+## Infrastructure Changes (outside GSD)
+
+| Date | Commit | Change |
+|------|--------|--------|
+| 2026-03-14 | cc3da21 | Billing credits migration: INR → credits, 2-tier retroactive → 3-tier non-retroactive, DB-driven billing_rates table + admin CRUD, all UI shows "cr" |
