@@ -248,6 +248,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/public/leaderboard/{track}", get(public_track_leaderboard))
         .route("/public/circuit-records", get(public_circuit_records))
         .route("/public/vehicle-records/{car}", get(public_vehicle_records))
+        .route("/public/drivers", get(public_drivers_search))
+        .route("/public/drivers/{id}", get(public_driver_profile))
         .route("/public/time-trial", get(public_time_trial))
         .route("/public/laps/{lap_id}/telemetry", get(public_lap_telemetry))
         .route("/public/sessions/{id}", get(public_session_summary))
@@ -8392,6 +8394,123 @@ async fn public_vehicle_records(
             "driver": r.3,
         })).collect::<Vec<_>>(),
     }))
+}
+
+// ─── Public Driver Search & Profile (No Auth Required) ────────────────────────
+
+#[derive(Deserialize)]
+struct DriverSearchQuery {
+    name: String,
+}
+
+async fn public_drivers_search(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DriverSearchQuery>,
+) -> Json<Value> {
+    let results = sqlx::query_as::<_, (String, String, i64, Option<String>)>(
+        "SELECT id, CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL THEN nickname ELSE name END,
+                total_laps, avatar_url
+         FROM drivers
+         WHERE name LIKE '%' || ? || '%' COLLATE NOCASE
+            OR nickname LIKE '%' || ? || '%' COLLATE NOCASE
+         LIMIT 20"
+    )
+    .bind(&params.name)
+    .bind(&params.name)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    Json(json!({
+        "drivers": results.iter().map(|r| json!({
+            "id": r.0,
+            "display_name": r.1,
+            "total_laps": r.2,
+            "avatar_url": r.3,
+        })).collect::<Vec<_>>(),
+        "count": results.len(),
+    }))
+}
+
+async fn public_driver_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
+    // Query 1: Driver stats (NO PII — no email, phone, wallet, billing)
+    let driver = sqlx::query_as::<_, (String, i64, i64, Option<String>, String)>(
+        "SELECT CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL THEN nickname ELSE name END,
+                total_laps, total_time_ms, avatar_url, created_at
+         FROM drivers WHERE id = ?"
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let driver = match driver {
+        Some(d) => d,
+        None => return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Driver not found" })),
+        )),
+    };
+
+    // Query 2: Personal bests
+    let personal_bests = sqlx::query_as::<_, (String, String, i64, Option<String>)>(
+        "SELECT track, car, best_lap_ms, achieved_at
+         FROM personal_bests WHERE driver_id = ?
+         ORDER BY achieved_at DESC"
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // Query 3: Lap history (exclude suspect laps, sector 0 → null)
+    let laps = sqlx::query_as::<_, (String, String, i64, Option<i64>, Option<i64>, Option<i64>, bool, String)>(
+        "SELECT track, car, lap_time_ms,
+                CASE WHEN sector1_ms > 0 THEN sector1_ms ELSE NULL END,
+                CASE WHEN sector2_ms > 0 THEN sector2_ms ELSE NULL END,
+                CASE WHEN sector3_ms > 0 THEN sector3_ms ELSE NULL END,
+                valid, created_at
+         FROM laps
+         WHERE driver_id = ? AND (suspect IS NULL OR suspect = 0)
+         ORDER BY created_at DESC
+         LIMIT 100"
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    Ok(Json(json!({
+        "driver": {
+            "display_name": driver.0,
+            "total_laps": driver.1,
+            "total_time_ms": driver.2,
+            "avatar_url": driver.3,
+            "member_since": driver.4,
+            "class_badge": null,
+        },
+        "personal_bests": personal_bests.iter().map(|pb| json!({
+            "track": pb.0,
+            "car": pb.1,
+            "best_lap_ms": pb.2,
+            "best_lap_display": format!("{}:{:02}.{:03}", pb.2 / 60000, (pb.2 % 60000) / 1000, pb.2 % 1000),
+            "achieved_at": pb.3,
+        })).collect::<Vec<_>>(),
+        "lap_history": laps.iter().map(|l| json!({
+            "track": l.0,
+            "car": l.1,
+            "lap_time_ms": l.2,
+            "lap_time_display": format!("{}:{:02}.{:03}", l.2 / 60000, (l.2 % 60000) / 1000, l.2 % 1000),
+            "sector1_ms": l.3,
+            "sector2_ms": l.4,
+            "sector3_ms": l.5,
+            "valid": l.6,
+            "created_at": l.7,
+        })).collect::<Vec<_>>(),
+    })))
 }
 
 async fn public_time_trial(
