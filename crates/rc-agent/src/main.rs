@@ -1011,7 +1011,7 @@ async fn main() -> Result<()> {
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingTick {
                                     remaining_seconds, allocated_seconds: _, driver_name: _,
-                                    elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_value_tier,
+                                    elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_next_tier, ..
                                 } => {
                                     lock_screen.update_remaining(remaining_seconds); // keep legacy lock screen update
                                     // Use v2 billing update if new fields are present (core has been updated)
@@ -1021,7 +1021,7 @@ async fn main() -> Result<()> {
                                             cost,
                                             rate,
                                             paused.unwrap_or(false),
-                                            minutes_to_value_tier,
+                                            minutes_to_next_tier,
                                         );
                                     } else {
                                         // Fallback to legacy countdown update (old core version)

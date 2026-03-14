@@ -62,6 +62,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Pricing
         .route("/pricing", get(list_pricing_tiers).post(create_pricing_tier))
         .route("/pricing/{id}", put(update_pricing_tier).delete(delete_pricing_tier))
+        .route("/billing/rates", get(list_billing_rates).post(create_billing_rate))
+        .route("/billing/rates/{id}", put(update_billing_rate).delete(delete_billing_rate))
         // Billing
         .route("/billing/start", post(start_billing))
         .route("/billing/active", get(active_billing_sessions))
@@ -1457,6 +1459,152 @@ async fn delete_pricing_tier(
     }
 }
 
+// ─── Billing Rate Tiers (per-minute rates) ──────────────────────────────────
+
+async fn list_billing_rates(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, i64, String, i64, i64, bool)>(
+        "SELECT id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active
+         FROM billing_rates ORDER BY tier_order ASC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rates) => {
+            let list: Vec<Value> = rates
+                .iter()
+                .map(|r| {
+                    json!({
+                        "id": r.0, "tier_order": r.1, "tier_name": r.2,
+                        "threshold_minutes": r.3, "rate_per_min_paise": r.4,
+                        "is_active": r.5,
+                    })
+                })
+                .collect();
+            Json(json!({ "rates": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn create_billing_rate(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let tier_order = body.get("tier_order").and_then(|v| v.as_i64()).unwrap_or(1);
+    let tier_name = body.get("tier_name").and_then(|v| v.as_str()).unwrap_or("Custom");
+    let threshold_minutes = body.get("threshold_minutes").and_then(|v| v.as_i64()).unwrap_or(0);
+    let rate_per_min_paise = body.get("rate_per_min_paise").and_then(|v| v.as_i64()).unwrap_or(2500);
+
+    let result = sqlx::query(
+        "INSERT INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(tier_order)
+    .bind(tier_name)
+    .bind(threshold_minutes)
+    .bind(rate_per_min_paise)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            crate::billing::refresh_rate_tiers(&state).await;
+            Json(json!({ "id": id, "tier_name": tier_name }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn update_billing_rate(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let old_snapshot = accounting::snapshot_row(&state, "billing_rates", &id).await;
+
+    let tier_name = body.get("tier_name").and_then(|v| v.as_str());
+    let tier_order = body.get("tier_order").and_then(|v| v.as_i64());
+    let threshold_minutes = body.get("threshold_minutes").and_then(|v| v.as_i64());
+    let rate_per_min_paise = body.get("rate_per_min_paise").and_then(|v| v.as_i64());
+    let is_active = body.get("is_active").and_then(|v| v.as_bool());
+
+    let mut updates = Vec::new();
+    let mut binds: Vec<String> = Vec::new();
+
+    if let Some(n) = tier_name {
+        updates.push("tier_name = ?");
+        binds.push(n.to_string());
+    }
+    if let Some(o) = tier_order {
+        updates.push("tier_order = ?");
+        binds.push(o.to_string());
+    }
+    if let Some(t) = threshold_minutes {
+        updates.push("threshold_minutes = ?");
+        binds.push(t.to_string());
+    }
+    if let Some(r) = rate_per_min_paise {
+        updates.push("rate_per_min_paise = ?");
+        binds.push(r.to_string());
+    }
+    if let Some(a) = is_active {
+        updates.push("is_active = ?");
+        binds.push(if a { "1".to_string() } else { "0".to_string() });
+    }
+
+    if updates.is_empty() {
+        return Json(json!({ "error": "No fields to update" }));
+    }
+
+    updates.push("updated_at = datetime('now')");
+    let query = format!("UPDATE billing_rates SET {} WHERE id = ?", updates.join(", "));
+
+    let mut q = sqlx::query(&query);
+    for b in &binds {
+        q = q.bind(b);
+    }
+    q = q.bind(&id);
+
+    match q.execute(&state.db).await {
+        Ok(_) => {
+            crate::billing::refresh_rate_tiers(&state).await;
+            let new_values = serde_json::to_string(&body).ok();
+            accounting::log_audit(
+                &state, "billing_rates", &id, "update",
+                old_snapshot.as_deref(), new_values.as_deref(), None,
+            ).await;
+            Json(json!({ "ok": true }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn delete_billing_rate(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    let old_snapshot = accounting::snapshot_row(&state, "billing_rates", &id).await;
+
+    match sqlx::query("UPDATE billing_rates SET is_active = 0, updated_at = datetime('now') WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => {
+            crate::billing::refresh_rate_tiers(&state).await;
+            accounting::log_audit(
+                &state, "billing_rates", &id, "delete",
+                old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
+            ).await;
+            Json(json!({ "ok": true }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
 // ─── Discount / Coupon helpers ───────────────────────────────────────────────
 
 /// Validated coupon info ready to apply as a discount.
@@ -2078,8 +2226,9 @@ async fn extend_billing(
 }
 
 async fn active_billing_sessions(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rate_tiers = state.billing.rate_tiers.read().await;
     let timers = state.billing.active_timers.read().await;
-    let sessions: Vec<_> = timers.values().map(|t| t.to_info()).collect();
+    let sessions: Vec<_> = timers.values().map(|t| t.to_info(&rate_tiers)).collect();
     Json(json!({ "sessions": sessions }))
 }
 
@@ -5111,8 +5260,9 @@ async fn customer_active_reservation(
 
             // Check if there's an active billing session on this pod
             let active_billing = {
+                let rate_tiers = state.billing.rate_tiers.read().await;
                 let timers = state.billing.active_timers.read().await;
-                timers.get(&res.pod_id).map(|t| t.to_info())
+                timers.get(&res.pod_id).map(|t| t.to_info(&rate_tiers))
             };
 
             Json(json!({

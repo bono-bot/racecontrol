@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use crate::state::AppState;
 
-const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,kiosk_experiences,kiosk_settings";
+const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings";
 
 /// Relay sync interval in seconds (fast — localhost only).
 const RELAY_INTERVAL_SECS: u64 = 2;

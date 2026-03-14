@@ -27,11 +27,7 @@ interface BillingStartModalProps {
 
 type StartMode = "pin" | "qr" | "direct";
 
-const formatINR = (paise: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-  }).format(paise / 100);
+const formatCredits = (paise: number) => `${Math.floor(paise / 100)} cr`;
 
 export default function BillingStartModal({
   podId,
@@ -301,7 +297,7 @@ export default function BillingStartModal({
                       <div className="text-sm font-bold text-rp-red mt-1">
                         {tier.is_trial
                           ? "Free"
-                          : formatINR(tier.price_paise)}
+                          : formatCredits(tier.price_paise)}
                       </div>
                     </button>
                   );
@@ -352,7 +348,7 @@ export default function BillingStartModal({
                 </div>
                 <div>
                   <label className="block text-xs text-neutral-400 mb-1">
-                    Price (INR)
+                    Price (credits)
                   </label>
                   <input
                     type="number"

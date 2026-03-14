@@ -174,9 +174,12 @@ pub enum CoreToAgentMessage {
         /// Whether billing is currently paused (game pause). None for legacy.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         paused: Option<bool>,
-        /// Minutes remaining until value tier kicks in. None if already on value tier.
+        /// Minutes remaining until next pricing tier kicks in. None if on final tier.
+        #[serde(default, skip_serializing_if = "Option::is_none", alias = "minutes_to_value_tier")]
+        minutes_to_next_tier: Option<u32>,
+        /// Name of the current pricing tier (e.g. "Standard", "Extended"). None for legacy.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        minutes_to_value_tier: Option<u32>,
+        tier_name: Option<String>,
     },
 
     /// Sub-session ended (billing expired but pod has active reservation — multi-session)
@@ -731,7 +734,8 @@ mod tests {
             cost_paise: None,
             rate_per_min_paise: None,
             paused: None,
-            minutes_to_value_tier: None,
+            minutes_to_next_tier: None,
+            tier_name: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("billing_tick"));
@@ -946,26 +950,29 @@ mod tests {
             driver_name: "Test Driver".to_string(),
             elapsed_seconds: Some(900),
             cost_paise: Some(34950),
-            rate_per_min_paise: Some(2330),
+            rate_per_min_paise: Some(2500),
             paused: Some(false),
-            minutes_to_value_tier: Some(15),
+            minutes_to_next_tier: Some(15),
+            tier_name: Some("Standard".to_string()),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"elapsed_seconds\":900"));
         assert!(json.contains("\"cost_paise\":34950"));
-        assert!(json.contains("\"rate_per_min_paise\":2330"));
+        assert!(json.contains("\"rate_per_min_paise\":2500"));
         assert!(json.contains("\"paused\":false"));
-        assert!(json.contains("\"minutes_to_value_tier\":15"));
+        assert!(json.contains("\"minutes_to_next_tier\":15"));
+        assert!(json.contains("\"tier_name\":\"Standard\""));
         let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
         if let CoreToAgentMessage::BillingTick {
-            remaining_seconds, elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_value_tier, ..
+            remaining_seconds, elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_next_tier, tier_name, ..
         } = parsed {
             assert_eq!(remaining_seconds, 9900);
             assert_eq!(elapsed_seconds, Some(900));
             assert_eq!(cost_paise, Some(34950));
-            assert_eq!(rate_per_min_paise, Some(2330));
+            assert_eq!(rate_per_min_paise, Some(2500));
             assert_eq!(paused, Some(false));
-            assert_eq!(minutes_to_value_tier, Some(15));
+            assert_eq!(minutes_to_next_tier, Some(15));
+            assert_eq!(tier_name, Some("Standard".to_string()));
         } else {
             panic!("Wrong variant");
         }
@@ -978,7 +985,7 @@ mod tests {
         let parsed: CoreToAgentMessage = serde_json::from_str(json).unwrap();
         if let CoreToAgentMessage::BillingTick {
             remaining_seconds, allocated_seconds, driver_name,
-            elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_value_tier,
+            elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_next_tier, tier_name,
         } = parsed {
             assert_eq!(remaining_seconds, 1500);
             assert_eq!(allocated_seconds, 1800);
@@ -987,7 +994,8 @@ mod tests {
             assert_eq!(cost_paise, None);
             assert_eq!(rate_per_min_paise, None);
             assert_eq!(paused, None);
-            assert_eq!(minutes_to_value_tier, None);
+            assert_eq!(minutes_to_next_tier, None);
+            assert_eq!(tier_name, None);
         } else {
             panic!("Wrong variant");
         }

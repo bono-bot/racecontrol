@@ -90,6 +90,16 @@ export const api = {
     return fetchApi<DailyReport>(`/billing/report/daily${qs}`);
   },
 
+  // Billing Rates (per-minute pricing tiers)
+  listBillingRates: () =>
+    fetchApi<{ rates: BillingRate[] }>("/billing/rates"),
+  createBillingRate: (data: Partial<BillingRate>) =>
+    fetchApi<{ id: string }>("/billing/rates", { method: "POST", body: JSON.stringify(data) }),
+  updateBillingRate: (id: string, data: Partial<BillingRate>) =>
+    fetchApi<{ ok: boolean }>(`/billing/rates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteBillingRate: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/billing/rates/${id}`, { method: "DELETE" }),
+
   // Game Launcher
   launchGame: (pod_id: string, sim_type: string, launch_args?: string) =>
     fetchApi<{ ok: boolean }>("/games/launch", {
@@ -332,6 +342,15 @@ export interface PricingTier {
   is_trial: boolean;
   is_active: boolean;
   sort_order?: number;
+}
+
+export interface BillingRate {
+  id: string;
+  tier_order: number;
+  tier_name: string;
+  threshold_minutes: number;
+  rate_per_min_paise: number;
+  is_active: boolean;
 }
 
 export interface BillingEvent {

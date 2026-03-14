@@ -60,10 +60,10 @@ struct OverlayData {
     rate_per_min_paise: i64,
     paused: bool,
     waiting_for_game: bool,
-    minutes_to_value_tier: Option<u32>,
+    minutes_to_next_tier: Option<u32>,
     rate_upgrade_shown: bool,
     rate_unlocked_display_until: Option<std::time::Instant>,
-    last_minutes_to_value_tier: Option<u32>,
+    last_minutes_to_next_tier: Option<u32>,
     // Toast notification (Phase 6: mid-session controls)
     toast_message: Option<String>,
     toast_until: Option<std::time::Instant>,
@@ -97,10 +97,10 @@ impl Default for OverlayData {
             rate_per_min_paise: 2330,
             paused: false,
             waiting_for_game: false,
-            minutes_to_value_tier: None,
+            minutes_to_next_tier: None,
             rate_upgrade_shown: false,
             rate_unlocked_display_until: None,
-            last_minutes_to_value_tier: None,
+            last_minutes_to_next_tier: None,
             toast_message: None,
             toast_until: None,
         }
@@ -298,17 +298,17 @@ impl HudComponent for SessionTimerSection {
                     draw_text_at(hdc, res.font_value, col_white, rect.x + 12, 28, &timer_str);
                     draw_text_at(hdc, res.font_sector, col_white, rect.x + 12, 54, &format_cost(data.cost_paise));
 
-                    // 30-min celebration: "VALUE RATE UNLOCKED!" in green
+                    // Tier transition celebration: "LOWER RATE UNLOCKED!" in green
                     if let Some(until) = data.rate_unlocked_display_until {
                         if std::time::Instant::now() < until {
-                            draw_text_at(hdc, res.font_sector, col_green, rect.x + 12, 72, "VALUE RATE UNLOCKED!");
+                            draw_text_at(hdc, res.font_sector, col_green, rect.x + 12, 72, "LOWER RATE UNLOCKED!");
                         }
                     }
                     // Rate upgrade prompt (only if celebration not showing)
                     else if data.rate_upgrade_shown {
-                        if let Some(mins) = data.minutes_to_value_tier {
+                        if let Some(mins) = data.minutes_to_next_tier {
                             if mins <= 5 && mins > 0 {
-                                let prompt = format!("Drive {} more min for Rs.15/min!", mins);
+                                let prompt = format!("Drive {} more min for lower rate!", mins);
                                 draw_text_at(hdc, res.font_badge, col_green, rect.x + 12, 72, &prompt);
                             }
                         }
@@ -841,7 +841,7 @@ impl OverlayManager {
                 game_live: false,
                 paused: false,
                 rate_unlocked_display_until: None,
-                last_minutes_to_value_tier: None,
+                last_minutes_to_next_tier: None,
                 ..OverlayData::default()
             };
         }
@@ -857,7 +857,7 @@ impl OverlayManager {
         cost_paise: i64,
         rate_per_min_paise: i64,
         paused: bool,
-        minutes_to_value_tier: Option<u32>,
+        minutes_to_next_tier: Option<u32>,
     ) {
         let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !data.active {
@@ -877,7 +877,7 @@ impl OverlayManager {
         }
 
         // Rate upgrade prompt: show when within 5 minutes of value tier
-        if let Some(mins) = minutes_to_value_tier {
+        if let Some(mins) = minutes_to_next_tier {
             if mins <= 5 && mins > 0 {
                 data.rate_upgrade_shown = true;
             }
@@ -887,8 +887,8 @@ impl OverlayManager {
         }
 
         // 30-min celebration: detect tier crossing
-        if let Some(prev) = data.last_minutes_to_value_tier {
-            if prev > 0 && minutes_to_value_tier.is_none() {
+        if let Some(prev) = data.last_minutes_to_next_tier {
+            if prev > 0 && minutes_to_next_tier.is_none() {
                 // Just crossed into value tier
                 data.rate_unlocked_display_until =
                     Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
@@ -896,8 +896,8 @@ impl OverlayManager {
             }
         }
 
-        data.minutes_to_value_tier = minutes_to_value_tier;
-        data.last_minutes_to_value_tier = minutes_to_value_tier;
+        data.minutes_to_next_tier = minutes_to_next_tier;
+        data.last_minutes_to_next_tier = minutes_to_next_tier;
     }
 
     /// Update billing timer from BillingTick.
@@ -1360,10 +1360,10 @@ unsafe fn draw_text_at(
 
 // ─── Formatting Helpers ──────────────────────────────────────────────────────
 
-/// Format cost in paise to customer-facing "Rs.X" string.
+/// Format cost in paise to customer-facing credits string (1 credit = 100 paise).
 /// Uses floor division for customer-friendly rounding (Pitfall 6).
 fn format_cost(paise: i64) -> String {
-    format!("Rs.{}", paise / 100)
+    format!("{} cr", paise / 100)
 }
 
 fn format_timer(seconds: u32) -> String {
@@ -1525,11 +1525,11 @@ mod tests {
 
     #[test]
     fn test_format_cost() {
-        assert_eq!(format_cost(0), "Rs.0");
-        assert_eq!(format_cost(35000), "Rs.350");
-        assert_eq!(format_cost(67500), "Rs.675");
-        assert_eq!(format_cost(99), "Rs.0");   // floor division
-        assert_eq!(format_cost(150), "Rs.1");
+        assert_eq!(format_cost(0), "0 cr");
+        assert_eq!(format_cost(35000), "350 cr");
+        assert_eq!(format_cost(67500), "675 cr");
+        assert_eq!(format_cost(99), "0 cr");   // floor division
+        assert_eq!(format_cost(150), "1 cr");
     }
 
     #[test]
@@ -1555,7 +1555,7 @@ mod tests {
         assert!(!data.paused);
         assert!(data.game_live);
         assert!(!data.waiting_for_game);
-        assert_eq!(data.minutes_to_value_tier, Some(15));
+        assert_eq!(data.minutes_to_next_tier, Some(15));
     }
 
     #[test]
@@ -1590,7 +1590,7 @@ mod tests {
         // Simulate being close to tier crossing
         overlay.update_billing_v2(1700, 39710, 2330, false, Some(1));
 
-        // Now cross the tier: minutes_to_value_tier goes from Some(1) to None
+        // Now cross the tier: minutes_to_next_tier goes from Some(1) to None
         overlay.update_billing_v2(1800, 42000, 1500, false, None);
 
         let data = overlay.state.lock().unwrap();
@@ -1610,7 +1610,7 @@ mod tests {
         overlay.update_billing_v2(1700, 39710, 2330, false, Some(1));
         overlay.update_billing_v2(1800, 42000, 1500, false, None);
 
-        // Subsequent update should NOT re-trigger (last_minutes_to_value_tier is now None)
+        // Subsequent update should NOT re-trigger (last_minutes_to_next_tier is now None)
         overlay.update_billing_v2(1860, 43500, 1500, false, None);
 
         let data = overlay.state.lock().unwrap();

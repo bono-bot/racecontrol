@@ -51,49 +51,121 @@ pub async fn compute_dynamic_price(
     }
 }
 
+// ─── Billing Rate Tiers ────────────────────────────────────────────────────
+
+/// A per-minute billing rate tier, loaded from the `billing_rates` DB table.
+/// Tiers are ordered by `tier_order` and applied additively (non-retroactive).
+#[derive(Debug, Clone)]
+pub struct BillingRateTier {
+    pub tier_order: u32,
+    pub tier_name: String,
+    /// Upper boundary in minutes for this tier. 0 = unlimited (covers remaining time).
+    pub threshold_minutes: u32,
+    pub rate_per_min_paise: i64,
+}
+
+/// Default billing rate tiers (used before first DB load).
+pub fn default_billing_rate_tiers() -> Vec<BillingRateTier> {
+    vec![
+        BillingRateTier { tier_order: 1, tier_name: "Standard".into(), threshold_minutes: 30, rate_per_min_paise: 2500 },
+        BillingRateTier { tier_order: 2, tier_name: "Extended".into(), threshold_minutes: 60, rate_per_min_paise: 2000 },
+        BillingRateTier { tier_order: 3, tier_name: "Marathon".into(), threshold_minutes: 0, rate_per_min_paise: 1500 },
+    ]
+}
+
+/// Refresh the in-memory rate tier cache from the database.
+pub async fn refresh_rate_tiers(state: &Arc<AppState>) {
+    let rows = sqlx::query_as::<_, (i64, String, i64, i64)>(
+        "SELECT tier_order, tier_name, threshold_minutes, rate_per_min_paise
+         FROM billing_rates WHERE is_active = 1 ORDER BY tier_order ASC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    if let Ok(rows) = rows {
+        if !rows.is_empty() {
+            let tiers: Vec<BillingRateTier> = rows
+                .into_iter()
+                .map(|(order, name, thresh, rate)| BillingRateTier {
+                    tier_order: order as u32,
+                    tier_name: name,
+                    threshold_minutes: thresh as u32,
+                    rate_per_min_paise: rate,
+                })
+                .collect();
+            *state.billing.rate_tiers.write().await = tiers;
+            tracing::info!("Billing rate tiers refreshed from DB");
+        }
+    }
+}
+
 // ─── Session Cost Calculation ──────────────────────────────────────────────
 
 /// Result of per-minute session cost calculation.
 pub struct SessionCost {
     /// Total cost in paise for the entire elapsed duration
     pub total_paise: i64,
-    /// Current rate per minute in paise (2330 standard, 1500 value)
+    /// Current rate per minute in paise
     pub rate_per_min_paise: i64,
     /// Current pricing tier name
-    pub tier_name: &'static str,
-    /// Minutes remaining until value tier kicks in. None if already on value tier.
+    pub tier_name: String,
+    /// Minutes remaining until next cheaper tier. None if on cheapest tier.
     pub minutes_to_next_tier: Option<u32>,
 }
 
-/// Compute session cost from elapsed seconds using retroactive two-tier pricing.
+/// Compute session cost from elapsed seconds using non-retroactive tiered pricing.
 ///
-/// - Under 30 min: Rs.23.3/min (2330 paise/min) -- "standard" tier
-/// - 30 min and above: Rs.15/min (1500 paise/min) -- "value" tier (retroactive)
+/// Each tier applies only to the minutes within its range (additive, not retroactive).
+/// Default tiers: 25 cr/min (0-30 min), 20 cr/min (31-60 min), 15 cr/min (60+ min).
 ///
-/// Retroactive means that when crossing 30 min, the cheaper rate applies to the
-/// ENTIRE session, not just the time after 30 min.
-pub fn compute_session_cost(elapsed_seconds: u32) -> SessionCost {
-    let elapsed_minutes = elapsed_seconds as f64 / 60.0;
+/// Example: 45 min = (30 × 2500) + (15 × 2000) = 75000 + 30000 = 105000 paise.
+pub fn compute_session_cost(elapsed_seconds: u32, tiers: &[BillingRateTier]) -> SessionCost {
+    let elapsed_minutes_f = elapsed_seconds as f64 / 60.0;
+    let elapsed_minutes_whole = elapsed_seconds / 60;
 
-    if elapsed_seconds >= 1800 {
-        // 30+ minutes: value tier (retroactive)
-        let cost = (elapsed_minutes * 1500.0).round() as i64;
-        SessionCost {
-            total_paise: cost,
-            rate_per_min_paise: 1500,
-            tier_name: "value",
-            minutes_to_next_tier: None,
+    let mut total_paise: i64 = 0;
+    let mut prev_threshold: f64 = 0.0;
+    let mut current_tier_name = String::new();
+    let mut current_rate: i64 = 0;
+    let mut minutes_to_next: Option<u32> = None;
+
+    for (i, tier) in tiers.iter().enumerate() {
+        let tier_ceiling = if tier.threshold_minutes == 0 {
+            f64::MAX
+        } else {
+            tier.threshold_minutes as f64
+        };
+
+        if elapsed_minutes_f < prev_threshold {
+            break;
         }
-    } else {
-        // Under 30 minutes: standard tier
-        let cost = (elapsed_minutes * 2330.0).round() as i64;
-        let minutes_to_value = 30u32.saturating_sub(elapsed_seconds / 60);
-        SessionCost {
-            total_paise: cost,
-            rate_per_min_paise: 2330,
-            tier_name: "standard",
-            minutes_to_next_tier: Some(minutes_to_value),
+
+        let minutes_in_tier = if elapsed_minutes_f <= tier_ceiling {
+            elapsed_minutes_f - prev_threshold
+        } else {
+            tier_ceiling - prev_threshold
+        };
+
+        total_paise += (minutes_in_tier * tier.rate_per_min_paise as f64).round() as i64;
+        current_tier_name = tier.tier_name.clone();
+        current_rate = tier.rate_per_min_paise;
+
+        // Minutes to next tier: only if currently in this tier and there IS a next tier
+        if elapsed_minutes_f <= tier_ceiling && tier.threshold_minutes > 0 && i + 1 < tiers.len() {
+            minutes_to_next = Some(tier.threshold_minutes.saturating_sub(elapsed_minutes_whole));
         }
+
+        prev_threshold = tier_ceiling;
+        if elapsed_minutes_f <= tier_ceiling {
+            break;
+        }
+    }
+
+    SessionCost {
+        total_paise,
+        rate_per_min_paise: current_rate,
+        tier_name: current_tier_name,
+        minutes_to_next_tier: minutes_to_next,
     }
 }
 
@@ -143,8 +215,8 @@ impl BillingTimer {
         self.allocated_seconds.saturating_sub(self.driving_seconds)
     }
 
-    pub fn to_info(&self) -> BillingSessionInfo {
-        let cost = self.current_cost();
+    pub fn to_info(&self, tiers: &[BillingRateTier]) -> BillingSessionInfo {
+        let cost = self.current_cost(tiers);
         BillingSessionInfo {
             id: self.session_id.clone(),
             driver_id: self.driver_id.clone(),
@@ -190,9 +262,9 @@ impl BillingTimer {
         }
     }
 
-    /// Get the current session cost based on elapsed seconds.
-    pub fn current_cost(&self) -> SessionCost {
-        compute_session_cost(self.elapsed_seconds)
+    /// Get the current session cost based on elapsed seconds and rate tiers.
+    pub fn current_cost(&self, tiers: &[BillingRateTier]) -> SessionCost {
+        compute_session_cost(self.elapsed_seconds, tiers)
     }
 
     /// Create a minimal BillingTimer for unit tests.
@@ -270,6 +342,8 @@ pub struct BillingManager {
     pub waiting_for_game: RwLock<HashMap<String, WaitingForGameEntry>>,
     /// group_session_id -> MultiplayerBillingWait (coordinated group billing)
     pub multiplayer_waiting: RwLock<HashMap<String, MultiplayerBillingWait>>,
+    /// Cached billing rate tiers, sorted by tier_order. Refreshed from DB periodically.
+    pub rate_tiers: RwLock<Vec<BillingRateTier>>,
 }
 
 impl BillingManager {
@@ -278,6 +352,7 @@ impl BillingManager {
             active_timers: RwLock::new(HashMap::new()),
             waiting_for_game: RwLock::new(HashMap::new()),
             multiplayer_waiting: RwLock::new(HashMap::new()),
+            rate_tiers: RwLock::new(default_billing_rate_tiers()),
         }
     }
 }
@@ -634,11 +709,12 @@ async fn multiplayer_billing_timeout(state: &Arc<AppState>, group_session_id: &s
 
 /// Called every 1 second to tick all active billing timers
 pub async fn tick_all_timers(state: &Arc<AppState>) {
+    let rate_tiers = state.billing.rate_tiers.read().await;
     let mut timers = state.billing.active_timers.write().await;
     let mut events_to_broadcast = Vec::new();
     let mut expired_sessions = Vec::new();
     let mut warnings = Vec::new();
-    let mut agent_ticks: Vec<(String, u32, u32, String, Option<u32>, Option<i64>, Option<i64>, Option<bool>, Option<u32>)> = Vec::new();
+    let mut agent_ticks: Vec<(String, u32, u32, String, Option<u32>, Option<i64>, Option<i64>, Option<bool>, Option<u32>, Option<String>)> = Vec::new();
     let mut pause_timeout_end: Vec<(String, String, u32, String)> = Vec::new();
     let mut new_pauses: Vec<(String, String, u32)> = Vec::new(); // pod_id, session_id, pause_count
 
@@ -665,7 +741,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 ));
             } else {
                 // Broadcast paused tick to dashboards (so they see the session is paused)
-                events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
+                events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info(&rate_tiers)));
             }
             continue;
         }
@@ -688,14 +764,14 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     timer.driver_id.clone(),
                 ));
             } else {
-                let cost = timer.current_cost();
-                events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
+                let cost = timer.current_cost(&rate_tiers);
+                events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info(&rate_tiers)));
                 agent_ticks.push((
                     pod_id.clone(), timer.remaining_seconds(), timer.allocated_seconds,
                     timer.driver_name.clone(),
                     Some(timer.elapsed_seconds), Some(cost.total_paise),
                     Some(cost.rate_per_min_paise), Some(true),
-                    cost.minutes_to_next_tier,
+                    cost.minutes_to_next_tier, Some(cost.tier_name.clone()),
                 ));
             }
             continue;
@@ -730,7 +806,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 );
 
                 new_pauses.push((pod_id.clone(), timer.session_id.clone(), timer.pause_count));
-                events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info()));
+                events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info(&rate_tiers)));
                 continue; // Skip normal tick
             } else {
                 // All 3 pauses used — billing continues even while offline
@@ -759,13 +835,13 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         }
 
         // Broadcast tick to dashboards and agents
-        let cost = timer.current_cost();
-        events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info()));
+        let cost = timer.current_cost(&rate_tiers);
+        events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info(&rate_tiers)));
         agent_ticks.push((
             pod_id.clone(), remaining, timer.allocated_seconds, timer.driver_name.clone(),
             Some(timer.elapsed_seconds), Some(cost.total_paise),
             Some(cost.rate_per_min_paise), Some(false),
-            cost.minutes_to_next_tier,
+            cost.minutes_to_next_tier, Some(cost.tier_name.clone()),
         ));
 
         if expired {
@@ -776,7 +852,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 timer.driving_seconds,
                 timer.driver_name.clone(),
             ));
-            events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info()));
+            events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info(&rate_tiers)));
         }
     }
 
@@ -809,7 +885,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // Send billing ticks to agents (for pod lock screen timer + overlay taxi meter)
     if !agent_ticks.is_empty() {
         let agent_senders = state.agent_senders.read().await;
-        for (pod_id, remaining, allocated, driver_name, elapsed, cost, rate, paused, min_to_tier) in agent_ticks {
+        for (pod_id, remaining, allocated, driver_name, elapsed, cost, rate, paused, min_to_tier, tier_nm) in agent_ticks {
             if let Some(sender) = agent_senders.get(&pod_id) {
                 let _ = sender.send(CoreToAgentMessage::BillingTick {
                     remaining_seconds: remaining,
@@ -819,7 +895,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     cost_paise: cost,
                     rate_per_min_paise: rate,
                     paused,
-                    minutes_to_value_tier: min_to_tier,
+                    minutes_to_next_tier: min_to_tier,
+                    tier_name: tier_nm,
                 }).await;
             }
         }
@@ -1529,7 +1606,9 @@ pub async fn start_billing_session(
         max_session_seconds: allocated_seconds,
     };
 
-    let info = timer.to_info();
+    let rate_tiers = state.billing.rate_tiers.read().await;
+    let info = timer.to_info(&rate_tiers);
+    drop(rate_tiers);
 
     state
         .billing
@@ -1602,6 +1681,7 @@ async fn set_billing_status(
     session_id: &str,
     new_status: BillingSessionStatus,
 ) {
+    let rate_tiers = state.billing.rate_tiers.read().await;
     let mut timers = state.billing.active_timers.write().await;
 
     // Find the timer by session_id
@@ -1613,7 +1693,7 @@ async fn set_billing_status(
     if let Some(pod_id) = pod_id {
         if let Some(timer) = timers.get_mut(&pod_id) {
             timer.status = new_status;
-            let info = timer.to_info();
+            let info = timer.to_info(&rate_tiers);
 
             let event_type = match new_status {
                 BillingSessionStatus::PausedManual => "paused_manual",
@@ -1666,6 +1746,7 @@ pub async fn resume_billing_from_disconnect(
     state: &Arc<AppState>,
     session_id: &str,
 ) -> Result<(), String> {
+    let rate_tiers = state.billing.rate_tiers.read().await;
     let mut timers = state.billing.active_timers.write().await;
 
     let pod_id = timers
@@ -1689,7 +1770,7 @@ pub async fn resume_billing_from_disconnect(
     timer.offline_since = None;
     // Note: total_paused_seconds keeps accumulating across pauses (not reset)
 
-    let info = timer.to_info();
+    let info = timer.to_info(&rate_tiers);
     let driver_name = timer.driver_name.clone();
 
     drop(timers);
@@ -1750,6 +1831,7 @@ async fn end_billing_session(
     session_id: &str,
     end_status: BillingSessionStatus,
 ) -> bool {
+    let rate_tiers = state.billing.rate_tiers.read().await;
     let mut timers = state.billing.active_timers.write().await;
 
     let pod_id = timers
@@ -1760,8 +1842,9 @@ async fn end_billing_session(
     if let Some(pod_id) = pod_id {
         if let Some(timer) = timers.get_mut(&pod_id) {
             timer.status = end_status;
-            let info = timer.to_info();
+            let info = timer.to_info(&rate_tiers);
             let driving_seconds = timer.driving_seconds;
+            let final_cost_paise = info.cost_paise.unwrap_or(0);
 
             let activity_action = match end_status {
                 BillingSessionStatus::EndedEarly => "Session Ended",
@@ -1788,12 +1871,13 @@ async fn end_billing_session(
                 _ => "completed",
             };
 
-            // Update DB
+            // Update DB with final cost
             let _ = sqlx::query(
-                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, ended_at = datetime('now') WHERE id = ?",
+                "UPDATE billing_sessions SET status = ?, driving_seconds = ?, wallet_debit_paise = ?, ended_at = datetime('now') WHERE id = ?",
             )
             .bind(status_str)
             .bind(driving_seconds as i64)
+            .bind(final_cost_paise)
             .bind(session_id)
             .execute(&state.db)
             .await;
@@ -2243,6 +2327,7 @@ async fn extend_billing_session(
     session_id: &str,
     additional_seconds: u32,
 ) {
+    let rate_tiers = state.billing.rate_tiers.read().await;
     let mut timers = state.billing.active_timers.write().await;
 
     let pod_id = timers
@@ -2260,7 +2345,7 @@ async fn extend_billing_session(
             if timer.remaining_seconds() > 60 {
                 timer.warning_1min_sent = false;
             }
-            let info = timer.to_info();
+            let info = timer.to_info(&rate_tiers);
 
             drop(timers);
 
@@ -2304,6 +2389,7 @@ pub async fn update_driving_state(
     pod_id: &str,
     new_state: DrivingState,
 ) {
+    let rate_tiers = state.billing.rate_tiers.read().await;
     let mut timers = state.billing.active_timers.write().await;
     if let Some(timer) = timers.get_mut(pod_id) {
         let old_state = timer.driving_state;
@@ -2317,7 +2403,7 @@ pub async fn update_driving_state(
 
             let session_id = timer.session_id.clone();
             let driving_seconds = timer.driving_seconds;
-            let info = timer.to_info();
+            let info = timer.to_info(&rate_tiers);
 
             drop(timers);
 
@@ -2554,58 +2640,68 @@ mod tests {
         assert_eq!(refund_3, 0);
     }
 
-    // ── Phase 03 Plan 01 Task 2: compute_session_cost + count-up timer ──────
+    // ── compute_session_cost with non-retroactive 3-tier pricing ──────
+
+    fn test_tiers() -> Vec<BillingRateTier> {
+        default_billing_rate_tiers()
+    }
 
     #[test]
     fn cost_zero_seconds() {
-        let cost = compute_session_cost(0);
+        let tiers = test_tiers();
+        let cost = compute_session_cost(0, &tiers);
         assert_eq!(cost.total_paise, 0);
-        assert_eq!(cost.rate_per_min_paise, 2330);
-        assert_eq!(cost.tier_name, "standard");
+        assert_eq!(cost.rate_per_min_paise, 2500);
+        assert_eq!(cost.tier_name, "Standard");
         assert_eq!(cost.minutes_to_next_tier, Some(30));
     }
 
     #[test]
     fn cost_15_minutes_standard_tier() {
-        let cost = compute_session_cost(900); // 15 min
-        assert_eq!(cost.total_paise, 34950); // 15 * 2330
-        assert_eq!(cost.rate_per_min_paise, 2330);
-        assert_eq!(cost.tier_name, "standard");
+        let tiers = test_tiers();
+        let cost = compute_session_cost(900, &tiers); // 15 min
+        assert_eq!(cost.total_paise, 37500); // 15 * 2500
+        assert_eq!(cost.rate_per_min_paise, 2500);
+        assert_eq!(cost.tier_name, "Standard");
         assert_eq!(cost.minutes_to_next_tier, Some(15));
     }
 
     #[test]
     fn cost_29_59_standard_tier() {
-        let cost = compute_session_cost(1799); // 29:59
-        assert_eq!(cost.tier_name, "standard");
-        assert_eq!(cost.rate_per_min_paise, 2330);
-        // At 29:59 (1799s), elapsed_seconds/60 = 29, so 30-29 = 1 minute to value tier
+        let tiers = test_tiers();
+        let cost = compute_session_cost(1799, &tiers); // 29:59
+        assert_eq!(cost.tier_name, "Standard");
+        assert_eq!(cost.rate_per_min_paise, 2500);
         assert_eq!(cost.minutes_to_next_tier, Some(1));
     }
 
     #[test]
-    fn cost_30_minutes_retroactive_value_tier() {
-        let cost = compute_session_cost(1800); // exactly 30 min
-        assert_eq!(cost.total_paise, 45000); // 30 * 1500 -- retroactive!
-        assert_eq!(cost.rate_per_min_paise, 1500);
-        assert_eq!(cost.tier_name, "value");
-        assert_eq!(cost.minutes_to_next_tier, None);
+    fn cost_30_minutes_non_retroactive() {
+        let tiers = test_tiers();
+        let cost = compute_session_cost(1800, &tiers); // exactly 30 min
+        assert_eq!(cost.total_paise, 75000); // 30 * 2500 (non-retroactive: all in Standard tier)
+        assert_eq!(cost.rate_per_min_paise, 2500);
+        assert_eq!(cost.tier_name, "Standard");
     }
 
     #[test]
-    fn cost_45_minutes_value_tier() {
-        let cost = compute_session_cost(2700); // 45 min
-        assert_eq!(cost.total_paise, 67500); // 45 * 1500
-        assert_eq!(cost.rate_per_min_paise, 1500);
-        assert_eq!(cost.tier_name, "value");
+    fn cost_45_minutes_two_tiers() {
+        let tiers = test_tiers();
+        let cost = compute_session_cost(2700, &tiers); // 45 min
+        // Non-retroactive: (30 * 2500) + (15 * 2000) = 75000 + 30000 = 105000
+        assert_eq!(cost.total_paise, 105000);
+        assert_eq!(cost.rate_per_min_paise, 2000);
+        assert_eq!(cost.tier_name, "Extended");
     }
 
     #[test]
-    fn cost_3_hours_value_tier() {
-        let cost = compute_session_cost(10800); // 180 min
-        assert_eq!(cost.total_paise, 270000); // 180 * 1500
+    fn cost_3_hours_all_three_tiers() {
+        let tiers = test_tiers();
+        let cost = compute_session_cost(10800, &tiers); // 180 min
+        // Non-retroactive: (30 * 2500) + (30 * 2000) + (120 * 1500) = 75000 + 60000 + 180000 = 315000
+        assert_eq!(cost.total_paise, 315000);
         assert_eq!(cost.rate_per_min_paise, 1500);
-        assert_eq!(cost.tier_name, "value");
+        assert_eq!(cost.tier_name, "Marathon");
         assert_eq!(cost.minutes_to_next_tier, None);
     }
 
@@ -2746,6 +2842,7 @@ mod tests {
 
     #[test]
     fn timer_current_cost_returns_session_cost() {
+        let rate_tiers = test_tiers();
         let timer = BillingTimer {
             session_id: "test-cost".into(),
             driver_id: "d1".into(),
@@ -2772,14 +2869,15 @@ mod tests {
             max_session_seconds: 10800,
         };
 
-        let cost = timer.current_cost();
-        assert_eq!(cost.total_paise, 34950);
-        assert_eq!(cost.rate_per_min_paise, 2330);
-        assert_eq!(cost.tier_name, "standard");
+        let cost = timer.current_cost(&rate_tiers);
+        assert_eq!(cost.total_paise, 37500); // 15 min * 25 cr/min = 375 cr = 37500 paise
+        assert_eq!(cost.rate_per_min_paise, 2500);
+        assert_eq!(cost.tier_name, "Standard");
     }
 
     #[test]
     fn timer_to_info_populates_optional_fields() {
+        let rate_tiers = test_tiers();
         let timer = BillingTimer {
             session_id: "test-info".into(),
             driver_id: "d1".into(),
@@ -2806,10 +2904,10 @@ mod tests {
             max_session_seconds: 10800,
         };
 
-        let info = timer.to_info();
+        let info = timer.to_info(&rate_tiers);
         assert_eq!(info.elapsed_seconds, Some(900));
-        assert_eq!(info.cost_paise, Some(34950));
-        assert_eq!(info.rate_per_min_paise, Some(2330));
+        assert_eq!(info.cost_paise, Some(37500)); // 15 min * 25 cr/min
+        assert_eq!(info.rate_per_min_paise, Some(2500));
         // Legacy fields still populated
         assert_eq!(info.driving_seconds, 900);
         assert_eq!(info.allocated_seconds, 10800);

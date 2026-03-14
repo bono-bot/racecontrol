@@ -229,6 +229,33 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Per-minute billing rate tiers (DB-driven, admin-configurable)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS billing_rates (
+            id TEXT PRIMARY KEY,
+            tier_order INTEGER NOT NULL,
+            tier_name TEXT NOT NULL,
+            threshold_minutes INTEGER NOT NULL,
+            rate_per_min_paise INTEGER NOT NULL,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed default billing rates: 25 cr/min (0-30), 20 cr/min (31-60), 15 cr/min (60+)
+    sqlx::query(
+        "INSERT OR IGNORE INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise)
+         VALUES
+            ('rate_standard', 1, 'standard', 30, 2500),
+            ('rate_extended', 2, 'extended', 60, 2000),
+            ('rate_marathon', 3, 'marathon', 0, 1500)",
+    )
+    .execute(pool)
+    .await?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS billing_sessions (
             id TEXT PRIMARY KEY,

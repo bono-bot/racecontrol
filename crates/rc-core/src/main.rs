@@ -207,13 +207,22 @@ async fn main() -> anyhow::Result<()> {
     // Recover any active billing sessions from DB
     billing::recover_active_sessions(&state).await?;
 
-    // Spawn billing tick loop (1 second interval)
+    // Load billing rate tiers from DB into cache
+    billing::refresh_rate_tiers(&state).await;
+
+    // Spawn billing tick loop (1 second interval, refresh rates every 60s)
     let tick_state = state.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
+        let mut refresh_counter: u32 = 0;
         loop {
             interval.tick().await;
             billing::tick_all_timers(&tick_state).await;
+            refresh_counter += 1;
+            if refresh_counter >= 60 {
+                refresh_counter = 0;
+                billing::refresh_rate_tiers(&tick_state).await;
+            }
         }
     });
 

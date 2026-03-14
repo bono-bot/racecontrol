@@ -5,11 +5,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { api } from "@/lib/api";
 import type { DailyReport, BillingSessionRecord } from "@/lib/api";
 
-const formatINR = (paise: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-  }).format(paise / 100);
+const formatCredits = (paise: number) => `${Math.floor(paise / 100)} cr`;
 
 function formatMMSS(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -144,7 +140,7 @@ export default function BillingHistoryPage() {
                       {formatMMSS(s.driving_seconds)}
                     </td>
                     <td className="px-4 py-3 text-rp-red text-right font-mono">
-                      {formatINR(s.price_paise)}
+                      {formatCredits(s.price_paise)}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span
@@ -173,9 +169,9 @@ export default function BillingHistoryPage() {
                 </div>
               </div>
               <div className="bg-rp-card border border-rp-border rounded-lg p-4">
-                <div className="text-xs text-rp-grey mb-1">Total Revenue</div>
+                <div className="text-xs text-rp-grey mb-1">Total Credits</div>
                 <div className="text-2xl font-bold text-rp-red font-mono">
-                  {formatINR(report.total_revenue_paise)}
+                  {formatCredits(report.total_revenue_paise)}
                 </div>
               </div>
               <div className="bg-rp-card border border-rp-border rounded-lg p-4">

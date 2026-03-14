@@ -3,13 +3,9 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { api } from "@/lib/api";
-import type { PricingTier } from "@/lib/api";
+import type { PricingTier, BillingRate } from "@/lib/api";
 
-const formatINR = (paise: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-  }).format(paise / 100);
+const formatCredits = (paise: number) => `${Math.floor(paise / 100)} cr`;
 
 export default function PricingPage() {
   const [tiers, setTiers] = useState<PricingTier[]>([]);
@@ -29,6 +25,17 @@ export default function PricingPage() {
   const [editPrice, setEditPrice] = useState(0);
   const [editIsTrial, setEditIsTrial] = useState(false);
 
+  // Billing rates (per-minute)
+  const [rates, setRates] = useState<BillingRate[]>([]);
+  const [rateEditId, setRateEditId] = useState<string | null>(null);
+  const [rateEditName, setRateEditName] = useState("");
+  const [rateEditThreshold, setRateEditThreshold] = useState(0);
+  const [rateEditRate, setRateEditRate] = useState(0);
+
+  function fetchRates() {
+    api.listBillingRates().then((res) => setRates(res.rates || [])).catch(() => {});
+  }
+
   function fetchTiers() {
     api
       .listPricingTiers()
@@ -41,6 +48,7 @@ export default function PricingPage() {
 
   useEffect(() => {
     fetchTiers();
+    fetchRates();
   }, []);
 
   async function handleCreate() {
@@ -138,7 +146,7 @@ export default function PricingPage() {
           </div>
           <div>
             <label className="block text-xs text-rp-grey mb-1">
-              Price (INR)
+              Price (credits)
             </label>
             <input
               type="number"
@@ -299,7 +307,7 @@ export default function PricingPage() {
                         {tier.is_trial ? (
                           <span className="text-emerald-400">Free</span>
                         ) : (
-                          formatINR(tier.price_paise)
+                          formatCredits(tier.price_paise)
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -349,6 +357,91 @@ export default function PricingPage() {
           </table>
         </div>
       )}
+
+      {/* Per-Minute Rates */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">Per-Minute Rates</h2>
+            <p className="text-sm text-rp-grey">Non-retroactive tiered pricing (credits/min)</p>
+          </div>
+          <span className="text-xs text-rp-grey">{rates.filter(r => r.is_active).length} active tiers</span>
+        </div>
+
+        <div className="bg-rp-card border border-rp-border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-rp-border">
+                <th className="text-left px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">Tier Name</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">Up To (min)</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">Rate (cr/min)</th>
+                <th className="text-center px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">Active</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-rp-grey uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-rp-border/50">
+              {rates.map((rate) => (
+                <tr key={rate.id} className="hover:bg-rp-card/30 transition-colors">
+                  {rateEditId === rate.id ? (
+                    <>
+                      <td className="px-4 py-3">
+                        <input type="text" value={rateEditName} onChange={(e) => setRateEditName(e.target.value)}
+                          className="bg-rp-card border border-rp-border rounded px-2 py-1 text-sm text-neutral-200 focus:outline-none focus:border-rp-red w-full" />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input type="number" min={0} value={rateEditThreshold} onChange={(e) => setRateEditThreshold(parseInt(e.target.value) || 0)}
+                          className="bg-rp-card border border-rp-border rounded px-2 py-1 text-sm text-neutral-200 focus:outline-none focus:border-rp-red w-20" />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input type="number" min={1} value={rateEditRate} onChange={(e) => setRateEditRate(parseInt(e.target.value) || 0)}
+                          className="bg-rp-card border border-rp-border rounded px-2 py-1 text-sm text-neutral-200 focus:outline-none focus:border-rp-red w-20" />
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-xs text-rp-grey">&mdash;</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={async () => {
+                            await api.updateBillingRate(rate.id, {
+                              tier_name: rateEditName, threshold_minutes: rateEditThreshold,
+                              rate_per_min_paise: rateEditRate * 100,
+                            });
+                            setRateEditId(null); fetchRates();
+                          }} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">Save</button>
+                          <button onClick={() => setRateEditId(null)} className="text-xs text-rp-grey hover:text-neutral-300">Cancel</button>
+                        </div>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-4 py-3 text-neutral-200 font-medium">{rate.tier_name}</td>
+                      <td className="px-4 py-3 text-neutral-400 font-mono">
+                        {rate.threshold_minutes === 0 ? "Unlimited" : `${rate.threshold_minutes} min`}
+                      </td>
+                      <td className="px-4 py-3 text-neutral-300 font-mono font-bold">{rate.rate_per_min_paise / 100} cr/min</td>
+                      <td className="px-4 py-3 text-center">
+                        <button onClick={async () => {
+                          await api.updateBillingRate(rate.id, { is_active: !rate.is_active });
+                          fetchRates();
+                        }} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${rate.is_active ? "bg-rp-red" : "bg-rp-card"}`}>
+                          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${rate.is_active ? "translate-x-4" : "translate-x-1"}`} />
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => {
+                          setRateEditId(rate.id); setRateEditName(rate.tier_name);
+                          setRateEditThreshold(rate.threshold_minutes);
+                          setRateEditRate(rate.rate_per_min_paise / 100);
+                        }} className="text-xs text-neutral-400 hover:text-rp-red font-medium transition-colors">Edit</button>
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </DashboardLayout>
   );
 }

@@ -202,7 +202,8 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                         cost_paise: None,
                                         rate_per_min_paise: None,
                                         paused: None,
-                                        minutes_to_value_tier: None,
+                                        minutes_to_next_tier: None,
+                                        tier_name: None,
                                     }).await;
                                     // Restore pod state (agent Register overwrites with Idle)
                                     {
@@ -561,9 +562,11 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     }
 
     // Send active billing sessions on connect
+    let rate_tiers = state.billing.rate_tiers.read().await;
     let timers = state.billing.active_timers.read().await;
-    let billing_list: Vec<_> = timers.values().map(|t| t.to_info()).collect();
+    let billing_list: Vec<_> = timers.values().map(|t| t.to_info(&rate_tiers)).collect();
     drop(timers);
+    drop(rate_tiers);
 
     let billing_msg = DashboardEvent::BillingSessionList(billing_list);
     if let Ok(json) = serde_json::to_string(&billing_msg) {
