@@ -3,30 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: Completed 12-02-PLAN.md
-last_updated: "2026-03-14T20:08:41.946Z"
-last_activity: 2026-03-15 — Completed Plan 02 (car_class on laps via billing session lookup)
-progress:
-  total_phases: 4
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
----
-
----
-gsd_state_version: 1.0
-milestone: v3.0
-milestone_name: Leaderboards, Telemetry & Competitive
-status: active
-stopped_at: "Completed 12-02-PLAN.md"
+stopped_at: "Completed 13-01-PLAN.md"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Completed Phase 12 Plan 02 (car_class on laps)
+last_activity: 2026-03-15 — Completed Plan 01 (suspect column + lap validity hardening)
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 25
+  total_plans: 7
+  completed_plans: 3
+  percent: 43
 ---
 
 # Project State
@@ -36,30 +21,30 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-14)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry — driving repeat visits and social sharing from a publicly accessible cloud PWA.
-**Current focus:** Phase 12 — Data Foundation
+**Current focus:** Phase 13 — Leaderboard Core
 
 ## Current Position
 
-Phase: 12 of 15 (Data Foundation) -- COMPLETE
-Plan: 2 of 2 complete
-Status: Phase Complete
-Last activity: 2026-03-15 — Completed Plan 02 (car_class on laps via billing session lookup)
+Phase: 13 of 15 (Leaderboard Core)
+Plan: 1 of 5 complete
+Status: In Progress
+Last activity: 2026-03-15 — Completed Plan 01 (suspect column + lap validity hardening)
 
-Progress: [██░░░░░░░░] 25%
+Progress: [████░░░░░░] 43%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 5.5 min
-- Total execution time: 0.2 hours
+- Total plans completed: 3
+- Average duration: 5.7 min
+- Total execution time: 0.3 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 12. Data Foundation | 2/2 | 11 min | 5.5 min |
-| 13. Leaderboard Core | TBD | - | - |
+| 13. Leaderboard Core | 1/5 | 6 min | 6 min |
 | 14. Events and Championships | TBD | - | - |
 | 15. Telemetry and Driver Rating | TBD | - | - |
 
@@ -83,6 +68,10 @@ Progress: [██░░░░░░░░] 25%
 - [12-02] No backfill of historical laps: NULL car_class is sentinel for pre-v3.0 data
 - [12-02] car_class lookup uses driver_id + status='active' (not pod_id) to find billing session
 - [12-02] kiosk_experiences table added to test migrations for JOIN query validation
+- [13-01] Suspect flag is orthogonal to valid: valid=1 AND suspect=1 means game says ok but time/sectors are suspicious
+- [13-01] Zero sectors treated as absent (not flagged) since some sims report zeros instead of null
+- [13-01] Sector sum tolerance is 500ms for rounding across different sim telemetry systems
+- [13-01] Pre-migration laps get suspect=0 via DEFAULT, treating historical data as clean
 
 ### Pending Todos
 
@@ -95,6 +84,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T20:04:00.699Z
-Stopped at: Completed 12-02-PLAN.md
+Last session: 2026-03-14T21:34:08Z
+Stopped at: Completed 13-01-PLAN.md
 Resume file: None

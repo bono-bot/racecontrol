@@ -68,7 +68,7 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 13-01-PLAN.md — Suspect column + lap validity hardening in persist_lap (LB-05)
+- [x] 13-01-PLAN.md — Suspect column + lap validity hardening in persist_lap (LB-05)
 - [ ] 13-02-PLAN.md — Leaderboard sim_type filter + circuit/vehicle records endpoints (LB-01, LB-02, LB-03, LB-04, LB-06)
 - [ ] 13-03-PLAN.md — Track record "beaten" email notification (NTF-01, NTF-02)
 - [ ] 13-04-PLAN.md — Public driver search and profile endpoints (DRV-01, DRV-02, DRV-03, DRV-04)
@@ -119,6 +119,6 @@ Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records pa
 | 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 12. Data Foundation | v3.0 | 2/2 | Complete | 2026-03-14 |
-| 13. Leaderboard Core | v3.0 | 0/5 | Not started | - |
+| 13. Leaderboard Core | v3.0 | 1/5 | In Progress | - |
 | 14. Events and Championships | v3.0 | 0/? | Not started | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |

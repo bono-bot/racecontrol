@@ -22,7 +22,7 @@ Requirements for milestone v3.0. Each maps to roadmap phases.
 - [ ] **LB-02**: User can view circuit records page showing the all-time fastest lap per vehicle per circuit
 - [ ] **LB-03**: User can view vehicle records page showing the fastest lap per circuit for a given vehicle
 - [ ] **LB-04**: Leaderboard endpoints require sim_type filter — AC and F1 25 laps are never mixed on the same board
-- [ ] **LB-05**: Lap validity is hardened with sanity range check and sector-sum consistency before accepting a lap as valid
+- [x] **LB-05**: Lap validity is hardened with sanity range check and sector-sum consistency before accepting a lap as valid
 - [ ] **LB-06**: Only valid laps appear on leaderboards by default; user can toggle to show invalid laps
 
 ### Driver Profiles
@@ -127,7 +127,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | LB-02 | Phase 13 | Pending |
 | LB-03 | Phase 13 | Pending |
 | LB-04 | Phase 13 | Pending |
-| LB-05 | Phase 13 | Pending |
+| LB-05 | Phase 13 | Complete |
 | LB-06 | Phase 13 | Pending |
 | DRV-01 | Phase 13 | Pending |
 | DRV-02 | Phase 13 | Pending |
