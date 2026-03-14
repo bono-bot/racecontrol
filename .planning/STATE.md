@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Kiosk URL Reliability
 status: active
-stopped_at: Completed 08-pod-lock-screen-hardening Plan 01 — StartupConnecting state + startup wiring
-last_updated: "2026-03-14T00:07:36.741Z"
+stopped_at: Completed 08-pod-lock-screen-hardening Plan 03 — release binary built and staged, awaiting human verify checkpoint
+last_updated: "2026-03-14T00:14:44.033Z"
 last_activity: 2026-03-14 — rc-core reverse proxy + CORS fix committed, 21MB binary staged
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
   percent: 96
 ---
 
@@ -65,6 +65,7 @@ Progress: [███░░░░░░░] 35%
 | 07-server-pinning P02 | 1 | 2 tasks, 1 file | 30min |
 | Phase 08-pod-lock-screen-hardening P02 | 5min | 1 tasks | 1 files |
 | Phase 08-pod-lock-screen-hardening P01 | 25 | 2 tasks | 3 files |
+| Phase 08-pod-lock-screen-hardening P03 | 15 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,7 @@ Progress: [███░░░░░░░] 35%
 - [Phase 08-pod-lock-screen-hardening]: StartupConnecting classified as is_idle_or_blanked()=true — pod not ready for customers during startup, consistent with Disconnected and Hidden
 - [Phase 08-pod-lock-screen-hardening]: wait_for_self_ready() never panics — 5s deadline with graceful log warning, ensuring agent always starts even if HTTP server is slow
 - [Phase 08-pod-lock-screen-hardening]: Browser opened once by show_startup_connecting() at boot; state changes picked up by 3s JS reload, no re-launch needed on transitions
+- [Phase 08-pod-lock-screen-hardening]: rc-agent binary size is 6.7MB (not 15-25MB) — plan estimate was based on rc-core; size is correct and consistent with prior builds
 
 ### Pending Todos
 
@@ -110,6 +112,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T00:07:36.739Z
-Stopped at: Completed 08-pod-lock-screen-hardening Plan 01 — StartupConnecting state + startup wiring
+Last session: 2026-03-14T00:14:44.030Z
+Stopped at: Completed 08-pod-lock-screen-hardening Plan 03 — release binary built and staged, awaiting human verify checkpoint
 Resume file: None
