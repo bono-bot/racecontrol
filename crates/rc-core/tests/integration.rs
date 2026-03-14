@@ -1676,3 +1676,253 @@ async fn test_lap_suspect_zero_sectors_ignored() {
 
     assert_eq!(result.0, 0, "lap with zero sectors should NOT be suspect (zero = absent)");
 }
+
+// =============================================================================
+// Phase 13 Plan 02 — Leaderboard sim_type filtering + circuit/vehicle records
+// (LB-01, LB-02, LB-03, LB-04, LB-06)
+// =============================================================================
+
+/// Helper: insert a lap directly into the laps table for leaderboard query tests.
+async fn insert_test_lap(
+    pool: &SqlitePool,
+    id: &str,
+    driver_id: &str,
+    pod_id: &str,
+    sim_type: &str,
+    track: &str,
+    car: &str,
+    lap_time_ms: i64,
+    valid: bool,
+    suspect: i32,
+) {
+    sqlx::query(
+        "INSERT INTO laps (id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, valid, suspect)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)"
+    )
+    .bind(id)
+    .bind(driver_id)
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(track)
+    .bind(car)
+    .bind(lap_time_ms)
+    .bind(valid as i32)
+    .bind(suspect)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// LB-01 + LB-04: Track leaderboard with sim_type filter returns only matching sim laps.
+#[tokio::test]
+async fn test_leaderboard_sim_type_filter() {
+    let pool = create_test_db().await;
+
+    // Create two drivers
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('st-drv-1', 'AC Racer')")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('st-drv-2', 'F1 Racer')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "st-pod-1", 10).await;
+
+    // Insert AC lap on spa
+    insert_test_lap(&pool, "st-lap-1", "st-drv-1", "st-pod-1", "assetto_corsa", "spa", "ks_ferrari_sf15t", 85000, true, 0).await;
+    // Insert F1 25 lap on spa (same track!)
+    insert_test_lap(&pool, "st-lap-2", "st-drv-2", "st-pod-1", "f1_25", "spa", "rb21", 82000, true, 0).await;
+
+    // Query leaderboard filtered to assetto_corsa
+    let results = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT d.name, l.car, MIN(l.lap_time_ms)
+         FROM laps l
+         JOIN drivers d ON l.driver_id = d.id
+         WHERE l.track = 'spa' AND l.sim_type = 'assetto_corsa'
+           AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)
+         GROUP BY l.driver_id, l.car
+         ORDER BY MIN(l.lap_time_ms) ASC
+         LIMIT 50"
+    ).fetch_all(&pool).await.unwrap();
+
+    assert_eq!(results.len(), 1, "should only return AC laps");
+    assert_eq!(results[0].0, "AC Racer");
+    assert_eq!(results[0].1, "ks_ferrari_sf15t");
+    assert_eq!(results[0].2, 85000);
+}
+
+/// LB-01: No cross-sim leakage — querying f1_25 must not return AC laps.
+#[tokio::test]
+async fn test_leaderboard_no_cross_sim() {
+    let pool = create_test_db().await;
+
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('cs-drv-1', 'AC Driver')")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('cs-drv-2', 'F1 Driver')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "cs-pod-1", 11).await;
+
+    insert_test_lap(&pool, "cs-lap-1", "cs-drv-1", "cs-pod-1", "assetto_corsa", "monza", "ks_ferrari_sf15t", 90000, true, 0).await;
+    insert_test_lap(&pool, "cs-lap-2", "cs-drv-2", "cs-pod-1", "f1_25", "monza", "rb21", 88000, true, 0).await;
+
+    // Query for f1_25 only
+    let results = sqlx::query_as::<_, (String, i64)>(
+        "SELECT d.name, MIN(l.lap_time_ms)
+         FROM laps l
+         JOIN drivers d ON l.driver_id = d.id
+         WHERE l.track = 'monza' AND l.sim_type = 'f1_25'
+           AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)
+         GROUP BY l.driver_id, l.car
+         ORDER BY MIN(l.lap_time_ms) ASC
+         LIMIT 50"
+    ).fetch_all(&pool).await.unwrap();
+
+    assert_eq!(results.len(), 1, "should only return F1 25 laps");
+    assert_eq!(results[0].0, "F1 Driver");
+    // Verify no AC laps
+    let ac_check = results.iter().any(|r| r.0 == "AC Driver");
+    assert!(!ac_check, "AC laps must not appear in F1 25 leaderboard");
+}
+
+/// LB-06: Default leaderboard query hides suspect=1 laps.
+#[tokio::test]
+async fn test_leaderboard_suspect_hidden() {
+    let pool = create_test_db().await;
+
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('sh-drv-1', 'Clean Racer')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "sh-pod-1", 12).await;
+
+    // Valid, non-suspect lap
+    insert_test_lap(&pool, "sh-lap-1", "sh-drv-1", "sh-pod-1", "assetto_corsa", "nurburgring", "ks_bmw_m3_e30", 120000, true, 0).await;
+    // Valid, but suspect lap (faster but cheaty)
+    insert_test_lap(&pool, "sh-lap-2", "sh-drv-1", "sh-pod-1", "assetto_corsa", "nurburgring", "ks_bmw_m3_e30", 60000, true, 1).await;
+
+    // Default query (no show_invalid) should hide suspect
+    let results = sqlx::query_as::<_, (i64,)>(
+        "SELECT MIN(l.lap_time_ms)
+         FROM laps l
+         WHERE l.track = 'nurburgring' AND l.sim_type = 'assetto_corsa'
+           AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)
+         GROUP BY l.driver_id, l.car
+         ORDER BY MIN(l.lap_time_ms) ASC
+         LIMIT 50"
+    ).fetch_all(&pool).await.unwrap();
+
+    assert_eq!(results.len(), 1, "should return 1 entry");
+    assert_eq!(results[0].0, 120000, "should show the clean lap, not the suspect 60s lap");
+}
+
+/// LB-06: show_invalid=true includes valid=0 laps but still hides suspect=1.
+#[tokio::test]
+async fn test_leaderboard_invalid_toggle() {
+    let pool = create_test_db().await;
+
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('it-drv-1', 'Toggle Racer')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "it-pod-1", 13).await;
+
+    // Valid, clean lap
+    insert_test_lap(&pool, "it-lap-1", "it-drv-1", "it-pod-1", "assetto_corsa", "brands_hatch", "ks_audi_r8", 95000, true, 0).await;
+    // Invalid (cut corner), clean lap
+    insert_test_lap(&pool, "it-lap-2", "it-drv-1", "it-pod-1", "assetto_corsa", "brands_hatch", "ks_audi_r8", 93000, false, 0).await;
+    // Valid, suspect lap (should STILL be hidden even with show_invalid)
+    insert_test_lap(&pool, "it-lap-3", "it-drv-1", "it-pod-1", "assetto_corsa", "brands_hatch", "ks_audi_r8", 50000, true, 1).await;
+
+    // show_invalid=true: drop the valid=1 filter but keep suspect filter
+    let results = sqlx::query_as::<_, (i64,)>(
+        "SELECT MIN(l.lap_time_ms)
+         FROM laps l
+         WHERE l.track = 'brands_hatch' AND l.sim_type = 'assetto_corsa'
+           AND (l.suspect IS NULL OR l.suspect = 0)
+         GROUP BY l.driver_id, l.car
+         ORDER BY MIN(l.lap_time_ms) ASC
+         LIMIT 50"
+    ).fetch_all(&pool).await.unwrap();
+
+    assert_eq!(results.len(), 1, "should return 1 entry (grouped by driver+car)");
+    // The invalid lap (93000) is faster than the valid one (95000) and non-suspect, so it shows
+    assert_eq!(results[0].0, 93000, "invalid but non-suspect lap should appear with show_invalid");
+}
+
+/// LB-02: Circuit records — one record per (track, car, sim_type).
+#[tokio::test]
+async fn test_circuit_records() {
+    let pool = create_test_db().await;
+
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('cr-drv-1', 'Record Setter A')")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('cr-drv-2', 'Record Setter B')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "cr-pod-1", 14).await;
+
+    // 3 distinct (track, car, sim_type) combos
+    insert_test_lap(&pool, "cr-lap-1", "cr-drv-1", "cr-pod-1", "assetto_corsa", "spa", "ks_ferrari_sf15t", 85000, true, 0).await;
+    insert_test_lap(&pool, "cr-lap-2", "cr-drv-1", "cr-pod-1", "assetto_corsa", "spa", "ks_ferrari_sf15t", 87000, true, 0).await; // slower, same combo
+    insert_test_lap(&pool, "cr-lap-3", "cr-drv-2", "cr-pod-1", "assetto_corsa", "monza", "ks_bmw_m3_e30", 78000, true, 0).await;
+    insert_test_lap(&pool, "cr-lap-4", "cr-drv-1", "cr-pod-1", "f1_25", "spa", "rb21", 80000, true, 0).await;
+    // Suspect lap — should be excluded from records
+    insert_test_lap(&pool, "cr-lap-5", "cr-drv-2", "cr-pod-1", "assetto_corsa", "spa", "ks_ferrari_sf15t", 70000, true, 1).await;
+
+    let records = sqlx::query_as::<_, (String, String, String, i64)>(
+        "SELECT l.track, l.car, l.sim_type, MIN(l.lap_time_ms)
+         FROM laps l
+         WHERE l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)
+         GROUP BY l.track, l.car, l.sim_type
+         ORDER BY l.track, l.car"
+    ).fetch_all(&pool).await.unwrap();
+
+    assert_eq!(records.len(), 3, "should have 3 records (3 unique track+car+sim_type combos)");
+
+    // Verify the AC spa ferrari record is 85000 (not 70000 which is suspect)
+    let spa_ac = records.iter().find(|r| r.0 == "spa" && r.2 == "assetto_corsa").unwrap();
+    assert_eq!(spa_ac.3, 85000, "AC spa record should be 85000 (suspect 70000 excluded)");
+
+    // Verify monza record
+    let monza = records.iter().find(|r| r.0 == "monza").unwrap();
+    assert_eq!(monza.3, 78000);
+
+    // Verify F1 25 spa record
+    let spa_f1 = records.iter().find(|r| r.0 == "spa" && r.2 == "f1_25").unwrap();
+    assert_eq!(spa_f1.3, 80000);
+}
+
+/// LB-03: Vehicle records — best per track for a given car.
+#[tokio::test]
+async fn test_vehicle_records() {
+    let pool = create_test_db().await;
+
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('vr-drv-1', 'Car Fan')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "vr-pod-1", 15).await;
+
+    let car = "ks_ferrari_sf15t";
+    // Same car on 3 different tracks
+    insert_test_lap(&pool, "vr-lap-1", "vr-drv-1", "vr-pod-1", "assetto_corsa", "spa", car, 85000, true, 0).await;
+    insert_test_lap(&pool, "vr-lap-2", "vr-drv-1", "vr-pod-1", "assetto_corsa", "monza", car, 78000, true, 0).await;
+    insert_test_lap(&pool, "vr-lap-3", "vr-drv-1", "vr-pod-1", "assetto_corsa", "brands_hatch", car, 92000, true, 0).await;
+    // Faster lap on spa but suspect — should be excluded
+    insert_test_lap(&pool, "vr-lap-4", "vr-drv-1", "vr-pod-1", "assetto_corsa", "spa", car, 70000, true, 1).await;
+    // Different car on spa — should not appear
+    insert_test_lap(&pool, "vr-lap-5", "vr-drv-1", "vr-pod-1", "assetto_corsa", "spa", "ks_bmw_m3_e30", 80000, true, 0).await;
+
+    let results = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT l.track, l.sim_type, MIN(l.lap_time_ms)
+         FROM laps l
+         WHERE l.car = ? AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)
+         GROUP BY l.track, l.sim_type
+         ORDER BY l.track"
+    )
+    .bind(car)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 3, "should have 3 track records for this car");
+
+    let brands = results.iter().find(|r| r.0 == "brands_hatch").unwrap();
+    assert_eq!(brands.2, 92000);
+
+    let monza = results.iter().find(|r| r.0 == "monza").unwrap();
+    assert_eq!(monza.2, 78000);
+
+    let spa = results.iter().find(|r| r.0 == "spa").unwrap();
+    assert_eq!(spa.2, 85000, "spa record should be 85000 (suspect 70000 excluded)");
+}
