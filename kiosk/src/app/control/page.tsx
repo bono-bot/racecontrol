@@ -13,6 +13,7 @@ export default function ControlPage() {
   const [staffName, setStaffName] = useState<string | null>(null);
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
   const [venueName, setVenueName] = useState("Racing Point");
+  const [lockedPods, setLockedPods] = useState<Set<string>>(new Set());
 
   const {
     connected,
@@ -90,6 +91,37 @@ export default function ControlPage() {
     await api.shutdownAllPods();
   };
 
+  const handleRestartAll = async () => {
+    if (!window.confirm("Restart ALL pods? Active sessions will be interrupted.")) return;
+    await api.restartAllPods();
+  };
+
+  const handleLockAll = async () => {
+    if (!window.confirm("Lock ALL pods? Taskbar and keyboard will be restricted.")) return;
+    const allOnlineIds = sortedPods
+      .filter((p) => p.status !== "offline" && p.status !== "disabled")
+      .map((p) => p.id);
+    setLockedPods(new Set(allOnlineIds));
+    await api.lockdownAllPods(true);
+  };
+
+  const handleUnlockAll = async () => {
+    setLockedPods(new Set());
+    await api.lockdownAllPods(false);
+  };
+
+  const handleToggleLockdown = async (podId: string) => {
+    const isCurrentlyLocked = lockedPods.has(podId);
+    const newLocked = !isCurrentlyLocked;
+    setLockedPods((prev) => {
+      const next = new Set(prev);
+      if (newLocked) next.add(podId);
+      else next.delete(podId);
+      return next;
+    });
+    await api.lockdownPod(podId, newLocked);
+  };
+
   if (!staffName) return null;
 
   return (
@@ -115,6 +147,24 @@ export default function ControlPage() {
           className="px-3 py-1 rounded text-xs font-semibold bg-red-900/50 text-red-400 border border-red-800 hover:bg-red-800/60 transition-colors"
         >
           Shutdown All
+        </button>
+        <button
+          onClick={handleRestartAll}
+          className="px-3 py-1 rounded text-xs font-semibold bg-yellow-900/50 text-yellow-400 border border-yellow-800 hover:bg-yellow-800/60 transition-colors"
+        >
+          Restart All
+        </button>
+        <button
+          onClick={handleLockAll}
+          className="px-3 py-1 rounded text-xs font-semibold bg-orange-900/50 text-orange-400 border border-orange-800 hover:bg-orange-800/60 transition-colors"
+        >
+          Lock All
+        </button>
+        <button
+          onClick={handleUnlockAll}
+          className="px-3 py-1 rounded text-xs font-semibold bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 transition-colors"
+        >
+          Unlock All
         </button>
       </div>
 
@@ -179,6 +229,26 @@ export default function ControlPage() {
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
+                      </svg>
+                    </button>
+                  )}
+                  {/* Lockdown toggle — shown when online */}
+                  {isOnline && (
+                    <button
+                      onClick={() => handleToggleLockdown(pod.id)}
+                      className={`w-6 h-6 flex items-center justify-center rounded text-[10px] transition-colors ${
+                        lockedPods.has(pod.id)
+                          ? "bg-orange-700/60 text-orange-300 hover:bg-orange-600/50"
+                          : "bg-orange-900/40 text-orange-400 hover:bg-orange-800/50"
+                      }`}
+                      title={lockedPods.has(pod.id) ? "Unlock kiosk" : "Lock kiosk"}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        {lockedPods.has(pod.id) ? (
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        ) : (
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                        )}
                       </svg>
                     </button>
                   )}

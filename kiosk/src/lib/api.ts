@@ -286,6 +286,18 @@ export const api = {
     fetchApi<{ status: string; results: unknown[] }>("/pods/wake-all", { method: "POST" }),
   shutdownAllPods: () =>
     fetchApi<{ status: string; results: unknown[] }>("/pods/shutdown-all", { method: "POST" }),
+  restartAllPods: () =>
+    fetchApi<{ status: string; results: unknown[] }>("/pods/restart-all", { method: "POST" }),
+  lockdownPod: (id: string, locked: boolean) =>
+    fetchApi<{ ok: boolean; pod_id: string; locked: boolean }>(
+      `/pods/${id}/lockdown`,
+      { method: "POST", body: JSON.stringify({ locked }) }
+    ),
+  lockdownAllPods: (locked: boolean) =>
+    fetchApi<{ ok: boolean; results: unknown[] }>(
+      "/pods/lockdown-all",
+      { method: "POST", body: JSON.stringify({ locked }) }
+    ),
 
   // Pod Enable/Disable
   enablePod: (id: string) =>
