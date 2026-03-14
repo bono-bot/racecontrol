@@ -11,6 +11,7 @@ import type {
   CatalogCar,
   CustomBookingPayload,
   FriendInfo,
+  PresetEntry,
 } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────
@@ -83,6 +84,9 @@ function BookWizard() {
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
 
+  // ── Preset landing screen vs wizard toggle
+  const [showPresets, setShowPresets] = useState(true);
+
   // ── Wizard state
   const [step, setStep] = useState(1);
   const [tier, setTier] = useState<PricingTier | null>(null);
@@ -122,7 +126,7 @@ function BookWizard() {
   // Multi:  1=Duration, 2=Game, 3=Mode, 4=Friends, 5=Track, 6=Car, 7=Difficulty, 8=Transmission, 9=Confirm
   const stepContent = stepLabels[step - 1];
 
-  // ── Load initial data
+  // ── Load initial data (including catalog eagerly for preset display)
   useEffect(() => {
     if (!isLoggedIn()) {
       router.replace("/login");
@@ -130,12 +134,14 @@ function BookWizard() {
     }
     async function load() {
       try {
-        const [pRes, eRes] = await Promise.all([
+        const [pRes, eRes, catRes] = await Promise.all([
           api.profile(),
           api.experiences(),
+          api.acCatalog(),
         ]);
         if (pRes.driver) setProfile(pRes.driver);
         if (eRes.pricing_tiers) setTiers(eRes.pricing_tiers);
+        if (catRes.tracks && catRes.cars) setCatalog(catRes);
 
         // Active reservation → redirect
         if (pRes.driver?.active_reservation) {
@@ -148,6 +154,7 @@ function BookWizard() {
           const trialTier = eRes.pricing_tiers.find((t) => t.is_trial);
           if (trialTier) {
             setTier(trialTier);
+            setShowPresets(false);
             setStep(2);
           }
         }
@@ -193,6 +200,31 @@ function BookWizard() {
     } else {
       router.push("/dashboard");
     }
+  }
+
+  // ── Preset selection: pre-fill wizard and jump to Confirm
+  function selectPreset(preset: PresetEntry) {
+    if (!catalog) return;
+    const foundTrack = catalog.tracks.all.find((t) => t.id === preset.track_id);
+    const foundCar = catalog.cars.all.find((c) => c.id === preset.car_id);
+    if (!foundTrack || !foundCar) {
+      setError(`Preset "${preset.name}" references content not available on this pod.`);
+      return;
+    }
+    setTrack(foundTrack);
+    setCar(foundCar);
+    const diff = preset.difficulty as "easy" | "medium" | "hard";
+    setDifficulty(["easy", "medium", "hard"].includes(diff) ? diff : "easy");
+    setShowPresets(false);
+    // Jump to Confirm step
+    const confirmIdx = stepLabels.indexOf("Confirm");
+    if (confirmIdx >= 0) setStep(confirmIdx + 1);
+  }
+
+  // ── Start custom wizard from scratch
+  function startCustom() {
+    setShowPresets(false);
+    setStep(1);
   }
 
   // ── Booking
@@ -262,6 +294,104 @@ function BookWizard() {
     );
   }
 
+  // ── Preset landing screen (first screen when booking)
+  if (showPresets) {
+    const presets = catalog?.presets || [];
+    const featured = presets.filter((p) => p.featured);
+    const categories = ["Race", "Casual", "Challenge"] as const;
+
+    return (
+      <div className="min-h-screen pb-24">
+        {/* Header */}
+        <div className="px-4 pt-6 pb-4">
+          <div className="flex items-center gap-3 mb-2">
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-rp-card border border-rp-border"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <div className="flex-1">
+              <h1 className="text-xl font-bold text-white">Choose Your Experience</h1>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-rp-grey">Credits</p>
+              <p className="text-sm font-bold text-white">
+                {((profile?.wallet_balance_paise || 0) / 100).toFixed(0)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="mx-4 mb-4 bg-red-900/30 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm">
+            {error}
+            <button onClick={() => setError(null)} className="ml-2 underline">Dismiss</button>
+          </div>
+        )}
+
+        <div className="px-4 space-y-6">
+          {/* Staff Picks Hero Section */}
+          {featured.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-rp-grey uppercase tracking-wide mb-3">Staff Picks</h2>
+              <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+                {featured.map((preset) => (
+                  <PresetCard key={preset.id} preset={preset} size="hero" onSelect={selectPreset} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Category Sections */}
+          {categories.map((cat) => {
+            const catPresets = presets.filter((p) => p.category === cat);
+            if (catPresets.length === 0) return null;
+            return (
+              <div key={cat}>
+                <h2 className="text-sm font-semibold text-rp-grey uppercase tracking-wide mb-3">{cat}</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {catPresets.map((preset) => (
+                    <PresetCard key={preset.id} preset={preset} size="compact" onSelect={selectPreset} />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Empty state */}
+          {presets.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-rp-grey mb-2">No preset experiences available</p>
+              <p className="text-rp-grey text-sm">Build your own custom setup below</p>
+            </div>
+          )}
+
+          {/* Custom Experience Button */}
+          <button
+            onClick={startCustom}
+            className="w-full bg-rp-card border-2 border-rp-border rounded-xl p-5 text-left hover:border-rp-red/50 transition-colors"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-rp-dark flex items-center justify-center border border-rp-border shrink-0">
+                <svg className="w-6 h-6 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V18M18 12H6" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-white font-semibold text-lg">Build Your Own Experience</p>
+                <p className="text-rp-grey text-sm mt-0.5">Choose your car, track, and settings</p>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen pb-24">
       {/* Header */}
@@ -279,11 +409,26 @@ function BookWizard() {
             <h1 className="text-lg font-bold text-white">{stepLabels[step - 1]}</h1>
             <p className="text-xs text-rp-grey">Step {step} of {totalSteps}</p>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-rp-grey">Credits</p>
-            <p className="text-sm font-bold text-white">
-              {((profile?.wallet_balance_paise || 0) / 100).toFixed(0)}
-            </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setShowPresets(true);
+                setStep(1);
+                setTrack(null);
+                setCar(null);
+                setDifficulty("easy");
+                setTransmission("auto");
+              }}
+              className="text-xs text-rp-red font-medium"
+            >
+              Back to Presets
+            </button>
+            <div className="text-right">
+              <p className="text-xs text-rp-grey">Credits</p>
+              <p className="text-sm font-bold text-white">
+                {((profile?.wallet_balance_paise || 0) / 100).toFixed(0)}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -1285,5 +1430,60 @@ function BookedPinScreen({
         View Session
       </button>
     </div>
+  );
+}
+
+// ─── Category gradient helpers ──────────────────────────────────────────
+
+const CATEGORY_GRADIENTS: Record<string, string> = {
+  Race: "from-[#E10600] to-[#8B0000]",
+  Casual: "from-[#1a3a5c] to-[#0d1b2a]",
+  Challenge: "from-[#4a0e4e] to-[#1a0a2e]",
+};
+
+function PresetCard({
+  preset,
+  size,
+  onSelect,
+}: {
+  preset: PresetEntry;
+  size: "hero" | "compact";
+  onSelect: (p: PresetEntry) => void;
+}) {
+  const gradient = CATEGORY_GRADIENTS[preset.category] || CATEGORY_GRADIENTS.Race;
+  const isHero = size === "hero";
+
+  return (
+    <button
+      onClick={() => onSelect(preset)}
+      className={`relative rounded-xl bg-gradient-to-br ${gradient} text-left overflow-hidden transition-transform active:scale-[0.98] ${
+        isHero ? "min-w-[260px] w-[260px] p-5 shrink-0" : "p-4"
+      }`}
+    >
+      {/* Duration badge */}
+      <span className="absolute top-3 right-3 bg-black/40 backdrop-blur-sm text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+        {preset.duration_hint}
+      </span>
+
+      {/* Category badge */}
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-white/50">
+        {preset.category}
+      </span>
+
+      {/* Track name */}
+      <p className={`font-bold text-white mt-1 leading-tight ${isHero ? "text-lg" : "text-sm"}`}>
+        {preset.track_name}
+      </p>
+
+      {/* Car name */}
+      <p className={`text-white/80 mt-0.5 ${isHero ? "text-sm" : "text-xs"}`}>
+        {preset.car_name}
+      </p>
+
+      {/* Tagline */}
+      <p className={`text-white/60 mt-1 line-clamp-2 ${isHero ? "text-xs" : "text-[11px]"}`}>
+        {preset.tagline}
+      </p>
+    </button>
   );
 }
