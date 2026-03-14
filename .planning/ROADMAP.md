@@ -104,7 +104,7 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 10-01-PLAN.md — Add lockdown API routes (per-pod + bulk) and parse_mac unit tests in rc-core
+- [x] 10-01-PLAN.md — Add lockdown API routes (per-pod + bulk) and parse_mac unit tests in rc-core
 - [ ] 10-02-PLAN.md — Wire lockdown + restart-all to kiosk /control page UI (api.ts + buttons)
 
 ### Phase 11: Customer Experience Polish
@@ -136,5 +136,5 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
 | 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
-| 10. Staff Dashboard Controls | v2.0 | 0/2 | Planned | - |
+| 10. Staff Dashboard Controls | v2.0 | 1/2 | In Progress | - |
 | 11. Customer Experience Polish | v2.0 | 0/TBD | Not started | - |

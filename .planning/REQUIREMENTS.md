@@ -27,14 +27,14 @@
 
 ### Kiosk Mode Control
 
-- [ ] **KIOSK-01**: Staff can toggle full pod lockdown (taskbar, Win key, Edge kiosk) on or off for a specific pod from the staff kiosk dashboard
-- [ ] **KIOSK-02**: Staff can lock or unlock all 8 pods at once from the staff kiosk dashboard (e.g., opening/closing the venue)
+- [x] **KIOSK-01**: Staff can toggle full pod lockdown (taskbar, Win key, Edge kiosk) on or off for a specific pod from the staff kiosk dashboard
+- [x] **KIOSK-02**: Staff can lock or unlock all 8 pods at once from the staff kiosk dashboard (e.g., opening/closing the venue)
 
 ### Pod Power Management
 
-- [ ] **PWR-01**: Staff can power off a specific pod remotely from the staff kiosk dashboard
-- [ ] **PWR-02**: Staff can restart a specific pod remotely from the staff kiosk dashboard
-- [ ] **PWR-03**: Staff can power on a specific pod remotely from the staff kiosk dashboard (Wake-on-LAN)
+- [x] **PWR-01**: Staff can power off a specific pod remotely from the staff kiosk dashboard
+- [x] **PWR-02**: Staff can restart a specific pod remotely from the staff kiosk dashboard
+- [x] **PWR-03**: Staff can power on a specific pod remotely from the staff kiosk dashboard (Wake-on-LAN)
 - [ ] **PWR-04**: Staff can power off all 8 pods at once from the staff kiosk dashboard
 - [ ] **PWR-05**: Staff can restart all 8 pods at once from the staff kiosk dashboard
 - [ ] **PWR-06**: Staff can power on all 8 pods at once from the staff kiosk dashboard (Wake-on-LAN)
@@ -92,11 +92,11 @@
 | LOCK-01 | Phase 8 | Complete |
 | LOCK-02 | Phase 8 | Complete |
 | LOCK-03 | Phase 8 | Complete |
-| KIOSK-01 | Phase 10 | Pending |
-| KIOSK-02 | Phase 10 | Pending |
-| PWR-01 | Phase 10 | Pending |
-| PWR-02 | Phase 10 | Pending |
-| PWR-03 | Phase 10 | Pending |
+| KIOSK-01 | Phase 10 | Complete |
+| KIOSK-02 | Phase 10 | Complete |
+| PWR-01 | Phase 10 | Complete |
+| PWR-02 | Phase 10 | Complete |
+| PWR-03 | Phase 10 | Complete |
 | PWR-04 | Phase 10 | Pending |
 | PWR-05 | Phase 10 | Pending |
 | PWR-06 | Phase 10 | Pending |
@@ -117,4 +117,4 @@
 
 ---
 *Requirements defined: 2026-03-13*
-*Last updated: 2026-03-13 after roadmap created (phases 6–11)*
+*Last updated: 2026-03-14 after 10-01 complete (KIOSK-01, KIOSK-02, PWR-01, PWR-02, PWR-03 marked complete)*

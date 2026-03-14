@@ -3,31 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Kiosk URL Reliability
 status: active
-stopped_at: Completed 08-pod-lock-screen-hardening Plan 03 — release binary built and staged, awaiting human verify checkpoint
-last_updated: "2026-03-14T00:14:44.033Z"
-last_activity: 2026-03-14 — rc-core reverse proxy + CORS fix committed, 21MB binary staged
+stopped_at: Phase 10-01 staff lockdown API routes complete
+last_updated: "2026-03-14"
+last_activity: 2026-03-14 — lockdown_pod + lockdown_all_pods routes added, 10 new tests passing
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
-  percent: 96
----
-
----
-gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Kiosk URL Reliability
-status: active
-stopped_at: Phase 7 Plan 02 COMPLETE — rc-core proxy committed, deployment pending physical server access
-last_updated: "2026-03-14"
-last_activity: 2026-03-14 — rc-core reverse proxy committed, binary staged, server deploy blocked by SAC
-progress:
-  [██████████] 96%
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 50
+  completed_phases: 4
+  total_plans: 9
+  completed_plans: 9
+  percent: 70
 ---
 
 # Project State
@@ -37,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** Every URL in the venue always works — staff kiosk, customer PIN grid, pod lock screens are permanently accessible with zero manual intervention.
-**Current focus:** Phase 7 COMPLETE (code) — server deployment pending physical access, Phase 8 next after deploy
+**Current focus:** Phases 6-9 COMPLETE — Phase 10 (Staff Dashboard Controls) or Phase 11 (Customer Experience Polish) next
 
 ## Current Position
 
-Phase: 7 of 11 (Server-Side Pinning) — Code complete, deployment pending
-Plan: 2 of 2 in current phase — BOTH DONE
-Status: rc-core proxy code committed (ea9a728, 3db7403), binary staged at deploy-staging/racecontrol.exe. Server deployment blocked by Windows SAC — requires physical access to .23.
-Last activity: 2026-03-14 — rc-core reverse proxy + CORS fix committed, 21MB binary staged
+Phase: 10 of 11 (Staff Dashboard Controls) — IN PROGRESS
+Plan: 1 of N — DONE
+Status: Lockdown API routes complete (lockdown_pod + lockdown_all_pods). Frontend wiring + UI controls remain.
+Last activity: 2026-03-14 — 10-01 backend lockdown routes + 10 new unit tests committed (564b8ee)
 
-Progress: [███░░░░░░░] 35%
+Progress: [███████░░░] 70%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4 (v2.0)
-- Average duration: ~20min
-- Total execution time: ~80min
+- Total plans completed: 9 (v2.0)
+- Average duration: ~15min
+- Total execution time: ~145min
 
 **By Phase:**
 
@@ -63,9 +47,11 @@ Progress: [███░░░░░░░] 35%
 | 06-diagnosis P02 | 1 | 2 tasks, 1 file | 10min |
 | 07-server-pinning P01 | 1 | 2 tasks, 0 files | 15min |
 | 07-server-pinning P02 | 1 | 2 tasks, 1 file | 30min |
-| Phase 08-pod-lock-screen-hardening P02 | 5min | 1 tasks | 1 files |
-| Phase 08-pod-lock-screen-hardening P01 | 25 | 2 tasks | 3 files |
-| Phase 08-pod-lock-screen-hardening P03 | 15 | 1 tasks | 1 files |
+| 08-pod-lock-screen-hardening P01 | 1 | 2 tasks, 3 files | 25min |
+| 08-pod-lock-screen-hardening P02 | 1 | 1 tasks, 1 file | 5min |
+| 08-pod-lock-screen-hardening P03 | 1 | 1 tasks, 1 file | 15min |
+| 09-edge-browser-hardening P01 | 1 | 2 tasks, 1 file | 5min |
+| 10-staff-dashboard-controls P01 | 1 | 1 task, 3 files | 25min |
 
 ## Accumulated Context
 
@@ -96,6 +82,11 @@ Progress: [███░░░░░░░] 35%
 - [Phase 08-pod-lock-screen-hardening]: wait_for_self_ready() never panics — 5s deadline with graceful log warning, ensuring agent always starts even if HTTP server is slow
 - [Phase 08-pod-lock-screen-hardening]: Browser opened once by show_startup_connecting() at boot; state changes picked up by 3s JS reload, no re-launch needed on transitions
 - [Phase 08-pod-lock-screen-hardening]: rc-agent binary size is 6.7MB (not 15-25MB) — plan estimate was based on rc-core; size is correct and consistent with prior builds
+- [Phase 09-edge-browser-hardening]: reg query with quoted paths fails via pod-agent JSON exec; unquoted paths work. Use bat files for complex registry operations.
+- [Phase 09-edge-browser-hardening]: MicrosoftEdgeElevationService exists on all 8 pods (error 1060 in Phase 6 was for MicrosoftEdgeUpdate). All 3 services disabled.
+- [Phase 10-01]: Lockdown toggle is ephemeral (no DB write) — resets to rc-agent config default on restart; correct behavior since default is locked
+- [Phase 10-01]: parse_mac changed to pub(crate) for unit testability; BillingTimer::dummy() added as cfg(test) helper
+- [Phase 10-01]: /pods/lockdown-all registered with static bulk routes before {id} dynamic routes to prevent Axum routing conflict
 
 ### Pending Todos
 
@@ -108,10 +99,11 @@ None.
 - ~~Kiosk port confirmation~~ → RESOLVED: 3300 (not listening on server, free to use)
 - ~~Server DHCP lease expires nightly~~ → RESOLVED: DHCP reservation pinned to .23
 - ~~Node.js must be installed on server~~ → RESOLVED: kiosk runs through rc-core proxy, no direct node.exe network access needed
+- ~~Edge auto-updates could break kiosk~~ → RESOLVED: EdgeUpdate services disabled on all 8 pods
 - **OPEN: Server deployment requires physical access** — SAC blocks WinRM/pod-agent remote exec. Steps documented in 07-02-SUMMARY.md "User Setup Required". Binary staged at deploy-staging/racecontrol.exe (21MB).
 
 ## Session Continuity
 
-Last session: 2026-03-14T00:14:44.030Z
-Stopped at: Completed 08-pod-lock-screen-hardening Plan 03 — release binary built and staged, awaiting human verify checkpoint
+Last session: 2026-03-14
+Stopped at: Completed 10-01-PLAN.md — lockdown API routes + tests
 Resume file: None
