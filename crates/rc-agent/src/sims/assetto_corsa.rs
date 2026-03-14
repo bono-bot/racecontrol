@@ -149,31 +149,6 @@ impl AssettoCorsaAdapter {
         }
     }
 
-    /// Read current assist state from AC physics shared memory.
-    ///
-    /// Returns (abs_level, tc_level, auto_shifter) where:
-    /// - abs_level: 0=off, 1-4=active level
-    /// - tc_level: 0=off, 1-4=active level
-    /// - auto_shifter: true=automatic, false=manual
-    #[cfg(windows)]
-    pub fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
-        let ph = self.physics_handle.as_ref()?;
-
-        let abs_val = Self::read_f32(ph, physics::ABS);
-        let tc_val = Self::read_f32(ph, physics::TC);
-        let auto_shifter = Self::read_i32(ph, physics::AUTO_SHIFTER_ON);
-
-        let abs = if abs_val > 0.0 { (abs_val as u8).max(1) } else { 0 };
-        let tc = if tc_val > 0.0 { (tc_val as u8).max(1) } else { 0 };
-
-        Some((abs, tc, auto_shifter != 0))
-    }
-
-    #[cfg(not(windows))]
-    pub fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
-        None
-    }
-
     #[cfg(windows)]
     fn read_wchar_string(handle: &ShmHandle, offset: usize, max_chars: usize) -> String {
         unsafe {
@@ -458,6 +433,25 @@ impl SimAdapter for AssettoCorsaAdapter {
 
     #[cfg(not(windows))]
     fn read_ac_status(&self) -> Option<AcStatus> {
+        None
+    }
+
+    #[cfg(windows)]
+    fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
+        let ph = self.physics_handle.as_ref()?;
+
+        let abs_val = Self::read_f32(ph, physics::ABS);
+        let tc_val = Self::read_f32(ph, physics::TC);
+        let auto_shifter = Self::read_i32(ph, physics::AUTO_SHIFTER_ON);
+
+        let abs = if abs_val > 0.0 { (abs_val as u8).max(1) } else { 0 };
+        let tc = if tc_val > 0.0 { (tc_val as u8).max(1) } else { 0 };
+
+        Some((abs, tc, auto_shifter != 0))
+    }
+
+    #[cfg(not(windows))]
+    fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
         None
     }
 }

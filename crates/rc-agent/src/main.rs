@@ -547,6 +547,9 @@ async fn main() -> Result<()> {
         // Cache driver_name from BillingStarted for use in LaunchGame splash screen.
         // LaunchGame message does not carry driver_name — must be cached here.
         let mut current_driver_name: Option<String> = None;
+        // Phase 6: Cache last-sent FFB gain percentage for QueryAssistState responses.
+        // Default 70% (medium preset) — could read from controls.ini GAIN= at startup.
+        let mut last_ffb_percent: u8 = 70;
 
         loop {
             tokio::select! {
@@ -1492,15 +1495,187 @@ async fn main() -> Result<()> {
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SetTransmission { transmission } => {
-                                    tracing::info!("Setting transmission to '{}' mid-session", transmission);
-                                    if let Err(e) = ac_launcher::set_transmission(&transmission) {
-                                        tracing::error!("Failed to set transmission: {}", e);
+                                    // Phase 6: instant toggle via SendInput instead of INI write
+                                    tracing::info!("Setting transmission to '{}' mid-session (SendInput)", transmission);
+                                    ac_launcher::mid_session::toggle_ac_transmission();
+                                    tokio::time::sleep(Duration::from_millis(100)).await;
+                                    // Read confirmed state from shared memory
+                                    let auto_shifter = adapter.as_ref()
+                                        .and_then(|a| a.read_assist_state())
+                                        .map(|(_, _, a)| a)
+                                        .unwrap_or(false);
+                                    overlay.show_toast(if auto_shifter { "Transmission: AUTO".into() } else { "Transmission: MANUAL".into() });
+                                    let confirm = rc_common::protocol::AgentMessage::AssistChanged {
+                                        pod_id: pod_id.clone(),
+                                        assist_type: "transmission".into(),
+                                        enabled: auto_shifter,
+                                        confirmed: true,
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&confirm) {
+                                        let _ = ws_tx.send(Message::Text(json.into())).await;
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SetFfb { preset } => {
+                                    // Phase 6: parse as percent if numeric, otherwise use legacy preset lookup
                                     tracing::info!("Setting FFB to '{}' mid-session", preset);
-                                    if let Err(e) = ac_launcher::set_ffb(&preset) {
-                                        tracing::error!("Failed to set FFB: {}", e);
+                                    if let Ok(percent) = preset.parse::<u8>() {
+                                        match ffb.set_gain(percent) {
+                                            Ok(true) => {
+                                                let clamped = percent.clamp(10, 100);
+                                                last_ffb_percent = clamped;
+                                                overlay.show_toast(format!("FFB: {}%", clamped));
+                                                let confirm = rc_common::protocol::AgentMessage::FfbGainChanged {
+                                                    pod_id: pod_id.clone(),
+                                                    percent: clamped,
+                                                };
+                                                if let Ok(json) = serde_json::to_string(&confirm) {
+                                                    let _ = ws_tx.send(Message::Text(json.into())).await;
+                                                }
+                                            }
+                                            Ok(false) => tracing::warn!("FFB: wheelbase not found for SetFfb"),
+                                            Err(e) => tracing::error!("FFB gain error: {}", e),
+                                        }
+                                    } else {
+                                        // Legacy preset fallback (writes INI for next launch)
+                                        if let Err(e) = ac_launcher::set_ffb(&preset) {
+                                            tracing::error!("Failed to set FFB (legacy): {}", e);
+                                        }
+                                    }
+                                }
+                                rc_common::protocol::CoreToAgentMessage::SetAssist { assist_type, enabled } => {
+                                    tracing::info!("SetAssist: type={}, enabled={}", assist_type, enabled);
+                                    match assist_type.as_str() {
+                                        "abs" => {
+                                            let current = adapter.as_ref()
+                                                .and_then(|a| a.read_assist_state())
+                                                .map(|(abs, _, _)| abs > 0)
+                                                .unwrap_or(false);
+                                            if current != enabled {
+                                                if enabled {
+                                                    ac_launcher::mid_session::toggle_ac_abs();
+                                                } else {
+                                                    let level = adapter.as_ref()
+                                                        .and_then(|a| a.read_assist_state())
+                                                        .map(|(abs, _, _)| abs)
+                                                        .unwrap_or(1);
+                                                    for _ in 0..level {
+                                                        ac_launcher::mid_session::send_ctrl_shift_key(0x41);
+                                                        tokio::time::sleep(Duration::from_millis(50)).await;
+                                                    }
+                                                }
+                                            }
+                                            tokio::time::sleep(Duration::from_millis(100)).await;
+                                            let confirmed_abs = adapter.as_ref()
+                                                .and_then(|a| a.read_assist_state())
+                                                .map(|(abs, _, _)| abs > 0)
+                                                .unwrap_or(false);
+                                            overlay.show_toast(if confirmed_abs { "ABS: ON".into() } else { "ABS: OFF".into() });
+                                            let confirm = rc_common::protocol::AgentMessage::AssistChanged {
+                                                pod_id: pod_id.clone(),
+                                                assist_type: "abs".into(),
+                                                enabled: confirmed_abs,
+                                                confirmed: true,
+                                            };
+                                            if let Ok(json) = serde_json::to_string(&confirm) {
+                                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                                            }
+                                        }
+                                        "tc" => {
+                                            let current = adapter.as_ref()
+                                                .and_then(|a| a.read_assist_state())
+                                                .map(|(_, tc, _)| tc > 0)
+                                                .unwrap_or(false);
+                                            if current != enabled {
+                                                if enabled {
+                                                    ac_launcher::mid_session::toggle_ac_tc();
+                                                } else {
+                                                    let level = adapter.as_ref()
+                                                        .and_then(|a| a.read_assist_state())
+                                                        .map(|(_, tc, _)| tc)
+                                                        .unwrap_or(1);
+                                                    for _ in 0..level {
+                                                        ac_launcher::mid_session::send_ctrl_shift_key(0x54);
+                                                        tokio::time::sleep(Duration::from_millis(50)).await;
+                                                    }
+                                                }
+                                            }
+                                            tokio::time::sleep(Duration::from_millis(100)).await;
+                                            let confirmed_tc = adapter.as_ref()
+                                                .and_then(|a| a.read_assist_state())
+                                                .map(|(_, tc, _)| tc > 0)
+                                                .unwrap_or(false);
+                                            overlay.show_toast(if confirmed_tc { "TC: ON".into() } else { "TC: OFF".into() });
+                                            let confirm = rc_common::protocol::AgentMessage::AssistChanged {
+                                                pod_id: pod_id.clone(),
+                                                assist_type: "tc".into(),
+                                                enabled: confirmed_tc,
+                                                confirmed: true,
+                                            };
+                                            if let Ok(json) = serde_json::to_string(&confirm) {
+                                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                                            }
+                                        }
+                                        "transmission" => {
+                                            let current = adapter.as_ref()
+                                                .and_then(|a| a.read_assist_state())
+                                                .map(|(_, _, auto)| auto)
+                                                .unwrap_or(false);
+                                            if current != enabled {
+                                                ac_launcher::mid_session::toggle_ac_transmission();
+                                            }
+                                            tokio::time::sleep(Duration::from_millis(100)).await;
+                                            let confirmed = adapter.as_ref()
+                                                .and_then(|a| a.read_assist_state())
+                                                .map(|(_, _, auto)| auto)
+                                                .unwrap_or(false);
+                                            overlay.show_toast(if confirmed { "Transmission: AUTO".into() } else { "Transmission: MANUAL".into() });
+                                            let confirm = rc_common::protocol::AgentMessage::AssistChanged {
+                                                pod_id: pod_id.clone(),
+                                                assist_type: "transmission".into(),
+                                                enabled: confirmed,
+                                                confirmed: true,
+                                            };
+                                            if let Ok(json) = serde_json::to_string(&confirm) {
+                                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                                            }
+                                        }
+                                        other => {
+                                            tracing::warn!("Unknown assist type: {}", other);
+                                        }
+                                    }
+                                }
+                                rc_common::protocol::CoreToAgentMessage::SetFfbGain { percent } => {
+                                    tracing::info!("SetFfbGain: {}%", percent);
+                                    match ffb.set_gain(percent) {
+                                        Ok(true) => {
+                                            let clamped = percent.clamp(10, 100);
+                                            last_ffb_percent = clamped;
+                                            overlay.show_toast(format!("FFB: {}%", clamped));
+                                            let confirm = rc_common::protocol::AgentMessage::FfbGainChanged {
+                                                pod_id: pod_id.clone(),
+                                                percent: clamped,
+                                            };
+                                            if let Ok(json) = serde_json::to_string(&confirm) {
+                                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                                            }
+                                        }
+                                        Ok(false) => tracing::warn!("FFB: wheelbase not found for SetFfbGain"),
+                                        Err(e) => tracing::error!("FFB gain set error: {}", e),
+                                    }
+                                }
+                                rc_common::protocol::CoreToAgentMessage::QueryAssistState => {
+                                    let (abs, tc, auto_shifter) = adapter.as_ref()
+                                        .and_then(|a| a.read_assist_state())
+                                        .unwrap_or((0, 0, false));
+                                    let state = rc_common::protocol::AgentMessage::AssistState {
+                                        pod_id: pod_id.clone(),
+                                        abs,
+                                        tc,
+                                        auto_shifter,
+                                        ffb_percent: last_ffb_percent,
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&state) {
+                                        let _ = ws_tx.send(Message::Text(json.into())).await;
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::PinFailed { reason } => {

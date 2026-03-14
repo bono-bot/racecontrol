@@ -32,4 +32,7 @@ pub trait SimAdapter: Send + Sync {
 
     /// Read the sim's current AC_STATUS from shared memory. Only meaningful for AC.
     fn read_ac_status(&self) -> Option<AcStatus> { None }
+
+    /// Read current assist state: (abs_level, tc_level, auto_shifter). Only meaningful for AC.
+    fn read_assist_state(&self) -> Option<(u8, u8, bool)> { None }
 }
