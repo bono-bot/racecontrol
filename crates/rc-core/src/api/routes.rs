@@ -246,6 +246,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Public (no auth)
         .route("/public/leaderboard", get(public_leaderboard))
         .route("/public/leaderboard/{track}", get(public_track_leaderboard))
+        .route("/public/circuit-records", get(public_circuit_records))
+        .route("/public/vehicle-records/{car}", get(public_vehicle_records))
         .route("/public/time-trial", get(public_time_trial))
         .route("/public/laps/{lap_id}/telemetry", get(public_lap_telemetry))
         .route("/public/sessions/{id}", get(public_session_summary))
@@ -8210,38 +8212,77 @@ async fn public_leaderboard(
     }))
 }
 
+#[derive(Deserialize)]
+struct LeaderboardQuery {
+    sim_type: Option<String>,
+    car: Option<String>,
+    show_invalid: Option<bool>,
+}
+
 async fn public_track_leaderboard(
     State(state): State<Arc<AppState>>,
     Path(track): Path<String>,
+    Query(params): Query<LeaderboardQuery>,
 ) -> Json<Value> {
-    // Top 50 fastest laps on this track (best per driver per car)
-    let records = sqlx::query_as::<_, (String, String, i64, String, Option<String>)>(
-        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, l.car, MIN(l.lap_time_ms), MAX(l.created_at),
-                (SELECT l2.id FROM laps l2 WHERE l2.driver_id = l.driver_id AND l2.car = l.car AND l2.track = l.track AND l2.valid = 1 ORDER BY l2.lap_time_ms ASC LIMIT 1)
+    let sim_type = params.sim_type.unwrap_or_else(|| "assetto_corsa".to_string());
+    let show_invalid = params.show_invalid.unwrap_or(false);
+
+    // Build validity filter: suspect laps are ALWAYS hidden.
+    // show_invalid=true drops the valid=1 requirement but keeps suspect filter.
+    let validity_clause = if show_invalid {
+        "AND (l.suspect IS NULL OR l.suspect = 0)"
+    } else {
+        "AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)"
+    };
+
+    let car_clause = if params.car.is_some() { "AND l.car = ?" } else { "" };
+
+    // Top 50 fastest laps on this track (best per driver per car), filtered by sim_type
+    let main_query = format!(
+        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
+                l.car, MIN(l.lap_time_ms), MAX(l.created_at),
+                (SELECT l2.id FROM laps l2 WHERE l2.driver_id = l.driver_id AND l2.car = l.car AND l2.track = l.track
+                    AND l2.sim_type = ? {} ORDER BY l2.lap_time_ms ASC LIMIT 1)
          FROM laps l
          JOIN drivers d ON l.driver_id = d.id
-         WHERE l.track = ? AND l.valid = 1
+         WHERE l.track = ? AND l.sim_type = ? {} {}
          GROUP BY l.driver_id, l.car
          ORDER BY MIN(l.lap_time_ms) ASC
          LIMIT 50",
-    )
-    .bind(&track)
-    .fetch_all(&state.db)
-    .await;
+        if show_invalid { "AND (l2.suspect IS NULL OR l2.suspect = 0)" } else { "AND l2.valid = 1 AND (l2.suspect IS NULL OR l2.suspect = 0)" },
+        validity_clause,
+        car_clause,
+    );
 
-    // Track stats
-    let stats: Option<(i64, i64, i64)> = sqlx::query_as(
+    let mut query = sqlx::query_as::<_, (String, String, i64, String, Option<String>)>(&main_query)
+        .bind(&sim_type)  // subquery sim_type
+        .bind(&track)
+        .bind(&sim_type); // main WHERE sim_type
+
+    if let Some(ref car) = params.car {
+        query = query.bind(car);
+    }
+
+    let records = query.fetch_all(&state.db).await;
+
+    // Track stats (filtered by sim_type + same validity rules)
+    let stats_query = format!(
         "SELECT COUNT(*) as total_laps, COUNT(DISTINCT driver_id) as drivers, COUNT(DISTINCT car) as cars
-         FROM laps WHERE track = ? AND valid = 1",
-    )
-    .bind(&track)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+         FROM laps WHERE track = ? AND sim_type = ? {}",
+        validity_clause,
+    );
+
+    let stats: Option<(i64, i64, i64)> = sqlx::query_as(&stats_query)
+        .bind(&track)
+        .bind(&sim_type)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
 
     Json(json!({
         "track": track,
+        "sim_type": sim_type,
         "stats": stats.map(|s| json!({
             "total_laps": s.0,
             "unique_drivers": s.1,
@@ -8255,6 +8296,100 @@ async fn public_track_leaderboard(
             "best_lap_display": format!("{}:{:02}.{:03}", r.2 / 60000, (r.2 % 60000) / 1000, r.2 % 1000),
             "achieved_at": r.3,
             "lap_id": r.4,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+// ─── Circuit Records (Public, No Auth) ────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct CircuitRecordsQuery {
+    sim_type: Option<String>,
+}
+
+async fn public_circuit_records(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<CircuitRecordsQuery>,
+) -> Json<Value> {
+    let records = if let Some(ref sim_type) = params.sim_type {
+        sqlx::query_as::<_, (String, String, String, i64, String)>(
+            "SELECT l.track, l.car, l.sim_type, MIN(l.lap_time_ms),
+                    (SELECT CASE WHEN d2.show_nickname_on_leaderboard = 1 AND d2.nickname IS NOT NULL THEN d2.nickname ELSE d2.name END
+                     FROM laps l2 JOIN drivers d2 ON l2.driver_id = d2.id
+                     WHERE l2.track = l.track AND l2.car = l.car AND l2.sim_type = l.sim_type
+                       AND l2.valid = 1 AND (l2.suspect IS NULL OR l2.suspect = 0)
+                     ORDER BY l2.lap_time_ms ASC LIMIT 1)
+             FROM laps l
+             WHERE l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0) AND l.sim_type = ?
+             GROUP BY l.track, l.car, l.sim_type
+             ORDER BY l.track, l.car",
+        )
+        .bind(sim_type)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, (String, String, String, i64, String)>(
+            "SELECT l.track, l.car, l.sim_type, MIN(l.lap_time_ms),
+                    (SELECT CASE WHEN d2.show_nickname_on_leaderboard = 1 AND d2.nickname IS NOT NULL THEN d2.nickname ELSE d2.name END
+                     FROM laps l2 JOIN drivers d2 ON l2.driver_id = d2.id
+                     WHERE l2.track = l.track AND l2.car = l.car AND l2.sim_type = l.sim_type
+                       AND l2.valid = 1 AND (l2.suspect IS NULL OR l2.suspect = 0)
+                     ORDER BY l2.lap_time_ms ASC LIMIT 1)
+             FROM laps l
+             WHERE l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)
+             GROUP BY l.track, l.car, l.sim_type
+             ORDER BY l.track, l.car",
+        )
+        .fetch_all(&state.db)
+        .await
+    };
+
+    let records = records.unwrap_or_default();
+    let count = records.len();
+
+    Json(json!({
+        "records": records.iter().map(|r| json!({
+            "track": r.0,
+            "car": r.1,
+            "sim_type": r.2,
+            "best_lap_ms": r.3,
+            "best_lap_display": format!("{}:{:02}.{:03}", r.3 / 60000, (r.3 % 60000) / 1000, r.3 % 1000),
+            "driver": r.4,
+        })).collect::<Vec<_>>(),
+        "count": count,
+    }))
+}
+
+// ─── Vehicle Records (Public, No Auth) ────────────────────────────────────────
+
+async fn public_vehicle_records(
+    State(state): State<Arc<AppState>>,
+    Path(car): Path<String>,
+) -> Json<Value> {
+    let records = sqlx::query_as::<_, (String, String, i64, String)>(
+        "SELECT l.track, l.sim_type, MIN(l.lap_time_ms),
+                (SELECT CASE WHEN d2.show_nickname_on_leaderboard = 1 AND d2.nickname IS NOT NULL THEN d2.nickname ELSE d2.name END
+                 FROM laps l2 JOIN drivers d2 ON l2.driver_id = d2.id
+                 WHERE l2.track = l.track AND l2.car = l.car AND l2.sim_type = l.sim_type
+                   AND l2.valid = 1 AND (l2.suspect IS NULL OR l2.suspect = 0)
+                 ORDER BY l2.lap_time_ms ASC LIMIT 1)
+         FROM laps l
+         WHERE l.car = ? AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)
+         GROUP BY l.track, l.sim_type
+         ORDER BY l.track",
+    )
+    .bind(&car)
+    .fetch_all(&state.db)
+    .await;
+
+    Json(json!({
+        "car": car,
+        "records": records.unwrap_or_default().iter().map(|r| json!({
+            "track": r.0,
+            "sim_type": r.1,
+            "best_lap_ms": r.2,
+            "best_lap_display": format!("{}:{:02}.{:03}", r.2 / 60000, (r.2 % 60000) / 1000, r.2 % 1000),
+            "driver": r.3,
         })).collect::<Vec<_>>(),
     }))
 }
