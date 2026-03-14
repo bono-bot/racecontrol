@@ -73,8 +73,8 @@ Requirements for milestone v3.0. Each maps to roadmap phases.
 
 ### Notifications
 
-- [ ] **NTF-01**: When a track record is beaten, the previous record holder receives an automated email via send_email.js
-- [ ] **NTF-02**: Notification email includes track, car, old time, new time, and new record holder name with a link to the leaderboard
+- [x] **NTF-01**: When a track record is beaten, the previous record holder receives an automated email via send_email.js
+- [x] **NTF-02**: Notification email includes track, car, old time, new time, and new record holder name with a link to the leaderboard
 
 ### Cloud Sync
 
@@ -133,8 +133,8 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | DRV-02 | Phase 13 | Pending |
 | DRV-03 | Phase 13 | Pending |
 | DRV-04 | Phase 13 | Pending |
-| NTF-01 | Phase 13 | Pending |
-| NTF-02 | Phase 13 | Pending |
+| NTF-01 | Phase 13 | Complete |
+| NTF-02 | Phase 13 | Complete |
 | PUB-01 | Phase 13 | Pending |
 | PUB-02 | Phase 13 | Pending |
 | EVT-01 | Phase 14 | Pending |

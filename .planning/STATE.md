@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: "Completed 13-02-PLAN.md"
+stopped_at: "Completed 13-03-PLAN.md"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Completed Plan 02 (leaderboard sim_type filtering + circuit/vehicle records)
+last_activity: 2026-03-15 — Completed Plan 03 (track record beaten email notification)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 7
-  completed_plans: 4
-  percent: 57
+  completed_plans: 5
+  percent: 71
 ---
 
 # Project State
@@ -35,16 +35,16 @@ Progress: [███████░░░] 71%
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 6.3 min
-- Total execution time: 0.4 hours
+- Total plans completed: 5
+- Average duration: 6.6 min
+- Total execution time: 0.6 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 12. Data Foundation | 2/2 | 11 min | 5.5 min |
-| 13. Leaderboard Core | 2/5 | 14 min | 7 min |
+| 13. Leaderboard Core | 3/5 | 22 min | 7.3 min |
 | 14. Events and Championships | TBD | - | - |
 | 15. Telemetry and Driver Rating | TBD | - | - |
 
@@ -76,6 +76,10 @@ Progress: [███████░░░] 71%
 - [13-02] Suspect laps always hidden from public endpoints regardless of show_invalid toggle
 - [13-02] Circuit records query from laps table (not track_records) to include sim_type dimension
 - [13-02] Vehicle records grouped by (track, sim_type) to prevent cross-sim contamination
+- [13-03] Previous record holder data fetched BEFORE UPSERT to avoid reading back new holder's data
+- [13-03] Notification is fire-and-forget via tokio::spawn -- failure never blocks lap persistence
+- [13-03] New holder display name uses nickname if show_nickname_on_leaderboard=1 (NTF-02)
+- [13-03] NULL email silently skips notification; first record has no notification attempt
 
 ### Pending Todos
 
@@ -88,6 +92,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T21:46:14Z
-Stopped at: Completed 13-02-PLAN.md
+Last session: 2026-03-14T21:46:39Z
+Stopped at: Completed 13-03-PLAN.md
 Resume file: None
