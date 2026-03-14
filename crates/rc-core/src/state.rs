@@ -33,6 +33,27 @@ pub enum WatchdogState {
     RecoveryFailed { attempt: u32, failed_at: DateTime<Utc> },
 }
 
+/// Cached assist state for a pod (abs, tc, auto_shifter, ffb_percent).
+/// Populated by WebSocket handlers when agent reports assist changes or state queries.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct CachedAssistState {
+    pub abs: u8,
+    pub tc: u8,
+    pub auto_shifter: bool,
+    pub ffb_percent: u8,
+}
+
+impl Default for CachedAssistState {
+    fn default() -> Self {
+        Self {
+            abs: 0,
+            tc: 0,
+            auto_shifter: true,
+            ffb_percent: 70,
+        }
+    }
+}
+
 /// Tracks OTP request count and window start per phone number
 pub struct OtpRateLimit {
     pub count: u32,
@@ -88,6 +109,10 @@ pub struct AppState {
     /// Per-pod pending deploy binary URLs (set when pod has active billing at rolling deploy time)
     /// When a billing session ends, the deploy is triggered automatically.
     pub pending_deploys: RwLock<HashMap<String, String>>,
+    /// Per-pod cached assist state (abs, tc, auto_shifter, ffb_percent).
+    /// Updated by WS handlers on AssistChanged/FfbGainChanged/AssistState messages.
+    /// Read by GET /pods/{pod_id}/assist-state to return real values immediately.
+    pub assist_cache: RwLock<HashMap<String, CachedAssistState>>,
 }
 
 impl AppState {
@@ -130,6 +155,7 @@ impl AppState {
             pod_manifests: RwLock::new(HashMap::new()),
             pod_deploy_states: RwLock::new(create_initial_deploy_states()),
             pending_deploys: RwLock::new(HashMap::new()),
+            assist_cache: RwLock::new(HashMap::new()),
         }
     }
 

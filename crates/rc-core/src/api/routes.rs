@@ -84,6 +84,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/games/pod/{pod_id}", get(pod_game_state))
         .route("/pods/{pod_id}/transmission", post(set_pod_transmission))
         .route("/pods/{pod_id}/ffb", post(set_pod_ffb))
+        .route("/pods/{pod_id}/assists", post(set_pod_assists))
+        .route("/pods/{pod_id}/assist-state", get(get_pod_assist_state))
         // AC LAN
         .route("/ac/presets", get(list_ac_presets).post(save_ac_preset))
         .route("/ac/presets/{id}", get(get_ac_preset).put(update_ac_preset).delete(delete_ac_preset))
@@ -2425,6 +2427,24 @@ async fn set_pod_ffb(
     Path(pod_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
+    // Try numeric percent first (Phase 6 mid-session FFB gain)
+    if let Some(percent) = body.get("percent").and_then(|v| v.as_u64()) {
+        let percent = (percent as u8).clamp(10, 100);
+        let senders = state.agent_senders.read().await;
+        if let Some(tx) = senders.get(&pod_id) {
+            let msg = CoreToAgentMessage::SetFfbGain { percent };
+            if let Err(e) = tx.send(msg).await {
+                tracing::error!("Failed to send SetFfbGain to {}: {}", pod_id, e);
+                return Json(json!({ "error": "Failed to send to agent" }));
+            }
+            tracing::info!("Set FFB gain to {}% on pod {}", percent, pod_id);
+            return Json(json!({ "ok": true, "ffb_percent": percent }));
+        } else {
+            return Json(json!({ "error": "No agent connected for this pod" }));
+        }
+    }
+
+    // Legacy preset path (existing behavior)
     let preset = body
         .get("preset")
         .and_then(|v| v.as_str())
@@ -2443,6 +2463,82 @@ async fn set_pod_ffb(
         Json(json!({ "ok": true, "preset": preset }))
     } else {
         Json(json!({ "error": "No agent connected for this pod" }))
+    }
+}
+
+async fn set_pod_assists(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let assist_type = body.get("assist_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let enabled = body.get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // Validate assist_type is one of the supported types
+    // Stability control intentionally excluded per user decision (no runtime mechanism in AC)
+    if !["abs", "tc", "transmission"].contains(&assist_type) {
+        return Json(json!({ "error": "Invalid assist_type. Supported: abs, tc, transmission" }));
+    }
+
+    let senders = state.agent_senders.read().await;
+    if let Some(tx) = senders.get(&pod_id) {
+        let msg = CoreToAgentMessage::SetAssist {
+            assist_type: assist_type.to_string(),
+            enabled,
+        };
+        if let Err(e) = tx.send(msg).await {
+            tracing::error!("Failed to send SetAssist to {}: {}", pod_id, e);
+            return Json(json!({ "error": format!("Failed to send to agent: {}", e) }));
+        }
+        tracing::info!("Set assist {} = {} on pod {}", assist_type, enabled, pod_id);
+        Json(json!({ "ok": true, "assist_type": assist_type, "enabled": enabled }))
+    } else {
+        Json(json!({ "error": "No agent connected for this pod" }))
+    }
+}
+
+async fn get_pod_assist_state(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+) -> Json<Value> {
+    // Read cached state immediately
+    let cached = {
+        let cache = state.assist_cache.read().await;
+        cache.get(&pod_id).cloned()
+    };
+
+    // Also send QueryAssistState to agent for background refresh
+    // (next time PWA opens the drawer, cache will be even fresher)
+    let senders = state.agent_senders.read().await;
+    if let Some(tx) = senders.get(&pod_id) {
+        if let Err(e) = tx.send(CoreToAgentMessage::QueryAssistState).await {
+            tracing::warn!("Failed to send QueryAssistState to {}: {}", pod_id, e);
+        }
+    }
+
+    match cached {
+        Some(s) => Json(json!({
+            "ok": true,
+            "abs": s.abs,
+            "tc": s.tc,
+            "auto_shifter": s.auto_shifter,
+            "ffb_percent": s.ffb_percent,
+        })),
+        None => {
+            // No cached state yet (pod never reported state).
+            // Return defaults -- the background QueryAssistState will populate the cache.
+            Json(json!({
+                "ok": true,
+                "abs": 0,
+                "tc": 0,
+                "auto_shifter": true,
+                "ffb_percent": 70,
+            }))
+        }
     }
 }
 
