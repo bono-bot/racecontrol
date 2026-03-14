@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: "Completed 13-01-PLAN.md"
+stopped_at: "Completed 13-02-PLAN.md"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Completed Plan 01 (suspect column + lap validity hardening)
+last_activity: 2026-03-15 — Completed Plan 02 (leaderboard sim_type filtering + circuit/vehicle records)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 7
-  completed_plans: 3
-  percent: 43
+  completed_plans: 4
+  percent: 57
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 ## Current Position
 
 Phase: 13 of 15 (Leaderboard Core)
-Plan: 1 of 5 complete
+Plan: 3 of 5 complete
 Status: In Progress
-Last activity: 2026-03-15 — Completed Plan 01 (suspect column + lap validity hardening)
+Last activity: 2026-03-15 — Completed Plan 03 (track record beaten email notification)
 
-Progress: [████░░░░░░] 43%
+Progress: [███████░░░] 71%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 5.7 min
-- Total execution time: 0.3 hours
+- Total plans completed: 4
+- Average duration: 6.3 min
+- Total execution time: 0.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 12. Data Foundation | 2/2 | 11 min | 5.5 min |
-| 13. Leaderboard Core | 1/5 | 6 min | 6 min |
+| 13. Leaderboard Core | 2/5 | 14 min | 7 min |
 | 14. Events and Championships | TBD | - | - |
 | 15. Telemetry and Driver Rating | TBD | - | - |
 
@@ -72,6 +72,10 @@ Progress: [████░░░░░░] 43%
 - [13-01] Zero sectors treated as absent (not flagged) since some sims report zeros instead of null
 - [13-01] Sector sum tolerance is 500ms for rounding across different sim telemetry systems
 - [13-01] Pre-migration laps get suspect=0 via DEFAULT, treating historical data as clean
+- [13-02] sim_type defaults to assetto_corsa for backward compatibility with existing PWA consumers
+- [13-02] Suspect laps always hidden from public endpoints regardless of show_invalid toggle
+- [13-02] Circuit records query from laps table (not track_records) to include sim_type dimension
+- [13-02] Vehicle records grouped by (track, sim_type) to prevent cross-sim contamination
 
 ### Pending Todos
 
@@ -84,6 +88,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T21:34:08Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-03-14T21:46:14Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
