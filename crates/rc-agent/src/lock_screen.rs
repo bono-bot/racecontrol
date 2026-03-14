@@ -36,12 +36,17 @@ pub enum LockScreenState {
         remaining_seconds: u32,
         allocated_seconds: u32,
     },
-    /// Session ended — shows summary, auto-returns to idle.
+    /// Session ended — shows summary with optional performance stats.
+    /// Results stay on screen indefinitely until next session starts (SESS-03).
     SessionSummary {
         driver_name: String,
         total_laps: u32,
         best_lap_ms: Option<u32>,
         driving_seconds: u32,
+        /// Top speed recorded during the session (SESS-01). None if not available.
+        top_speed_kmh: Option<f32>,
+        /// Race finishing position (SESS-02). None if not a race or position unavailable.
+        race_position: Option<u32>,
     },
     /// Between sessions — sub-session ended, customer can pick next race.
     BetweenSessions {
@@ -94,6 +99,9 @@ pub struct LockScreenManager {
     port: u16,
     #[cfg(windows)]
     browser_process: Option<std::process::Child>,
+    /// Optional wallpaper URL for lock screen background (BRAND-02).
+    /// When set, renders as CSS background-image on all states except ScreenBlanked.
+    wallpaper_url: Arc<Mutex<Option<String>>>,
 }
 
 impl LockScreenManager {
@@ -104,7 +112,15 @@ impl LockScreenManager {
             port: 18923,
             #[cfg(windows)]
             browser_process: None,
+            wallpaper_url: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Set the wallpaper URL for lock screen background (BRAND-02).
+    /// Pass None to clear the wallpaper and revert to default gradient.
+    pub fn set_wallpaper_url(&self, url: Option<String>) {
+        let mut w = self.wallpaper_url.lock().unwrap_or_else(|e| e.into_inner());
+        *w = url;
     }
 
     /// Start the local HTTP server for lock screen pages (call once at startup).
@@ -112,8 +128,9 @@ impl LockScreenManager {
         let state = self.state.clone();
         let event_tx = self.event_tx.clone();
         let port = self.port;
+        let wallpaper_url = self.wallpaper_url.clone();
         tokio::spawn(async move {
-            serve_lock_screen(port, state, event_tx).await;
+            serve_lock_screen(port, state, event_tx, wallpaper_url).await;
         });
     }
 
@@ -252,13 +269,16 @@ impl LockScreenManager {
         }
     }
 
-    /// Show the session summary screen (auto-returns to idle after 15 seconds).
+    /// Show the session summary screen with optional performance stats (SESS-01, SESS-02).
+    /// Results stay on screen indefinitely until next session starts (SESS-03).
     pub fn show_session_summary(
         &mut self,
         driver_name: String,
         total_laps: u32,
         best_lap_ms: Option<u32>,
         driving_seconds: u32,
+        top_speed_kmh: Option<f32>,
+        race_position: Option<u32>,
     ) {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -267,6 +287,8 @@ impl LockScreenManager {
                 total_laps,
                 best_lap_ms,
                 driving_seconds,
+                top_speed_kmh,
+                race_position,
             };
         }
         self.launch_browser();
@@ -589,6 +611,7 @@ async fn serve_lock_screen(
     port: u16,
     state: Arc<Mutex<LockScreenState>>,
     event_tx: mpsc::Sender<LockScreenEvent>,
+    wallpaper_url: Arc<Mutex<Option<String>>>,
 ) {
     // Use SO_REUSEADDR to bind even if port is in TIME_WAIT from previous Edge connections
     let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
@@ -623,6 +646,7 @@ async fn serve_lock_screen(
 
         let state = state.clone();
         let event_tx = event_tx.clone();
+        let wallpaper_url = wallpaper_url.clone();
 
         tokio::spawn(async move {
             let mut buf = [0u8; 4096];
@@ -679,7 +703,8 @@ async fn serve_lock_screen(
             } else {
                 // GET — serve current lock screen page
                 let current = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                let body = render_page(&current);
+                let wallpaper = wallpaper_url.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let body = render_page(&current, wallpaper.as_deref());
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     body.len(), body
@@ -693,27 +718,28 @@ async fn serve_lock_screen(
 // ─── HTML Rendering ──────────────────────────────────────────────────────────
 
 /// Public wrapper for debug server to render lock screen HTML.
+/// Uses no wallpaper (None) since debug server doesn't have wallpaper state.
 pub fn render_page_public(state: &LockScreenState) -> String {
-    render_page(state)
+    render_page(state, None)
 }
 
-fn render_page(state: &LockScreenState) -> String {
+fn render_page(state: &LockScreenState, wallpaper_url: Option<&str>) -> String {
     match state {
-        LockScreenState::Hidden => render_idle_page(),
+        LockScreenState::Hidden => render_idle_page(wallpaper_url),
         LockScreenState::PinEntry {
             driver_name,
             pricing_tier_name,
             allocated_seconds,
             pin_error,
             ..
-        } => render_pin_page(driver_name, pricing_tier_name, *allocated_seconds, pin_error.as_deref()),
+        } => render_pin_page(driver_name, pricing_tier_name, *allocated_seconds, pin_error.as_deref(), wallpaper_url),
         LockScreenState::QrDisplay {
             qr_payload,
             driver_name,
             pricing_tier_name,
             allocated_seconds,
             ..
-        } => render_qr_page(qr_payload, driver_name, pricing_tier_name, *allocated_seconds),
+        } => render_qr_page(qr_payload, driver_name, pricing_tier_name, *allocated_seconds, wallpaper_url),
         LockScreenState::ActiveSession {
             driver_name,
             remaining_seconds,
@@ -724,7 +750,9 @@ fn render_page(state: &LockScreenState) -> String {
             total_laps,
             best_lap_ms,
             driving_seconds,
-        } => render_session_summary_page(driver_name, *total_laps, *best_lap_ms, *driving_seconds),
+            top_speed_kmh,
+            race_position,
+        } => render_session_summary_page(driver_name, *total_laps, *best_lap_ms, *driving_seconds, *top_speed_kmh, *race_position),
         LockScreenState::BetweenSessions {
             driver_name,
             total_laps,
@@ -742,6 +770,7 @@ fn render_page(state: &LockScreenState) -> String {
             driver_name,
             message,
         } => render_launch_splash_page(driver_name, message),
+        // ScreenBlanked: pure black, never gets wallpaper (BRAND-02)
         LockScreenState::ScreenBlanked => render_blank_page(),
         LockScreenState::Disconnected => render_disconnected_page(),
         LockScreenState::StartupConnecting => render_startup_connecting_page(),
@@ -757,9 +786,7 @@ fn html_escape(s: &str) -> String {
 }
 
 fn page_shell(title: &str, content: &str) -> String {
-    PAGE_SHELL
-        .replace("{{TITLE}}", title)
-        .replace("{{CONTENT}}", content)
+    page_shell_with_bg(title, content, None)
 }
 
 fn render_blank_page() -> String {
@@ -798,7 +825,8 @@ fn render_startup_connecting_page() -> String {
 
 fn render_launch_splash_page(driver_name: &str, _message: &str) -> String {
     let driver_display = html_escape(driver_name);
-    let content = format!(r#"<div style="text-align:center;padding-top:20vh">
+    let content = format!(r#"<div style="text-align:center;padding-top:15vh">
+<div style="margin-bottom:24px">{logo}</div>
 <div style="font-family:Enthocentric,sans-serif;font-size:2.8em;color:#E10600;letter-spacing:0.08em;margin-bottom:24px">PREPARING YOUR SESSION</div>
 <div style="font-size:1.1em;color:#ccc;margin-bottom:8px">Welcome, <span style="color:#fff;font-weight:600">{driver}</span></div>
 <div style="font-size:0.95em;color:#5A5A5A;margin-bottom:48px">Loading your race...</div>
@@ -809,7 +837,7 @@ fn render_launch_splash_page(driver_name: &str, _message: &str) -> String {
     0%   {{ transform: rotate(0deg); }}
     100% {{ transform: rotate(360deg); }}
 }}
-</style>"#, driver = driver_display);
+</style>"#, logo = RP_LOGO_SVG, driver = driver_display);
     page_shell("Racing Point -- Loading", &content)
 }
 
@@ -824,15 +852,16 @@ fn render_config_error_page() -> String {
     )
 }
 
-fn render_idle_page() -> String {
-    page_shell(
+fn render_idle_page(wallpaper_url: Option<&str>) -> String {
+    page_shell_with_bg(
         "Racing Point",
         r#"<div class="msg">Session not active — please see the front desk.</div>
 <script>setTimeout(function(){location.reload()},5000)</script>"#,
+        wallpaper_url,
     )
 }
 
-fn render_pin_page(driver_name: &str, pricing_tier_name: &str, allocated_seconds: u32, pin_error: Option<&str>) -> String {
+fn render_pin_page(driver_name: &str, pricing_tier_name: &str, allocated_seconds: u32, pin_error: Option<&str>, wallpaper_url: Option<&str>) -> String {
     let minutes = allocated_seconds / 60;
     let error_html = if let Some(_err) = pin_error {
         format!(r#"<div style="color:#ff4444;font-size:18px;margin-bottom:16px;font-weight:bold">Invalid PIN — try again</div>"#)
@@ -844,7 +873,7 @@ fn render_pin_page(driver_name: &str, pricing_tier_name: &str, allocated_seconds
         .replace("{{TIER_NAME}}", &html_escape(pricing_tier_name))
         .replace("{{MINUTES}}", &minutes.to_string())
         .replace("{{PIN_ERROR}}", &error_html);
-    page_shell("Enter PIN - Racing Point", &content)
+    page_shell_with_bg("Enter PIN - Racing Point", &content, wallpaper_url)
 }
 
 fn render_qr_page(
@@ -852,6 +881,7 @@ fn render_qr_page(
     driver_name: &str,
     pricing_tier_name: &str,
     allocated_seconds: u32,
+    wallpaper_url: Option<&str>,
 ) -> String {
     let minutes = allocated_seconds / 60;
     let qr_svg = generate_qr_svg(qr_payload);
@@ -860,7 +890,7 @@ fn render_qr_page(
         .replace("{{TIER_NAME}}", &html_escape(pricing_tier_name))
         .replace("{{MINUTES}}", &minutes.to_string())
         .replace("{{QR_SVG}}", &qr_svg);
-    page_shell("Scan QR - Racing Point", &content)
+    page_shell_with_bg("Scan QR - Racing Point", &content, wallpaper_url)
 }
 
 fn render_active_session_page(driver_name: &str, remaining_seconds: u32, allocated_seconds: u32) -> String {
@@ -898,6 +928,8 @@ fn render_session_summary_page(
     total_laps: u32,
     best_lap_ms: Option<u32>,
     driving_seconds: u32,
+    top_speed_kmh: Option<f32>,
+    race_position: Option<u32>,
 ) -> String {
     let best_lap_display = match best_lap_ms {
         Some(ms) => {
@@ -910,12 +942,45 @@ fn render_session_summary_page(
     };
     let session_mins = driving_seconds / 60;
     let session_secs = driving_seconds % 60;
+
+    // Build optional stat cards
+    let top_speed_card = match top_speed_kmh {
+        Some(spd) if spd > 0.0 => format!(
+            r#"<div class="stat-item">
+            <div class="stat-value">{}</div>
+            <div class="stat-label">Top Speed km/h</div>
+        </div>"#,
+            spd as u32  // truncate to integer (245.5 → 245)
+        ),
+        _ => String::new(),
+    };
+
+    let position_suffix = |pos: u32| match pos {
+        1 => "st",
+        2 => "nd",
+        3 => "rd",
+        _ => "th",
+    };
+    let race_position_card = match race_position {
+        Some(pos) => format!(
+            r#"<div class="stat-item">
+            <div class="stat-value">{}{}</div>
+            <div class="stat-label">Race Position</div>
+        </div>"#,
+            pos,
+            position_suffix(pos)
+        ),
+        None => String::new(),
+    };
+
     let content = SESSION_SUMMARY_PAGE
         .replace("{{DRIVER_NAME}}", &html_escape(driver_name))
         .replace("{{TOTAL_LAPS}}", &total_laps.to_string())
         .replace("{{BEST_LAP}}", &best_lap_display)
         .replace("{{SESSION_MINS}}", &session_mins.to_string())
-        .replace("{{SESSION_SECS}}", &format!("{:02}", session_secs));
+        .replace("{{SESSION_SECS}}", &format!("{:02}", session_secs))
+        .replace("{{TOP_SPEED_CARD}}", &top_speed_card)
+        .replace("{{RACE_POSITION_CARD}}", &race_position_card);
     page_shell("Session Complete - Racing Point", &content)
 }
 
@@ -1170,7 +1235,7 @@ mod tests {
 
         // Create manager on that port and confirm it returns quickly
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)) };
 
         let start = std::time::Instant::now();
         manager.wait_for_self_ready().await;
@@ -1182,7 +1247,7 @@ mod tests {
     async fn wait_for_self_ready_timeout() {
         // Do NOT bind port 18922 — let it fail
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)) };
 
         let start = std::time::Instant::now();
         // Should return (not panic) within ~6 seconds
@@ -1216,6 +1281,7 @@ mod tests {
             port: 18923,
             #[cfg(windows)]
             browser_process: None,
+            wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         assert!(manager.is_idle_or_blanked(), "StartupConnecting must be treated as idle (pod not ready for customers)");
     }
@@ -1392,6 +1458,8 @@ mod tests {
             total_laps: 20,
             best_lap_ms: Some(92000),
             driving_seconds: 3600,
+            top_speed_kmh: None,
+            race_position: None,
         };
         let html = render_page_public(&state);
         assert!(
@@ -1401,28 +1469,55 @@ mod tests {
     }
 }
 
-/// Stub: render session summary page with top speed and race position params.
-/// Task 1: forwards to existing render_session_summary_page, ignoring new params (RED).
-/// Task 2: replaced with full implementation that renders stat cards.
+/// Render session summary page with top speed and race position params.
+/// Conditionally adds stat cards for top speed (when > 0) and race position (when Some).
 pub fn render_session_summary_page_full(
     driver_name: &str,
     total_laps: u32,
     best_lap_ms: Option<u32>,
     driving_seconds: u32,
-    _top_speed_kmh: Option<f32>,
-    _race_position: Option<u32>,
+    top_speed_kmh: Option<f32>,
+    race_position: Option<u32>,
 ) -> String {
-    render_session_summary_page(driver_name, total_laps, best_lap_ms, driving_seconds)
+    render_session_summary_page(driver_name, total_laps, best_lap_ms, driving_seconds, top_speed_kmh, race_position)
 }
 
-/// Stub: page shell with optional wallpaper URL background.
-/// Task 1: ignores wallpaper_url, calls existing page_shell (RED).
-/// Task 2: replaced with real CSS background-image injection.
-pub fn page_shell_with_bg(title: &str, content: &str, _wallpaper_url: Option<&str>) -> String {
-    page_shell(title, content)
+/// Page shell with optional wallpaper URL background (BRAND-02).
+/// When wallpaper_url is Some(url) and not empty: injects CSS background-image over the default gradient.
+/// When None or empty: uses the default gradient background.
+/// NOTE: render_blank_page() uses page_shell() which passes None — ScreenBlanked never gets wallpaper.
+pub fn page_shell_with_bg(title: &str, content: &str, wallpaper_url: Option<&str>) -> String {
+    let wallpaper_style = match wallpaper_url {
+        Some(url) if !url.is_empty() => {
+            // Escape single quotes in URL to prevent CSS injection
+            let safe_url = url.replace('\'', "%27");
+            format!(
+                "\n<style>\nbody {{ background-image: url('{}'); background-size: cover; background-position: center; }}\n</style>",
+                safe_url
+            )
+        }
+        _ => String::new(),
+    };
+    PAGE_SHELL
+        .replace("{{RP_LOGO_SVG}}", RP_LOGO_SVG)
+        .replace("{{TITLE}}", title)
+        .replace("{{CONTENT}}", &format!("{}{}", content, wallpaper_style))
 }
 
 // ─── HTML Templates ──────────────────────────────────────────────────────────
+
+/// Racing Point inline SVG logo — red wordmark with checkered flag accent (BRAND-01, BRAND-03).
+/// Used in PAGE_SHELL and LaunchSplash to ensure consistent branding across all lock screen states.
+const RP_LOGO_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" width="220" height="64" role="img" aria-label="Racing Point">
+  <!-- Checkered flag accent -->
+  <rect x="0" y="4" width="8" height="8" fill="#E10600"/>
+  <rect x="8" y="4" width="8" height="8" fill="#ffffff" opacity="0.15"/>
+  <rect x="0" y="12" width="8" height="8" fill="#ffffff" opacity="0.15"/>
+  <rect x="8" y="12" width="8" height="8" fill="#E10600"/>
+  <!-- Wordmark: RACING POINT -->
+  <text x="24" y="36" font-family="Montserrat,Segoe UI,system-ui,sans-serif" font-weight="800" font-size="26" letter-spacing="4" fill="#E10600">RACING</text>
+  <text x="24" y="58" font-family="Montserrat,Segoe UI,system-ui,sans-serif" font-weight="300" font-size="18" letter-spacing="6" fill="#ffffff" opacity="0.85">POINT</text>
+</svg>"##;
 
 const PAGE_SHELL: &str = r#"<!DOCTYPE html>
 <html lang="en">
@@ -1447,11 +1542,12 @@ body {
     -webkit-user-select: none;
 }
 .logo {
-    font-size: 2.8em;
-    font-weight: 800;
-    letter-spacing: 6px;
-    color: #E10600;
     margin-bottom: 2px;
+    line-height: 0;
+}
+.logo svg {
+    height: 64px;
+    width: auto;
 }
 .tagline {
     font-size: 0.95em;
@@ -1531,7 +1627,7 @@ body {
 </style>
 </head>
 <body>
-<div class="logo">RACING POINT</div>
+<div class="logo">{{RP_LOGO_SVG}}</div>
 <div class="tagline">May the Fastest Win.</div>
 {{CONTENT}}
 </body>
@@ -1854,6 +1950,7 @@ const SESSION_SUMMARY_PAGE: &str = r#"<style>
     gap: 60px;
     justify-content: center;
     margin: 30px 0;
+    flex-wrap: wrap;
 }
 .stat-item {
     text-align: center;
@@ -1893,7 +1990,8 @@ const SESSION_SUMMARY_PAGE: &str = r#"<style>
             <div class="stat-value">{{SESSION_MINS}}m {{SESSION_SECS}}s</div>
             <div class="stat-label">Session Time</div>
         </div>
+        {{TOP_SPEED_CARD}}
+        {{RACE_POSITION_CARD}}
     </div>
     <div class="farewell">See you next time at Racing Point!</div>
-</div>
-<script>setTimeout(function(){location.reload()},15000)</script>"#;
+</div>"#;

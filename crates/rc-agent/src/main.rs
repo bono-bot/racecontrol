@@ -550,6 +550,10 @@ async fn main() -> Result<()> {
         // Phase 6: Cache last-sent FFB gain percentage for QueryAssistState responses.
         // Default 70% (medium preset) — could read from controls.ini GAIN= at startup.
         let mut last_ffb_percent: u8 = 70;
+        // Phase 11: Telemetry accumulators for session summary stats (SESS-01, SESS-02).
+        // Reset on BillingStarted, passed to show_session_summary on SessionEnded.
+        let mut session_max_speed_kmh: f32 = 0.0;
+        let mut session_race_position: Option<u32> = None;
 
         loop {
             tokio::select! {
@@ -581,6 +585,10 @@ async fn main() -> Result<()> {
                     Ok(Some(frame)) => {
                         // Update overlay with live telemetry
                         overlay.update_telemetry(&frame);
+                        // Accumulate top speed for session summary (SESS-01)
+                        if frame.speed_kmh > session_max_speed_kmh {
+                            session_max_speed_kmh = frame.speed_kmh;
+                        }
 
                         // Check for completed laps via adapter (has proper sector splits)
                         if let Ok(Some(lap)) = adapter.poll_lap_completed() {
@@ -987,6 +995,9 @@ async fn main() -> Result<()> {
                                     blank_timer_armed = false; // cancel any pending auto-blank
                                     // Cache driver_name for use in LaunchGame splash screen
                                     current_driver_name = Some(driver_name.clone());
+                                    // Reset telemetry accumulators for new session (SESS-01, SESS-02)
+                                    session_max_speed_kmh = 0.0;
+                                    session_race_position = None;
                                     // If allocated_seconds is the hard max cap (10800) or 0, this is open-ended billing — use v2 taxi meter
                                     if allocated_seconds == 0 || allocated_seconds >= 10800 {
                                         overlay.activate_v2(driver_name.clone());
@@ -1061,9 +1072,11 @@ async fn main() -> Result<()> {
                                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
                                     tokio::time::sleep(Duration::from_millis(500)).await;
 
-                                    // Show session summary lock screen
+                                    // Show session summary with accumulated telemetry stats (SESS-01, SESS-02)
                                     lock_screen.show_session_summary(
                                         driver_name, total_laps, best_lap_ms, driving_seconds,
+                                        if session_max_speed_kmh > 0.0 { Some(session_max_speed_kmh) } else { None },
+                                        session_race_position,
                                     );
 
                                     // Stop game and clean up AFTER FFB is zeroed
@@ -1079,10 +1092,8 @@ async fn main() -> Result<()> {
                                     // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
                                     tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                                     current_driver_name = None;
-
-                                    // Auto-blank timer unchanged
-                                    blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(15));
-                                    blank_timer_armed = true;
+                                    // SESS-03: results stay on screen until next session starts
+                                    // (blank_timer NOT armed here — removed per SESS-03 requirement)
                                 }
                                 rc_common::protocol::CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
                                     tracing::info!("Launching game: {:?} (args: {:?})", launch_sim, launch_args);
@@ -1492,6 +1503,12 @@ async fn main() -> Result<()> {
                                             lock_screen.clear();
                                             tracing::info!("Screen blanking DISABLED — screen restored");
                                         }
+                                    }
+                                    // BRAND-02: wallpaper URL for lock screen background
+                                    if let Some(url) = settings.get("lock_screen_wallpaper_url") {
+                                        let url_opt = if url.is_empty() { None } else { Some(url.clone()) };
+                                        lock_screen.set_wallpaper_url(url_opt);
+                                        tracing::info!("Lock screen wallpaper URL updated");
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SetTransmission { transmission } => {
