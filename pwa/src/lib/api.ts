@@ -338,6 +338,10 @@ export interface GroupSessionInfo {
   status: string;
   members: GroupMemberInfo[];
   created_at: string;
+  track?: string;
+  car?: string;
+  ai_count?: number;
+  difficulty_tier?: string;
 }
 
 export interface GroupMemberInfo {
