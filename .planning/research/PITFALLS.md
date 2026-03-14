@@ -1,221 +1,299 @@
 # Pitfalls Research
 
-**Domain:** Windows LAN kiosk URL reliability — local DNS, static IPs, Edge kiosk mode, process supervision, port conflicts
-**Researched:** 2026-03-13
-**Confidence:** HIGH (combination of verified production issues already hit in v1.0 + current Microsoft docs + community post-mortems)
+**Domain:** Sim racing competitive platform — leaderboards, telemetry visualization, championship scoring, driver rating added to existing venue management system (Rust/Axum + SQLite + Next.js)
+**Researched:** 2026-03-14
+**Confidence:** HIGH — all critical pitfalls verified against actual codebase (db/mod.rs, lap_tracker.rs, cloud_sync.rs) and cross-referenced with game UDP specs, SQLite official docs, and sim racing platform post-mortems.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Session 0 GUI Blindness (Already Hit in v1.0 — Do Not Repeat)
+### Pitfall 1: telemetry_samples Has No Index — Full Table Scan on Every Lap Load
 
 **What goes wrong:**
-Any Windows service (SYSTEM account) that restarts rc-agent also restarts it in Session 0. The lock screen at `127.0.0.1:18923` is a GUI surface — it requires Session 1. The process is alive, the WebSocket reconnects, and the HTTP server binds the port — but `msedge --kiosk 127.0.0.1:18923` in Session 0 displays nothing. Customers see a blank pod.
+The `telemetry_samples` table in `db/mod.rs` is created without any index:
+```sql
+CREATE TABLE IF NOT EXISTS telemetry_samples (
+    lap_id TEXT REFERENCES laps(id),
+    offset_ms INTEGER NOT NULL,
+    speed REAL, throttle REAL, brake REAL, ...
+)
+```
+At AC's 33Hz telemetry rate, a 90-second lap generates ~3,000 rows per lap. After 1,000 customer laps (roughly one month of moderate use), the table has 3 million rows. Querying `WHERE lap_id = ?` without an index is a full table scan — 3 million comparisons. At 2,000 laps, it's 6 million. The telemetry visualization page will become unusable within weeks of launch.
 
 **Why it happens:**
-Windows Session 0 Isolation (introduced Vista, permanent since Win7) prohibits Session 0 processes from rendering to the interactive desktop. SYSTEM services, NSSM-managed services, and any `sc.exe`-started process inherits Session 0. The process looks healthy from a networking standpoint because the HTTP server is running.
+Telemetry was built for data capture, not for retrieval. The insert path works fine without indexes. The problem is invisible during development (small tables) and only emerges in production at scale.
 
 **How to avoid:**
-- Never start rc-agent from a Windows Service (SYSTEM). The HKLM `Run` key (`start-rcagent.bat`) is the correct pattern — it executes at user login in Session 1.
-- For the staff kiosk (Next.js on Server .23), use the same HKLM `Run` key pattern OR a Task Scheduler task with trigger "At log on of specific user" and option "Run only when user is logged on." This guarantees Session 1.
-- The critical test: after restart, can you actually see the window on screen? Process running + port open is a necessary but not sufficient check.
+Add a composite covering index immediately when the table is created:
+```sql
+CREATE INDEX IF NOT EXISTS idx_telemetry_lap_offset
+ON telemetry_samples(lap_id, offset_ms);
+```
+This makes `SELECT * FROM telemetry_samples WHERE lap_id = ? ORDER BY offset_ms` a pure index scan — sub-millisecond at any realistic scale.
 
 **Warning signs:**
-`netstat -ano` shows port 18923 or 3000 LISTENING; `tasklist` shows msedge.exe and node.exe; but the physical monitor shows a black screen or Windows desktop.
+Telemetry chart API endpoint response time is under 5ms in development but grows to 2+ seconds after a few weeks in production. EXPLAIN QUERY PLAN shows `SCAN TABLE telemetry_samples` instead of `SEARCH TABLE telemetry_samples USING INDEX`.
 
-**Phase to address:** Phase 1 (diagnose) must confirm Session 1 startup for all services. Phase 2 (staff kiosk pinning) must use HKLM Run or Scheduled Task "Run only when logged on."
+**Phase to address:** Phase 1 (data foundation) — add index in the migration before any telemetry data accumulates. Cannot be deferred.
 
 ---
 
-### Pitfall 2: Edge `--kiosk` Flag Silently Drops on Auto-Update
+### Pitfall 2: telemetry_samples Volume Will Exhaust SQLite on Cloud
 
 **What goes wrong:**
-Edge auto-updates in the background on all 8 pods. After an update, Edge may: (a) show a white screen on launch (confirmed with Edge 128.0.2739.42), (b) ignore `--kiosk` and open the normal browser frame, (c) launch into the "Welcome to Edge" first-run experience despite `--no-first-run`, or (d) require a profile migration step that blocks the kiosk URL from loading.
-
-In the Edge 128 incident, organizations had to roll back to version 124 venue-wide. A hotfix was released in 128.0.2739.54 but this confirms updates can break kiosk behavior between patch versions.
+Telemetry is listed in SYNC_TABLES indirectly — even if not currently synced, there is pressure to sync it to cloud for PWA telemetry charts. At 33Hz for AC and ~20Hz for F1 25, a single 2-minute hotlap generates 3,960–6,600 rows. Eight pods running simultaneously generate ~50,000 rows per minute of active use. At 6 hours of daily venue use, that is 18 million rows per day. The cloud PostgreSQL instance (Bono's VPS) and the venue SQLite both face a table that grows faster than any other by 3 orders of magnitude.
 
 **Why it happens:**
-Microsoft periodically changes how kiosk mode responds to command-line flags. Edge updates ship silently to Windows machines without operator approval unless Group Policy blocks them. InPrivate mode (which `--kiosk` forces) can break when the profile directory has incompatible cached state from a prior version.
+Game telemetry protocols push every physics frame. The system captures all of it because it is available, not because all of it is needed for visualization. Per-frame granularity is not required for a speed trace chart — 10Hz is sufficient for human-readable visualization.
 
 **How to avoid:**
-- Block Edge auto-updates on pods via Group Policy: `Computer Configuration → Administrative Templates → Microsoft Edge Update → Update Policy Override`. Set to "Updates disabled" or "Manual updates only."
-- Pin to a known-good Edge version using a Group Policy template or simply disable `EdgeUpdate` service on pods: `sc config edgeupdate start=disabled && sc config edgeupdatem start=disabled`.
-- Add Edge version to the deploy verification checklist. Know the current version on all pods (`msedge --version` via pod-agent).
-- Never rely on `--no-first-run` alone. Also pass `--user-data-dir=C:\RacingPoint\EdgeKiosk` to isolate the profile from system Edge updates affecting the default profile.
+Two strategies, apply both:
+1. **Downsample on capture:** In rc-agent, only write a telemetry sample every N frames (e.g., every 3rd frame at 33Hz = 11Hz effective). Store the raw frame counter in `offset_ms` so chart rendering remains accurate. This reduces volume by 3x at capture time.
+2. **Downsample on sync:** Never sync raw `telemetry_samples` to the cloud. Instead, sync a pre-aggregated `telemetry_chart_data` table containing one row per lap with the data serialized as a compact JSON blob or msgpack binary. The cloud PWA reads the blob; the venue SQLite keeps the raw samples for AI coaching tools if needed.
 
 **Warning signs:**
-Pod lock screen shows blank white or the normal Edge chrome (address bar visible). Staff kiosk shows pod as Online but customers report broken screen. Edge version changed in Task Manager or `msedge --version` output differs from expected.
+`telemetry_samples` table size exceeds 1GB in SQLite. Cloud VPS disk usage climbs continuously. Sync cycle duration exceeds 30 seconds (the current sync interval) because the payload is too large.
 
-**Phase to address:** Phase 2 (pod lock screen fix) must pin Edge version + add `--user-data-dir` flag.
+**Phase to address:** Phase 1 (data foundation) — downsampling strategy must be decided before telemetry capture goes to production. Retrofitting after 50M rows exist is painful.
 
 ---
 
-### Pitfall 3: `.local` DNS Conflicts with mDNS
+### Pitfall 3: Leaderboard Queries on laps Table Have No Indexes
 
 **What goes wrong:**
-If the custom hostname chosen uses the `.local` TLD (e.g., `kiosk.local`), Windows 11's built-in mDNS resolver (via dnscache service) handles it differently than a conventional unicast DNS query. Resolution is unreliable: it depends on multicast UDP packets reaching all clients, which any managed switch, VLAN, or firewall rule can silently block. Worse, installing Apple Bonjour on any pod (e.g., from iTunes, Apple Music, or some gaming peripherals) creates a second mDNS responder that conflicts with Windows' native one, causing resolution to flip between correct and incorrect IPs.
-
-On Windows 10 1809+, Microsoft changed the precedence of `.local` resolution: mDNS now takes priority over the Windows HOSTS file for `.local` names on some configurations, meaning hosts file entries can be overridden by a multicast response from a different device.
+The `laps` table also has no indexes in the current migration (only `ac_sessions` has one). A leaderboard query like:
+```sql
+SELECT driver_id, MIN(lap_time_ms) FROM laps
+WHERE track = ? AND car = ? AND valid = 1
+GROUP BY driver_id ORDER BY MIN(lap_time_ms) LIMIT 20
+```
+scans every row in the laps table. At 200 laps/day with 8 pods, after 6 months you have 36,000 laps. Without an index this query may still be fast, but add filters for events, date ranges, or car classes, and the planner will scan everything. Leaderboard queries must be sub-100ms at all times because the PWA renders them on page load.
 
 **Why it happens:**
-`.local` is a special-use domain standardized for mDNS (RFC 6762). It was never intended for use with authoritative DNS servers. Windows resolvers implement a complex fallback chain (mDNS → LLMNR → DNS → NetBIOS), and the order changed between Windows 10 versions.
+The existing `personal_bests` and `track_records` tables provide fast single-row lookups for record queries, but the `laps` table is the source of truth for filtered leaderboards (by event, date range, car class, driver group). These require composite indexes that match the query patterns.
 
 **How to avoid:**
-- Use a non-`.local` TLD for the custom hostname. `.rp` or `.racingpoint` are safe choices — they are not delegated TLDs, not used by mDNS, and Windows resolves them via the hosts file or DNS server only.
-- The simplest reliable approach for a small LAN: add entries to `C:\Windows\System32\drivers\etc\hosts` on every client. `kiosk.rp` → `192.168.31.23`. No DNS server needed, zero mDNS interference.
-- If deploying a DNS server (e.g., dnsmasq on the router or a Pi-hole), avoid `.local` in the zone and configure Windows clients to use the DNS server IP as their primary DNS.
+Add these indexes in the migration:
+```sql
+-- Leaderboard: fastest laps per track+car (valid only)
+CREATE INDEX IF NOT EXISTS idx_laps_track_car_valid_time
+ON laps(track, car, valid, lap_time_ms);
+
+-- Driver profile: all laps for a driver
+CREATE INDEX IF NOT EXISTS idx_laps_driver_created
+ON laps(driver_id, created_at);
+
+-- Event leaderboard: laps within a session
+CREATE INDEX IF NOT EXISTS idx_laps_session_time
+ON laps(session_id, lap_time_ms);
+```
+The track+car+valid+time index is a covering index for the most common leaderboard query pattern.
 
 **Warning signs:**
-`ping kiosk.local` works from James's machine (.27) but fails from pods. Hostname resolves correctly after `ipconfig /flushdns` but breaks again after 60 seconds. Resolution varies between pods. `nslookup kiosk.local` returns the wrong IP.
+EXPLAIN QUERY PLAN shows `SCAN TABLE laps` on a leaderboard endpoint. Response times grow week-over-week as lap count increases.
 
-**Phase to address:** Phase 3 (local DNS) must choose `.rp` or similar non-`.local` TLD. Hosts-file deployment must cover all 8 pods + server + James's workstation.
+**Phase to address:** Phase 1 (data foundation) — add all indexes before any leaderboard feature is built. Must be part of the migration, not an afterthought.
 
 ---
 
-### Pitfall 4: DHCP Drift Survives "Static IP" Configuration
+### Pitfall 4: The valid Flag Trusts the Game Completely
 
 **What goes wrong:**
-Setting a static IP on the Windows NIC (via `netsh` or Settings) on the server eliminates DHCP for that adapter — but the server was showing `.23` in monitoring while DHCP had drifted it to `.51` (as already observed). If a static IP is set to the drifted address (`.51`) rather than the intended address (`.23`), nothing breaks immediately. But if the router DHCP pool also contains `.51`, a lease conflict occurs when another device gets `.51` from DHCP. Additionally, if the static IP is set only in Windows (not as a DHCP reservation in the router), a router firmware update, factory reset, or ISP modem replacement erases no configuration — but power cycling the server may cause APIPA address assignment if the NIC resets before the IP is re-applied.
+`lap_tracker.rs` skips laps where `lap.valid == false`. But the `valid` flag originates from the UDP game packet and is only as trustworthy as the game's own track limit detection. AC's UDP protocol does not expose fine-grained cut detection — it uses the server's track boundary cuts configuration. If the AC server preset `RP_OPTIMAL` does not have cut detection configured, every lap is valid regardless of how many corners the driver cut. F1 25 does provide `lapValidityBitFlags` in its UDP spec (0x01 = lap valid, 0x02/0x04/0x08 = sector valid), but these are only populated if the game's own penalty system is active.
+
+At a venue leaderboard level, a driver can legitimately cut every chicane and post a physically impossible lap time that tops the board permanently.
 
 **Why it happens:**
-Static IPs configured at the OS level survive router resets but are invisible to the router's DHCP conflict detection. The router may still lease the same IP to another device that joins the LAN, causing an IP collision that manifests as intermittent packet loss rather than a clean failure.
+The trust assumption is reasonable for in-session use (billing, driver display), but leaderboard use requires higher integrity. Games are not designed with external leaderboard integrity in mind — their validity flags catch internal game rule violations, not deliberate gaming for external leaderboards.
 
 **How to avoid:**
-Two-layer static IP strategy:
-1. Set a DHCP reservation in the router for Server `.23` MAC address `30-56-0F-05-xx-xx` (check and record actual MAC). This prevents the router from leasing `.23` to anyone else.
-2. Also set the NIC to a static IP on the server. Both layers together mean: even if the router resets and loses the reservation, the server holds `.23`; even if Windows networking glitches, the reservation ensures the router won't give `.23` away.
-3. Document the server MAC address. After any router firmware update, re-enter the reservation first thing.
-4. Place the static IPs (.23, .27, etc.) outside the DHCP pool range. If the router's pool is `.100-200`, static assignments at `.23` and `.27` are never in the pool and cannot conflict.
+Two layers:
+1. **Sanity range filter:** Reject laps below a minimum plausible time for each track. Store `track_min_plausible_ms` in the `track_records` or a `tracks` table (seeded by staff). Any lap time below this floor is flagged as suspect, not simply invalid.
+2. **Sector sum consistency:** For AC, if sector times are available (sector1_ms + sector2_ms + sector3_ms), verify they sum within ±500ms of `lap_time_ms`. A large discrepancy indicates a corrupted or spoofed lap.
+3. **Staff review flag:** Add a `suspect` boolean to the laps table. Leaderboards show laps where `valid = 1 AND suspect = 0`. Staff can review flagged laps from the admin dashboard.
 
 **Warning signs:**
-`arp -a` on any pod shows two entries for `.23` or `.51`. Staff kiosk loads intermittently. `ping 192.168.31.23` shows request timeouts mixed with replies. Router DHCP lease table shows `.51` still assigned to another device.
+A lap time appears on a leaderboard that is significantly faster than the previous record (more than 5% below the field). Sector times do not sum to lap time. The same driver repeatedly posts times that are physically impossible for the car on that track.
 
-**Phase to address:** Phase 1 (diagnosis) must verify the server's current IP situation. Phase 3 (static IP + DNS) must implement both layers simultaneously.
+**Phase to address:** Phase 2 (leaderboard feature) — validation layer must be in place before the leaderboard goes public. Any public leaderboard without lap validity hardening will be gamed immediately.
 
 ---
 
-### Pitfall 5: Windows DNS Cache Survives Hosts File Changes
+### Pitfall 5: Cross-Game Comparability Is Impossible — Do Not Try
 
 **What goes wrong:**
-After updating `C:\Windows\System32\drivers\etc\hosts` on a pod to point `kiosk.rp` at `192.168.31.23`, the change may not take effect immediately. The Windows DNS Client service (dnscache) caches negative and positive lookups. Background processes (Edge, Windows Update, telemetry) continuously make DNS queries that re-populate the cache. `ipconfig /flushdns` on one pod flushes the cache but another pod may have cached a stale entry that won't expire for the default TTL. Edge also maintains its own internal DNS cache that is separate from the OS cache and is not cleared by `ipconfig /flushdns` — it requires `edge://net-internals/#dns` or a browser restart.
+The venue runs AC and F1 25. Both games are in `laps.sim_type`. If leaderboards do not filter by `sim_type`, AC laps will appear alongside F1 25 laps for the same circuit (e.g., Silverstone exists in both). The physics, tire models, aerodynamics, and lap time targets are fundamentally different. An AC GT3 car at Silverstone might post 1:42 where an F1 25 car posts 1:28. Mixed leaderboards are misleading and will confuse customers.
 
 **Why it happens:**
-Windows dnscache service has its own TTL (default positive: 86400s, negative: 300s). Adding a hosts file entry does not flush the existing cache — the service reads the hosts file at query time but may serve the cached response instead. Edge's internal DNS resolver is Chromium's `//net` stack, which has its own independent cache.
+The `track` string is game-specific and not standardized. AC uses `ks_silverstone` while F1 25 uses `silverstone` or a variant. However, if track name normalization is added for display purposes, leaderboard joins across sims may accidentally combine them.
 
 **How to avoid:**
-- After updating the hosts file on a pod, run `ipconfig /flushdns` AND restart Edge (kill all msedge.exe processes). The flush + restart combination clears both caches.
-- For deployment automation via pod-agent: chain the hosts file write, `ipconfig /flushdns`, and `taskkill /F /IM msedge.exe` into one command sequence.
-- Verify resolution from within the pod using `nslookup kiosk.rp 127.0.0.1` — not just `ping`, which may use a cached route.
+- All leaderboard queries MUST include `sim_type` as a filter at the query level, not just at the display level.
+- The leaderboard page URL should encode the sim: `/leaderboard/ac/silverstone` not `/leaderboard/silverstone`.
+- Never create a "combined" leaderboard. The car class system (A/B/C/D) must be within a single sim, not across sims.
+- Driver ratings and skill scores must be tracked per-sim, not globally. A driver's AC rating means nothing for F1 25 performance.
 
 **Warning signs:**
-`nslookup kiosk.rp` returns correct IP but typing `kiosk.rp` in Edge still shows "site cannot be reached." Hosts file edit was deployed but the issue reappears on the next Edge launch. Different pods resolve the same hostname to different IPs.
+A leaderboard query joins laps without a `sim_type` filter. The track name normalization map accidentally collapses `ks_silverstone` and `silverstone` into the same string.
 
-**Phase to address:** Phase 3 (DNS) deployment scripts must include flush + browser restart. Do not mark "DNS deployed" as done until verified from Edge, not just from command line.
+**Phase to address:** Phase 2 (leaderboard feature) — sim_type must be a required parameter in every leaderboard API endpoint. Reject requests without it.
 
 ---
 
-### Pitfall 6: Port 8080 and 3000 Have Silent Competitors on Windows
+### Pitfall 6: SQLite WAL Checkpoint Starvation Under Concurrent Reads
 
 **What goes wrong:**
-rc-core runs on port 8080. Next.js dev server runs on port 3000. Both are "common" ports with known squatters on Windows:
-- Port 8080: Hyper-V Management Service uses it when Hyper-V is installed. Jenkins, Apache Tomcat, and various Windows SDK tools claim 8080. On Windows Server, IIS Application Pool defaults to 8080 as a secondary binding.
-- Port 3000: Some Bluetooth stack implementations claim 3000. iTunes/Bonjour uses port 3689 but some versions used 3000 during transition.
-- Port 80: HTTP.sys (`Microsoft-HTTPAPI/2.0`) binds port 80 by default on Windows when IIS or WinRM is installed, even without explicit configuration. This matters if the plan is to serve the kiosk on port 80 without a reverse proxy.
+`db/mod.rs` enables WAL mode (`PRAGMA journal_mode=WAL`) but does not configure `PRAGMA wal_autocheckpoint`. The default autocheckpoint triggers every 1,000 pages. Under a competitive event with 8 pods simultaneously writing laps AND the cloud sync loop AND the PWA leaderboard polling, the WAL file can grow unbounded if there is always at least one active reader when the checkpoint tries to run. SQLite's WAL documentation explicitly states: "If a database has many concurrent overlapping readers...no checkpoints will be able to complete and the WAL file will grow without bound."
 
-On gaming PCs, ports 9996 (AC), 20777 (F1), 5300 (Forza), 6789 (iRacing) are already reserved by rc-agent for game telemetry — any of these would conflict with UDP listeners from actual running games if rc-agent starts before the game initializes the UDP socket.
+A growing WAL file means every read must traverse more of the WAL to reconstruct the current state, so read performance degrades proportionally to WAL file size.
 
 **Why it happens:**
-Windows does not warn when a new service starts and finds a port already bound. The new service either silently fails to bind (returning no error if using `SO_REUSEADDR` incorrectly), or the old service is pre-empted depending on start order. The issue only surfaces when both services are running simultaneously.
+WAL mode is enabled as a best practice but the connection pool (`max_connections(5)`) means there are always connections held open by sqlx. The sqlx pool keeps connections alive, which means readers are never fully absent, which means checkpoints may be perpetually blocked.
 
 **How to avoid:**
-- Verify port availability on the server before choosing ports: `netstat -ano | findstr :8080` and `netstat -ano | findstr :3000`.
-- For the Next.js production build on the server, use port 3200 (already used by `racingpoint-admin`) or an uncontested port like 3100 or 3050. Avoid port 3000 in production.
-- Disable HTTP.sys on gaming pods if any future kiosk page is served on port 80: `netsh http delete urlacl url=http://+:80/` or disable `W3SVC` if IIS is installed.
-- For rc-core port 8080, verify with `netstat -ano | findstr :8080 | findstr LISTEN` on the server — if anything other than rc-core is listed, investigate before assuming rc-core bound successfully.
+```sql
+PRAGMA wal_autocheckpoint=400;   -- checkpoint every 400 pages (~1.6MB) not 1000
+PRAGMA busy_timeout=5000;        -- wait up to 5s instead of failing immediately
+```
+Also configure sqlx pool with a maximum connection lifetime so connections are periodically recycled, giving the checkpoint a window to complete:
+```rust
+SqlitePoolOptions::new()
+    .max_connections(5)
+    .max_lifetime(Duration::from_secs(300))  // recycle connections every 5 minutes
+    .connect(&url)
+```
 
 **Warning signs:**
-rc-core or Next.js starts without error message but returns connection refused. `netstat -ano` shows the expected port is LISTENING under a different PID than rc-core or node.exe. Server startup logs show "address already in use" (Rust: `AddrInUse` error code) — but only if error handling is not silently swallowed.
+The WAL file at `racecontrol.db-wal` grows continuously and never shrinks. Read latency increases over uptime (hours). `PRAGMA wal_checkpoint(PASSIVE)` run manually returns a non-zero `busy` count.
 
-**Phase to address:** Phase 1 (diagnosis) must run `netstat -ano` on the server and record what currently holds each relevant port. Phase 2 (staff kiosk pinning) must verify port selection before deploying.
+**Phase to address:** Phase 1 (data foundation) — add these pragmas to `db/mod.rs` alongside the existing WAL mode setup.
 
 ---
 
-### Pitfall 7: Next.js Production Build Requires Explicit Build Step Before Serving
+### Pitfall 7: Cloud Sync ID Mismatch Corrupts Competitive Data
 
 **What goes wrong:**
-Running `next start` on the server without a prior `next build` serves either stale content from a previous build or fails entirely with "Could not find a production build." If the server runs `next dev` instead of `next build && next start`, the kiosk works but is 3-5x slower, recompiles on each request, and crashes if the CPU is under load. The distinction between dev and prod mode is easy to miss when setting up auto-start for the first time.
+MEMORY.md documents the known ID mismatch: "Local/cloud have different UUIDs. sync_push resolves by phone/email." The cloud sync in `cloud_sync.rs` currently covers `drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings` — the competitive tables (`laps`, `personal_bests`, `track_records`, `events`, `event_entries`) are NOT in SYNC_TABLES.
+
+When competitive tables ARE added to sync (which v3.0 requires), the ID mismatch problem becomes acute: a driver's laps reference `driver_id` from the local UUID, but the cloud record for that driver may have a different UUID. Foreign key integrity breaks silently. The leaderboard on the cloud PWA shows laps with no associated driver name.
 
 **Why it happens:**
-Next.js dev mode (`next dev`) and prod mode (`next start`) use the same port but behave completely differently. A startup script that calls `npm start` from the wrong directory or without the correct package.json `start` script will launch dev mode transparently.
+The sync was designed for configuration data (pricing, settings) where ID consistency is enforced by the cloud being authoritative. For locally-generated data (laps, sessions), the venue is authoritative and IDs are generated locally. When the same driver registers on both systems through different flows, two UUIDs exist for one person.
 
 **How to avoid:**
-- The auto-start script must call `next build` first (once), then `next start`. The HKLM Run or Scheduled Task must point to a script that runs `next start` only (build is a one-time step performed during deploy, not startup).
-- Verify production mode is active: `next start` output includes "ready - started server on 0.0.0.0:PORT" without webpack compilation messages. Dev mode prints "event compiled client and server files."
-- Use `cross-env NODE_ENV=production next start` to make the environment explicit.
+- **Resolve IDs before syncing laps.** The sync must verify that for every `driver_id` referenced in a lap being pushed, the cloud has a matching driver record with the same UUID. If not, resolve via phone/email match first, then push the lap.
+- **Use the cloud-assigned UUID as canonical.** Once a driver is registered on cloud, push the cloud UUID back to the venue. All future laps are written with the cloud UUID from the start.
+- **Add a `cloud_driver_id` column** to the venue's `drivers` table for the mapping. Lap sync uses `cloud_driver_id` not `id`.
+- **Never sync laps for drivers whose IDs are unresolved.** The sync should skip and log rather than push orphaned lap records.
 
 **Warning signs:**
-The kiosk URL works but is slow on first load. Server CPU spikes to 100% when a new page is opened. `next start` output shows webpack compilation lines. Port 3000 is bound but the kiosk shows an error about missing `.next` directory.
+Cloud leaderboard shows laps with `driver_id` that does not match any driver in the cloud driver table. PWA shows "Unknown Driver" on leaderboards. After sync, `COUNT(DISTINCT driver_id) FROM laps` exceeds `COUNT(*) FROM drivers` on the cloud.
 
-**Phase to address:** Phase 2 (staff kiosk pinning) deploy script must include explicit `npm run build` before configuring auto-start.
+**Phase to address:** Phase 1 (data foundation) — the ID resolution strategy must be finalized before any lap sync is implemented. Build the `cloud_driver_id` mapping column into the migration.
 
 ---
 
-### Pitfall 8: NSSM Is Abandoned — Use Task Scheduler or SC Instead
+### Pitfall 8: Driver Rating With Hotlap-Only Data Is Fundamentally Broken
 
 **What goes wrong:**
-NSSM (Non-Sucking Service Manager) is the commonly cited solution for running Node.js/Next.js as a Windows service. It is unmaintained (last release 2017), flagged by Windows Defender and other AV as "potentially unwanted software" (because malware extensively uses it), and leaves undescribed events in the Windows Event Log because the event manifest is never registered. On Windows 11 22H2+, NSSM-created services have caused intermittent startup failures that only manifest after Windows Feature Updates.
+A skill rating system (Elo or otherwise) requires head-to-head comparisons to be meaningful. In a venue hotlap context, drivers never race each other simultaneously — they each set times on different days, in different conditions, possibly in different cars. Applying standard Elo to hotlap times produces ratings that measure car choice and track familiarity, not driver skill. A driver who exclusively uses the fastest car in class A will rate higher than an equally skilled driver who varies their car choices.
+
+Research into generalizing Elo for racing (Powell, Journal of Quantitative Analysis in Sports, 2024) confirms that standard Elo is not appropriate for time-only competitions — it requires positional outcome comparison.
 
 **Why it happens:**
-NSSM was the de-facto standard 2012-2018. Most tutorials and Stack Overflow answers still recommend it because they were written during that window. The project stagnation is not obvious until you check the GitHub commit date.
+Elo is the go-to for competitive rating because it is simple and well-understood. Developers apply it without considering that hotlap times require normalization across car+track combinations before comparison is valid.
 
 **How to avoid:**
-Two preferred alternatives:
-1. **Task Scheduler with "At logon" trigger** (for Session 1 GUI processes like the kiosk staff terminal and Edge kiosk): Use `schtasks /create` with trigger `ONLOGON` and the "Run only when user is logged on" security option. This is the same approach used for rc-agent via HKLM Run.
-2. **`sc.exe` with a wrapper .bat** (for background non-GUI services like rc-core on the server): `sc create rccore binPath="C:\RacingPoint\rc-core.exe" start=auto` with `sc failure rccore actions= restart/5000/restart/30000/restart/60000`. Native Windows services with native recovery actions. No third-party dependency.
-3. **PM2 with pm2-windows-service** is acceptable for Next.js on the server but requires setting `PM2_HOME` as a system environment variable (not user-level) and using `pm2-windows-service` rather than `pm2 startup`. The npm-start script in `package.json` must call `next start`, not `next dev`.
+For a venue leaderboard context, use a **percentile-based class rating** instead of Elo:
+1. For each driver+track+car combination, compute where their personal best falls in the distribution of all times on that track+car.
+2. A driver's class rating is their median percentile across all track+car combinations they have competed on, weighted by sample count.
+3. Classes A/B/C/D map to percentile bands (A = top 10%, B = 11-30%, C = 31-60%, D = 61-100%).
+
+This is fair, transparent to customers, and does not require head-to-head data. Reserve Elo-style ratings for actual group events where finishing order is known.
 
 **Warning signs:**
-Defender quarantines or flags `nssm.exe`. Service fails to start after a Windows Feature Update. Event Viewer shows `Event ID 0: The description for Event ID 0 from source NSSM cannot be found` repeatedly.
+The top-rated driver exclusively uses the single fastest car in the catalog. A new driver with 1 fast lap in the fastest car outranks a veteran with 200 laps in varied cars. Rating changes wildly after a single session.
 
-**Phase to address:** Phase 2 (staff kiosk pinning) must choose sc.exe or Task Scheduler for rc-core/Next.js auto-start. Do not introduce NSSM.
+**Phase to address:** Phase 3 (driver profiles and rating) — algorithm design must be settled before any rating is displayed publicly. Published ratings are difficult to retract without damaging trust.
 
 ---
 
-### Pitfall 9: Edge `StartupBoost` Launches a Background Edge Instance Before the Kiosk Launch
+### Pitfall 9: Championship Scoring Has Silent Edge Cases That Break Standings
 
 **What goes wrong:**
-Edge's `StartupBoostEnabled` policy (enabled by default in managed and unmanaged installs since Edge 88) launches an Edge process in the background at Windows startup. This background process holds the default Edge profile open. When rc-agent then launches Edge with `--kiosk 127.0.0.1:18923 --user-data-dir=C:\RacingPoint\EdgeKiosk`, if `--user-data-dir` is not set, the new instance tries to reuse the already-open profile and either: (a) spawns a second window that is not in kiosk mode (the existing lock screen bug), or (b) the startup-boost instance prevents `--kiosk` from applying correctly, showing normal Edge UI. Microsoft explicitly lists `StartupBoostEnabled` as a feature that does not work with kiosk mode and must be disabled.
+F1-style scoring (25/18/15/12/10/8/6/4/2/1) applied naively produces wrong standings when:
+- A driver DNFs or does not start a round — do they score 0 or are they excluded?
+- Two drivers tie on points for the championship — tiebreaker is not defined (most wins? most podiums? alphabetical?)
+- A driver registers for a championship round but never sets a lap — do they score last-place points or null?
+- A championship has 5 drivers and only 5 scoring positions — what about 6th driver added mid-championship?
+- A round is cancelled after some laps are set — do those laps count toward the round result?
+
+Each of these edge cases, unhandled, produces incorrect standings that are visible to all customers on the public PWA.
 
 **Why it happens:**
-StartupBoost pre-loads the Edge browser process before any user intent. It does not respect command-line flags passed to subsequent Edge invocations because it was launched without those flags. This conflicts with `--kiosk` which requires Edge to start fresh with those flags applied.
+Scoring rules are defined for ideal conditions. Edge cases only appear in production. Since the scoring table (`event_entries.result_position`) does not distinguish between "DNS" (did not start), "DNF" (did not finish), and "last place finisher," the system cannot apply the correct rule.
 
 **How to avoid:**
-Disable `StartupBoostEnabled` on all pods via Group Policy: `Computer Configuration → Administrative Templates → Microsoft Edge → StartupBoostEnabled = Disabled`. Or via registry: `HKLM\SOFTWARE\Policies\Microsoft\Edge\StartupBoostEnabled = 0 (DWORD)`.
-Also disable `BackgroundModeEnabled` for the same reason — another policy Microsoft lists as incompatible with kiosk mode.
+- Add a `result_status` column to `event_entries`: `'DNS' | 'DNF' | 'finished' | 'pending'`.
+- Define tiebreaker rules in the championship configuration (stored in `config_json`) and implement them explicitly in the scoring query.
+- Write characterization tests for all edge cases BEFORE implementing scoring. Tests must cover: tie on points, DNS, DNF, late registration, round cancellation.
+- Points are only awarded to drivers with `result_status = 'finished'`. DNS/DNF score zero.
 
 **Warning signs:**
-Task Manager shows `msedge.exe` processes running before any user opens a browser. The Edge kiosk window sometimes shows the address bar (normal mode) instead of full-screen kiosk. Edge kiosk stacking (multiple windows) that the close_browser() fix addressed in v1.0 recurs after an Edge update.
+Two drivers show the same championship points total and the leaderboard ordering is non-deterministic (sorted by insertion order). A driver who did not participate in a round appears with a result position. Championship standings change unexpectedly after a late lap is recorded.
 
-**Phase to address:** Phase 2 (pod lock screen fix) must disable `StartupBoostEnabled` and `BackgroundModeEnabled` on all pods before configuring Edge kiosk launch.
+**Phase to address:** Phase 2 (events and championship) — scoring rules must be fully specified and tested before the first event is created.
 
 ---
 
-### Pitfall 10: `127.0.0.1` Only Works If rc-agent Is Already Listening When Edge Opens
+### Pitfall 10: Track Map Generation from Position Data Requires Normalization
 
 **What goes wrong:**
-rc-agent serves the lock screen on `127.0.0.1:18923`. If Edge is launched before rc-agent's HTTP server has finished binding the port, Edge shows "ERR_CONNECTION_REFUSED" and does not retry. In kiosk mode there is no address bar and no refresh mechanism — the customer sees the error page permanently until the tab is manually reloaded (impossible in kiosk mode) or the session restarts. This is distinct from the HKLM Run startup issue — it can also happen when rc-agent restarts mid-session and Edge was already open.
+AC's UDP telemetry provides `pos_x`, `pos_y`, `pos_z` in world space coordinates. F1 25 provides `worldPositionX/Y/Z`. These are absolute 3D coordinates in the game world's coordinate system — they are not latitude/longitude and they vary by track, car, and game. A 2D track map overlay requires:
+1. Projecting 3D positions to 2D (typically XZ plane, dropping Y/altitude)
+2. Normalizing to canvas coordinates (scale + translate to fit viewport)
+3. Aligning multiple laps from different drivers (same coordinate system, but floating point drift can cause misalignment)
+4. Handling the gap between the end of one lap and the start of the next (the car teleports to the start line)
+
+If coordinates from AC and F1 25 are mixed on the same "track" (same track name, different sim), the scale and coordinate system are completely different and will produce visual garbage.
 
 **Why it happens:**
-Edge in kiosk mode loads the URL once at launch. Unlike a normal browser where the user can press F5, kiosk mode suppresses the refresh gesture. `ERR_CONNECTION_REFUSED` in kiosk mode is a dead end with no recovery path visible to the customer.
+Position data is straightforward to capture, but coordinate system normalization is non-trivial. Game developers choose coordinate systems for physics fidelity, not for external visualization.
 
 **How to avoid:**
-The v1.0 "TCP readiness" fix (rc-agent waits for HTTP server before signaling Edge to launch) addresses the startup case — verify it is actually active and not regressed. For the crash-restart case, the recovery flow must: (1) kill the Edge kiosk instance, (2) wait for rc-agent HTTP server to respond (poll `127.0.0.1:18923/health`), (3) relaunch Edge. A direct Edge `--kiosk` relaunch without waiting for the server will reproduce the error.
+- Generate track map templates offline: run one lap per track per sim, capture the coordinate bounding box, store as a `track_map_bounds` configuration (minX, maxX, minZ, maxZ per track+sim).
+- The rendering layer uses these bounds to normalize any lap's XZ coordinates to [0,1] space, then scales to the canvas. This means any lap on that track auto-fits correctly.
+- Store position data as `pos_x_norm` and `pos_z_norm` (normalized) in the chart data blob, not raw game coordinates. Eliminates the normalization work from the browser.
+- Never mix AC and F1 25 position data on the same map. The track_map_bounds are keyed by `(track, sim_type)`.
 
 **Warning signs:**
-Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects (rc-agent is alive) but the pod screen shows the browser error page. This typically happens 3-8 seconds after rc-agent restarts (before the HTTP server finishes binding).
+Track map shows a straight line or a single dot (coordinates not normalized). Two laps of the same track do not overlap (coordinate drift). The map looks correct for one driver but rotated/mirrored for another (different car starting positions).
 
-**Phase to address:** Phase 2 (pod lock screen fix) — verify the TCP readiness check is in the relaunch path, not just the startup path.
+**Phase to address:** Phase 3 (telemetry visualization) — a pre-computation step to capture bounds per track+sim must be done as venue setup before the feature is enabled for customers.
+
+---
+
+### Pitfall 11: Public Leaderboard Caching Strategy Mismatches Data Freshness Expectations
+
+**What goes wrong:**
+The Next.js PWA at app.racingpoint.cloud serves leaderboards publicly. Without caching, every page load hits the cloud API (Axum on Bono's VPS), which queries the cloud database. With 8 pods potentially setting records in real time, a customer checking the leaderboard 30 seconds after a record expects to see the new record. If the page is statically generated (SSG with ISR), the revalidation period determines staleness. ISR with `revalidate: 60` means a record is invisible for up to 60 seconds — acceptable. ISR with `revalidate: 3600` means a record set at 2pm is invisible until 3pm — unacceptable for a competitive venue.
+
+Conversely, with no caching (SSR on every request), the Bono VPS handles every page load directly. During a busy group event, 20 customers hitting the leaderboard simultaneously = 20 database queries per second, which is fine for SQLite/Postgres at this scale but wastes resources.
+
+**Why it happens:**
+Caching decisions are made at framework setup and are not revisited. The wrong ISR revalidation period is set once and forgotten. Freshness expectations in a competitive racing context are much higher than for typical web content.
+
+**How to avoid:**
+- Use ISR with `revalidate: 30` for leaderboard pages — matches the 30s cloud sync interval from the venue.
+- Use `on-demand revalidation` for record-setting events: when the cloud sync receives a new track record, call `revalidateTag('leaderboard')` to purge the ISR cache immediately.
+- The `/api/leaderboard/[track]` endpoint should set `Cache-Control: s-maxage=30, stale-while-revalidate=60` for CDN edge caching.
+- Add a "last updated" timestamp to every leaderboard page so customers know the data age.
+
+**Warning signs:**
+A customer refreshes the leaderboard and does not see their own record they just set. The ISR revalidation period in `page.tsx` is hardcoded to a large value like 3600. The API route has no Cache-Control header.
+
+**Phase to address:** Phase 2 (leaderboard public surface) — caching strategy must be designed alongside the API, not added after.
 
 ---
 
@@ -223,12 +301,13 @@ Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Use `next dev` for the kiosk server | No build step, instant changes | 3-5x slower, crashes under CPU load, not production-safe | Never — dev mode in production is always wrong |
-| Use NSSM for Windows service management | One command setup | AV flags binary, maintenance nightmares after Win11 updates, abandoned project | Never — use sc.exe or Task Scheduler |
-| Set static IP without DHCP reservation | Server holds its IP immediately | Router reset causes IP conflict with another device | Only if you can guarantee the router will never reset |
-| Use `.local` TLD for local hostname | Familiar pattern, "just works" on Mac | mDNS conflicts on Windows, Bonjour fights, resolution flips | Never — use `.rp` or another safe TLD |
-| Rely on `ipconfig /flushdns` alone after hosts file change | One command, seems sufficient | Edge internal DNS cache is separate and not flushed | Never sufficient — must also restart Edge |
-| Skip `--user-data-dir` on Edge kiosk launch | Simpler launch command | Startup Boost conflict, profile corruption on update, multiple Edge instances fighting | Never — always isolate the kiosk profile |
+| No index on telemetry_samples | Works fine at dev scale | Full table scan after 1 month — unusable visualization | Never — add index in migration day one |
+| Sync raw telemetry_samples to cloud | Simple sync implementation | VPS disk exhausted in weeks, sync cycle exceeds interval | Never — sync pre-aggregated blobs only |
+| Trust game valid flag only | Zero extra code | Easily gamed leaderboard, customer complaints | Never for public leaderboard; acceptable for billing display |
+| No result_status for event entries | Simpler schema | Cannot distinguish DNS/DNF/finished, broken standings | Never — add result_status before first event |
+| Global driver rating across sims | One score per driver | Meaningless rating for multi-game venue | Never — must be per sim_type |
+| ISR revalidate > 60s for leaderboards | Fewer cloud requests | Records invisible for minutes — defeats competitive purpose | Only for historical records older than 7 days |
+| Raw world coordinates stored in telemetry | Exactly what game sends | Browser must normalize; coordinate system coupling to specific game version | Acceptable at MVP if normalization happens at render time; fix in Phase 3 |
 
 ---
 
@@ -236,11 +315,12 @@ Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Edge kiosk mode | Starting Edge without killing existing msedge.exe first | `close_browser()` must kill both `msedge.exe` AND `msedgewebview2.exe` before relaunching kiosk (already fixed in 80ec001, verify it stays) |
-| Windows hosts file | Writing hosts file entries in wrong format or with Windows CRLF | Use `192.168.31.23 kiosk.rp` with LF line endings; extra whitespace or CRLF causes silent resolution failure on some Windows versions |
-| PM2 on Windows | Setting `PM2_HOME` as user environment variable only | Must be set as SYSTEM environment variable; user-level PM2_HOME is not visible to the service user account |
-| Next.js `next start` | Running from wrong working directory | Must run from the directory containing `.next/` folder; use `--cwd` or set working directory explicitly in Task Scheduler or sc.exe |
-| Windows Firewall | Forgetting new ports after static IP change | Adding rc-core or Next.js on a new port requires a new inbound firewall rule; `netsh advfirewall firewall add rule name="RaceControl" dir=in action=allow protocol=TCP localport=<PORT>` |
+| AC UDP sectors | Sector times not always populated — AC sends 0 for sectors on incomplete laps | Check for `sector_ms > 0 AND sector_ms < lap_time_ms` before storing sectors; store NULL not 0 |
+| F1 25 UDP lap validity | Reading `currentLapInvalid` flag only | Also check `lapValidityBitFlags` in `LapHistoryData` (0x01 = lap valid); the per-session flag resets, history flags are permanent |
+| F1 25 UDP packet loss | Running at 60Hz for fine telemetry | Run at 20Hz max; higher rates cause packet loss on LAN UDP; use `offset_ms` to detect gaps in received data |
+| Cloud sync timestamp comparison | Mixing ISO-T and space-separator formats | Already hit in v1.0 — `normalize_timestamp()` in cloud_sync.rs handles this. Any new competitive tables synced must pass through same normalization |
+| SQLite concurrent writes during group event | 8 pods writing laps simultaneously | sqlx pool serializes writes naturally. Do NOT increase `max_connections` above 5 for the write path — more connections increase WAL contention |
+| SQLite on cloud VPS | Assuming SQLite on Bono's VPS is fine for public reads | Cloud rc-core uses SQLite too. Under concurrent PWA traffic, add `PRAGMA busy_timeout=5000` so reads queue instead of returning SQLITE_BUSY |
 
 ---
 
@@ -248,9 +328,12 @@ Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Next.js dev mode in production | Page loads take 3-5 seconds, CPU spikes on navigation | Enforce `next build && next start` in all deployment scripts | Immediately — from first customer use |
-| DNS query for every lock screen load | Sub-second latency added to every lock screen render | Use IP address or hosts file; avoid making the kiosk URL depend on upstream DNS resolution | Any time LAN DNS latency exceeds 50ms |
-| Edge kiosk profile on spinning disk | Lock screen takes 4-8 seconds to show | Point `--user-data-dir` to an SSD path (C: drive on pods is typically SSD; verify) | When pods have spinning disk OS drive |
+| No telemetry_samples index | Telemetry load time grows week-over-week | `CREATE INDEX idx_telemetry_lap_offset ON telemetry_samples(lap_id, offset_ms)` at migration | After ~500 laps (~1.5M rows) |
+| Unbounded telemetry capture | SQLite DB grows without limit | Downsample to 10Hz at capture; or cap rows per lap (`LIMIT 600` = 60s at 10Hz) | After ~2 weeks of 8-pod operation |
+| Leaderboard GROUP BY without covering index | GROUP BY+ORDER BY forces temp table sort | Covering index `(track, car, valid, lap_time_ms)` eliminates sort | After ~5,000 laps |
+| WAL file growing without checkpoint | Read latency grows proportional to WAL size | `PRAGMA wal_autocheckpoint=400` + connection max_lifetime | After ~6 hours of continuous operation |
+| Per-request leaderboard query on cloud | VPS handles O(N) queries during busy events | ISR cache + on-demand revalidation | At ~10 concurrent PWA users |
+| Track map normalization in browser | CPU spike on telemetry page open | Pre-compute normalized coordinates before storing | On mobile devices immediately |
 
 ---
 
@@ -258,9 +341,10 @@ Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Leaving Edge kiosk address bar accessible via `--kiosk` but wrong type | Customer can navigate away from lock screen, escape kiosk | Use `--edge-kiosk-type=fullscreen` which disables the address bar entirely; verify F11 and Ctrl+N are blocked |
-| Hosts file writable by non-admin users | Any process running as the customer user can redirect `kiosk.rp` to any IP | Hosts file should be owned by SYSTEM with read-only permissions for non-admin users; verify `icacls C:\Windows\System32\drivers\etc\hosts` on pods |
-| pm2-windows-service running as SYSTEM with full Node.js access | Compromise of Next.js app = full system access | Run the service under a restricted local user account, not SYSTEM, for Next.js on the server |
+| Public leaderboard accepts driver_id filter without validation | Driver can enumerate other drivers' lap details | All public endpoints must only expose aggregated data (best lap, rank). Raw lap details only visible with driver authentication or for the driver themselves |
+| Championship scoring re-runs on every request | A race condition during concurrent scoring updates produces inconsistent results | Scoring calculation should be idempotent and cached — run once at event close, store result in `event_entries.result_position`, serve from stored value |
+| telemetry endpoint has no size limit | A malformed lap_id could trigger a query returning millions of rows | Always add `LIMIT` to telemetry queries (e.g., `LIMIT 2000`) as a hard safety cap |
+| Track record update is not atomic | Concurrent lap completions on two pods could both see the same "current record" and both update, leaving a stale record if the second update has a higher time | Wrap `personal_bests` and `track_records` updates in a single transaction with `BEGIN IMMEDIATE` to serialize |
 
 ---
 
@@ -268,22 +352,26 @@ Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| `ERR_CONNECTION_REFUSED` in kiosk mode | Customer stuck on error page with no recovery path | Kiosk URL must point to a page that exists independently of rc-agent status — a static fallback HTML served by a separate lightweight server, or use a retry page |
-| Staff kiosk URL changes when server IP drifts | Staff bookmarks stop working; IT support calls | Pin server to static IP AND provide hostname (`kiosk.rp`) so staff always have a stable URL regardless of IP changes |
-| No visual indicator when kiosk service is starting up | Staff see "site cannot be reached" and think system is broken | Add a splash screen or status page that is served immediately at startup (even before Next.js hydrates) |
+| Leaderboard shows "Unknown Driver" | Breaks social sharing; driver can't prove it's their time | Never sync a lap without a resolved driver_id; show placeholder "Venue Driver" only if ID truly unresolvable |
+| Rating drops after more laps | Driver is discouraged from driving more | Use a percentile with minimum sample floor (e.g., at least 5 laps before rating shown); never penalize volume |
+| Track map renders as straight line on first visit | Customer thinks visualization is broken | Show loading state and only render map when >50 points are available; validate coordinate variance before rendering |
+| Championship standings change retroactively | Customers see their historical position change | Lock standings at round close; mark rounds as "final" — subsequent lap data does not affect closed rounds |
+| Sector times shown as "0:00.000" when unavailable | Confusing for customers | Show "–" not zero for NULL sector times; add tooltip explaining sector data availability per sim |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Static IP on server:** Verify with `ipconfig /all` on the server that the IP is marked as static (not DHCP), AND verify the DHCP reservation is in the router admin panel.
-- [ ] **Hosts file deployed:** After deploying hosts file to a pod, verify from Edge (not just `nslookup`) by navigating to `kiosk.rp` in a non-kiosk Edge window on that pod.
-- [ ] **Edge version pinned:** Run `msedge --version` via pod-agent on all 8 pods and confirm they are all on the same known-good version. Do not assume updates are blocked without verifying `EdgeUpdate` service is disabled.
-- [ ] **Kiosk launch script uses `--user-data-dir`:** Check the rc-agent kiosk launch command in source code — if `--user-data-dir` is absent, the kiosk is vulnerable to startup boost conflicts.
-- [ ] **StartupBoost disabled:** Verify via `reg query HKLM\SOFTWARE\Policies\Microsoft\Edge /v StartupBoostEnabled` on a pod. If the key is absent, StartupBoost is enabled by default.
-- [ ] **Next.js running in production mode:** SSH/exec to server and check `next start` output or `NODE_ENV` — look for webpack compilation messages that indicate dev mode.
-- [ ] **Port conflicts checked:** On the server, run `netstat -ano | findstr LISTEN` before deploying and confirm rc-core (port 8080) and Next.js kiosk are the only processes on their respective ports.
-- [ ] **TCP readiness in relaunch path:** rc-agent restart test — kill rc-agent, wait for it to restart, observe whether Edge shows ERR_CONNECTION_REFUSED or correctly waits. The readiness check must cover the restart path, not just cold boot.
+- [ ] **Telemetry index:** `EXPLAIN QUERY PLAN SELECT * FROM telemetry_samples WHERE lap_id = 'test'` shows `USING INDEX`, not `SCAN TABLE`. Verify after migration runs on production DB.
+- [ ] **Lap validity:** Submit a test lap with sector1+2+3 that do not sum to lap_time — verify it is flagged as suspect, not silently accepted.
+- [ ] **Sim type filter:** Call `/api/leaderboard/{track}` without `sim_type` parameter — should return 400 or default to a single sim, never mix AC and F1 laps.
+- [ ] **Championship tiebreaker:** Create two drivers with identical points — verify standings order is deterministic and documented (not random).
+- [ ] **Track map bounds:** Open telemetry chart for a lap and verify the track outline fills the canvas (not a dot in one corner, not a line).
+- [ ] **Cloud sync driver ID:** Push a lap whose driver_id is not in the cloud drivers table — verify it is not synced (not silently orphaned).
+- [ ] **WAL checkpoint:** After 1 hour of load test, check `ls -lh racecontrol.db-wal` — WAL file should be under 2MB, not growing.
+- [ ] **ISR freshness:** Set a new track record in venue, wait 35 seconds, reload public leaderboard — new record must appear (ISR revalidate ≤ 30s).
+- [ ] **result_status for events:** Record a lap for a driver who was marked DNS — verify they score 0 points, not last-place points.
+- [ ] **F1 25 at 60Hz:** Verify packet loss is not occurring — check that `offset_ms` values in stored telemetry have consistent ~50ms gaps (20Hz) not irregular gaps indicating drops.
 
 ---
 
@@ -291,13 +379,12 @@ Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Session 0 blind restart | LOW | Wait for next customer login (HKLM Run fires in Session 1); no manual action needed if HKLM Run is installed correctly |
-| Edge white screen after update | MEDIUM | Roll back Edge via pod-agent: kill edgeupdate, download prior MSI, install silently; disable EdgeUpdate service to prevent recurrence |
-| DNS resolution failure (.local conflict) | LOW | Switch to hosts file entries for `kiosk.rp`; deploy via pod-agent to all pods in sequence |
-| DHCP drift (IP collision) | MEDIUM | Set server NIC to static IP; update router DHCP reservation; `arp -d *` on affected pods to flush stale ARP cache |
-| Port conflict on 8080 or 3000 | MEDIUM | `netstat -ano` to identify competing process; disable or relocate competing service; change rc-core or Next.js port if needed and update all config references |
-| NSSM flagged by AV | MEDIUM | Stop and delete the NSSM service; reinstall using sc.exe or Task Scheduler; may need to temporarily disable Defender real-time scanning to complete migration |
-| ERR_CONNECTION_REFUSED in kiosk | LOW | Via pod-agent: kill msedge, verify rc-agent port 18923 is up, relaunch Edge; add HTTP readiness poll to relaunch script to prevent recurrence |
+| No telemetry index discovered after data accumulates | LOW | `CREATE INDEX idx_telemetry_lap_offset ON telemetry_samples(lap_id, offset_ms)` — runs online in SQLite without locking reads; may take 30-60s on large table |
+| Telemetry volume exhausts disk | MEDIUM | Add `WHERE lap_id IN (SELECT id FROM laps ORDER BY created_at DESC LIMIT 1000)` safety scope; run `DELETE FROM telemetry_samples WHERE lap_id NOT IN (SELECT id FROM laps ORDER BY created_at DESC LIMIT 2000)` to prune oldest; add downsampling to rc-agent |
+| Leaderboard gamed by invalid laps | LOW | Add `suspect` column via ALTER TABLE; mark suspicious laps manually via admin; re-run leaderboard query with `AND suspect = 0` filter |
+| Cloud sync ID mismatch corrupts lap data | HIGH | Export mismatched lap records; run manual phone/email reconciliation to map local UUIDs to cloud UUIDs; UPDATE laps SET driver_id = ? WHERE driver_id = ?; re-sync |
+| Championship scoring edge case produces wrong standings | MEDIUM | Identify the affected round; recalculate manually; UPDATE event_entries SET result_position = ?, points = ? WHERE event_id = ? AND driver_id = ?; publish correction notice |
+| WAL file grown to hundreds of MB | LOW | `PRAGMA wal_checkpoint(TRUNCATE)` during a low-traffic window; verify it returns (0,0,0); adjust wal_autocheckpoint for future |
 
 ---
 
@@ -305,32 +392,38 @@ Edge shows `ERR_CONNECTION_REFUSED` on the lock screen. Pod WebSocket reconnects
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Session 0 GUI blindness | Phase 1 (diagnose) + Phase 2 (auto-start) | After reboot, verify kiosk screen is visible on physical monitor, not just `tasklist` showing process running |
-| Edge auto-update breaking kiosk | Phase 2 (pod lock screen fix) | `reg query` confirms EdgeUpdate disabled; run `msedge --version` after simulated update block |
-| `.local` TLD mDNS conflicts | Phase 3 (local DNS) | Test from all 8 pods using `nslookup kiosk.rp` and Edge navigation; confirm no Bonjour service installed |
-| DHCP drift | Phase 1 (diagnose) + Phase 3 (static IP) | `ping 192.168.31.23` from all pods returns consistent <1ms; `ipconfig /all` on server shows static assignment |
-| DNS cache staleness | Phase 3 (DNS deploy scripts) | After hosts file deploy, test from Edge (not just nslookup); include flush + Edge restart in deploy sequence |
-| Port 8080/3000 conflicts | Phase 1 (diagnose) | Document current port occupancy; `netstat -ano` baseline on server before any changes |
-| Next.js dev vs prod | Phase 2 (staff kiosk) | `next start` output has no webpack lines; page load < 500ms for cached routes |
-| NSSM dependency | Phase 2 (auto-start) | `sc query` shows service type as `WIN32_OWN_PROCESS` without NSSM wrapper; no NSSM binary on server |
-| StartupBoost conflict | Phase 2 (pod lock screen) | Registry key present and set to 0; no background msedge.exe processes before any user opens browser |
-| ERR_CONNECTION_REFUSED in kiosk | Phase 2 (pod lock screen) | Restart rc-agent, observe Edge kiosk — should show lock screen within 5 seconds, not error page |
+| telemetry_samples no index | Phase 1: Data Foundation | EXPLAIN QUERY PLAN shows index use |
+| telemetry volume / sync explosion | Phase 1: Data Foundation | 30-day volume projection stays under 500MB |
+| laps table no leaderboard indexes | Phase 1: Data Foundation | Leaderboard API p99 < 50ms at 10k laps |
+| valid flag only trusts game | Phase 2: Leaderboards | Suspect lap filter active on public endpoints |
+| Cross-game comparability | Phase 2: Leaderboards | sim_type required in all leaderboard API routes |
+| WAL checkpoint starvation | Phase 1: Data Foundation | WAL file stays < 2MB after 6h uptime |
+| Cloud sync ID mismatch | Phase 1: Data Foundation | cloud_driver_id column present; unresolved IDs block sync |
+| Driver rating algorithm | Phase 3: Driver Profiles | Rating ignores car choice; percentile method verified against test data |
+| Championship scoring edge cases | Phase 2: Events | All edge case tests pass before first event created |
+| Track map coordinate normalization | Phase 3: Telemetry Visualization | Track outline fills canvas on all 8 test tracks |
+| PWA leaderboard cache staleness | Phase 2: Leaderboards | Record appears within 35s of being set at venue |
+| telemetry endpoint no size limit | Phase 3: Telemetry Visualization | API rejects or caps at 2000 rows per lap |
 
 ---
 
 ## Sources
 
-- **MEMORY.md / v1.0 codebase (HIGH):** Session 0 fix history (HKLM Run key), close_browser() edge stacking fix (80ec001), TCP readiness overlay fix — all confirmed production bugs already hit
-- **[Microsoft: Configure Edge kiosk mode](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-configure-kiosk-mode) (HIGH):** `StartupBoostEnabled` and `BackgroundModeEnabled` listed as incompatible with kiosk mode; `--user-data-dir` flag; kiosk type options
-- **[Edge 128 kiosk white screen bug](https://learn.microsoft.com/en-us/answers/questions/2403205/white-screen-on-kiosk-mode-after-ms-edge-updated-t) (HIGH):** Confirmed production regression; fix in 128.0.2739.54; organizations rolled back to 124
-- **[Microsoft: Kiosk mode troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-client/shell-experience/kiosk-mode-issues-troubleshooting) (HIGH):** Sign-in issues, automatic logon, AssignedAccess log channel
-- **[Task Scheduler GUI app with "run whether logged on or not"](https://learn.microsoft.com/en-us/archive/msdn-technet-forums/d0ed7784-3475-4218-95c4-477d84233cb3) (HIGH):** Confirmed: GUI apps run in background session, invisible on desktop
-- **[NSSM SaltStack deprecation issue](https://github.com/saltstack/salt/issues/59148) (MEDIUM):** Confirms project abandoned, AV flagging, Windows 11 compatibility issues
-- **[mDNS .local conflicts on Windows](https://community.start9.com/t/solved-mdns-on-windows-11-partially-works/1859) (MEDIUM):** Windows 11 native mDNS vs Bonjour conflict confirmed
-- **[Windows DNS resolver .local behavior change 1803→1809](https://social.technet.microsoft.com/Forums/en-US/966ba488-6f79-412f-9873-21155ff635e6/resolving-domain-local-changed-behavoir-from-windows-10-1803-to-windows-10-1809) (MEDIUM):** Confirmed behavior change in how Windows prioritizes mDNS over DNS for .local
-- **[HTTP.sys / Microsoft-HTTPAPI/2.0 port 80 occupancy](https://learn.microsoft.com/en-us/archive/msdn-technet-forums/bcc1f713-1fc9-42c9-8b9e-0a172d34c1c6) (HIGH):** Confirmed default Windows behavior
-- **[PM2 Windows service PM2_HOME requirement](https://blog.cloudboost.io/nodejs-pm2-startup-on-windows-db0906328d75) (MEDIUM):** Confirmed system-level PM2_HOME requirement; startup type "Automatic delayed" recommendation
+- **db/mod.rs (codebase — HIGH):** Confirmed telemetry_samples has no index; confirmed laps has no composite index; confirmed WAL mode enabled without checkpoint tuning; confirmed SYNC_TABLES excludes lap tables
+- **lap_tracker.rs (codebase — HIGH):** Confirmed valid flag is trusted directly from game UDP packet; confirmed track_records update is not wrapped in a transaction
+- **cloud_sync.rs (codebase — HIGH):** Confirmed ID mismatch problem is documented and partially handled for drivers; lap sync not yet implemented
+- **[SQLite WAL documentation — sqlite.org (HIGH)](https://sqlite.org/wal.html):** "If a database has many concurrent overlapping readers...no checkpoints will be able to complete and the WAL file will grow without bound" — direct quote confirming starvation risk
+- **[SQLite Query Optimizer — sqlite.org (HIGH)](https://sqlite.org/optoverview.html):** Covering index behavior for GROUP BY + ORDER BY leaderboard patterns confirmed
+- **[F1 25 UDP Specification — EA Forums (HIGH)](https://forums.ea.com/discussions/f1-25-general-discussion-en/f1-2025-udp-specification/12082129):** LapHistoryData bit flags (0x01 lap valid, 0x02/0x04/0x08 sector valid); 20Hz recommended; 60Hz causes packet loss
+- **[AC UDP telemetry — rickwest/ac-remote-telemetry-client (MEDIUM)](https://github.com/rickwest/ac-remote-telemetry-client):** Confirmed sector times not always populated; UDP "does not provide enough details for automatic track detection"
+- **[Generalizing Elo for racing — de Gruyter (MEDIUM)](https://www.degruyterbrill.com/document/doi/10.1515/jqas-2023-0004/html):** Standard Elo inappropriate for time-only competitions; speed-Elo vs endure-Elo distinction; hotlap-only venue requires different approach
+- **[SQLite performance tuning — phiresky (HIGH)](https://phiresky.github.io/blog/2020/sqlite-performance-tuning/):** WAL mode + PRAGMA busy_timeout + connection pool configuration confirmed effective
+- **[High-performance time series SQLite — DEV Community (MEDIUM)](https://dev.to/zanzythebar/building-high-performance-time-series-on-sqlite-with-go-uuidv7-sqlc-and-libsql-3ejb):** Monthly table partitioning for time series; downsampling recommendation for high-frequency capture
+- **[Next.js ISR caching — nextjs.org (HIGH)](https://nextjs.org/docs/app/guides/caching):** On-demand revalidation with revalidateTag; s-maxage Cache-Control for leaderboard freshness
+- **[Sim Racing Alliance rules — simracingalliance.com (MEDIUM)](https://www.simracingalliance.com/about/rules):** Championship scoring edge case handling (DNS, DNF, point tiebreakers) documented in competitive organizations
+- **[iRacing cheating prevention — bsimracing.com (MEDIUM)](https://www.bsimracing.com/iracing-new-cheat-prevention-detection-system-coming/):** Detection via telemetry review; automated watches on suspicious results — informs suspect flag approach
+- **MEMORY.md (HIGH):** ID mismatch already known and documented; timestamp normalization bug already fixed; existing sync tables confirmed
 
 ---
-*Pitfalls research for: RaceControl v2.0 — Kiosk URL Reliability (Windows LAN kiosk context)*
-*Researched: 2026-03-13*
+*Pitfalls research for: RaceControl v3.0 — Leaderboards, Telemetry and Competitive Features*
+*Researched: 2026-03-14*
