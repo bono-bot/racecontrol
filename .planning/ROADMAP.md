@@ -28,7 +28,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Diagnosis** - Confirm actual URL failure modes before touching anything
 - [x] **Phase 7: Server-Side Pinning** - Lock server IP and auto-start kiosk as production build (completed 2026-03-13)
 - [x] **Phase 8: Pod Lock Screen Hardening** - Rust compile + deploy: readiness probe + branded waiting state (completed 2026-03-14)
-- [ ] **Phase 9: Edge Browser Hardening** - Disable auto-update, StartupBoost, BackgroundMode on all pods
+- [x] **Phase 9: Edge Browser Hardening** - Disable auto-update, StartupBoost, BackgroundMode on all pods (completed 2026-03-14)
 - [ ] **Phase 10: Staff Dashboard Controls** - Power management and kiosk lockdown controls in the UI
 - [ ] **Phase 11: Customer Experience Polish** - Session results display and branded lock screen identity
 
@@ -90,7 +90,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 09-01-PLAN.md — Deploy Edge hardening script to all 8 pods: disable EdgeUpdate services, set StartupBoost=0 and BackgroundMode=0
+- [x] 09-01-PLAN.md — Deploy Edge hardening script to all 8 pods: disable EdgeUpdate services, set StartupBoost=0 and BackgroundMode=0
 
 ### Phase 10: Staff Dashboard Controls
 **Goal**: Staff can manage all 8 pods from the kiosk dashboard without touching a keyboard on the pod — power cycling, rebooting, waking, and toggling lockdown are all one-click operations
@@ -101,7 +101,11 @@ Plans:
   2. Staff can lock all 8 pods at once (venue opening/closing) and unlock all 8 pods at once from a single action in the dashboard
   3. Staff can shut down, restart, or wake any individual pod remotely from the dashboard — and confirm the action took effect by seeing the pod status change
   4. Staff can shut down, restart, or wake all 8 pods simultaneously from the dashboard with a single action
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 10-01-PLAN.md — Add lockdown API routes (per-pod + bulk) and parse_mac unit tests in rc-core
+- [ ] 10-02-PLAN.md — Wire lockdown + restart-all to kiosk /control page UI (api.ts + buttons)
 
 ### Phase 11: Customer Experience Polish
 **Goal**: Customers see Racing Point branding at every transition — before a session, during a session, and after — and session results remain on screen so customers can review their performance
@@ -131,6 +135,6 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 6. Diagnosis | v2.0 | 2/2 | Complete | 2026-03-13 |
 | 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
 | 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
-| 9. Edge Browser Hardening | v2.0 | 0/1 | Planned | - |
-| 10. Staff Dashboard Controls | v2.0 | 0/TBD | Not started | - |
+| 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
+| 10. Staff Dashboard Controls | v2.0 | 0/2 | Planned | - |
 | 11. Customer Experience Polish | v2.0 | 0/TBD | Not started | - |
