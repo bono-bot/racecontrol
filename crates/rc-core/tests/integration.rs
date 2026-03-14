@@ -974,3 +974,191 @@ async fn test_leaderboard_ordering() {
     assert_eq!(leaderboard[3].1, 95000, "fourth should be 95000ms");
     assert_eq!(leaderboard[4].1, 102000, "slowest should be 102000ms");
 }
+
+// =============================================================================
+// Phase 12 — Data Foundation tests (DATA-01 through DATA-05)
+// =============================================================================
+
+/// DATA-01: Covering index on laps(track, car, valid, lap_time_ms) for leaderboard queries
+#[tokio::test]
+async fn test_leaderboard_index_exists() {
+    let pool = create_test_db().await;
+
+    // Seed a driver and a lap so the query planner has something to work with
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('idx-drv-1', 'Index Test')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "idx-pod-1", 1).await;
+    sqlx::query(
+        "INSERT INTO laps (id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, valid)
+         VALUES ('idx-lap-1', 'idx-drv-1', 'idx-pod-1', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 1, 90000, 1)"
+    ).execute(&pool).await.unwrap();
+
+    // EXPLAIN QUERY PLAN the leaderboard query
+    let plan_rows = sqlx::query_as::<_, (i32, i32, i32, String)>(
+        "EXPLAIN QUERY PLAN SELECT driver_id, MIN(lap_time_ms) as best
+         FROM laps
+         WHERE track = 'spa' AND car = 'ks_ferrari_sf15t' AND valid = 1
+         GROUP BY driver_id
+         ORDER BY MIN(lap_time_ms)"
+    ).fetch_all(&pool).await.unwrap();
+
+    let plan_detail: String = plan_rows.iter().map(|r| r.3.clone()).collect::<Vec<_>>().join(" ");
+    assert!(
+        plan_detail.contains("idx_laps_leaderboard"),
+        "Leaderboard query should use idx_laps_leaderboard covering index, got: {}",
+        plan_detail
+    );
+}
+
+/// DATA-02: Covering index on telemetry_samples(lap_id, offset_ms) for telemetry visualization
+#[tokio::test]
+async fn test_telemetry_index_exists() {
+    let pool = create_test_db().await;
+
+    // Seed a telemetry sample so the query planner has data
+    sqlx::query(
+        "INSERT INTO telemetry_samples (lap_id, offset_ms, speed, throttle, brake, steering, gear, rpm)
+         VALUES ('telem-lap-1', 100, 120.0, 0.8, 0.0, 0.1, 4, 7500.0)"
+    ).execute(&pool).await.unwrap();
+
+    // EXPLAIN QUERY PLAN the telemetry query
+    let plan_rows = sqlx::query_as::<_, (i32, i32, i32, String)>(
+        "EXPLAIN QUERY PLAN SELECT * FROM telemetry_samples
+         WHERE lap_id = 'telem-lap-1'
+         ORDER BY offset_ms"
+    ).fetch_all(&pool).await.unwrap();
+
+    let plan_detail: String = plan_rows.iter().map(|r| r.3.clone()).collect::<Vec<_>>().join(" ");
+    assert!(
+        plan_detail.contains("idx_telemetry_lap_offset"),
+        "Telemetry query should use idx_telemetry_lap_offset covering index, got: {}",
+        plan_detail
+    );
+}
+
+/// DATA-03: WAL autocheckpoint tuned to 400 pages
+#[tokio::test]
+async fn test_wal_tuning() {
+    let pool = create_test_db().await;
+
+    // Query the wal_autocheckpoint pragma value
+    let result = sqlx::query_as::<_, (i64,)>("PRAGMA wal_autocheckpoint")
+        .fetch_one(&pool).await.unwrap();
+
+    assert_eq!(
+        result.0, 400,
+        "wal_autocheckpoint should be 400, got: {}",
+        result.0
+    );
+}
+
+/// DATA-04: drivers table has cloud_driver_id column with unique index
+#[tokio::test]
+async fn test_cloud_driver_id_column() {
+    let pool = create_test_db().await;
+
+    // Insert a driver with cloud_driver_id
+    sqlx::query(
+        "INSERT INTO drivers (id, name, cloud_driver_id) VALUES ('cloud-drv-1', 'Cloud Test', 'cloud-uuid-abc')"
+    ).execute(&pool).await.unwrap();
+
+    // SELECT it back and verify
+    let result = sqlx::query_as::<_, (String,)>(
+        "SELECT cloud_driver_id FROM drivers WHERE id = 'cloud-drv-1'"
+    ).fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, "cloud-uuid-abc", "cloud_driver_id should be retrievable");
+
+    // Verify uniqueness: inserting a duplicate cloud_driver_id should fail
+    sqlx::query(
+        "INSERT INTO drivers (id, name, cloud_driver_id) VALUES ('cloud-drv-2', 'Cloud Test 2', 'cloud-uuid-def')"
+    ).execute(&pool).await.unwrap();
+
+    let dup_result = sqlx::query(
+        "INSERT INTO drivers (id, name, cloud_driver_id) VALUES ('cloud-drv-3', 'Cloud Test 3', 'cloud-uuid-abc')"
+    ).execute(&pool).await;
+
+    assert!(
+        dup_result.is_err(),
+        "Duplicate cloud_driver_id should be rejected by unique index"
+    );
+}
+
+/// DATA-05: All six competitive tables accept valid inserts
+#[tokio::test]
+async fn test_competitive_tables_exist() {
+    let pool = create_test_db().await;
+
+    // Seed prerequisites: driver, pod, session, lap
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('comp-drv-1', 'Competitor')")
+        .execute(&pool).await.unwrap();
+    seed_test_pod(&pool, "comp-pod-1", 1).await;
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('comp-sess-1', 'hotlap', 'assetto_corsa', 'monza')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, valid)
+         VALUES ('comp-lap-1', 'comp-sess-1', 'comp-drv-1', 'comp-pod-1', 'assetto_corsa', 'monza', 'ks_ferrari_sf15t', 1, 85000, 1)"
+    ).execute(&pool).await.unwrap();
+
+    // 3. championships (must exist before hotlap_events references it)
+    sqlx::query(
+        "INSERT INTO championships (id, name, car_class, sim_type, status, scoring_system)
+         VALUES ('champ-1', 'Season 1', 'GT3', 'assetto_corsa', 'upcoming', 'f1_2010')"
+    ).execute(&pool).await.unwrap();
+
+    // 1. hotlap_events
+    sqlx::query(
+        "INSERT INTO hotlap_events (id, name, track, car, car_class, sim_type, status, championship_id)
+         VALUES ('evt-1', 'Monza Sprint', 'monza', 'ks_ferrari_sf15t', 'GT3', 'assetto_corsa', 'active', 'champ-1')"
+    ).execute(&pool).await.unwrap();
+
+    // 2. hotlap_event_entries
+    sqlx::query(
+        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_id, lap_time_ms, position, points, result_status)
+         VALUES ('entry-1', 'evt-1', 'comp-drv-1', 'comp-lap-1', 85000, 1, 25, 'finished')"
+    ).execute(&pool).await.unwrap();
+
+    // 4. championship_rounds
+    sqlx::query(
+        "INSERT INTO championship_rounds (championship_id, event_id, round_number)
+         VALUES ('champ-1', 'evt-1', 1)"
+    ).execute(&pool).await.unwrap();
+
+    // 5. championship_standings
+    sqlx::query(
+        "INSERT INTO championship_standings (championship_id, driver_id, position, total_points, rounds_entered, wins, podiums)
+         VALUES ('champ-1', 'comp-drv-1', 1, 25, 1, 1, 1)"
+    ).execute(&pool).await.unwrap();
+
+    // 6. driver_ratings
+    sqlx::query(
+        "INSERT INTO driver_ratings (driver_id, rating_class, class_points, total_events, total_podiums, total_wins)
+         VALUES ('comp-drv-1', 'Silver', 100, 5, 2, 1)"
+    ).execute(&pool).await.unwrap();
+
+    // Verify all inserts by querying each table
+    let evt_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM hotlap_events")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(evt_count.0, 1, "hotlap_events should have 1 row");
+
+    let entry_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM hotlap_event_entries")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(entry_count.0, 1, "hotlap_event_entries should have 1 row");
+
+    let champ_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM championships")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(champ_count.0, 1, "championships should have 1 row");
+
+    let round_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM championship_rounds")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(round_count.0, 1, "championship_rounds should have 1 row");
+
+    let standing_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM championship_standings")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(standing_count.0, 1, "championship_standings should have 1 row");
+
+    let rating_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM driver_ratings")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(rating_count.0, 1, "driver_ratings should have 1 row");
+}
