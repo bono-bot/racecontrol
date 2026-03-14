@@ -30,6 +30,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/health", get(health))
         // Pods
         .route("/pods", get(list_pods).post(register_pod))
+        .route("/pod-status-summary", get(pod_status_summary))
         .route("/pods/seed", post(seed_pods))
         .route("/pods/{id}", get(get_pod))
         .route("/pods/{id}/wake", post(wake_pod))
@@ -295,6 +296,28 @@ async fn list_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let pods = state.pods.read().await;
     let pod_list: Vec<&PodInfo> = pods.values().collect();
     Json(json!({ "pods": pod_list }))
+}
+
+async fn pod_status_summary(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let pods = state.pods.read().await;
+    let total = pods.len();
+    let mut down: Vec<Value> = Vec::new();
+    for pod in pods.values() {
+        if pod.status == PodStatus::Offline || pod.status == PodStatus::Error {
+            down.push(json!({
+                "id": pod.id,
+                "number": pod.number,
+                "status": pod.status,
+            }));
+        }
+    }
+    let active = total - down.len();
+    Json(json!({
+        "active": active,
+        "total": total,
+        "down": down,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
 }
 
 async fn get_pod(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Json<Value> {
@@ -818,6 +841,99 @@ mod lockdown_tests {
             }
             other => panic!("Expected SettingsUpdated, got: {:?}", other),
         }
+    }
+}
+
+#[cfg(test)]
+mod pod_status_summary_tests {
+    use super::*;
+    use axum::extract::State;
+    use std::sync::Arc;
+
+    async fn make_state() -> Arc<AppState> {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        let config = crate::config::Config::default_test();
+        Arc::new(AppState::new(config, db))
+    }
+
+    #[tokio::test]
+    async fn returns_all_healthy_when_no_pods_down() {
+        let state = make_state().await;
+
+        // Insert 3 healthy pods
+        {
+            let mut pods = state.pods.write().await;
+            for i in 1..=3u32 {
+                let id = format!("pod-{i}");
+                pods.insert(id.clone(), PodInfo {
+                    id: id.clone(),
+                    number: i,
+                    name: format!("Pod {i}"),
+                    ip_address: format!("192.168.31.{i}"),
+                    mac_address: None,
+                    sim_type: SimType::AssettoCorsa,
+                    status: PodStatus::Idle,
+                    current_driver: None,
+                    current_session_id: None,
+                    last_seen: None,
+                    driving_state: None,
+                    billing_session_id: None,
+                    game_state: None,
+                    current_game: None,
+                    installed_games: Vec::new(),
+                });
+            }
+        }
+
+        let response = pod_status_summary(State(state)).await;
+        let body = response.0;
+        assert_eq!(body["active"], 3);
+        assert_eq!(body["total"], 3);
+        assert_eq!(body["down"].as_array().unwrap().len(), 0);
+        assert!(body["timestamp"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn reports_offline_and_error_pods_as_down() {
+        let state = make_state().await;
+
+        {
+            let mut pods = state.pods.write().await;
+            pods.insert("pod-1".into(), PodInfo {
+                id: "pod-1".into(), number: 1, name: "Pod 1".into(),
+                ip_address: "192.168.31.1".into(), mac_address: None,
+                sim_type: SimType::AssettoCorsa, status: PodStatus::Idle,
+                current_driver: None, current_session_id: None,
+                last_seen: None, driving_state: None, billing_session_id: None,
+                game_state: None, current_game: None, installed_games: Vec::new(),
+            });
+            pods.insert("pod-2".into(), PodInfo {
+                id: "pod-2".into(), number: 2, name: "Pod 2".into(),
+                ip_address: "192.168.31.2".into(), mac_address: None,
+                sim_type: SimType::AssettoCorsa, status: PodStatus::Offline,
+                current_driver: None, current_session_id: None,
+                last_seen: None, driving_state: None, billing_session_id: None,
+                game_state: None, current_game: None, installed_games: Vec::new(),
+            });
+            pods.insert("pod-3".into(), PodInfo {
+                id: "pod-3".into(), number: 3, name: "Pod 3".into(),
+                ip_address: "192.168.31.3".into(), mac_address: None,
+                sim_type: SimType::AssettoCorsa, status: PodStatus::Error,
+                current_driver: None, current_session_id: None,
+                last_seen: None, driving_state: None, billing_session_id: None,
+                game_state: None, current_game: None, installed_games: Vec::new(),
+            });
+        }
+
+        let response = pod_status_summary(State(state)).await;
+        let body = response.0;
+        assert_eq!(body["active"], 1);
+        assert_eq!(body["total"], 3);
+        let down = body["down"].as_array().unwrap();
+        assert_eq!(down.len(), 2);
     }
 }
 
@@ -3132,7 +3248,9 @@ async fn start_ac_session(
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    match ac_server::start_ac_server(&state, config, pod_ids, None).await {
+    let ai_level = body.get("ai_level").and_then(|v| v.as_u64()).map(|v| v as u32);
+
+    match ac_server::start_ac_server(&state, config, pod_ids, ai_level).await {
         Ok(session_id) => Json(json!({ "session_id": session_id })),
         Err(e) => Json(json!({ "error": e.to_string() })),
     }

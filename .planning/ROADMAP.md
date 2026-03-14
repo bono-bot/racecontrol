@@ -119,8 +119,8 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 11-01-PLAN.md — Branding (logo SVG, wallpaper URL rendering), session stats (top speed, race position), persistent results (SESS-03)
-- [ ] 11-02-PLAN.md — Kiosk settings UI for wallpaper URL input (BRAND-02 frontend)
+- [x] 11-01-PLAN.md — Branding (logo SVG, wallpaper URL rendering), session stats (top speed, race position), persistent results (SESS-03)
+- [x] 11-02-PLAN.md — Kiosk settings UI for wallpaper URL input (BRAND-02 frontend)
 
 ## Progress
 
@@ -141,4 +141,4 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
 | 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
-| 11. Customer Experience Polish | 2/2 | Complete    | 2026-03-14 | - |
+| 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |

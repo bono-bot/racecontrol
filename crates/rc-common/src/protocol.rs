@@ -575,6 +575,8 @@ pub enum DashboardCommand {
     StartAcSession {
         config: AcLanSessionConfig,
         pod_ids: Vec<String>,
+        #[serde(default)]
+        ai_level: Option<u32>,
     },
 
     /// Stop the running AC LAN server session

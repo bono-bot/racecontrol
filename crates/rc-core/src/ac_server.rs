@@ -827,8 +827,8 @@ pub async fn list_presets(state: &Arc<AppState>) -> anyhow::Result<Vec<AcPresetS
 
 pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardCommand) {
     match cmd {
-        DashboardCommand::StartAcSession { config, pod_ids } => {
-            match start_ac_server(state, config, pod_ids, None).await {
+        DashboardCommand::StartAcSession { config, pod_ids, ai_level } => {
+            match start_ac_server(state, config, pod_ids, ai_level).await {
                 Ok(id) => tracing::info!("AC session started: {}", id),
                 Err(e) => tracing::error!("Failed to start AC session: {}", e),
             }

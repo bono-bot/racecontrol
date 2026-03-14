@@ -239,9 +239,13 @@ async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> {
 
 /// Collect the push payload (shared between relay and HTTP push paths).
 /// Returns (payload, has_data).
+/// Schema version bumped when tables/columns change.
+/// Cloud side can reject pushes if it hasn't migrated yet.
+const SCHEMA_VERSION: u32 = 2;
+
 async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, bool)> {
     let last_push = normalize_timestamp(&get_last_push_time(state).await);
-    let mut payload = serde_json::json!({});
+    let mut payload = serde_json::json!({ "schema_version": SCHEMA_VERSION });
     let mut has_data = false;
 
     // Collect laps since last push
@@ -632,9 +636,19 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
         req = req.header("x-terminal-secret", secret);
     }
 
-    let resp = req.send().await?;
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Cloud push failed (network): {e} — will retry next cycle");
+            return Ok(());
+        }
+    };
+
     if !resp.status().is_success() {
-        anyhow::bail!("Cloud push returned status {}", resp.status());
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        tracing::warn!("Cloud push rejected (HTTP {status}): {body} — skipping until next cycle");
+        return Ok(());
     }
 
     let result: serde_json::Value = resp.json().await?;
