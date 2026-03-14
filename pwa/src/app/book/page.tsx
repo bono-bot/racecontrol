@@ -19,7 +19,7 @@ import type {
 const STEP_LABELS_SINGLE = [
   "Duration",
   "Game",
-  "Mode",
+  "Session Type",
   "Track",
   "Car",
   "Difficulty",
@@ -30,7 +30,7 @@ const STEP_LABELS_SINGLE = [
 const STEP_LABELS_MULTI = [
   "Duration",
   "Game",
-  "Mode",
+  "Session Type",
   "Friends",
   "Track",
   "Car",
@@ -92,6 +92,7 @@ function BookWizard() {
   const [tier, setTier] = useState<PricingTier | null>(null);
   const [game] = useState("assetto_corsa");
   const [mode, setMode] = useState<"single" | "multi">("single");
+  const [sessionType, setSessionType] = useState<string>("practice");
   const [track, setTrack] = useState<CatalogTrack | null>(null);
   const [car, setCar] = useState<CatalogCar | null>(null);
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("easy");
@@ -215,6 +216,7 @@ function BookWizard() {
     setCar(foundCar);
     const diff = preset.difficulty as "easy" | "medium" | "hard";
     setDifficulty(["easy", "medium", "hard"].includes(diff) ? diff : "easy");
+    setSessionType(preset.session_type || "practice");
     setShowPresets(false);
     // Jump to Confirm step
     const confirmIdx = stepLabels.indexOf("Confirm");
@@ -240,6 +242,7 @@ function BookWizard() {
       car: car.id,
       difficulty,
       transmission,
+      session_type: sessionType,
     };
 
     try {
@@ -418,6 +421,7 @@ function BookWizard() {
                 setCar(null);
                 setDifficulty("easy");
                 setTransmission("auto");
+                setSessionType("practice");
               }}
               className="text-xs text-rp-red font-medium"
             >
@@ -471,13 +475,11 @@ function BookWizard() {
             onSelect={() => goNext()}
           />
         )}
-        {stepContent === "Mode" && (
-          <ModeStep
-            selected={mode}
-            onSelect={(m) => {
-              setMode(m);
-              goNext();
-            }}
+        {stepContent === "Session Type" && (
+          <SessionTypeStep
+            selected={sessionType}
+            onSelect={(st) => { setSessionType(st); goNext(); }}
+            onMulti={() => { setMode("multi"); goNext(); }}
           />
         )}
         {stepContent === "Friends" && (
@@ -498,6 +500,7 @@ function BookWizard() {
             onToggleAll={() => setShowAllTracks(!showAllTracks)}
             category={trackCategory}
             onCategoryChange={setTrackCategory}
+            sessionType={sessionType}
             onSelect={(t) => {
               setTrack(t);
               goNext();
@@ -547,6 +550,7 @@ function BookWizard() {
             difficulty={difficulty}
             transmission={transmission}
             mode={mode}
+            sessionType={sessionType}
             selectedFriends={selectedFriends}
             balance={profile?.wallet_balance_paise || 0}
             booking={booking}
@@ -645,33 +649,53 @@ function GameStep({ onSelect }: { onSelect: () => void }) {
   );
 }
 
-function ModeStep({
+function SessionTypeStep({
   selected,
   onSelect,
+  onMulti,
 }: {
-  selected: "single" | "multi";
-  onSelect: (m: "single" | "multi") => void;
+  selected: string;
+  onSelect: (st: string) => void;
+  onMulti: () => void;
 }) {
+  const sessionTypes = [
+    { type: "practice", label: "Practice", desc: "Free driving, no AI, no timer" },
+    { type: "hotlap", label: "Hotlap", desc: "Timed laps -- set the fastest time" },
+    { type: "race", label: "Race vs AI", desc: "Full grid race against AI opponents" },
+    { type: "trackday", label: "Track Day", desc: "Open pit, mixed traffic on track" },
+    { type: "race_weekend", label: "Race Weekend", desc: "Practice, Qualify, then Race" },
+  ];
+
   return (
     <div className="space-y-3">
-      <p className="text-sm text-rp-grey mb-2">Race solo or with friends?</p>
+      <p className="text-sm text-rp-grey mb-2">What kind of session?</p>
+      {sessionTypes.map(({ type, label, desc }) => (
+        <button
+          key={type}
+          onClick={() => onSelect(type)}
+          className={`w-full text-left bg-rp-card border rounded-xl p-5 transition-colors ${
+            selected === type ? "border-rp-red" : "border-rp-border"
+          }`}
+        >
+          <p className="text-white font-semibold text-lg">{label}</p>
+          <p className="text-rp-grey text-sm mt-1">{desc}</p>
+        </button>
+      ))}
+
+      {/* Multiplayer entry -- visually distinct */}
       <button
-        onClick={() => onSelect("single")}
-        className={`w-full text-left bg-rp-card border rounded-xl p-5 transition-colors ${
-          selected === "single" ? "border-rp-red" : "border-rp-border"
-        }`}
+        onClick={onMulti}
+        className="w-full text-left bg-rp-card border-2 border-dashed border-blue-500/50 rounded-xl p-5 transition-colors hover:border-blue-400"
       >
-        <p className="text-white font-semibold text-lg">Single Player</p>
-        <p className="text-rp-grey text-sm mt-1">Race at your own pace</p>
-      </button>
-      <button
-        onClick={() => onSelect("multi")}
-        className={`w-full text-left bg-rp-card border rounded-xl p-5 transition-colors ${
-          selected === "multi" ? "border-rp-red" : "border-rp-border"
-        }`}
-      >
-        <p className="text-white font-semibold text-lg">Multiplayer</p>
-        <p className="text-rp-grey text-sm mt-1">Race against friends on LAN</p>
+        <div className="flex items-center gap-3">
+          <svg className="w-6 h-6 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <div>
+            <p className="text-white font-semibold text-lg">Race with Friends</p>
+            <p className="text-rp-grey text-sm mt-1">Multiplayer on LAN</p>
+          </div>
+        </div>
       </button>
     </div>
   );
@@ -837,6 +861,7 @@ function TrackStep({
   onToggleAll,
   category,
   onCategoryChange,
+  sessionType,
   onSelect,
 }: {
   catalog: ACCatalog | null;
@@ -848,6 +873,7 @@ function TrackStep({
   onToggleAll: () => void;
   category: string | null;
   onCategoryChange: (c: string | null) => void;
+  sessionType?: string;
   onSelect: (t: CatalogTrack) => void;
 }) {
   const tracks = useMemo(() => {
@@ -869,8 +895,17 @@ function TrackStep({
       filtered = filtered.filter((t) => t.category === category);
     }
 
+    // Filter by session type: AI-requiring types only show tracks with AI
+    const aiTypes = ["race", "trackday", "race_weekend"];
+    if (sessionType && aiTypes.includes(sessionType)) {
+      filtered = filtered.filter((t) => {
+        const available = (t as unknown as Record<string, unknown>).available_session_types as string[] | undefined;
+        return !available || available.includes(sessionType);
+      });
+    }
+
     return filtered;
-  }, [catalog, showAll, search, category]);
+  }, [catalog, showAll, search, category, sessionType]);
 
   const categories = catalog?.categories.tracks || [];
 
@@ -1202,6 +1237,7 @@ function ConfirmStep({
   difficulty,
   transmission,
   mode,
+  sessionType,
   selectedFriends,
   balance,
   booking,
@@ -1217,6 +1253,7 @@ function ConfirmStep({
   difficulty: string;
   transmission: string;
   mode: string;
+  sessionType?: string;
   selectedFriends: FriendInfo[];
   balance: number;
   booking: boolean;
@@ -1255,12 +1292,17 @@ function ConfirmStep({
     setCouponLoading(false);
   }
 
+  const sessionLabel = sessionType
+    ? sessionType.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : mode === "single" ? "Practice" : "Multiplayer";
+
   const rows = [
-    { label: "Duration", value: tier?.name || "—" },
+    { label: "Duration", value: tier?.name || "\u2014" },
     { label: "Game", value: "Assetto Corsa" },
+    { label: "Session Type", value: sessionLabel },
     { label: "Mode", value: mode === "single" ? "Single Player" : "Multiplayer" },
-    { label: "Track", value: track?.name || "—" },
-    { label: "Car", value: car?.name || "—" },
+    { label: "Track", value: track?.name || "\u2014" },
+    { label: "Car", value: car?.name || "\u2014" },
     { label: "Difficulty", value: difficulty.charAt(0).toUpperCase() + difficulty.slice(1) },
     { label: "Transmission", value: transmission === "auto" ? "Automatic" : "Manual" },
   ];
