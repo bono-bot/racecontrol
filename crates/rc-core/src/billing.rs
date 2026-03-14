@@ -1560,7 +1560,7 @@ pub async fn start_billing_session(
 
     // Log billing events
     for event_type in ["created", "started"] {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
              VALUES (?, ?, ?, 0)",
         )
@@ -1568,7 +1568,10 @@ pub async fn start_billing_session(
         .bind(&session_id)
         .bind(event_type)
         .execute(&state.db)
-        .await;
+        .await
+        {
+            tracing::error!("Failed to log billing event '{}' for session {}: {}", event_type, session_id, e);
+        }
     }
 
     // Mark trial as used (skip for unlimited_trials drivers)
@@ -1711,7 +1714,7 @@ async fn set_billing_status(
             drop(timers);
 
             // Log event
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
                  VALUES (?, ?, ?, ?)",
             )
@@ -1720,7 +1723,10 @@ async fn set_billing_status(
             .bind(event_type)
             .bind(info.driving_seconds as i64)
             .execute(&state.db)
-            .await;
+            .await
+            {
+                tracing::error!("Failed to log billing event '{}' for session {}: {}", event_type, session_id, e);
+            }
 
             // Update DB status
             let status_str = match new_status {
@@ -1728,11 +1734,14 @@ async fn set_billing_status(
                 BillingSessionStatus::PausedManual => "paused_manual",
                 _ => "active",
             };
-            let _ = sqlx::query("UPDATE billing_sessions SET status = ? WHERE id = ?")
+            if let Err(e) = sqlx::query("UPDATE billing_sessions SET status = ? WHERE id = ?")
                 .bind(status_str)
                 .bind(session_id)
                 .execute(&state.db)
-                .await;
+                .await
+            {
+                tracing::error!("Failed to update billing session {} to {}: {}", session_id, status_str, e);
+            }
 
             let _ = state
                 .dashboard_tx
@@ -1872,7 +1881,7 @@ async fn end_billing_session(
             };
 
             // Update DB with final cost
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "UPDATE billing_sessions SET status = ?, driving_seconds = ?, wallet_debit_paise = ?, ended_at = datetime('now') WHERE id = ?",
             )
             .bind(status_str)
@@ -1880,9 +1889,12 @@ async fn end_billing_session(
             .bind(final_cost_paise)
             .bind(session_id)
             .execute(&state.db)
-            .await;
+            .await
+            {
+                tracing::error!("Failed to update billing session {} to {}: {}", session_id, status_str, e);
+            }
 
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event)
                  VALUES (?, ?, ?, ?)",
             )
@@ -1891,7 +1903,10 @@ async fn end_billing_session(
             .bind(event_type)
             .bind(driving_seconds as i64)
             .execute(&state.db)
-            .await;
+            .await
+            {
+                tracing::error!("Failed to log billing event '{}' for session {}: {}", event_type, session_id, e);
+            }
 
             // Clear pod billing reference and restore idle state
             {
@@ -2020,14 +2035,19 @@ async fn end_billing_session(
     // ─── Fallback: orphaned session in DB but no in-memory timer ─────────
     // This happens when rc-core restarts while a session was active.
     drop(timers);
-    let orphan = sqlx::query_as::<_, (String, String, String)>(
+    let orphan = match sqlx::query_as::<_, (String, String, String)>(
         "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status = 'active'",
     )
     .bind(session_id)
     .fetch_optional(&state.db)
     .await
-    .ok()
-    .flatten();
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!("Failed to check for orphaned billing session {}: {}", session_id, e);
+            return false;
+        }
+    };
 
     if let Some((sid, pod_id, driver_name)) = orphan {
         tracing::warn!("Force-ending orphaned billing session {} on {} (no in-memory timer)", sid, pod_id);
@@ -2038,13 +2058,16 @@ async fn end_billing_session(
             _ => "completed",
         };
 
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "UPDATE billing_sessions SET status = ?, ended_at = datetime('now') WHERE id = ?",
         )
         .bind(status_str)
         .bind(session_id)
         .execute(&state.db)
-        .await;
+        .await
+        {
+            tracing::error!("Failed to end orphaned billing session {}: {}", session_id, e);
+        }
 
         log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after rc-core restart", driver_name), "race_engineer");
 

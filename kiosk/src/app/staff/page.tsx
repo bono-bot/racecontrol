@@ -26,6 +26,28 @@ export default function StaffTerminal() {
     setHydrated(true);
   }, []);
 
+  // 30-minute inactivity timeout — auto-logout staff
+  useEffect(() => {
+    if (!staffName) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        sessionStorage.removeItem("kiosk_staff_name");
+        sessionStorage.removeItem("kiosk_staff_id");
+        setStaffName(null);
+        setStaffId(null);
+      }, 30 * 60 * 1000);
+    };
+    resetTimer();
+    const events = ["pointerdown", "keydown"] as const;
+    events.forEach((e) => window.addEventListener(e, resetTimer));
+    return () => {
+      clearTimeout(timer);
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
+    };
+  }, [staffName]);
+
   const {
     connected,
     pods,

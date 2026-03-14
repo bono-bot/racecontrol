@@ -1708,7 +1708,9 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                 }
-                                _ => {}
+                                other => {
+                                    tracing::warn!("Unhandled CoreToAgentMessage: {:?}", other);
+                                }
                             }
                         }
                     }

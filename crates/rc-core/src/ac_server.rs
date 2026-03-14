@@ -389,7 +389,8 @@ pub fn generate_extra_cfg_yml(config: &AcLanSessionConfig, ai_level: Option<u32>
     yml.push_str("  MaxAiTargetOccupancy: 1.0\n");
 
     if let Some(level) = ai_level {
-        let fraction = level as f64 / 100.0;
+        let clamped = level.min(100);
+        let fraction = clamped as f64 / 100.0;
         yml.push_str(&format!("  AiAggression: {:.2}\n", fraction));
     }
 

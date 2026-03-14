@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 
 interface StaffLoginScreenProps {
@@ -55,13 +56,20 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
+  // Auto-reset error state after 10 seconds
+  useEffect(() => {
+    if (step !== "error") return;
+    const timer = setTimeout(() => {
+      setStep("idle");
+      setPin("");
+    }, 10_000);
+    return () => clearTimeout(timer);
+  }, [step]);
+
   // ─── IDLE ─────────────────────────────────────────────────────────────
   if (step === "idle") {
     return (
-      <button
-        onClick={() => setStep("pin_entry")}
-        className="h-screen w-screen flex flex-col items-center justify-center gap-8 bg-rp-black cursor-pointer"
-      >
+      <div className="h-screen w-screen flex flex-col items-center justify-center gap-8 bg-rp-black">
         <div className="text-center">
           <h1 className="text-6xl font-bold tracking-tight font-[family-name:var(--font-display)]">
             RACING<span className="text-rp-red">POINT</span>
@@ -71,7 +79,10 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
           </p>
         </div>
 
-        <div className="flex flex-col items-center gap-4 mt-8">
+        <button
+          onClick={() => setStep("pin_entry")}
+          className="flex flex-col items-center gap-4 mt-8 cursor-pointer"
+        >
           <div className="w-20 h-20 rounded-full border-2 border-rp-red/50 flex items-center justify-center animate-pulse">
             <div className="w-12 h-12 rounded-full bg-rp-red/20 flex items-center justify-center">
               <svg
@@ -91,8 +102,15 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
           </div>
           <p className="text-2xl text-white font-medium">Tap to Sign In</p>
           <p className="text-rp-grey text-sm">Staff PIN required</p>
-        </div>
-      </button>
+        </button>
+
+        <Link
+          href="/"
+          className="text-rp-grey text-sm hover:text-white transition-colors"
+        >
+          &larr; Customer Login
+        </Link>
+      </div>
     );
   }
 
@@ -163,12 +181,20 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
           </button>
         </div>
 
-        <button
-          onClick={() => { setStep("idle"); setPin(""); }}
-          className="mt-8 text-rp-grey text-sm hover:text-white transition-colors"
-        >
-          Back
-        </button>
+        <div className="mt-8 flex items-center gap-6">
+          <button
+            onClick={() => { setStep("idle"); setPin(""); }}
+            className="text-rp-grey text-sm hover:text-white transition-colors"
+          >
+            Back
+          </button>
+          <Link
+            href="/"
+            className="text-rp-grey text-sm hover:text-white transition-colors"
+          >
+            &larr; Customer Login
+          </Link>
+        </div>
       </div>
     );
   }

@@ -568,14 +568,18 @@ async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Resul
             };
 
             if needs_update {
-                let _ = sqlx::query(
+                if let Err(e) = sqlx::query(
                     "INSERT INTO kiosk_settings (key, value) VALUES (?, ?)
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 )
                 .bind(key)
                 .bind(&val_str)
                 .execute(&state.db)
-                .await;
+                .await
+                {
+                    tracing::error!("Cloud sync: failed to upsert kiosk_setting '{}': {}", key, e);
+                    continue;
+                }
                 changed = true;
                 total_upserted += 1;
             }
@@ -679,7 +683,7 @@ async fn get_last_push_time(state: &Arc<AppState>) -> String {
 
 async fn update_push_state(state: &Arc<AppState>) {
     let now = chrono::Utc::now().to_rfc3339();
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO sync_state (table_name, last_synced_at, last_sync_count, updated_at)
          VALUES ('_push', ?, 0, datetime('now'))
          ON CONFLICT(table_name) DO UPDATE SET
@@ -688,17 +692,25 @@ async fn update_push_state(state: &Arc<AppState>) {
     )
     .bind(&now)
     .execute(&state.db)
-    .await;
+    .await
+    {
+        tracing::error!("Cloud sync: failed to update push state: {}", e);
+    }
 }
 
 async fn get_last_sync_time(state: &Arc<AppState>) -> String {
-    let row = sqlx::query_as::<_, (String,)>(
+    let row = match sqlx::query_as::<_, (String,)>(
         "SELECT MIN(last_synced_at) FROM sync_state",
     )
     .fetch_optional(&state.db)
     .await
-    .ok()
-    .flatten();
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!("Cloud sync: failed to read last sync time: {}", e);
+            return "1970-01-01T00:00:00Z".to_string();
+        }
+    };
 
     row.map(|r| r.0)
         .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
@@ -706,7 +718,7 @@ async fn get_last_sync_time(state: &Arc<AppState>) -> String {
 
 async fn update_sync_state(state: &Arc<AppState>, synced_at: &str, count: u64) {
     for table in SYNC_TABLES.split(',') {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO sync_state (table_name, last_synced_at, last_sync_count, updated_at)
              VALUES (?, ?, ?, datetime('now'))
              ON CONFLICT(table_name) DO UPDATE SET
@@ -718,7 +730,10 @@ async fn update_sync_state(state: &Arc<AppState>, synced_at: &str, count: u64) {
         .bind(synced_at)
         .bind(count as i64)
         .execute(&state.db)
-        .await;
+        .await
+        {
+            tracing::error!("Cloud sync: failed to update sync state for '{}': {}", table, e);
+        }
     }
 }
 

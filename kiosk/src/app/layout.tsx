@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Montserrat, Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import "./globals.css";
 
 const montserrat = Montserrat({
@@ -35,7 +36,7 @@ export default function RootLayout({
       <body
         className={`${montserrat.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} antialiased bg-rp-black text-white font-sans`}
       >
-        {children}
+        <ErrorBoundary>{children}</ErrorBoundary>
       </body>
     </html>
   );
