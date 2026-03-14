@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Kiosk URL Reliability
 status: active
-stopped_at: "Completed 11-01-PLAN.md — Customer experience polish: SVG logo + wallpaper + session stats + SESS-03 done"
-last_updated: "2026-03-14T03:46:00.532Z"
+stopped_at: "Completed 11-02-PLAN.md — Wallpaper URL staff UI: Pod Display section added to kiosk settings page"
+last_updated: "2026-03-14T03:48:46.259Z"
 last_activity: 2026-03-14 — 10-01 backend lockdown routes + 10 new unit tests committed (564b8ee)
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 12
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 ---
@@ -69,6 +69,7 @@ Progress: [███████░░░] 70%
 | 10-staff-dashboard-controls P01 | 1 | 1 task, 3 files | 25min |
 | Phase 10-staff-dashboard-controls P02 | 15 | 2 tasks | 2 files |
 | Phase 11-customer-experience-polish P01 | 10 | 2 tasks | 2 files |
+| Phase 11-customer-experience-polish P02 | 1 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,8 @@ Progress: [███████░░░] 70%
 - [Phase 11-01]: SVG raw string uses r##...## delimiter because fill='#E10600' contains # which would terminate r#...#
 - [Phase 11-01]: session_race_position stays None — TelemetryFrame doesn't carry race position yet; placeholder for when AC shared memory position is plumbed through
 - [Phase 11-01]: ScreenBlanked never gets wallpaper — render_blank_page() uses page_shell() directly (passes None)
+- [Phase 11-02]: No API/type/backend changes needed — KioskSettings index signature + updateSettings already handle arbitrary keys including lock_screen_wallpaper_url
+- [Phase 11-02]: Pod Display section positioned between Spectator Display and Experiences for logical grouping
 
 ### Pending Todos
 
@@ -128,6 +131,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T03:46:00.530Z
-Stopped at: Completed 11-01-PLAN.md — Customer experience polish: SVG logo + wallpaper + session stats + SESS-03 done
+Last session: 2026-03-14T03:48:46.256Z
+Stopped at: Completed 11-02-PLAN.md — Wallpaper URL staff UI: Pod Display section added to kiosk settings page
 Resume file: None
