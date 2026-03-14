@@ -119,6 +119,27 @@ export default function SettingsPage() {
           )}
         </section>
 
+        {/* Pod Display */}
+        <section>
+          <h2 className="text-lg font-semibold mb-4 border-b border-rp-border pb-2">Pod Display</h2>
+          <p className="text-xs text-rp-grey mb-4">Lock screen appearance on customer pods</p>
+          {settings && (
+            <div className="space-y-1">
+              <label className="text-xs text-rp-grey uppercase tracking-wider">Lock Screen Wallpaper URL</label>
+              <input
+                type="url"
+                value={settings?.lock_screen_wallpaper_url ?? ""}
+                onChange={(e) => handleSettingChange("lock_screen_wallpaper_url", e.target.value)}
+                placeholder="https://example.com/wallpaper.jpg or leave blank for default"
+                className="w-full px-3 py-2 bg-rp-card border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
+              />
+              <p className="text-xs text-rp-grey mt-1">
+                Enter an image URL accessible from the pod network. Visible on pods within 10 seconds. Leave blank for the default Racing Point gradient.
+              </p>
+            </div>
+          )}
+        </section>
+
         {/* Experiences */}
         <section>
           <div className="flex items-center justify-between mb-4 border-b border-rp-border pb-2">
