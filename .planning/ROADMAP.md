@@ -49,7 +49,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. All six new competitive tables (hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, driver_ratings) exist in the schema and accept valid inserts
   4. A lap sync operation completes without UUID mismatch error — the cloud_driver_id column resolves before any lap is written to competitive tables
   5. The laps table has a car_class column and new laps are automatically assigned a class on completion
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — Schema infrastructure: WAL tuning, covering indexes, cloud_driver_id, 6 competitive tables (DATA-01 through DATA-05)
+- [ ] 12-02-PLAN.md — car_class column on laps + persist_lap auto-population (DATA-06)
 
 ### Phase 13: Leaderboard Core
 **Goal**: Customers can browse public leaderboards, circuit records, vehicle records, and driver profiles from the cloud PWA using existing lap data — and receive an automated email when their track record is broken — all without any login
@@ -107,7 +111,7 @@ Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records pa
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
 | 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
-| 12. Data Foundation | v3.0 | 0/? | Not started | - |
+| 12. Data Foundation | v3.0 | 0/2 | Not started | - |
 | 13. Leaderboard Core | v3.0 | 0/? | Not started | - |
 | 14. Events and Championships | v3.0 | 0/? | Not started | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |
