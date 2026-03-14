@@ -245,6 +245,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/public/leaderboard/{track}", get(public_track_leaderboard))
         .route("/public/time-trial", get(public_time_trial))
         .route("/public/laps/{lap_id}/telemetry", get(public_lap_telemetry))
+        .route("/public/sessions/{id}", get(public_session_summary))
         // Pod Activity Log (unified real-time feed)
         .route("/activity", get(global_activity))
         .route("/pods/{pod_id}/activity", get(pod_activity))
@@ -8110,6 +8111,68 @@ async fn public_lap_telemetry(
     }
 }
 
+// ─── Public Session Summary ──────────────────────────────────────────────────
+
+/// Public session summary — no auth required. Shows first name only (privacy).
+/// Used for shareable session links.
+async fn public_session_summary(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    // Query session + driver name + pricing tier (no auth - public endpoint)
+    let row = sqlx::query_as::<_, (String, String, String, i64, i64, String, Option<String>, Option<String>, Option<String>)>(
+        "SELECT bs.id, d.name, bs.status, bs.allocated_seconds, bs.driving_seconds,
+                pt.name, bs.car, bs.track, bs.sim_type
+         FROM billing_sessions bs
+         JOIN drivers d ON bs.driver_id = d.id
+         JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
+         WHERE bs.id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let session = match row {
+        Ok(Some(s)) => s,
+        Ok(None) => return Json(json!({ "error": "Session not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    // Extract first name only (privacy -- per user decision)
+    let first_name = session.1.split_whitespace().next().unwrap_or("Racer");
+
+    // Best lap from laps table (valid laps only)
+    let best_lap: Option<(i64,)> = sqlx::query_as(
+        "SELECT MIN(lap_time_ms) FROM laps WHERE session_id = ? AND valid = 1",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let total_laps: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM laps WHERE session_id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    Json(json!({
+        "driver_first_name": first_name,
+        "status": session.2,
+        "duration_seconds": session.4,
+        "pricing_tier": session.5,
+        "car": session.6,
+        "track": session.7,
+        "sim_type": session.8,
+        "best_lap_ms": best_lap.map(|b| b.0),
+        "total_laps": total_laps.map(|t| t.0).unwrap_or(0),
+    }))
+}
+
 // ─── Dynamic Pricing Admin ───────────────────────────────────────────────────
 
 async fn list_pricing_rules(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -10604,5 +10667,160 @@ mod session_detail_tests {
             "events": events_json,
         });
         assert_eq!(response["events"].as_array().expect("must be array").len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod public_session_tests {
+    use serde_json::{json, Value};
+
+    /// Test public_session_summary returns first name only (privacy) and correct fields.
+    #[tokio::test]
+    async fn test_public_session_summary_first_name_and_fields() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.expect("in-memory sqlite");
+
+        sqlx::query(
+            "CREATE TABLE drivers (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT)"
+        ).execute(&pool).await.expect("create drivers");
+
+        sqlx::query(
+            "CREATE TABLE pricing_tiers (id TEXT PRIMARY KEY, name TEXT NOT NULL, price_paise INTEGER NOT NULL, duration_seconds INTEGER)"
+        ).execute(&pool).await.expect("create pricing_tiers");
+
+        sqlx::query(
+            "CREATE TABLE billing_sessions (
+                id TEXT PRIMARY KEY, driver_id TEXT NOT NULL, pod_id TEXT,
+                pricing_tier_id TEXT NOT NULL, allocated_seconds INTEGER,
+                driving_seconds INTEGER DEFAULT 0, status TEXT DEFAULT 'Completed',
+                custom_price_paise INTEGER, car TEXT, track TEXT, sim_type TEXT,
+                wallet_debit_paise INTEGER, discount_paise INTEGER,
+                started_at TEXT, ended_at TEXT
+            )"
+        ).execute(&pool).await.expect("create billing_sessions");
+
+        sqlx::query(
+            "CREATE TABLE laps (
+                id TEXT PRIMARY KEY, session_id TEXT, driver_id TEXT,
+                lap_number INTEGER, lap_time_ms INTEGER, valid INTEGER DEFAULT 1,
+                track TEXT, car TEXT, created_at TEXT
+            )"
+        ).execute(&pool).await.expect("create laps");
+
+        // Insert test data
+        sqlx::query("INSERT INTO drivers (id, name, phone) VALUES ('d1', 'John Smith', '9876543210')")
+            .execute(&pool).await.expect("insert driver");
+        sqlx::query("INSERT INTO pricing_tiers (id, name, price_paise, duration_seconds) VALUES ('t1', '30 Minutes', 70000, 1800)")
+            .execute(&pool).await.expect("insert tier");
+        sqlx::query(
+            "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, driving_seconds, status, car, track, sim_type, wallet_debit_paise)
+             VALUES ('s1', 'd1', 'pod-1', 't1', 1800, 1500, 'Completed', 'Ferrari 488', 'Monza', 'AC', 70000)"
+        ).execute(&pool).await.expect("insert session");
+        sqlx::query(
+            "INSERT INTO laps (id, session_id, driver_id, lap_number, lap_time_ms, valid, track, car, created_at)
+             VALUES ('l1', 's1', 'd1', 1, 95432, 1, 'Monza', 'Ferrari 488', '2026-01-01T00:05:00'),
+                    ('l2', 's1', 'd1', 2, 93210, 1, 'Monza', 'Ferrari 488', '2026-01-01T00:07:00'),
+                    ('l3', 's1', 'd1', 3, 99000, 0, 'Monza', 'Ferrari 488', '2026-01-01T00:09:00')"
+        ).execute(&pool).await.expect("insert laps");
+
+        // Simulate the public_session_summary query logic
+        let row = sqlx::query_as::<_, (String, String, String, i64, i64, String, Option<String>, Option<String>, Option<String>)>(
+            "SELECT bs.id, d.name, bs.status, bs.allocated_seconds, bs.driving_seconds,
+                    pt.name, bs.car, bs.track, bs.sim_type
+             FROM billing_sessions bs
+             JOIN drivers d ON bs.driver_id = d.id
+             JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
+             WHERE bs.id = ?",
+        )
+        .bind("s1")
+        .fetch_optional(&pool)
+        .await;
+
+        let session = row.expect("no error").expect("session found");
+        let first_name = session.1.split_whitespace().next().unwrap_or("Racer");
+
+        // Best lap
+        let best_lap: Option<(i64,)> = sqlx::query_as(
+            "SELECT MIN(lap_time_ms) FROM laps WHERE session_id = ? AND valid = 1",
+        )
+        .bind("s1")
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+
+        let total_laps: Option<(i64,)> = sqlx::query_as(
+            "SELECT COUNT(*) FROM laps WHERE session_id = ?",
+        )
+        .bind("s1")
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+
+        let response = json!({
+            "driver_first_name": first_name,
+            "status": session.2,
+            "duration_seconds": session.4,
+            "pricing_tier": session.5,
+            "car": session.6,
+            "track": session.7,
+            "sim_type": session.8,
+            "best_lap_ms": best_lap.map(|b| b.0),
+            "total_laps": total_laps.map(|t| t.0).unwrap_or(0),
+        });
+
+        // Verify first name only (not full name)
+        assert_eq!(response["driver_first_name"], "John", "Must show first name only");
+
+        // Verify expected fields present
+        assert_eq!(response["status"], "Completed");
+        assert_eq!(response["duration_seconds"], 1500);
+        assert_eq!(response["pricing_tier"], "30 Minutes");
+        assert_eq!(response["car"], "Ferrari 488");
+        assert_eq!(response["track"], "Monza");
+        assert_eq!(response["best_lap_ms"], 93210);
+        assert_eq!(response["total_laps"], 3);
+
+        // Verify NO billing amounts in response
+        assert!(response.get("wallet_debit_paise").is_none(), "Must NOT expose wallet_debit_paise");
+        assert!(response.get("discount_paise").is_none(), "Must NOT expose discount_paise");
+        assert!(response.get("phone").is_none(), "Must NOT expose phone");
+        assert!(response.get("email").is_none(), "Must NOT expose email");
+        assert!(response.get("driver_name").is_none(), "Must NOT expose full driver_name");
+    }
+
+    /// Test 404 for non-existent session
+    #[tokio::test]
+    async fn test_public_session_summary_not_found() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.expect("in-memory sqlite");
+
+        sqlx::query(
+            "CREATE TABLE drivers (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT)"
+        ).execute(&pool).await.expect("create drivers");
+        sqlx::query(
+            "CREATE TABLE pricing_tiers (id TEXT PRIMARY KEY, name TEXT NOT NULL, price_paise INTEGER NOT NULL, duration_seconds INTEGER)"
+        ).execute(&pool).await.expect("create pricing_tiers");
+        sqlx::query(
+            "CREATE TABLE billing_sessions (
+                id TEXT PRIMARY KEY, driver_id TEXT NOT NULL, pod_id TEXT,
+                pricing_tier_id TEXT NOT NULL, allocated_seconds INTEGER,
+                driving_seconds INTEGER DEFAULT 0, status TEXT DEFAULT 'Completed',
+                custom_price_paise INTEGER, car TEXT, track TEXT, sim_type TEXT
+            )"
+        ).execute(&pool).await.expect("create billing_sessions");
+
+        let row = sqlx::query_as::<_, (String, String, String, i64, i64, String, Option<String>, Option<String>, Option<String>)>(
+            "SELECT bs.id, d.name, bs.status, bs.allocated_seconds, bs.driving_seconds,
+                    pt.name, bs.car, bs.track, bs.sim_type
+             FROM billing_sessions bs
+             JOIN drivers d ON bs.driver_id = d.id
+             JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
+             WHERE bs.id = ?",
+        )
+        .bind("nonexistent")
+        .fetch_optional(&pool)
+        .await;
+
+        assert!(row.expect("no error").is_none(), "Must return None for non-existent session");
     }
 }
