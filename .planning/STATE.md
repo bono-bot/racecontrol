@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Kiosk URL Reliability
 status: active
-stopped_at: Completed 10-02-PLAN.md — Phase 10 staff dashboard controls complete
-last_updated: "2026-03-14T02:57:46.444Z"
+stopped_at: "Completed 11-01-PLAN.md — Customer experience polish: SVG logo + wallpaper + session stats + SESS-03 done"
+last_updated: "2026-03-14T03:46:00.532Z"
 last_activity: 2026-03-14 — 10-01 backend lockdown routes + 10 new unit tests committed (564b8ee)
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 12
+  completed_plans: 11
 ---
 
 ---
@@ -68,6 +68,7 @@ Progress: [███████░░░] 70%
 | 09-edge-browser-hardening P01 | 1 | 2 tasks, 1 file | 5min |
 | 10-staff-dashboard-controls P01 | 1 | 1 task, 3 files | 25min |
 | Phase 10-staff-dashboard-controls P02 | 15 | 2 tasks | 2 files |
+| Phase 11-customer-experience-polish P01 | 10 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,9 @@ Progress: [███████░░░] 70%
 - [Phase 10-02]: Unlock All is non-destructive — no confirmation dialog; Lock All requires confirmation
 - [Phase 10-02]: Optimistic UI for lockdown toggle — icon reflects last sent action without waiting for server roundtrip
 - [Phase 10-02]: Unlock All is non-destructive — no confirmation dialog; Lock All requires confirmation
+- [Phase 11-01]: SVG raw string uses r##...## delimiter because fill='#E10600' contains # which would terminate r#...#
+- [Phase 11-01]: session_race_position stays None — TelemetryFrame doesn't carry race position yet; placeholder for when AC shared memory position is plumbed through
+- [Phase 11-01]: ScreenBlanked never gets wallpaper — render_blank_page() uses page_shell() directly (passes None)
 
 ### Pending Todos
 
@@ -124,6 +128,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T02:53:17.376Z
-Stopped at: Completed 10-02-PLAN.md — Phase 10 staff dashboard controls complete
+Last session: 2026-03-14T03:46:00.530Z
+Stopped at: Completed 11-01-PLAN.md — Customer experience polish: SVG logo + wallpaper + session stats + SESS-03 done
 Resume file: None

@@ -41,15 +41,15 @@
 
 ### Screen Branding & Wallpaper
 
-- [ ] **BRAND-01**: Lock screen displays the Racing Point logo prominently
-- [ ] **BRAND-02**: Staff can set a dynamic or static wallpaper for the blanking/lock screen from the kiosk dashboard
-- [ ] **BRAND-03**: A branded loading screen with Racing Point identity is shown before each game session launches
+- [x] **BRAND-01**: Lock screen displays the Racing Point logo prominently
+- [x] **BRAND-02**: Staff can set a dynamic or static wallpaper for the blanking/lock screen from the kiosk dashboard
+- [x] **BRAND-03**: A branded loading screen with Racing Point identity is shown before each game session launches
 
 ### Session Results Display
 
-- [ ] **SESS-01**: After each session, the pod displays telemetry summary (lap times, top speed, best lap)
-- [ ] **SESS-02**: After each session, the pod displays race position if racing against AI or in multiplayer (1st, 2nd, 3rd, etc.)
-- [ ] **SESS-03**: Session results remain visible on the pod screen until a new session is initialized by staff or customer
+- [x] **SESS-01**: After each session, the pod displays telemetry summary (lap times, top speed, best lap)
+- [x] **SESS-02**: After each session, the pod displays race position if racing against AI or in multiplayer (1st, 2nd, 3rd, etc.)
+- [x] **SESS-03**: Session results remain visible on the pod screen until a new session is initialized by staff or customer
 
 ### Edge Browser Hardening
 
@@ -100,12 +100,12 @@
 | PWR-04 | Phase 10 | Complete |
 | PWR-05 | Phase 10 | Complete |
 | PWR-06 | Phase 10 | Complete |
-| BRAND-01 | Phase 11 | Pending |
-| BRAND-02 | Phase 11 | Pending |
-| BRAND-03 | Phase 11 | Pending |
-| SESS-01 | Phase 11 | Pending |
-| SESS-02 | Phase 11 | Pending |
-| SESS-03 | Phase 11 | Pending |
+| BRAND-01 | Phase 11 | Complete |
+| BRAND-02 | Phase 11 | Complete |
+| BRAND-03 | Phase 11 | Complete |
+| SESS-01 | Phase 11 | Complete |
+| SESS-02 | Phase 11 | Complete |
+| SESS-03 | Phase 11 | Complete |
 | EDGE-01 | Phase 9 | Pending |
 | EDGE-02 | Phase 9 | Pending |
 | EDGE-03 | Phase 9 | Pending |

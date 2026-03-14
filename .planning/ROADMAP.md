@@ -116,7 +116,7 @@ Plans:
   2. Staff can set a wallpaper (static or dynamic) for the blanking/lock screen from the kiosk dashboard — the change is visible on the pod within 10 seconds
   3. A branded Racing Point loading screen is shown on the pod between session start and game launch — no desktop or game loading screen visible to the customer
   4. After each session ends, the pod displays the customer's lap times, top speed, best lap, and race position — and the results remain on screen until staff or customer initiates a new session
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 11-01-PLAN.md — Branding (logo SVG, wallpaper URL rendering), session stats (top speed, race position), persistent results (SESS-03)
@@ -141,4 +141,4 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
 | 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
-| 11. Customer Experience Polish | v2.0 | 0/2 | Not started | - |
+| 11. Customer Experience Polish | 1/2 | In Progress|  | - |
