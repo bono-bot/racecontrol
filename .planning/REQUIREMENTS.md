@@ -84,8 +84,8 @@ Requirements for milestone v3.0. Each maps to roadmap phases.
 
 ### Public Access
 
-- [ ] **PUB-01**: All leaderboard, records, events, championships, and driver profile pages are accessible without login
-- [ ] **PUB-02**: PWA pages are mobile-first with responsive tables/cards (minimum 14px for times, 16px for positions)
+- [x] **PUB-01**: All leaderboard, records, events, championships, and driver profile pages are accessible without login
+- [x] **PUB-02**: PWA pages are mobile-first with responsive tables/cards (minimum 14px for times, 16px for positions)
 
 ## v2 Requirements
 
@@ -135,8 +135,8 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | DRV-04 | Phase 13 | Complete |
 | NTF-01 | Phase 13 | Complete |
 | NTF-02 | Phase 13 | Complete |
-| PUB-01 | Phase 13 | Pending |
-| PUB-02 | Phase 13 | Pending |
+| PUB-01 | Phase 13 | Complete |
+| PUB-02 | Phase 13 | Complete |
 | EVT-01 | Phase 14 | Pending |
 | EVT-02 | Phase 14 | Pending |
 | EVT-03 | Phase 14 | Pending |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: "Completed 13-04-PLAN.md"
+stopped_at: "Completed 13-05-PLAN.md"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Completed Plan 04 (public driver search and profile endpoints)
+last_activity: 2026-03-15 — Completed Plan 05 (PWA pages: leaderboard, records, driver search, driver profile)
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -21,30 +21,30 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-14)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry — driving repeat visits and social sharing from a publicly accessible cloud PWA.
-**Current focus:** Phase 13 — Leaderboard Core
+**Current focus:** Phase 13 complete — ready for Phase 14 (Events and Championships)
 
 ## Current Position
 
-Phase: 13 of 15 (Leaderboard Core)
-Plan: 4 of 5 complete
-Status: In Progress
-Last activity: 2026-03-15 — Completed Plan 04 (public driver search and profile endpoints)
+Phase: 13 of 15 (Leaderboard Core) -- COMPLETE
+Plan: 5 of 5 complete
+Status: Phase Complete
+Last activity: 2026-03-15 — Completed Plan 05 (PWA pages: leaderboard, records, driver search, driver profile)
 
-Progress: [████████░░] 86%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 6.2 min
-- Total execution time: 0.6 hours
+- Total plans completed: 7
+- Average duration: 6.7 min
+- Total execution time: 0.8 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 12. Data Foundation | 2/2 | 11 min | 5.5 min |
-| 13. Leaderboard Core | 4/5 | 26 min | 6.5 min |
+| 13. Leaderboard Core | 5/5 | 38 min | 7.6 min |
 | 14. Events and Championships | TBD | - | - |
 | 15. Telemetry and Driver Rating | TBD | - | - |
 
@@ -85,6 +85,9 @@ Progress: [████████░░] 86%
 - [13-04] class_badge: null hardcoded in response — Phase 15 RAT-01 will populate with driver rating class
 - [13-04] Search queries both name AND nickname columns with COLLATE NOCASE for case-insensitive matching
 - [13-04] Driver profile returns 404 JSON error for non-existent IDs (not 500)
+- [13-05] Inline formatLapTime utility per page rather than shared module — avoids premature abstraction
+- [13-05] Debounced driver search at 300ms with 2-char minimum to reduce API chatter
+- [13-05] class_badge conditionally rendered only when non-null — Phase 15 RAT-01 populates it
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T21:55:07Z
-Stopped at: Completed 13-04-PLAN.md
+Last session: 2026-03-14T22:06:08Z
+Stopped at: Completed 13-05-PLAN.md — Phase 13 Leaderboard Core fully complete
 Resume file: None
