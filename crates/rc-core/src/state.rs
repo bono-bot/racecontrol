@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -113,6 +113,9 @@ pub struct AppState {
     /// Updated by WS handlers on AssistChanged/FfbGainChanged/AssistState messages.
     /// Read by GET /pods/{pod_id}/assist-state to return real values immediately.
     pub assist_cache: RwLock<HashMap<String, CachedAssistState>>,
+    /// Shared relay availability flag — written by cloud_sync (with hysteresis),
+    /// read by action_queue. Avoids duplicate health-check loops.
+    pub relay_available: AtomicBool,
 }
 
 impl AppState {
@@ -156,6 +159,7 @@ impl AppState {
             pod_deploy_states: RwLock::new(create_initial_deploy_states()),
             pending_deploys: RwLock::new(HashMap::new()),
             assist_cache: RwLock::new(HashMap::new()),
+            relay_available: AtomicBool::new(false),
         }
     }
 

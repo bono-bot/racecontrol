@@ -8,6 +8,7 @@
 //! The HTTP fallback path does full bidirectional pull+push in a single cycle.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -18,6 +19,12 @@ const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_r
 
 /// Relay sync interval in seconds (fast — localhost only).
 const RELAY_INTERVAL_SECS: u64 = 2;
+
+/// Hysteresis thresholds to prevent relay mode flapping.
+/// Require N consecutive failures before declaring relay down,
+/// and M consecutive successes before declaring relay up.
+const RELAY_DOWN_THRESHOLD: u32 = 3; // 3 failures × 2s = 6s grace
+const RELAY_UP_THRESHOLD: u32 = 2;   // 2 successes × 2s = 4s to confirm
 
 /// Normalize ISO timestamps ("2026-03-07T23:48:38.123+00:00") to SQLite format ("2026-03-07 23:48:38").
 /// SQLite's datetime('now') uses space separator, but sync_state stores ISO with 'T'.
@@ -112,26 +119,49 @@ pub fn spawn(state: Arc<AppState>) {
         let mut interval = tokio::time::interval(Duration::from_secs(tick_interval));
         let mut last_http_fallback = Instant::now() - Duration::from_secs(fallback_interval_secs + 1);
 
-        // Track previous relay state to log mode changes only once per transition
-        let mut prev_relay_up: Option<bool> = None;
+        // Hysteresis state: track consecutive successes/failures to prevent flapping.
+        // The effective relay state only transitions after sustained signal.
+        let mut effective_relay_up = false;
+        let mut consecutive_up: u32 = 0;
+        let mut consecutive_down: u32 = 0;
+        let mut logged_state: Option<bool> = None;
 
         loop {
             interval.tick().await;
 
             if has_relay {
-                let relay_up = is_relay_available(&state).await;
+                let raw_up = is_relay_available(&state).await;
+
+                // Update hysteresis counters
+                if raw_up {
+                    consecutive_up += 1;
+                    consecutive_down = 0;
+                } else {
+                    consecutive_down += 1;
+                    consecutive_up = 0;
+                }
+
+                // Apply hysteresis: only transition after sustained signal
+                if effective_relay_up && consecutive_down >= RELAY_DOWN_THRESHOLD {
+                    effective_relay_up = false;
+                } else if !effective_relay_up && consecutive_up >= RELAY_UP_THRESHOLD {
+                    effective_relay_up = true;
+                }
+
+                // Update shared AtomicBool for action_queue to read
+                state.relay_available.store(effective_relay_up, Ordering::Relaxed);
 
                 // Log mode transitions (only on change, not every cycle)
-                if prev_relay_up != Some(relay_up) {
-                    if relay_up {
+                if logged_state != Some(effective_relay_up) {
+                    if effective_relay_up {
                         tracing::info!("Sync mode: relay (comms-link connected)");
                     } else {
                         tracing::info!("Sync mode: HTTP fallback (comms-link unavailable)");
                     }
-                    prev_relay_up = Some(relay_up);
+                    logged_state = Some(effective_relay_up);
                 }
 
-                if relay_up {
+                if effective_relay_up {
                     // Relay mode: push deltas via localhost relay (2s cycle)
                     if let Err(e) = push_via_relay(&state).await {
                         tracing::error!("Cloud sync relay push failed: {}", e);

@@ -9,12 +9,12 @@
 //! any actions queued during the outage before disabling polling.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::cloud_sync::is_relay_available;
 use crate::state::AppState;
 use rc_common::protocol::{CloudAction, PendingCloudAction};
 
@@ -61,7 +61,8 @@ pub fn spawn(state: Arc<AppState>) {
             interval.tick().await;
 
             if has_relay {
-                let relay_now = is_relay_available(&state).await;
+                // Read the shared relay flag (written by cloud_sync with hysteresis)
+                let relay_now = state.relay_available.load(Ordering::Relaxed);
 
                 if !prev_relay_available && relay_now {
                     // Transitioning fallback -> relay: run one final poll to drain
