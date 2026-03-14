@@ -8364,11 +8364,20 @@ async fn public_circuit_records(
 
 // ─── Vehicle Records (Public, No Auth) ────────────────────────────────────────
 
+#[derive(Deserialize)]
+struct VehicleRecordsQuery {
+    sim_type: Option<String>,
+}
+
 async fn public_vehicle_records(
     State(state): State<Arc<AppState>>,
     Path(car): Path<String>,
+    Query(params): Query<VehicleRecordsQuery>,
 ) -> Json<Value> {
-    let records = sqlx::query_as::<_, (String, String, i64, String)>(
+    let sim_type_filter = params.sim_type.as_deref().unwrap_or("");
+    let sim_clause = if sim_type_filter.is_empty() { "" } else { "AND l.sim_type = ?" };
+
+    let query_str = format!(
         "SELECT l.track, l.sim_type, MIN(l.lap_time_ms),
                 (SELECT CASE WHEN d2.show_nickname_on_leaderboard = 1 AND d2.nickname IS NOT NULL THEN d2.nickname ELSE d2.name END
                  FROM laps l2 JOIN drivers d2 ON l2.driver_id = d2.id
@@ -8377,12 +8386,17 @@ async fn public_vehicle_records(
                  ORDER BY l2.lap_time_ms ASC LIMIT 1)
          FROM laps l
          WHERE l.car = ? AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)
+         {sim_clause}
          GROUP BY l.track, l.sim_type
-         ORDER BY l.track",
-    )
-    .bind(&car)
-    .fetch_all(&state.db)
-    .await;
+         ORDER BY l.track"
+    );
+
+    let mut q = sqlx::query_as::<_, (String, String, i64, String)>(&query_str)
+        .bind(&car);
+    if !sim_type_filter.is_empty() {
+        q = q.bind(sim_type_filter);
+    }
+    let records = q.fetch_all(&state.db).await;
 
     Json(json!({
         "car": car,

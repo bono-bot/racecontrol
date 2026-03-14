@@ -66,6 +66,8 @@ export default function PublicLeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [simType, setSimType] = useState("assetto_corsa");
   const [showInvalid, setShowInvalid] = useState(false);
+  const [carFilter, setCarFilter] = useState("");
+  const [availableCars, setAvailableCars] = useState<string[]>([]);
 
   useEffect(() => {
     publicApi.leaderboard().then((data: { records?: TrackRecord[]; tracks?: TrackInfo[]; top_drivers?: TopDriver[]; time_trial?: TimeTrial | null }) => {
@@ -79,20 +81,36 @@ export default function PublicLeaderboardPage() {
 
   const loadTrackLeaderboard = (track: string) => {
     setSelectedTrack(track);
+    setCarFilter("");
     publicApi.trackLeaderboard(track, { sim_type: simType, show_invalid: showInvalid }).then((data: { leaderboard?: TrackLeaderboardEntry[]; stats?: { total_laps: number; unique_drivers: number; unique_cars: number } }) => {
       setTrackLeaderboard(data.leaderboard || []);
       setTrackStats(data.stats || null);
+      // Populate available cars from unfiltered results
+      setAvailableCars(Array.from(new Set((data.leaderboard || []).map((e: TrackLeaderboardEntry) => e.car))).sort());
     });
   };
 
-  // Re-fetch when sim_type or show_invalid changes (only if a track is selected)
+  // Re-fetch when sim_type or show_invalid changes — also refresh available cars (reset car filter)
   useEffect(() => {
     if (!selectedTrack) return;
+    setCarFilter("");
     publicApi.trackLeaderboard(selectedTrack, { sim_type: simType, show_invalid: showInvalid }).then((data: { leaderboard?: TrackLeaderboardEntry[]; stats?: { total_laps: number; unique_drivers: number; unique_cars: number } }) => {
       setTrackLeaderboard(data.leaderboard || []);
       setTrackStats(data.stats || null);
+      setAvailableCars(Array.from(new Set((data.leaderboard || []).map((e: TrackLeaderboardEntry) => e.car))).sort());
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [simType, showInvalid, selectedTrack]);
+
+  // Re-fetch when car filter changes (without resetting available cars)
+  useEffect(() => {
+    if (!selectedTrack || !carFilter) return;
+    publicApi.trackLeaderboard(selectedTrack, { sim_type: simType, show_invalid: showInvalid, car: carFilter }).then((data: { leaderboard?: TrackLeaderboardEntry[]; stats?: { total_laps: number; unique_drivers: number; unique_cars: number } }) => {
+      setTrackLeaderboard(data.leaderboard || []);
+      setTrackStats(data.stats || null);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carFilter]);
 
   if (loading) {
     return (
@@ -136,6 +154,19 @@ export default function PublicLeaderboardPage() {
             />
             Show Invalid
           </label>
+
+          {selectedTrack && availableCars.length > 1 && (
+            <select
+              value={carFilter}
+              onChange={(e) => setCarFilter(e.target.value)}
+              className="bg-rp-card border border-rp-border rounded-lg px-3 py-2 text-sm text-white focus:border-rp-red focus:outline-none"
+            >
+              <option value="">All Cars</option>
+              {availableCars.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Time Trial Banner */}
