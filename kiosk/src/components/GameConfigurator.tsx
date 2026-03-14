@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
-import type { AcCatalog, CatalogItem } from "@/lib/types";
+import type { AcCatalog, CatalogItem, PresetEntry } from "@/lib/types";
 
 interface GameConfiguratorProps {
   podId: string;
@@ -12,7 +12,7 @@ interface GameConfiguratorProps {
   onCancel: () => void;
 }
 
-type ConfigStep = "game" | "mode" | "track" | "car" | "settings" | "review";
+type ConfigStep = "presets" | "game" | "mode" | "track" | "car" | "settings" | "review";
 
 const DIFFICULTY_PRESETS: Record<string, { label: string; desc: string; aids: Record<string, number> }> = {
   easy: {
@@ -42,7 +42,7 @@ const GAMES = [
 ];
 
 export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCancel }: GameConfiguratorProps) {
-  const [step, setStep] = useState<ConfigStep>("game");
+  const [step, setStep] = useState<ConfigStep>("presets");
   const [catalog, setCatalog] = useState<AcCatalog | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -99,6 +99,19 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
   const trackCategories = ["Featured", ...(catalog?.categories.tracks || []), "All"];
   const carCategories = ["Featured", ...(catalog?.categories.cars || []), "All"];
 
+  // Preset quick-pick: pre-fill selections and jump to review
+  function selectPreset(preset: PresetEntry) {
+    if (!catalog) return;
+    const foundTrack = catalog.tracks.all.find((t) => t.id === preset.track_id) || null;
+    const foundCar = catalog.cars.all.find((c) => c.id === preset.car_id) || null;
+    if (!foundTrack || !foundCar) return;
+    setGame("assetto_corsa");
+    setTrack(foundTrack);
+    setCar(foundCar);
+    setDifficulty(["easy", "medium", "hard"].includes(preset.difficulty) ? preset.difficulty : "easy");
+    setStep("review");
+  }
+
   function handleLaunch() {
     const preset = DIFFICULTY_PRESETS[difficulty];
     const launchArgs = JSON.stringify({
@@ -118,7 +131,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
 
   // Step navigation
   function goBack() {
-    const steps: ConfigStep[] = ["game", "mode", "track", "car", "settings", "review"];
+    const steps: ConfigStep[] = ["presets", "game", "mode", "track", "car", "settings", "review"];
     const idx = steps.indexOf(step);
     if (idx <= 0) onCancel();
     else setStep(steps[idx - 1]);
@@ -139,6 +152,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
         <div className="flex items-center justify-between px-6 py-4 border-b border-rp-border">
           <div>
             <h2 className="text-xl font-bold text-white">
+              {step === "presets" && "Quick Start"}
               {step === "game" && "Select Game"}
               {step === "mode" && "Game Mode"}
               {step === "track" && "Select Track"}
@@ -157,6 +171,96 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
+          {/* ─── PRESET QUICK-PICK ───────────────────────────────── */}
+          {step === "presets" && (() => {
+            const presets = catalog?.presets || [];
+            const featured = presets.filter((p) => p.featured);
+            const remaining = presets.filter((p) => !p.featured);
+
+            if (presets.length === 0) {
+              return (
+                <div className="text-center py-12 space-y-4">
+                  <p className="text-rp-grey">No presets available</p>
+                  <button
+                    onClick={() => { setGame(""); setStep("game"); }}
+                    className="px-8 py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
+                  >
+                    Custom Setup
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-6">
+                {/* Staff Picks */}
+                {featured.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-rp-grey uppercase tracking-wide mb-3">Staff Picks</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {featured.map((preset) => (
+                        <button
+                          key={preset.id}
+                          onClick={() => selectPreset(preset)}
+                          className="relative p-5 rounded-xl border-2 border-rp-border bg-rp-surface text-left hover:border-rp-red transition-all group"
+                        >
+                          <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${
+                            preset.category === "Race" ? "bg-[#E10600]" :
+                            preset.category === "Casual" ? "bg-[#1a3a5c]" :
+                            "bg-[#4a0e4e]"
+                          }`} />
+                          <span className="absolute top-3 right-3 bg-rp-surface border border-rp-border text-rp-grey text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                            {preset.duration_hint}
+                          </span>
+                          <p className="text-lg font-bold text-white pr-16">{preset.track_name}</p>
+                          <p className="text-sm text-rp-grey">{preset.car_name}</p>
+                          <p className="text-xs text-rp-grey/70 mt-1 line-clamp-1">{preset.tagline}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* All Presets */}
+                {remaining.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-rp-grey uppercase tracking-wide mb-3">All Presets</p>
+                    <div className="grid grid-cols-3 gap-2 max-h-[40vh] overflow-y-auto">
+                      {remaining.map((preset) => (
+                        <button
+                          key={preset.id}
+                          onClick={() => selectPreset(preset)}
+                          className="relative p-4 rounded-xl border border-rp-border bg-rp-surface text-left hover:border-rp-red transition-all"
+                        >
+                          <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${
+                            preset.category === "Race" ? "bg-[#E10600]" :
+                            preset.category === "Casual" ? "bg-[#1a3a5c]" :
+                            "bg-[#4a0e4e]"
+                          }`} />
+                          <span className="absolute top-2 right-2 text-rp-grey text-[9px] font-semibold">
+                            {preset.duration_hint}
+                          </span>
+                          <p className="text-sm font-bold text-white pr-10">{preset.track_name}</p>
+                          <p className="text-xs text-rp-grey">{preset.car_name}</p>
+                          <p className="text-[10px] text-rp-grey/60 mt-0.5 line-clamp-1">{preset.tagline}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom Setup button */}
+                <button
+                  onClick={() => { setGame(""); setStep("game"); }}
+                  className="w-full p-5 rounded-xl border-2 border-rp-border bg-rp-surface text-center hover:border-rp-red transition-all"
+                >
+                  <p className="text-lg font-bold text-white">Custom Setup</p>
+                  <p className="text-sm text-rp-grey mt-1">Choose your own car, track, and settings</p>
+                </button>
+              </div>
+            );
+          })()}
+
           {/* ─── GAME SELECT ─────────────────────────────────────── */}
           {step === "game" && (
             <div className="grid grid-cols-3 gap-4">
