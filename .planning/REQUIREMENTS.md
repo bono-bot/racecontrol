@@ -27,10 +27,10 @@ Requirements for milestone v3.0. Each maps to roadmap phases.
 
 ### Driver Profiles
 
-- [ ] **DRV-01**: User can search for any driver by name and view their public profile page (no login required)
-- [ ] **DRV-02**: Driver profile shows stats cards: total laps, total time, personal bests per track/car, class badge
-- [ ] **DRV-03**: Driver profile shows full lap history with circuit, vehicle, date, time, S1/S2/S3 sector times
-- [ ] **DRV-04**: Driver profile is accessible via shareable URL (e.g. /drivers/{id} or /drivers?name=X)
+- [x] **DRV-01**: User can search for any driver by name and view their public profile page (no login required)
+- [x] **DRV-02**: Driver profile shows stats cards: total laps, total time, personal bests per track/car, class badge
+- [x] **DRV-03**: Driver profile shows full lap history with circuit, vehicle, date, time, S1/S2/S3 sector times
+- [x] **DRV-04**: Driver profile is accessible via shareable URL (e.g. /drivers/{id} or /drivers?name=X)
 
 ### Hotlap Events
 
@@ -129,10 +129,10 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | LB-04 | Phase 13 | Complete |
 | LB-05 | Phase 13 | Complete |
 | LB-06 | Phase 13 | Complete |
-| DRV-01 | Phase 13 | Pending |
-| DRV-02 | Phase 13 | Pending |
-| DRV-03 | Phase 13 | Pending |
-| DRV-04 | Phase 13 | Pending |
+| DRV-01 | Phase 13 | Complete |
+| DRV-02 | Phase 13 | Complete |
+| DRV-03 | Phase 13 | Complete |
+| DRV-04 | Phase 13 | Complete |
 | NTF-01 | Phase 13 | Complete |
 | NTF-02 | Phase 13 | Complete |
 | PUB-01 | Phase 13 | Pending |
