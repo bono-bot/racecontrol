@@ -250,6 +250,15 @@ export interface TelemetryFrame {
   sector3_ms?: number;
 }
 
+// ─── Assist State Types ──────────────────────────────────────────────────
+
+export interface AssistState {
+  abs: number;       // 0=off, 1-4=level
+  tc: number;        // 0=off, 1-4=level
+  auto_shifter: boolean;
+  ffb_percent: number; // 10-100
+}
+
 // ─── AC Catalog Types ─────────────────────────────────────────────────────
 
 export interface CatalogTrack {
@@ -808,6 +817,24 @@ export const api = {
   compareLaps: (track: string, car: string, compareTo?: string) =>
     fetchApi<CompareLapsResult & { error?: string }>(
       `/customer/compare-laps?track=${encodeURIComponent(track)}&car=${encodeURIComponent(car)}${compareTo ? `&compare_to=${encodeURIComponent(compareTo)}` : ""}`
+    ),
+
+  // Mid-session controls
+  setAssist: (podId: string, assistType: string, enabled: boolean) =>
+    fetchApi<{ ok: boolean }>(`/pods/${podId}/assists`, {
+      method: "POST",
+      body: JSON.stringify({ assist_type: assistType, enabled }),
+    }),
+
+  setFfbGain: (podId: string, percent: number) =>
+    fetchApi<{ ok: boolean; ffb_percent?: number }>(`/pods/${podId}/ffb`, {
+      method: "POST",
+      body: JSON.stringify({ percent }),
+    }),
+
+  getAssistState: (podId: string) =>
+    fetchApi<{ ok: boolean; abs?: number; tc?: number; auto_shifter?: boolean; ffb_percent?: number }>(
+      `/pods/${podId}/assist-state`
     ),
 };
 
