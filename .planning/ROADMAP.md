@@ -27,7 +27,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 6: Diagnosis** - Confirm actual URL failure modes before touching anything
 - [x] **Phase 7: Server-Side Pinning** - Lock server IP and auto-start kiosk as production build (completed 2026-03-13)
-- [x] **Phase 8: Pod Lock Screen Hardening** - Rust compile + deploy: readiness probe + branded waiting state (completed 2026-03-14)
+- [x] **Phase 8: Pod Lock Screen Hardening** - Rust compile + deploy: readiness probe + branded waiting state (completed 2026-03-14)
 - [ ] **Phase 9: Edge Browser Hardening** - Disable auto-update, StartupBoost, BackgroundMode on all pods
 - [ ] **Phase 10: Staff Dashboard Controls** - Power management and kiosk lockdown controls in the UI
 - [ ] **Phase 11: Customer Experience Polish** - Session results display and branded lock screen identity
@@ -75,9 +75,9 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
-- [ ] 08-01-PLAN.md — Add StartupConnecting state with readiness probe and branded HTML (LOCK-01, LOCK-02)
-- [ ] 08-02-PLAN.md — Create watchdog-rcagent.bat for automatic crash recovery (LOCK-03)
-- [ ] 08-03-PLAN.md — Build release binary and stage deployment artifacts (all requirements)
+- [x] 08-01-PLAN.md — Add StartupConnecting state with readiness probe and branded HTML (LOCK-01, LOCK-02)
+- [x] 08-02-PLAN.md — Create watchdog-rcagent.bat for automatic crash recovery (LOCK-03)
+- [x] 08-03-PLAN.md — Build release binary and stage deployment artifacts (all requirements)
 
 ### Phase 9: Edge Browser Hardening
 **Goal**: Edge on all 8 pods is locked to its current version and configured so that auto-updates, startup boost, and background mode cannot break kiosk behavior
@@ -87,7 +87,10 @@ Plans:
   1. The EdgeUpdate and EdgeUpdateM services are stopped and disabled on all 8 pods — confirmed via `sc query EdgeUpdate` on each pod
   2. `StartupBoostEnabled` is set to 0 in the registry on all 8 pods — confirmed via registry query
   3. `BackgroundModeEnabled` is set to 0 in the registry on all 8 pods — confirmed via registry query
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 09-01-PLAN.md — Deploy Edge hardening script to all 8 pods: disable EdgeUpdate services, set StartupBoost=0 and BackgroundMode=0
 
 ### Phase 10: Staff Dashboard Controls
 **Goal**: Staff can manage all 8 pods from the kiosk dashboard without touching a keyboard on the pod — power cycling, rebooting, waking, and toggling lockdown are all one-click operations
@@ -127,7 +130,7 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 5. Blanking Screen Protocol | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 6. Diagnosis | v2.0 | 2/2 | Complete | 2026-03-13 |
 | 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
-| 8. Pod Lock Screen Hardening | 3/3 | Complete   | 2026-03-14 | - |
-| 9. Edge Browser Hardening | v2.0 | 0/TBD | Not started | - |
+| 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
+| 9. Edge Browser Hardening | v2.0 | 0/1 | Planned | - |
 | 10. Staff Dashboard Controls | v2.0 | 0/TBD | Not started | - |
 | 11. Customer Experience Polish | v2.0 | 0/TBD | Not started | - |
