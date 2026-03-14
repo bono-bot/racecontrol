@@ -108,34 +108,8 @@ fn default_session_ai_level() -> u32 { 87 } // Semi-Pro midpoint
 fn default_session_type() -> String { "practice".to_string() }
 fn default_starting_position() -> u32 { 1 }
 
-/// Pool of realistic AI driver names, shuffled per session.
-/// Covers international diversity: Italian, British, Japanese, Indian, French, German, Brazilian, etc.
-const AI_DRIVER_NAMES: &[&str] = &[
-    "Marco Rossi", "James Mitchell", "Carlos Mendes", "Yuki Tanaka",
-    "Liam O'Brien", "Alessandro Bianchi", "Felix Weber", "Raj Patel",
-    "Pierre Dubois", "Hans Mueller", "Takeshi Kimura", "David Chen",
-    "Matteo Ferrari", "Oliver Thompson", "Fernando Almeida", "Kenji Sato",
-    "Arjun Sharma", "Jean-Paul Laurent", "Stefan Braun", "Lucas Silva",
-    "Ethan Williams", "Vincenzo Moretti", "Hiroshi Nakamura", "Ravi Kumar",
-    "Antoine Mercier", "Maximilian Richter", "Tomoko Hayashi", "Andre Costa",
-    "Gabriel Martinez", "Noah Anderson", "Sergio Conti", "Akira Yamamoto",
-    "Vikram Singh", "Christoph Hartmann", "Raphael Bertrand", "Thiago Oliveira",
-    "Sebastian Kraft", "Ivan Petrov", "Diego Herrera", "Samuel Johnson",
-    "Roberto Marchetti", "Kazuki Watanabe", "Anil Gupta", "Julien Moreau",
-    "Henrik Lindberg", "Mateus Santos", "William Clarke", "Lorenzo Romano",
-    "Taro Fujimoto", "Prashant Reddy", "Nicolas Lefevre", "Kurt Zimmerman",
-    "Renato Barbosa", "Michael O'Connor", "Emilio Gentile", "Sho Taniguchi",
-    "Deepak Verma", "Philippe Girard", "Markus Bauer", "Leonardo Ricci",
-];
-
-/// Pick N unique AI driver names from the pool, shuffled randomly.
-fn pick_ai_names(count: usize) -> Vec<String> {
-    use rand::seq::SliceRandom;
-    let mut rng = rand::thread_rng();
-    let mut names: Vec<&str> = AI_DRIVER_NAMES.to_vec();
-    names.shuffle(&mut rng);
-    names.into_iter().take(count).map(|s| s.to_string()).collect()
-}
+// AI driver names moved to rc-common::ai_names (shared between rc-agent and rc-core)
+use rc_common::ai_names::{AI_DRIVER_NAMES, pick_ai_names};
 
 /// AC launch parameters parsed from the `launch_args` JSON
 #[derive(Debug, Clone, Deserialize)]

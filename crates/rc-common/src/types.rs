@@ -446,6 +446,9 @@ pub struct AcEntrySlot {
     pub ballast: u32,
     pub restrictor: u32,
     pub pod_id: Option<String>,
+    /// None for human entries, Some("fixed") for AI entries (AssettoServer format)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -726,6 +729,18 @@ pub struct GroupSessionInfo {
     pub status: String,
     pub members: Vec<GroupMemberInfo>,
     pub created_at: String,
+    /// Track ID for lobby display (e.g. "monza")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track: Option<String>,
+    /// Car model for lobby display (e.g. "ks_ferrari_488_gt3")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub car: Option<String>,
+    /// Number of AI opponents filling the grid
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_count: Option<u32>,
+    /// Difficulty tier name (e.g. "semi_pro")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub difficulty_tier: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1057,5 +1072,101 @@ mod tests {
         // WaitingSession is a queued state — not "active" in the deploy sense
         // (it doesn't block watchdog; it just defers until session ends)
         assert!(!DeployState::WaitingSession.is_active());
+    }
+
+    // ── Phase 09 Plan 01: AcEntrySlot ai_mode + GroupSessionInfo enrichment ─
+
+    #[test]
+    fn ac_entry_slot_without_ai_mode_backward_compat() {
+        // AcEntrySlot with ai_mode None should serialize without ai_mode field
+        let entry = AcEntrySlot {
+            car_model: "ks_ferrari_488_gt3".to_string(),
+            skin: String::new(),
+            driver_name: "Test Driver".to_string(),
+            guid: "steam_123".to_string(),
+            ballast: 0,
+            restrictor: 0,
+            pod_id: Some("pod_1".to_string()),
+            ai_mode: None,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(!json.contains("ai_mode"), "ai_mode None must not appear in JSON: {}", json);
+    }
+
+    #[test]
+    fn ac_entry_slot_with_ai_mode_fixed() {
+        let entry = AcEntrySlot {
+            car_model: "ks_ferrari_488_gt3".to_string(),
+            skin: String::new(),
+            driver_name: "Marco Rossi".to_string(),
+            guid: String::new(),
+            ballast: 0,
+            restrictor: 0,
+            pod_id: None,
+            ai_mode: Some("fixed".to_string()),
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("\"ai_mode\":\"fixed\""), "ai_mode fixed must appear in JSON: {}", json);
+    }
+
+    #[test]
+    fn ac_entry_slot_deserialize_without_ai_mode_backward_compat() {
+        // Old-format AcEntrySlot without ai_mode should deserialize with None
+        let json = r#"{
+            "car_model": "ks_bmw_m3_gt2",
+            "skin": "",
+            "driver_name": "Old Driver",
+            "guid": "steam_456",
+            "ballast": 0,
+            "restrictor": 0,
+            "pod_id": "pod_2"
+        }"#;
+        let entry: AcEntrySlot = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.ai_mode, None, "Missing ai_mode must default to None");
+    }
+
+    #[test]
+    fn group_session_info_with_track_car_ai_count() {
+        let info = GroupSessionInfo {
+            id: "gs-1".to_string(),
+            host_driver_id: "drv-1".to_string(),
+            host_name: "Host".to_string(),
+            experience_name: "GT3 Race".to_string(),
+            pricing_tier_name: "per-minute".to_string(),
+            shared_pin: "1234".to_string(),
+            status: "active".to_string(),
+            members: vec![],
+            created_at: "2026-01-01".to_string(),
+            track: Some("monza".to_string()),
+            car: Some("ks_ferrari_488_gt3".to_string()),
+            ai_count: Some(15),
+            difficulty_tier: Some("semi_pro".to_string()),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"track\":\"monza\""), "track must appear: {}", json);
+        assert!(json.contains("\"car\":\"ks_ferrari_488_gt3\""), "car must appear: {}", json);
+        assert!(json.contains("\"ai_count\":15"), "ai_count must appear: {}", json);
+        assert!(json.contains("\"difficulty_tier\":\"semi_pro\""), "difficulty_tier must appear: {}", json);
+    }
+
+    #[test]
+    fn group_session_info_without_new_fields_backward_compat() {
+        // Old-format GroupSessionInfo without new fields should deserialize with None
+        let json = r#"{
+            "id": "gs-1",
+            "host_driver_id": "drv-1",
+            "host_name": "Host",
+            "experience_name": "GT3",
+            "pricing_tier_name": "30 Minutes",
+            "shared_pin": "1234",
+            "status": "forming",
+            "members": [],
+            "created_at": "2026-01-01"
+        }"#;
+        let info: GroupSessionInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.track, None);
+        assert_eq!(info.car, None);
+        assert_eq!(info.ai_count, None);
+        assert_eq!(info.difficulty_tier, None);
     }
 }

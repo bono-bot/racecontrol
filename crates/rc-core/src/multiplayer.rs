@@ -1009,6 +1009,7 @@ async fn start_ac_lan_for_group(
                         ballast: 0,
                         restrictor: 0,
                         pod_id: Some(pod_id.clone()),
+                        ai_mode: None,
                     });
                 }
                 entry_slots
@@ -1207,6 +1208,28 @@ async fn build_group_session_info(
     .flatten()
     .unwrap_or_else(|| "Unknown".to_string());
 
+    // Query enrichment fields from group_sessions (track, car, ai_count added in Phase 9)
+    let enrichment: Option<(Option<String>, Option<String>, Option<i64>)> = sqlx::query_as(
+        "SELECT track, car, ai_count FROM group_sessions WHERE id = ?",
+    )
+    .bind(group_session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let (track, car, ai_count) = enrichment.unwrap_or((None, None, None));
+
+    // Query difficulty_tier from experience (if available)
+    let difficulty_tier: Option<String> = sqlx::query_scalar(
+        "SELECT difficulty_tier FROM kiosk_experiences WHERE id = ?",
+    )
+    .bind(&experience_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
     Ok(GroupSessionInfo {
         id,
         host_driver_id,
@@ -1217,6 +1240,10 @@ async fn build_group_session_info(
         status,
         members,
         created_at,
+        track,
+        car,
+        ai_count: ai_count.map(|c| c as u32),
+        difficulty_tier,
     })
 }
 
