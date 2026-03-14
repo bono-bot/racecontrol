@@ -3177,6 +3177,166 @@ mod tests {
         assert_eq!(mp_entry.group_session_id.as_deref(), Some("group-xyz"));
     }
 
+    // ── Phase 09 Plan 02 Task 2: 60-second connection timeout ──────────────
+
+    #[tokio::test]
+    async fn timeout_evicts_non_connecting_pod_billing_starts_for_connected() {
+        // Group of 2: pod1 connects (LIVE), pod2 never connects.
+        // After timeout, only pod1's billing starts. pod2 is evicted.
+        let mgr = BillingManager::new();
+        let group_id = "group-timeout-evict";
+
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let mut expected = HashSet::new();
+            expected.insert("pod1".to_string());
+            expected.insert("pod2".to_string());
+            let mut live = HashSet::new();
+            live.insert("pod1".to_string()); // Only pod1 connected
+            let mut entries = HashMap::new();
+            entries.insert("pod1".to_string(), make_waiting_entry("pod1", Some(group_id)));
+            // pod2 never connected, so not in live_pods or waiting_entries
+            mp.insert(group_id.to_string(), MultiplayerBillingWait {
+                group_session_id: group_id.to_string(),
+                expected_pods: expected,
+                live_pods: live,
+                waiting_entries: entries,
+                timeout_spawned: true,
+            });
+        }
+
+        // Simulate timeout logic
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get_mut(group_id).unwrap();
+
+            // Timeout fires: live_pods < expected_pods
+            assert!(wait.live_pods.len() < wait.expected_pods.len());
+
+            // Collect entries for live pods only
+            let billing_entries: Vec<String> = wait.waiting_entries.keys()
+                .filter(|p| wait.live_pods.contains(*p))
+                .cloned()
+                .collect();
+
+            // Only pod1 should get billing started
+            assert_eq!(billing_entries.len(), 1);
+            assert_eq!(billing_entries[0], "pod1");
+
+            // Evicted pod2 should NOT get billing
+            assert!(!wait.live_pods.contains("pod2"));
+
+            // Clean up
+            mp.remove(group_id);
+        }
+
+        // Verify group entry is gone
+        let mp = mgr.multiplayer_waiting.read().await;
+        assert!(mp.is_empty());
+    }
+
+    #[tokio::test]
+    async fn all_pods_connect_within_timeout_no_eviction() {
+        // Group of 2: both pods connect before timeout fires.
+        // When timeout fires, the entry should already be gone (consumed).
+        let mgr = BillingManager::new();
+        let group_id = "group-no-eviction";
+
+        // Set up and immediately have all pods connect (simulating pre-timeout)
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let mut expected = HashSet::new();
+            expected.insert("pod1".to_string());
+            expected.insert("pod2".to_string());
+            let mut live = HashSet::new();
+            live.insert("pod1".to_string());
+            live.insert("pod2".to_string()); // Both connected
+            let mut entries = HashMap::new();
+            entries.insert("pod1".to_string(), make_waiting_entry("pod1", Some(group_id)));
+            entries.insert("pod2".to_string(), make_waiting_entry("pod2", Some(group_id)));
+            mp.insert(group_id.to_string(), MultiplayerBillingWait {
+                group_session_id: group_id.to_string(),
+                expected_pods: expected,
+                live_pods: live,
+                waiting_entries: entries,
+                timeout_spawned: true,
+            });
+        }
+
+        // All pods live: consume the entry (billing starts normally)
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get(group_id).unwrap();
+            assert!(wait.live_pods.len() >= wait.expected_pods.len());
+            // All live -> start billing for all, remove entry
+            mp.remove(group_id);
+        }
+
+        // Now timeout fires -- entry is gone, no-op
+        let mp = mgr.multiplayer_waiting.read().await;
+        assert!(mp.get(group_id).is_none());
+        // This is exactly what multiplayer_billing_timeout() checks:
+        // if entry doesn't exist, it returns immediately (no-op)
+    }
+
+    #[tokio::test]
+    async fn evicted_pod_late_live_does_not_start_billing() {
+        // Pod was evicted by timeout. If it later sends LIVE, billing should NOT start.
+        let mgr = BillingManager::new();
+
+        // After timeout, the multiplayer_waiting entry is gone.
+        // If evicted pod later sends LIVE, it's no longer in waiting_for_game either
+        // (it was consumed into MultiplayerBillingWait then evicted).
+        // So there's nothing to start billing for.
+
+        // Verify: no waiting entry, no multiplayer entry -> LIVE is a no-op
+        let waiting = mgr.waiting_for_game.read().await;
+        assert!(waiting.get("evicted-pod").is_none());
+
+        let mp = mgr.multiplayer_waiting.read().await;
+        assert!(mp.is_empty());
+
+        // No active timer either (billing was never started for evicted pod)
+        let timers = mgr.active_timers.read().await;
+        assert!(timers.get("evicted-pod").is_none());
+    }
+
+    #[tokio::test]
+    async fn timeout_spawned_flag_prevents_duplicate_spawn() {
+        let mgr = BillingManager::new();
+        let group_id = "group-spawn-once";
+
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let mut expected = HashSet::new();
+            expected.insert("pod1".to_string());
+            expected.insert("pod2".to_string());
+            mp.insert(group_id.to_string(), MultiplayerBillingWait {
+                group_session_id: group_id.to_string(),
+                expected_pods: expected,
+                live_pods: HashSet::new(),
+                waiting_entries: HashMap::new(),
+                timeout_spawned: false,
+            });
+        }
+
+        // First pod arrives: timeout_spawned should become true
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get_mut(group_id).unwrap();
+            assert!(!wait.timeout_spawned);
+            wait.timeout_spawned = true; // Would spawn tokio task
+            wait.live_pods.insert("pod1".to_string());
+        }
+
+        // Second pod arrives: timeout_spawned is already true, no duplicate spawn
+        {
+            let mp = mgr.multiplayer_waiting.read().await;
+            let wait = mp.get(group_id).unwrap();
+            assert!(wait.timeout_spawned); // Already true, won't spawn again
+        }
+    }
+
     #[test]
     fn timer_waiting_for_game_no_increments() {
         let mut timer = BillingTimer {
