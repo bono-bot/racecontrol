@@ -136,5 +136,5 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
 | 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
-| 10. Staff Dashboard Controls | 2/2 | Complete   | 2026-03-14 | - |
+| 10. Staff Dashboard Controls | 2/2 | Complete    | 2026-03-14 | - |
 | 11. Customer Experience Polish | v2.0 | 0/TBD | Not started | - |
