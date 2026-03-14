@@ -229,6 +229,21 @@ export interface CatalogItem {
   country?: string;
 }
 
+export interface PresetEntry {
+  id: string;
+  name: string;
+  tagline: string;
+  car_id: string;
+  car_name: string;
+  track_id: string;
+  track_name: string;
+  session_type: string;
+  difficulty: string;
+  category: string;
+  duration_hint: string;
+  featured: boolean;
+}
+
 export interface AcCatalog {
   tracks: {
     featured: CatalogItem[];
@@ -242,6 +257,7 @@ export interface AcCatalog {
     tracks: string[];
     cars: string[];
   };
+  presets?: PresetEntry[];
 }
 
 // ─── Side Panel ──────────────────────────────────────────────────────

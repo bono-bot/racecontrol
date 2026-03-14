@@ -274,10 +274,26 @@ export interface CatalogCar {
   category: string;
 }
 
+export interface PresetEntry {
+  id: string;
+  name: string;
+  tagline: string;
+  car_id: string;
+  car_name: string;
+  track_id: string;
+  track_name: string;
+  session_type: string;
+  difficulty: string;
+  category: string;
+  duration_hint: string;
+  featured: boolean;
+}
+
 export interface ACCatalog {
   tracks: { featured: CatalogTrack[]; all: CatalogTrack[] };
   cars: { featured: CatalogCar[]; all: CatalogCar[] };
   categories: { tracks: string[]; cars: string[] };
+  presets?: PresetEntry[];
 }
 
 export interface CustomBookingPayload {
