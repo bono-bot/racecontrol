@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Billing Cloud Sync** - Push completed sessions, wallet transactions, and billing events to cloud within 60s
 - [ ] **Phase 2: Cloud Dashboard — Live Operations** - Real-time pod grid, revenue ticker, and session alerts at dashboard.racingpoint.cloud
 - [ ] **Phase 3: Cloud Dashboard — Analytics & Reports** - Session list with filters, revenue charts, utilization heatmap, CSV export
-- [ ] **Phase 4: PWA Session Results & Receipt** - Session detail page (cost, laps, timeline) + WhatsApp receipt on session end
+- [x] **Phase 4: PWA Session Results & Receipt** - Session detail page (cost, laps, timeline) + WhatsApp receipt on session end
 - [ ] **Phase 5: Kiosk POS — Staff Operations** - Payment method recording, refund UI, manual discount UI
 
 ## Phase Details
@@ -83,7 +83,7 @@ Plans:
 
 Plans:
 - [x] 04-01-PLAN.md — rc-core: add events to customer_session_detail, public_session_summary endpoint, WhatsApp receipt via Evolution API in post_session_hooks
-- [ ] 04-02-PLAN.md — PWA: session timeline + top speed N/A on detail page, public shareable session page at /sessions/[id]/public
+- [x] 04-02-PLAN.md — PWA: session timeline + top speed N/A on detail page, public shareable session page at /sessions/[id]/public
 
 ### Phase 5: Kiosk POS — Staff Operations
 **Goal**: Staff can record how a customer paid, issue refunds for any session, and apply manual discounts — all from the kiosk dashboard without touching a terminal
@@ -111,10 +111,10 @@ Phase 1 first (enables cloud phases). Phases 2 and 3 depend on Phase 1. Phases 4
 | 1. Billing Cloud Sync | 1/1 | Complete | 2026-03-14 |
 | 2. Cloud Dashboard — Live | 0/2 | Not started | - |
 | 3. Cloud Dashboard — Analytics | 0/2 | Not started | - |
-| 4. PWA Session Results & Receipt | 1/2 | In progress | - |
+| 4. PWA Session Results & Receipt | 2/2 | Complete | 2026-03-14 |
 | 5. Kiosk POS — Staff Operations | 0/2 | Not started | - |
 
-**Total: 2/9 plans complete**
+**Total: 3/9 plans complete**
 
 ## Dependency Graph
 
