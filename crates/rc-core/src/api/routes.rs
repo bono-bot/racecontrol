@@ -2982,7 +2982,7 @@ async fn start_ac_session(
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    match ac_server::start_ac_server(&state, config, pod_ids).await {
+    match ac_server::start_ac_server(&state, config, pod_ids, None).await {
         Ok(session_id) => Json(json!({ "session_id": session_id })),
         Err(e) => Json(json!({ "error": e.to_string() })),
     }

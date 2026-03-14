@@ -402,6 +402,7 @@ pub async fn start_ac_server(
     state: &Arc<AppState>,
     config: AcLanSessionConfig,
     pod_ids: Vec<String>,
+    ai_level: Option<u32>,
 ) -> anyhow::Result<String> {
     let session_id = uuid::Uuid::new_v4().to_string();
 
@@ -443,8 +444,8 @@ pub async fn start_ac_server(
     std::fs::write(cfg_dir.join("entry_list.ini"), &entry_list)?;
 
     // Write extra_cfg.yml for AssettoServer AI configuration (if AI entries exist).
-    // Uses default SemiPro AI level (87) unless overridden by caller.
-    let extra_cfg = generate_extra_cfg_yml(&config, None);
+    // Uses caller-provided AI level from host's difficulty tier, falls back to SemiPro (87).
+    let extra_cfg = generate_extra_cfg_yml(&config, ai_level);
     if !extra_cfg.is_empty() {
         // extra_cfg.yml goes in server_dir root (AssettoServer reads from working directory)
         std::fs::write(server_dir.join("extra_cfg.yml"), &extra_cfg)?;
@@ -827,7 +828,7 @@ pub async fn list_presets(state: &Arc<AppState>) -> anyhow::Result<Vec<AcPresetS
 pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardCommand) {
     match cmd {
         DashboardCommand::StartAcSession { config, pod_ids } => {
-            match start_ac_server(state, config, pod_ids).await {
+            match start_ac_server(state, config, pod_ids, None).await {
                 Ok(id) => tracing::info!("AC session started: {}", id),
                 Err(e) => tracing::error!("Failed to start AC session: {}", e),
             }

@@ -1100,7 +1100,7 @@ async fn start_ac_lan_for_group(
             ..Default::default()
         };
 
-        match crate::ac_server::start_ac_server(state, config, pod_ids.clone()).await {
+        match crate::ac_server::start_ac_server(state, config, pod_ids.clone(), Some(ai_level)).await {
             Ok(ac_session_id) => {
                 // Store AC session ID + track/car/ai_count for lobby enrichment
                 sqlx::query("UPDATE group_sessions SET ac_session_id = ?, track = ?, car = ?, ai_count = ? WHERE id = ?")
