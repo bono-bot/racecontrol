@@ -396,6 +396,14 @@ async fn main() -> Result<()> {
     lock_screen.start_server();
     tracing::info!("Lock screen server started on port 18923");
 
+    // LOCK-01: Wait for HTTP server to accept connections before launching browser.
+    // Eliminates ERR_CONNECTION_REFUSED race where Edge opens before port 18923 is bound.
+    lock_screen.wait_for_self_ready().await;
+
+    // LOCK-02: Show branded startup page immediately — customers see Racing Point
+    // branding while rc-agent connects to rc-core, not a blank screen or idle message.
+    lock_screen.show_startup_connecting();
+
     // Racing HUD overlay for in-session display
     let mut overlay = OverlayManager::new();
     overlay.start_server();
