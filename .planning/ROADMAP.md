@@ -52,8 +52,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 12-01-PLAN.md — Schema infrastructure: WAL tuning, covering indexes, cloud_driver_id, 6 competitive tables (DATA-01 through DATA-05)
-- [ ] 12-02-PLAN.md — car_class column on laps + persist_lap auto-population (DATA-06)
+- [x] 12-01-PLAN.md — Schema infrastructure: WAL tuning, covering indexes, cloud_driver_id, 6 competitive tables (DATA-01 through DATA-05)
+- [x] 12-02-PLAN.md — car_class column on laps + persist_lap auto-population (DATA-06)
 
 ### Phase 13: Leaderboard Core
 **Goal**: Customers can browse public leaderboards, circuit records, vehicle records, and driver profiles from the cloud PWA using existing lap data — and receive an automated email when their track record is broken — all without any login
@@ -65,7 +65,14 @@ Plans:
   3. User can search for a driver by name, open their public profile via a shareable URL, and see their stats, personal bests, and full lap history with sector times
   4. When a track record is beaten, the previous record holder receives an email with the track name, car, old time, new time, new holder name, and a link to the leaderboard
   5. Invalid laps are hidden by default on all leaderboards; user can toggle to show invalid laps
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 13-01-PLAN.md — Suspect column + lap validity hardening in persist_lap (LB-05)
+- [ ] 13-02-PLAN.md — Leaderboard sim_type filter + circuit/vehicle records endpoints (LB-01, LB-02, LB-03, LB-04, LB-06)
+- [ ] 13-03-PLAN.md — Track record "beaten" email notification (NTF-01, NTF-02)
+- [ ] 13-04-PLAN.md — Public driver search and profile endpoints (DRV-01, DRV-02, DRV-03, DRV-04)
+- [ ] 13-05-PLAN.md — PWA pages: leaderboard, records, driver search, driver profile (PUB-01, PUB-02)
 
 ### Phase 14: Events and Championships
 **Goal**: Staff can run structured hotlap events and multi-round championships — customers see ranked event leaderboards with 107% rule, gold/silver/bronze badges, F1-scored group results, and cumulative championship standings — all synced to the cloud PWA
@@ -111,7 +118,7 @@ Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records pa
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
 | 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
-| 12. Data Foundation | 2/2 | Complete    | 2026-03-14 | - |
-| 13. Leaderboard Core | v3.0 | 0/? | Not started | - |
+| 12. Data Foundation | v3.0 | 2/2 | Complete | 2026-03-14 |
+| 13. Leaderboard Core | v3.0 | 0/5 | Not started | - |
 | 14. Events and Championships | v3.0 | 0/? | Not started | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |
