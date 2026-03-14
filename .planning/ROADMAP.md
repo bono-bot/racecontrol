@@ -32,7 +32,7 @@ Phases: Diagnosis → Server-Side Pinning → Pod Lock Screen Hardening → Edge
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 12: Data Foundation** - Schema migrations, indexes, WAL tuning, and cloud ID resolution — the safe ground every competitive feature builds on
+- [x] **Phase 12: Data Foundation** - Schema migrations, indexes, WAL tuning, and cloud ID resolution — the safe ground every competitive feature builds on (completed 2026-03-14)
 - [ ] **Phase 13: Leaderboard Core** - Public leaderboards, circuit/vehicle records, driver profiles, lap validity hardening, and "beaten" notifications — immediate customer value from existing data
 - [ ] **Phase 14: Events and Championships** - Hotlap events with 107% rule and badges, group event F1 scoring, multi-round championships, and cloud sync for all competitive tables
 - [ ] **Phase 15: Telemetry and Driver Rating** - Speed trace + lap comparison, inputs trace, 2D track map, and percentile-based driver skill classes
@@ -111,7 +111,7 @@ Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records pa
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
 | 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
-| 12. Data Foundation | 1/2 | In Progress|  | - |
+| 12. Data Foundation | 2/2 | Complete   | 2026-03-14 | - |
 | 13. Leaderboard Core | v3.0 | 0/? | Not started | - |
 | 14. Events and Championships | v3.0 | 0/? | Not started | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |

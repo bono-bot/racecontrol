@@ -14,7 +14,7 @@ Requirements for milestone v3.0. Each maps to roadmap phases.
 - [x] **DATA-03**: SQLite WAL checkpoint is tuned (wal_autocheckpoint=400, connection max_lifetime=300s) to prevent read latency growth
 - [x] **DATA-04**: Venue drivers table has cloud_driver_id column that resolves UUID mismatch before lap sync
 - [x] **DATA-05**: Database schema includes hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, and driver_ratings tables
-- [ ] **DATA-06**: Laps table has car_class column populated from car-to-class mapping on lap completion
+- [x] **DATA-06**: Laps table has car_class column populated from car-to-class mapping on lap completion
 
 ### Leaderboards & Records
 
@@ -122,7 +122,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | DATA-03 | Phase 12 | Complete |
 | DATA-04 | Phase 12 | Complete |
 | DATA-05 | Phase 12 | Complete |
-| DATA-06 | Phase 12 | Pending |
+| DATA-06 | Phase 12 | Complete |
 | LB-01 | Phase 13 | Pending |
 | LB-02 | Phase 13 | Pending |
 | LB-03 | Phase 13 | Pending |

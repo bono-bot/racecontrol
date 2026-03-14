@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: "Completed 12-01-PLAN.md"
+stopped_at: "Completed 12-02-PLAN.md"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Completed Phase 12 Plan 01 (Data Foundation schema)
+last_activity: 2026-03-15 — Completed Phase 12 Plan 02 (car_class on laps)
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 12
+  completed_plans: 2
+  percent: 25
 ---
 
 # Project State
@@ -25,25 +25,25 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 
 ## Current Position
 
-Phase: 12 of 15 (Data Foundation)
-Plan: 1 of 2 complete
-Status: Executing
-Last activity: 2026-03-15 — Completed Plan 01 (v3.0 database foundation schema)
+Phase: 12 of 15 (Data Foundation) -- COMPLETE
+Plan: 2 of 2 complete
+Status: Phase Complete
+Last activity: 2026-03-15 — Completed Plan 02 (car_class on laps via billing session lookup)
 
-Progress: [█░░░░░░░░░] 12%
+Progress: [██░░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 6 min
-- Total execution time: 0.1 hours
+- Total plans completed: 2
+- Average duration: 5.5 min
+- Total execution time: 0.2 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 12. Data Foundation | 1/2 | 6 min | 6 min |
+| 12. Data Foundation | 2/2 | 11 min | 5.5 min |
 | 13. Leaderboard Core | TBD | - | - |
 | 14. Events and Championships | TBD | - | - |
 | 15. Telemetry and Driver Rating | TBD | - | - |
@@ -65,6 +65,9 @@ Progress: [█░░░░░░░░░] 12%
 - [12-01] idx_telemetry_lap_offset added alongside existing idx_telemetry_lap (no drop) to avoid production table locking
 - [12-01] cloud_driver_id column added as schema plumbing only; enforcement logic deferred to Phase 14
 - [12-01] hotlap_events.car is free-text display field; Phase 14 auto-entry matches on car_class
+- [12-02] No backfill of historical laps: NULL car_class is sentinel for pre-v3.0 data
+- [12-02] car_class lookup uses driver_id + status='active' (not pod_id) to find billing session
+- [12-02] kiosk_experiences table added to test migrations for JOIN query validation
 
 ### Pending Todos
 
@@ -77,6 +80,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-15
-Stopped at: Completed 12-01-PLAN.md — v3.0 database foundation schema with WAL tuning, covering indexes, cloud_driver_id, 6 competitive tables
+Last session: 2026-03-14T20:04:00.699Z
+Stopped at: Completed 12-02-PLAN.md
 Resume file: None
