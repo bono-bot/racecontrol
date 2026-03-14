@@ -27,10 +27,25 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         return false;
     }
 
-    // 1. Insert lap into DB
+    // Look up car_class from active billing session's kiosk_experience
+    let car_class: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT ke.car_class
+         FROM billing_sessions bs
+         JOIN kiosk_experiences ke ON ke.id = bs.experience_id
+         WHERE bs.driver_id = ? AND bs.status = 'active'
+         LIMIT 1",
+    )
+    .bind(&lap.driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|(c,)| c);
+
+    // 1. Insert lap into DB (with car_class from billing session lookup)
     let result = sqlx::query(
-        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind(&lap.id)
     .bind(&lap.session_id)
@@ -45,6 +60,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .bind(lap.sector2_ms.map(|v| v as i64))
     .bind(lap.sector3_ms.map(|v| v as i64))
     .bind(lap.valid)
+    .bind(&car_class)
     .execute(&state.db)
     .await;
 

@@ -1956,6 +1956,14 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // DATA-06: car_class column on laps for event auto-entry matching
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN car_class TEXT")
+        .execute(pool)
+        .await;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_laps_car_class ON laps(track, car_class)")
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
