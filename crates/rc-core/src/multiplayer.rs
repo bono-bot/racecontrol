@@ -982,13 +982,90 @@ async fn start_ac_lan_for_group(
     let pod_ids: Vec<String> = members.iter().map(|(_, pid)| pid.clone()).collect();
 
     if game == "assetto_corsa" || game == "ac" {
+        let human_count = members.len();
+
+        // Query track pit count from any pod's content manifest for AI filler calculation.
+        // Default to 24 if not available (reasonable for most tracks).
+        let max_pits: usize = {
+            let manifests = state.pod_manifests.read().await;
+            manifests.values()
+                .find_map(|m| {
+                    m.tracks.iter()
+                        .find(|t| t.id == track)
+                        .and_then(|t| t.configs.first())
+                        .and_then(|c| c.pit_count)
+                        .map(|p| p as usize)
+                })
+                .unwrap_or(24)
+        };
+
+        // Calculate AI filler count: fill remaining pits, cap at 19 (AC 20-slot limit)
+        let ai_count = max_pits.saturating_sub(human_count).min(19);
+
+        // Query difficulty tier from experience for AI_LEVEL mapping
+        let difficulty_tier: Option<String> = sqlx::query_scalar(
+            "SELECT difficulty_tier FROM kiosk_experiences WHERE id = ?",
+        )
+        .bind(&experience_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        // Map difficulty tier to AI_LEVEL (Phase 2 midpoints)
+        let ai_level = match difficulty_tier.as_deref() {
+            Some("rookie") => 75,
+            Some("amateur") => 82,
+            Some("semi_pro") => 87,
+            Some("pro") => 93,
+            Some("alien") => 98,
+            _ => 87, // Default to SemiPro midpoint
+        };
+
+        // Build human entry slots
+        let mut entry_slots = Vec::new();
+        for (_i, (driver_id, pod_id)) in members.iter().enumerate() {
+            let (dname, dguid) = get_driver_entry_info(state, driver_id).await;
+            entry_slots.push(rc_common::types::AcEntrySlot {
+                car_model: car.clone(),
+                skin: String::new(),
+                driver_name: dname,
+                guid: dguid,
+                ballast: 0,
+                restrictor: 0,
+                pod_id: Some(pod_id.clone()),
+                ai_mode: None,
+            });
+        }
+
+        // Add AI fillers (same car as players, AI=fixed for AssettoServer)
+        if ai_count > 0 {
+            let ai_names = rc_common::ai_names::pick_ai_names(ai_count);
+            for name in ai_names {
+                entry_slots.push(rc_common::types::AcEntrySlot {
+                    car_model: car.clone(),
+                    skin: String::new(),
+                    driver_name: name,
+                    guid: String::new(),
+                    ballast: 0,
+                    restrictor: 0,
+                    pod_id: None,
+                    ai_mode: Some("fixed".to_string()),
+                });
+            }
+            tracing::info!(
+                "Added {} AI fillers (AI_LEVEL={}) for group session {}",
+                ai_count, ai_level, group_session_id
+            );
+        }
+
         // Build AC LAN config
         let config = rc_common::types::AcLanSessionConfig {
             name: format!("Multiplayer - Group {}", &group_session_id[..8]),
             track: track.clone(),
             track_config: String::new(),
             cars: vec![car.clone()],
-            max_clients: pod_ids.len() as u32,
+            max_clients: (human_count + ai_count) as u32,
             password: String::new(),
             sessions: vec![rc_common::types::AcSessionBlock {
                 name: "Race".to_string(),
@@ -997,23 +1074,7 @@ async fn start_ac_lan_for_group(
                 laps: 10,
                 wait_time_secs: 10,
             }],
-            entries: {
-                let mut entry_slots = Vec::new();
-                for (_i, (driver_id, pod_id)) in members.iter().enumerate() {
-                    let (dname, dguid) = get_driver_entry_info(state, driver_id).await;
-                    entry_slots.push(rc_common::types::AcEntrySlot {
-                        car_model: car.clone(),
-                        skin: String::new(),
-                        driver_name: dname,
-                        guid: dguid,
-                        ballast: 0,
-                        restrictor: 0,
-                        pod_id: Some(pod_id.clone()),
-                        ai_mode: None,
-                    });
-                }
-                entry_slots
-            },
+            entries: entry_slots,
             weather: vec![rc_common::types::AcWeatherConfig {
                 graphics: "3_clear".to_string(),
                 base_temperature_ambient: 26,
@@ -1041,9 +1102,12 @@ async fn start_ac_lan_for_group(
 
         match crate::ac_server::start_ac_server(state, config, pod_ids.clone()).await {
             Ok(ac_session_id) => {
-                // Store AC session ID
-                sqlx::query("UPDATE group_sessions SET ac_session_id = ? WHERE id = ?")
+                // Store AC session ID + track/car/ai_count for lobby enrichment
+                sqlx::query("UPDATE group_sessions SET ac_session_id = ?, track = ?, car = ?, ai_count = ? WHERE id = ?")
                     .bind(&ac_session_id)
+                    .bind(&track)
+                    .bind(&car)
+                    .bind(ai_count as i64)
                     .execute(&state.db)
                     .await
                     .map_err(|e| format!("DB error: {}", e))?;

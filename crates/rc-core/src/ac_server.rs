@@ -341,10 +341,15 @@ pub fn generate_entry_list_ini(config: &AcLanSessionConfig) -> String {
                  GUID={}\n\
                  BALLAST={}\n\
                  RESTRICTOR={}\n\
-                 SPECTATOR_MODE=0\n\n",
+                 SPECTATOR_MODE=0\n",
                 i, entry.car_model, entry.skin, entry.driver_name, entry.guid,
                 entry.ballast, entry.restrictor,
             ));
+            // AssettoServer AI entry: AI=fixed for AI opponents
+            if let Some(ref ai) = entry.ai_mode {
+                ini.push_str(&format!("AI={}\n", ai));
+            }
+            ini.push('\n');
         }
     } else if config.pickup_mode && !config.cars.is_empty() {
         // Generate empty slots alternating across allowed cars
@@ -366,6 +371,29 @@ pub fn generate_entry_list_ini(config: &AcLanSessionConfig) -> String {
     }
 
     ini
+}
+
+/// Generate extra_cfg.yml for AssettoServer with AI configuration.
+/// Returns empty string if no AI entries are present.
+/// When AI entries exist, generates EnableAi: true and optionally AiAggression
+/// mapped from the 0-100 AI_LEVEL to a 0.0-1.0 float.
+pub fn generate_extra_cfg_yml(config: &AcLanSessionConfig, ai_level: Option<u32>) -> String {
+    let has_ai = config.entries.iter().any(|e| e.ai_mode.is_some());
+    if !has_ai {
+        return String::new();
+    }
+
+    let mut yml = String::new();
+    yml.push_str("EnableAi: true\n");
+    yml.push_str("AiParams:\n");
+    yml.push_str("  MaxAiTargetOccupancy: 1.0\n");
+
+    if let Some(level) = ai_level {
+        let fraction = level as f64 / 100.0;
+        yml.push_str(&format!("  AiAggression: {:.2}\n", fraction));
+    }
+
+    yml
 }
 
 // ─── Server Lifecycle ────────────────────────────────────────────────────────
@@ -413,6 +441,15 @@ pub async fn start_ac_server(
     let entry_list = generate_entry_list_ini(&config);
     std::fs::write(cfg_dir.join("server_cfg.ini"), &server_cfg)?;
     std::fs::write(cfg_dir.join("entry_list.ini"), &entry_list)?;
+
+    // Write extra_cfg.yml for AssettoServer AI configuration (if AI entries exist).
+    // Uses default SemiPro AI level (87) unless overridden by caller.
+    let extra_cfg = generate_extra_cfg_yml(&config, None);
+    if !extra_cfg.is_empty() {
+        // extra_cfg.yml goes in server_dir root (AssettoServer reads from working directory)
+        std::fs::write(server_dir.join("extra_cfg.yml"), &extra_cfg)?;
+        tracing::info!("Wrote extra_cfg.yml with AI configuration for session {}", session_id);
+    }
 
     // Always write csp_extra_options.ini — CSP reads this from the server.
     // Custom content takes priority; otherwise generate a baseline that ensures
@@ -517,16 +554,27 @@ pub async fn start_ac_server(
         let _ = state.dashboard_tx.send(DashboardEvent::AcServerUpdate(info));
     }
 
-    // Launch Content Manager on each selected pod
+    // Launch Content Manager on each selected pod with JSON launch_args
+    // (fixes: agent expects JSON with game_mode "multi", not raw acmanager:// URI)
     let agent_senders = state.agent_senders.read().await;
     for pod_id in &pod_ids {
         if let Some(sender) = agent_senders.get(pod_id) {
+            let launch_json = serde_json::json!({
+                "car": config.cars.first().unwrap_or(&"ks_ferrari_488_gt3".to_string()),
+                "track": &config.track,
+                "track_config": &config.track_config,
+                "game_mode": "multi",
+                "server_ip": &lan_ip,
+                "server_http_port": config.http_port,
+                "server_password": &config.password,
+                "session_type": "race",
+            });
             let cmd = CoreToAgentMessage::LaunchGame {
                 sim_type: SimType::AssettoCorsa,
-                launch_args: Some(join_url.clone()),
+                launch_args: Some(launch_json.to_string()),
             };
             let _ = sender.send(cmd).await;
-            tracing::info!("Sent AC join command to pod {}", pod_id);
+            tracing::info!("Sent AC multiplayer join command to pod {} (JSON launch_args)", pod_id);
         } else {
             tracing::warn!("Pod {} not connected, skipping launch", pod_id);
         }
@@ -1260,5 +1308,138 @@ mod tests {
             "SAFETY: SESSION_START must always be 100, got INI:\n{}", ini);
         assert!(!ini.contains("SESSION_START=50"),
             "SAFETY: SESSION_START=50 must NOT appear in output");
+    }
+
+    // ── Phase 09 Plan 01: AI entry list, extra_cfg.yml, LaunchGame JSON ───
+
+    #[test]
+    fn test_entry_list_ai_entries_have_ai_fixed() {
+        let mut config = AcLanSessionConfig::default();
+        config.entries = vec![
+            AcEntrySlot {
+                car_model: "ks_ferrari_488_gt3".to_string(),
+                skin: String::new(),
+                driver_name: "Marco Rossi".to_string(),
+                guid: String::new(),
+                ballast: 0,
+                restrictor: 0,
+                pod_id: None,
+                ai_mode: Some("fixed".to_string()),
+            },
+        ];
+        let ini = generate_entry_list_ini(&config);
+        assert!(ini.contains("AI=fixed"), "AI entry must have AI=fixed line in INI:\n{}", ini);
+        assert!(ini.contains("DRIVERNAME=Marco Rossi"), "AI entry must have driver name");
+    }
+
+    #[test]
+    fn test_entry_list_mixed_human_and_ai() {
+        let mut config = AcLanSessionConfig::default();
+        config.entries = vec![
+            AcEntrySlot {
+                car_model: "ks_ferrari_488_gt3".to_string(),
+                skin: String::new(),
+                driver_name: "Human Driver".to_string(),
+                guid: "steam_123".to_string(),
+                ballast: 0,
+                restrictor: 0,
+                pod_id: Some("pod_1".to_string()),
+                ai_mode: None,
+            },
+            AcEntrySlot {
+                car_model: "ks_ferrari_488_gt3".to_string(),
+                skin: String::new(),
+                driver_name: "AI Driver".to_string(),
+                guid: String::new(),
+                ballast: 0,
+                restrictor: 0,
+                pod_id: None,
+                ai_mode: Some("fixed".to_string()),
+            },
+        ];
+        let ini = generate_entry_list_ini(&config);
+
+        // Split into sections by [CAR_]
+        let sections: Vec<&str> = ini.split("[CAR_").collect();
+        // sections[0] is empty (before first [CAR_), sections[1] is CAR_0, sections[2] is CAR_1
+        assert!(sections.len() >= 3, "Must have at least 2 CAR sections, got:\n{}", ini);
+
+        let human_section = sections[1];
+        let ai_section = sections[2];
+
+        // Human entry should NOT have AI line
+        assert!(!human_section.contains("AI="), "Human entry must not have AI= line:\n{}", human_section);
+        assert!(human_section.contains("DRIVERNAME=Human Driver"));
+
+        // AI entry should have AI=fixed
+        assert!(ai_section.contains("AI=fixed"), "AI entry must have AI=fixed:\n{}", ai_section);
+        assert!(ai_section.contains("DRIVERNAME=AI Driver"));
+    }
+
+    #[test]
+    fn test_entry_list_backward_compat_no_ai_mode() {
+        let mut config = AcLanSessionConfig::default();
+        config.entries = vec![
+            AcEntrySlot {
+                car_model: "ks_ferrari_488_gt3".to_string(),
+                skin: String::new(),
+                driver_name: "Legacy Driver".to_string(),
+                guid: "steam_789".to_string(),
+                ballast: 0,
+                restrictor: 0,
+                pod_id: Some("pod_3".to_string()),
+                ai_mode: None,
+            },
+        ];
+        let ini = generate_entry_list_ini(&config);
+        assert!(!ini.contains("AI="), "Legacy entry with ai_mode None must not have AI= line:\n{}", ini);
+        assert!(ini.contains("DRIVERNAME=Legacy Driver"));
+    }
+
+    #[test]
+    fn test_extra_cfg_yml_with_ai_level() {
+        let mut config = AcLanSessionConfig::default();
+        config.entries = vec![
+            AcEntrySlot {
+                car_model: "ks_ferrari_488_gt3".to_string(),
+                skin: String::new(),
+                driver_name: "AI Bot".to_string(),
+                guid: String::new(),
+                ballast: 0,
+                restrictor: 0,
+                pod_id: None,
+                ai_mode: Some("fixed".to_string()),
+            },
+        ];
+        let yml = generate_extra_cfg_yml(&config, Some(87));
+        assert!(yml.contains("EnableAi: true"), "Must contain EnableAi: true:\n{}", yml);
+        assert!(yml.contains("AiAggression: 0.87"), "AI level 87 must map to AiAggression: 0.87:\n{}", yml);
+    }
+
+    #[test]
+    fn test_extra_cfg_yml_no_ai_entries_returns_empty() {
+        let config = AcLanSessionConfig::default(); // no entries at all
+        let yml = generate_extra_cfg_yml(&config, Some(90));
+        assert!(yml.is_empty(), "No AI entries should produce empty extra_cfg.yml, got:\n{}", yml);
+    }
+
+    #[test]
+    fn test_extra_cfg_yml_ai_entries_no_level() {
+        let mut config = AcLanSessionConfig::default();
+        config.entries = vec![
+            AcEntrySlot {
+                car_model: "ks_ferrari_488_gt3".to_string(),
+                skin: String::new(),
+                driver_name: "AI Bot".to_string(),
+                guid: String::new(),
+                ballast: 0,
+                restrictor: 0,
+                pod_id: None,
+                ai_mode: Some("fixed".to_string()),
+            },
+        ];
+        let yml = generate_extra_cfg_yml(&config, None);
+        assert!(yml.contains("EnableAi: true"), "Must contain EnableAi: true:\n{}", yml);
+        assert!(!yml.contains("AiAggression"), "No ai_level should omit AiAggression:\n{}", yml);
     }
 }

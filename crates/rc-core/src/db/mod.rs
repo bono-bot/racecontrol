@@ -1743,6 +1743,18 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Multiplayer enrichment columns (Phase 09) ─────────────────────────
+    // Store track/car/ai_count on group_sessions for lobby UI enrichment
+    let _ = sqlx::query("ALTER TABLE group_sessions ADD COLUMN track TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE group_sessions ADD COLUMN car TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE group_sessions ADD COLUMN ai_count INTEGER")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
