@@ -111,7 +111,7 @@ Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records pa
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
 | 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
-| 12. Data Foundation | 2/2 | Complete   | 2026-03-14 | - |
+| 12. Data Foundation | 2/2 | Complete    | 2026-03-14 | - |
 | 13. Leaderboard Core | v3.0 | 0/? | Not started | - |
 | 14. Events and Championships | v3.0 | 0/? | Not started | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |

@@ -3,6 +3,21 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
+stopped_at: Completed 12-02-PLAN.md
+last_updated: "2026-03-14T20:08:41.946Z"
+last_activity: 2026-03-15 — Completed Plan 02 (car_class on laps via billing session lookup)
+progress:
+  total_phases: 4
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
+---
+
+---
+gsd_state_version: 1.0
+milestone: v3.0
+milestone_name: Leaderboards, Telemetry & Competitive
+status: active
 stopped_at: "Completed 12-02-PLAN.md"
 last_updated: "2026-03-15"
 last_activity: 2026-03-15 — Completed Phase 12 Plan 02 (car_class on laps)
