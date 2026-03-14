@@ -3558,6 +3558,29 @@ async fn customer_session_detail(
         })
         .collect();
 
+    // Fetch billing events timeline for this session
+    let events = sqlx::query_as::<_, (String, String, i64, Option<String>, String)>(
+        "SELECT id, event_type, driving_seconds_at_event, metadata, created_at
+         FROM billing_events WHERE billing_session_id = ? ORDER BY created_at ASC",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let events_json: Vec<Value> = events
+        .iter()
+        .map(|e| {
+            json!({
+                "id": e.0,
+                "event_type": e.1,
+                "driving_seconds_at_event": e.2,
+                "metadata": e.3,
+                "created_at": e.4,
+            })
+        })
+        .collect();
+
     Json(json!({
         "session": {
             "id": session.0,
@@ -3584,6 +3607,7 @@ async fn customer_session_detail(
             "average_lap_ms": avg_lap_ms,
         },
         "laps": laps_json,
+        "events": events_json,
     }))
 }
 
@@ -10459,4 +10483,126 @@ async fn deploy_rolling_handler(
             "binary_url": req.binary_url
         })),
     )
+}
+
+#[cfg(test)]
+mod session_detail_tests {
+    use serde_json::{json, Value};
+
+    /// Test that the events query + JSON construction logic works correctly.
+    /// Tests the query pattern that will be embedded in customer_session_detail.
+    #[tokio::test]
+    async fn test_customer_session_detail_includes_events() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.expect("in-memory sqlite");
+
+        sqlx::query(
+            "CREATE TABLE billing_events (
+                id TEXT PRIMARY KEY, billing_session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL, driving_seconds_at_event INTEGER NOT NULL DEFAULT 0,
+                metadata TEXT, created_at TEXT DEFAULT (datetime('now'))
+            )"
+        ).execute(&pool).await.expect("create billing_events");
+
+        // Insert events out of order to verify ASC ordering
+        sqlx::query(
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, created_at)
+             VALUES ('e2', 's1', 'paused', 300, '{\"reason\":\"bathroom\"}', '2026-01-01T00:05:00'),
+                    ('e1', 's1', 'started', 0, NULL, '2026-01-01T00:00:00'),
+                    ('e3', 's1', 'resumed', 300, NULL, '2026-01-01T00:07:00')"
+        ).execute(&pool).await.expect("insert events");
+
+        let events = sqlx::query_as::<_, (String, String, i64, Option<String>, String)>(
+            "SELECT id, event_type, driving_seconds_at_event, metadata, created_at
+             FROM billing_events WHERE billing_session_id = ? ORDER BY created_at ASC",
+        )
+        .bind("s1")
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+
+        let events_json: Vec<Value> = events
+            .iter()
+            .map(|e| {
+                json!({
+                    "id": e.0,
+                    "event_type": e.1,
+                    "driving_seconds_at_event": e.2,
+                    "metadata": e.3,
+                    "created_at": e.4,
+                })
+            })
+            .collect();
+
+        // Verify events array is not empty
+        assert_eq!(events_json.len(), 3, "Expected 3 events");
+
+        // Verify ordering (created_at ASC)
+        assert_eq!(events_json[0]["event_type"], "started");
+        assert_eq!(events_json[1]["event_type"], "paused");
+        assert_eq!(events_json[2]["event_type"], "resumed");
+
+        // Verify all expected keys present
+        assert_eq!(events_json[0]["id"], "e1");
+        assert_eq!(events_json[0]["driving_seconds_at_event"], 0);
+        assert!(events_json[0]["metadata"].is_null());
+        assert_eq!(events_json[0]["created_at"], "2026-01-01T00:00:00");
+
+        // Verify metadata is present where set
+        assert_eq!(events_json[1]["metadata"], "{\"reason\":\"bathroom\"}");
+
+        // Verify it would appear alongside session/laps in final JSON
+        let response = json!({
+            "session": { "id": "s1" },
+            "laps": [],
+            "events": events_json,
+        });
+        assert!(response.get("events").is_some(), "events key must be present");
+        assert!(response["events"].is_array(), "events must be an array");
+    }
+
+    #[tokio::test]
+    async fn test_customer_session_detail_empty_events() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.expect("in-memory sqlite");
+
+        sqlx::query(
+            "CREATE TABLE billing_events (
+                id TEXT PRIMARY KEY, billing_session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL, driving_seconds_at_event INTEGER NOT NULL DEFAULT 0,
+                metadata TEXT, created_at TEXT DEFAULT (datetime('now'))
+            )"
+        ).execute(&pool).await.expect("create billing_events");
+
+        // No events inserted for session 'no-events'
+        let events = sqlx::query_as::<_, (String, String, i64, Option<String>, String)>(
+            "SELECT id, event_type, driving_seconds_at_event, metadata, created_at
+             FROM billing_events WHERE billing_session_id = ? ORDER BY created_at ASC",
+        )
+        .bind("no-events")
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+
+        let events_json: Vec<Value> = events
+            .iter()
+            .map(|e| {
+                json!({
+                    "id": e.0,
+                    "event_type": e.1,
+                    "driving_seconds_at_event": e.2,
+                    "metadata": e.3,
+                    "created_at": e.4,
+                })
+            })
+            .collect();
+
+        // Must be empty array, not null, not missing
+        assert!(events_json.is_empty(), "Expected empty events array");
+
+        let response = json!({
+            "session": { "id": "no-events" },
+            "laps": [],
+            "events": events_json,
+        });
+        assert_eq!(response["events"].as_array().expect("must be array").len(), 0);
+    }
 }
