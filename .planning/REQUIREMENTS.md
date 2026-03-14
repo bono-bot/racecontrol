@@ -9,11 +9,11 @@ Requirements for milestone v3.0. Each maps to roadmap phases.
 
 ### Data Foundation
 
-- [ ] **DATA-01**: Database has composite covering indexes on laps table for leaderboard queries (track, car, valid, lap_time_ms)
-- [ ] **DATA-02**: Database has index on telemetry_samples (lap_id, offset_ms) for telemetry visualization
-- [ ] **DATA-03**: SQLite WAL checkpoint is tuned (wal_autocheckpoint=400, connection max_lifetime=300s) to prevent read latency growth
-- [ ] **DATA-04**: Venue drivers table has cloud_driver_id column that resolves UUID mismatch before lap sync
-- [ ] **DATA-05**: Database schema includes hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, and driver_ratings tables
+- [x] **DATA-01**: Database has composite covering indexes on laps table for leaderboard queries (track, car, valid, lap_time_ms)
+- [x] **DATA-02**: Database has index on telemetry_samples (lap_id, offset_ms) for telemetry visualization
+- [x] **DATA-03**: SQLite WAL checkpoint is tuned (wal_autocheckpoint=400, connection max_lifetime=300s) to prevent read latency growth
+- [x] **DATA-04**: Venue drivers table has cloud_driver_id column that resolves UUID mismatch before lap sync
+- [x] **DATA-05**: Database schema includes hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, and driver_ratings tables
 - [ ] **DATA-06**: Laps table has car_class column populated from car-to-class mapping on lap completion
 
 ### Leaderboards & Records
@@ -117,11 +117,11 @@ Deferred to future milestone. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | Phase 12 | Pending |
-| DATA-02 | Phase 12 | Pending |
-| DATA-03 | Phase 12 | Pending |
-| DATA-04 | Phase 12 | Pending |
-| DATA-05 | Phase 12 | Pending |
+| DATA-01 | Phase 12 | Complete |
+| DATA-02 | Phase 12 | Complete |
+| DATA-03 | Phase 12 | Complete |
+| DATA-04 | Phase 12 | Complete |
+| DATA-05 | Phase 12 | Complete |
 | DATA-06 | Phase 12 | Pending |
 | LB-01 | Phase 13 | Pending |
 | LB-02 | Phase 13 | Pending |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: "Roadmap created — ready to plan Phase 12"
-last_updated: "2026-03-14"
-last_activity: 2026-03-14 — Roadmap created, 4 phases, 47 requirements mapped
+stopped_at: "Completed 12-01-PLAN.md"
+last_updated: "2026-03-15"
+last_activity: 2026-03-15 — Completed Phase 12 Plan 01 (Data Foundation schema)
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 2
+  completed_plans: 1
+  percent: 12
 ---
 
 # Project State
@@ -26,24 +26,24 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 ## Current Position
 
 Phase: 12 of 15 (Data Foundation)
-Plan: — of — (not yet planned)
-Status: Ready to plan
-Last activity: 2026-03-14 — Roadmap created
+Plan: 1 of 2 complete
+Status: Executing
+Last activity: 2026-03-15 — Completed Plan 01 (v3.0 database foundation schema)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 12%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 6 min
+- Total execution time: 0.1 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 12. Data Foundation | TBD | - | - |
+| 12. Data Foundation | 1/2 | 6 min | 6 min |
 | 13. Leaderboard Core | TBD | - | - |
 | 14. Events and Championships | TBD | - | - |
 | 15. Telemetry and Driver Rating | TBD | - | - |
@@ -62,6 +62,9 @@ Progress: [░░░░░░░░░░] 0%
 - Public access: All pages fully public, no login required
 - Driver rating thresholds: Algorithm settled (percentile), specific boundaries need Uday sign-off before Phase 15 planning
 - Championship edge cases: Tiebreaker/DNS/DNF need characterization tests before Phase 14 scoring implementation
+- [12-01] idx_telemetry_lap_offset added alongside existing idx_telemetry_lap (no drop) to avoid production table locking
+- [12-01] cloud_driver_id column added as schema plumbing only; enforcement logic deferred to Phase 14
+- [12-01] hotlap_events.car is free-text display field; Phase 14 auto-entry matches on car_class
 
 ### Pending Todos
 
@@ -74,6 +77,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14
-Stopped at: Roadmap created — 4 phases (12-15), 47 requirements mapped, ready to plan Phase 12
+Last session: 2026-03-15
+Stopped at: Completed 12-01-PLAN.md — v3.0 database foundation schema with WAL tuning, covering indexes, cloud_driver_id, 6 competitive tables
 Resume file: None
