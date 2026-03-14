@@ -10,6 +10,11 @@ function formatLapTime(ms: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}.${millis.toString().padStart(3, "0")}`;
 }
 
+const SIM_TYPES = [
+  { value: "assetto_corsa", label: "Assetto Corsa" },
+  { value: "f1_25", label: "F1 25" },
+] as const;
+
 interface TrackRecord {
   track: string;
   car: string;
@@ -46,6 +51,7 @@ interface TrackLeaderboardEntry {
   best_lap_ms: number;
   best_lap_display: string;
   achieved_at: string;
+  lap_id?: string;
 }
 
 export default function PublicLeaderboardPage() {
@@ -58,6 +64,8 @@ export default function PublicLeaderboardPage() {
   const [trackStats, setTrackStats] = useState<{ total_laps: number; unique_drivers: number; unique_cars: number } | null>(null);
   const [tab, setTab] = useState<"records" | "drivers" | "tracks">("records");
   const [loading, setLoading] = useState(true);
+  const [simType, setSimType] = useState("assetto_corsa");
+  const [showInvalid, setShowInvalid] = useState(false);
 
   useEffect(() => {
     publicApi.leaderboard().then((data: { records?: TrackRecord[]; tracks?: TrackInfo[]; top_drivers?: TopDriver[]; time_trial?: TimeTrial | null }) => {
@@ -71,11 +79,20 @@ export default function PublicLeaderboardPage() {
 
   const loadTrackLeaderboard = (track: string) => {
     setSelectedTrack(track);
-    publicApi.trackLeaderboard(track).then((data: { leaderboard?: TrackLeaderboardEntry[]; stats?: { total_laps: number; unique_drivers: number; unique_cars: number } }) => {
+    publicApi.trackLeaderboard(track, { sim_type: simType, show_invalid: showInvalid }).then((data: { leaderboard?: TrackLeaderboardEntry[]; stats?: { total_laps: number; unique_drivers: number; unique_cars: number } }) => {
       setTrackLeaderboard(data.leaderboard || []);
       setTrackStats(data.stats || null);
     });
   };
+
+  // Re-fetch when sim_type or show_invalid changes (only if a track is selected)
+  useEffect(() => {
+    if (!selectedTrack) return;
+    publicApi.trackLeaderboard(selectedTrack, { sim_type: simType, show_invalid: showInvalid }).then((data: { leaderboard?: TrackLeaderboardEntry[]; stats?: { total_laps: number; unique_drivers: number; unique_cars: number } }) => {
+      setTrackLeaderboard(data.leaderboard || []);
+      setTrackStats(data.stats || null);
+    });
+  }, [simType, showInvalid, selectedTrack]);
 
   if (loading) {
     return (
@@ -96,6 +113,31 @@ export default function PublicLeaderboardPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 pb-8">
+        {/* Sim Type + Show Invalid Controls */}
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <select
+            value={simType}
+            onChange={(e) => setSimType(e.target.value)}
+            className="bg-rp-card border border-rp-border rounded-lg px-3 py-2 text-sm text-white focus:border-rp-red focus:outline-none"
+          >
+            {SIM_TYPES.map((st) => (
+              <option key={st.value} value={st.value}>
+                {st.label}
+              </option>
+            ))}
+          </select>
+
+          <label className="flex items-center gap-2 text-sm text-neutral-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showInvalid}
+              onChange={(e) => setShowInvalid(e.target.checked)}
+              className="w-4 h-4 rounded border-rp-border bg-rp-card accent-rp-red"
+            />
+            Show Invalid
+          </label>
+        </div>
+
         {/* Time Trial Banner */}
         {timeTrial && (
           <div
@@ -148,7 +190,8 @@ export default function PublicLeaderboardPage() {
               </div>
             )}
 
-            <div className="bg-rp-card border border-rp-border rounded-xl overflow-hidden">
+            {/* Desktop table layout */}
+            <div className="hidden sm:block bg-rp-card border border-rp-border rounded-xl overflow-hidden">
               <div className="grid grid-cols-[40px_1fr_1fr_90px] gap-1 px-4 py-2 text-[10px] text-rp-grey uppercase tracking-wider border-b border-rp-border">
                 <span>#</span>
                 <span>Driver</span>
@@ -157,17 +200,43 @@ export default function PublicLeaderboardPage() {
               </div>
               {trackLeaderboard.map((entry) => (
                 <div
-                  key={`${entry.driver}-${entry.car}`}
+                  key={`${entry.driver}-${entry.car}-${entry.position}`}
                   className={`grid grid-cols-[40px_1fr_1fr_90px] gap-1 px-4 py-2.5 border-b border-rp-border/50 last:border-b-0 ${
                     entry.position <= 3 ? "bg-rp-red/5" : ""
                   }`}
                 >
-                  <span className={`text-sm font-bold ${entry.position <= 3 ? "text-rp-red" : "text-neutral-500"}`}>
+                  <span className={`text-base font-bold ${entry.position <= 3 ? "text-rp-red" : "text-neutral-500"}`}>
                     {entry.position}
                   </span>
                   <span className="text-sm text-white truncate">{entry.driver}</span>
-                  <span className="text-xs text-rp-grey truncate">{entry.car}</span>
-                  <span className="text-sm font-mono text-white text-right">{entry.best_lap_display}</span>
+                  <span className="text-xs text-rp-grey truncate self-center">{entry.car}</span>
+                  <span className="text-sm font-mono text-white text-right" style={{ fontSize: "14px" }}>{entry.best_lap_display}</span>
+                </div>
+              ))}
+              {trackLeaderboard.length === 0 && (
+                <p className="text-rp-grey text-sm text-center py-6">No laps recorded yet</p>
+              )}
+            </div>
+
+            {/* Mobile card layout */}
+            <div className="sm:hidden space-y-2">
+              {trackLeaderboard.map((entry) => (
+                <div
+                  key={`m-${entry.driver}-${entry.car}-${entry.position}`}
+                  className={`bg-rp-card border rounded-xl p-3 ${
+                    entry.position <= 3 ? "border-rp-red/30" : "border-rp-border"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-base font-bold min-w-[24px] ${entry.position <= 3 ? "text-rp-red" : "text-neutral-500"}`} style={{ fontSize: "16px" }}>
+                      {entry.position}
+                    </span>
+                    <span className="text-sm text-white truncate" style={{ fontSize: "14px" }}>{entry.driver}</span>
+                  </div>
+                  <div className="flex items-center justify-between pl-8">
+                    <span className="text-xs text-rp-grey truncate">{entry.car}</span>
+                    <span className="font-mono text-white font-medium" style={{ fontSize: "14px" }}>{entry.best_lap_display}</span>
+                  </div>
                 </div>
               ))}
               {trackLeaderboard.length === 0 && (
@@ -183,7 +252,7 @@ export default function PublicLeaderboardPage() {
             <div className="px-4 py-3 border-b border-rp-border">
               <h2 className="text-sm font-medium text-rp-grey">Track Records</h2>
             </div>
-            {records.map((r, i) => (
+            {records.map((r) => (
               <div
                 key={`${r.track}-${r.car}`}
                 className="px-4 py-3 border-b border-rp-border/50 last:border-b-0 cursor-pointer hover:bg-white/5"

@@ -927,8 +927,34 @@ export const publicApi = {
   leaderboard: () =>
     fetch(`${API_BASE_URL}/public/leaderboard`).then(r => r.json()),
 
-  trackLeaderboard: (track: string) =>
-    fetch(`${API_BASE_URL}/public/leaderboard/${encodeURIComponent(track)}`).then(r => r.json()),
+  trackLeaderboard: (track: string, params?: { sim_type?: string; car?: string; show_invalid?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (params?.sim_type) qs.set("sim_type", params.sim_type);
+    if (params?.car) qs.set("car", params.car);
+    if (params?.show_invalid) qs.set("show_invalid", "true");
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`${API_BASE_URL}/public/leaderboard/${encodeURIComponent(track)}${suffix}`).then(r => r.json());
+  },
+
+  circuitRecords: (params?: { sim_type?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.sim_type) qs.set("sim_type", params.sim_type);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`${API_BASE_URL}/public/circuit-records${suffix}`).then(r => r.json());
+  },
+
+  vehicleRecords: (car: string, params?: { sim_type?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.sim_type) qs.set("sim_type", params.sim_type);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`${API_BASE_URL}/public/vehicle-records/${encodeURIComponent(car)}${suffix}`).then(r => r.json());
+  },
+
+  searchDrivers: (name: string) =>
+    fetch(`${API_BASE_URL}/public/drivers?name=${encodeURIComponent(name)}`).then(r => r.json()),
+
+  driverProfile: (id: string) =>
+    fetch(`${API_BASE_URL}/public/drivers/${encodeURIComponent(id)}`).then(r => r.json()),
 
   timeTrial: () =>
     fetch(`${API_BASE_URL}/public/time-trial`).then(r => r.json()),
