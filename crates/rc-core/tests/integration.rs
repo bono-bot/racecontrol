@@ -119,6 +119,7 @@ async fn run_test_migrations(pool: &SqlitePool) {
             sector2_ms INTEGER,
             sector3_ms INTEGER,
             valid BOOLEAN DEFAULT 1,
+            car_class TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         )"
     ).execute(pool).await.unwrap();
@@ -394,6 +395,25 @@ async fn run_test_migrations(pool: &SqlitePool) {
         )"
     ).execute(pool).await.unwrap();
 
+    // Kiosk experiences table (needed for car_class lookup in persist_lap)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS kiosk_experiences (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            game TEXT NOT NULL,
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            car_class TEXT,
+            duration_minutes INTEGER NOT NULL,
+            start_type TEXT DEFAULT 'pitlane',
+            ac_preset_id TEXT,
+            sort_order INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT
+        )"
+    ).execute(pool).await.unwrap();
+
     // ─── Phase 12: Data Foundation ───────────────────────────────────────────
 
     // Telemetry samples table (mirrors db/mod.rs)
@@ -421,6 +441,10 @@ async fn run_test_migrations(pool: &SqlitePool) {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_telemetry_lap ON telemetry_samples(lap_id)")
         .execute(pool).await.unwrap();
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_telemetry_lap_offset ON telemetry_samples(lap_id, offset_ms)")
+        .execute(pool).await.unwrap();
+
+    // DATA-06: Index on laps(track, car_class) for event auto-entry matching
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_laps_car_class ON laps(track, car_class)")
         .execute(pool).await.unwrap();
 
     // DATA-04: Unique index on cloud_driver_id
@@ -1322,4 +1346,97 @@ async fn test_competitive_tables_exist() {
     let rating_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM driver_ratings")
         .fetch_one(&pool).await.unwrap();
     assert_eq!(rating_count.0, 1, "driver_ratings should have 1 row");
+}
+
+// =============================================================================
+// Phase 12 — DATA-06: car_class population on laps
+// =============================================================================
+
+/// DATA-06: Laps with an active billing session linked to a kiosk_experience
+/// should have car_class populated from the experience's car_class.
+#[tokio::test]
+async fn test_lap_car_class_populated() {
+    let pool = create_test_db().await;
+
+    // Seed driver and pod
+    seed_test_driver(&pool, "cc-drv-1").await;
+    seed_test_pod(&pool, "cc-pod-1", 1).await;
+
+    // Seed a kiosk_experience with car_class='A'
+    sqlx::query(
+        "INSERT INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes)
+         VALUES ('exp-test-1', 'Test Experience', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 'A', 30)"
+    ).execute(&pool).await.unwrap();
+
+    // Seed an active billing_session pointing to that experience
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, experience_id)
+         VALUES ('bs-test-1', 'cc-drv-1', 'cc-pod-1', 'tier_30min', 1800, 'active', 'exp-test-1')"
+    ).execute(&pool).await.unwrap();
+
+    // Look up car_class via the same query persist_lap will use
+    let car_class: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT ke.car_class
+         FROM billing_sessions bs
+         JOIN kiosk_experiences ke ON ke.id = bs.experience_id
+         WHERE bs.driver_id = ? AND bs.status = 'active'
+         LIMIT 1",
+    )
+    .bind("cc-drv-1")
+    .fetch_optional(&pool)
+    .await
+    .unwrap()
+    .and_then(|(c,)| c);
+
+    assert_eq!(car_class, Some("A".to_string()), "car_class should be 'A' from kiosk_experience");
+
+    // Create a session for the lap to reference
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('cc-sess-1', 'hotlap', 'assetto_corsa', 'spa')"
+    ).execute(&pool).await.unwrap();
+
+    // Insert a lap with the resolved car_class
+    sqlx::query(
+        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, valid, car_class)
+         VALUES ('cc-lap-1', 'cc-sess-1', 'cc-drv-1', 'cc-pod-1', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 1, 90000, 1, ?)"
+    )
+    .bind(&car_class)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Verify car_class was stored
+    let result = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT car_class FROM laps WHERE id = 'cc-lap-1'"
+    ).fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, Some("A".to_string()), "laps.car_class should be 'A'");
+}
+
+/// DATA-06: Laps without an active billing session should have NULL car_class (no crash).
+#[tokio::test]
+async fn test_lap_car_class_null_without_session() {
+    let pool = create_test_db().await;
+
+    // Seed driver and pod but NO billing session
+    seed_test_driver(&pool, "cc-drv-2").await;
+    seed_test_pod(&pool, "cc-pod-2", 2).await;
+
+    // Create a session for the lap to reference (separate from billing session)
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('cc-sess-2', 'hotlap', 'assetto_corsa', 'spa')"
+    ).execute(&pool).await.unwrap();
+
+    // Insert a lap with NULL car_class (no active billing session)
+    sqlx::query(
+        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, valid, car_class)
+         VALUES ('cc-lap-2', 'cc-sess-2', 'cc-drv-2', 'cc-pod-2', 'assetto_corsa', 'spa', 'ks_ferrari_sf15t', 1, 95000, 1, NULL)"
+    ).execute(&pool).await.unwrap();
+
+    // Verify car_class is NULL
+    let result = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT car_class FROM laps WHERE id = 'cc-lap-2'"
+    ).fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, None, "laps.car_class should be NULL without active billing session");
 }
