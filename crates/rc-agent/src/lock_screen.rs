@@ -1229,6 +1229,197 @@ mod tests {
             "StartupConnecting is a startup/waiting state — health must be degraded"
         );
     }
+
+    // ─── BRAND-01: Logo in page shell ────────────────────────────────────────
+
+    // RED: will pass after Task 2 implementation (PAGE_SHELL must contain inline SVG logo)
+    #[test]
+    fn logo_in_page_shell() {
+        let state = LockScreenState::Hidden;
+        let html = render_page_public(&state);
+        assert!(
+            html.contains("<svg") && (html.contains("RP_LOGO") || html.contains("Racing Point") || html.contains("racingpoint")),
+            "PAGE_SHELL must contain an inline SVG Racing Point logo (found <svg> with brand content)"
+        );
+        // More specifically: the SVG element must be present
+        assert!(
+            html.contains("<svg"),
+            "PAGE_SHELL must contain an inline SVG logo element"
+        );
+    }
+
+    // ─── BRAND-03: Logo in launch splash ─────────────────────────────────────
+
+    // RED: will pass after Task 2 implementation (LaunchSplash page must embed SVG logo)
+    #[test]
+    fn logo_in_launch_splash() {
+        let state = LockScreenState::LaunchSplash {
+            driver_name: "Hamilton".to_string(),
+            message: "Preparing your session...".to_string(),
+        };
+        let html = render_page_public(&state);
+        assert!(
+            html.contains("<svg"),
+            "LaunchSplash must contain an inline SVG Racing Point logo element"
+        );
+    }
+
+    // ─── BRAND-02: Wallpaper URL renders as CSS background-image ─────────────
+
+    // RED: will pass after Task 2 implementation (page_shell_with_bg injects background-image)
+    #[test]
+    fn wallpaper_url_renders_in_css() {
+        let html = page_shell_with_bg(
+            "Test",
+            "<p>content</p>",
+            Some("http://example.com/bg.jpg"),
+        );
+        assert!(
+            html.contains("background-image"),
+            "page_shell_with_bg with Some(url) must inject background-image CSS"
+        );
+        assert!(
+            html.contains("http://example.com/bg.jpg"),
+            "page_shell_with_bg must embed the wallpaper URL in the CSS"
+        );
+    }
+
+    // RED: will pass after Task 2 implementation (None wallpaper uses default gradient)
+    #[test]
+    fn wallpaper_empty_uses_default_bg() {
+        let html = page_shell_with_bg("Test", "<p>content</p>", None);
+        assert!(
+            !html.contains("background-image"),
+            "page_shell_with_bg with None must NOT inject background-image CSS"
+        );
+        assert!(
+            html.contains("linear-gradient"),
+            "page_shell_with_bg with None must use the default gradient background"
+        );
+    }
+
+    // ─── BRAND-02: Wallpaper NOT applied to blank screen ─────────────────────
+
+    // The blank page uses page_shell() directly (not page_shell_with_bg), so no wallpaper injection.
+    // This test verifies the EXISTING blank page does NOT get wallpaper even if we call page_shell_with_bg
+    // with Some(url) and then render_blank_page separately — they are independent.
+    // Note: render_blank_page() always calls page_shell() without wallpaper — this is already correct.
+    #[test]
+    fn wallpaper_not_on_blank_page() {
+        // render_blank_page uses page_shell() directly — must never have background-image from wallpaper
+        let state = LockScreenState::ScreenBlanked;
+        let html = render_page_public(&state);
+        assert!(
+            !html.contains("background-image"),
+            "ScreenBlanked page must NOT contain background-image CSS (wallpaper not applied)"
+        );
+    }
+
+    // ─── SESS-01: Session summary shows top speed ─────────────────────────────
+
+    // RED: will pass after Task 2 implementation (render_session_summary_page_full renders top speed card)
+    #[test]
+    fn session_summary_shows_top_speed() {
+        let html = render_session_summary_page_full(
+            "Verstappen", 15, Some(89500), 3600,
+            Some(245.5),  // top_speed_kmh
+            None,          // race_position
+        );
+        assert!(
+            html.contains("245") || html.contains("245."),
+            "Session summary must show top speed value (245.5 → '245')"
+        );
+        assert!(
+            html.contains("Top Speed") || html.contains("km/h"),
+            "Session summary must show 'Top Speed' label or 'km/h' unit"
+        );
+    }
+
+    // Stub should pass for zero-speed: stub doesn't show the card at all (no "Top Speed" text).
+    // Task 2: must not show a top speed card when speed is 0.
+    #[test]
+    fn session_summary_hides_top_speed_when_zero() {
+        let html = render_session_summary_page_full(
+            "Norris", 5, None, 900,
+            Some(0.0),  // top_speed_kmh = 0 → should be hidden
+            None,
+        );
+        // When top_speed is 0.0, no top speed card should appear
+        // (stub returns same as render_session_summary_page which has no Top Speed)
+        assert!(
+            !html.contains("Top Speed"),
+            "Session summary must NOT show Top Speed card when speed is 0.0"
+        );
+    }
+
+    // ─── SESS-02: Session summary shows race position ─────────────────────────
+
+    // RED: will pass after Task 2 implementation (render_session_summary_page_full renders position card)
+    #[test]
+    fn session_summary_shows_race_position() {
+        let html = render_session_summary_page_full(
+            "Leclerc", 10, Some(95000), 2400,
+            None,
+            Some(3),  // race_position = 3rd
+        );
+        assert!(
+            html.contains("3rd") || html.contains("Position"),
+            "Session summary must show race position ('3rd') or 'Position' label"
+        );
+    }
+
+    // RED: will pass after Task 2 (None race_position → no Position card)
+    #[test]
+    fn session_summary_hides_position_when_none() {
+        let html = render_session_summary_page_full(
+            "Sainz", 8, None, 1800,
+            None,
+            None,  // race_position = None → no card
+        );
+        assert!(
+            !html.contains("Race Position") && !html.contains("Position"),
+            "Session summary must NOT show Position stat card when race_position is None"
+        );
+    }
+
+    // ─── SESS-03: Session summary must NOT auto-reload ────────────────────────
+
+    // RED: will pass after Task 2 removes `setTimeout(function(){location.reload()},15000)` from SESSION_SUMMARY_PAGE
+    #[test]
+    fn session_summary_no_auto_reload() {
+        let state = LockScreenState::SessionSummary {
+            driver_name: "Alonso".to_string(),
+            total_laps: 20,
+            best_lap_ms: Some(92000),
+            driving_seconds: 3600,
+        };
+        let html = render_page_public(&state);
+        assert!(
+            !html.contains("location.reload"),
+            "Session summary page must NOT contain location.reload — results stay on screen indefinitely (SESS-03)"
+        );
+    }
+}
+
+/// Stub: render session summary page with top speed and race position params.
+/// Task 1: forwards to existing render_session_summary_page, ignoring new params (RED).
+/// Task 2: replaced with full implementation that renders stat cards.
+pub fn render_session_summary_page_full(
+    driver_name: &str,
+    total_laps: u32,
+    best_lap_ms: Option<u32>,
+    driving_seconds: u32,
+    _top_speed_kmh: Option<f32>,
+    _race_position: Option<u32>,
+) -> String {
+    render_session_summary_page(driver_name, total_laps, best_lap_ms, driving_seconds)
+}
+
+/// Stub: page shell with optional wallpaper URL background.
+/// Task 1: ignores wallpaper_url, calls existing page_shell (RED).
+/// Task 2: replaced with real CSS background-image injection.
+pub fn page_shell_with_bg(title: &str, content: &str, _wallpaper_url: Option<&str>) -> String {
+    page_shell(title, content)
 }
 
 // ─── HTML Templates ──────────────────────────────────────────────────────────
