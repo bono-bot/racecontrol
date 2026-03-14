@@ -1024,4 +1024,44 @@ mod tests {
             presets.len()
         );
     }
+
+    // ── build_custom_launch_args session_type tests ─────────────────────
+
+    #[test]
+    fn test_build_custom_launch_args_includes_session_type() {
+        for session in &["practice", "hotlap", "race", "trackday", "race_weekend"] {
+            let result = build_custom_launch_args(
+                "bmw_z4_gt3", "spa", "Driver", "easy", "auto", "medium", session,
+            );
+            assert_eq!(
+                result["session_type"].as_str().unwrap(),
+                *session,
+                "session_type should be '{}' in output JSON",
+                session
+            );
+        }
+    }
+
+    // ── validate_launch_combo race_weekend tests ────────────────────────
+
+    #[test]
+    fn validate_launch_combo_rejects_race_weekend_without_ai() {
+        let manifest = make_manifest(
+            &["bmw_z4_gt3"],
+            vec![make_track("spa", vec![("", false, Some(24))])],
+        );
+        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "spa", "race_weekend");
+        assert!(result.is_err(), "race_weekend should be rejected on track without AI");
+        assert!(result.unwrap_err().contains("AI"), "error should mention AI");
+    }
+
+    #[test]
+    fn validate_launch_combo_accepts_race_weekend_with_ai() {
+        let manifest = make_manifest(
+            &["bmw_z4_gt3"],
+            vec![make_track("spa", vec![("", true, Some(24))])],
+        );
+        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "spa", "race_weekend");
+        assert!(result.is_ok(), "race_weekend should be accepted on track with AI");
+    }
 }
