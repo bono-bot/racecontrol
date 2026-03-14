@@ -1,120 +1,129 @@
-# Requirements: RaceControl v2.0 Kiosk URL Reliability
+# Requirements: RaceControl v3.0 Leaderboards, Telemetry & Competitive
 
-**Defined:** 2026-03-13
-**Core Value:** Every URL in the venue always works — staff kiosk, customer PIN grid, and pod lock screens are permanently accessible with zero manual intervention.
+**Defined:** 2026-03-14
+**Core Value:** Customers see their lap times, compete on leaderboards, and compare telemetry — driving repeat visits and social sharing from a publicly accessible cloud PWA.
 
-## v2.0 Requirements
+## v1 Requirements
 
-### Diagnosis & Investigation
+Requirements for milestone v3.0. Each maps to roadmap phases.
 
-- [x] **DIAG-01**: Staff can collect error/debug logs from all 8 pods and server to confirm actual URL failure patterns
-- [x] **DIAG-02**: Staff can run a port audit on Server (.4, drifted from .23) to identify port conflicts before deploying the kiosk
-- [x] **DIAG-03**: Staff can verify Edge version and kiosk mode settings (StartupBoost, EdgeUpdate, BackgroundMode) across all pods
-- [x] **DIAG-04**: Staff can confirm Server (.4) IP assignment type (DHCP, lease expires nightly) and retrieve MAC address (BC-FC-E7-2C-F2-CE) for DHCP reservation
+### Data Foundation
 
-### Staff Kiosk Hosting
+- [ ] **DATA-01**: Database has composite covering indexes on laps table for leaderboard queries (track, car, valid, lap_time_ms)
+- [ ] **DATA-02**: Database has index on telemetry_samples (lap_id, offset_ms) for telemetry visualization
+- [ ] **DATA-03**: SQLite WAL checkpoint is tuned (wal_autocheckpoint=400, connection max_lifetime=300s) to prevent read latency growth
+- [ ] **DATA-04**: Venue drivers table has cloud_driver_id column that resolves UUID mismatch before lap sync
+- [ ] **DATA-05**: Database schema includes hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, and driver_ratings tables
+- [ ] **DATA-06**: Laps table has car_class column populated from car-to-class mapping on lap completion
 
-- [x] **HOST-01**: Staff kiosk runs as a production Next.js build on Server (.23) — no dev server
-- [x] **HOST-02**: Staff kiosk auto-starts on Server (.23) boot via HKLM Run key (Session 1)
-- [x] **HOST-03**: Server (.23) IP is pinned via DHCP reservation at the router so it never drifts
-- [x] **HOST-04**: Staff can access the kiosk at `kiosk.rp` from any device on the LAN via hosts file entries
+### Leaderboards & Records
 
-### Pod Lock Screen Resilience
+- [ ] **LB-01**: User can view public leaderboard for any track, filtered by car and sim_type, sorted by fastest valid lap time
+- [ ] **LB-02**: User can view circuit records page showing the all-time fastest lap per vehicle per circuit
+- [ ] **LB-03**: User can view vehicle records page showing the fastest lap per circuit for a given vehicle
+- [ ] **LB-04**: Leaderboard endpoints require sim_type filter — AC and F1 25 laps are never mixed on the same board
+- [ ] **LB-05**: Lap validity is hardened with sanity range check and sector-sum consistency before accepting a lap as valid
+- [ ] **LB-06**: Only valid laps appear on leaderboards by default; user can toggle to show invalid laps
 
-- [x] **LOCK-01**: Pod startup waits for rc-agent HTTP server (port 18923) to be ready before launching Edge kiosk browser
-- [x] **LOCK-02**: Pod lock screen shows a branded "Connecting..." page on startup instead of a blank window or browser error
-- [x] **LOCK-03**: Pod lock screen HTML auto-retries connection to rc-agent and recovers without manual intervention when rc-agent restarts
+### Driver Profiles
 
-### Kiosk Mode Control
+- [ ] **DRV-01**: User can search for any driver by name and view their public profile page (no login required)
+- [ ] **DRV-02**: Driver profile shows stats cards: total laps, total time, personal bests per track/car, class badge
+- [ ] **DRV-03**: Driver profile shows full lap history with circuit, vehicle, date, time, S1/S2/S3 sector times
+- [ ] **DRV-04**: Driver profile is accessible via shareable URL (e.g. /drivers/{id} or /drivers?name=X)
 
-- [x] **KIOSK-01**: Staff can toggle full pod lockdown (taskbar, Win key, Edge kiosk) on or off for a specific pod from the staff kiosk dashboard
-- [x] **KIOSK-02**: Staff can lock or unlock all 8 pods at once from the staff kiosk dashboard (e.g., opening/closing the venue)
+### Hotlap Events
 
-### Pod Power Management
+- [ ] **EVT-01**: Staff can create a hotlap event with track, car class(es), start date, end date, description, and optional reference time
+- [ ] **EVT-02**: Laps automatically enter the matching hotlap event when track, car class, and date range match
+- [ ] **EVT-03**: User can view public event leaderboard showing position, driver, time, date, vehicle, and venue
+- [ ] **EVT-04**: Event leaderboard displays car class tabs — one ranking per class within the event
+- [ ] **EVT-05**: 107% rule is enforced — laps slower than 107% of the class leader are flagged as outside representative pace
+- [ ] **EVT-06**: Gold/Silver/Bronze badges are auto-calculated from staff-set reference time (within 2%/5%/8%)
+- [ ] **EVT-07**: User can browse all active and past hotlap events from an events listing page
 
-- [x] **PWR-01**: Staff can power off a specific pod remotely from the staff kiosk dashboard
-- [x] **PWR-02**: Staff can restart a specific pod remotely from the staff kiosk dashboard
-- [x] **PWR-03**: Staff can power on a specific pod remotely from the staff kiosk dashboard (Wake-on-LAN)
-- [x] **PWR-04**: Staff can power off all 8 pods at once from the staff kiosk dashboard
-- [x] **PWR-05**: Staff can restart all 8 pods at once from the staff kiosk dashboard
-- [x] **PWR-06**: Staff can power on all 8 pods at once from the staff kiosk dashboard (Wake-on-LAN)
+### Group Events & Scoring
 
-### Screen Branding & Wallpaper
+- [ ] **GRP-01**: When a multiplayer group session completes, race results are auto-scored using F1 points (25/18/15/12/10/8/6/4/2/1)
+- [ ] **GRP-02**: User can view group event summary showing position, driver, qual points, race points, best laps, wins, total points
+- [ ] **GRP-03**: User can view per-session breakdowns within a group event (qualification, race)
+- [ ] **GRP-04**: Group event results include gap-to-leader timing for each driver
 
-- [x] **BRAND-01**: Lock screen displays the Racing Point logo prominently
-- [x] **BRAND-02**: Staff can set a dynamic or static wallpaper for the blanking/lock screen from the kiosk dashboard
-- [x] **BRAND-03**: A branded loading screen with Racing Point identity is shown before each game session launches
+### Championships
 
-### Session Results Display
+- [ ] **CHP-01**: Staff can create a championship with name, description, and assign group events as rounds
+- [ ] **CHP-02**: Championship standings are auto-calculated by summing F1 points across rounds
+- [ ] **CHP-03**: User can view championship standings page with overall table and per-round breakdown
+- [ ] **CHP-04**: Championship tiebreaker follows F1 rules: most wins, then most P2s, then most P3s, then earliest occurrence
+- [ ] **CHP-05**: Event entries have result_status (finished/DNS/DNF/pending) for correct scoring of incomplete results
 
-- [x] **SESS-01**: After each session, the pod displays telemetry summary (lap times, top speed, best lap)
-- [x] **SESS-02**: After each session, the pod displays race position if racing against AI or in multiplayer (1st, 2nd, 3rd, etc.)
-- [x] **SESS-03**: Session results remain visible on the pod screen until a new session is initialized by staff or customer
+### Telemetry Visualization
 
-### Edge Browser Hardening
+- [ ] **TEL-01**: User can view speed trace chart for any lap (speed vs track distance/time with throttle/brake overlay)
+- [ ] **TEL-02**: User can compare two laps side-by-side — speed trace with time delta channel showing where time was gained/lost
+- [ ] **TEL-03**: Inputs trace shows throttle, brake, and steering angle plotted alongside the speed trace with linked cursor
+- [ ] **TEL-04**: User can view 2D track map overlay showing racing line colored by speed (green=fast, red=braking)
+- [ ] **TEL-05**: Telemetry comparison allows selecting personal best vs track record, or any two laps from the same track
 
-- [ ] **EDGE-01**: EdgeUpdate service is disabled on all 8 pods to prevent auto-updates from breaking kiosk mode
-- [ ] **EDGE-02**: StartupBoostEnabled is disabled via registry on all 8 pods to prevent background Edge conflicts
-- [ ] **EDGE-03**: BackgroundModeEnabled is disabled via registry on all 8 pods to prevent Edge persisting after close
+### Driver Skill Rating
 
-## Future Requirements
+- [ ] **RAT-01**: Drivers are assigned a skill class (A/B/C/D) per track+car combination based on percentile ranking of their best valid lap
+- [ ] **RAT-02**: Driver class badge is displayed on profile page and leaderboard entries
+- [ ] **RAT-03**: Skill class recalculates automatically when new laps are recorded (requires minimum 5 drivers per track+car before classification)
 
-### Monitoring & Polish
+### Notifications
 
-- **MON-01**: Health check endpoint on kiosk server for uptime monitoring
-- **MON-02**: CORS update in rc-core for `kiosk.rp` origin header
-- **MON-03**: Edge version pinning across all pods
-- **MON-04**: Log rotation for kiosk server output
+- [ ] **NTF-01**: When a track record is beaten, the previous record holder receives an automated email via send_email.js
+- [ ] **NTF-02**: Notification email includes track, car, old time, new time, and new record holder name with a link to the leaderboard
+
+### Cloud Sync
+
+- [ ] **SYNC-01**: Cloud sync extends to push hotlap_events, event_entries, championships, standings, and driver_ratings to app.racingpoint.cloud
+- [ ] **SYNC-02**: Telemetry sync is targeted — only event-entered lap telemetry is synced (bounded volume, not all laps)
+- [ ] **SYNC-03**: Competitive data sync is venue-authoritative one-way push — cloud never writes back to venue competitive tables
+
+### Public Access
+
+- [ ] **PUB-01**: All leaderboard, records, events, championships, and driver profile pages are accessible without login
+- [ ] **PUB-02**: PWA pages are mobile-first with responsive tables/cards (minimum 14px for times, 16px for positions)
+
+## v2 Requirements
+
+Deferred to future milestone. Tracked but not in current roadmap.
+
+### Social & Sharing
+
+- **SHARE-01**: Auto-generated OG image share card (position, time, track, car, branding) for WhatsApp/iMessage
+- **SHARE-02**: Discord bot posts leaderboard updates to venue Discord server
+
+### Advanced Visualization
+
+- **VIZ-01**: Mini-map showing car position on track in real-time during live sessions (spectator mode)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| NSSM service manager | Abandoned (last release 2017), AV-flagged on Windows 11 |
-| mDNS / `.local` domain | Conflicts with Windows 11 mDNS resolver and Bonjour |
-| Docker containerization | Breaks localhost port assumptions, GPU overhead on gaming pods |
-| Full DNS server (Acrylic/Unbound) | Overkill for 10-device LAN; hosts file is simpler and offline-safe |
-| Static NIC IP (no DHCP) | Router reset loses config; DHCP reservation + NIC backup is safer |
-| HTTPS on LAN | No external exposure, adds cert management complexity for zero benefit |
+| Real-time WebSocket leaderboard push | At 8 pods, updates every ~15s — polling every 30s is visually identical. Adds complexity for zero benefit at venue scale. |
+| Login/account system for browsing | racecentres.com is fully public. Adding login adds friction that kills organic sharing. PIN-linked driver IDs are sufficient. |
+| Social feed / comments / likes | Social moderation is a full-time job. Venue scale doesn't generate enough content for a feed. |
+| Video replay / session recording | Storage and processing requirements incompatible with venue hardware. Telemetry visualization serves the same coaching use case. |
+| Cross-car performance normalization | No calibrated lap time model exists per car. Keep leaderboards within same car or car class. |
+| Global multi-venue leaderboards | Requires proprietary API integration with closed racecentres.com VMS ecosystem. |
+| Elo/Glicko rating system | Designed for head-to-head matchups, not time-trials. Percentile-based class is correct for venue context. |
+| Venue kiosk changes | v3.0 targets cloud PWA only. Kiosk spectator display is a future milestone. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DIAG-01 | Phase 6 | Complete |
-| DIAG-02 | Phase 6 | Pending |
-| DIAG-03 | Phase 6 | Complete |
-| DIAG-04 | Phase 6 | Pending |
-| HOST-01 | Phase 7 | Complete |
-| HOST-02 | Phase 7 | Complete |
-| HOST-03 | Phase 7 | Complete |
-| HOST-04 | Phase 7 | Complete |
-| LOCK-01 | Phase 8 | Complete |
-| LOCK-02 | Phase 8 | Complete |
-| LOCK-03 | Phase 8 | Complete |
-| KIOSK-01 | Phase 10 | Complete |
-| KIOSK-02 | Phase 10 | Complete |
-| PWR-01 | Phase 10 | Complete |
-| PWR-02 | Phase 10 | Complete |
-| PWR-03 | Phase 10 | Complete |
-| PWR-04 | Phase 10 | Complete |
-| PWR-05 | Phase 10 | Complete |
-| PWR-06 | Phase 10 | Complete |
-| BRAND-01 | Phase 11 | Complete |
-| BRAND-02 | Phase 11 | Complete |
-| BRAND-03 | Phase 11 | Complete |
-| SESS-01 | Phase 11 | Complete |
-| SESS-02 | Phase 11 | Complete |
-| SESS-03 | Phase 11 | Complete |
-| EDGE-01 | Phase 9 | Pending |
-| EDGE-02 | Phase 9 | Pending |
-| EDGE-03 | Phase 9 | Pending |
+| (Populated by roadmapper) | | |
 
 **Coverage:**
-- v2.0 requirements: 28 total
-- Mapped to phases: 28
-- Unmapped: 0
+- v1 requirements: 42 total
+- Mapped to phases: 0 (pending roadmap)
+- Unmapped: 42
 
 ---
-*Requirements defined: 2026-03-13*
-*Last updated: 2026-03-14 after 10-01 complete (KIOSK-01, KIOSK-02, PWR-01, PWR-02, PWR-03 marked complete)*
+*Requirements defined: 2026-03-14*
+*Last updated: 2026-03-14 after initial definition*
