@@ -12,4 +12,15 @@
 - PIN auth unification (validate_pin_inner + PinSource enum) + pod lockdown (taskbar hidden, Win key blocked) — consistent, locked-down customer experience
 - Config validation with branded error screen + deploy template fix — rc-agent fails fast on bad config instead of silently running with zero billing rates
 
+## v2.0 Kiosk URL Reliability (Shipped: 2026-03-14)
+
+**Phases completed:** 6 phases, 12 plans
+
+**Key accomplishments:**
+- Server IP pinned to .23 via DHCP reservation + rc-core reverse proxy for kiosk
+- Pod lock screens show branded "Connecting..." state — never browser error pages
+- Edge auto-update, StartupBoost, BackgroundMode disabled on all 8 pods
+- Staff dashboard: one-click lockdown toggle, power management (restart/shutdown/wake) per-pod and bulk
+- Customer experience: Racing Point branding on lock/blank screens, session results display, staff-configurable wallpaper
+
 ---

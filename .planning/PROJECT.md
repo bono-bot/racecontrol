@@ -2,42 +2,39 @@
 
 ## Current State
 
-**Shipped:** v1.0 RaceControl HUD & Safety (2026-03-13)
+**Shipped:** v1.0 RaceControl HUD & Safety (2026-03-13), v2.0 Kiosk URL Reliability (2026-03-14)
 
-The pod management stack (rc-core, rc-agent, kiosk) now self-heals, deploys reliably, and shows clean branded screens to customers at all times. All 22 v1.0 requirements are code-complete. On-site deployment of Phase 5 (blanking screen protocol) is pending manual execution at the venue.
+The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls. v2.0 delivered server IP pinning, lock screen hardening, Edge hardening, pod lockdown UI, and session results display.
 
-### What v1.0 Delivered
+## Current Milestone: v3.0 Leaderboards, Telemetry & Competitive
 
-- **Watchdog hardening**: Escalating backoff (30s→2m→10m→30m), post-restart verification (process + WS + lock screen), email alerts on persistent failures
-- **WebSocket resilience**: WS-level ping/pong keepalive (15s), app-level Ping/Pong (30s), fast-then-backoff reconnect (1s×3 then exponential to 30s), kiosk 15s disconnect debounce
-- **Deployment pipeline**: DeployState FSM (9 states), HEAD-before-kill URL validation, canary-first (Pod 8), session-aware rolling deploy with WaitingSession + pending_deploys + session-end hook
-- **Blanking screen protocol**: Lock-screen-before-kill ordering, LaunchSplash branded screen, extended dialog suppression (5 processes), PIN auth unification, pod lockdown (taskbar hidden, Win key blocked)
-- **Config hardening**: rc-agent fails fast on bad config with branded error screen, deploy template matches AgentConfig struct
-
-## Current Milestone: v2.0 Kiosk URL Reliability
-
-**Goal:** Eliminate all "Site cannot be reached" and 404 errors across the venue — every kiosk URL works permanently after any reboot, crash, or network change.
+**Goal:** Give customers a public competitive platform — leaderboards, telemetry analysis, group event results, and championships — accessible from their phones via the cloud PWA.
 
 **Target features:**
-- Diagnose current failure modes from error/debug logs across pods and server
-- Pin staff kiosk (Next.js) permanently to Server (.23) with production build and auto-start
-- Establish local DNS name (e.g. kiosk.rp) + static IP so staff always type the same URL
-- Fix pod lock screens to handle rc-agent not started or crashed (fallback/auto-retry instead of browser error)
-- Ensure all kiosk URLs survive reboots, DHCP drift, service crashes, and port conflicts
+- Hotlap events (staff-created, car class rankings A/B/C/D, 107% rule, gold/silver/bronze badges)
+- Group event results with F1-style auto-scoring (25/18/15/12/10/8/6/4/2/1)
+- Multi-round championship system with cumulative points across events
+- Circuit records (best lap per vehicle per circuit) and vehicle records (best per circuit for a vehicle)
+- Driver profiles with class rating, lap history, sector times
+- Telemetry visualization (speed trace + inputs, lap comparison, 2D track map overlay)
+- Driver skill rating system alongside vehicle-based classes
+- All fully public — no login required to browse leaderboards and records
 
-**Investigation-first approach:** Use existing debug/error logs to map the actual failure patterns before implementing fixes.
+**Inspired by:** rps.racecentres.com (Sim Racing Limited venue management platform)
+
+**Surface:** Cloud PWA at app.racingpoint.cloud — data synced from venue via existing cloud_sync module
 
 ## What This Is
 
-The RaceControl pod management stack (rc-core, rc-agent, pod-agent) for Racing Point eSports venue's 8 sim racing pods managed from a central server. Includes staff kiosk terminal (Next.js) for pod management and customer PIN entry, plus per-pod lock screens served by rc-agent.
+The RaceControl platform for Racing Point eSports — 8 sim racing pods managed from a central server (rc-core, rc-agent, pod-agent), staff kiosk for pod management, and a cloud PWA for customer engagement. Captures lap times, sector splits, and telemetry from Assetto Corsa and F1 25, with leaderboards, competitive events, and driver profiles accessible publicly.
 
 ## Core Value
 
-Every URL in the venue always works — staff kiosk terminal, customer PIN grid, and pod lock screens are permanently accessible with zero manual intervention after reboots, crashes, or network changes.
+Customers see their lap times, compete on leaderboards, and compare telemetry — driving repeat visits and social sharing from a publicly accessible cloud PWA.
 
 ## Requirements
 
-### Validated (v1.0 — Shipped)
+### Validated (v1.0 + v2.0 — Shipped)
 
 - ✓ WebSocket connection between rc-core and rc-agent — existing
 - ✓ Pod-agent HTTP exec endpoint for remote commands — existing
@@ -64,19 +61,43 @@ Every URL in the venue always works — staff kiosk terminal, customer PIN grid,
 - ✓ PIN auth unification (AUTH-01)
 - ✓ Performance targets met (PERF-01 through PERF-04)
 
+- ✓ Server IP pinning and DHCP reservation (HOST-01 through HOST-04) — v2.0
+- ✓ Pod lock screen hardening with startup connecting state (LOCK-01 through LOCK-03) — v2.0
+- ✓ Edge browser hardening (EDGE-01 through EDGE-03) — v2.0
+- ✓ Staff dashboard lockdown and power controls (KIOSK-01, KIOSK-02, PWR-01 through PWR-06) — v2.0
+- ✓ Customer experience branding and session results (BRAND-01 through BRAND-03, SESS-01 through SESS-03) — v2.0
+
+### Active (v3.0)
+
+- [ ] Hotlap events with staff creation and car class rankings
+- [ ] Group event results with F1-style auto-scoring
+- [ ] Multi-round championship system
+- [ ] Circuit and vehicle record tables
+- [ ] Driver profiles with class rating and lap history
+- [ ] Telemetry visualization with speed trace, lap comparison, and track map
+- [ ] Driver skill rating system
+- [ ] Public access to all competitive data (no login required)
+
 ### Out of Scope
 
-- HUD overlay features — deferred to next project (archived in .planning/archive/hud-safety/)
+- HUD overlay features — deferred (archived in .planning/archive/hud-safety/)
 - FFB safety — deferred (archived research available)
-- New game integrations — current games only
-- Cloud sync changes — cloud_sync.rs is stable
-- Customer-facing PWA changes
+- New game integrations — current sims only (AC, F1 25)
+- Real-time chat or messaging between drivers
+- Mobile native app — PWA only
+- Payment/wallet changes — existing wallet system is stable
+- Venue kiosk changes — v3.0 targets cloud PWA only
 
 ## Context
 
 - **Venue:** 8 gaming pods (192.168.31.x subnet), 1 server (.23), 1 James workstation (.27)
-- **Stack:** Rust/Axum (rc-core port 8080, rc-agent per-pod), Node.js (pod-agent port 8090), Next.js (kiosk)
+- **Stack:** Rust/Axum (rc-core port 8080, rc-agent per-pod), Node.js (pod-agent port 8090), Next.js (kiosk + PWA)
 - **Crates:** rc-common (shared types/protocol), rc-core (server), rc-agent (pod client)
+- **Cloud:** app.racingpoint.cloud (72.60.101.58, Bono's VPS) — existing cloud_sync pushes laps, track records, driver stats
+- **Existing data foundations:** laps table (sector1/2/3_ms, valid flag), personal_bests, track_records, telemetry_samples, group_sessions, friendships, drivers (total_laps, total_time_ms)
+- **Existing API endpoints:** /leaderboard/{track}, /public/leaderboard, /public/laps/{id}/telemetry, /sessions, /laps
+- **PWA scaffolds exist:** leaderboard, telemetry, coaching, tournaments pages (mostly empty)
+- **Inspiration:** rps.racecentres.com — Track of the Month, Group Events, Championships, Circuit/Vehicle Records, Driver Data
 
 ## Constraints
 
@@ -105,6 +126,7 @@ Every URL in the venue always works — staff kiosk terminal, customer PIN grid,
 - FFB safety (zero wheelbase torque on session boundary)
 - Cloud dashboard for remote monitoring
 - On-site deployment automation improvements
+- Kiosk spectator leaderboard display (venue TV screens)
 
 ---
-*Last updated: 2026-03-13 after milestone v2.0 started*
+*Last updated: 2026-03-14 after milestone v3.0 started*
