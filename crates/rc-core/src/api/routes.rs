@@ -34,6 +34,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/pods/{id}", get(get_pod))
         .route("/pods/{id}/wake", post(wake_pod))
         .route("/pods/{id}/shutdown", post(shutdown_pod))
+        .route("/pods/{id}/lockdown", post(lockdown_pod))
         .route("/pods/{id}/enable", post(enable_pod))
         .route("/pods/{id}/disable", post(disable_pod))
         .route("/pods/{id}/screen", post(set_pod_screen))
@@ -41,6 +42,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/pods/wake-all", post(wake_all_pods))
         .route("/pods/shutdown-all", post(shutdown_all_pods))
         .route("/pods/restart-all", post(restart_all_pods))
+        .route("/pods/lockdown-all", post(lockdown_all_pods))
         // Drivers
         .route("/drivers", get(list_drivers).post(create_driver))
         .route("/drivers/{id}", get(get_driver))
@@ -569,6 +571,251 @@ async fn restart_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     }
 
     Json(json!({ "status": "ok", "results": results }))
+}
+
+// POST /pods/{id}/lockdown — Toggle kiosk lockdown for a specific pod
+// Body: { "locked": true }
+// Guard: rejects pods with active billing (if locking) and disconnected pods.
+async fn lockdown_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let locked = body.get("locked")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    // Guard: do not lock pods with active billing
+    if locked && state.billing.active_timers.read().await.contains_key(&id) {
+        return Json(json!({ "error": "pod has active billing session" }));
+    }
+
+    let senders = state.agent_senders.read().await;
+    let Some(sender) = senders.get(&id) else {
+        return Json(json!({ "error": "pod not connected" }));
+    };
+    if sender.is_closed() {
+        return Json(json!({ "error": "pod not connected" }));
+    }
+
+    let mut settings = std::collections::HashMap::new();
+    settings.insert(
+        "kiosk_lockdown_enabled".to_string(),
+        if locked { "true" } else { "false" }.to_string(),
+    );
+    let msg = CoreToAgentMessage::SettingsUpdated { settings };
+    let _ = sender.send(msg).await;
+
+    Json(json!({ "ok": true, "pod_id": id, "locked": locked }))
+}
+
+// POST /pods/lockdown-all — Toggle kiosk lockdown for all connected pods
+// Body: { "locked": true }
+// Skips billing-active pods (when locking) and disconnected/closed senders.
+async fn lockdown_all_pods(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let locked = body.get("locked")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let active_timers = state.billing.active_timers.read().await;
+    let senders = state.agent_senders.read().await;
+    let mut results = Vec::new();
+
+    for (pod_id, sender) in senders.iter() {
+        if sender.is_closed() {
+            results.push(json!({ "pod_id": pod_id, "status": "not_connected" }));
+            continue;
+        }
+        // Skip pods with active billing if locking
+        if locked && active_timers.contains_key(pod_id) {
+            results.push(json!({ "pod_id": pod_id, "status": "skipped_billing_active" }));
+            continue;
+        }
+        let mut settings = std::collections::HashMap::new();
+        settings.insert(
+            "kiosk_lockdown_enabled".to_string(),
+            if locked { "true" } else { "false" }.to_string(),
+        );
+        let msg = CoreToAgentMessage::SettingsUpdated { settings };
+        let _ = sender.send(msg).await;
+        results.push(json!({ "pod_id": pod_id, "status": "sent" }));
+    }
+
+    Json(json!({ "ok": true, "locked": locked, "results": results }))
+}
+
+#[cfg(test)]
+mod lockdown_tests {
+    use super::*;
+    use crate::billing::BillingTimer;
+    use axum::extract::{Path, State};
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+
+    /// Build a minimal AppState suitable for lockdown unit tests.
+    /// Uses a real Config loaded from the project's racecontrol.toml.
+    async fn make_state() -> Arc<AppState> {
+        // Use an in-memory SQLite database for tests
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        let config = crate::config::Config::default_test();
+        Arc::new(AppState::new(config, db))
+    }
+
+    #[tokio::test]
+    async fn lockdown_pod_with_active_billing_returns_error() {
+        let state = make_state().await;
+
+        // Insert a billing timer for pod-1
+        {
+            let timer = BillingTimer::dummy("pod-1");
+            state.billing.active_timers.write().await.insert("pod-1".to_string(), timer);
+        }
+
+        let response = lockdown_pod(
+            State(state.clone()),
+            Path("pod-1".to_string()),
+            Json(json!({ "locked": true })),
+        )
+        .await;
+
+        let body = response.0;
+        assert!(
+            body.get("error").is_some(),
+            "Expected error key in response, got: {}",
+            body
+        );
+        let err_msg = body["error"].as_str().unwrap_or("");
+        assert!(
+            err_msg.contains("active billing session"),
+            "Expected 'active billing session' in error, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn lockdown_pod_with_missing_sender_returns_error() {
+        let state = make_state().await;
+        // agent_senders is empty — pod not connected
+
+        let response = lockdown_pod(
+            State(state.clone()),
+            Path("pod-1".to_string()),
+            Json(json!({ "locked": true })),
+        )
+        .await;
+
+        let body = response.0;
+        assert!(
+            body.get("error").is_some(),
+            "Expected error key in response, got: {}",
+            body
+        );
+        let err_msg = body["error"].as_str().unwrap_or("");
+        assert!(
+            err_msg.contains("not connected"),
+            "Expected 'not connected' in error, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn lockdown_pod_with_closed_sender_returns_error() {
+        let state = make_state().await;
+
+        // Create a channel then immediately drop the receiver to close the sender
+        let (tx, rx) = mpsc::channel::<CoreToAgentMessage>(16);
+        drop(rx); // sender is now closed
+        state.agent_senders.write().await.insert("pod-1".to_string(), tx);
+
+        let response = lockdown_pod(
+            State(state.clone()),
+            Path("pod-1".to_string()),
+            Json(json!({ "locked": true })),
+        )
+        .await;
+
+        let body = response.0;
+        assert!(
+            body.get("error").is_some(),
+            "Expected error key in response, got: {}",
+            body
+        );
+        let err_msg = body["error"].as_str().unwrap_or("");
+        assert!(
+            err_msg.contains("not connected"),
+            "Expected 'not connected' in error, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn lockdown_all_skips_billing_active_and_closed_sends_to_healthy() {
+        let state = make_state().await;
+
+        // Pod A: billing active — should be skipped
+        {
+            let timer = BillingTimer::dummy("pod-a");
+            state.billing.active_timers.write().await.insert("pod-a".to_string(), timer);
+        }
+        let (tx_a, _rx_a) = mpsc::channel::<CoreToAgentMessage>(16);
+        state.agent_senders.write().await.insert("pod-a".to_string(), tx_a);
+
+        // Pod B: closed sender — should be marked not_connected
+        let (tx_b, rx_b) = mpsc::channel::<CoreToAgentMessage>(16);
+        drop(rx_b);
+        state.agent_senders.write().await.insert("pod-b".to_string(), tx_b);
+
+        // Pod C: healthy — should receive SettingsUpdated
+        let (tx_c, mut rx_c) = mpsc::channel::<CoreToAgentMessage>(16);
+        state.agent_senders.write().await.insert("pod-c".to_string(), tx_c);
+
+        let response = lockdown_all_pods(
+            State(state.clone()),
+            Json(json!({ "locked": true })),
+        )
+        .await;
+
+        let body = response.0;
+        assert_eq!(body["ok"], true, "Expected ok=true, got: {}", body);
+        assert_eq!(body["locked"], true);
+
+        let results = body["results"].as_array().expect("results should be array");
+        assert_eq!(results.len(), 3, "Expected 3 results");
+
+        // Find each pod result
+        let find = |pod_id: &str| {
+            results.iter().find(|r| r["pod_id"].as_str() == Some(pod_id))
+                .cloned()
+        };
+
+        let res_a = find("pod-a").expect("pod-a result missing");
+        assert_eq!(res_a["status"], "skipped_billing_active", "pod-a should be skipped: {}", res_a);
+
+        let res_b = find("pod-b").expect("pod-b result missing");
+        assert_eq!(res_b["status"], "not_connected", "pod-b should be not_connected: {}", res_b);
+
+        let res_c = find("pod-c").expect("pod-c result missing");
+        assert_eq!(res_c["status"], "sent", "pod-c should be sent: {}", res_c);
+
+        // Verify pod-c actually received the SettingsUpdated message
+        let msg = rx_c.try_recv().expect("pod-c should have received a message");
+        match msg {
+            CoreToAgentMessage::SettingsUpdated { settings } => {
+                assert_eq!(
+                    settings.get("kiosk_lockdown_enabled").map(|s| s.as_str()),
+                    Some("true"),
+                    "Expected kiosk_lockdown_enabled=true"
+                );
+            }
+            other => panic!("Expected SettingsUpdated, got: {:?}", other),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

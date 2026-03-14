@@ -194,6 +194,37 @@ impl BillingTimer {
     pub fn current_cost(&self) -> SessionCost {
         compute_session_cost(self.elapsed_seconds)
     }
+
+    /// Create a minimal BillingTimer for unit tests.
+    #[cfg(test)]
+    pub fn dummy(pod_id: &str) -> Self {
+        use chrono::Utc;
+        Self {
+            session_id: format!("test-session-{}", pod_id),
+            driver_id: "test-driver".into(),
+            driver_name: "Test Driver".into(),
+            pod_id: pod_id.to_string(),
+            pricing_tier_name: "30 Minutes".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 0,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 0,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
+        }
+    }
 }
 
 // ─── WaitingForGameEntry ─────────────────────────────────────────────────────

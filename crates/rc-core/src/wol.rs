@@ -73,7 +73,7 @@ pub async fn restart_pod(http_client: &reqwest::Client, ip: &str) -> Result<Stri
     Ok(format!("{}{}", stdout, stderr))
 }
 
-fn parse_mac(mac: &str) -> Result<[u8; 6]> {
+pub(crate) fn parse_mac(mac: &str) -> Result<[u8; 6]> {
     let parts: Vec<&str> = mac.split(|c| c == ':' || c == '-').collect();
     if parts.len() != 6 {
         return Err(anyhow!("Invalid MAC address: {}", mac));
@@ -85,4 +85,45 @@ fn parse_mac(mac: &str) -> Result<[u8; 6]> {
             .map_err(|_| anyhow!("Invalid hex in MAC: {}", part))?;
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_mac_colon_separated_returns_correct_bytes() {
+        let result = parse_mac("AA:BB:CC:DD:EE:FF").unwrap();
+        assert_eq!(result, [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+    }
+
+    #[test]
+    fn parse_mac_dash_separated_returns_correct_bytes() {
+        let result = parse_mac("AA-BB-CC-DD-EE-FF").unwrap();
+        assert_eq!(result, [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+    }
+
+    #[test]
+    fn parse_mac_too_few_parts_returns_err() {
+        let result = parse_mac("AA:BB:CC");
+        assert!(result.is_err(), "Expected error for too-short MAC");
+    }
+
+    #[test]
+    fn parse_mac_invalid_hex_returns_err() {
+        let result = parse_mac("GG:HH:II:JJ:KK:LL");
+        assert!(result.is_err(), "Expected error for invalid hex digits");
+    }
+
+    #[test]
+    fn parse_mac_empty_string_returns_err() {
+        let result = parse_mac("");
+        assert!(result.is_err(), "Expected error for empty MAC string");
+    }
+
+    #[test]
+    fn parse_mac_lowercase_returns_correct_bytes() {
+        let result = parse_mac("aa:bb:cc:dd:ee:ff").unwrap();
+        assert_eq!(result, [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+    }
 }
