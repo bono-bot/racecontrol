@@ -77,14 +77,13 @@ Plans:
   1. Customer opens `/sessions/{id}` in PWA and sees: base price, discount applied (if any), final amount charged, and refund amount (if any)
   2. Customer sees session performance: total laps, best lap time (mm:ss.mmm), top speed km/h (where telemetry available — N/A otherwise)
   3. Customer sees a session timeline showing: session start time, each pause with reason and duration, each warning (5 min, 1 min), and session end
-  4. Within 60 seconds of session end, customer receives a WhatsApp message via Bono (Evolution API) with: duration, cost, best lap, wallet balance remaining
-  5. `/sessions/{id}/public` returns a shareable session summary page with no auth required (name, duration, best lap only)
-**Plans**: 3 plans
+  4. Within 60 seconds of session end, customer receives a WhatsApp message via Evolution API with: duration, cost, best lap, wallet balance remaining
+  5. `/sessions/{id}/public` returns a shareable session summary page with no auth required (first name, duration, best lap only)
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — rc-core: GET /billing/sessions/{id}/detail endpoint (cost breakdown + events timeline); session performance fields from billing_events
-- [ ] 04-02-PLAN.md — PWA: `/sessions/[id]` detail page with cost card, performance card, timeline (React, no auth needed for public)
-- [ ] 04-03-PLAN.md — WhatsApp receipt: rc-core sends SessionEnded webhook to Bono; Bono formats and sends via Evolution API
+- [ ] 04-01-PLAN.md — rc-core: add events to customer_session_detail, public_session_summary endpoint, WhatsApp receipt via Evolution API in post_session_hooks
+- [ ] 04-02-PLAN.md — PWA: session timeline + top speed N/A on detail page, public shareable session page at /sessions/[id]/public
 
 ### Phase 5: Kiosk POS — Staff Operations
 **Goal**: Staff can record how a customer paid, issue refunds for any session, and apply manual discounts — all from the kiosk dashboard without touching a terminal
@@ -112,10 +111,10 @@ Phase 1 first (enables cloud phases). Phases 2 and 3 depend on Phase 1. Phases 4
 | 1. Billing Cloud Sync | 1/1 | Complete | 2026-03-14 |
 | 2. Cloud Dashboard — Live | 0/2 | Not started | - |
 | 3. Cloud Dashboard — Analytics | 0/2 | Not started | - |
-| 4. PWA Session Results & Receipt | 0/3 | Not started | - |
+| 4. PWA Session Results & Receipt | 0/2 | Not started | - |
 | 5. Kiosk POS — Staff Operations | 0/2 | Not started | - |
 
-**Total: 1/10 plans complete**
+**Total: 1/9 plans complete**
 
 ## Dependency Graph
 
