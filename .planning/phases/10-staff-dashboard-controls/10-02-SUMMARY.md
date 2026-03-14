@@ -57,7 +57,7 @@ completed: 2026-03-14
 - **Duration:** ~12 min
 - **Started:** 2026-03-14T00:00:00Z
 - **Completed:** 2026-03-14T00:12:00Z
-- **Tasks:** 1 auto complete, 1 checkpoint (human-verify pending)
+- **Tasks:** 2 (1 auto + 1 human-verify checkpoint — approved)
 - **Files modified:** 2
 
 ## Accomplishments
@@ -72,7 +72,7 @@ completed: 2026-03-14
 Each task was committed atomically:
 
 1. **Task 1: Add API client functions and UI controls to /control page** - `2b4f9f6` (feat)
-2. **Task 2: Verify pod controls UI in /control page** - checkpoint:human-verify (pending user verification)
+2. **Task 2: Verify pod controls UI in /control page** - checkpoint:human-verify (approved by staff)
 
 ## Files Created/Modified
 - `kiosk/src/lib/api.ts` - Added restartAllPods, lockdownPod, lockdownAllPods API functions
@@ -97,16 +97,7 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 
-Task 2 (checkpoint:human-verify) requires staff to visually verify the /control page:
-1. Start kiosk dev server: `cd kiosk && npm run dev`
-2. Open http://localhost:3400/staff — log in with staff PIN
-3. Navigate to /control page
-4. Confirm 5 bulk buttons visible (Wake All, Shutdown All, Restart All, Lock All, Unlock All)
-5. Confirm each online pod header has padlock toggle icon
-6. Test Lock All (confirm dialog), Unlock All (no dialog), Restart All (confirm dialog)
-7. Test per-pod padlock — icon toggles between locked (bright orange) and unlocked (dim)
-
-Once visual verification passes, Phase 10 Plan 02 is complete.
+Phase 10 complete. Staff visually confirmed: 5 bulk buttons in action bar (Wake All, Shutdown All, Restart All, Lock All, Unlock All), per-pod padlock toggle in each online pod header, Lock All / Restart All confirmation dialogs present, Unlock All executes immediately, padlock icon toggles between locked (bright orange) and unlocked (dim). Phase 11 (Customer Experience Polish) is next.
 
 ---
 *Phase: 10-staff-dashboard-controls*
