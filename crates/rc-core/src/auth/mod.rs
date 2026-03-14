@@ -422,6 +422,16 @@ pub async fn validate_pin(
     // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
     // Billing session will be created by billing::handle_game_status_update() when Live received
     let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
+    // Check if this pod is part of a multiplayer group session
+    let group_session_id: Option<String> = sqlx::query_scalar(
+        "SELECT group_session_id FROM group_session_members WHERE pod_id = ? AND status = 'validated' ORDER BY validated_at DESC LIMIT 1",
+    )
+    .bind(&pod_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
     if let Err(e) = billing::defer_billing_start(
         state,
         pod_id.clone(),
@@ -432,6 +442,7 @@ pub async fn validate_pin(
         None, // customer PIN auth
         None, // split_count
         None, // split_duration_minutes
+        group_session_id,
     )
     .await
     {
@@ -539,6 +550,16 @@ pub async fn validate_qr(
         return Err("QR token is not assigned to this customer".to_string());
     }
 
+    // Check if this pod is part of a multiplayer group session
+    let qr_group_session_id: Option<String> = sqlx::query_scalar(
+        "SELECT group_session_id FROM group_session_members WHERE pod_id = ? AND status = 'validated' ORDER BY validated_at DESC LIMIT 1",
+    )
+    .bind(&pod_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
     // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
     let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
     if let Err(e) = billing::defer_billing_start(
@@ -551,6 +572,7 @@ pub async fn validate_qr(
         None, // customer QR auth
         None, // split_count
         None, // split_duration_minutes
+        qr_group_session_id,
     )
     .await
     {
@@ -645,6 +667,16 @@ pub async fn start_now(
     let experience_id = row.5;
     let custom_launch_args = row.6;
 
+    // Check if this pod is part of a multiplayer group session
+    let pwa_group_session_id: Option<String> = sqlx::query_scalar(
+        "SELECT group_session_id FROM group_session_members WHERE pod_id = ? AND status = 'validated' ORDER BY validated_at DESC LIMIT 1",
+    )
+    .bind(&pod_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
     // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
     let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
     if let Err(e) = billing::defer_billing_start(
@@ -657,6 +689,7 @@ pub async fn start_now(
         None, // PWA token auth
         None, // split_count
         None, // split_duration_minutes
+        pwa_group_session_id,
     )
     .await
     {
@@ -1213,6 +1246,16 @@ pub async fn validate_pin_kiosk(
     // Use the customer's chosen pod if provided, otherwise the token's assigned pod
     let pod_id = chosen_pod_id.unwrap_or(token_pod_id);
 
+    // Check if this pod is part of a multiplayer group session
+    let kiosk_group_session_id: Option<String> = sqlx::query_scalar(
+        "SELECT group_session_id FROM group_session_members WHERE pod_id = ? AND status = 'validated' ORDER BY validated_at DESC LIMIT 1",
+    )
+    .bind(&pod_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
     // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
     let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
     if let Err(e) = billing::defer_billing_start(
@@ -1225,6 +1268,7 @@ pub async fn validate_pin_kiosk(
         None, // kiosk PIN validation
         None, // split_count
         None, // split_duration_minutes
+        kiosk_group_session_id,
     )
     .await
     {

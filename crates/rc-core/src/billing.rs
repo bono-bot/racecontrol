@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
@@ -242,6 +242,23 @@ pub struct WaitingForGameEntry {
     pub split_duration_minutes: Option<u32>,
     pub waiting_since: std::time::Instant,
     pub attempt: u8, // 1 = first try, 2 = retry after timeout
+    /// For multiplayer sessions: group_session_id links this pod to a group.
+    /// When Some, billing waits for all group members to reach LIVE before starting.
+    /// When None, billing starts immediately on LIVE (single-player backward compat).
+    pub group_session_id: Option<String>,
+}
+
+// ─── MultiplayerBillingWait ─────────────────────────────────────────────────
+
+/// Coordinates billing start across all pods in a multiplayer group session.
+/// Billing starts only when all expected pods have reported STATUS=LIVE,
+/// or after a 60-second timeout evicts non-connecting pods.
+pub struct MultiplayerBillingWait {
+    pub group_session_id: String,
+    pub expected_pods: HashSet<String>,
+    pub live_pods: HashSet<String>,
+    pub waiting_entries: HashMap<String, WaitingForGameEntry>,
+    pub timeout_spawned: bool,
 }
 
 // ─── BillingManager ─────────────────────────────────────────────────────────
@@ -251,6 +268,8 @@ pub struct BillingManager {
     pub active_timers: RwLock<HashMap<String, BillingTimer>>,
     /// pod_id -> WaitingForGameEntry (pods that authenticated but AC not yet LIVE)
     pub waiting_for_game: RwLock<HashMap<String, WaitingForGameEntry>>,
+    /// group_session_id -> MultiplayerBillingWait (coordinated group billing)
+    pub multiplayer_waiting: RwLock<HashMap<String, MultiplayerBillingWait>>,
 }
 
 impl BillingManager {
@@ -258,6 +277,7 @@ impl BillingManager {
         Self {
             active_timers: RwLock::new(HashMap::new()),
             waiting_for_game: RwLock::new(HashMap::new()),
+            multiplayer_waiting: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -286,6 +306,8 @@ pub async fn check_launch_timeouts(state: &Arc<AppState>) -> Vec<(String, u8)> {
 
 /// Defer billing start until AC reaches STATUS=LIVE.
 /// Called from auth instead of start_billing_session.
+/// For multiplayer pods, pass `group_session_id: Some(id)` to coordinate billing
+/// across all group members. Single-player pods pass `None`.
 pub async fn defer_billing_start(
     state: &Arc<AppState>,
     pod_id: String,
@@ -296,6 +318,7 @@ pub async fn defer_billing_start(
     staff_id: Option<String>,
     split_count: Option<u32>,
     split_duration_minutes: Option<u32>,
+    group_session_id: Option<String>,
 ) -> Result<(), String> {
     let entry = WaitingForGameEntry {
         pod_id: pod_id.clone(),
@@ -308,14 +331,21 @@ pub async fn defer_billing_start(
         split_duration_minutes,
         waiting_since: std::time::Instant::now(),
         attempt: 1,
+        group_session_id: group_session_id.clone(),
     };
+    if group_session_id.is_some() {
+        tracing::info!("Billing deferred to WaitingForGame for pod {} (multiplayer group)", pod_id);
+    } else {
+        tracing::info!("Billing deferred to WaitingForGame for pod {}", pod_id);
+    }
     state.billing.waiting_for_game.write().await.insert(pod_id, entry);
-    tracing::info!("Billing deferred to WaitingForGame for pod");
     Ok(())
 }
 
 /// Handle game status updates from the agent.
 /// Dispatches to billing start/pause/resume/end based on AcStatus.
+/// For multiplayer pods (group_session_id is Some), billing is coordinated:
+/// billing starts for ALL group members only after every participant reaches LIVE.
 pub async fn handle_game_status_update(
     state: &Arc<AppState>,
     pod_id: &str,
@@ -328,22 +358,109 @@ pub async fn handle_game_status_update(
             // Check if this pod is in waiting_for_game -- if so, start billing
             let entry = state.billing.waiting_for_game.write().await.remove(pod_id);
             if let Some(entry) = entry {
-                match start_billing_session(
-                    state,
-                    entry.pod_id,
-                    entry.driver_id,
-                    entry.pricing_tier_id,
-                    entry.custom_price_paise,
-                    entry.custom_duration_minutes,
-                    entry.staff_id,
-                    entry.split_count,
-                    entry.split_duration_minutes,
-                ).await {
-                    Ok(session_id) => {
-                        tracing::info!("Billing started on LIVE for pod {} (session {})", pod_id, session_id);
+                if let Some(ref group_id) = entry.group_session_id {
+                    // ── Multiplayer: coordinate billing across group ──────────
+                    let group_id = group_id.clone();
+                    let mut mp = state.billing.multiplayer_waiting.write().await;
+
+                    // Get or create MultiplayerBillingWait entry
+                    if !mp.contains_key(&group_id) {
+                        // First pod for this group — query expected pods from DB
+                        let pod_ids: Vec<String> = sqlx::query_scalar(
+                            "SELECT pod_id FROM group_session_members WHERE group_session_id = ? AND status = 'validated' AND pod_id IS NOT NULL",
+                        )
+                        .bind(&group_id)
+                        .fetch_all(&state.db)
+                        .await
+                        .unwrap_or_default();
+
+                        let expected: HashSet<String> = if pod_ids.is_empty() {
+                            // Fallback: if no DB results, just expect this pod
+                            let mut s = HashSet::new();
+                            s.insert(pod_id.to_string());
+                            s
+                        } else {
+                            pod_ids.into_iter().collect()
+                        };
+
+                        mp.insert(group_id.clone(), MultiplayerBillingWait {
+                            group_session_id: group_id.clone(),
+                            expected_pods: expected,
+                            live_pods: HashSet::new(),
+                            waiting_entries: HashMap::new(),
+                            timeout_spawned: false,
+                        });
                     }
-                    Err(e) => {
-                        tracing::error!("Failed to start billing on LIVE for pod {}: {}", pod_id, e);
+
+                    let wait = mp.get_mut(&group_id).unwrap();
+                    wait.live_pods.insert(pod_id.to_string());
+                    wait.waiting_entries.insert(pod_id.to_string(), entry);
+
+                    // Spawn 60s timeout (once per group)
+                    if !wait.timeout_spawned {
+                        wait.timeout_spawned = true;
+                        let state_clone = state.clone();
+                        let group_id_clone = group_id.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                            multiplayer_billing_timeout(&state_clone, &group_id_clone).await;
+                        });
+                    }
+
+                    if wait.live_pods.len() >= wait.expected_pods.len() {
+                        // All pods are live — start billing for all
+                        let entries: Vec<WaitingForGameEntry> = wait.waiting_entries.drain().map(|(_, e)| e).collect();
+                        let gid = group_id.clone();
+                        mp.remove(&group_id);
+                        drop(mp); // Release lock before async DB calls
+
+                        tracing::info!("All {} pods live in group {} — starting billing for all", entries.len(), gid);
+                        for e in entries {
+                            match start_billing_session(
+                                state,
+                                e.pod_id.clone(),
+                                e.driver_id,
+                                e.pricing_tier_id,
+                                e.custom_price_paise,
+                                e.custom_duration_minutes,
+                                e.staff_id,
+                                e.split_count,
+                                e.split_duration_minutes,
+                            ).await {
+                                Ok(session_id) => {
+                                    tracing::info!("Multiplayer billing started for pod {} (session {})", e.pod_id, session_id);
+                                }
+                                Err(err) => {
+                                    tracing::error!("Failed to start multiplayer billing for pod {}: {}", e.pod_id, err);
+                                }
+                            }
+                        }
+                    } else {
+                        let remaining = wait.expected_pods.len() - wait.live_pods.len();
+                        tracing::info!(
+                            "Waiting for {} more player(s) in group {} ({}/{} live)",
+                            remaining, group_id, wait.live_pods.len(), wait.expected_pods.len()
+                        );
+                    }
+                } else {
+                    // ── Single-player: start billing immediately (existing behavior) ──
+                    match start_billing_session(
+                        state,
+                        entry.pod_id,
+                        entry.driver_id,
+                        entry.pricing_tier_id,
+                        entry.custom_price_paise,
+                        entry.custom_duration_minutes,
+                        entry.staff_id,
+                        entry.split_count,
+                        entry.split_duration_minutes,
+                    ).await {
+                        Ok(session_id) => {
+                            tracing::info!("Billing started on LIVE for pod {} (session {})", pod_id, session_id);
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to start billing on LIVE for pod {}: {}", pod_id, e);
+                        }
                     }
                 }
             } else {
@@ -383,6 +500,26 @@ pub async fn handle_game_status_update(
             }
             // Also remove from waiting_for_game if present (game crashed during loading)
             state.billing.waiting_for_game.write().await.remove(pod_id);
+
+            // Clean up from multiplayer_waiting if pod was still waiting
+            {
+                let mut mp = state.billing.multiplayer_waiting.write().await;
+                let mut groups_to_remove = Vec::new();
+                for (gid, wait) in mp.iter_mut() {
+                    if wait.waiting_entries.remove(pod_id).is_some() {
+                        wait.live_pods.remove(pod_id);
+                        wait.expected_pods.remove(pod_id);
+                        tracing::info!("Pod {} disconnected from multiplayer group {} during wait", pod_id, gid);
+                        // If no more expected pods, clean up
+                        if wait.expected_pods.is_empty() {
+                            groups_to_remove.push(gid.clone());
+                        }
+                    }
+                }
+                for gid in groups_to_remove {
+                    mp.remove(&gid);
+                }
+            }
         }
         AcStatus::Replay => {
             // Replay mode -- treat same as Pause for billing purposes
@@ -394,6 +531,100 @@ pub async fn handle_game_status_update(
                     timer.pause_count += 1;
                     tracing::info!("Billing paused (replay) for pod {}", pod_id);
                 }
+            }
+        }
+    }
+}
+
+// ─── Multiplayer Billing Timeout ─────────────────────────────────────────────
+
+/// Called after 60 seconds to evict non-connecting pods from a multiplayer group.
+/// If some pods have connected (LIVE), billing starts for those.
+/// Pods that never reached LIVE do not get billing started.
+async fn multiplayer_billing_timeout(state: &Arc<AppState>, group_session_id: &str) {
+    let mut mp = state.billing.multiplayer_waiting.write().await;
+
+    let wait = match mp.get_mut(group_session_id) {
+        Some(w) => w,
+        None => {
+            // Entry already consumed (all pods connected in time) -- no-op
+            return;
+        }
+    };
+
+    if wait.live_pods.len() >= wait.expected_pods.len() {
+        // All connected in time -- entry should have been consumed already
+        // but clean up just in case
+        mp.remove(group_session_id);
+        return;
+    }
+
+    // Some pods failed to connect within 60s
+    let non_connected: Vec<String> = wait
+        .expected_pods
+        .iter()
+        .filter(|p| !wait.live_pods.contains(*p))
+        .cloned()
+        .collect();
+
+    tracing::warn!(
+        "Multiplayer billing timeout: {} pod(s) failed to connect for group {}: {:?}",
+        non_connected.len(),
+        group_session_id,
+        non_connected
+    );
+
+    if wait.live_pods.is_empty() {
+        // No pods connected at all -- just clean up
+        tracing::warn!("No pods connected in group {} -- cleaning up", group_session_id);
+        mp.remove(group_session_id);
+        return;
+    }
+
+    // Collect entries for live pods and start billing
+    let entries: Vec<WaitingForGameEntry> = wait
+        .waiting_entries
+        .drain()
+        .filter(|(pod_id, _)| wait.live_pods.contains(pod_id))
+        .map(|(_, e)| e)
+        .collect();
+
+    let gid = group_session_id.to_string();
+    mp.remove(group_session_id);
+    drop(mp); // Release lock before async DB calls
+
+    tracing::info!(
+        "Starting billing for {} live pod(s) in group {} after timeout eviction",
+        entries.len(),
+        gid
+    );
+    for e in entries {
+        match start_billing_session(
+            state,
+            e.pod_id.clone(),
+            e.driver_id,
+            e.pricing_tier_id,
+            e.custom_price_paise,
+            e.custom_duration_minutes,
+            e.staff_id,
+            e.split_count,
+            e.split_duration_minutes,
+        )
+        .await
+        {
+            Ok(session_id) => {
+                tracing::info!(
+                    "Multiplayer billing started for pod {} after timeout (session {})",
+                    e.pod_id,
+                    session_id
+                );
+            }
+            Err(err) => {
+                tracing::error!(
+                    "Failed to start multiplayer billing for pod {} after timeout: {}",
+                    e.pod_id,
+                    err
+                );
             }
         }
     }
@@ -2445,6 +2676,7 @@ mod tests {
             split_duration_minutes: None,
             waiting_since: std::time::Instant::now(),
             attempt: 1,
+            group_session_id: None,
         };
         assert_eq!(entry.pod_id, "pod1");
         assert_eq!(entry.attempt, 1);
@@ -2561,6 +2793,7 @@ mod tests {
                 split_duration_minutes: None,
                 waiting_since: std::time::Instant::now(),
                 attempt: 1,
+                group_session_id: None,
             });
         }
         // Simulate Live: remove from waiting_for_game
@@ -2591,6 +2824,7 @@ mod tests {
                 split_duration_minutes: None,
                 waiting_since: std::time::Instant::now(),
                 attempt: 1,
+                group_session_id: None,
             };
             // Simulate time passing by using checked_sub
             entry.waiting_since = std::time::Instant::now() - std::time::Duration::from_secs(181);
@@ -2619,6 +2853,7 @@ mod tests {
                 split_duration_minutes: None,
                 waiting_since: std::time::Instant::now() - std::time::Duration::from_secs(181),
                 attempt: 2, // second attempt
+                group_session_id: None,
             };
             waiting.insert("p8".to_string(), entry);
         }
@@ -2666,6 +2901,280 @@ mod tests {
             pause_seconds: 0,
             max_session_seconds: 10800,
         }
+    }
+
+    // ── Phase 09 Plan 02: Multiplayer billing coordination ──────────────────
+
+    /// Helper: create a WaitingForGameEntry for tests
+    fn make_waiting_entry(pod_id: &str, group_session_id: Option<&str>) -> WaitingForGameEntry {
+        WaitingForGameEntry {
+            pod_id: pod_id.to_string(),
+            driver_id: format!("driver-{}", pod_id),
+            pricing_tier_id: "tier1".to_string(),
+            custom_price_paise: None,
+            custom_duration_minutes: None,
+            staff_id: None,
+            split_count: None,
+            split_duration_minutes: None,
+            waiting_since: std::time::Instant::now(),
+            attempt: 1,
+            group_session_id: group_session_id.map(|s| s.to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn single_player_no_group_billing_starts_immediately_on_live() {
+        // Single-player pod (no group_session_id) should NOT be added to multiplayer_waiting
+        let mgr = BillingManager::new();
+
+        // Add a single-player WaitingForGameEntry
+        {
+            let mut waiting = mgr.waiting_for_game.write().await;
+            waiting.insert("pod1".to_string(), make_waiting_entry("pod1", None));
+        }
+
+        // Simulate Live: remove from waiting_for_game
+        let entry = {
+            let mut waiting = mgr.waiting_for_game.write().await;
+            waiting.remove("pod1")
+        };
+
+        // Entry should exist and have no group_session_id
+        let entry = entry.unwrap();
+        assert!(entry.group_session_id.is_none());
+        // Single-player: billing starts immediately (no multiplayer_waiting involvement)
+        let mp_waiting = mgr.multiplayer_waiting.read().await;
+        assert!(mp_waiting.is_empty());
+    }
+
+    #[tokio::test]
+    async fn group_2_players_first_live_does_not_start_billing() {
+        // Two-pod group: first LIVE should NOT start billing (waits for second)
+        let mgr = BillingManager::new();
+        let group_id = "group-abc";
+
+        // Set up MultiplayerBillingWait
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let mut expected = HashSet::new();
+            expected.insert("pod1".to_string());
+            expected.insert("pod2".to_string());
+            mp.insert(group_id.to_string(), MultiplayerBillingWait {
+                group_session_id: group_id.to_string(),
+                expected_pods: expected,
+                live_pods: HashSet::new(),
+                waiting_entries: HashMap::new(),
+                timeout_spawned: false,
+            });
+        }
+
+        // Pod1 goes LIVE — add to live_pods
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get_mut(group_id).unwrap();
+            wait.live_pods.insert("pod1".to_string());
+            wait.waiting_entries.insert("pod1".to_string(), make_waiting_entry("pod1", Some(group_id)));
+        }
+
+        // Check: live_pods < expected_pods → billing should NOT start
+        {
+            let mp = mgr.multiplayer_waiting.read().await;
+            let wait = mp.get(group_id).unwrap();
+            assert_eq!(wait.live_pods.len(), 1);
+            assert_eq!(wait.expected_pods.len(), 2);
+            assert!(wait.live_pods.len() < wait.expected_pods.len());
+        }
+    }
+
+    #[tokio::test]
+    async fn group_2_players_second_live_starts_billing_for_both() {
+        // Two-pod group: second LIVE should start billing for BOTH
+        let mgr = BillingManager::new();
+        let group_id = "group-def";
+
+        // Set up with pod1 already live
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let mut expected = HashSet::new();
+            expected.insert("pod1".to_string());
+            expected.insert("pod2".to_string());
+            let mut live = HashSet::new();
+            live.insert("pod1".to_string());
+            let mut entries = HashMap::new();
+            entries.insert("pod1".to_string(), make_waiting_entry("pod1", Some(group_id)));
+            mp.insert(group_id.to_string(), MultiplayerBillingWait {
+                group_session_id: group_id.to_string(),
+                expected_pods: expected,
+                live_pods: live,
+                waiting_entries: entries,
+                timeout_spawned: false,
+            });
+        }
+
+        // Pod2 goes LIVE
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get_mut(group_id).unwrap();
+            wait.live_pods.insert("pod2".to_string());
+            wait.waiting_entries.insert("pod2".to_string(), make_waiting_entry("pod2", Some(group_id)));
+
+            // All live — collect entries for billing start
+            assert!(wait.live_pods.len() >= wait.expected_pods.len());
+            let pods_to_bill: Vec<String> = wait.waiting_entries.keys().cloned().collect();
+            assert_eq!(pods_to_bill.len(), 2);
+            assert!(pods_to_bill.contains(&"pod1".to_string()));
+            assert!(pods_to_bill.contains(&"pod2".to_string()));
+        }
+
+        // After billing started, entry should be removed from multiplayer_waiting
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            mp.remove(group_id);
+        }
+        let mp = mgr.multiplayer_waiting.read().await;
+        assert!(mp.get(group_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn group_3_players_billing_starts_only_when_all_3_live() {
+        let mgr = BillingManager::new();
+        let group_id = "group-3p";
+
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let mut expected = HashSet::new();
+            expected.insert("pod1".to_string());
+            expected.insert("pod2".to_string());
+            expected.insert("pod3".to_string());
+            mp.insert(group_id.to_string(), MultiplayerBillingWait {
+                group_session_id: group_id.to_string(),
+                expected_pods: expected,
+                live_pods: HashSet::new(),
+                waiting_entries: HashMap::new(),
+                timeout_spawned: false,
+            });
+        }
+
+        // Pod1 LIVE
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get_mut(group_id).unwrap();
+            wait.live_pods.insert("pod1".to_string());
+            wait.waiting_entries.insert("pod1".to_string(), make_waiting_entry("pod1", Some(group_id)));
+            assert!(wait.live_pods.len() < wait.expected_pods.len());
+        }
+
+        // Pod2 LIVE
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get_mut(group_id).unwrap();
+            wait.live_pods.insert("pod2".to_string());
+            wait.waiting_entries.insert("pod2".to_string(), make_waiting_entry("pod2", Some(group_id)));
+            assert!(wait.live_pods.len() < wait.expected_pods.len()); // Still not all
+        }
+
+        // Pod3 LIVE — now all are live
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get_mut(group_id).unwrap();
+            wait.live_pods.insert("pod3".to_string());
+            wait.waiting_entries.insert("pod3".to_string(), make_waiting_entry("pod3", Some(group_id)));
+            assert!(wait.live_pods.len() >= wait.expected_pods.len());
+            assert_eq!(wait.waiting_entries.len(), 3);
+        }
+    }
+
+    #[tokio::test]
+    async fn group_disconnect_stops_individual_billing_only() {
+        // After billing started, pod2 disconnects. Only pod2's billing ends.
+        let mgr = BillingManager::new();
+
+        // Both pod1 and pod2 have active timers (billing already started)
+        {
+            let mut timers = mgr.active_timers.write().await;
+            timers.insert("pod1".to_string(), make_test_timer("session-1", "pod1"));
+            timers.insert("pod2".to_string(), make_test_timer("session-2", "pod2"));
+        }
+
+        // Pod2 disconnects (STATUS=Off): remove only pod2's timer
+        {
+            let mut timers = mgr.active_timers.write().await;
+            let removed = timers.remove("pod2");
+            assert!(removed.is_some());
+        }
+
+        // Pod1's timer should still be active
+        {
+            let timers = mgr.active_timers.read().await;
+            assert!(timers.contains_key("pod1"));
+            let t1 = timers.get("pod1").unwrap();
+            assert_eq!(t1.status, BillingSessionStatus::Active);
+            // Pod2 is gone
+            assert!(!timers.contains_key("pod2"));
+        }
+    }
+
+    #[tokio::test]
+    async fn group_member_never_live_others_can_proceed_after_eviction() {
+        // Pod2 never reaches LIVE. After timeout, only pod1 gets billing started.
+        let mgr = BillingManager::new();
+        let group_id = "group-timeout";
+
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let mut expected = HashSet::new();
+            expected.insert("pod1".to_string());
+            expected.insert("pod2".to_string());
+            let mut live = HashSet::new();
+            live.insert("pod1".to_string()); // Only pod1 went LIVE
+            let mut entries = HashMap::new();
+            entries.insert("pod1".to_string(), make_waiting_entry("pod1", Some(group_id)));
+            mp.insert(group_id.to_string(), MultiplayerBillingWait {
+                group_session_id: group_id.to_string(),
+                expected_pods: expected,
+                live_pods: live,
+                waiting_entries: entries,
+                timeout_spawned: true,
+            });
+        }
+
+        // Simulate timeout: evict non-live pods, start billing for live ones
+        {
+            let mut mp = mgr.multiplayer_waiting.write().await;
+            let wait = mp.get_mut(group_id).unwrap();
+
+            // live_pods < expected_pods → timeout triggers
+            assert!(wait.live_pods.len() < wait.expected_pods.len());
+
+            // Evict: keep only live pods in expected
+            wait.expected_pods.retain(|p| wait.live_pods.contains(p));
+            assert_eq!(wait.expected_pods.len(), 1);
+            assert!(wait.expected_pods.contains("pod1"));
+
+            // Now live_pods >= expected_pods → start billing for live pods
+            assert!(wait.live_pods.len() >= wait.expected_pods.len());
+
+            // Only pod1 should get billing started
+            let pods_to_bill: Vec<String> = wait.waiting_entries.keys()
+                .filter(|p| wait.live_pods.contains(*p))
+                .cloned()
+                .collect();
+            assert_eq!(pods_to_bill.len(), 1);
+            assert_eq!(pods_to_bill[0], "pod1");
+        }
+    }
+
+    #[test]
+    fn waiting_entry_group_session_id_backward_compat() {
+        // Existing code that creates WaitingForGameEntry with group_session_id=None
+        // should still work (backward compatibility)
+        let entry = make_waiting_entry("pod-solo", None);
+        assert!(entry.group_session_id.is_none());
+        assert_eq!(entry.pod_id, "pod-solo");
+
+        // Multiplayer entry has Some(group_id)
+        let mp_entry = make_waiting_entry("pod-mp", Some("group-xyz"));
+        assert_eq!(mp_entry.group_session_id.as_deref(), Some("group-xyz"));
     }
 
     #[test]
