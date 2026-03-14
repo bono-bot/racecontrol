@@ -9,11 +9,11 @@
 
 | ID | Requirement | Phase | Status |
 |----|-------------|-------|--------|
-| SYNC-01 | Completed `billing_sessions` rows are pushed to cloud within 60 seconds of `status = Completed \| EndedEarly` | 1 | [ ] |
-| SYNC-02 | `wallet_transactions` rows are pushed to cloud within 60 seconds of creation | 1 | [ ] |
-| SYNC-03 | `billing_events` rows are pushed to cloud within 60 seconds of session end | 1 | [ ] |
-| SYNC-04 | Cloud copy is read-only — no cloud→venue push for billing tables (venue stays authoritative) | 1 | [ ] |
-| SYNC-05 | Sync survives venue network outage — queues and retries on reconnect, no data loss | 1 | [ ] |
+| SYNC-01 | Completed `billing_sessions` rows are pushed to cloud within 60 seconds of `status = Completed \| EndedEarly` | 1 | [x] |
+| SYNC-02 | `wallet_transactions` rows are pushed to cloud within 60 seconds of creation | 1 | [x] |
+| SYNC-03 | `billing_events` rows are pushed to cloud within 60 seconds of session end | 1 | [x] |
+| SYNC-04 | Cloud copy is read-only — no cloud→venue push for billing tables (venue stays authoritative) | 1 | [x] |
+| SYNC-05 | Sync survives venue network outage — queues and retries on reconnect, no data loss | 1 | [x] |
 
 ---
 

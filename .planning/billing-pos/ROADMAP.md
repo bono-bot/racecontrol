@@ -14,7 +14,7 @@ No billing engine rewrite. This is pure wiring, frontend, and surface-level back
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Billing Cloud Sync** - Push completed sessions, wallet transactions, and billing events to cloud within 60s
+- [x] **Phase 1: Billing Cloud Sync** - Push completed sessions, wallet transactions, and billing events to cloud within 60s
 - [ ] **Phase 2: Cloud Dashboard — Live Operations** - Real-time pod grid, revenue ticker, and session alerts at dashboard.racingpoint.cloud
 - [ ] **Phase 3: Cloud Dashboard — Analytics & Reports** - Session list with filters, revenue charts, utilization heatmap, CSV export
 - [ ] **Phase 4: PWA Session Results & Receipt** - Session detail page (cost, laps, timeline) + WhatsApp receipt on session end
@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 1 plan
 
 Plans:
-- [ ] 01-01-PLAN.md — Add billing_events to push payload + cloud receiver, add missing billing_sessions columns, add created_at index
+- [x] 01-01-PLAN.md — Add billing_events to push payload + cloud receiver, add missing billing_sessions columns, add created_at index
 
 ### Phase 2: Cloud Dashboard — Live Operations
 **Goal**: Uday can open dashboard.racingpoint.cloud and immediately see all 8 pods' live status, time remaining, customer names, and today's total revenue — updating every 60 seconds without a page refresh
@@ -109,13 +109,13 @@ Phase 1 first (enables cloud phases). Phases 2 and 3 depend on Phase 1. Phases 4
 
 | Phase | Plans | Status | Completed |
 |-------|-------|--------|-----------|
-| 1. Billing Cloud Sync | 0/1 | In progress | - |
+| 1. Billing Cloud Sync | 1/1 | Complete | 2026-03-14 |
 | 2. Cloud Dashboard — Live | 0/2 | Not started | - |
 | 3. Cloud Dashboard — Analytics | 0/2 | Not started | - |
 | 4. PWA Session Results & Receipt | 0/3 | Not started | - |
 | 5. Kiosk POS — Staff Operations | 0/2 | Not started | - |
 
-**Total: 0/10 plans complete**
+**Total: 1/10 plans complete**
 
 ## Dependency Graph
 
