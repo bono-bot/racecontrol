@@ -1993,6 +1993,158 @@ async fn end_billing_session(
     false
 }
 
+/// Format a phone number for WhatsApp (Evolution API format).
+/// Strips leading '+', prepends '91' for 10-digit Indian numbers.
+fn format_wa_phone(phone: &str) -> String {
+    if phone.starts_with('+') {
+        phone[1..].to_string()
+    } else if phone.len() == 10 {
+        format!("91{}", phone)
+    } else {
+        phone.to_string()
+    }
+}
+
+/// Format a WhatsApp receipt message for a completed session.
+fn format_receipt_message(
+    first_name: &str,
+    driving_secs: i64,
+    cost_paise: i64,
+    best_lap_ms: Option<i64>,
+    balance_paise: i64,
+) -> String {
+    let duration_min = driving_secs / 60;
+    let duration_sec = driving_secs % 60;
+    let cost_credits = cost_paise / 100;
+    let balance_credits = balance_paise / 100;
+
+    let best_lap_text = match best_lap_ms.filter(|&ms| ms > 0) {
+        Some(ms) => {
+            let mins = ms / 60000;
+            let secs = (ms % 60000) / 1000;
+            let millis = ms % 1000;
+            format!("{}:{:02}.{:03}", mins, secs, millis)
+        }
+        None => "No valid laps".to_string(),
+    };
+
+    format!(
+        "\u{1f3c1} *RacingPoint \u{2014} Session Complete*\n\nHey {}!\n\n\u{23f1} Duration: {}m {}s\n\u{1f4b0} Cost: {} credits\n\u{1f3ce} Best Lap: {}\n\u{1f4b3} Wallet Balance: {} credits\n\nSee you on track! \u{1f3c1}",
+        first_name, duration_min, duration_sec, cost_credits, best_lap_text, balance_credits
+    )
+}
+
+/// Send a WhatsApp receipt for a completed session via Evolution API.
+/// Best-effort: never blocks session end, 5-second timeout.
+async fn send_whatsapp_receipt(state: &Arc<AppState>, session_id: &str, driver_id: &str) {
+    // Get driver phone
+    let driver: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT name, phone FROM drivers WHERE id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let (driver_name, phone) = match driver {
+        Some((name, Some(phone))) if !phone.is_empty() => (name, phone),
+        Some((name, _)) => {
+            tracing::warn!("No phone for driver {} ({}) -- skipping WhatsApp receipt", driver_id, name);
+            return;
+        }
+        None => return,
+    };
+
+    // Get session details
+    let session: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT driving_seconds, COALESCE(wallet_debit_paise, COALESCE(custom_price_paise, (SELECT price_paise FROM pricing_tiers WHERE id = billing_sessions.pricing_tier_id)), 0)
+         FROM billing_sessions WHERE id = ?",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let (driving_secs, cost_paise) = match session {
+        Some(s) => s,
+        None => return,
+    };
+
+    // Best lap
+    let best_lap: Option<(i64,)> = sqlx::query_as(
+        "SELECT MIN(lap_time_ms) FROM laps WHERE session_id = ? AND valid = 1",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    // Wallet balance
+    let balance: Option<(i64,)> = sqlx::query_as(
+        "SELECT COALESCE(SUM(CASE WHEN txn_type LIKE 'credit%' OR txn_type LIKE 'refund%' THEN amount_paise ELSE -amount_paise END), 0) FROM wallet_transactions WHERE driver_id = ?",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let first_name = driver_name.split_whitespace().next().unwrap_or("Racer");
+    let balance_paise = balance.map(|b| b.0).unwrap_or(0);
+
+    let message = format_receipt_message(
+        first_name,
+        driving_secs,
+        cost_paise,
+        best_lap.map(|b| b.0),
+        balance_paise,
+    );
+
+    // Send via Evolution API (same pattern as OTP in auth/mod.rs)
+    if let (Some(evo_url), Some(evo_key), Some(evo_instance)) = (
+        &state.config.auth.evolution_url,
+        &state.config.auth.evolution_api_key,
+        &state.config.auth.evolution_instance,
+    ) {
+        let wa_phone = format_wa_phone(&phone);
+
+        let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
+        let body = serde_json::json!({
+            "number": wa_phone,
+            "text": message
+        });
+
+        // 5-second timeout -- receipt is best-effort, never block session end
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Failed to build HTTP client for receipt: {}", e);
+                return;
+            }
+        };
+
+        match client.post(&url).header("apikey", evo_key).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!("WhatsApp receipt sent to {} for session {}", wa_phone, session_id);
+            }
+            Ok(resp) => {
+                tracing::warn!("Evolution API returned {} for receipt to {}", resp.status(), wa_phone);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to send WhatsApp receipt to {}: {}", wa_phone, e);
+            }
+        }
+    } else {
+        tracing::debug!("Evolution API not configured -- skipping WhatsApp receipt for session {}", session_id);
+    }
+}
+
 /// Post-session hooks: credit referral rewards, schedule review nudge.
 async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: &str) {
     // 1. Credit referral reward if this is the referee's first completed session
@@ -2081,6 +2233,9 @@ async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: 
         .execute(&state.db)
         .await;
     }
+
+    // 4. Send WhatsApp receipt (best-effort)
+    send_whatsapp_receipt(state, session_id, driver_id).await;
 }
 
 async fn extend_billing_session(
@@ -3369,5 +3524,51 @@ mod tests {
         assert_eq!(timer.elapsed_seconds, 0);
         assert_eq!(timer.driving_seconds, 0);
         assert_eq!(timer.pause_seconds, 0);
+    }
+
+    // ─── WhatsApp Receipt Tests ─────────────────────────────────────────────
+
+    #[test]
+    fn whatsapp_receipt_message_format() {
+        let msg = format_receipt_message("Rahul", 1500, 70000, Some(93210), 150000);
+
+        // Verify key components
+        assert!(msg.contains("Rahul"), "Message must contain first name");
+        assert!(msg.contains("25m 0s"), "Duration must be 25m 0s for 1500 seconds");
+        assert!(msg.contains("700 credits"), "Cost must be 700 credits for 70000 paise");
+        assert!(msg.contains("1:33.210"), "Best lap must be 1:33.210 for 93210ms");
+        assert!(msg.contains("1500 credits"), "Balance must be 1500 credits for 150000 paise");
+        assert!(msg.contains("RacingPoint"), "Must contain brand name");
+        assert!(msg.contains("Session Complete"), "Must indicate session complete");
+    }
+
+    #[test]
+    fn whatsapp_receipt_no_valid_laps() {
+        let msg = format_receipt_message("Priya", 600, 35000, None, 50000);
+        assert!(msg.contains("No valid laps"), "Must show 'No valid laps' when None");
+
+        let msg2 = format_receipt_message("Priya", 600, 35000, Some(0), 50000);
+        assert!(msg2.contains("No valid laps"), "Must show 'No valid laps' when 0ms");
+    }
+
+    #[test]
+    fn whatsapp_phone_format_10_digit() {
+        assert_eq!(format_wa_phone("9876543210"), "919876543210");
+    }
+
+    #[test]
+    fn whatsapp_phone_format_with_plus() {
+        assert_eq!(format_wa_phone("+919876543210"), "919876543210");
+    }
+
+    #[test]
+    fn whatsapp_phone_format_already_formatted() {
+        assert_eq!(format_wa_phone("919876543210"), "919876543210");
+    }
+
+    #[test]
+    fn whatsapp_receipt_zero_cost() {
+        let msg = format_receipt_message("Test", 300, 0, None, 0);
+        assert!(msg.contains("0 credits"), "Cost should show 0 credits for trial/free");
     }
 }
