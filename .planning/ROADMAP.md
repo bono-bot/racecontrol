@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: Server-Side Pinning** - Lock server IP and auto-start kiosk as production build (completed 2026-03-13)
 - [x] **Phase 8: Pod Lock Screen Hardening** - Rust compile + deploy: readiness probe + branded waiting state (completed 2026-03-14)
 - [x] **Phase 9: Edge Browser Hardening** - Disable auto-update, StartupBoost, BackgroundMode on all pods (completed 2026-03-14)
-- [x] **Phase 10: Staff Dashboard Controls** - Power management and kiosk lockdown controls in the UI (completed 2026-03-14)
+- [x] **Phase 10: Staff Dashboard Controls** - Power management and kiosk lockdown controls in the UI (completed 2026-03-14)
 - [ ] **Phase 11: Customer Experience Polish** - Session results display and branded lock screen identity
 
 ## Phase Details
@@ -105,7 +105,7 @@ Plans:
 
 Plans:
 - [x] 10-01-PLAN.md — Add lockdown API routes (per-pod + bulk) and parse_mac unit tests in rc-core
-- [ ] 10-02-PLAN.md — Wire lockdown + restart-all to kiosk /control page UI (api.ts + buttons)
+- [x] 10-02-PLAN.md — Wire lockdown + restart-all to kiosk /control page UI (api.ts + buttons)
 
 ### Phase 11: Customer Experience Polish
 **Goal**: Customers see Racing Point branding at every transition — before a session, during a session, and after — and session results remain on screen so customers can review their performance
@@ -116,7 +116,11 @@ Plans:
   2. Staff can set a wallpaper (static or dynamic) for the blanking/lock screen from the kiosk dashboard — the change is visible on the pod within 10 seconds
   3. A branded Racing Point loading screen is shown on the pod between session start and game launch — no desktop or game loading screen visible to the customer
   4. After each session ends, the pod displays the customer's lap times, top speed, best lap, and race position — and the results remain on screen until staff or customer initiates a new session
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 11-01-PLAN.md — Branding (logo SVG, wallpaper URL rendering), session stats (top speed, race position), persistent results (SESS-03)
+- [ ] 11-02-PLAN.md — Kiosk settings UI for wallpaper URL input (BRAND-02 frontend)
 
 ## Progress
 
@@ -136,5 +140,5 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
 | 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
-| 10. Staff Dashboard Controls | 2/2 | Complete    | 2026-03-14 | - |
-| 11. Customer Experience Polish | v2.0 | 0/TBD | Not started | - |
+| 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
+| 11. Customer Experience Polish | v2.0 | 0/2 | Not started | - |
