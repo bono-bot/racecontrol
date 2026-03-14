@@ -10,6 +10,7 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
     let url = format!("sqlite:{}?mode=rwc", db_path);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
+        .max_lifetime(std::time::Duration::from_secs(300))
         .connect(&url)
         .await?;
 
@@ -23,6 +24,8 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
 async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("PRAGMA journal_mode=WAL").execute(pool).await?;
     sqlx::query("PRAGMA foreign_keys=ON").execute(pool).await?;
+    sqlx::query("PRAGMA wal_autocheckpoint=400").execute(pool).await?;
+    sqlx::query("PRAGMA busy_timeout=5000").execute(pool).await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS drivers (
@@ -1784,6 +1787,174 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     let _ = sqlx::query("ALTER TABLE group_sessions ADD COLUMN ai_count INTEGER")
         .execute(pool)
         .await;
+
+    // ─── Phase 12: Data Foundation ───────────────────────────────────────────
+
+    // DATA-01: Covering indexes for leaderboard queries
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_laps_leaderboard ON laps(track, car, valid, lap_time_ms)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_laps_driver_created ON laps(driver_id, created_at)")
+        .execute(pool)
+        .await?;
+
+    // DATA-02: Covering index for telemetry visualization (do NOT drop idx_telemetry_lap)
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_telemetry_lap_offset ON telemetry_samples(lap_id, offset_ms)")
+        .execute(pool)
+        .await?;
+
+    // DATA-04: cloud_driver_id column on drivers for UUID mismatch resolution
+    let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN cloud_driver_id TEXT")
+        .execute(pool)
+        .await;
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_cloud_id ON drivers(cloud_driver_id)")
+        .execute(pool)
+        .await?;
+
+    // DATA-05: Six new competitive tables
+
+    // 1. hotlap_events
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS hotlap_events (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            car_class TEXT NOT NULL,
+            sim_type TEXT NOT NULL DEFAULT 'assetto_corsa',
+            status TEXT NOT NULL DEFAULT 'upcoming'
+                CHECK(status IN ('upcoming', 'active', 'scoring', 'completed', 'cancelled')),
+            starts_at TEXT,
+            ends_at TEXT,
+            rule_107_percent INTEGER DEFAULT 1,
+            reference_time_ms INTEGER,
+            max_valid_laps INTEGER,
+            championship_id TEXT REFERENCES championships(id),
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // 2. hotlap_event_entries
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS hotlap_event_entries (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES hotlap_events(id),
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            lap_id TEXT REFERENCES laps(id),
+            lap_time_ms INTEGER,
+            sector1_ms INTEGER,
+            sector2_ms INTEGER,
+            sector3_ms INTEGER,
+            position INTEGER,
+            points INTEGER DEFAULT 0,
+            badge TEXT,
+            gap_to_leader_ms INTEGER,
+            within_107_percent INTEGER DEFAULT 1,
+            result_status TEXT DEFAULT 'pending'
+                CHECK(result_status IN ('pending', 'finished', 'dns', 'dnf')),
+            entered_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(event_id, driver_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // 3. championships
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS championships (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            season TEXT,
+            car_class TEXT NOT NULL,
+            sim_type TEXT NOT NULL DEFAULT 'assetto_corsa',
+            status TEXT NOT NULL DEFAULT 'upcoming'
+                CHECK(status IN ('upcoming', 'active', 'completed')),
+            scoring_system TEXT NOT NULL DEFAULT 'f1_2010',
+            total_rounds INTEGER DEFAULT 0,
+            completed_rounds INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // 4. championship_rounds
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS championship_rounds (
+            championship_id TEXT NOT NULL REFERENCES championships(id),
+            event_id TEXT NOT NULL REFERENCES hotlap_events(id),
+            round_number INTEGER NOT NULL,
+            PRIMARY KEY (championship_id, event_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // 5. championship_standings
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS championship_standings (
+            championship_id TEXT NOT NULL REFERENCES championships(id),
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            position INTEGER,
+            total_points INTEGER DEFAULT 0,
+            rounds_entered INTEGER DEFAULT 0,
+            best_result INTEGER,
+            wins INTEGER DEFAULT 0,
+            podiums INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (championship_id, driver_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // 6. driver_ratings
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS driver_ratings (
+            driver_id TEXT PRIMARY KEY REFERENCES drivers(id),
+            rating_class TEXT NOT NULL DEFAULT 'Rookie',
+            class_points INTEGER NOT NULL DEFAULT 0,
+            total_events INTEGER DEFAULT 0,
+            total_podiums INTEGER DEFAULT 0,
+            total_wins INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Indexes for new competitive tables
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_hotlap_events_status ON hotlap_events(status, track)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_hotlap_events_updated ON hotlap_events(updated_at)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_hotlap_entries_event ON hotlap_event_entries(event_id, position)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_hotlap_entries_driver ON hotlap_event_entries(driver_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_championships_updated ON championships(updated_at)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_champ_rounds_champ ON championship_rounds(championship_id, round_number)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_champ_standings_champ ON championship_standings(championship_id, position)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_driver_ratings_class ON driver_ratings(rating_class, class_points)")
+        .execute(pool)
+        .await?;
 
     tracing::info!("Database migrations complete");
     Ok(())
