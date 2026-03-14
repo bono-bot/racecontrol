@@ -6234,8 +6234,9 @@ async fn sync_push(
                     allocated_seconds, driving_seconds, status, custom_price_paise, notes,
                     started_at, ended_at, created_at, experience_id, car, track, sim_type,
                     split_count, split_duration_minutes,
-                    wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)
+                    wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason,
+                    pause_count, total_paused_seconds, refund_paise)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)
                  ON CONFLICT(id) DO UPDATE SET
                     driving_seconds = excluded.driving_seconds,
                     status = excluded.status,
@@ -6244,7 +6245,10 @@ async fn sync_push(
                     discount_paise = COALESCE(excluded.discount_paise, billing_sessions.discount_paise),
                     coupon_id = COALESCE(excluded.coupon_id, billing_sessions.coupon_id),
                     original_price_paise = COALESCE(excluded.original_price_paise, billing_sessions.original_price_paise),
-                    discount_reason = COALESCE(excluded.discount_reason, billing_sessions.discount_reason)",
+                    discount_reason = COALESCE(excluded.discount_reason, billing_sessions.discount_reason),
+                    pause_count = COALESCE(excluded.pause_count, billing_sessions.pause_count),
+                    total_paused_seconds = COALESCE(excluded.total_paused_seconds, billing_sessions.total_paused_seconds),
+                    refund_paise = COALESCE(excluded.refund_paise, billing_sessions.refund_paise)",
             )
             .bind(id)
             .bind(s.get("driver_id").and_then(|v| v.as_str()))
@@ -6269,6 +6273,9 @@ async fn sync_push(
             .bind(s.get("coupon_id").and_then(|v| v.as_str()))
             .bind(s.get("original_price_paise").and_then(|v| v.as_i64()))
             .bind(s.get("discount_reason").and_then(|v| v.as_str()))
+            .bind(s.get("pause_count").and_then(|v| v.as_i64()))
+            .bind(s.get("total_paused_seconds").and_then(|v| v.as_i64()))
+            .bind(s.get("refund_paise").and_then(|v| v.as_i64()))
             .execute(&state.db)
             .await;
             if r.is_ok() { total += 1; }
@@ -6522,6 +6529,29 @@ async fn sync_push(
                 }
             }
         }
+    }
+
+    // Insert billing events (immutable — INSERT OR IGNORE)
+    if let Some(events) = body.get("billing_events").and_then(|v| v.as_array()) {
+        for ev in events {
+            let id = ev.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT OR IGNORE INTO billing_events
+                    (id, billing_session_id, event_type, driving_seconds_at_event, metadata, created_at)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
+            )
+            .bind(id)
+            .bind(ev.get("billing_session_id").and_then(|v| v.as_str()))
+            .bind(ev.get("event_type").and_then(|v| v.as_str()).unwrap_or("unknown"))
+            .bind(ev.get("driving_seconds_at_event").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(ev.get("metadata").and_then(|v| v.as_str()))
+            .bind(ev.get("created_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total += 1; }
+        }
+        tracing::info!("Sync push: {} billing events", events.len());
     }
 
     tracing::info!("Sync push: upserted {} records", total);
