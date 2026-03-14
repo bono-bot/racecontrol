@@ -88,6 +88,7 @@ async fn serve_status(
         LockScreenState::LaunchSplash { .. } => "launch_splash",
         LockScreenState::ScreenBlanked => "screen_blanked",
         LockScreenState::Disconnected => "disconnected",
+        LockScreenState::StartupConnecting => "startup_connecting",
         LockScreenState::ConfigError { .. } => "config_error",
     };
 

@@ -67,6 +67,10 @@ pub enum LockScreenState {
     ScreenBlanked,
     /// Disconnected from core server — shown during reconnection attempts.
     Disconnected,
+    /// Startup connecting — shown immediately at boot while rc-agent waits to connect.
+    /// Eliminates ERR_CONNECTION_REFUSED race (LOCK-01) and gives customers a branded
+    /// waiting page from first boot (LOCK-02).
+    StartupConnecting,
     /// Configuration error — shown when rc-agent.toml is invalid or missing.
     /// The technical error details are logged to stderr only; this screen shows
     /// a generic message so customers do not see internal configuration details.
@@ -111,6 +115,55 @@ impl LockScreenManager {
         tokio::spawn(async move {
             serve_lock_screen(port, state, event_tx).await;
         });
+    }
+
+    /// Wait until the local HTTP server is ready to accept connections (port 18923 bound).
+    ///
+    /// Polls `127.0.0.1:{port}` with a 100ms connect timeout, retrying every 50ms.
+    /// Gives up after 5 seconds and logs a warning — does NOT panic.
+    /// This eliminates the ERR_CONNECTION_REFUSED race condition (LOCK-01).
+    pub async fn wait_for_self_ready(&mut self) {
+        let addr = format!("127.0.0.1:{}", self.port)
+            .parse::<std::net::SocketAddr>()
+            .expect("hardcoded addr");
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+
+        loop {
+            let timeout_result = tokio::time::timeout(
+                tokio::time::Duration::from_millis(100),
+                tokio::net::TcpStream::connect(addr),
+            ).await;
+
+            match timeout_result {
+                Ok(Ok(_stream)) => {
+                    tracing::info!("Lock screen HTTP server ready on port {}", self.port);
+                    return;
+                }
+                _ => {
+                    if tokio::time::Instant::now() >= deadline {
+                        tracing::warn!(
+                            "Lock screen HTTP server not ready after 5s on port {} — continuing anyway",
+                            self.port
+                        );
+                        return;
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                }
+            }
+        }
+    }
+
+    /// Show the branded startup page immediately at boot.
+    ///
+    /// Opens Edge kiosk pointing at the local server which now shows the StartupConnecting
+    /// page. As rc-agent transitions to other states (Disconnected, PinEntry, etc.) the
+    /// browser auto-reloads every 3s and picks up the new state.
+    pub fn show_startup_connecting(&mut self) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::StartupConnecting;
+        }
+        self.launch_browser();
     }
 
     /// Show the PIN entry lock screen.
@@ -269,7 +322,7 @@ impl LockScreenManager {
 
     pub fn is_idle_or_blanked(&self) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked | LockScreenState::Disconnected)
+        matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked | LockScreenState::Disconnected | LockScreenState::StartupConnecting)
     }
 
     /// Returns true if the lock screen is showing something to a customer (not hidden/blanked).
@@ -691,6 +744,7 @@ fn render_page(state: &LockScreenState) -> String {
         } => render_launch_splash_page(driver_name, message),
         LockScreenState::ScreenBlanked => render_blank_page(),
         LockScreenState::Disconnected => render_disconnected_page(),
+        LockScreenState::StartupConnecting => render_startup_connecting_page(),
         LockScreenState::ConfigError { .. } => render_config_error_page(),
     }
 }
@@ -720,6 +774,24 @@ fn render_disconnected_page() -> String {
 <div class="msg">Reconnecting to Race Control...</div>
 <div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Your session will continue. Please wait.</div>
 </div>
+<script>setTimeout(function(){location.reload()},3000)</script>"#,
+    )
+}
+
+fn render_startup_connecting_page() -> String {
+    page_shell(
+        "Racing Point -- Starting",
+        r#"<div style="text-align:center;padding-top:30vh">
+<div style="font-family:Enthocentric,sans-serif;font-size:2.2em;color:#E10600;letter-spacing:0.08em;margin-bottom:16px">RACING POINT</div>
+<div style="font-size:1em;color:#888;margin-bottom:40px">Starting up...</div>
+<div style="display:inline-block;width:48px;height:48px;border:4px solid #333;border-top-color:#E10600;border-radius:50%;animation:spin 0.9s linear infinite"></div>
+</div>
+<style>
+@keyframes spin {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>
 <script>setTimeout(function(){location.reload()},3000)</script>"#,
     )
 }
@@ -972,6 +1044,7 @@ pub fn health_response_body(state: &LockScreenState) -> String {
         state,
         LockScreenState::Hidden
             | LockScreenState::Disconnected
+            | LockScreenState::StartupConnecting
             | LockScreenState::ConfigError { .. }
     );
     let status_str = if is_active { "ok" } else { "degraded" };
@@ -1083,6 +1156,78 @@ mod tests {
         };
         assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#,
             "LaunchSplash is not idle — health must be ok");
+    }
+
+    // ─── StartupConnecting tests ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn wait_for_self_ready_succeeds_when_port_open() {
+        use tokio::net::TcpListener;
+
+        // Bind a loopback listener on an ephemeral port
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind loopback");
+        let port = listener.local_addr().expect("local addr").port();
+
+        // Create manager on that port and confirm it returns quickly
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None };
+
+        let start = std::time::Instant::now();
+        manager.wait_for_self_ready().await;
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_secs() < 1, "wait_for_self_ready should succeed well under 1s when port is open, took {:?}", elapsed);
+    }
+
+    #[tokio::test]
+    async fn wait_for_self_ready_timeout() {
+        // Do NOT bind port 18922 — let it fail
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None };
+
+        let start = std::time::Instant::now();
+        // Should return (not panic) within ~6 seconds
+        manager.wait_for_self_ready().await;
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_secs() <= 6, "wait_for_self_ready must return within 6s on timeout, took {:?}", elapsed);
+    }
+
+    #[test]
+    fn startup_connecting_renders_branded_html() {
+        let state = LockScreenState::StartupConnecting;
+        let html = render_page_public(&state);
+        assert!(html.contains("RACING POINT"), "StartupConnecting must contain 'RACING POINT'");
+        assert!(html.contains("#E10600"), "StartupConnecting must use Racing Point red #E10600");
+    }
+
+    #[test]
+    fn startup_connecting_has_reload_script() {
+        let state = LockScreenState::StartupConnecting;
+        let html = render_page_public(&state);
+        assert!(html.contains("location.reload"), "StartupConnecting must include JS reload");
+        assert!(html.contains("3000"), "StartupConnecting must reload every 3 seconds");
+    }
+
+    #[test]
+    fn startup_connecting_is_idle_or_blanked() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let manager = LockScreenManager {
+            state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::StartupConnecting)),
+            event_tx: tx,
+            port: 18923,
+            #[cfg(windows)]
+            browser_process: None,
+        };
+        assert!(manager.is_idle_or_blanked(), "StartupConnecting must be treated as idle (pod not ready for customers)");
+    }
+
+    #[test]
+    fn health_degraded_for_startup_connecting() {
+        let state = LockScreenState::StartupConnecting;
+        assert_eq!(
+            health_response_body(&state),
+            r#"{"status":"degraded"}"#,
+            "StartupConnecting is a startup/waiting state — health must be degraded"
+        );
     }
 }
 
