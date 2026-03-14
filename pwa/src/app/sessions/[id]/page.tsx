@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
-import type { SessionDetailSession, LapRecord, ShareReport, MultiplayerResultInfo } from "@/lib/api";
+import type { SessionDetailSession, LapRecord, ShareReport, MultiplayerResultInfo, SessionEvent } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
@@ -91,6 +91,34 @@ function formatGameName(game: string | null): string {
   return names[game] || game;
 }
 
+// ─── Event timeline helpers ──────────────────────────────────────────────────
+
+const eventLabels: Record<string, string> = {
+  created: "Session Created",
+  started: "Session Started",
+  paused_manual: "Paused",
+  paused_disconnect: "Paused (Disconnected)",
+  resumed: "Resumed",
+  resumed_disconnect: "Reconnected",
+  resumed_manual: "Resumed",
+  ended: "Session Completed",
+  ended_early: "Session Ended Early",
+  cancelled: "Session Cancelled",
+  time_expired: "Time Expired",
+  extended: "Time Extended",
+  pause_timeout_ended: "Pause Timeout (Ended)",
+};
+
+function eventIcon(eventType: string): string {
+  if (eventType.startsWith("paused")) return "\u23F8";
+  if (eventType.startsWith("resumed")) return "\u25B6";
+  if (eventType === "started") return "\uD83D\uDFE2";
+  if (eventType === "ended" || eventType === "ended_early" || eventType === "time_expired") return "\uD83C\uDFC1";
+  if (eventType === "extended") return "\u23F1";
+  if (eventType === "cancelled") return "\u274C";
+  return "\u2022";
+}
+
 // ─── Page component ──────────────────────────────────────────────────────────
 
 export default function SessionDetailPage() {
@@ -106,6 +134,7 @@ export default function SessionDetailPage() {
   const [showShare, setShowShare] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
   const [mpResults, setMpResults] = useState<MultiplayerResultInfo[]>([]);
+  const [events, setEvents] = useState<SessionEvent[]>([]);
   const [myDriverId, setMyDriverId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -125,6 +154,7 @@ export default function SessionDetailPage() {
         } else {
           setSession(detailRes.session);
           setLaps(detailRes.laps || []);
+          setEvents(detailRes.events ?? []);
 
           // Fetch multiplayer results if this is a group session
           if (detailRes.session?.group_session_id) {
@@ -521,7 +551,44 @@ export default function SessionDetailPage() {
             value={formatGameName(session.sim_type)}
             small
           />
+          <StatTile
+            label="Top Speed"
+            value="N/A"
+          />
         </div>
+
+        {/* ── Session Timeline ──────────────────────────────────────── */}
+        {events.length > 0 && (
+          <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
+            <h2 className="text-sm font-medium text-rp-grey mb-3">Session Timeline</h2>
+            <div className="relative">
+              {/* Vertical line */}
+              <div className="absolute left-3 top-2 bottom-2 w-px bg-rp-border" />
+              <div className="space-y-3">
+                {events.map((event) => (
+                  <div key={event.id} className="flex items-start gap-3 relative">
+                    <div className="w-6 h-6 flex items-center justify-center text-xs z-10 bg-rp-card">
+                      {eventIcon(event.event_type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm">
+                        {eventLabels[event.event_type] || event.event_type.replace(/_/g, " ")}
+                      </p>
+                      <p className="text-rp-grey text-xs">
+                        {formatDate(event.created_at)}
+                        {event.driving_seconds_at_event > 0 && (
+                          <span className="ml-2">
+                            ({formatDuration(event.driving_seconds_at_event)} driving)
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── 4. Telemetry Chart (CSS bar chart) ────────────────────────── */}
         {validLaps.length > 0 && (

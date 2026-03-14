@@ -220,9 +220,31 @@ export interface SessionDetailSession {
   group_session_id: string | null;
 }
 
+export interface SessionEvent {
+  id: string;
+  event_type: string;
+  driving_seconds_at_event: number;
+  metadata: string | null;
+  created_at: string;
+}
+
 export interface SessionDetail {
   session: SessionDetailSession;
   laps: LapRecord[];
+  events: SessionEvent[];
+}
+
+export interface PublicSessionSummary {
+  driver_first_name: string;
+  status: string;
+  duration_seconds: number;
+  pricing_tier: string;
+  car: string | null;
+  track: string | null;
+  sim_type: string | null;
+  best_lap_ms: number | null;
+  total_laps: number;
+  error?: string;
 }
 
 export interface TelemetryFrame {
@@ -914,6 +936,10 @@ export const publicApi = {
   lapTelemetry: (lapId: string) =>
     fetch(`${API_BASE_URL}/public/laps/${encodeURIComponent(lapId)}/telemetry`)
       .then(r => r.json()) as Promise<LapTelemetryData>,
+
+  sessionSummary: (id: string) =>
+    fetch(`${API_BASE_URL}/public/sessions/${encodeURIComponent(id)}`)
+      .then(r => r.json()) as Promise<PublicSessionSummary>,
 };
 
 export interface TerminalCommand {
