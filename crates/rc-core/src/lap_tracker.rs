@@ -42,10 +42,25 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .flatten()
     .and_then(|(c,)| c);
 
+    // Compute suspect flag before INSERT
+    // A lap is suspect if:
+    //   - lap_time_ms < 20_000 (impossibly fast, under 20 seconds)
+    //   - sector times are all present and > 0 but their sum differs from lap_time_ms by > 500ms
+    let sanity_ok = lap.lap_time_ms >= 20_000;
+    let sector_sum_ok = match (lap.sector1_ms, lap.sector2_ms, lap.sector3_ms) {
+        (Some(s1), Some(s2), Some(s3)) if s1 > 0 && s2 > 0 && s3 > 0 => {
+            let sector_sum = s1 + s2 + s3;
+            let diff = (sector_sum as i64 - lap.lap_time_ms as i64).unsigned_abs();
+            diff <= 500
+        }
+        _ => true, // sectors absent or zero — treat as ok
+    };
+    let suspect_flag: i32 = if !sanity_ok || !sector_sum_ok { 1 } else { 0 };
+
     // 1. Insert lap into DB (with car_class from billing session lookup)
     let result = sqlx::query(
-        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, suspect, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind(&lap.id)
     .bind(&lap.session_id)
@@ -61,6 +76,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .bind(lap.sector3_ms.map(|v| v as i64))
     .bind(lap.valid)
     .bind(&car_class)
+    .bind(suspect_flag)
     .execute(&state.db)
     .await;
 

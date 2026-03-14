@@ -1964,6 +1964,11 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // LB-05: suspect column for lap validity hardening (leaderboard filtering)
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN suspect INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

@@ -120,6 +120,7 @@ async fn run_test_migrations(pool: &SqlitePool) {
             sector3_ms INTEGER,
             valid BOOLEAN DEFAULT 1,
             car_class TEXT,
+            suspect INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         )"
     ).execute(pool).await.unwrap();
