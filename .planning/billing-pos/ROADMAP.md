@@ -82,7 +82,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — rc-core: add events to customer_session_detail, public_session_summary endpoint, WhatsApp receipt via Evolution API in post_session_hooks
+- [x] 04-01-PLAN.md — rc-core: add events to customer_session_detail, public_session_summary endpoint, WhatsApp receipt via Evolution API in post_session_hooks
 - [ ] 04-02-PLAN.md — PWA: session timeline + top speed N/A on detail page, public shareable session page at /sessions/[id]/public
 
 ### Phase 5: Kiosk POS — Staff Operations
@@ -111,10 +111,10 @@ Phase 1 first (enables cloud phases). Phases 2 and 3 depend on Phase 1. Phases 4
 | 1. Billing Cloud Sync | 1/1 | Complete | 2026-03-14 |
 | 2. Cloud Dashboard — Live | 0/2 | Not started | - |
 | 3. Cloud Dashboard — Analytics | 0/2 | Not started | - |
-| 4. PWA Session Results & Receipt | 0/2 | Not started | - |
+| 4. PWA Session Results & Receipt | 1/2 | In progress | - |
 | 5. Kiosk POS — Staff Operations | 0/2 | Not started | - |
 
-**Total: 1/9 plans complete**
+**Total: 2/9 plans complete**
 
 ## Dependency Graph
 

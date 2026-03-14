@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Billing & Point of Sale
 status: executing
-stopped_at: "Phase 1 complete — all 5 SYNC requirements met"
+stopped_at: "Phase 4 Plan 04-01 complete — session events, public endpoint, WhatsApp receipt"
 last_updated: "2026-03-14"
-last_activity: 2026-03-14 — Phase 1 Plan 01-01 complete (billing_events sync + 3 extra columns)
+last_activity: 2026-03-14 — Phase 4 Plan 04-01 complete (events timeline, public session, WhatsApp receipt)
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 10
-  completed_plans: 1
-  percent: 10
+  completed_plans: 2
+  percent: 20
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/billing-pos/PROJECT.md (created 2026-03-14)
 
 **Core value:** Every rupee earned is tracked, every customer gets a receipt, and Uday can see venue revenue in real-time from anywhere.
-**Current focus:** Phase 1 complete. Next: Phase 4 (PWA Session Results & Receipt) per execution order.
+**Current focus:** Phase 4 Plan 04-01 complete. Next: Phase 4 Plan 04-02 (PWA frontend: session timeline + public share page).
 
 ## Current Position
 
-Phase: 1 of 5 — Billing Cloud Sync (COMPLETE)
-Plan: 01-01 complete (only plan in phase)
-Status: Phase 1 complete. All 5 SYNC requirements met.
-Last activity: 2026-03-14 — Plan 01-01 complete (billing_events sync, 3 extra billing_sessions columns, created_at index)
+Phase: 4 of 5 — PWA Session Results & Receipt (IN PROGRESS)
+Plan: 04-01 complete (1 of 2 plans in phase)
+Status: Backend APIs ready. Next: PWA frontend (04-02).
+Last activity: 2026-03-14 — Plan 04-01 complete (events timeline, public session summary, WhatsApp receipt)
 
-Progress: [##        ] 10%
+Progress: [####      ] 20%
 
 ## Key Research Finding (Phase 1)
 
@@ -39,14 +39,15 @@ billing_sessions and wallet_transactions were ALREADY synced in cloud_sync.rs. O
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Total execution time: ~8 minutes
+- Total plans completed: 2
+- Total execution time: ~14 minutes
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-billing-cloud-sync | 1/1 | 8min | 8min |
+| 04-pwa-session-results | 1/2 | 6min | 6min |
 
 ## Accumulated Context
 
@@ -55,7 +56,7 @@ billing_sessions and wallet_transactions were ALREADY synced in cloud_sync.rs. O
 - billing_sessions stays LOCAL-authoritative — cloud gets read-only copy via sync
 - Sync strategy: billing_sessions and wallet_transactions already in push payload; add billing_events to collect_push_payload() following wallet_transactions pattern
 - IMPORTANT: Do NOT add billing tables to SYNC_TABLES constant — that controls the PULL path (cloud -> venue). Billing data only flows venue -> cloud.
-- WhatsApp receipt delivered via Bono (comms-link) — James sends webhook, Bono calls Evolution API
+- WhatsApp receipt delivered directly via Evolution API from rc-core (NOT via Bono webhook) — per user decision in Phase 4 planning
 - racingpoint-admin (port 3200) is the target for cloud dashboard pages (already deployed at dashboard.racingpoint.cloud)
 - payment_method column needs to be added to billing_sessions table (currently missing)
 - POST /billing/{id}/refund already exists in rc-core — needs audit_log write wired in
@@ -63,6 +64,9 @@ billing_sessions and wallet_transactions were ALREADY synced in cloud_sync.rs. O
 - Plan 01-01: INSERT OR IGNORE for billing_events (immutable lifecycle records)
 - Plan 01-01: COALESCE for 3 new billing_sessions columns in ON CONFLICT (backward-compat with old venue code)
 - Plan 01-01: Tests use in-memory SQLite with inline schema (no AppState construction)
+- Plan 04-01: Public session summary shows first name only (split_whitespace().next()) for privacy
+- Plan 04-01: Receipt formatting extracted to pure helper functions (format_wa_phone, format_receipt_message) for testability
+- Plan 04-01: 5-second HTTP timeout on WhatsApp receipt -- best-effort, never blocks session end
 
 ### Existing Infrastructure (do NOT rebuild)
 
@@ -77,16 +81,15 @@ billing_sessions and wallet_transactions were ALREADY synced in cloud_sync.rs. O
 
 ### Pending Todos
 
-None — Phase 1 complete.
+- Phase 4 Plan 04-02: PWA frontend (session timeline + public share page)
 
 ### Blockers/Concerns
 
-- Need Bono's cooperation for WhatsApp receipt (Phase 4) — send James->Bono webhook spec before planning Phase 4
 - Need to verify cloud API schema before Phase 2 planning — check racingpoint-api-gateway for existing auth patterns
 - payment_method DB migration needed (Phase 5) — ensure idempotent SQL migration
 
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Phase 1 complete
-Resume file: .planning/billing-pos/phases/01-billing-cloud-sync/01-01-SUMMARY.md
+Stopped at: Phase 4 Plan 04-01 complete
+Resume file: .planning/billing-pos/phases/04-pwa-session-results/04-01-SUMMARY.md

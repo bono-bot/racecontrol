@@ -47,9 +47,9 @@
 |----|-------------|-------|--------|
 | PWA-01 | Customer can view session cost breakdown in session detail: base price, discount applied, final amount charged, any refund | 4 | [ ] |
 | PWA-02 | Customer can view session performance in session detail: total laps, best lap time, top speed (where telemetry available) | 4 | [ ] |
-| PWA-03 | Customer can view session timeline in session detail: session start, each pause/resume with reason, warnings, session end | 4 | [ ] |
-| PWA-04 | Customer receives a WhatsApp message after session end summarising duration, cost, best lap, and wallet balance remaining | 4 | [ ] |
-| PWA-05 | Session results page has a shareable link (no auth required to view public summary) | 4 | [ ] |
+| PWA-03 | Customer can view session timeline in session detail: session start, each pause/resume with reason, warnings, session end | 4 | [x] |
+| PWA-04 | Customer receives a WhatsApp message after session end summarising duration, cost, best lap, and wallet balance remaining | 4 | [x] |
+| PWA-05 | Session results page has a shareable link (no auth required to view public summary) | 4 | [x] |
 
 ---
 
