@@ -1926,3 +1926,267 @@ async fn test_vehicle_records() {
     let spa = results.iter().find(|r| r.0 == "spa").unwrap();
     assert_eq!(spa.2, 85000, "spa record should be 85000 (suspect 70000 excluded)");
 }
+
+// =============================================================================
+// Phase 13 Plan 03 — Track record "beaten" notification data ordering
+// (NTF-01, NTF-02)
+// =============================================================================
+
+/// NTF-01: When driver B beats driver A's track record, the previous holder's
+/// name and email must be fetched BEFORE the UPSERT so the notification has
+/// the correct data. Verifies: (1) get_previous_record_holder returns driver A's
+/// data before UPSERT, (2) track_records shows driver B after persist_lap.
+#[tokio::test]
+async fn test_notification_data_before_upsert() {
+    let pool = create_test_db().await;
+
+    // Seed two drivers — A has email, B has email
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone) VALUES ('ntf-drv-a', 'Alice Record', 'a@test.com', '1111111111')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO wallets (driver_id, balance_paise) VALUES ('ntf-drv-a', 100000)"
+    ).execute(&pool).await.unwrap();
+
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone) VALUES ('ntf-drv-b', 'Bob Challenger', 'b@test.com', '2222222222')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO wallets (driver_id, balance_paise) VALUES ('ntf-drv-b', 100000)"
+    ).execute(&pool).await.unwrap();
+
+    // Seed pod and sessions
+    seed_test_pod(&pool, "ntf-pod-1", 1).await;
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('ntf-sess-1', 'hotlap', 'assetto_corsa', 'monza')"
+    ).execute(&pool).await.unwrap();
+
+    let state = create_test_state(pool.clone());
+
+    // Billing session for driver A
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('ntf-bs-1', 'ntf-drv-a', 'ntf-pod-1', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    // Driver A sets the initial record: 90000ms on monza/ks_ferrari_sf15t
+    let lap_a = rc_common::types::LapData {
+        id: "ntf-lap-a".to_string(),
+        session_id: "ntf-sess-1".to_string(),
+        driver_id: "ntf-drv-a".to_string(),
+        pod_id: "ntf-pod-1".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "monza".to_string(),
+        car: "ks_ferrari_sf15t".to_string(),
+        lap_number: 1,
+        lap_time_ms: 90000,
+        sector1_ms: Some(30000),
+        sector2_ms: Some(30000),
+        sector3_ms: Some(30000),
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+    let is_record_a = rc_core::lap_tracker::persist_lap(&state, &lap_a).await;
+    assert!(is_record_a, "Driver A's first lap should be a track record");
+
+    // Verify driver A holds the record
+    let holder = sqlx::query_as::<_, (String, i64)>(
+        "SELECT driver_id, best_lap_ms FROM track_records WHERE track = 'monza' AND car = 'ks_ferrari_sf15t'"
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(holder.0, "ntf-drv-a");
+    assert_eq!(holder.1, 90000);
+
+    // Use get_previous_record_holder to verify the data is available before UPSERT
+    let prev = rc_core::lap_tracker::get_previous_record_holder(&state.db, "monza", "ks_ferrari_sf15t").await;
+    assert!(prev.is_some(), "Previous record holder should exist");
+    let (prev_time, prev_name, prev_email) = prev.unwrap();
+    assert_eq!(prev_time, 90000);
+    assert_eq!(prev_name, "Alice Record");
+    assert_eq!(prev_email, Some("a@test.com".to_string()));
+
+    // Now switch billing to driver B
+    sqlx::query("UPDATE billing_sessions SET status = 'completed' WHERE id = 'ntf-bs-1'")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('ntf-bs-2', 'ntf-drv-b', 'ntf-pod-1', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    // Driver B breaks the record: 85000ms
+    let lap_b = rc_common::types::LapData {
+        id: "ntf-lap-b".to_string(),
+        session_id: "ntf-sess-1".to_string(),
+        driver_id: "ntf-drv-b".to_string(),
+        pod_id: "ntf-pod-1".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "monza".to_string(),
+        car: "ks_ferrari_sf15t".to_string(),
+        lap_number: 2,
+        lap_time_ms: 85000,
+        sector1_ms: Some(28000),
+        sector2_ms: Some(28500),
+        sector3_ms: Some(28500),
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+    let is_record_b = rc_core::lap_tracker::persist_lap(&state, &lap_b).await;
+    assert!(is_record_b, "Driver B's faster lap should be a new track record");
+
+    // After UPSERT, track_records now shows driver B
+    let new_holder = sqlx::query_as::<_, (String, i64)>(
+        "SELECT driver_id, best_lap_ms FROM track_records WHERE track = 'monza' AND car = 'ks_ferrari_sf15t'"
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(new_holder.0, "ntf-drv-b", "Track record holder should now be driver B");
+    assert_eq!(new_holder.1, 85000, "Track record time should be 85000ms");
+}
+
+/// NTF-01: When previous holder has email=NULL, notification is silently skipped (no crash).
+#[tokio::test]
+async fn test_notification_skip_no_email() {
+    let pool = create_test_db().await;
+
+    // Driver C has NO email
+    sqlx::query(
+        "INSERT INTO drivers (id, name, phone) VALUES ('ntf-drv-c', 'Charlie NoEmail', '3333333333')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO wallets (driver_id, balance_paise) VALUES ('ntf-drv-c', 100000)"
+    ).execute(&pool).await.unwrap();
+
+    // Driver D will break the record
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone) VALUES ('ntf-drv-d', 'Dave Challenger', 'd@test.com', '4444444444')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO wallets (driver_id, balance_paise) VALUES ('ntf-drv-d', 100000)"
+    ).execute(&pool).await.unwrap();
+
+    seed_test_pod(&pool, "ntf-pod-2", 2).await;
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('ntf-sess-2', 'hotlap', 'assetto_corsa', 'spa')"
+    ).execute(&pool).await.unwrap();
+
+    let state = create_test_state(pool.clone());
+
+    // Billing for driver C
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('ntf-bs-3', 'ntf-drv-c', 'ntf-pod-2', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    // Driver C sets record
+    let lap_c = rc_common::types::LapData {
+        id: "ntf-lap-c".to_string(),
+        session_id: "ntf-sess-2".to_string(),
+        driver_id: "ntf-drv-c".to_string(),
+        pod_id: "ntf-pod-2".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "spa".to_string(),
+        car: "ks_bmw_m3_e30".to_string(),
+        lap_number: 1,
+        lap_time_ms: 140000,
+        sector1_ms: Some(46000),
+        sector2_ms: Some(47000),
+        sector3_ms: Some(47000),
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+    rc_core::lap_tracker::persist_lap(&state, &lap_c).await;
+
+    // Verify get_previous_record_holder returns None email
+    let prev = rc_core::lap_tracker::get_previous_record_holder(&state.db, "spa", "ks_bmw_m3_e30").await;
+    assert!(prev.is_some(), "Record exists for C");
+    let (_, _, prev_email) = prev.unwrap();
+    assert!(prev_email.is_none(), "Driver C has no email — should be None");
+
+    // Switch billing to driver D
+    sqlx::query("UPDATE billing_sessions SET status = 'completed' WHERE id = 'ntf-bs-3'")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('ntf-bs-4', 'ntf-drv-d', 'ntf-pod-2', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    // Driver D breaks the record — should NOT crash despite no email on previous holder
+    let lap_d = rc_common::types::LapData {
+        id: "ntf-lap-d".to_string(),
+        session_id: "ntf-sess-2".to_string(),
+        driver_id: "ntf-drv-d".to_string(),
+        pod_id: "ntf-pod-2".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "spa".to_string(),
+        car: "ks_bmw_m3_e30".to_string(),
+        lap_number: 2,
+        lap_time_ms: 135000,
+        sector1_ms: Some(45000),
+        sector2_ms: Some(45000),
+        sector3_ms: Some(45000),
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+    let is_record = rc_core::lap_tracker::persist_lap(&state, &lap_d).await;
+    assert!(is_record, "Driver D should break the record (no crash)");
+
+    // Verify record updated to driver D
+    let holder = sqlx::query_as::<_, (String,)>(
+        "SELECT driver_id FROM track_records WHERE track = 'spa' AND car = 'ks_bmw_m3_e30'"
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(holder.0, "ntf-drv-d");
+}
+
+/// NTF-01: First record on a track — no previous holder, no notification attempt, no crash.
+#[tokio::test]
+async fn test_notification_first_record_no_notify() {
+    let pool = create_test_db().await;
+
+    // Only one driver — first record ever
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone) VALUES ('ntf-drv-e', 'Eve First', 'e@test.com', '5555555555')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO wallets (driver_id, balance_paise) VALUES ('ntf-drv-e', 100000)"
+    ).execute(&pool).await.unwrap();
+
+    seed_test_pod(&pool, "ntf-pod-3", 3).await;
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('ntf-sess-3', 'hotlap', 'assetto_corsa', 'nurburgring')"
+    ).execute(&pool).await.unwrap();
+
+    let state = create_test_state(pool.clone());
+
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('ntf-bs-5', 'ntf-drv-e', 'ntf-pod-3', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    // No prior record exists — get_previous_record_holder should return None
+    let prev = rc_core::lap_tracker::get_previous_record_holder(&state.db, "nurburgring", "ks_porsche_911_gt3_r").await;
+    assert!(prev.is_none(), "No previous record should exist on fresh track");
+
+    // Driver E sets the first record
+    let lap_e = rc_common::types::LapData {
+        id: "ntf-lap-e".to_string(),
+        session_id: "ntf-sess-3".to_string(),
+        driver_id: "ntf-drv-e".to_string(),
+        pod_id: "ntf-pod-3".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "nurburgring".to_string(),
+        car: "ks_porsche_911_gt3_r".to_string(),
+        lap_number: 1,
+        lap_time_ms: 480000,
+        sector1_ms: Some(160000),
+        sector2_ms: Some(160000),
+        sector3_ms: Some(160000),
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+    let is_record = rc_core::lap_tracker::persist_lap(&state, &lap_e).await;
+    assert!(is_record, "First lap should be a track record");
+
+    // Verify record was set (no crash on first record)
+    let holder = sqlx::query_as::<_, (String, i64)>(
+        "SELECT driver_id, best_lap_ms FROM track_records WHERE track = 'nurburgring' AND car = 'ks_porsche_911_gt3_r'"
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(holder.0, "ntf-drv-e");
+    assert_eq!(holder.1, 480000);
+}
