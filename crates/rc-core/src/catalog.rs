@@ -479,7 +479,7 @@ pub fn validate_launch_combo(
             None => return Err(format!("track '{}' not installed on pod", track_id)),
             Some(t) => {
                 // For race/trackday, require AI lines
-                if matches!(session_type, "race" | "trackday") {
+                if matches!(session_type, "race" | "trackday" | "race_weekend") {
                     if !t.configs.iter().any(|c| c.has_ai) {
                         return Err(format!(
                             "track '{}' has no AI lines — cannot use session type '{}'",
@@ -719,6 +719,7 @@ pub fn build_custom_launch_args(
     difficulty: &str,
     transmission: &str,
     ffb: &str,
+    session_type: &str,
 ) -> Value {
     let (abs, tc, stability, autoclutch, ideal_line) = match difficulty {
         "easy" => (1, 1, 1, 1, 1),
@@ -734,6 +735,7 @@ pub fn build_custom_launch_args(
         "difficulty": difficulty,
         "transmission": transmission,
         "ffb": ffb,
+        "session_type": session_type,
         "aids": {
             "abs": abs,
             "tc": tc,

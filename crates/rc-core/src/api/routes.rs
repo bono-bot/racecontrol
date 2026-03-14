@@ -4835,6 +4835,8 @@ struct CustomBookingOptions {
     transmission: String,
     #[serde(default = "default_ffb_preset")]
     ffb: String,
+    #[serde(default)]
+    session_type: Option<String>,
 }
 
 fn default_ffb_preset() -> String { "medium".to_string() }
@@ -4997,6 +4999,7 @@ async fn customer_book_session(
         let driver_name_for_args = "Driver"; // Will be set properly by launch_or_assist
         catalog::build_custom_launch_args(
             &c.car, &c.track, driver_name_for_args, &c.difficulty, &c.transmission, &c.ffb,
+            c.session_type.as_deref().unwrap_or("practice"),
         ).to_string()
     });
 
@@ -5006,6 +5009,7 @@ async fn customer_book_session(
             let mut parsed: serde_json::Value = serde_json::from_str(args).unwrap_or_default();
             parsed["game"] = serde_json::json!(c.game);
             parsed["game_mode"] = serde_json::json!(c.game_mode.as_deref().unwrap_or("single"));
+            parsed["session_type"] = serde_json::json!(c.session_type.as_deref().unwrap_or("practice"));
             Some(parsed.to_string())
         } else {
             custom_launch_args
