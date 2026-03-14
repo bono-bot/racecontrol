@@ -298,6 +298,8 @@ pub fn get_catalog() -> Value {
         })
         .collect();
 
+    let all_presets: Vec<&PresetEntry> = PRESETS.iter().collect();
+
     json!({
         "tracks": {
             "featured": featured_tracks,
@@ -310,7 +312,8 @@ pub fn get_catalog() -> Value {
         "categories": {
             "tracks": ["F1 Circuits", "Real Circuits", "Indian Circuits", "Street / Touge", "Other"],
             "cars": ["F1 2025", "GT3", "Supercars", "Porsche", "JDM", "Classics", "Other"],
-        }
+        },
+        "presets": presets_to_json(&all_presets),
     })
 }
 
@@ -376,6 +379,24 @@ pub fn get_filtered_catalog(manifest: Option<&ContentManifest>) -> Value {
         })
         .collect();
 
+    // Filter presets: car + track must be in manifest; race/trackday require AI lines
+    let filtered_presets: Vec<&PresetEntry> = PRESETS.iter().filter(|p| {
+        if !car_ids.contains(p.car_id) || !track_ids.contains(p.track_id) {
+            return false;
+        }
+        // For race/trackday, require AI lines on the track
+        if matches!(p.session_type, "race" | "trackday") {
+            let has_ai = manifest.tracks.iter()
+                .find(|t| t.id == p.track_id)
+                .map(|t| t.configs.iter().any(|c| c.has_ai))
+                .unwrap_or(false);
+            if !has_ai {
+                return false;
+            }
+        }
+        true
+    }).collect();
+
     json!({
         "tracks": {
             "featured": featured_tracks,
@@ -388,7 +409,8 @@ pub fn get_filtered_catalog(manifest: Option<&ContentManifest>) -> Value {
         "categories": {
             "tracks": ["F1 Circuits", "Real Circuits", "Indian Circuits", "Street / Touge", "Other"],
             "cars": ["F1 2025", "GT3", "Supercars", "Porsche", "JDM", "Classics", "Other"],
-        }
+        },
+        "presets": presets_to_json(&filtered_presets),
     })
 }
 
@@ -470,6 +492,221 @@ pub fn validate_launch_combo(
     }
 
     Ok(())
+}
+
+// ─── Curated Presets ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PresetEntry {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub tagline: &'static str,
+    pub car_id: &'static str,
+    pub track_id: &'static str,
+    pub session_type: &'static str,
+    pub difficulty: &'static str,
+    pub category: &'static str,
+    pub duration_hint: &'static str,
+    pub featured: bool,
+}
+
+const PRESETS: &[PresetEntry] = &[
+    // ── Race (5) ────────────────────────────────────────────────────────
+    PresetEntry {
+        id: "gt3-spa-race",
+        name: "GT3 at Spa-Francorchamps",
+        tagline: "Tackle Eau Rouge in a Ferrari 488 GT3 against a full grid",
+        car_id: "ks_ferrari_488_gt3",
+        track_id: "spa",
+        session_type: "race",
+        difficulty: "medium",
+        category: "Race",
+        duration_hint: "~20 min",
+        featured: true,
+    },
+    PresetEntry {
+        id: "f1-monza",
+        name: "F1 at Monza",
+        tagline: "Blast through the Temple of Speed in a Ferrari SF-25",
+        car_id: "ferrari_sf25",
+        track_id: "monza",
+        session_type: "race",
+        difficulty: "hard",
+        category: "Race",
+        duration_hint: "~15 min",
+        featured: true,
+    },
+    PresetEntry {
+        id: "gt3-silverstone",
+        name: "GT3 at Silverstone",
+        tagline: "Push a Mercedes AMG GT3 through high-speed sweepers",
+        car_id: "ks_mercedes_amg_gt3",
+        track_id: "ks_silverstone",
+        session_type: "race",
+        difficulty: "medium",
+        category: "Race",
+        duration_hint: "~20 min",
+        featured: false,
+    },
+    PresetEntry {
+        id: "f1-bahrain",
+        name: "F1 at Bahrain",
+        tagline: "Night racing under the lights in a Red Bull RB21",
+        car_id: "red_bull_rb21",
+        track_id: "bahrain",
+        session_type: "race",
+        difficulty: "hard",
+        category: "Race",
+        duration_hint: "~15 min",
+        featured: false,
+    },
+    PresetEntry {
+        id: "supercars-redbullring",
+        name: "Supercars at Red Bull Ring",
+        tagline: "Unleash an Aventador SV on a short, thrilling circuit",
+        car_id: "ks_lamborghini_aventador_sv",
+        track_id: "ks_red_bull_ring",
+        session_type: "race",
+        difficulty: "easy",
+        category: "Race",
+        duration_hint: "~15 min",
+        featured: false,
+    },
+    // ── Casual (5) ──────────────────────────────────────────────────────
+    PresetEntry {
+        id: "nordschleife-tourist",
+        name: "Nordschleife Tourist Drive",
+        tagline: "Explore the legendary Green Hell at your own pace",
+        car_id: "ks_porsche_911_gt3_rs",
+        track_id: "ks_nordschleife",
+        session_type: "practice",
+        difficulty: "easy",
+        category: "Casual",
+        duration_hint: "~30 min",
+        featured: true,
+    },
+    PresetEntry {
+        id: "jdm-touge",
+        name: "AE86 on Mt. Haruna",
+        tagline: "Channel your inner Takumi on the legendary touge",
+        car_id: "ks_toyota_ae86",
+        track_id: "haruna",
+        session_type: "practice",
+        difficulty: "easy",
+        category: "Casual",
+        duration_hint: "~15 min",
+        featured: false,
+    },
+    PresetEntry {
+        id: "supercar-monaco",
+        name: "McLaren P1 at Monaco",
+        tagline: "Cruise the streets of Monte Carlo in a hypercar",
+        car_id: "ks_mclaren_p1",
+        track_id: "monaco",
+        session_type: "practice",
+        difficulty: "easy",
+        category: "Casual",
+        duration_hint: "~15 min",
+        featured: false,
+    },
+    PresetEntry {
+        id: "drift-shuto",
+        name: "Supra on Shuto Expressway",
+        tagline: "Drift the Tokyo expressway in a tuned MK4 Supra",
+        car_id: "ks_toyota_supra_mkiv",
+        track_id: "shuto_revival_project_beta",
+        session_type: "practice",
+        difficulty: "easy",
+        category: "Casual",
+        duration_hint: "~30 min",
+        featured: false,
+    },
+    PresetEntry {
+        id: "indian-circuit",
+        name: "Ferrari at Madras Motor Race Track",
+        tagline: "Drive a 488 GTB on India's classic racing circuit",
+        car_id: "ks_ferrari_488_gtb",
+        track_id: "madras_international_circuit",
+        session_type: "practice",
+        difficulty: "easy",
+        category: "Casual",
+        duration_hint: "~15 min",
+        featured: false,
+    },
+    // ── Challenge (4) ───────────────────────────────────────────────────
+    PresetEntry {
+        id: "hotlap-monza-f1",
+        name: "Hotlap: F2004 at Monza",
+        tagline: "Chase the perfect lap in Schumacher's legendary car",
+        car_id: "ks_ferrari_f2004",
+        track_id: "monza",
+        session_type: "hotlap",
+        difficulty: "hard",
+        category: "Challenge",
+        duration_hint: "~15 min",
+        featured: true,
+    },
+    PresetEntry {
+        id: "hotlap-nurburgring-gt3",
+        name: "Hotlap: Porsche GT3 R at Nurburgring",
+        tagline: "Set a time on the GP circuit in a Porsche GT3 R",
+        car_id: "ks_porsche_911_gt3_r_2016",
+        track_id: "ks_nurburgring",
+        session_type: "hotlap",
+        difficulty: "medium",
+        category: "Challenge",
+        duration_hint: "~15 min",
+        featured: false,
+    },
+    PresetEntry {
+        id: "timeattack-laguna",
+        name: "Time Attack: MX-5 at Laguna Seca",
+        tagline: "Master the Corkscrew in a nimble Mazda MX-5 Cup",
+        car_id: "ks_mazda_mx5_cup",
+        track_id: "ks_laguna_seca",
+        session_type: "hotlap",
+        difficulty: "medium",
+        category: "Challenge",
+        duration_hint: "~15 min",
+        featured: false,
+    },
+    PresetEntry {
+        id: "nordschleife-challenge",
+        name: "Nordschleife Challenge: 992 GT3 RS",
+        tagline: "Take on the full Nordschleife in a Porsche 992 GT3 RS",
+        car_id: "cky_porsche992_gt3rs_2023",
+        track_id: "ks_nordschleife",
+        session_type: "hotlap",
+        difficulty: "hard",
+        category: "Challenge",
+        duration_hint: "~30 min",
+        featured: false,
+    },
+];
+
+fn preset_car_name(car_id: &str) -> &str {
+    FEATURED_CARS.iter().find(|c| c.id == car_id).map(|c| c.name).unwrap_or(car_id)
+}
+
+fn preset_track_name(track_id: &str) -> &str {
+    FEATURED_TRACKS.iter().find(|t| t.id == track_id).map(|t| t.name).unwrap_or(track_id)
+}
+
+fn presets_to_json(presets: &[&PresetEntry]) -> Vec<Value> {
+    presets.iter().map(|p| json!({
+        "id": p.id,
+        "name": p.name,
+        "tagline": p.tagline,
+        "car_id": p.car_id,
+        "car_name": preset_car_name(p.car_id),
+        "track_id": p.track_id,
+        "track_name": preset_track_name(p.track_id),
+        "session_type": p.session_type,
+        "difficulty": p.difficulty,
+        "category": p.category,
+        "duration_hint": p.duration_hint,
+        "featured": p.featured,
+    })).collect()
 }
 
 // ─── Difficulty Presets ──────────────────────────────────────────────────────
@@ -706,5 +943,83 @@ mod tests {
     fn validate_launch_combo_none_manifest_accepts_anything() {
         let result = validate_launch_combo(None, "any_car", "any_track", "race");
         assert!(result.is_ok(), "No manifest = fallback mode, accept anything");
+    }
+
+    // ── Preset tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn catalog_includes_presets() {
+        let catalog = get_catalog();
+        let presets = catalog["presets"].as_array().expect("presets array must exist");
+        assert!(
+            presets.len() >= 13 && presets.len() <= 15,
+            "Expected 13-15 presets, got {}",
+            presets.len()
+        );
+    }
+
+    #[test]
+    fn preset_car_ids_valid() {
+        for preset in PRESETS.iter() {
+            assert!(
+                ALL_CAR_IDS.contains(&preset.car_id),
+                "Preset '{}' has invalid car_id '{}'",
+                preset.id,
+                preset.car_id
+            );
+        }
+    }
+
+    #[test]
+    fn preset_track_ids_valid() {
+        for preset in PRESETS.iter() {
+            assert!(
+                ALL_TRACK_IDS.contains(&preset.track_id),
+                "Preset '{}' has invalid track_id '{}'",
+                preset.id,
+                preset.track_id
+            );
+        }
+    }
+
+    #[test]
+    fn presets_featured_flag() {
+        let featured_count = PRESETS.iter().filter(|p| p.featured).count();
+        assert!(
+            featured_count >= 3 && featured_count <= 4,
+            "Expected 3-4 featured presets, got {}",
+            featured_count
+        );
+    }
+
+    #[test]
+    fn filtered_catalog_filters_presets() {
+        // Manifest with only one car and one track that matches a preset
+        let manifest = make_manifest(
+            &["ks_ferrari_488_gt3"],
+            vec![make_track("spa", vec![("", true, Some(24))])],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let presets = result["presets"].as_array().expect("presets array must exist");
+        // Only gt3-spa-race should match (car=ks_ferrari_488_gt3, track=spa)
+        assert_eq!(presets.len(), 1, "Only one preset should match manifest");
+        assert_eq!(presets[0]["id"].as_str().unwrap(), "gt3-spa-race");
+    }
+
+    #[test]
+    fn preset_race_filtered_no_ai() {
+        // Manifest has the car and track for gt3-spa-race, but track has no AI
+        let manifest = make_manifest(
+            &["ks_ferrari_488_gt3"],
+            vec![make_track("spa", vec![("", false, Some(24))])],
+        );
+        let result = get_filtered_catalog(Some(&manifest));
+        let presets = result["presets"].as_array().expect("presets array must exist");
+        // gt3-spa-race is session_type=race, so it should be excluded when has_ai=false
+        assert!(
+            presets.is_empty(),
+            "Race preset should be excluded when track has no AI, got {} presets",
+            presets.len()
+        );
     }
 }
