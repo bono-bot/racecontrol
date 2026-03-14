@@ -153,8 +153,16 @@ export function SetupWizard({
       const q = trackSearch.toLowerCase();
       items = items.filter((t) => t.name.toLowerCase().includes(q) || (t.country || "").toLowerCase().includes(q));
     }
+    // Filter by session type: AI-requiring types only show tracks with AI
+    const aiTypes = ["race", "trackday", "race_weekend"];
+    if (aiTypes.includes(ws.sessionType)) {
+      items = items.filter((t) => {
+        const available = (t as unknown as Record<string, unknown>).available_session_types as string[] | undefined;
+        return !available || available.includes(ws.sessionType);
+      });
+    }
     return items;
-  }, [catalog, trackCategory, trackSearch]);
+  }, [catalog, trackCategory, trackSearch, ws.sessionType]);
 
   // Filtered cars
   const filteredCars = useMemo(() => {
@@ -451,9 +459,11 @@ export function SetupWizard({
         {step === "session_type" && (
           <div className="space-y-3">
             {([
-              { type: "practice" as const, label: "Practice", desc: "Free driving with no timer or AI pressure", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
-              { type: "hotlap" as const, label: "Hot Lap", desc: "Timed laps — set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
-              { type: "race" as const, label: "Race", desc: "Full race with grid start and laps", icon: "M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" },
+              { type: "practice" as const, label: "Practice", desc: "Free driving, no AI, no timer", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
+              { type: "hotlap" as const, label: "Hotlap", desc: "Timed laps -- set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
+              { type: "race" as const, label: "Race vs AI", desc: "Full grid race against AI opponents", icon: "M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" },
+              { type: "trackday" as const, label: "Track Day", desc: "Open pit, mixed traffic on track", icon: "M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" },
+              { type: "race_weekend" as const, label: "Race Weekend", desc: "Practice, Qualify, then Race sequence", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
             ]).map(({ type, label, desc, icon }) => (
               <button
                 key={type}

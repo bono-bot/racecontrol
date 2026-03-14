@@ -12,7 +12,7 @@ interface GameConfiguratorProps {
   onCancel: () => void;
 }
 
-type ConfigStep = "presets" | "game" | "mode" | "track" | "car" | "settings" | "review";
+type ConfigStep = "presets" | "game" | "session_type" | "track" | "car" | "settings" | "review";
 
 const DIFFICULTY_PRESETS: Record<string, { label: string; desc: string; aids: Record<string, number> }> = {
   easy: {
@@ -49,6 +49,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
   // Selections
   const [game, setGame] = useState("");
   const [gameMode, setGameMode] = useState("single");
+  const [sessionType, setSessionType] = useState("practice");
   const [track, setTrack] = useState<CatalogItem | null>(null);
   const [car, setCar] = useState<CatalogItem | null>(null);
   const [difficulty, setDifficulty] = useState("easy");
@@ -79,8 +80,16 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
       const q = trackSearch.toLowerCase();
       items = items.filter((t) => t.name.toLowerCase().includes(q) || (t.country || "").toLowerCase().includes(q));
     }
+    // Filter by session type: AI-requiring types only show tracks with AI
+    const aiTypes = ["race", "trackday", "race_weekend"];
+    if (aiTypes.includes(sessionType)) {
+      items = items.filter((t) => {
+        const available = (t as unknown as Record<string, unknown>).available_session_types as string[] | undefined;
+        return !available || available.includes(sessionType);
+      });
+    }
     return items;
-  }, [catalog, trackCategory, trackSearch]);
+  }, [catalog, trackCategory, trackSearch, sessionType]);
 
   // Filtered cars
   const filteredCars = useMemo(() => {
@@ -109,6 +118,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
     setTrack(foundTrack);
     setCar(foundCar);
     setDifficulty(["easy", "medium", "hard"].includes(preset.difficulty) ? preset.difficulty : "easy");
+    setSessionType(preset.session_type || "practice");
     setStep("review");
   }
 
@@ -123,6 +133,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
       ffb,
       game,
       game_mode: gameMode,
+      session_type: sessionType,
       aids: preset?.aids || { abs: 1, tc: 1, stability: 1, autoclutch: 1, ideal_line: 1 },
       conditions: { damage: 0 },
     });
@@ -131,7 +142,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
 
   // Step navigation
   function goBack() {
-    const steps: ConfigStep[] = ["presets", "game", "mode", "track", "car", "settings", "review"];
+    const steps: ConfigStep[] = ["presets", "game", "session_type", "track", "car", "settings", "review"];
     const idx = steps.indexOf(step);
     if (idx <= 0) onCancel();
     else setStep(steps[idx - 1]);
@@ -154,7 +165,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
             <h2 className="text-xl font-bold text-white">
               {step === "presets" && "Quick Start"}
               {step === "game" && "Select Game"}
-              {step === "mode" && "Game Mode"}
+              {step === "session_type" && "Session Type"}
               {step === "track" && "Select Track"}
               {step === "car" && "Select Car"}
               {step === "settings" && "Difficulty, Transmission & FFB"}
@@ -268,7 +279,7 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
                 <button
                   key={g.id}
                   disabled={!g.enabled}
-                  onClick={() => { setGame(g.id); setStep("mode"); }}
+                  onClick={() => { setGame(g.id); setStep("session_type"); }}
                   className={`p-6 rounded-xl border-2 text-center transition-all ${
                     g.enabled
                       ? "border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 cursor-pointer"
@@ -282,29 +293,34 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
             </div>
           )}
 
-          {/* ─── GAME MODE ───────────────────────────────────────── */}
-          {step === "mode" && (
-            <div className="grid grid-cols-2 gap-6">
-              <button
-                onClick={() => { setGameMode("single"); setStep("track"); }}
-                className="p-8 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
-              >
-                <svg className="w-12 h-12 mx-auto mb-3 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <p className="text-xl font-bold text-white">Singleplayer</p>
-                <p className="text-sm text-rp-grey mt-1">Practice &amp; hot laps</p>
-              </button>
-              <button
-                disabled
-                className="p-8 rounded-xl border-2 border-rp-border/50 bg-rp-surface/50 opacity-40 cursor-not-allowed text-center"
-              >
-                <svg className="w-12 h-12 mx-auto mb-3 text-rp-grey" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <p className="text-xl font-bold text-white">Multiplayer</p>
-                <p className="text-sm text-rp-grey mt-1">Coming Soon</p>
-              </button>
+          {/* ─── SESSION TYPE ─────────────────────────────────────── */}
+          {step === "session_type" && (
+            <div className="space-y-3">
+              {([
+                { type: "practice", label: "Practice", desc: "Free driving, no AI, no timer", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
+                { type: "hotlap", label: "Hotlap", desc: "Timed laps -- set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
+                { type: "race", label: "Race vs AI", desc: "Full grid race against AI opponents", icon: "M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" },
+                { type: "trackday", label: "Track Day", desc: "Open pit, mixed traffic on track", icon: "M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" },
+                { type: "race_weekend", label: "Race Weekend", desc: "Practice, Qualify, then Race sequence", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
+              ] as const).map(({ type, label, desc, icon }) => (
+                <button
+                  key={type}
+                  onClick={() => { setSessionType(type); setStep("track"); }}
+                  className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl border-2 transition-all text-left ${
+                    sessionType === type
+                      ? "border-rp-red bg-rp-red/10"
+                      : "border-rp-border bg-rp-surface hover:border-rp-red/50"
+                  }`}
+                >
+                  <svg className="w-8 h-8 text-rp-red shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
+                  </svg>
+                  <div>
+                    <p className="text-base font-bold text-white">{label}</p>
+                    <p className="text-xs text-rp-grey">{desc}</p>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
 
@@ -497,6 +513,10 @@ export function GameConfigurator({ podId, podNumber, driverName, onLaunch, onCan
                 <div className="flex justify-between">
                   <span className="text-rp-grey">Game</span>
                   <span className="text-white font-semibold">{GAMES.find((g) => g.id === game)?.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-rp-grey">Session Type</span>
+                  <span className="text-white font-semibold capitalize">{sessionType.replace("_", " ")}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-rp-grey">Track</span>
