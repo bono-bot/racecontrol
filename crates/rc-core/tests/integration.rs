@@ -1440,3 +1440,238 @@ async fn test_lap_car_class_null_without_session() {
 
     assert_eq!(result.0, None, "laps.car_class should be NULL without active billing session");
 }
+
+// =============================================================================
+// Phase 13 — Leaderboard Core tests (LB-05: suspect flagging)
+// =============================================================================
+
+/// LB-05: A lap whose sector times sum >500ms away from lap_time_ms is flagged suspect=1.
+#[tokio::test]
+async fn test_lap_suspect_sector_sum() {
+    let pool = create_test_db().await;
+
+    // Seed driver and pod
+    seed_test_driver(&pool, "sus-drv-1").await;
+    seed_test_pod(&pool, "sus-pod-1", 1).await;
+
+    // Create a session for the lap to reference
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-1', 'hotlap', 'assetto_corsa', 'spa')"
+    ).execute(&pool).await.unwrap();
+
+    // Create AppState and persist a lap with mismatched sectors
+    // lap_time_ms=90000, sectors sum to 88000 (diff=2000 > 500)
+    let state = create_test_state(pool.clone());
+
+    // Seed an active billing session so persist_lap doesn't skip
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('sus-bs-1', 'sus-drv-1', 'sus-pod-1', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    let lap = rc_common::types::LapData {
+        id: "sus-lap-1".to_string(),
+        session_id: "sus-sess-1".to_string(),
+        driver_id: "sus-drv-1".to_string(),
+        pod_id: "sus-pod-1".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "spa".to_string(),
+        car: "ks_ferrari_sf15t".to_string(),
+        lap_number: 1,
+        lap_time_ms: 90000,
+        sector1_ms: Some(30000),
+        sector2_ms: Some(28000),
+        sector3_ms: Some(30000), // sum=88000, diff from 90000 = 2000 > 500
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+
+    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+
+    // Verify suspect=1
+    let result = sqlx::query_as::<_, (i64,)>(
+        "SELECT suspect FROM laps WHERE id = 'sus-lap-1'"
+    ).fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, 1, "lap with sector sum mismatch >500ms should be suspect=1");
+}
+
+/// LB-05: A lap with lap_time_ms < 20000 (20s) is flagged suspect=1.
+#[tokio::test]
+async fn test_lap_suspect_sanity() {
+    let pool = create_test_db().await;
+
+    seed_test_driver(&pool, "sus-drv-2").await;
+    seed_test_pod(&pool, "sus-pod-2", 2).await;
+
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-2', 'hotlap', 'assetto_corsa', 'spa')"
+    ).execute(&pool).await.unwrap();
+
+    let state = create_test_state(pool.clone());
+
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('sus-bs-2', 'sus-drv-2', 'sus-pod-2', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    let lap = rc_common::types::LapData {
+        id: "sus-lap-2".to_string(),
+        session_id: "sus-sess-2".to_string(),
+        driver_id: "sus-drv-2".to_string(),
+        pod_id: "sus-pod-2".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "spa".to_string(),
+        car: "ks_ferrari_sf15t".to_string(),
+        lap_number: 1,
+        lap_time_ms: 15000, // 15 seconds — impossibly fast
+        sector1_ms: Some(5000),
+        sector2_ms: Some(5000),
+        sector3_ms: Some(5000), // sum=15000, matches lap_time perfectly
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+
+    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+
+    let result = sqlx::query_as::<_, (i64,)>(
+        "SELECT suspect FROM laps WHERE id = 'sus-lap-2'"
+    ).fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, 1, "lap with lap_time_ms < 20000 should be suspect=1");
+}
+
+/// LB-05: A valid lap with sane time and matching sectors gets suspect=0.
+#[tokio::test]
+async fn test_lap_not_suspect_valid() {
+    let pool = create_test_db().await;
+
+    seed_test_driver(&pool, "sus-drv-3").await;
+    seed_test_pod(&pool, "sus-pod-3", 3).await;
+
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-3', 'hotlap', 'assetto_corsa', 'spa')"
+    ).execute(&pool).await.unwrap();
+
+    let state = create_test_state(pool.clone());
+
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('sus-bs-3', 'sus-drv-3', 'sus-pod-3', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    let lap = rc_common::types::LapData {
+        id: "sus-lap-3".to_string(),
+        session_id: "sus-sess-3".to_string(),
+        driver_id: "sus-drv-3".to_string(),
+        pod_id: "sus-pod-3".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "spa".to_string(),
+        car: "ks_ferrari_sf15t".to_string(),
+        lap_number: 1,
+        lap_time_ms: 90000,
+        sector1_ms: Some(30000),
+        sector2_ms: Some(30000),
+        sector3_ms: Some(29800), // sum=89800, diff=200 <= 500
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+
+    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+
+    let result = sqlx::query_as::<_, (i64,)>(
+        "SELECT suspect FROM laps WHERE id = 'sus-lap-3'"
+    ).fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, 0, "valid lap with matching sectors should be suspect=0");
+}
+
+/// LB-05: A lap with NULL sectors and sane time should NOT be flagged suspect.
+#[tokio::test]
+async fn test_lap_not_suspect_no_sectors() {
+    let pool = create_test_db().await;
+
+    seed_test_driver(&pool, "sus-drv-4").await;
+    seed_test_pod(&pool, "sus-pod-4", 4).await;
+
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-4', 'hotlap', 'assetto_corsa', 'spa')"
+    ).execute(&pool).await.unwrap();
+
+    let state = create_test_state(pool.clone());
+
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('sus-bs-4', 'sus-drv-4', 'sus-pod-4', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    let lap = rc_common::types::LapData {
+        id: "sus-lap-4".to_string(),
+        session_id: "sus-sess-4".to_string(),
+        driver_id: "sus-drv-4".to_string(),
+        pod_id: "sus-pod-4".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "spa".to_string(),
+        car: "ks_ferrari_sf15t".to_string(),
+        lap_number: 1,
+        lap_time_ms: 90000,
+        sector1_ms: None,
+        sector2_ms: None,
+        sector3_ms: None, // no sectors
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+
+    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+
+    let result = sqlx::query_as::<_, (i64,)>(
+        "SELECT suspect FROM laps WHERE id = 'sus-lap-4'"
+    ).fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, 0, "lap with no sectors should NOT be suspect");
+}
+
+/// LB-05: A lap with all sectors = 0 and sane time should NOT be flagged suspect (zero = absent).
+#[tokio::test]
+async fn test_lap_suspect_zero_sectors_ignored() {
+    let pool = create_test_db().await;
+
+    seed_test_driver(&pool, "sus-drv-5").await;
+    seed_test_pod(&pool, "sus-pod-5", 5).await;
+
+    sqlx::query(
+        "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-5', 'hotlap', 'assetto_corsa', 'spa')"
+    ).execute(&pool).await.unwrap();
+
+    let state = create_test_state(pool.clone());
+
+    sqlx::query(
+        "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
+         VALUES ('sus-bs-5', 'sus-drv-5', 'sus-pod-5', 'tier_30min', 1800, 'active')"
+    ).execute(&pool).await.unwrap();
+
+    let lap = rc_common::types::LapData {
+        id: "sus-lap-5".to_string(),
+        session_id: "sus-sess-5".to_string(),
+        driver_id: "sus-drv-5".to_string(),
+        pod_id: "sus-pod-5".to_string(),
+        sim_type: rc_common::types::SimType::AssettoCorsa,
+        track: "spa".to_string(),
+        car: "ks_ferrari_sf15t".to_string(),
+        lap_number: 1,
+        lap_time_ms: 90000,
+        sector1_ms: Some(0),
+        sector2_ms: Some(0),
+        sector3_ms: Some(0), // all zero = treated as absent
+        valid: true,
+        created_at: chrono::Utc::now(),
+    };
+
+    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+
+    let result = sqlx::query_as::<_, (i64,)>(
+        "SELECT suspect FROM laps WHERE id = 'sus-lap-5'"
+    ).fetch_one(&pool).await.unwrap();
+
+    assert_eq!(result.0, 0, "lap with zero sectors should NOT be suspect (zero = absent)");
+}
