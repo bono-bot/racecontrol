@@ -6,10 +6,12 @@
 //! 3. Updates `personal_bests` if this is the driver's fastest lap for this track+car
 //! 4. Updates `track_records` if this is the fastest lap ever for this track+car
 //! 5. Updates driver aggregate stats (total_laps, total_time_ms)
+//! 6. Sends "record beaten" email to previous holder (if any)
 
 use std::sync::Arc;
 
 use rc_common::types::LapData;
+use sqlx::SqlitePool;
 
 use crate::state::AppState;
 
@@ -53,7 +55,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
             let diff = (sector_sum as i64 - lap.lap_time_ms as i64).unsigned_abs();
             diff <= 500
         }
-        _ => true, // sectors absent or zero — treat as ok
+        _ => true, // sectors absent or zero -- treat as ok
     };
     let suspect_flag: i32 = if !sanity_ok || !sector_sum_ok { 1 } else { 0 };
 
@@ -126,22 +128,31 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     }
 
     // 3. Check and update track record for this track+car
-    let existing_record = sqlx::query_as::<_, (i64,)>(
-        "SELECT best_lap_ms FROM track_records WHERE track = ? AND car = ?",
-    )
-    .bind(&lap.track)
-    .bind(&lap.car)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    // STEP 1: Fetch previous record holder (name + email) BEFORE the UPSERT.
+    // If fetched after, the UPSERT would have overwritten it with the new holder.
+    let prev_record = get_previous_record_holder(&state.db, &lap.track, &lap.car).await;
 
-    let is_record = match existing_record {
-        Some((current_record,)) => (lap.lap_time_ms as i64) < current_record,
-        None => true, // First lap on this track+car
+    let is_record = match &prev_record {
+        Some((current_record, _, _)) => (lap.lap_time_ms as i64) < *current_record,
+        None => true, // First lap on this track+car -- new record, but no one to notify
     };
 
     if is_record {
+        // STEP 2: Fetch the new record holder's display name (nickname if opted in, else name).
+        let new_holder_name: String = sqlx::query_as::<_, (String,)>(
+            "SELECT CASE WHEN show_nickname_on_leaderboard = 1 AND nickname IS NOT NULL
+                        THEN nickname ELSE name END
+             FROM drivers WHERE id = ?",
+        )
+        .bind(&lap.driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .map(|(n,)| n)
+        .unwrap_or_else(|| "Unknown".to_string());
+
+        // STEP 3: Execute the UPSERT (unchanged logic).
         let _ = sqlx::query(
             "INSERT INTO track_records (track, car, driver_id, best_lap_ms, lap_id, achieved_at)
              VALUES (?, ?, ?, ?, ?, datetime('now'))
@@ -163,6 +174,72 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
             "NEW TRACK RECORD on {}/{}: {}ms by driver {}",
             lap.track, lap.car, lap.lap_time_ms, lap.driver_id
         );
+
+        // STEP 4: Fire notification email to the previous record holder (if any).
+        if let Some((old_time_ms, prev_name, Some(prev_email))) = prev_record {
+            let track = lap.track.clone();
+            let car = lap.car.clone();
+            let new_time_ms = lap.lap_time_ms as i64;
+            let email_script = state.config.watchdog.email_script_path.clone();
+            let new_holder = new_holder_name.clone();
+
+            // Format times as M:SS.mmm
+            let old_display = format_lap_time(old_time_ms);
+            let new_display = format_lap_time(new_time_ms);
+
+            let subject = format!("Your {} record at {} has been beaten!", car, track);
+            let body = format!(
+                "Hi {},\n\n\
+                 Your track record at {} in the {} has been broken.\n\n\
+                 New record set by: {}\n\
+                 Old time: {}\n\
+                 New time: {}\n\n\
+                 Come back and reclaim it!\n\n\
+                 https://app.racingpoint.cloud/leaderboard/public",
+                prev_name, track, car, new_holder, old_display, new_display
+            );
+
+            // Fire-and-forget: notification failure must not affect lap persistence
+            tokio::spawn(async move {
+                let result = tokio::process::Command::new("node")
+                    .arg(&email_script)
+                    .arg(&prev_email)
+                    .arg(&subject)
+                    .arg(&body)
+                    .kill_on_drop(true)
+                    .output()
+                    .await;
+
+                match result {
+                    Ok(output) if output.status.success() => {
+                        tracing::info!(
+                            "Track record notification sent to {} for {}/{}",
+                            prev_email, track, car
+                        );
+                    }
+                    Ok(output) => {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        tracing::warn!(
+                            "Track record notification failed for {}/{}: {}",
+                            track, car, stderr
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to spawn track record notification for {}/{}: {}",
+                            track, car, e
+                        );
+                    }
+                }
+            });
+        } else if prev_record.is_some() {
+            // Previous holder exists but has no email -- skip silently
+            tracing::debug!(
+                "Previous record holder on {}/{} has no email, skipping notification",
+                lap.track, lap.car
+            );
+        }
+        // If prev_record is None, this is the first record -- no one to notify
     }
 
     // 4. Update driver aggregate stats
@@ -179,4 +256,38 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .await;
 
     is_record
+}
+
+/// Fetch the current track record holder's best time, name, and email for a given track+car.
+///
+/// Returns `Some((best_lap_ms, driver_name, Option<email>))` if a record exists,
+/// or `None` if no record has been set for this track+car combination.
+///
+/// This function is called BEFORE the UPSERT in `persist_lap()` so that the
+/// previous holder's data is captured before it gets overwritten.
+pub async fn get_previous_record_holder(
+    db: &SqlitePool,
+    track: &str,
+    car: &str,
+) -> Option<(i64, String, Option<String>)> {
+    sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT tr.best_lap_ms, d.name, d.email
+         FROM track_records tr
+         JOIN drivers d ON tr.driver_id = d.id
+         WHERE tr.track = ? AND tr.car = ?",
+    )
+    .bind(track)
+    .bind(car)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Format a lap time in milliseconds as M:SS.mmm (e.g., 90123 -> "1:30.123").
+fn format_lap_time(ms: i64) -> String {
+    let minutes = ms / 60000;
+    let seconds = (ms % 60000) / 1000;
+    let millis = ms % 1000;
+    format!("{}:{:02}.{:03}", minutes, seconds, millis)
 }
