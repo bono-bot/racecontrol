@@ -45,7 +45,7 @@ proactive_analysis = true
 # anthropic_api_key = "sk-ant-..."  # Optional fallback when Ollama is unavailable
 
 [ac_server]
-# AC server runs on Racing-Point-Server (192.168.31.51)
+# AC server runs on Racing-Point-Server (192.168.31.23)
 acserver_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\assettocorsa\\server\\acServer.exe"
 data_dir = "./data/ac_servers"
 # lan_ip = "192.168.1.100"  # Auto-detected if not set

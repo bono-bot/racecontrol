@@ -32,7 +32,7 @@
   {
     "instruction": "What is the server's role at Racing Point?",
     "input": "",
-    "output": "Racing-Point-Server at 192.168.31.51 (64GB RAM):\n- Runs rc-core (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n- Runs kiosk Next.js app on port 3300 — staff terminal\n- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n- rc-core is authoritative for billing and laps. Cloud is authoritative for drivers and pricing."
+    "output": "Racing-Point-Server at 192.168.31.23 (64GB RAM):\n- Runs rc-core (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n- Runs kiosk Next.js app on port 3300 — staff terminal\n- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n- rc-core is authoritative for billing and laps. Cloud is authoritative for drivers and pricing."
   },
   {
     "instruction": "Pod 6 shows overlay timer from a previous session that ended.",
@@ -42,7 +42,7 @@
   {
     "instruction": "Pod 7 (192.168.31.38): iRacingSim64DX11.exe exited unexpectedly. Context: network error: DNS resolution failed",
     "input": "",
-    "output": "**iRacing crash on Pod 7** (192.168.31.38)\n\nError context: network error: DNS resolution failed\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch iRacingSim64DX11.exe and verify telemetry on UDP 6789."
+    "output": "**iRacing crash on Pod 7** (192.168.31.38)\n\nError context: network error: DNS resolution failed\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.23` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch iRacingSim64DX11.exe and verify telemetry on UDP 6789."
   },
   {
     "instruction": "Pod 5 rc-agent is behaving weird, might have duplicates.",
@@ -57,7 +57,7 @@
   {
     "instruction": "iRacing crashed on pod 2. Error: Steam overlay: no connection",
     "input": "",
-    "output": "**iRacing crash on Pod 2** (192.168.31.33)\n\nError context: Steam overlay: no connection\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch iRacingSim64DX11.exe and verify telemetry on UDP 6789."
+    "output": "**iRacing crash on Pod 2** (192.168.31.33)\n\nError context: Steam overlay: no connection\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.23` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch iRacingSim64DX11.exe and verify telemetry on UDP 6789."
   },
   {
     "instruction": "How does DHCP work with the pods?",
@@ -142,7 +142,7 @@
   {
     "instruction": "Pod 3 (192.168.31.28): LMU.exe exited unexpectedly. Context: failed to connect to iRacing service",
     "input": "",
-    "output": "**Le Mans Ultimate crash on Pod 3** (192.168.31.28)\n\nError context: failed to connect to iRacing service\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch LMU.exe and verify telemetry on UDP 5555."
+    "output": "**Le Mans Ultimate crash on Pod 3** (192.168.31.28)\n\nError context: failed to connect to iRacing service\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.23` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch LMU.exe and verify telemetry on UDP 5555."
   },
   {
     "instruction": "Deploy to pod 7 failed with SIZE MISMATCH.",
@@ -222,7 +222,7 @@
   {
     "instruction": "F1 25 crashed on pod 2. Error: connection to multiplayer server timed out",
     "input": "",
-    "output": "**F1 25 crash on Pod 2** (192.168.31.33)\n\nError context: connection to multiplayer server timed out\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch F1_25.exe and verify telemetry on UDP 20777."
+    "output": "**F1 25 crash on Pod 2** (192.168.31.33)\n\nError context: connection to multiplayer server timed out\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.23` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch F1_25.exe and verify telemetry on UDP 20777."
   },
   {
     "instruction": "iRacing crashed on pod 2. Error: Windows ran out of virtual memory",
@@ -302,7 +302,7 @@
   {
     "instruction": "Le Mans Ultimate crashed on pod 4. Error: Steam overlay: no connection",
     "input": "",
-    "output": "**Le Mans Ultimate crash on Pod 4** (192.168.31.88)\n\nError context: Steam overlay: no connection\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch LMU.exe and verify telemetry on UDP 5555."
+    "output": "**Le Mans Ultimate crash on Pod 4** (192.168.31.88)\n\nError context: Steam overlay: no connection\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.23` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch LMU.exe and verify telemetry on UDP 5555."
   },
   {
     "instruction": "Assetto Corsa crashed on pod 4. Error: OpenFFBoard HID device not found",
@@ -337,7 +337,7 @@
   {
     "instruction": "Forza Motorsport crashed on pod 2. Error: Steam overlay: no connection",
     "input": "",
-    "output": "**Forza Motorsport crash on Pod 2** (192.168.31.33)\n\nError context: Steam overlay: no connection\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch ForzaMotorsport.exe and verify telemetry on UDP 5300."
+    "output": "**Forza Motorsport crash on Pod 2** (192.168.31.33)\n\nError context: Steam overlay: no connection\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.23` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch ForzaMotorsport.exe and verify telemetry on UDP 5300."
   },
   {
     "instruction": "Can't start rc-agent on pod 1, port 18923 already in use.",
@@ -502,7 +502,7 @@
   {
     "instruction": "Assetto Corsa crashed on pod 1. Error: Steam overlay: no connection",
     "input": "",
-    "output": "**Assetto Corsa crash on Pod 1** (192.168.31.89)\n\nError context: Steam overlay: no connection\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch acs.exe and verify telemetry on UDP 9996."
+    "output": "**Assetto Corsa crash on Pod 1** (192.168.31.89)\n\nError context: Steam overlay: no connection\n\nNetwork connectivity issue affecting the game.\n\nImmediate steps:\n1. Check pod internet: `ping 8.8.8.8` from the pod\n2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.23` (server)\n3. Check DNS: `nslookup google.com`\n4. Check if Steam/game service is down: check status pages\n\nIf local network OK but internet down:\n- Check router (192.168.31.1) WAN connection\n- Check if ISP is down\n- For multiplayer: AC server runs locally on .51, doesn't need internet\n\nFor Steam issues: `taskkill /F /IM steam.exe` then relaunch\n\nAfter resolving, relaunch acs.exe and verify telemetry on UDP 9996."
   },
   {
     "instruction": "F1 25 crashed on pod 7. Error: content manager error: missing track extension",

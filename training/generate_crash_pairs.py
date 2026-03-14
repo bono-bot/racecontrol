@@ -123,7 +123,7 @@ ERROR_TYPES = [
             "Network connectivity issue affecting the game.\n\n"
             "Immediate steps:\n"
             "1. Check pod internet: `ping 8.8.8.8` from the pod\n"
-            "2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.51` (server)\n"
+            "2. Check local network: `ping 192.168.31.1` (router) and `ping 192.168.31.23` (server)\n"
             "3. Check DNS: `nslookup google.com`\n"
             "4. Check if Steam/game service is down: check status pages\n\n"
             "If local network OK but internet down:\n"

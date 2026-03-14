@@ -91,7 +91,7 @@ def generate_network_pairs() -> list[dict]:
             "instruction": "What is the server's role at Racing Point?",
             "input": "",
             "output": (
-                "Racing-Point-Server at 192.168.31.51 (64GB RAM):\n"
+                "Racing-Point-Server at 192.168.31.23 (64GB RAM):\n"
                 "- Runs rc-core (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n"
                 "- Runs kiosk Next.js app on port 3300 — staff terminal\n"
                 "- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n"

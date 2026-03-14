@@ -68,7 +68,7 @@
   {
     "instruction": "What is the server's role at Racing Point?",
     "input": "",
-    "output": "Racing-Point-Server at 192.168.31.51 (64GB RAM):\n- Runs rc-core (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n- Runs kiosk Next.js app on port 3300 — staff terminal\n- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n- rc-core is authoritative for billing and laps. Cloud is authoritative for drivers and pricing.",
+    "output": "Racing-Point-Server at 192.168.31.23 (64GB RAM):\n- Runs rc-core (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n- Runs kiosk Next.js app on port 3300 — staff terminal\n- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n- rc-core is authoritative for billing and laps. Cloud is authoritative for drivers and pricing.",
     "source": "ops/network"
   },
   {

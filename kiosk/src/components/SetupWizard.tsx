@@ -598,7 +598,7 @@ export function SetupWizard({
                   <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">Server IP</label>
                   <input
                     type="text"
-                    placeholder="192.168.31.51"
+                    placeholder="192.168.31.23"
                     value={ws.serverIp}
                     onChange={(e) => setField("serverIp", e.target.value)}
                     className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"

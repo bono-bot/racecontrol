@@ -292,7 +292,7 @@ TRAINING_PAIRS = [
         "category": "games",
         "question": "What are the AC server presets and what is RP_OPTIMAL?",
         "context_file": None,
-        "static_answer": "AC server presets are saved configurations for LAN multiplayer sessions. Stored in ac_presets table with config_json. RP_OPTIMAL is the recommended preset: SESSION_START=100% grip, RANDOMNESS=0, SESSION_TRANSFER=100%, LAP_GAIN=0, clear weather, no wind, SUN_ANGLE=16. Other presets: SERVER_01, SERVER_02, SERVER_05 (bad grip — 80%). The AC server runs on Racing-Point-Server (192.168.31.51).",
+        "static_answer": "AC server presets are saved configurations for LAN multiplayer sessions. Stored in ac_presets table with config_json. RP_OPTIMAL is the recommended preset: SESSION_START=100% grip, RANDOMNESS=0, SESSION_TRANSFER=100%, LAP_GAIN=0, clear weather, no wind, SUN_ANGLE=16. Other presets: SERVER_01, SERVER_02, SERVER_05 (bad grip — 80%). The AC server runs on Racing-Point-Server (192.168.31.23).",
     },
     {
         "category": "games",

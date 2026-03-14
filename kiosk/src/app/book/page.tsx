@@ -843,7 +843,7 @@ export default function BookingPage() {
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">Server IP</label>
-                    <input type="text" placeholder="192.168.31.51" value={ws.serverIp}
+                    <input type="text" placeholder="192.168.31.23" value={ws.serverIp}
                       onChange={(e) => wizard.setField("serverIp", e.target.value)}
                       className="w-full px-4 py-3 bg-rp-surface border border-rp-border rounded-lg text-white focus:outline-none focus:border-rp-red" />
                   </div>
