@@ -304,6 +304,7 @@ export interface CustomBookingPayload {
   difficulty: string;
   transmission: string;
   ffb?: string;
+  session_type?: string;
 }
 
 // ─── Friends & Multiplayer Types ──────────────────────────────────────────

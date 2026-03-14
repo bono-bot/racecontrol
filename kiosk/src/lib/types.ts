@@ -279,7 +279,7 @@ export type SetupStep =
   | "driving_settings"
   | "review";
 
-export type SessionType = "practice" | "qualification" | "race";
+export type SessionType = "practice" | "hotlap" | "race" | "trackday" | "race_weekend";
 export type PlayerMode = "single" | "multi";
 export type ExperienceMode = "preset" | "custom";
 export type AiDifficulty = "easy" | "medium" | "hard";

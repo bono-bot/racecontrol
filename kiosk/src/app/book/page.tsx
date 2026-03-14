@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useSetupWizard } from "@/hooks/useSetupWizard";
-import type { PricingTier, AcCatalog, CatalogItem, KioskExperience } from "@/lib/types";
+import type { PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType } from "@/lib/types";
 
 // ─── Phase Definitions ──────────────────────────────────────────────────────
 
@@ -247,7 +247,7 @@ export default function BookingPage() {
     wizard.goNext();
   }
 
-  function handleSelectSessionType(type: "practice" | "qualification" | "race") {
+  function handleSelectSessionType(type: SessionType) {
     wizard.setField("sessionType", type);
     wizard.goNext();
   }
@@ -715,7 +715,7 @@ export default function BookingPage() {
             <div className="space-y-4">
               {([
                 { type: "practice" as const, label: "Practice", desc: "Free driving with no timer or AI pressure", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
-                { type: "qualification" as const, label: "Qualification", desc: "Timed laps — set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
+                { type: "hotlap" as const, label: "Hot Lap", desc: "Timed laps — set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
                 { type: "race" as const, label: "Race", desc: "Full race with grid start and laps", icon: "M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" },
               ]).map(({ type, label, desc, icon }) => (
                 <button
