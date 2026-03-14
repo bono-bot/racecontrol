@@ -11,11 +11,18 @@ Phases: State Wiring & Config Hardening → Watchdog Hardening → WebSocket Res
 
 </details>
 
+<details>
+<summary>v2.0 Kiosk URL Reliability — 6 phases, 12 plans (Shipped 2026-03-14)</summary>
+
+Phases: Diagnosis → Server-Side Pinning → Pod Lock Screen Hardening → Edge Browser Hardening → Staff Dashboard Controls → Customer Experience Polish
+
+</details>
+
 ## Current Milestone
 
-### v2.0 Kiosk URL Reliability (Phases 6–11)
+### v3.0 Leaderboards, Telemetry & Competitive (Phases 12–15)
 
-**Milestone Goal:** Eliminate all "Site cannot be reached" and 404 errors across the venue — every kiosk URL works permanently after any reboot, crash, or network change.
+**Milestone Goal:** Give customers a public competitive platform — leaderboards, telemetry analysis, group event results, and championships — accessible from their phones via the cloud PWA.
 
 ## Phases
 
@@ -25,109 +32,67 @@ Phases: State Wiring & Config Hardening → Watchdog Hardening → WebSocket Res
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 6: Diagnosis** - Confirm actual URL failure modes before touching anything
-- [x] **Phase 7: Server-Side Pinning** - Lock server IP and auto-start kiosk as production build (completed 2026-03-13)
-- [x] **Phase 8: Pod Lock Screen Hardening** - Rust compile + deploy: readiness probe + branded waiting state (completed 2026-03-14)
-- [x] **Phase 9: Edge Browser Hardening** - Disable auto-update, StartupBoost, BackgroundMode on all pods (completed 2026-03-14)
-- [x] **Phase 10: Staff Dashboard Controls** - Power management and kiosk lockdown controls in the UI (completed 2026-03-14)
-- [x] **Phase 11: Customer Experience Polish** - Session results display and branded lock screen identity (completed 2026-03-14)
+- [ ] **Phase 12: Data Foundation** - Schema migrations, indexes, WAL tuning, and cloud ID resolution — the safe ground every competitive feature builds on
+- [ ] **Phase 13: Leaderboard Core** - Public leaderboards, circuit/vehicle records, driver profiles, lap validity hardening, and "beaten" notifications — immediate customer value from existing data
+- [ ] **Phase 14: Events and Championships** - Hotlap events with 107% rule and badges, group event F1 scoring, multi-round championships, and cloud sync for all competitive tables
+- [ ] **Phase 15: Telemetry and Driver Rating** - Speed trace + lap comparison, inputs trace, 2D track map, and percentile-based driver skill classes
 
 ## Phase Details
 
-### Phase 6: Diagnosis
-**Goal**: Staff have a confirmed root-cause map of URL failures, baseline state of every relevant system component, and no open questions that would cause Phase 7 to solve the wrong problem
-**Depends on**: Nothing (first v2.0 phase)
-**Requirements**: DIAG-01, DIAG-02, DIAG-03, DIAG-04
+### Phase 12: Data Foundation
+**Goal**: The database is correctly indexed, WAL-tuned, and extended with all v3.0 tables — every competitive feature that follows builds on a safe, performant foundation with zero risk of silent data corruption or query performance collapse
+**Depends on**: Phase 11 (v2.0 complete)
+**Requirements**: DATA-01, DATA-02, DATA-03, DATA-04, DATA-05, DATA-06
 **Success Criteria** (what must be TRUE):
-  1. Staff can view collected error and debug logs from all 8 pods and the server, revealing which URLs fail and under what conditions
-  2. Staff can read a port audit of Server (.23) showing which ports are occupied and whether any conflict with port 3300 or 8080
-  3. Staff can confirm the Edge version and the current values of StartupBoostEnabled, BackgroundModeEnabled, and EdgeUpdate service status on every pod
-  4. Staff can confirm whether Server (.23) holds a static IP or a DHCP lease, and can read its MAC address for use in the DHCP reservation
-**Plans:** 2/2 plans executed
+  1. A leaderboard query for a specific track returns results in under 50ms with 10,000 laps in the database — verified by query EXPLAIN showing index usage
+  2. A telemetry fetch for any lap returns in under 100ms with 500,000 telemetry_samples rows — verified by EXPLAIN showing idx_telemetry_lap_offset used
+  3. All six new competitive tables (hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, driver_ratings) exist in the schema and accept valid inserts
+  4. A lap sync operation completes without UUID mismatch error — the cloud_driver_id column resolves before any lap is written to competitive tables
+  5. The laps table has a car_class column and new laps are automatically assigned a class on completion
+**Plans**: TBD
 
-Plans:
-- [x] 06-01-PLAN.md — Collect rc-agent logs and Edge settings baseline from all 8 pods
-- [x] 06-02-PLAN.md — Server port audit and IP/MAC identification (via pod-agent, not RDP)
-
-### Phase 7: Server-Side Pinning
-**Goal**: The staff kiosk is reachable at a stable, named address from any device on the LAN and survives server reboots without manual intervention — with zero changes to pods
-**Depends on**: Phase 6
-**Requirements**: HOST-01, HOST-02, HOST-03, HOST-04
+### Phase 13: Leaderboard Core
+**Goal**: Customers can browse public leaderboards, circuit records, vehicle records, and driver profiles from the cloud PWA using existing lap data — and receive an automated email when their track record is broken — all without any login
+**Depends on**: Phase 12
+**Requirements**: LB-01, LB-02, LB-03, LB-04, LB-05, LB-06, DRV-01, DRV-02, DRV-03, DRV-04, NTF-01, NTF-02, PUB-01, PUB-02
 **Success Criteria** (what must be TRUE):
-  1. Staff can open `http://kiosk.rp:3300/kiosk` in a browser on James's machine and reach the staff kiosk terminal
-  2. After a full server reboot, the kiosk is accessible at `http://kiosk.rp:3300/kiosk` within 60 seconds — no manual start needed
-  3. Server IP address remains .23 across router restarts and lease renewals (DHCP reservation confirmed in router admin)
-  4. The kiosk runs from a production Next.js build (`next build` output), not the development server
-**Plans:** 2/2 plans complete
+  1. User on a phone can open app.racingpoint.cloud, navigate to any track's leaderboard, filter by car and sim type, and see the fastest valid laps sorted by time — without logging in
+  2. User can navigate to circuit records and see the all-time fastest lap per vehicle per circuit, and to vehicle records and see the fastest laps per circuit for a specific vehicle
+  3. User can search for a driver by name, open their public profile via a shareable URL, and see their stats, personal bests, and full lap history with sector times
+  4. When a track record is beaten, the previous record holder receives an email with the track name, car, old time, new time, new holder name, and a link to the leaderboard
+  5. Invalid laps are hidden by default on all leaderboards; user can toggle to show invalid laps
+**Plans**: TBD
 
-Plans:
-- [x] 07-01-PLAN.md — Pin server IP to .23 via DHCP reservation and inventory server
-- [x] 07-02-PLAN.md — rc-core reverse proxy + CORS fix committed; server deployment pending physical access to .23
-
-### Phase 8: Pod Lock Screen Hardening
-**Goal**: Pod lock screens never show a browser error page — pods display a branded waiting state on startup and recover gracefully when rc-agent restarts
-**Depends on**: Phase 7
-**Requirements**: LOCK-01, LOCK-02, LOCK-03
+### Phase 14: Events and Championships
+**Goal**: Staff can run structured hotlap events and multi-round championships — customers see ranked event leaderboards with 107% rule, gold/silver/bronze badges, F1-scored group results, and cumulative championship standings — all synced to the cloud PWA
+**Depends on**: Phase 13
+**Requirements**: EVT-01, EVT-02, EVT-03, EVT-04, EVT-05, EVT-06, EVT-07, GRP-01, GRP-02, GRP-03, GRP-04, CHP-01, CHP-02, CHP-03, CHP-04, CHP-05, SYNC-01, SYNC-02, SYNC-03
 **Success Criteria** (what must be TRUE):
-  1. On pod reboot, the Edge kiosk window shows the branded lock screen (never "Site cannot be reached") within 10 seconds of the desktop appearing
-  2. When rc-agent is not yet running, the pod screen shows a branded "Connecting..." page — no blank window, no browser error
-  3. When rc-agent crashes and restarts mid-session, the pod screen automatically recovers to the lock screen within 30 seconds — no staff intervention required
-**Plans:** 3/3 plans complete
+  1. Staff can create a hotlap event (track, car class, date range, reference time, description) and see it appear on the public events listing page immediately
+  2. When a customer drives a lap matching an active event's track, car class, and date range, their lap automatically appears on the event leaderboard without any manual entry
+  3. User can open an event leaderboard and see per-class tabs, gold/silver/bronze badges, and laps outside 107% of the class leader flagged
+  4. When a multiplayer group session completes, user can view the results page showing position, driver, gap-to-leader, best laps, qual points, race points (F1 25/18/15...), and total
+  5. Staff can create a championship, assign group event rounds to it, and users can view the standings table with per-round point breakdowns and F1 tiebreaker ordering
+  6. All event, championship, and standings data is visible on app.racingpoint.cloud and reflects venue data within 60 seconds of a change
+**Plans**: TBD
 
-Plans:
-- [x] 08-01-PLAN.md — Add StartupConnecting state with readiness probe and branded HTML (LOCK-01, LOCK-02)
-- [x] 08-02-PLAN.md — Create watchdog-rcagent.bat for automatic crash recovery (LOCK-03)
-- [x] 08-03-PLAN.md — Build release binary and stage deployment artifacts (all requirements)
-
-### Phase 9: Edge Browser Hardening
-**Goal**: Edge on all 8 pods is locked to its current version and configured so that auto-updates, startup boost, and background mode cannot break kiosk behavior
-**Depends on**: Phase 8
-**Requirements**: EDGE-01, EDGE-02, EDGE-03
+### Phase 15: Telemetry and Driver Rating
+**Goal**: Customers can compare lap telemetry — speed trace, time delta, throttle/brake/steering, and 2D track map — and see their skill class badge (A/B/C/D) on their profile and leaderboard entries, based on percentile ranking among all drivers
+**Depends on**: Phase 14
+**Requirements**: TEL-01, TEL-02, TEL-03, TEL-04, TEL-05, RAT-01, RAT-02, RAT-03
 **Success Criteria** (what must be TRUE):
-  1. The EdgeUpdate and EdgeUpdateM services are stopped and disabled on all 8 pods — confirmed via `sc query EdgeUpdate` on each pod
-  2. `StartupBoostEnabled` is set to 0 in the registry on all 8 pods — confirmed via registry query
-  3. `BackgroundModeEnabled` is set to 0 in the registry on all 8 pods — confirmed via registry query
-**Plans:** 1 plan
-
-Plans:
-- [x] 09-01-PLAN.md — Deploy Edge hardening script to all 8 pods: disable EdgeUpdate services, set StartupBoost=0 and BackgroundMode=0
-
-### Phase 10: Staff Dashboard Controls
-**Goal**: Staff can manage all 8 pods from the kiosk dashboard without touching a keyboard on the pod — power cycling, rebooting, waking, and toggling lockdown are all one-click operations
-**Depends on**: Phase 7
-**Requirements**: KIOSK-01, KIOSK-02, PWR-01, PWR-02, PWR-03, PWR-04, PWR-05, PWR-06
-**Success Criteria** (what must be TRUE):
-  1. Staff can toggle full lockdown (taskbar hidden, Win key blocked, Edge kiosk mode) on or off for any individual pod from the staff kiosk dashboard
-  2. Staff can lock all 8 pods at once (venue opening/closing) and unlock all 8 pods at once from a single action in the dashboard
-  3. Staff can shut down, restart, or wake any individual pod remotely from the dashboard — and confirm the action took effect by seeing the pod status change
-  4. Staff can shut down, restart, or wake all 8 pods simultaneously from the dashboard with a single action
-**Plans:** 2/2 plans complete
-
-Plans:
-- [x] 10-01-PLAN.md — Add lockdown API routes (per-pod + bulk) and parse_mac unit tests in rc-core
-- [x] 10-02-PLAN.md — Wire lockdown + restart-all to kiosk /control page UI (api.ts + buttons)
-
-### Phase 11: Customer Experience Polish
-**Goal**: Customers see Racing Point branding at every transition — before a session, during a session, and after — and session results remain on screen so customers can review their performance
-**Depends on**: Phase 8
-**Requirements**: BRAND-01, BRAND-02, BRAND-03, SESS-01, SESS-02, SESS-03
-**Success Criteria** (what must be TRUE):
-  1. The lock screen displays the Racing Point logo prominently — no generic Windows screen visible to customers
-  2. Staff can set a wallpaper (static or dynamic) for the blanking/lock screen from the kiosk dashboard — the change is visible on the pod within 10 seconds
-  3. A branded Racing Point loading screen is shown on the pod between session start and game launch — no desktop or game loading screen visible to the customer
-  4. After each session ends, the pod displays the customer's lap times, top speed, best lap, and race position — and the results remain on screen until staff or customer initiates a new session
-**Plans:** 2/2 plans complete
-
-Plans:
-- [x] 11-01-PLAN.md — Branding (logo SVG, wallpaper URL rendering), session stats (top speed, race position), persistent results (SESS-03)
-- [x] 11-02-PLAN.md — Kiosk settings UI for wallpaper URL input (BRAND-02 frontend)
+  1. User can open any lap's telemetry page and see a speed trace chart with throttle and brake overlaid, plotted against track distance
+  2. User can select two laps from the same track and see them compared side-by-side with a time delta channel showing where time was gained or lost, with a linked cursor across all traces
+  3. User can view a 2D track map for any lap showing the racing line colored by speed (green fast, red braking zones)
+  4. Every driver profile and leaderboard entry shows a class badge (A/B/C/D) that reflects the driver's percentile rank among all drivers on that track and car combination — updating automatically when new laps are recorded
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
+Phases execute in numeric order: 12 → 13 → 14 → 15
 
-Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable server URL but not the Edge hardening. Phase 11 depends on Phase 8 (not Phase 10) — it requires lock screen infrastructure. Both can proceed after their respective prerequisites.
+Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records patterns and require the public PWA architecture to be validated first). Phase 15 depends on Phase 14 because telemetry comparison derives its value from comparing against event leaders — that context does not exist until events have run.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -137,8 +102,12 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 4. Deployment Pipeline Hardening | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 5. Blanking Screen Protocol | v1.0 | 3/3 | Complete | 2026-03-13 |
 | 6. Diagnosis | v2.0 | 2/2 | Complete | 2026-03-13 |
-| 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
+| 7. Server-Side Pinning | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
 | 10. Staff Dashboard Controls | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
+| 12. Data Foundation | v3.0 | 0/? | Not started | - |
+| 13. Leaderboard Core | v3.0 | 0/? | Not started | - |
+| 14. Events and Championships | v3.0 | 0/? | Not started | - |
+| 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |

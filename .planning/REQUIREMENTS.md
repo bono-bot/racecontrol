@@ -117,13 +117,59 @@ Deferred to future milestone. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (Populated by roadmapper) | | |
+| DATA-01 | Phase 12 | Pending |
+| DATA-02 | Phase 12 | Pending |
+| DATA-03 | Phase 12 | Pending |
+| DATA-04 | Phase 12 | Pending |
+| DATA-05 | Phase 12 | Pending |
+| DATA-06 | Phase 12 | Pending |
+| LB-01 | Phase 13 | Pending |
+| LB-02 | Phase 13 | Pending |
+| LB-03 | Phase 13 | Pending |
+| LB-04 | Phase 13 | Pending |
+| LB-05 | Phase 13 | Pending |
+| LB-06 | Phase 13 | Pending |
+| DRV-01 | Phase 13 | Pending |
+| DRV-02 | Phase 13 | Pending |
+| DRV-03 | Phase 13 | Pending |
+| DRV-04 | Phase 13 | Pending |
+| NTF-01 | Phase 13 | Pending |
+| NTF-02 | Phase 13 | Pending |
+| PUB-01 | Phase 13 | Pending |
+| PUB-02 | Phase 13 | Pending |
+| EVT-01 | Phase 14 | Pending |
+| EVT-02 | Phase 14 | Pending |
+| EVT-03 | Phase 14 | Pending |
+| EVT-04 | Phase 14 | Pending |
+| EVT-05 | Phase 14 | Pending |
+| EVT-06 | Phase 14 | Pending |
+| EVT-07 | Phase 14 | Pending |
+| GRP-01 | Phase 14 | Pending |
+| GRP-02 | Phase 14 | Pending |
+| GRP-03 | Phase 14 | Pending |
+| GRP-04 | Phase 14 | Pending |
+| CHP-01 | Phase 14 | Pending |
+| CHP-02 | Phase 14 | Pending |
+| CHP-03 | Phase 14 | Pending |
+| CHP-04 | Phase 14 | Pending |
+| CHP-05 | Phase 14 | Pending |
+| SYNC-01 | Phase 14 | Pending |
+| SYNC-02 | Phase 14 | Pending |
+| SYNC-03 | Phase 14 | Pending |
+| TEL-01 | Phase 15 | Pending |
+| TEL-02 | Phase 15 | Pending |
+| TEL-03 | Phase 15 | Pending |
+| TEL-04 | Phase 15 | Pending |
+| TEL-05 | Phase 15 | Pending |
+| RAT-01 | Phase 15 | Pending |
+| RAT-02 | Phase 15 | Pending |
+| RAT-03 | Phase 15 | Pending |
 
 **Coverage:**
-- v1 requirements: 42 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 42
+- v1 requirements: 47 total (note: requirements doc self-count of 42 is off; 47 are listed above)
+- Mapped to phases: 47
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-14*
-*Last updated: 2026-03-14 after initial definition*
+*Last updated: 2026-03-14 after roadmap created (traceability populated)*
