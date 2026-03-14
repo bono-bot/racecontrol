@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: Server-Side Pinning** - Lock server IP and auto-start kiosk as production build (completed 2026-03-13)
 - [x] **Phase 8: Pod Lock Screen Hardening** - Rust compile + deploy: readiness probe + branded waiting state (completed 2026-03-14)
 - [x] **Phase 9: Edge Browser Hardening** - Disable auto-update, StartupBoost, BackgroundMode on all pods (completed 2026-03-14)
-- [ ] **Phase 10: Staff Dashboard Controls** - Power management and kiosk lockdown controls in the UI
+- [x] **Phase 10: Staff Dashboard Controls** - Power management and kiosk lockdown controls in the UI (completed 2026-03-14)
 - [ ] **Phase 11: Customer Experience Polish** - Session results display and branded lock screen identity
 
 ## Phase Details
@@ -101,7 +101,7 @@ Plans:
   2. Staff can lock all 8 pods at once (venue opening/closing) and unlock all 8 pods at once from a single action in the dashboard
   3. Staff can shut down, restart, or wake any individual pod remotely from the dashboard — and confirm the action took effect by seeing the pod status change
   4. Staff can shut down, restart, or wake all 8 pods simultaneously from the dashboard with a single action
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 10-01-PLAN.md — Add lockdown API routes (per-pod + bulk) and parse_mac unit tests in rc-core
@@ -136,5 +136,5 @@ Note: Phase 10 depends on Phase 7 (not Phase 9) — it requires the stable serve
 | 7. Server-Side Pinning | v2.0 | 2/2 | Complete (deploy pending physical server access) | 2026-03-14 |
 | 8. Pod Lock Screen Hardening | v2.0 | 3/3 | Complete | 2026-03-14 |
 | 9. Edge Browser Hardening | v2.0 | 1/1 | Complete | 2026-03-14 |
-| 10. Staff Dashboard Controls | v2.0 | 1/2 | In Progress | - |
+| 10. Staff Dashboard Controls | 2/2 | Complete   | 2026-03-14 | - |
 | 11. Customer Experience Polish | v2.0 | 0/TBD | Not started | - |

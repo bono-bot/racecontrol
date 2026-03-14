@@ -35,9 +35,9 @@
 - [x] **PWR-01**: Staff can power off a specific pod remotely from the staff kiosk dashboard
 - [x] **PWR-02**: Staff can restart a specific pod remotely from the staff kiosk dashboard
 - [x] **PWR-03**: Staff can power on a specific pod remotely from the staff kiosk dashboard (Wake-on-LAN)
-- [ ] **PWR-04**: Staff can power off all 8 pods at once from the staff kiosk dashboard
-- [ ] **PWR-05**: Staff can restart all 8 pods at once from the staff kiosk dashboard
-- [ ] **PWR-06**: Staff can power on all 8 pods at once from the staff kiosk dashboard (Wake-on-LAN)
+- [x] **PWR-04**: Staff can power off all 8 pods at once from the staff kiosk dashboard
+- [x] **PWR-05**: Staff can restart all 8 pods at once from the staff kiosk dashboard
+- [x] **PWR-06**: Staff can power on all 8 pods at once from the staff kiosk dashboard (Wake-on-LAN)
 
 ### Screen Branding & Wallpaper
 
@@ -97,9 +97,9 @@
 | PWR-01 | Phase 10 | Complete |
 | PWR-02 | Phase 10 | Complete |
 | PWR-03 | Phase 10 | Complete |
-| PWR-04 | Phase 10 | Pending |
-| PWR-05 | Phase 10 | Pending |
-| PWR-06 | Phase 10 | Pending |
+| PWR-04 | Phase 10 | Complete |
+| PWR-05 | Phase 10 | Complete |
+| PWR-06 | Phase 10 | Complete |
 | BRAND-01 | Phase 11 | Pending |
 | BRAND-02 | Phase 11 | Pending |
 | BRAND-03 | Phase 11 | Pending |

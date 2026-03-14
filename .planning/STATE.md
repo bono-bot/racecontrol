@@ -3,6 +3,21 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Kiosk URL Reliability
 status: active
+stopped_at: Completed 10-02-PLAN.md task 1 — awaiting human-verify checkpoint
+last_updated: "2026-03-14T02:45:35.510Z"
+last_activity: 2026-03-14 — 10-01 backend lockdown routes + 10 new unit tests committed (564b8ee)
+progress:
+  total_phases: 6
+  completed_phases: 5
+  total_plans: 10
+  completed_plans: 10
+---
+
+---
+gsd_state_version: 1.0
+milestone: v2.0
+milestone_name: Kiosk URL Reliability
+status: active
 stopped_at: Phase 10-01 staff lockdown API routes complete
 last_updated: "2026-03-14"
 last_activity: 2026-03-14 — lockdown_pod + lockdown_all_pods routes added, 10 new tests passing
@@ -87,6 +102,8 @@ Progress: [███████░░░] 70%
 - [Phase 10-01]: Lockdown toggle is ephemeral (no DB write) — resets to rc-agent config default on restart; correct behavior since default is locked
 - [Phase 10-01]: parse_mac changed to pub(crate) for unit testability; BillingTimer::dummy() added as cfg(test) helper
 - [Phase 10-01]: /pods/lockdown-all registered with static bulk routes before {id} dynamic routes to prevent Axum routing conflict
+- [Phase 10-02]: Optimistic UI for lockdown toggle — icon reflects last sent action without waiting for server roundtrip
+- [Phase 10-02]: Unlock All is non-destructive — no confirmation dialog; Lock All requires confirmation
 
 ### Pending Todos
 
@@ -104,6 +121,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14
-Stopped at: Completed 10-01-PLAN.md — lockdown API routes + tests
+Last session: 2026-03-14T02:45:21.728Z
+Stopped at: Completed 10-02-PLAN.md task 1 — awaiting human-verify checkpoint
 Resume file: None
