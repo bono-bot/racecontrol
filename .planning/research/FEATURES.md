@@ -1,254 +1,351 @@
 # Feature Research
 
-**Domain:** Sim racing venue competitive platform — leaderboards, events, telemetry, championships
-**Researched:** 2026-03-14
-**Confidence:** HIGH (competitor analysis of racecentres.com ecosystem, Multitap, simracing.co.uk VMS, SRT, case studies)
+**Domain:** Pod Fleet Self-Healing — Windows gaming PC fleet management (8-pod venue)
+**Researched:** 2026-03-15
+**Confidence:** HIGH (official Windows docs + existing codebase cross-referenced + incident post-mortem from Mar 15)
 
-## Context
+---
 
-This is the v3.0 milestone for an existing system. v1.0 and v2.0 shipped venue operations
-(pod management, billing, lock screens, kiosk reliability). v3.0 adds the competitive platform
-that converts first-time visitors into returning regulars.
+## Context: What Already Exists (Do Not Re-Plan)
 
-**Primary reference:** The racecentres.com ecosystem (r2r.racecentres.com, blueprint.racecentres.com)
-is the direct analogue — a multi-venue platform built on the same VMS (simracing.co.uk) that
-serves as the public competitive layer. Its navigation is the baseline: Hotlapping Events,
-Group Events, Championships, Circuit Records, Vehicle Records, Driver Data.
+The following capabilities are ALREADY BUILT and must not be re-researched or re-planned:
 
-**Key insight from case studies (Multitap NXT LVL Gaming):** The single most effective driver
-of repeat visits is an automated "you've been beaten" notification. The leaderboard is the
-product; everything else is infrastructure to make laps worth submitting.
+- WebSocket connection with keepalive ping/pong — CONN-01 through CONN-03
+- HTTP remote ops on port 8090: exec, file read/write, health, screenshot — `remote_ops.rs`
+- Pod monitoring with escalating backoff 30s→2m→10m→30m — `pod_monitor.rs`
+- Post-restart verification at 5s/15s/30s/60s intervals — `deploy.rs`
+- Deploy via self-swap pattern: download as `rc-agent-new.exe`, bat script kills→renames→restarts
+- HKLM Run key for auto-start at Windows login (`start-rcagent.bat` per pod)
+- Email alerts with rate limiting — `email_alerts.rs`
+- Config validation at startup — DEPLOY-01, DEPLOY-04
+- `CoreToAgentMessage` enum: rich typed protocol, Ping/Pong, all lifecycle messages
+- Rolling deploy with Pod 8 canary-first established pattern
 
-**Existing foundations in RaceControl:**
-- laps table: sector1/2/3_ms, valid flag, driver_id, car, track
-- personal_bests, track_records tables
-- telemetry_samples: speed, throttle, brake, steering, gear, rpm, xyz
-- group_sessions with shared PIN and pod allocation
-- drivers table: total_laps, total_time_ms
-- cloud_sync: pushes to app.racingpoint.cloud every 30s
-- Existing endpoints: /leaderboard/{track}, /public/leaderboard, /public/laps/{id}/telemetry
+The milestone adds NEW self-healing on top of this foundation. Every feature below is additive.
+
+**Incident motivation (Mar 15, 2026):** 4-hour debugging session. Pods 1/3/4 offline due to:
+1. exec slot exhaustion (no visibility into which commands held slots)
+2. Missing firewall rules (CRLF-damaged batch file silently failed to apply them)
+3. CRLF-damaged batch files from Windows-style line endings in the write endpoint
+4. rc-agent crash with no auto-restart (HKLM Run key does not restart on crash)
+5. No remote diagnostics once HTTP port 8090 was blocked by the broken firewall
+
+Every P1 feature below eliminates one or more of these five root causes.
 
 ---
 
 ## Feature Landscape
 
-### Table Stakes (Users Expect These)
+### Table Stakes (Ops Teams Expect These)
 
-Features that any competitive sim racing venue leaderboard must have. The racecentres.com
-reference platform has all of these. Missing any of them makes Racing Point look incomplete
-compared to established venues.
+Features any ops team managing a Windows device fleet takes for granted. Missing these means
+the system is not operationally viable — any fleet manager who sees these absent would
+say the product is not production-ready.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| **Public leaderboard by track** | Customers type a URL and see who's fastest at each circuit. This is the minimum viable competitive feature. Without it, there's nothing to share or return for. | LOW | Foundation already exists: /leaderboard/{track} endpoint and /public/leaderboard. Needs UI polish and filtering (by car, by date range, by event). |
-| **Hotlap events** | Staff can create a "Hotlap Challenge at Spa — McLaren F1 — March 2026" and only laps in that window and car count toward that event's board. This is how racecentres.com venues create recurring reasons to visit. | MEDIUM | Requires events table with: track, car (or class), start_time, end_time, description. Laps are associated with events via timestamp + car match. Staff create/edit events in rc-core admin. |
-| **Car class rankings within hotlap events** | Real motorsport uses classes (GT3, GT4, LMP, etc.). At a venue, it's A/B/C/D by performance tier. A customer in Class D competing on the same board as a Class A driver is demotivating — they need their own board to win. | MEDIUM | Classes are staff-defined per event. A car belongs to exactly one class. A lap's class is derived from the car at time of entry. Within an event, one board per class. 107% rule applies within class (laps > 107% of class leader time are excluded as unrepresentative). |
-| **107% rule enforcement** | Industry standard in motorsport for qualifying validity. In venue context: if a lap is more than 7% slower than the current class leader, it's valid but marked "out of representative pace" — shown on the board with lower visual weight. The rule prevents complete beginners' times from cluttering a competitive event board. | LOW | Pure calculation: if lap_time_ms > (class_leader_time_ms * 1.07) then flag as `outside_107_pct`. Filter is UI-side toggle; times are still stored. |
-| **Circuit records (all-time bests per car per track)** | "Who holds the outright record at Monza in the Ferrari 488?" is the question customers ask. This is separate from event leaderboards — it's the permanent hall of fame. racecentres.com has a dedicated "Circuit Records" section. | LOW | Aggregate query over valid laps: MIN(lap_time_ms) GROUP BY track, car. Needs a materialized view or nightly refresh for performance. Car-level granularity is the baseline; class-level records are a secondary view. |
-| **Vehicle records** | Complement to circuit records: "What's the fastest any driver has gone in a Porsche 911 GT3, at any track?" | LOW | Aggregate query: for each car, show fastest lap across all tracks. One row per car with track context. |
-| **Driver profile page** | Customers want to see "my stats": best lap per track, total laps driven, lifetime time at venue, history over time. This is the feature that makes the experience personal. LapLegends shows: laps recorded, fastest laps count, PB laps count, tracks covered, cars used. | MEDIUM | Existing drivers table has total_laps and total_time_ms. Profile needs: lap history table (most recent N laps), PB per track/car combination, stats cards (total laps, total time, best result in events), class badge. No login required to view — driver profiles are public, accessed by driver name or ID. |
-| **Lap validity display** | Customers know when a time doesn't count. Showing invalid laps on the board (even greyed out) causes confusion. Only valid laps appear by default; a toggle shows all. The valid flag already exists in the laps table. | LOW | Simple UI filter. The valid flag already comes from AC/F1 game data. Invalid laps are stored but hidden by default. Show a count: "2 invalid laps not shown" with a reveal toggle. |
-| **Group event results** | When a group of friends books a race session, they want to see the race results: positions, gap to leader, points scored. This is what the "Group Events" section of racecentres.com serves. | MEDIUM | Requires group_event_results table: session_id, driver_id, finishing_position, gap_to_leader_ms, points_scored. Points calculated automatically using F1 system (25/18/15/12/10/8/6/4/2/1 for P1-P10, 0 thereafter). Fastest lap bonus point for P1-P10 holder. |
-| **No login required to browse** | Venue competitive platforms are public by nature. Requiring login adds friction that kills organic sharing. racecentres.com is entirely public. Leaderboards, records, and driver profiles must be readable without an account. | LOW | All /public/* routes stay unauthenticated. Driver lookup by name or PIN-linked ID. Staff management routes stay behind auth. |
-| **Mobile-first display** | Customers check leaderboards on their phones immediately after a session. If the PWA is not readable on a phone screen, the engagement loop breaks. | LOW | Next.js PWA already exists. Leaderboard tables must use horizontal scroll or card layout on mobile. Font size minimums: 14px for times, 16px for positions. |
+| Feature | Why Expected | Complexity | Dependency on Existing | Notes |
+|---------|--------------|------------|----------------------|-------|
+| **Service auto-restart on crash** | Windows service failure actions have existed since Win2000. Any fleet agent that dies and stays dead is not a fleet agent. The SCM restart action is the first thing any ops engineer checks when setting up a Windows service. | LOW | Replaces HKLM Run key which has no crash restart capability. Requires Windows Service registration. Does not change rc-agent code. | Use a service wrapper (shawl, WinSW, or NSSM). NSSM is abandoned (last release 2017). shawl (Rust, MIT, mtkennerly/shawl) is the best fit for a Rust shop — wraps any exe as a service, handles ctrl-C. Configure failure actions via `sc.exe failure RCAgent reset=3600 actions=restart/5000/restart/30000/restart/60000`. |
+| **Startup self-check before connecting to rc-core** | Before announcing presence, verify own prerequisites. This is the "health check before accepting traffic" pattern from AWS Builders Library. Any distributed system that connects to a coordinator without verifying its own state causes cascading confusion. | LOW | Extends existing `config.rs` startup validation. New checks: registry key present, firewall rule present, bat file not CRLF-corrupted. | Pattern: startup phase returns `StartupHealth { ok: bool, anomalies: Vec<String> }`. If anomalies found, attempt repair. If repair fails, report to rc-core before proceeding. This prevents a pod from appearing "registered" while actually broken. |
+| **Remote exec over existing WebSocket** | When firewall blocks HTTP port 8090, management fails. WebSocket connection is already established and authenticated — routing commands over it is the universal pattern (Kubernetes kubectl exec, AWS Systems Manager, Ansible over SSH). No ops team expects management to stop working because a firewall rule is missing. | MEDIUM | Uses existing `CoreToAgentMessage` enum. Add `Exec { request_id: String, cmd: String, timeout_ms: u64 }` variant. Add `ExecResult { request_id: String, success: bool, exit_code: Option<i32>, stdout: String, stderr: String }` to `AgentMessage`. rc-core routes by pod_id (already does this for all CoreToAgentMessage variants). | Both crates must be rebuilt and redeployed. Command execution logic copies existing `remote_ops.rs` exec handler — same semaphore-gated, `CREATE_NO_WINDOW`, timeout-wrapped pattern. Correlation by `request_id` UUID matches responses to requests without message ordering assumptions. |
+| **Deploy verification with automatic rollback gate** | The existing deploy sequence checks health at 5/15/30/60s. That is correct. What is missing is the response to failure: currently, failure sends an email and stops. Every deployment system (Kubernetes, CodeDeploy, Octopus Deploy) uses health check failure as an automatic rollback trigger on canary deployments. | MEDIUM | Extends existing `deploy.rs` VERIFY_DELAYS logic. Requires: keeping `rc-agent-prev.exe` alongside `rc-agent.exe` on the pod (modified `do-swap.bat`). If 60s check fails, send rollback Exec command over WebSocket (since HTTP may be blocked at this point). | Gate on Pod 8 canary: Pod 8 must pass 60s check before rc-core proceeds to pods 1-7. If Pod 8 rolls back, fleet deploy aborts and email fires. This converts the existing canary pattern from convention into a safety mechanism. |
+| **Firewall rules applied in Rust, not batch files** | CRLF-damaged batch files silently failing to apply firewall rules was a direct root cause of the Mar 15 incident. Batch files are fragile: they can be CRLF-corrupted, they can fail silently, they depend on working netsh which can itself be blocked. Moving to Rust `Command::new("netsh")` at startup eliminates the entire failure mode. This is what any ops engineer would recommend after a CRLF-caused outage. | LOW | New module in rc-agent, runs at startup before WebSocket connect attempt. Uses `std::process::Command` to invoke `netsh advfirewall firewall add rule`. Does NOT depend on Windows Service (netsh can be called from any elevated context). | Two rules: ICMP echo (ping) + TCP 8090 (remote ops inbound). Idempotent: check with `netsh advfirewall firewall show rule name="..."` first, add only if missing. Running as SYSTEM (via service wrapper) satisfies the elevation requirement. |
+| **Startup error reporting before crash** | If rc-agent panics during init, the failure is invisible to rc-core. The pod appears offline with no diagnostic information. Distributed systems fail loudly: report last known error before exiting. This is standard practice for any agent that manages critical infrastructure. | MEDIUM | New: structured startup phase with named stages. If a stage fails, POST to rc-core `/api/agent/startup-error` (new endpoint) with `{ pod_id, phase, error, timestamp }` before exiting. Uses existing `reqwest` client. | If WebSocket not yet established (startup failure happens before connect), use HTTP POST directly to rc-core. If rc-core unreachable, write structured JSON to `C:\RacingPoint\startup-error.json` for manual retrieval via remote_ops `/file` endpoint. |
 
-### Differentiators (Competitive Advantage)
+### Differentiators (Competitive Advantage for Racing Point Operations)
 
-Features the racecentres.com ecosystem does not have, or does poorly. These are where
-Racing Point can pull ahead. Pick 2-3 to execute well rather than shipping all of them shallowly.
+Features that go beyond the minimum and match the specific operational reality: 8-pod venue,
+one ops person (Uday), mobile-first management, no on-site IT staff available at all times.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| **Telemetry comparison: speed trace** | "See exactly where you lost time vs the fastest lap." This is professional motorsport analysis available to a casual customer. Sim Racing Telemetry, Track Titan, and VRS all do this — but they require software installs. Showing it in the cloud PWA (mobile-accessible) with zero setup is the differentiator. | HIGH | telemetry_samples already stored (speed, throttle, brake, steering, gear, rpm, xyz). Need: (1) distance normalization (GPS xyz → track distance %, triggered once per lap), (2) time delta channel (delta_ms at each distance point vs reference lap), (3) Recharts/Chart.js area chart with linked cursor. Two lap comparison: player's PB vs track record holder. This is the highest engineering effort item in v3.0. |
-| **Telemetry: 2D track map overlay** | A minimap showing the racing line colored by speed (green=fast, red=braking zone) is immediately understandable by non-engineers. The xyz data is already captured. Converting xyz to a 2D path with speed coloring is a strong visual hook. | HIGH | Requires: (1) normalize xyz to 2D projection (drop one axis or use PCA on first 2 principal components), (2) SVG polyline colored by speed quantile, (3) render in PWA with canvas or SVG. Complexity is in the projection and normalization, not the render. |
-| **Telemetry: inputs trace** | Throttle, brake, and steering angle plotted alongside speed trace. Shows where a customer was still braking while the reference was at full throttle. This is the "aha" moment that converts a casual visitor into someone who wants to improve. | MEDIUM | Same infrastructure as speed trace. Additional Recharts series on same x-axis (distance %). Linked cursor shows all channels simultaneously. Moderate complexity given the speed trace infrastructure is shared. |
-| **Automated "you've been beaten" notification** | The NXT LVL Gaming case study is unambiguous: "People come in specifically saying 'I got the email that someone beat my time.'" This is the single highest-ROI feature for repeat visits. | MEDIUM | Requires: (1) driver email capture (currently via booking flow), (2) trigger in cloud_sync or rc-core: when a new track record is set, compare to previous holder, send email to previous holder via existing send_email.js. Reuses existing Gmail auth. Template: "Your lap record at [track] in [car] was beaten by [time] — come back and take it." |
-| **Gold/Silver/Bronze badges on hotlap events** | Instead of just a position number, award badges based on time vs a staff-set reference lap. Gold: within 2% of reference. Silver: within 5%. Bronze: within 8%. This gives every customer a win even if they're P47 on the board. | LOW | Staff sets a reference time when creating the event. Badge calculation is: if within 2% → gold, within 5% → silver, within 8% → bronze. Display as colored pill/badge on the driver row. Low implementation cost, high perceived value for casual customers. |
-| **Driver skill class and rating** | A simple performance-based class system (A/B/C/D or Novice/Bronze/Silver/Gold) that updates automatically as a driver improves. When a driver improves their lap times, they see their class badge change. This is a progression mechanic that creates long-term engagement. The SGP ranking system (ML-based) is overkill for a venue; simple Elo or a percentile-based class is sufficient. | MEDIUM | Approach: percentile-based class within a track/car combination. Top 10% of valid laps → Class A. 10-30% → Class B. 30-60% → Class C. Bottom 40% → Class D. Recalculate nightly or on each new lap. Avoids Elo's cold-start problem (no data needed for first classification). Store as driver_class in drivers table or derived from laps. |
-| **Multi-round championships** | A season of 4-6 group events, each awarding F1 points, cumulative standings updated after each round. This is what keeps a regular customer group engaged over months. simracing.gp, SimGrid, and Radical Sim Racing all have this. | HIGH | Requires: championships table (name, description, status), championship_rounds (championship_id, event_id, round_number), championship_standings (championship_id, driver_id, total_points, round_positions). Tiebreaker: most wins, then most P2s, etc. Standings page with round-by-round breakdown. Staff create championships and assign group events as rounds. |
-| **WhatsApp/email share card** | After a session, a driver can generate a shareable image card: "I set a 1:47.3 at Spa today — Racing Point eSports #4 on the leaderboard." Auto-generated OG image with position, time, track, car, venue branding. Strong organic marketing mechanic. | HIGH | Requires: server-side image generation (satori/vercel OG or canvas). Next.js /api/og?lap=xxx route. The image is a PNG that WhatsApp and iMessage preview natively. High complexity but high viral potential. Defer to v3.x if engineering time is tight. |
+| Feature | Value Proposition | Complexity | Dependency on Existing | Notes |
+|---------|-------------------|------------|----------------------|-------|
+| **Config self-heal: detect and repair missing files** | Pods 1/3/4 went offline on Mar 15 partly due to missing/corrupted files and registry keys. Auto-repair means a freshly imaged pod returns to operational without physical intervention. This is desired-state enforcement (Chef/Puppet/Ansible philosophy) applied to Windows endpoints. | MEDIUM | Extends startup self-check. Check list: `rc-agent-podN.toml` (present, parses), `start-rcagent.bat` (present, LF not CRLF), HKLM Run key (exists with correct path), `C:\RacingPoint\` directory structure. Repair using embedded templates via `include_str!()`. | Embed default toml + bat templates as string literals in rc-agent binary. On startup, if file missing or CRLF-corrupted, write correct version from embedded template and log the anomaly. Report via `AgentMessage::StartupReport`. |
+| **Fleet health dashboard for Uday's phone** | Uday manages from his phone. Without a visual overview, every pod problem requires either checking rc-core logs (not phone-friendly) or physical inspection. A mobile-friendly dashboard with pod status, uptime, and last crash time is the minimum viable ops view. Fleet management tools (Geotab, Verizon Connect, Lytx) all show this as their primary screen. | MEDIUM | Uses existing `DashboardEvent::PodUpdate` and `PodList`. Gap: no dedicated mobile-friendly view. Requires: add `agent_version`, `last_restart_time`, `last_crash_time` fields to `PodInfo`. Render as status cards in `/fleet` Next.js route. | Color coding: green = healthy WS + heartbeat within 6s, yellow = restarted in last 15 min or version mismatch, red = offline >5 min or RecoveryFailed state. 10s auto-refresh. No new backend protocol needed — just field additions to PodInfo. |
+| **Agent version visible in heartbeat and dashboard** | Without per-pod version display, deploying to 8 pods has no verification that all pods actually updated. Version drift (some pods on old binary, some on new) is silent. This is the "did it actually work on all 8 pods?" check. | LOW | Extend `PodInfo` struct in rc-common with `agent_version: Option<String>`. Populate in rc-agent Register and Heartbeat messages using `env!("CARGO_PKG_VERSION")`. Display in fleet dashboard pod card. | One field addition. Low risk. Required to make the fleet dashboard useful. If version after deploy does not match expected, show yellow alert on that pod. |
+| **Exec slot visibility in health endpoint** | The Mar 15 incident included exec slot exhaustion. The semaphore exists (4 slots) but there is no visibility into which commands are holding slots or for how long. Without this, diagnosing a frozen pod requires guessing. | LOW | Extends existing `/health` endpoint response in `remote_ops.rs`. Add `exec_queue: Vec<{ cmd_preview: String, elapsed_ms: u64 }>` to health JSON. Track start time per acquired permit. | A command held >30s (expected max for any command) is a diagnostic signal. Surface in dashboard. Adding per-command timing to semaphore acquisition is ~10 lines of Rust. |
+| **WebSocket exec with request_id correlation** | The HTTP exec endpoint blocks for the full command duration. Long-running commands (curl binary download) hold exec slots and have a hard 10s timeout. WebSocket exec with request_id decouples command dispatch from response handling — rc-core can fire commands and process responses asynchronously without blocking. | MEDIUM | This is the async pattern for WS exec. `request_id` UUID generated by rc-core. Agent matches response to pending request map. Timeout handled client-side: if no ExecResult within `timeout_ms + 5000ms`, rc-core marks it timed out. | This is the preferred implementation of WS exec — not just adding exec to WS but using the correlation pattern that allows multiple outstanding commands to a single pod. More robust than fire-and-forget. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **Real-time live leaderboard** (WebSocket push on every lap) | "Live updates feel exciting." | At 8 pods with laps every 90-120s each, the update rate is ~1 event per 15 seconds. Polling every 30s is visually identical. WebSocket infrastructure for a public page introduces complexity (connection management at scale, reconnect loops, load) for zero visible benefit at venue scale. The cloud_sync already pushes every 30s. | Poll every 30s from the cloud PWA. Show "Updated X seconds ago." |
-| **Login/accounts for customers** | "Accounts let drivers track their progress over time." | Drivers already have a PIN at the venue. Adding a separate web login creates a password reset workflow, account linking (PIN vs web account), and GDPR surface. The racecentres.com platform has no logins — driver lookup is by name. Race venues are not apps; customers don't want another account. | Public driver profiles accessible by driver name or shareable URL. PIN-linked driver IDs. No login required. |
-| **Social feed / activity stream** | "Let drivers comment on laps, like each other's times." | Social moderation is a full-time job. Venue scale (hundreds of customers) does not generate enough content for a feed to feel alive, but does generate enough problematic content to require moderation. This is table stakes for a social network, not a sim racing venue. | Discord bot integration (Multitap does this well) — post leaderboard updates to a Discord server that the venue already manages. The moderation burden stays with Discord's existing tools. |
-| **Video replay / lap recording** | "Record the customer's session as a video for sharing." | Screen capture of a sim running at 60fps, across 8 pods simultaneously, creates storage and processing requirements that are incompatible with the venue's on-site hardware (64GB RAM server already used for other things). The existing telemetry data is far more useful for improvement than a video. | Telemetry visualization (speed trace, inputs, track map) serves the performance improvement use case without video storage overhead. |
-| **Comparison across different cars** | "Let me see my Ferrari time vs someone's Porsche time adjusted for car performance." | Car performance normalization requires a calibrated lap time model per car, which doesn't exist and cannot be crowd-sourced from a single venue's data. The result would be meaningless pseudo-scientific numbers. | Keep leaderboards within a single car or car class. Circuit records are car-specific. Cross-car comparison is a future feature only if a reference lap time model is available from the sim data. |
-| **Global ranking vs other sim racing venues** | "Connect to racecentres.com global database." | Racing Point's data is unique (custom UDP telemetry pipeline, Assetto Corsa AC server). Interoperability with the racecentres.com ecosystem requires a proprietary API integration with simracing.co.uk VMS, which is closed. Building toward an open standard (like simresults.net) takes significant engineering investment. | Focus on being the best leaderboard for Racing Point's own customers. Global ranking can be a future v4.0 milestone if customer demand materializes. |
-| **Elo/Glicko driver rating** | "A real skill rating like iRacing uses." | Elo/Glicko require head-to-head matchups where the same drivers race each other repeatedly. In a walk-in venue context, the matchup pool is small and uneven. SGP's analysis explicitly states that Elo is wrong for sim racing because race results depend on car, track, and field size — not just relative skill. iRacing has millions of drivers to make Elo converge; Racing Point has hundreds per month. | Percentile-based class system (A/B/C/D) within track+car combination. A driver's class is the percentile of their best lap vs all valid laps at that track in that car. Recalculates automatically. No cold-start problem, no convergence requirement. |
-| **Pace car / marshal mode (replays in game)** | "Show the leader's lap as a ghost in the game." | Requires modifying AC server config per session, coordinating ghost lap file export and import, and changes to the ac_server_manager flow. This is a game-level integration with significant complexity. The existing UDP pipeline doesn't capture ghost data. | Telemetry visualization in the PWA is the "ghost" — show the reference lap's inputs alongside yours as a chart. Achieves the coaching goal without game integration complexity. |
+| **Automatic reboot on any crash** | "If nothing else works, reboot." Maximum self-healing. | On a gaming PC mid-session, a reboot destroys a customer's game and billing. Windows Service failure action "Restart Computer" (the third action) is the nuclear option. It should never fire automatically in a customer-facing system. | Use service restart (process-level) for up to 3 attempts. Only human-triggered reboot via kiosk power controls or WoL. Existing power controls in kiosk already cover this. |
+| **Continuous config file monitoring (inotify-style)** | "Watch all config files and repair on any change." | Creates a feedback loop: repair writes trigger change events, which trigger more repairs. Also, polling file system every second wastes I/O on a gaming PC running a sim at 60fps. | Startup-time check only. Config is only missing after OS reinstall or human error — both require a restart to manifest. Startup check is sufficient. |
+| **Full Windows Service implementation in rc-agent** | "Native service is cleaner — write the SCM dispatcher in rc-agent itself." | rc-agent is a GUI process with a lock screen window. Windows Services run in Session 0 and cannot show UI. Writing a full service dispatcher in rc-agent forces a Session 0/Session 1 split that defeats the purpose of the HKLM Run key + service wrapper hybrid. | Use a lightweight service wrapper (shawl, ~2MB binary) that handles SCM communication while rc-agent stays as a normal Session 1 process. The wrapper and the agent are separate executables. |
+| **WebSocket exec output streaming (real-time stdout)** | "I want to see curl download progress live." Better DX. | Streaming output over WebSocket requires: partial line buffering, ordering guarantees, backpressure on slow dashboard connections, and cleanup when dashboard disconnects mid-stream. This is 3x the complexity of request/response exec. Not needed for the stability goal of v4.0. | Use request/response (non-streaming) WS exec for v4.0. For download progress, use a two-step: trigger download (returns immediately), then poll `/health` exec_queue field for slot occupancy. Streaming exec is a v5.0 feature. |
+| **Centralized push-config management** | "Push configuration updates to all pods from rc-core." | The existing `CoreToAgentMessage::Configure { config_json }` already provides this protocol primitive. Building a separate config management system duplicates the protocol and adds a management layer that is not needed at 8-pod scale. | Extend the existing Configure message and config.rs validation. The gap is not the protocol — it is that the agent does not verify and repair config at startup. Fix the startup check, not the protocol. |
+| **Crash dump collection and minidump analysis** | "When rc-agent crashes, capture a minidump for diagnosis." | Windows minidump collection requires WER registration or DbgHelp API. Parsing minidumps requires a symbol server and a debugger. This is debugger tooling, not ops tooling. The setup overhead exceeds the diagnostic value for a 8-pod venue. | Use structured startup error reporting: name each startup phase, catch panics at the phase level, report last known phase + error to rc-core before exiting. This delivers 90% of the diagnostic value at 5% of the complexity. |
+| **Agent self-update (pull new binary on version mismatch)** | "Agent should update itself when a new version is deployed." | The self-swap deploy pattern already does this from rc-core side. An agent that spontaneously self-updates outside of the controlled deploy sequence creates race conditions with billing sessions and skips the Pod 8 canary gate. | Use the existing rc-core-orchestrated deploy with self-swap. The deploy is initiated by staff from kiosk — this is intentional. Autonomous self-update skips the human review gate. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[Hotlap Events]
-    └──requires──> [Events table (track, car/class, start, end)]
-    └──requires──> [Car class definition (staff-managed)]
-    └──enables──> [Gold/Silver/Bronze badges]
-    └──enables──> [107% rule enforcement]
-    └──enables──> [Championship rounds]
+[Windows Service wrapper (SVC-01)]
+    └──enables──> [Auto-restart on crash (SVC-02)]
+    └──enables──> [Runs as SYSTEM → firewall rules apply without UAC (FWALL-01)]
+    └──enables──> [Registry writes succeed without UAC (CFGHEAL-01)]
 
-[Circuit Records]
-    └──requires──> [Lap validity filter (valid=true only)]
-    └──independent of──> [Hotlap Events]
+[Firewall auto-configuration in Rust (FWALL-01)]
+    └──unblocks──> [HTTP remote ops on port 8090 (existing)]
+    └──unblocks──> [WebSocket exec usable as fallback (WS-EXEC-01)]
+    └──requires──> [SYSTEM context or pre-existing elevation (satisfied by SVC-01)]
 
-[Vehicle Records]
-    └──requires──> [Same query layer as Circuit Records]
-    └──independent of──> [Hotlap Events]
+[Startup self-check (STARTUP-01)]
+    └──enables──> [Config self-heal (CFGHEAL-01)]
+    └──enables──> [Startup error reporting (ERR-01)]
+    └──runs before──> [WebSocket connect to rc-core]
 
-[Driver Profile]
-    └──requires──> [Circuit Records (PB per track)]
-    └──enhanced by──> [Driver skill class and rating]
-    └──enhanced by──> [Championship standings]
+[Config self-heal (CFGHEAL-01)]
+    └──requires──> [Startup self-check (STARTUP-01)]
+    └──requires──> [SYSTEM context for registry writes (SVC-01)]
+    └──requires──> [Embedded templates in binary (include_str!)]
+    └──reports via──> [AgentMessage::StartupReport (PROTO-03)]
 
-[Telemetry Comparison]
-    └──requires──> [telemetry_samples already stored]
-    └──requires──> [Distance normalization (xyz → track%)]
-    └──requires──> [Reference lap selection (track record holder)]
-    └──enhanced by──> [2D Track Map]
-    └──enhanced by──> [Inputs Trace]
+[Startup error reporting (ERR-01)]
+    └──requires──> [HTTP POST to rc-core OR local file fallback]
+    └──requires──> [New rc-core endpoint: POST /api/agent/startup-error]
+    └──runs on──> [startup phase failure, before process exit]
 
-[2D Track Map]
-    └──requires──> [Distance normalization (shared with Telemetry Comparison)]
-    └──requires──> [xyz → 2D projection]
+[WebSocket exec (WS-EXEC-01)]
+    └──requires──> [CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } (PROTO-01)]
+    └──requires──> [AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr } (PROTO-02)]
+    └──requires──> [rc-core: pending-request map keyed by request_id]
+    └──enables──> [Deploy rollback when HTTP blocked (ROLL-01)]
+    └──enables──> [Management when firewall has not yet been repaired]
 
-[Group Event Results]
-    └──requires──> [group_sessions (already exists)]
-    └──requires──> [F1 points calculation]
-    └──enables──> [Championship rounds]
+[Deploy rollback (ROLL-01)]
+    └──requires──> [Modified do-swap.bat: rename current→prev before swap (ROLL-02)]
+    └──requires──> [WebSocket exec (WS-EXEC-01) — HTTP may be blocked during failed deploy]
+    └──requires──> [Existing VERIFY_DELAYS 60s gate in deploy.rs]
+    └──enhances──> [Pod 8 canary pattern — converts from convention to safety gate]
 
-[Championships]
-    └──requires──> [Group Event Results]
-    └──requires──> [Championship tables (championships, rounds, standings)]
+[Agent version in PodInfo (VER-01)]
+    └──requires──> [PodInfo struct field: agent_version: Option<String>]
+    └──enhances──> [Fleet health dashboard (DASH-01)]
 
-[Driver Skill Class]
-    └──requires──> [Sufficient lap history (cold start: first classification after N laps)]
-    └──enhanced by──> [Hotlap Events (more structured data)]
+[Fleet health dashboard (DASH-01)]
+    └──requires──> [agent_version in PodInfo (VER-01)]
+    └──requires──> [last_restart_time, last_crash_time in PodInfo (new fields)]
+    └──uses──> [Existing DashboardEvent::PodUpdate push (no new protocol)]
+    └──renders in──> [New /fleet Next.js route in kiosk]
 
-[Automated "beaten" notification]
-    └──requires──> [Driver email in profile]
-    └──requires──> [track_records table (already exists)]
-    └──requires──> [send_email.js (already exists)]
-    └──independent of──> [Hotlap Events (applies to all-time records)]
-
-[Gold/Silver/Bronze Badges]
-    └──requires──> [Hotlap Events (reference time is set per event)]
-    └──independent of──> [Championships]
+[AgentMessage::StartupReport (PROTO-03)]
+    └──requires──> [New rc-core handler: persist anomalies, surface in dashboard]
+    └──displayed in──> [Fleet health dashboard pod card (DASH-01)]
 ```
 
 ### Dependency Notes
 
-- **Hotlap Events unlock a chain of features:** The events table is the dependency for badges, 107% rule, and championship rounds. Build events first.
-- **Telemetry visualization is self-contained but expensive:** It shares only the stored telemetry_samples with the rest of the system. Its primary dependency is internal (distance normalization). It does not block or unblock other features — it can be built in parallel or deferred.
-- **Circuit/Vehicle Records are independent and fast:** These are aggregate SQL queries over existing data. No new tables required. They should be built early because they populate the competitive platform even before any events run.
-- **Championships depend on Group Event Results:** The points system requires at least one group event to be scored. Championship standings are a downstream view of event results.
-- **Automated notifications are low-dependency:** They reuse existing email infrastructure and the track_records table. The only new requirement is driver email storage, which may already exist in the billing/driver profile flow.
+- **Windows Service is the prerequisite chain opener:** It enables SYSTEM context, which enables reliable firewall rules and registry writes. Everything in self-healing config depends on having SYSTEM-level privileges. The service wrapper is the first thing to implement.
+- **WebSocket exec requires protocol changes in rc-common:** Both rc-core and rc-agent must be rebuilt and redeployed simultaneously. This is a two-crate atomic change — ship it as a single commit.
+- **Deploy rollback depends on prev-binary existing:** The modified `do-swap.bat` must be deployed to all pods BEFORE rollback can function. Rollback without a prev binary is a no-op. The bat file update must be part of the same deploy that enables rollback in rc-core.
+- **Fleet dashboard needs two new PodInfo fields:** `last_restart_time` and `last_crash_time` are captured in pod_monitor.rs state transitions but not currently persisted in PodInfo. These must be added to rc-common types (PodInfo struct) and populated by pod_monitor.rs.
 
 ---
 
 ## MVP Definition
 
-### Launch With (v3.0 — this milestone)
+This is v4.0 on an already-shipped product. "MVP" means: minimum set that eliminates
+the five root causes of the Mar 15 4-hour outage.
 
-The minimum set that makes the competitive platform usable and drives return visits. Focus
-on data exposure (records, profiles) and the notification hook. Telemetry is the "wow"
-feature but can ship after the leaderboard core is working.
+### Launch With (v4.0 Core — eliminates Mar 15 root causes)
 
-- [ ] **Public leaderboard by track with car filter** — the core product; must be polished not just functional
-- [ ] **Circuit records (best per car per track)** — immediately populated from existing data, zero events needed
-- [ ] **Vehicle records (best per track per car)** — same query infrastructure as circuit records
-- [ ] **Driver profile page** — lap history, PBs, stats cards, accessible by name search
-- [ ] **Hotlap events** — staff creation UI in rc-core, public leaderboard per event, car class support
-- [ ] **107% rule** — display filter within hotlap event board, toggle to show all
-- [ ] **Gold/Silver/Bronze badges** — staff sets reference time on event creation, auto-calculated
-- [ ] **Group event results with F1 scoring** — scoring engine (25/18/15/12/10/8/6/4/2/1), results display
-- [ ] **Automated "beaten" notification** — email when track record is broken; reuses send_email.js
+- [ ] **Windows Service wrapper** — Eliminates root cause #4 (no crash restart). HKLM Run key survives reboots, not crashes. Service failure actions restart the process. LOW complexity, HIGH urgency.
+- [ ] **Firewall auto-configuration in Rust** — Eliminates root cause #2 and #3 (CRLF-damaged batch file silently broke firewall rules). LOW complexity, HIGH urgency.
+- [ ] **Config self-heal at startup** — Eliminates root cause #3 broadly (missing/corrupted files). Detect and repair on every startup. MEDIUM complexity, HIGH urgency.
+- [ ] **Startup error reporting** — Eliminates root cause #5 partially (no remote diagnostics on crash). Report phase + error before exit. MEDIUM complexity.
+- [ ] **WebSocket exec (request/response with request_id)** — Eliminates root cause #5 fully (management fails when HTTP blocked). MEDIUM complexity. Requires protocol changes in rc-common.
 
-### Add After Validation (v3.x)
+### Add After Core (v4.0 Phase 2 — operational visibility)
 
-Add once the core leaderboard is live and customer feedback confirms priorities:
+- [ ] **Deploy rollback on 60s health gate failure** — Prevents bad deploys from leaving pods offline. Requires prev-binary pattern + rollback trigger. MEDIUM complexity.
+- [ ] **Agent version in heartbeat and dashboard** — Verifies all 8 pods actually updated after deploy. LOW complexity. Required for next item to be useful.
+- [ ] **Fleet health dashboard for Uday's phone** — Single-screen ops view. Real-time pod status, uptime, last crash, version. MEDIUM complexity for new Next.js route.
 
-- [ ] **Driver skill class (A/B/C/D)** — add after sufficient lap data accumulates; percentile-based
-- [ ] **Telemetry: speed trace + time delta** — add after leaderboard is stable; highest-value "wow" feature
-- [ ] **Telemetry: inputs trace** — add immediately after speed trace (same infrastructure)
-- [ ] **Championships** — add after 2+ group events have been scored; validates the data model first
+### Future Consideration (v5.0)
 
-### Future Consideration (v4+)
-
-Defer until product-market fit on the competitive platform is confirmed:
-
-- [ ] **2D track map overlay** — high complexity, requires good xyz projection; powerful but not MVP
-- [ ] **WhatsApp/email share card** — high viral potential but high engineering effort; confirm demand first
-- [ ] **Discord bot integration** — effective community mechanic; needs a Discord server to post to
-- [ ] **Global multi-venue leaderboards** — requires external API integration; Racing Point data is sufficient for v3.0
+- [ ] **WebSocket exec output streaming** — Improves DX for long-running commands. HIGH complexity. Defer until request/response exec is stable.
+- [ ] **Pod uptime trend (7-day heatmap)** — Nice to have history. New DB table + UI. Defer until fleet is stable.
+- [ ] **Exec slot visibility in dashboard** — Diagnostic tool for slot exhaustion debugging. LOW complexity but LOW urgency post-v4.0.
 
 ---
 
 ## Feature Prioritization Matrix
 
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| Public leaderboard by track | HIGH | LOW | P1 |
-| Circuit records | HIGH | LOW | P1 |
-| Vehicle records | MEDIUM | LOW | P1 |
-| Driver profile page | HIGH | MEDIUM | P1 |
-| Hotlap events | HIGH | MEDIUM | P1 |
-| 107% rule | MEDIUM | LOW | P1 |
-| Gold/Silver/Bronze badges | HIGH | LOW | P1 |
-| Group event results (F1 scoring) | HIGH | MEDIUM | P1 |
-| Automated "beaten" notification | HIGH | LOW | P1 |
-| Driver skill class (A/B/C/D) | MEDIUM | MEDIUM | P2 |
-| Telemetry speed trace + delta | HIGH | HIGH | P2 |
-| Telemetry inputs trace | HIGH | MEDIUM | P2 |
-| Championships (multi-round) | MEDIUM | HIGH | P2 |
-| 2D track map overlay | MEDIUM | HIGH | P3 |
-| Share card (OG image) | MEDIUM | HIGH | P3 |
-| Discord bot integration | LOW | MEDIUM | P3 |
+| Feature | Ops Value | Implementation Cost | Priority |
+|---------|-----------|---------------------|----------|
+| Windows Service wrapper | HIGH — eliminates no-crash-restart | LOW — shawl/sc.exe, no rc-agent code change | P1 |
+| Firewall auto-config in Rust | HIGH — eliminates CRLF failure mode | LOW — 20 lines Rust, idempotent netsh calls | P1 |
+| Config self-heal at startup | HIGH — eliminates silent missing-file failures | MEDIUM — file checks, template embedding, winreg | P1 |
+| Startup error reporting | HIGH — silent crash becomes visible alert | MEDIUM — pre-exit HTTP POST + file fallback | P1 |
+| WebSocket exec (request/response) | HIGH — management works when HTTP blocked | MEDIUM — protocol changes, handler in both crates | P1 |
+| Deploy rollback | HIGH — bad deploy auto-reverses on canary | MEDIUM — prev-binary + rollback trigger | P2 |
+| Agent version in heartbeat | MEDIUM — verifies deploy success fleet-wide | LOW — 1 field in PodInfo struct | P2 |
+| Fleet health dashboard | HIGH — Uday sees status from phone | MEDIUM — new Next.js route, 2 new PodInfo fields | P2 |
+| Exec slot visibility | MEDIUM — diagnose slot exhaustion | LOW — extend /health endpoint | P2 |
+| WebSocket exec streaming | LOW — DX improvement | HIGH — buffering, ordering, backpressure | P3 |
+| Pod uptime trend | LOW — historical ops data | MEDIUM — new DB table + chart | P3 |
 
 **Priority key:**
-- P1: Must ship in v3.0 — drives the core engagement loop
-- P2: Ship in v3.x once P1 is validated — deepens engagement
-- P3: Future milestone — high cost or unconfirmed demand
+- P1: Must have for v4.0 — directly eliminates Mar 15 root causes
+- P2: Should ship in v4.0 — adds operational visibility and resilience
+- P3: Defer to v5.0 — nice to have, not stability-critical
 
 ---
 
-## Competitor Feature Analysis
+## Capability Deep-Dive
 
-| Feature | racecentres.com (VMS) | Multitap | Racing Point v3.0 |
-|---------|----------------------|----------|-------------------|
-| Public hotlap leaderboard | Yes — Hot Lapping Events section | Yes — "TAPPED IN" global board | Yes — event boards + circuit records |
-| Circuit records | Yes — Circuit Records section | Not mentioned | Yes — per car per track |
-| Vehicle records | Not evident in r2r | Not mentioned | Yes — per car across tracks |
-| Group event results | Not evident in r2r/blueprint | Yes — Traffic Dodging mode | Yes — F1 points scoring |
-| Championships | Mentioned in code (Championships page) but not prominent | Not mentioned | Yes — multi-round with cumulative points |
-| Driver profile | Basic (search by name, see lap history) | Yes — public driver stats | Yes — richer (PBs, class badge, stats cards) |
-| Telemetry visualization | Not public-facing in racecentres.com | iRacing only | Yes — speed trace, delta, inputs (v3.x) |
-| "Beaten" notification | Not evident | Yes — automated email | Yes — reuses existing email infra |
-| Car class system | Not evident in public interface | Not mentioned | Yes — A/B/C/D within events |
-| Gold/Silver/Bronze badges | Not evident | Not mentioned | Yes — per hotlap event |
-| Mobile PWA | Responsive but not PWA | Yes | Yes — existing cloud PWA |
-| No login required | Yes — fully public | Partially (stats public) | Yes — all public |
+### 1. Service Crash Recovery on Windows
+
+**What ops teams expect:** Windows Service failure actions are standard. The SCM supports up to three failure actions: first failure, second failure, and subsequent failures. Each action can be: restart service (most common), run a program, or restart computer. The reset period determines how long before the failure count resets to 0.
+
+**Industry standard configuration for a critical service:**
+```
+sc.exe failure RCAgent reset=3600 actions=restart/5000/restart/30000/restart/60000
+```
+Translation: restart after 5s on first failure, 30s on second, 60s on third. Reset failure count after 3600s (1 hour of stability).
+
+**Options ranked by fit for this project:**
+1. **shawl** (Rust, MIT, mtkennerly/shawl, v1.7.0 Jan 2025) — wraps any exe as a Windows service, handles ctrl-C/SIGTERM. Best fit: no rc-agent code changes, actively maintained, Rust-native. ~2MB binary added to pod-deploy kit.
+2. **WinSW** (Java-based, XML config, v2.12 2023) — actively maintained but requires JRE on pods. Pods may not have Java. Worse fit.
+3. **NSSM** (C, last release 2017, abandoned) — stable but unmaintained. No future security patches. Worse fit.
+4. **windows-service crate in rc-agent** — write SCM dispatcher natively. Conflicts with Session 1 GUI requirement (services run Session 0). Highest complexity, worst fit.
+
+**Session 0/Session 1 note:** Windows Services run in Session 0 (no GUI). rc-agent has a lock screen window (GUI, Session 1). The hybrid works: shawl is the service (Session 0, handles SCM), the existing HKLM Run key starts rc-agent in Session 1 at first user login. On crash, shawl restarts rc-agent as... a console process in Session 0 (no window). This is a known limitation of the hybrid approach — the restart gets GUI only after the next user logout/login cycle. **Mitigation:** shawl can be configured to spawn the process into the active user session using `--pass-start-args`. This requires evaluation. Alternative: if the service wrapper cannot reliably restart in Session 1, a separate watchdog that monitors the Session 1 process is the fallback.
+
+**Complexity:** LOW for service install and failure actions. MEDIUM if Session 1 restart is required (needs testing with shawl's session flags).
+
+### 2. Remote Exec over WebSocket
+
+**What ops teams expect:** Management channels stay operational even when managed nodes have network issues. Kubernetes `kubectl exec`, AWS SSM Session Manager, and Ansible over SSH all route commands through existing authenticated channels rather than opening new ports.
+
+**Protocol design:**
+```rust
+// Add to CoreToAgentMessage:
+Exec {
+    request_id: String,   // UUID, generated by rc-core
+    cmd: String,          // Command string (same as HTTP /exec)
+    timeout_ms: u64,      // Default 10000, overridable
+}
+
+// Add to AgentMessage:
+ExecResult {
+    request_id: String,   // Echoed back for correlation
+    success: bool,
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+```
+
+**rc-core side:** Maintain a `HashMap<String, oneshot::Sender<ExecResult>>` per pod in AppState. When Exec is sent, insert a pending entry. When ExecResult arrives from the agent, look up and resolve the sender. If timeout elapses without ExecResult, remove from map and return timeout error to caller.
+
+**rc-agent side:** Receive Exec in the CoreToAgentMessage handler. Execute using the same logic as `remote_ops.rs::exec_command` (same semaphore, same CREATE_NO_WINDOW, same timeout). Send ExecResult back via the WebSocket sender.
+
+**Timeout handling:** Agent-side timeout is `timeout_ms`. Client-side timeout in rc-core is `timeout_ms + 5000ms` (buffer for network RTT). If client timeout fires, ExecResult may still arrive — discard it (no pending entry in map).
+
+**Streaming deferral rationale:** Streaming stdout line-by-line requires: partial line buffering in the agent, ordered delivery guarantees (WebSocket does NOT guarantee message ordering under reconnection), backpressure if the dashboard consumer is slow, and cleanup if the dashboard disconnects mid-stream. This is a separate feature with 3x the complexity of request/response. Start with request/response for v4.0.
+
+**Complexity:** MEDIUM. Protocol changes require both crates rebuilt. Execution logic is a copy of existing code. Main risk: reconnection during a pending Exec (the response arrives on a new WebSocket connection after reconnect). Mitigation: pending requests time out on the rc-core side; the agent retries nothing (fire and forget on the agent's end).
+
+### 3. Self-Healing Configuration
+
+**What ops teams expect:** Configuration management tools (Chef, Puppet, Ansible) run on every startup and converge the system to desired state. The expectation is not "config is correct" but "if config is wrong, it will be corrected." This is idempotent desired-state enforcement.
+
+**What to check on every rc-agent startup (before WebSocket connect):**
+
+| Check | Method | Repair |
+|-------|--------|--------|
+| `C:\RacingPoint\rc-agent-podN.toml` exists | `fs::metadata()` | Write from embedded template, then exit with error (need pod number to generate correct config — this is a one-time setup) |
+| TOML parses without error | `toml::from_str()` | If parse fails, rename to `.bak`, write from embedded template, log anomaly |
+| `start-rcagent.bat` exists and is LF-terminated | `fs::read()` + scan for 0x0D 0x0A | If CRLF detected, rewrite with LF. This was the Mar 15 root cause. |
+| HKLM Run key `RCAgent` exists with correct path | `winreg::RegKey::open_subkey()` | Write via `RegKey::set_value()`. Requires SYSTEM context (satisfied by service wrapper). |
+| Firewall rule TCP 8090 exists | `netsh advfirewall firewall show rule name="RCAgent-RemoteOps"` | `netsh advfirewall firewall add rule ...` |
+| Firewall rule ICMP echo exists | Same pattern | Same repair |
+
+**Embedded templates:** Use `include_str!()` for bat file template. TOML template cannot embed pod number — if toml is missing, report anomaly and continue with defaults (do not exit). The bat file template is universal across all pods.
+
+**Anomaly reporting:** Send `AgentMessage::StartupReport { pod_id, anomalies: Vec<String>, repairs: Vec<String> }` once WebSocket connected. rc-core persists this and displays in fleet dashboard as a warning badge on the pod card.
+
+**Complexity:** MEDIUM. Requires: `winreg` crate (check if already in dependency tree — it may be via registry-based pod lockdown code), embedded templates, structured startup phase enum. No new async complexity.
+
+### 4. Deployment Rollback
+
+**What ops teams expect:** Canary deployments are only meaningful if failure stops the rollout and reverses the canary. Kubernetes stops a rolling deployment when readiness probes fail. AWS CodeDeploy rolls back on alarm. The pattern is universal: health gate → pass/fail → proceed or revert.
+
+**Two-part implementation:**
+
+**Part A — Modified do-swap.bat** (runs on the pod):
+```batch
+:: Before killing current binary, preserve it as prev
+if exist C:\RacingPoint\rc-agent.exe (
+    copy /Y C:\RacingPoint\rc-agent.exe C:\RacingPoint\rc-agent-prev.exe
+)
+:: Existing swap logic follows...
+```
+
+**Part B — rc-core rollback trigger** (in deploy.rs, at 60s health gate):
+If the 60s check fails:
+1. Log rollback trigger with reason
+2. Send `CoreToAgentMessage::Exec` with rollback command: `copy /Y C:\RacingPoint\rc-agent-prev.exe C:\RacingPoint\rc-agent.exe && taskkill /F /IM rc-agent.exe && start "" C:\RacingPoint\start-rcagent.bat`
+3. Wait 30s, re-run health check
+4. If rollback succeeds: update DeployState to `RolledBack`, send email alert
+5. If rollback fails: update DeployState to `RollbackFailed`, send critical alert
+
+**Fleet rollback gate:** If Pod 8 (canary) rolls back, abort the fleet deploy. Do not proceed to pods 1-7. This requires pod 8 to be explicitly tracked as canary in the deploy sequence (it already is by convention — make it explicit in code).
+
+**Complexity:** MEDIUM. Two independent pieces: bat file modification (simple, LOW) and rc-core rollback branch (MEDIUM — depends on WebSocket exec being available when HTTP is down).
+
+### 5. Fleet Health Dashboard
+
+**What ops teams expect:** Any ops dashboard for a device fleet shows: device identifier, online/offline status, uptime, software version, last-seen timestamp, and recent error count. This is the minimum for an ops person to triage "what is broken and why" without SSH access. Fleet management tools (Geotab, Lytx, Verizon Connect) all show this as their primary view.
+
+**For Uday's phone specifically:**
+- Mobile-first card layout (not a table — tables scroll awkwardly on phones)
+- 8 pod cards in a 2-column grid
+- Per-card: pod number, status color, game state, uptime, agent version, last restart time
+- Summary row: "X/8 pods online" at top
+- 10-second auto-refresh (or WebSocket push via existing DashboardEvent)
+- Tap a pod card to see: recent anomalies, startup reports, exec slot status
+
+**Alert thresholds (based on fleet management norms):**
+| Threshold | Indicator | Rationale |
+|-----------|-----------|-----------|
+| Pod offline > 5 minutes | RED | A pod offline during business hours needs immediate attention |
+| Pod restarted in last 15 min | YELLOW | Recent crash is a warning signal even if now healthy |
+| Agent version mismatch after deploy | YELLOW | Deploy succeeded partially — some pods still on old version |
+| Exec slot held > 30s | YELLOW | A command is stuck; no new commands can run once all 4 slots fill |
+| Pod in RecoveryFailed state | RED | watchdog gave up trying to restart — needs human |
+| Startup anomalies reported | YELLOW | Config was corrupted and repaired — investigate root cause |
+
+**New fields needed in PodInfo (rc-common types.rs):**
+- `agent_version: Option<String>` — populated from `CARGO_PKG_VERSION` in rc-agent
+- `last_restart_time: Option<DateTime<Utc>>` — set by pod_monitor.rs when watchdog restarts
+- `last_crash_time: Option<DateTime<Utc>>` — set by pod_monitor.rs on crash detection
+- `startup_anomalies: Vec<String>` — last startup report
+
+**Complexity:** MEDIUM for the Next.js dashboard route. LOW for the PodInfo field additions. The main work is design: making 8 pod cards usable on a 390px wide phone screen.
 
 ---
 
 ## Sources
 
-- **racecentres.com ecosystem (MEDIUM confidence):** r2r.racecentres.com and blueprint.racecentres.com — direct web fetch. Confirmed: Hot Lapping Events, Circuit Records, Driver Data sections. Group Events and Championships referenced in page code but not detailed in public UI.
-- **simracing.co.uk VMS (HIGH confidence):** simracing.co.uk/features.html and /options.html — direct web fetch. Confirmed: hotlapping leaderboards, group events, championships, telemetry graphs, driver progression, "data to phone" delivery.
-- **Multitap case study (HIGH confidence):** multitap.space + NXT LVL Gaming case study — direct web fetch. Confirmed: automated "beaten" email is #1 driver of repeat visits, Discord integration, public driver stats.
-- **simracing.gp SGP Ranking (HIGH confidence):** simracing.gp/tutorials/how-does-sgp-ranking-work — direct web fetch. Confirmed: Elo is wrong for sim racing; ML or percentile-based approach is more appropriate for venue context.
-- **LapLegends driver profiles (HIGH confidence):** laplegends.net/drivers — direct web fetch. Confirmed: laps recorded, fastest laps, PB laps, tracks, cars, sort/filter on driver list.
-- **Sim Racing Telemetry (HIGH confidence):** simracingtelemetry.com — direct web fetch. Confirmed: speed trace, lap comparison, time delta (TDiff), 2D track map overlay, interactive slider, multi-lap session view.
-- **Radical Sim Racing (MEDIUM confidence):** radicalsimracing.com — direct web fetch. Confirmed: championship standings, regional divisions, amateur/professional tiers, race schedules, formal rulebooks.
-- **107% rule in sim racing (HIGH confidence):** toolcr.com/sim-racing-107-rule-lap-time-calculator + f1.fandom.com/wiki/107%25_Rule — confirmed calculation and community adoption for hotlap event qualification.
-- **F1 championship tiebreaker (HIGH confidence):** Wikipedia 2023-24 F1 Sim Racing World Championship — confirmed tiebreaker sequence: most wins → most P2s → most P3s → earliest occurrence.
-- **WebSearch: sim racing leaderboard features 2025** — MEDIUM confidence general findings confirmed against direct site inspections above.
+- Windows Service failure actions: [sc failure — Microsoft Learn](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/cc742019(v=ws.11))
+- Windows Service recovery configuration: [Understanding Windows Services Recovery — ServerBrain](https://www.serverbrain.org/system-administration/understanding-windows-services-recovery-features.html)
+- shawl (Rust service wrapper, v1.7.0): [mtkennerly/shawl — GitHub](https://github.com/mtkennerly/shawl)
+- NSSM vs WinSW vs shawl comparison: [Servy vs NSSM vs WinSW — DEV Community](https://dev.to/aelassas/servy-vs-nssm-vs-winsw-2k46)
+- windows-service crate (mullvad): [docs.rs/windows-service](https://docs.rs/windows-service/latest/windows_service/)
+- WebSocket exec pattern (Kubernetes): [WebSocket exec in Kubernetes pods — Jason Stitt](https://jasonstitt.com/websocket-kubernetes-exec)
+- Health check implementation patterns: [Implementing health checks — AWS Builders Library](https://aws.amazon.com/builders-library/implementing-health-checks/)
+- Self-healing architecture: [Azure Well-Architected — Self-preservation strategies](https://learn.microsoft.com/en-us/azure/well-architected/reliability/self-preservation)
+- Automated rollback on health check failure: [Automated Rollback Procedures — OneUptime (2026)](https://oneuptime.com/blog/post/2026-02-09-automated-rollback-health-failures/view)
+- Canary deployment patterns: [Canary Deployments — Netdata](https://www.netdata.cloud/academy/canary-deployment/)
+- Fleet health dashboard table stakes: [Fleet Management Dashboard — PCS Software](https://pcssoft.com/blog/fleet-management-dashboard/)
+- Self-healing device fleet patterns: [Self-Healing Devices — Radix International](https://radix-int.com/self-healing-devices-future-intelligent-fleet-management/)
+- Existing codebase analyzed: `crates/rc-agent/src/remote_ops.rs`, `crates/rc-core/src/deploy.rs`, `crates/rc-core/src/pod_monitor.rs`, `crates/rc-common/src/protocol.rs`, `.planning/PROJECT.md`
 
 ---
-*Feature research for: RaceControl v3.0 Leaderboards, Telemetry & Competitive*
-*Researched: 2026-03-14*
+
+*Feature research for: RaceControl v4.0 Pod Fleet Self-Healing*
+*Researched: 2026-03-15*

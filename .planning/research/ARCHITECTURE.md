@@ -1,721 +1,649 @@
 # Architecture Research
 
-**Domain:** Sim racing competitive platform — leaderboards, championships, telemetry viz, driver rating
-**Researched:** 2026-03-14
-**Confidence:** HIGH — based on direct codebase inspection of all 3 crates, 1800-line db migration, routes.rs (276 endpoints), cloud_sync.rs, and all PWA pages
+**Domain:** Pod fleet self-healing — Windows Service, WebSocket exec, firewall auto-config, fleet dashboard
+**Researched:** 2026-03-15
+**Confidence:** HIGH — based on direct codebase inspection of rc-agent/main.rs, rc-core/ws/mod.rs, rc-core/deploy.rs, rc-common/protocol.rs, rc-core/state.rs, remote_ops.rs, pod_monitor.rs, and all kiosk/web TSX pages
 
 ---
 
-## Existing System Inventory
+## Existing System Map
 
-### What Already Exists (do not rebuild)
+Understanding what already exists is prerequisite to placing new code correctly.
 
-| Component | Location | What it Does |
-|-----------|----------|--------------|
-| `events` table | db/mod.rs line 131 | Basic event scaffold (id, name, type, status, sim_type, track, car_class, max_entries, config_json) |
-| `event_entries` table | db/mod.rs line 148 | Driver-event join (event_id, driver_id, result_position, result_time_ms) |
-| `tournaments` table | db/mod.rs line 1357 | Full tournament model (format: time_attack/bracket/round_robin, entry_fee, prize_pool, status lifecycle) |
-| `tournament_registrations` | db/mod.rs line 1379 | Registration with seed, status, best_time_ms |
-| `tournament_matches` | db/mod.rs line 1397 | Bracket match model with driver_a/b, times, winner |
-| `time_trials` table | db/mod.rs line 1329 | Weekly time trial (track, car, week_start, week_end) |
-| `group_sessions` table | db/mod.rs line 992 | Multiplayer session (host, shared_pin, status, track, car, ai_count) |
-| `multiplayer_results` table | db/mod.rs line 1754 | Group session results (position, best_lap_ms, total_time_ms, laps_completed, dnf) |
-| `/tournaments` admin routes | routes.rs line 218 | Full CRUD + bracket generation + match result recording |
-| `/customer/tournaments` | routes.rs line 225 | List + register PWA endpoints |
-| `/public/time-trial` | routes.rs line 250 | Public endpoint for current time trial |
-| `/leaderboard/{track}` | routes.rs line 58 | Staff-facing per-track leaderboard |
-| `/public/leaderboard` | routes.rs line 247 | Public leaderboard with track records, top drivers, time trial |
-| `/public/leaderboard/{track}` | routes.rs line 248 | Public per-track leaderboard with stats |
-| `/public/laps/{id}/telemetry` | routes.rs line 250 | Public telemetry samples for a lap |
-| `TelemetryChart` component | pwa/src/components/TelemetryChart.tsx | Speed trace, throttle/brake, steering, gear/RPM using recharts with syncId |
-| Leaderboard PWA page | pwa/src/app/leaderboard/page.tsx | Track selector + entries + inline telemetry expand |
-| Public leaderboard page | pwa/src/app/leaderboard/public/page.tsx | Records, top drivers, tracks tabs — no login required |
-| Tournaments PWA page | pwa/src/app/tournaments/page.tsx | List + register |
-| `laps` table | db/mod.rs line 82 | Full lap record (lap_time_ms, sector1/2/3_ms, valid, sim_type, track, car, driver_id) |
-| `telemetry_samples` table | db/mod.rs line 177 | Per-lap samples (offset_ms, speed, throttle, brake, steering, gear, rpm, pos_x/y/z) |
-| `track_records` table | db/mod.rs line 117 | Best lap per (track, car) pair |
-| `personal_bests` table | db/mod.rs line 103 | Best lap per (driver, track, car) |
-| Cloud sync push | cloud_sync.rs | Pushes laps, track_records, personal_bests, billing_sessions, drivers, wallets, pods |
-| recharts library | pwa/package.json | Already installed — LineChart, AreaChart, ResponsiveContainer, syncId |
+### Current Communication Paths
 
-### What is Missing (what v3.0 must build)
+```
+rc-core (:8080)
+  |
+  |-- /ws/agent   (WebSocket) <──────────────── rc-agent (pods, outbound connect)
+  |                                              sends: AgentMessage enum
+  |                                              receives: CoreToAgentMessage enum
+  |
+  |-- /ws/kiosk   (WebSocket) <──────────────── kiosk Next.js (browser, outbound)
+  |-- /ws/dashboard (WebSocket) <──────────────── web Next.js (browser, outbound)
+  |
+  |-- HTTP REST   <──────────────── kiosk Next.js, web Next.js, PWA
+  |
+rc-core also connects OUT to:
+  |-- :8090/exec  (HTTP POST) ──────────────── rc-agent remote_ops.rs (inbound)
+  |-- :8090/write (HTTP POST) ──────────────── rc-agent remote_ops.rs
+```
 
-The `events` and `event_entries` tables exist as scaffolds but have no logic. Routes.rs has `list_events`/`create_event` stubs with no handler bodies. The competitive pipeline — hotlap event scoring, championship accumulation, driver rating, 2D track map, lap comparison — is entirely absent. Telemetry data is NOT currently synced to the cloud (only lap metadata is pushed), which blocks cloud-side telemetry visualization.
+### Key AppState Fields (rc-core/src/state.rs)
+
+```
+agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>
+  — the WS send channel per pod. If pod disconnects, sender.is_closed() == true.
+
+pod_deploy_states: RwLock<HashMap<String, DeployState>>
+  — per-pod deploy lifecycle: Idle/Downloading/SizeCheck/Starting/VerifyingHealth/Complete/Failed/WaitingSession
+
+pending_deploys: RwLock<HashMap<String, String>>
+  — binary URL queued for pods with active billing sessions
+
+pod_watchdog_states: RwLock<HashMap<String, WatchdogState>>
+  — FSM: Healthy/Restarting/Verifying/RecoveryFailed
+```
+
+### Current CoreToAgentMessage Variants (rc-common/src/protocol.rs)
+
+Registered, StartSession, StopSession, Configure, BillingStarted, BillingStopped,
+SessionEnded, SubSessionEnded, LaunchGame, StopGame, ShowPinLockScreen,
+ShowQrLockScreen, ClearLockScreen, BlankScreen, BillingTick, ShowAssistanceScreen,
+EnterDebugMode, SetTransmission, SetFfb, PinFailed, SettingsUpdated,
+ShowPauseOverlay, HidePauseOverlay, Ping, SetAssist, SetFfbGain, QueryAssistState
+
+### Current AgentMessage Variants (rc-common/src/protocol.rs)
+
+Register, Heartbeat, Telemetry, LapCompleted, SessionUpdate, DrivingStateUpdate,
+Disconnect, GameStateUpdate, AiDebugResult, PinEntered, Pong, GameStatusUpdate,
+FfbZeroed, GameCrashed, ContentManifest, AssistChanged, FfbGainChanged, AssistState
+
+### Current deploy.rs exec path
+
+`exec_on_pod()` — HTTP POST to http://{pod_ip}:8090/exec — uses rc-core's reqwest client.
+Every deploy step (download, size-check, self-swap, health-verify) goes through this function.
 
 ---
 
-## System Overview
+## Integration Architecture: 5 Specific Questions Answered
+
+### Q1: Windows Service Registration — NSSM wrapper vs ServiceMain in main.rs
+
+**Decision: NSSM wrapper. Do not touch main.rs for service registration.**
+
+**Rationale:**
+
+The `windows-service` crate requires restructuring `main()` into a `ServiceMain` callback and threading startup through `service_dispatcher::start()`. This is a substantial, high-risk rewrite of rc-agent's main.rs (470+ lines of carefully sequenced startup: single-instance mutex, logging, early lock screen, config load, FFB zero, etc.). Getting Session handling wrong corrupts the startup sequence.
+
+NSSM (Non-Sucking Service Manager) wraps the existing binary without any code change. rc-agent starts as-is, Session 0 isolation is handled by NSSM's `AppEnvironmentExtra` or the existing HKLM Run key hybrid approach.
+
+**Session 0 vs Session 1 implications:**
+
+This is the critical constraint. Windows Services run in Session 0 by default. Session 0 has no desktop — GUI calls (Edge browser for lock screen, game launch via Steam, overlay) all fail silently. The existing HKLM Run key approach solves this by starting rc-agent at user login (Session 1) but provides no crash restart.
+
+The correct hybrid for v4.0 is:
 
 ```
-VENUE (192.168.31.x)
-┌─────────────────────────────────────────────────────────────────────────┐
-│                                                                         │
-│  Game (AC/F1)  UDP/SharedMem   rc-agent :18923   WebSocket   rc-core   │
-│  ────────────────────────────> ────────────────────────────> :8080     │
-│                                                                         │
-│  Telemetry flow:                                                        │
-│  TelemetryFrame -> WS msg -> lap_tracker.rs -> telemetry_samples        │
-│  Lap complete -> laps table -> personal_bests -> track_records           │
-│  [NEW] Lap complete -> check_hotlap_event_entry() -> hotlap_event_entries│
-│                                                                         │
-│  racecontrol.db (SQLite WAL, 40+ tables)                                │
-└──────────────────────────┬──────────────────────────────────────────────┘
-                           |
-                           | cloud_sync.rs (2s relay / 30s HTTP)
-                           | Pushes: laps, track_records, personal_bests,
-                           |         billing_sessions, drivers, wallets
-                           | [NEW] Also pushes: hotlap_events,
-                           |   hotlap_event_entries, championships,
-                           |   championship_standings, driver_ratings,
-                           |   telemetry_samples (event laps only)
-                           | Pulls: drivers, wallets, pricing, kiosk_settings
-                           v
-CLOUD (app.racingpoint.cloud :8080)
-┌─────────────────────────────────────────────────────────────────────────┐
-│                                                                         │
-│  rc-core (cloud instance — same binary, cloud.mode=true)                │
-│  Public endpoints: /public/* (no auth required)                         │
-│  Customer endpoints: /customer/* (JWT auth)                             │
-│  [NEW] /public/events, /public/championships, /public/drivers/*         │
-│  [NEW] /public/compare-laps, /public/laps/{id}/track-position           │
-│                                                                         │
-│  racecontrol.db (cloud copy — receives venue push, serves PWA)          │
-└──────────────────────────┬──────────────────────────────────────────────┘
-                           |
-                           | HTTPS fetch (no auth for public endpoints)
-                           v
-Cloud PWA (app.racingpoint.cloud)
-Next.js 14, port 3000
-
-Existing pages: /leaderboard/public, /leaderboard, /telemetry, /tournaments
-[NEW] pages: /events, /events/[id], /championships, /championships/[id]
-             /drivers/[id], /telemetry/compare
-[ENHANCED] /leaderboard/public: add Events + Championships tabs, rating badges
+NSSM service (Session 0 aware):
+  - Installed as Windows Service with NSSM
+  - Configured with "Interact with Desktop" or type=own start=auto
+  - On pod login: HKLM Run key start-rcagent.bat already runs rc-agent in Session 1
+  - NSSM monitors the process started by start-rcagent.bat via process name matching
+  - NSSM restarts on exit code != 0 with backoff (3s, 10s, 30s)
 ```
+
+However, NSSM monitoring a process started by another mechanism is unreliable. The cleaner v4.0 approach:
+
+**Recommended: NSSM as crash-restart watchdog for start-rcagent.bat itself**
+
+```
+NSSM service wraps start-rcagent.bat (not rc-agent.exe directly)
+  - NSSM starts C:\RacingPoint\start-rcagent.bat as a service
+  - start-rcagent.bat uses `start /wait` to launch rc-agent in a new session
+  - NSSM detects bat exit and restarts it (restart window: 3s delay)
+  - GUI processes still run via the bat's session inheritance
+```
+
+This requires zero changes to rc-agent main.rs and is installable via pod-agent exec. New file: `crates/rc-agent/scripts/install-service.bat` — called by deploy.rs after binary deploy.
+
+**Where the code goes:**
+- New file: `deploy-staging/install-service.bat` — NSSM install commands
+- Modified: `deploy.rs` — add post-deploy service registration step
+- No changes to main.rs
 
 ---
 
-## New Database Tables Required
+### Q2: Adding Exec Variant to CoreToAgentMessage — Backward Compatibility
 
-All tables added to `db/mod.rs` as `CREATE TABLE IF NOT EXISTS`. The same migration file runs on both venue and cloud DB at startup — identical schema on both sides is required for the sync to work.
+**Decision: Add `Exec` and `ExecResult` as new enum variants with `#[serde(other)]` unknown-variant handling on the agent side.**
 
-### 1. hotlap_events
-
-```sql
-CREATE TABLE IF NOT EXISTS hotlap_events (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    track TEXT NOT NULL,
-    car TEXT NOT NULL,
-    car_class TEXT NOT NULL,              -- A/B/C/D
-    sim_type TEXT NOT NULL DEFAULT 'assetto_corsa',
-    status TEXT NOT NULL DEFAULT 'upcoming'
-        CHECK(status IN ('upcoming', 'active', 'scoring', 'completed')),
-    starts_at TEXT,
-    ends_at TEXT,
-    rule_107_percent INTEGER DEFAULT 1,   -- 1 = enforce 107% rule
-    max_valid_laps INTEGER,               -- cap entries per driver
-    championship_id TEXT REFERENCES championships(id),
-    championship_round INTEGER,
-    created_by TEXT,                      -- staff driver_id
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-)
-```
-
-### 2. hotlap_event_entries
-
-```sql
-CREATE TABLE IF NOT EXISTS hotlap_event_entries (
-    id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL REFERENCES hotlap_events(id),
-    driver_id TEXT NOT NULL REFERENCES drivers(id),
-    lap_id TEXT REFERENCES laps(id),      -- best qualifying lap
-    lap_time_ms INTEGER,
-    sector1_ms INTEGER,
-    sector2_ms INTEGER,
-    sector3_ms INTEGER,
-    position INTEGER,                     -- 1-based, null until scored
-    points INTEGER DEFAULT 0,            -- F1 scoring after finalize
-    badge TEXT,                          -- 'gold'/'silver'/'bronze'/null
-    gap_to_leader_ms INTEGER,
-    within_107_percent INTEGER DEFAULT 1,
-    entered_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(event_id, driver_id)          -- one entry per driver per event
-)
-```
-
-### 3. championships
-
-```sql
-CREATE TABLE IF NOT EXISTS championships (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    season TEXT,                          -- e.g. '2026-Q1'
-    car_class TEXT NOT NULL,
-    sim_type TEXT NOT NULL DEFAULT 'assetto_corsa',
-    status TEXT NOT NULL DEFAULT 'upcoming'
-        CHECK(status IN ('upcoming', 'active', 'completed')),
-    scoring_system TEXT NOT NULL DEFAULT 'f1_2010',
-    total_rounds INTEGER DEFAULT 0,
-    completed_rounds INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-)
-```
-
-### 4. championship_standings (materialized — recalculated on each round score)
-
-```sql
-CREATE TABLE IF NOT EXISTS championship_standings (
-    championship_id TEXT NOT NULL REFERENCES championships(id),
-    driver_id TEXT NOT NULL REFERENCES drivers(id),
-    position INTEGER,
-    total_points INTEGER DEFAULT 0,
-    rounds_entered INTEGER DEFAULT 0,
-    best_result INTEGER,               -- best finish position across rounds
-    wins INTEGER DEFAULT 0,
-    podiums INTEGER DEFAULT 0,
-    updated_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (championship_id, driver_id)
-)
-```
-
-### 5. driver_ratings
-
-```sql
-CREATE TABLE IF NOT EXISTS driver_ratings (
-    driver_id TEXT PRIMARY KEY REFERENCES drivers(id),
-    rating_class TEXT NOT NULL DEFAULT 'Rookie',
-    -- 'Rookie' / 'Bronze' / 'Silver' / 'Gold' / 'Platinum'
-    class_points INTEGER NOT NULL DEFAULT 0,
-    total_events INTEGER DEFAULT 0,
-    total_podiums INTEGER DEFAULT 0,
-    total_wins INTEGER DEFAULT 0,
-    class_a_best_ms INTEGER,           -- best lap time in class A car
-    class_b_best_ms INTEGER,
-    class_c_best_ms INTEGER,
-    class_d_best_ms INTEGER,
-    updated_at TEXT DEFAULT (datetime('now'))
-)
-```
-
-### 6. Column addition to laps table
-
-```sql
--- Add car_class to laps (populated from billing_session experience at lap recording time)
-ALTER TABLE laps ADD COLUMN car_class TEXT;
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_laps_car_class ON laps(track, car_class);
-```
-
-### 7. Indexes for new tables
-
-```sql
-CREATE INDEX IF NOT EXISTS idx_hotlap_events_updated ON hotlap_events(updated_at);
-CREATE INDEX IF NOT EXISTS idx_hotlap_events_status ON hotlap_events(status, track);
-CREATE INDEX IF NOT EXISTS idx_hotlap_entries_event ON hotlap_event_entries(event_id, position);
-CREATE INDEX IF NOT EXISTS idx_hotlap_entries_driver ON hotlap_event_entries(driver_id);
-CREATE INDEX IF NOT EXISTS idx_championships_updated ON championships(updated_at);
-CREATE INDEX IF NOT EXISTS idx_champ_standings_champ ON championship_standings(championship_id, position);
-CREATE INDEX IF NOT EXISTS idx_driver_ratings_class ON driver_ratings(rating_class, class_points);
-```
-
----
-
-## New API Endpoints Required
-
-### Hotlap Events — Staff
-
-```
-POST   /events/hotlap                    Create hotlap event
-PUT    /events/hotlap/{id}               Update (change status, dates)
-POST   /events/hotlap/{id}/score         Trigger final scoring and badge assignment
-DELETE /events/hotlap/{id}               Cancel event (sets status='cancelled' — add to CHECK)
-```
-
-### Hotlap Events — Public (no auth)
-
-```
-GET    /public/events                    List active + upcoming events
-GET    /public/events/{id}               Event detail + live standings leaderboard
-```
-
-### Championships — Staff
-
-```
-POST   /championships                    Create championship
-PUT    /championships/{id}               Update metadata
-POST   /championships/{id}/recalculate   Force standing recalculation
-```
-
-### Championships — Public (no auth)
-
-```
-GET    /public/championships             List active championships
-GET    /public/championships/{id}        Championship detail + full standings
-GET    /public/championships/{id}/rounds Per-round event results for this championship
-```
-
-### Driver Profiles — Public (no auth)
-
-```
-GET    /public/drivers                   Paginated driver list with rating class
-GET    /public/drivers/{id}              Full driver profile: stats, best times per class, rating, event history
-GET    /public/drivers/{id}/laps         Lap history with track/car/time
-GET    /public/drivers/{id}/events       Event participation history with positions
-```
-
-### Enhanced Leaderboard — extend existing public endpoints
-
-```
-GET    /public/leaderboard               Extend response: add events[], championships[] arrays
-GET    /public/leaderboard/{track}       Extend: add ?class= query param for car class filter
-GET    /public/circuit-records           Best lap per (track, car_class) combination
-GET    /public/vehicle-records/{car}     Best times for one car across all tracks
-```
-
-### Telemetry — Public (no auth)
-
-```
-GET    /public/laps/{id}/telemetry       Existing — no change
-GET    /public/compare-laps              ?lap_a=&lap_b= merged dual-trace array
-GET    /public/laps/{id}/track-position  pos_x, pos_z, offset_ms only (2D map data)
-```
-
----
-
-## Cloud Sync Additions
-
-### Extend `collect_push_payload()` in cloud_sync.rs
-
-Add queries for 5 new tables using the same `json_object()` pattern as existing laps/track_records queries:
+**Existing serde config:**
 
 ```rust
-// hotlap_events: staff creates at venue, cloud displays them
-// WHERE updated_at > last_push LIMIT 100
-
-// hotlap_event_entries: auto-entered on lap completion, updated on scoring
-// WHERE entered_at > last_push LIMIT 500
-
-// championships: staff config at venue
-// WHERE updated_at > last_push LIMIT 50
-
-// championship_standings: recalculated at venue after scoring
-// Push all standings for championships that changed (no delta — small table)
-
-// driver_ratings: updated at venue after lap events
-// WHERE updated_at > last_push LIMIT 500
+#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "snake_case")]
+pub enum CoreToAgentMessage { ... }
 ```
 
-### Targeted telemetry sync (critical — telemetry NOT currently synced)
+With `serde(tag = "type")`, unknown variants cause a deserialization error by default. Old agents (pre-v4.0) receiving an `Exec` message would crash the deserialization, causing the WebSocket loop to log an error and discard the message. This is acceptable since deploy happens before the exec path is used.
 
-The existing sync pushes `laps` metadata but NOT `telemetry_samples`. Syncing all telemetry is impractical (~2000 rows per lap * many laps). The solution: sync only telemetry for event-entered laps.
+However, for maximum safety during rolling deploy (when some pods are on old binary):
+
+**Pattern: Add `UnknownCommand` catch-all variant**
 
 ```rust
-// In collect_push_payload(), after hotlap_event_entries push:
-// Query telemetry_samples WHERE lap_id IN
-//   (SELECT lap_id FROM hotlap_event_entries WHERE entered_at > last_push)
-// This ensures only event-relevant laps get their telemetry synced
-// Cap: LIMIT 10000 rows total (5 laps * 2000 samples)
+/// Catch-all for unknown commands — allows old agents to ignore new variants gracefully.
+#[serde(other)]
+UnknownCommand,
 ```
 
-### Cloud receives via existing /sync/push handler
+`#[serde(other)]` on an enum variant requires the variant to be a unit variant (no data). With `serde(tag = "type", content = "data")`, this works for the type discriminant. The old agent receives `{"type": "exec", "data": {...}}`, maps to `UnknownCommand`, and the main.rs match arm ignores it.
 
-The cloud's `/sync/push` handler already iterates all JSON keys and upserts rows into matching tables. No new handler code required — as long as the tables exist in the cloud DB (same migration runs on both instances at startup). Simply adding the new table names to the push payload is sufficient.
+**New protocol additions (rc-common/src/protocol.rs):**
+
+```rust
+// In CoreToAgentMessage:
+/// Remote shell exec via WebSocket — fallback when HTTP :8090 is blocked by firewall.
+/// Core sends this; agent runs cmd /C and sends back ExecResult.
+Exec {
+    request_id: String,  // UUID — matches response to request
+    cmd: String,
+    timeout_ms: u64,
+},
+
+// In AgentMessage:
+/// Response to CoreToAgentMessage::Exec
+ExecResult {
+    request_id: String,  // matches the Exec request_id
+    success: bool,
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
+},
+```
+
+**Where the handling code goes:**
+
+Agent side (rc-agent/src/main.rs — the WS receive select arm that already handles `CoreToAgentMessage`):
+- Add arm for `CoreToAgentMessage::Exec` — spawn a blocking task, run `cmd /C`, send `AgentMessage::ExecResult` back over `ws_tx`.
+- The existing `exec_command()` logic in remote_ops.rs is reusable as a pure function — extract the command execution core into a shared helper in rc-agent.
+
+Core side (rc-core/src/ws/mod.rs — the `handle_agent` function that receives `AgentMessage`):
+- Add arm for `AgentMessage::ExecResult` — forward result to a `pending_exec_requests` map (oneshot channel per request_id).
+
+**New AppState field needed:**
+
+```rust
+// rc-core/src/state.rs
+pub pending_ws_execs: RwLock<HashMap<String, tokio::sync::oneshot::Sender<ExecResult>>>
+```
+
+**New helper function in deploy.rs:**
+
+```rust
+/// Execute command on pod via WebSocket (fallback when HTTP :8090 blocked).
+/// Falls back to HTTP exec if WS channel not available.
+async fn exec_on_pod_ws(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    cmd: &str,
+    timeout_ms: u64,
+) -> Result<(bool, String, String), String>
+```
+
+Deploy.rs already has `exec_on_pod()` for HTTP. The WS variant sends `CoreToAgentMessage::Exec` to `agent_senders`, registers a oneshot receiver in `pending_ws_execs`, and awaits with timeout.
 
 ---
 
-## PWA Page Architecture
+### Q3: Firewall Auto-Configuration — Startup in main.rs vs Separate Module
 
-### New pages
+**Decision: New module `rc-agent/src/firewall.rs`, called from main.rs startup before the remote_ops server binds.**
 
-```
-pwa/src/app/
-├── events/
-│   ├── page.tsx                Event list (public, no login required)
-│   └── [id]/
-│       └── page.tsx            Event detail: live standings + inline telemetry
-├── championships/
-│   ├── page.tsx                Championship list (public)
-│   └── [id]/
-│       └── page.tsx            Standings table + round-by-round breakdown
-├── drivers/
-│   └── [id]/
-│       └── page.tsx            Driver public profile
-└── telemetry/
-    └── compare/
-        └── page.tsx            Dual-trace lap comparison viewer
-```
+**Rationale:**
 
-### Enhanced existing pages
+Firewall configuration must succeed before remote_ops starts listening on :8090, or the port is usable but the firewall still blocks inbound. It's a distinct responsibility from main startup (which handles config, sim, billing). Separating it keeps main.rs readable.
 
-```
-pwa/src/app/leaderboard/public/page.tsx
-  Add tab: "Events" — list active events with countdown, link to /events/[id]
-  Add tab: "Championships" — current standings summary
-  Existing "Records": add car_class filter dropdown (A/B/C/D)
-  Existing "Drivers": add DriverRatingBadge alongside driver name
+**Module placement and interface:**
 
-pwa/src/app/leaderboard/page.tsx (authenticated, venue)
-  Add car class filter pill row below track selector
-  Add "Enter Event" CTA card when active event matches current track/car
+```rust
+// rc-agent/src/firewall.rs
+/// Ensure Windows Firewall rules exist for RaceControl ports.
+/// Creates rules if missing. Safe to call repeatedly (idempotent).
+/// Returns a list of actions taken for reporting to rc-core.
+pub fn ensure_firewall_rules() -> Vec<FirewallAction>
 
-pwa/src/app/profile/page.tsx (authenticated)
-  Add driver rating card: class badge + class_points progress bar toward next class
-  Add "My Events" section: recent event participations with position + points
+pub enum FirewallAction {
+    AlreadyPresent(String),  // rule name
+    Created(String),         // rule name
+    Failed { rule: String, error: String },
+}
 ```
 
-### New reusable components
+**Windows Firewall via Rust (no batch file dependency):**
+
+Uses `std::process::Command` to run `netsh advfirewall firewall` with `add rule` and `show rule` subcommands. This eliminates the CRLF-damaged batch file failure mode. The existing `CREATE_NO_WINDOW` flag from remote_ops.rs applies here too.
+
+```rust
+// Check if rule exists:
+netsh advfirewall firewall show rule name="RaceControl-RemoteOps"
+// If not found (exit code != 0 or "No rules match"):
+netsh advfirewall firewall add rule name="RaceControl-RemoteOps" protocol=TCP dir=in localport=8090 action=allow
+// Also add ICMP rule:
+netsh advfirewall firewall add rule name="RaceControl-ICMP" protocol=icmpv4 dir=in action=allow
+```
+
+**Call site in main.rs:**
+
+```rust
+// After logging init, before remote_ops::start()
+let firewall_actions = firewall::ensure_firewall_rules();
+for action in &firewall_actions {
+    match action {
+        FirewallAction::Created(rule) => tracing::info!("Firewall rule created: {}", rule),
+        FirewallAction::AlreadyPresent(rule) => tracing::debug!("Firewall rule OK: {}", rule),
+        FirewallAction::Failed { rule, error } => tracing::warn!("Firewall rule failed: {} — {}", rule, error),
+    }
+}
+// Optionally report to rc-core via startup AgentMessage (see startup error reporting feature)
+```
+
+**Important: This runs in main() synchronously before the async runtime**
+
+`ensure_firewall_rules()` is a synchronous function using `std::process::Command::output()` (blocking). It runs before `#[tokio::main]` enters the async executor — or in a `spawn_blocking` immediately after. Given the netsh calls are fast (< 1s), calling them synchronously in `main()` before `#[tokio::main]` is the simplest approach.
+
+**No new dependencies required** — `std::process::Command` is in std. The `CREATE_NO_WINDOW` flag already exists in remote_ops.rs as a pattern to copy.
+
+---
+
+### Q4: Deploy.rs Changes — WebSocket Exec Instead of HTTP
+
+**Decision: Make deploy.rs exec dual-path: try HTTP first (existing `exec_on_pod()`), fall back to WebSocket exec if HTTP returns connection refused.**
+
+**Rationale:**
+
+Full migration to WebSocket-only breaks the download step — `curl.exe` downloads a binary to pod disk, and that 100MB download over WebSocket (serialized as text/JSON) is impractical. HTTP exec for file download remains correct. WebSocket exec is the fallback for when firewall blocks :8090 post-deploy-restart.
+
+**Modified exec_on_pod() signature:**
+
+```rust
+// Current (HTTP only):
+async fn exec_on_pod(state, pod_ip, cmd, timeout_ms) -> Result<(bool, String, String), String>
+
+// New (dual-path):
+async fn exec_on_pod(state, pod_id, pod_ip, cmd, timeout_ms) -> Result<(bool, String, String), String>
+```
+
+The new signature adds `pod_id` (needed to look up WS sender). Implementation tries HTTP first (unchanged), and if HTTP fails with a connection error (not a command error), retries via `exec_on_pod_ws()`.
+
+**Deploy sequence changes for WS exec:**
+
+The self-swap trigger is the only step where WS fallback matters in practice. Download, size-check, and config-write all require HTTP (binary download, file read, file write). The swap trigger sends a detached batch that kills and replaces rc-agent — after the swap, :8090 may briefly be unreachable. Health verification already uses WS (`is_ws_connected()`) so deploy.rs handles this correctly.
+
+**New DeployState variant:**
+
+```rust
+// rc-common/src/types.rs
+pub enum DeployState {
+    // ... existing variants ...
+    Rollback { reason: String },  // NEW: rolling back to previous binary
+}
+```
+
+**Rollback logic in deploy_pod():**
+
+After `VERIFY_DELAYS` exhausted and no full health, if `rc-agent-prev.exe` exists on disk, deploy.rs sends a rollback exec via WS:
 
 ```
-pwa/src/components/
-├── EventCard.tsx            Status badge, countdown timer, car class, track name
-├── ChampionshipStandings.tsx  Sortable table — points + per-round result columns
-├── DriverRatingBadge.tsx    Colored pill: Rookie(grey)/Bronze/Silver/Gold/Platinum
-├── LapComparisonChart.tsx   Dual-trace recharts (extends TelemetryChart syncId pattern)
-├── TrackMapOverlay.tsx      SVG 2D map from pos_x/pos_z telemetry coordinate data
-└── SectorBadge.tsx          F1-style delta chip: purple (personal best) / green (improvement) / yellow (slower)
+cmd: "move /Y C:\RacingPoint\rc-agent-prev.exe C:\RacingPoint\rc-agent.exe && start /D C:\RacingPoint rc-agent.exe"
+```
+
+The self-swap script should be modified to save the old binary as `rc-agent-prev.exe` before overwriting. This is a one-line addition to the swap bat string in `deploy_pod()`.
+
+**Modified do-swap.bat contents:**
+
+```batch
+@echo off
+timeout /t 3 /nobreak
+taskkill /F /IM rc-agent.exe
+timeout /t 2 /nobreak
+copy /Y rc-agent.exe rc-agent-prev.exe   <- NEW: save old binary
+del /Q rc-agent.exe
+move rc-agent-new.exe rc-agent.exe
+start "" /D C:\RacingPoint rc-agent.exe
+```
+
+No structural changes to `deploy_rolling()` or `check_and_trigger_pending_deploy()`.
+
+---
+
+### Q5: Fleet Dashboard — Extend Existing Kiosk vs New Page
+
+**Decision: Add a new `/fleet` page to the existing kiosk Next.js app (not a separate app).**
+
+**Rationale:**
+
+The kiosk already has real-time pod state via `useKioskSocket()` hook which consumes the `/ws/kiosk` WebSocket. All pod status, billing timers, deploy states, game states, and watchdog states are already available or can be added to `DashboardEvent`. The kiosk serves on :3300 which is accessible from Uday's phone (192.168.31.23:3300).
+
+The `web` Next.js app (staff admin) also has pod state via `/ws/dashboard`, but the kiosk is the mobile-optimized surface and has the simpler auth model (staff PIN, already implemented).
+
+**Existing kiosk pages for reference:**
+
+| Page | Route | Purpose |
+|------|-------|---------|
+| Control | `/control` | Per-pod billing/game controls — 8 pod cards |
+| Settings | `/settings` | Kiosk settings |
+| Spectator | `/spectator` | Customer-facing live display |
+| Debug | `/debug` | Diagnostic info |
+
+**New page: `/fleet`**
+
+Separate from `/control` because `/control` is interaction-heavy (billing, game launch). `/fleet` is monitoring-only — a read-only health grid optimized for phone viewing.
+
+**Fleet page data needs:**
+
+| Data | Current Source | Status |
+|------|---------------|--------|
+| Pod online/offline | `pods` map from `useKioskSocket` | Exists |
+| WS connected | `pods[].status` | Exists (inferred) |
+| Billing active | `billingTimers` from `useKioskSocket` | Exists |
+| Game state | `gameStates` from `useKioskSocket` | Exists |
+| Deploy state | Not in kiosk WS | MISSING |
+| Watchdog state | Not in kiosk WS | MISSING |
+| Service (NSSM) status | Not exposed | MISSING |
+| Firewall rule status | Not exposed | MISSING |
+| Last restart timestamp | Not exposed | MISSING |
+
+**New DashboardEvent variants needed (rc-common/src/protocol.rs):**
+
+```rust
+// In DashboardEvent:
+/// Fleet health snapshot for all 8 pods
+FleetHealth(Vec<PodHealthSnapshot>),
+
+/// Single pod health update
+PodHealthUpdate(PodHealthSnapshot),
+```
+
+```rust
+// In rc-common/src/types.rs:
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PodHealthSnapshot {
+    pub pod_id: String,
+    pub pod_number: u32,
+    pub ws_connected: bool,
+    pub deploy_state: DeployState,
+    pub watchdog_state_label: String,   // "Healthy" / "Restarting(2)" / "RecoveryFailed"
+    pub service_running: bool,           // NSSM service status (polled via HTTP or WS exec)
+    pub firewall_ok: Option<bool>,       // None until first startup report
+    pub last_restart_at: Option<String>, // ISO8601, None if never restarted by watchdog
+    pub last_error: Option<String>,      // Last known error string
+}
+```
+
+**Where rc-core publishes fleet health:**
+
+New module `rc-core/src/fleet_health.rs` — background task that reads from AppState (watchdog states, deploy states, WS liveness) and broadcasts `DashboardEvent::FleetHealth` every 5 seconds. The kiosk WS handler (ws/mod.rs `handle_dashboard`) already broadcasts all `DashboardEvent` variants to dashboard subscribers.
+
+**Fleet page component structure:**
+
+```
+kiosk/src/app/fleet/page.tsx           <- NEW route
+kiosk/src/components/FleetGrid.tsx     <- NEW 8-pod health grid
+kiosk/src/components/PodHealthCard.tsx <- NEW per-pod health card (compact)
+```
+
+`PodHealthCard` shows: pod number, WS dot (green/red), deploy state badge, watchdog state, last error. No billing controls. Phone-optimized (single column on mobile, 2 columns on tablet).
+
+---
+
+## System Overview After v4.0
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     rc-core :8080 (Racing-Point-Server .23)          │
+│                                                                       │
+│  ws/mod.rs                state.rs                deploy.rs           │
+│  ┌──────────┐    ┌─────────────────────┐    ┌──────────────────┐    │
+│  │ agent_ws │    │  agent_senders      │    │ exec_on_pod()    │    │
+│  │ /ws/agent│    │  pod_deploy_states  │    │   ├── HTTP :8090  │    │
+│  └────┬─────┘    │  pod_watchdog_states│    │   └── WS fallback│    │
+│       │          │  pending_ws_execs   │←── └──────────────────┘    │
+│       │          │  (NEW)              │                             │
+│       │          └─────────────────────┘                             │
+│                                                                       │
+│  fleet_health.rs (NEW)    pod_monitor.rs     pod_healer.rs            │
+│  ┌───────────────┐   ┌───────────────┐   ┌───────────────┐          │
+│  │ FleetHealth   │   │ heartbeat     │   │ restart       │          │
+│  │ broadcast/5s  │   │ timeout check │   │ via :8090/exec│          │
+│  └───────────────┘   └───────────────┘   └───────────────┘          │
+└──────────────┬────────────────────────────────────────────┬──────────┘
+               │ WebSocket /ws/agent                         │ /ws/kiosk
+               │                                             │
+  ┌────────────▼─────────────────┐          ┌───────────────▼──────────┐
+  │  rc-agent (each pod, :8090)  │          │ kiosk Next.js :3300      │
+  │                              │          │                          │
+  │  main.rs                     │          │ /control  (existing)     │
+  │  ├── firewall.rs (NEW)       │          │ /fleet    (NEW)          │
+  │  ├── remote_ops.rs (:8090)   │          │  FleetGrid.tsx           │
+  │  ├── lock_screen.rs (:18923) │          │  PodHealthCard.tsx       │
+  │  ├── overlay.rs (:18925)     │          └──────────────────────────┘
+  │  └── ws_connect_loop         │
+  │      handles Exec variant    │
+  │      (NEW in main.rs)        │
+  │                              │
+  │  NSSM service (NEW install)  │
+  │  wraps start-rcagent.bat     │
+  └──────────────────────────────┘
 ```
 
 ---
 
-## Component Boundaries
+## Component Map: New vs Modified
 
-| Component | Owns | Communicates With |
-|-----------|------|-------------------|
-| `lap_tracker.rs` (venue rc-core) | Lap validation, personal_bests update, track_records update | Calls `check_hotlap_event_entry()` — NEW |
-| `hotlap_events.rs` (new module) | Event CRUD, auto-entry logic, 107% check, F1 scoring | lap_tracker.rs, cloud_sync.rs |
-| `championships.rs` (new module) | Championship CRUD, standing recalculation | hotlap_events.rs (called after scoring) |
-| `driver_rating.rs` (new module) | Rating class updates (lap count + event results) | lap_tracker.rs, hotlap_events.rs |
-| `cloud_sync.rs` | Push new tables venue to cloud | All new modules add their tables to push payload |
-| Cloud `/public/events/*` handlers | Read from cloud DB, serve PWA | Read-only — no writes to venue |
-| PWA `/events/[id]` page | Fetch event standings, show inline telemetry | TelemetryChart (reused as-is) |
-| PWA `/telemetry/compare` | Fetch merged dual-trace data | LapComparisonChart (new component) |
-| PWA `/drivers/[id]` | Fetch driver profile, best times, event history | DriverRatingBadge, EventCard |
+### New Components
+
+| Component | Location | Purpose | Touches Existing? |
+|-----------|----------|---------|------------------|
+| `firewall.rs` | `rc-agent/src/firewall.rs` | Rust netsh firewall rules | No — called from main.rs |
+| `fleet_health.rs` | `rc-core/src/fleet_health.rs` | Fleet health broadcast task | No — spawned from main.rs |
+| `FleetGrid.tsx` | `kiosk/src/components/` | 8-pod health grid | No |
+| `PodHealthCard.tsx` | `kiosk/src/components/` | Per-pod compact card | No |
+| `fleet/page.tsx` | `kiosk/src/app/fleet/` | Fleet route | No |
+| `PodHealthSnapshot` | `rc-common/src/types.rs` | Health data type | Additive |
+| NSSM install bat | `deploy-staging/` | Service registration | No |
+| `self_healing.rs` | `rc-agent/src/self_healing.rs` | Config/registry repair | No |
+
+### Modified Components
+
+| Component | Location | What Changes | Risk |
+|-----------|----------|-------------|------|
+| `CoreToAgentMessage` | `rc-common/src/protocol.rs` | Add `Exec`, `UnknownCommand` variants | LOW — additive, backward safe |
+| `AgentMessage` | `rc-common/src/protocol.rs` | Add `ExecResult` variant | LOW — additive |
+| `DashboardEvent` | `rc-common/src/protocol.rs` | Add `FleetHealth`, `PodHealthUpdate` | LOW — additive |
+| `DeployState` | `rc-common/src/types.rs` | Add `Rollback` variant | LOW — additive |
+| `AppState` | `rc-core/src/state.rs` | Add `pending_ws_execs` field | LOW — additive |
+| `deploy.rs` | `rc-core/src/deploy.rs` | Add pod_id param to exec_on_pod, WS fallback, rollback logic | MEDIUM — touches core deploy path |
+| `main.rs` (agent) | `rc-agent/src/main.rs` | Add `Exec` handling in WS receive loop, call `firewall::ensure_rules()` | MEDIUM — touches main event loop |
+| `ws/mod.rs` | `rc-core/src/ws/mod.rs` | Handle `AgentMessage::ExecResult`, route to pending_ws_execs | LOW — additive arm |
 
 ---
 
-## Data Flow for Key Operations
+## Data Flow Changes
 
-### 1. Lap Auto-Entry into Hotlap Event
-
-```
-Driver completes lap in AC
-  -> UDP packet -> rc-agent -> TelemetryFrame (WS) -> rc-core
-  -> lap_tracker.rs: insert into laps table
-  -> Update personal_bests (if PB)
-  -> Update track_records (if track record)
-  -> [NEW] hotlap_events.check_hotlap_event_entry(pool, &lap, driver_id)
-       -> SELECT id FROM hotlap_events
-          WHERE track=? AND car_class=? AND status='active'
-          AND starts_at <= now() AND ends_at >= now()
-       -> If event found AND lap.valid = true:
-           -> SELECT lap_time_ms FROM hotlap_event_entries WHERE event_id=? AND driver_id=?
-           -> If no existing entry OR new time is faster:
-               -> Apply 107% rule: if leader_time exists AND new_time > leader_time * 1.07 -> reject
-               -> UPSERT hotlap_event_entries (event_id, driver_id, lap_id, time, sectors)
-  -> cloud_sync.rs: next 2s relay cycle picks up new hotlap_event_entries row
-  -> Cloud DB receives entry via /sync/push
-  -> PWA: polls /public/events/{id} -> sees updated standings in real time
-```
-
-### 2. Event Scoring and Championship Points
+### WebSocket Exec Flow (NEW)
 
 ```
-Staff: POST /events/hotlap/{id}/score
+rc-core deploy.rs
+  1. HTTP exec fails (connection refused on :8090)
+  2. Look up agent_senders[pod_id] — is WS open?
+  3. Generate request_id = UUID
+  4. Create oneshot channel, store in pending_ws_execs[request_id]
+  5. Send CoreToAgentMessage::Exec { request_id, cmd, timeout_ms }
+  6. Await oneshot receiver with timeout_ms + 5s buffer
 
-hotlap_events.rs: finalize_event_scoring(pool, event_id)
-  -> BEGIN TRANSACTION
-  -> SELECT * FROM hotlap_event_entries WHERE event_id=? AND within_107_percent=1
-     ORDER BY lap_time_ms ASC
-  -> Assign position (1-based rank by time)
-  -> Assign F1 points: [25, 18, 15, 12, 10, 8, 6, 4, 2, 1, 0, ...]
-  -> Assign badges: pos=1->gold, pos=2->silver, pos=3->bronze
-  -> Calculate gap_to_leader_ms for each entry
-  -> UPDATE hotlap_event_entries SET position, points, badge, gap_to_leader_ms
-  -> UPDATE hotlap_events SET status='completed'
-  -> COMMIT
+rc-agent main.rs (WS receive loop)
+  7. Receive CoreToAgentMessage::Exec
+  8. spawn_blocking: cmd /C <cmd>
+  9. Send AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr }
 
-If event.championship_id is set:
-  championships.rs: recalculate_standings(pool, championship_id)
-  -> SELECT driver_id, SUM(points) as total, COUNT(*) as rounds,
-            MIN(position) as best_result, SUM(position=1) as wins
-     FROM hotlap_event_entries
-     JOIN hotlap_events ON event_id = hotlap_events.id
-     WHERE championship_id=? AND hotlap_events.status='completed'
-     GROUP BY driver_id
-     ORDER BY total DESC
-  -> Upsert championship_standings with new position rankings
-
-driver_rating.rs: update_ratings_after_event(pool, event_id)
-  -> For each entry: award class_points based on position
-  -> Check class upgrade thresholds (configurable in settings)
-  -> Upsert driver_ratings
-
-cloud_sync.rs: all changed tables sync on next cycle
+rc-core ws/mod.rs (handle_agent)
+  10. Receive AgentMessage::ExecResult
+  11. Look up pending_ws_execs[request_id]
+  12. Send result over oneshot → deploy.rs await resolves
 ```
 
-### 3. Telemetry Lap Comparison
+### Firewall Auto-Config Flow (NEW)
 
 ```
-User: PWA /telemetry/compare?lap_a={id}&lap_b={id}
-
-GET /public/compare-laps?lap_a=&lap_b=
-  rc-core (cloud):
-  -> Fetch telemetry_samples for lap_a: SELECT offset_ms, speed, throttle, brake, steering FROM ...
-  -> Fetch telemetry_samples for lap_b: same query
-  -> Time-normalize both to common offset_ms domain
-     (both laps start at 0ms, interpolate where sample rates differ)
-  -> Merge: [{offset_ms, speed_a, speed_b, throttle_a, throttle_b, brake_a, brake_b, ...}]
-  -> Return: { merged_samples, lap_a_meta: {time, car, track, driver}, lap_b_meta: {...} }
-
-LapComparisonChart component:
-  -> recharts with syncId="compare" (keeps all sub-charts aligned on hover)
-  -> Speed chart: two lines (speed_a in blue, speed_b in orange)
-  -> Delta line: speed_a - speed_b (green=A faster, red=B faster)
-  -> Throttle/Brake: two traces each
-  -> Vertical reference lines at sector boundaries
+rc-agent main.rs startup (before remote_ops::start)
+  1. firewall::ensure_firewall_rules() — synchronous
+  2. netsh show rule → check if exists
+  3. netsh add rule → create if missing
+  4. Returns Vec<FirewallAction>
+  5. Log results; after WS connected, optionally include in startup AgentMessage
 ```
 
-### 4. 2D Track Map Rendering
+### Fleet Health Broadcast Flow (NEW)
 
 ```
-GET /public/laps/{id}/track-position
-  rc-core: SELECT pos_x, pos_z, offset_ms, speed
-           FROM telemetry_samples WHERE lap_id=? ORDER BY offset_ms ASC
-
-TrackMapOverlay component:
-  -> Normalize pos_x / pos_z to SVG viewport (find min/max, scale to 300x200 px)
-  -> Note: AC uses right-hand Y-up coordinate: pos_x = longitudinal, pos_z = lateral
-  -> Draw polyline of (pos_x, pos_z) points scaled to SVG — track outline appears
-  -> Color each segment by speed: blue (slow) -> green -> yellow -> red (fast)
-  -> Optional: animate a dot along the path if showing playback
-  -> Works automatically for any track where telemetry was recorded — no asset files needed
+rc-core fleet_health.rs (every 5s)
+  1. Read agent_senders — determine ws_connected per pod
+  2. Read pod_deploy_states — get DeployState per pod
+  3. Read pod_watchdog_states — get WatchdogState per pod
+  4. Build Vec<PodHealthSnapshot>
+  5. Broadcast DashboardEvent::FleetHealth to dashboard_tx
+  → kiosk /ws/kiosk subscribers receive and update FleetGrid
 ```
 
 ---
 
-## Suggested Build Order
+## Recommended Build Order
 
-Dependencies must be respected — schema before logic, logic before API, API before frontend.
+Build order matters because protocol.rs is the contract between rc-agent and rc-core. Compile breaks propagate upward.
 
-### Step 1: Database Schema (venue + cloud, prerequisite for everything)
+### Phase 1: rc-common protocol additions (foundation)
 
-1. Add `hotlap_events` table to db/mod.rs
-2. Add `hotlap_event_entries` table to db/mod.rs
-3. Add `championships` table to db/mod.rs
-4. Add `championship_standings` table to db/mod.rs
-5. Add `driver_ratings` table to db/mod.rs
-6. Add `car_class` column to `laps` table via ALTER TABLE
-7. Add all required indexes
+Add to `rc-common/src/protocol.rs` and `rc-common/src/types.rs`:
+- `CoreToAgentMessage::Exec`, `UnknownCommand`
+- `AgentMessage::ExecResult`
+- `DashboardEvent::FleetHealth`, `DashboardEvent::PodHealthUpdate`
+- `DeployState::Rollback`
+- `PodHealthSnapshot` struct
 
-Test: `cargo test -p rc-core` — migration runs clean on fresh DB and on upgrade from existing racecontrol.db.
+Write characterization tests first — verify existing enum variants still serialize/deserialize identically after additions. Run `cargo test -p rc-common` green before proceeding.
 
-### Step 2: Core Business Logic Modules (Rust)
+**Why first:** All other crates depend on rc-common. Additions here break the build for rc-core and rc-agent until they handle new variants. Do it once, do it right.
 
-8. Create `crates/rc-core/src/hotlap_events.rs`
-   - Event CRUD functions
-   - `check_hotlap_event_entry()` — auto-entry on lap completion
-   - `finalize_event_scoring()` — F1 scoring, badges, gap calculation
-9. Create `crates/rc-core/src/championships.rs`
-   - Championship CRUD
-   - `recalculate_standings()` — aggregate points across events
-10. Create `crates/rc-core/src/driver_rating.rs`
-    - `update_rating_after_lap()` — called from lap_tracker.rs
-    - `update_rating_after_event()` — called from hotlap_events.rs after scoring
-11. Modify `crates/rc-core/src/lap_tracker.rs`
-    - After valid lap insertion: call `hotlap_events::check_hotlap_event_entry()`
-    - Populate `car_class` column from active billing_session's experience
+### Phase 2: rc-agent firewall module
 
-Test: Unit tests for 107% rule math, F1 scoring table, rating threshold logic.
+Add `crates/rc-agent/src/firewall.rs`. Call from main.rs. Run `cargo test -p rc-agent`.
 
-### Step 3: API Endpoints (Rust)
+**Why second:** Isolated, no dependencies on rc-core changes. Low risk. Can be verified on Pod 8 immediately. Fixes the immediate post-Mar-15 pain.
 
-12. Register all new route handlers in `api/routes.rs`
-13. Implement staff hotlap event handlers (POST/PUT/POST score)
-14. Implement public event handlers (GET /public/events, GET /public/events/{id})
-15. Implement championship handlers (staff + public)
-16. Implement public driver profile handlers
-17. Implement GET /public/compare-laps (merge two telemetry arrays server-side)
-18. Implement GET /public/laps/{id}/track-position (pos_x, pos_z only)
-19. Extend GET /public/leaderboard response with events[] + championships[] arrays
+### Phase 3: rc-agent Exec handling in main.rs
 
-Test: cargo test + curl against local rc-core with seeded test data.
+Add `CoreToAgentMessage::Exec` arm to the WS receive select loop. Extract exec logic from `remote_ops.rs` into a shared helper. Run `cargo test -p rc-agent`.
 
-### Step 4: Cloud Sync (Rust)
+**Why third:** Depends on Phase 1 (new protocol variant). rc-core's WS exec path is not needed yet — rc-agent just needs to handle the message and respond.
 
-20. Extend `collect_push_payload()` with queries for 5 new tables
-21. Add targeted telemetry sync for event-entered laps (event lap_ids only)
+### Phase 4: rc-agent self-healing config check
 
-Test: Run venue rc-core, verify cloud DB receives new table data on next sync cycle.
+Add `crates/rc-agent/src/self_healing.rs`. Check toml, bat, registry keys on startup. Add call from main.rs after config load.
 
-### Step 5: PWA New Pages (Next.js)
+**Why fourth:** Standalone, no cross-crate dependencies. Adds important self-repair before service restarts amplify any damage.
 
-22. Add typed API functions for all new endpoints to `pwa/src/lib/api.ts`
-23. `/events` page — event list with EventCard components
-24. `/events/[id]` page — live standings leaderboard with inline TelemetryChart
-25. `/championships` page — championship list
-26. `/championships/[id]` page — full standings with round breakdown
-27. `/drivers/[id]` page — driver profile: stats, best times per class, event history
-28. `/telemetry/compare` page — dual-trace comparison
+### Phase 5: rc-core WS exec path + deploy.rs changes
 
-### Step 6: PWA Enhancements + New Components (Next.js)
+Modify `ws/mod.rs` to handle `AgentMessage::ExecResult`. Add `pending_ws_execs` to `AppState`. Add WS fallback to `exec_on_pod()` in deploy.rs. Add rollback logic.
 
-29. `LapComparisonChart` component — dual recharts traces with syncId
-30. `TrackMapOverlay` component — SVG from pos_x/pos_z data
-31. `EventCard`, `ChampionshipStandings`, `DriverRatingBadge`, `SectorBadge` components
-32. Enhance `/leaderboard/public` — add Events + Championships tabs
-33. Enhance `/leaderboard/public` — car class filter on Records tab, rating badge on Drivers tab
-34. Enhance `/profile` — driver rating card, My Events section
+**Why fifth:** Depends on Phase 1 (ExecResult variant) and Phase 3 (agent actually responds). Can now be tested end-to-end.
 
----
+### Phase 6: NSSM service install
 
-## Integration Points with Existing Code
+New bat scripts for NSSM installation. Add step to deploy.rs post-deploy flow. Deploy via pod-agent HTTP to all 8 pods sequentially.
 
-### Existing files to MODIFY
+**Why sixth:** Depends on all agent changes being live (Phase 2-4). Service restarts bring up a fresh agent — that agent needs firewall auto-config (Phase 2) and self-healing (Phase 4) to work correctly on first restart.
 
-| File | Required Change |
-|------|-----------------|
-| `crates/rc-core/src/db/mod.rs` | Add 5 new tables + `car_class` ALTER + indexes at end of `migrate()` |
-| `crates/rc-core/src/lap_tracker.rs` | After valid lap insert: call `check_hotlap_event_entry()`, populate `car_class` |
-| `crates/rc-core/src/cloud_sync.rs` | Extend `collect_push_payload()` with 5 new table queries + event telemetry |
-| `crates/rc-core/src/api/routes.rs` | Register all new route handlers, add them to `api_routes()` |
-| `crates/rc-core/src/lib.rs` | Add `pub mod hotlap_events; pub mod championships; pub mod driver_rating;` |
-| `pwa/src/app/leaderboard/public/page.tsx` | Add Events/Championships tabs, car class filter, rating badges |
-| `pwa/src/app/profile/page.tsx` | Add rating card and My Events section |
-| `pwa/src/lib/api.ts` | Add typed fetch functions for all new public endpoints |
+### Phase 7: Fleet health dashboard
 
-### Existing code to REUSE unchanged
+Add `fleet_health.rs` to rc-core. Add fleet route + components to kiosk Next.js. Wire `DashboardEvent::FleetHealth` through kiosk WS hook.
 
-| Component | How reused |
-|-----------|-----------|
-| `TelemetryChart.tsx` | Used as-is in `/events/[id]` for inline lap telemetry expand |
-| `recharts` library | Already installed — extend for LapComparisonChart |
-| `publicApi.lapTelemetry()` | Reused by comparison page (call twice, backend merges) |
-| JWT Bearer auth pattern | All authenticated pages follow same pattern — no new auth infra |
-| `BottomNav` component | Reused on all new PWA pages |
-| WAL-mode SQLite pool | No change — existing 5-connection pool handles new queries |
-| `/sync/push` endpoint handler | No change — generic upsert handles any new table in payload |
-
----
-
-## Architectural Patterns
-
-### Pattern 1: Idempotent Migration Additions
-
-**What:** New tables use `CREATE TABLE IF NOT EXISTS`. New columns use `let _ = ALTER TABLE ... ADD COLUMN`. The migration runs at every rc-core startup on both venue and cloud.
-
-**When to use:** All schema additions in v3.0. The codebase has no migration versioning system — this is the established pattern for all 40+ existing tables.
-
-**Do not use:** For columns that need non-null constraints on existing rows. In that case, use the backfill pattern (see customer_id backfill in db/mod.rs lines 893-919).
-
-### Pattern 2: Venue-Authoritative One-Way Push
-
-**What:** All event scoring, championship standings, and driver rating updates happen exclusively at venue rc-core. Cloud is a read-only replica for competitive data. Cloud never writes back to venue on these tables.
-
-**Why this matters:** The SYNC_TABLES constant in cloud_sync.rs handles bidirectional sync for config tables (pricing, experiences, settings). Competitive data must join the `collect_push_payload()` path only — venue to cloud, not bidirectional. Mixing the two would allow stale cloud data to overwrite venue scores.
-
-### Pattern 3: Server-Side Telemetry Merge for Comparison
-
-**What:** GET /public/compare-laps merges two lap telemetry arrays on the server into one response. Client receives a single merged array `{offset_ms, speed_a, speed_b, throttle_a, throttle_b, ...}`.
-
-**Why:** recharts dual-trace requires all data in a single array with two `dataKey` values. Server merge is O(n) at the DB layer. Client-side merge would require two HTTP round-trips and non-trivial interpolation JavaScript. Server merge produces the correct shape directly.
-
-**Trade-off:** Server does slightly more CPU per request. Acceptable at venue scale (<50 concurrent).
-
-### Pattern 4: Materialized Championship Standings
-
-**What:** Championship standings are written to the `championship_standings` table after each round is scored, not calculated live on every GET request.
-
-**Why:** Live calculation requires aggregating across N events * M drivers per read request. With no auth on public endpoints, this could be called frequently. Materializing into a table makes reads O(1) per driver. Recalculation only happens on explicit staff trigger (POST /championships/{id}/recalculate) or automatic trigger after event scoring.
-
-### Pattern 5: SVG Track Map from Telemetry Data
-
-**What:** The 2D track map is rendered client-side in SVG by normalizing `pos_x`/`pos_z` telemetry coordinates to an SVG viewport. No pre-generated track asset files are needed.
-
-**Why:** `telemetry_samples` already contains `pos_x`, `pos_y`, `pos_z` for every recorded lap. Any valid lap's position data yields the track outline automatically. This works for any track that has been driven, without needing to register tracks manually or maintain a library of track SVG assets.
-
-**AC coordinate system note:** Assetto Corsa uses right-hand Y-up coordinates. `pos_x` is the East-West axis (longitudinal) and `pos_z` is the North-South axis (lateral). When rendering: SVG `x` = normalized `pos_x`, SVG `y` = normalized `pos_z` (inverted, as SVG Y increases downward).
+**Why last:** Observability. Depends on all health data being available in AppState (populated by Phases 5-6). Can be built and deployed independently as it's read-only.
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Adding Competitive Tables to SYNC_TABLES
+### Anti-Pattern 1: Implementing ServiceMain in main.rs
 
-**What people do:** Add `hotlap_events`, `championships` to the `SYNC_TABLES` constant string to make them sync bidirectionally.
+**What people do:** Add `windows-service` crate, restructure main() into `ServiceMain` callback, handle `ServiceControl` events.
 
-**Why it's wrong:** SYNC_TABLES is for cloud-authoritative config that the venue pulls (pricing, experiences, settings). Making competitive tables bidirectional would allow the cloud to overwrite venue scores with stale copies — corrupting event results.
+**Why wrong:** The existing startup sequence in main.rs has carefully ordered steps (single-instance mutex, early lock screen, config validation, FFB zero). The ServiceMain callback pattern requires moving all of this into an async context inside the service, handling `SERVICE_CONTROL_STOP` with a shutdown channel, and testing Session 0 GUI rendering. One wrong step makes the agent start in Session 0 and show a blank screen to customers.
 
-**Do this instead:** Add queries to `collect_push_payload()` only. Competitive data is venue-authoritative and one-directional.
+**Do instead:** NSSM wrapper. Zero code change to main.rs. NSSM handles restart-on-crash. Session 1 startup preserved via existing HKLM Run key.
 
-### Anti-Pattern 2: Scoring as a Background Task
+### Anti-Pattern 2: WebSocket-only exec for binary download
 
-**What people do:** Run event scoring on a tokio background task triggered by time (e.g., when `ends_at` passes).
+**What people do:** Route all deploy exec through WS to avoid HTTP firewall issues.
 
-**Why it's wrong:** Scoring is a staff-triggered action, not a timer event. Auto-triggering prevents staff from extending events, adding grace periods, or reviewing times before publication. SQLite transaction completes in milliseconds — no background task is needed.
+**Why wrong:** A 15MB binary as base64-encoded JSON over WebSocket is ~20MB of text. The WS message buffer in axum defaults to 64MB but the encoding round-trip adds ~33% overhead. More importantly, the download cmd runs for 60-120 seconds — blocking the WS receive loop on both sides for that duration. The firewall issue only affects inbound connections to :8090; outbound from rc-agent to rc-core :8080 is never blocked.
 
-**Do this instead:** Explicit staff action POST /events/hotlap/{id}/score. Simple, predictable, zero state coordination.
+**Do instead:** Keep download via HTTP exec. Use WS exec only for short commands (self-swap trigger, health checks, registry edits) where :8090 may be temporarily blocked post-restart.
 
-### Anti-Pattern 3: Syncing All Telemetry to Cloud
+### Anti-Pattern 3: Enum-matching in deploy.rs on WatchdogState
 
-**What people do:** Add `telemetry_samples` to `collect_push_payload()` with no filter.
+**What people do:** Add WatchdogState-aware logic directly to deploy.rs.
 
-**Why it's wrong:** A 60-minute session at 60fps on 8 pods = ~1.7 million rows. Syncing all telemetry would saturate the connection and write hundreds of MB to the cloud DB. The 5-connection SQLite pool cannot handle this at sync cadence.
+**Why wrong:** deploy.rs and pod_monitor.rs both write watchdog states. Adding WatchdogState reads to deploy.rs creates a third writer/reader that can be out of sync. The watchdog FSM lives in pod_monitor.rs and pod_healer.rs.
 
-**Do this instead:** Only sync telemetry for laps referenced in `hotlap_event_entries`. This bounds the sync to a reasonable set (typically <20 laps per event).
+**Do instead:** deploy.rs checks `pod_deploy_states` (its own field) and `agent_senders` (WS liveness). When a deploy is active, `pod_monitor.rs` already skips watchdog restart for that pod (deploy guard). This separation is already correct in the codebase — keep it.
 
-### Anti-Pattern 4: Client-Side Lap Time Sorting for Rankings
+### Anti-Pattern 4: Firewall rules from a batch file
 
-**What people do:** Return all event entry times to the client and sort/rank in JavaScript.
+**What people do:** Ship `setup-firewall.bat` and call it from deploy.
 
-**Why it's wrong:** Ranking requires consistent tiebreaking rules, 107% filtering, and potentially complex adjustments (class handicaps in future). These rules should be authoritative at the server. Client-side ranking can drift from the official server ranking.
+**Why wrong:** This is exactly what caused the Mar 15 incident. CRLF corruption silently breaks batch files. The batch runs once at setup and is forgotten. Future Windows Updates reset firewall rules.
 
-**Do this instead:** Always return pre-ranked entries from the server (ORDER BY position ASC after scoring, or ORDER BY lap_time_ms ASC before scoring for live standings).
+**Do instead:** `firewall::ensure_firewall_rules()` runs on every rc-agent startup. Idempotent. CRLF-safe (Rust strings). Self-healing: if firewall resets, next restart restores the rules.
+
+### Anti-Pattern 5: Fleet dashboard as a separate Next.js app
+
+**What people do:** Create a new `/fleet-monitor` Next.js project with its own port.
+
+**Why wrong:** The kiosk already has the WS connection, pod state, deploy state, and auth model. A new app means duplicating the WS hook, auth, and API client. Uday needs to remember a new URL. The kiosk already runs on :3300 which is in his bookmarks.
+
+**Do instead:** Add `/fleet` route to the existing kiosk Next.js app. Reuse `useKioskSocket()`. Add new `DashboardEvent` variants for fleet-specific data. One codebase, one URL.
 
 ---
 
-## Open Questions and Gaps
+## Integration Boundaries Summary
 
-These require decisions before implementation begins — noted here so the roadmap can flag them as requiring pre-phase research.
-
-**1. Car class assignment for existing laps**
-
-The `laps` table currently has no `car_class` column. Hotlap event auto-entry needs to know the class. Two options: (a) look up from `kiosk_experiences` by car name at query time, or (b) add `car_class` to laps and populate from billing_session experience at lap recording time. Option (b) is correct — add `ALTER TABLE laps ADD COLUMN car_class TEXT` and populate in `lap_tracker.rs`. Historical laps will have NULL car_class and will not auto-qualify for events (acceptable).
-
-**2. 107% rule baseline**
-
-The 107% rule requires a reference time (the current leader's time). If an event has zero entries, there is no baseline. Decision: skip 107% check until at least one valid lap exists in the event. The first driver always qualifies. Document this edge case in the scoring logic.
-
-**3. Driver rating formula**
-
-PROJECT.md says "driver skill rating system alongside vehicle-based classes" but gives no formula. Suggested approach: `class_points` accumulates at fixed rates (1 point per valid lap, 10 per event entry, 25 per podium, 50 per win). Class thresholds: Rookie 0-99, Bronze 100-299, Silver 300-599, Gold 600-999, Platinum 1000+. This is a product decision that needs Uday's sign-off before implementation.
-
-**4. Telemetry availability on cloud**
-
-Current cloud sync does NOT push `telemetry_samples`. Track map and lap comparison features require telemetry on cloud. The targeted sync (event laps only) resolves this but requires knowing which laps are event-relevant before they are entered. Race condition: lap completes -> event entry created (same transaction) -> telemetry sync includes that lap_id. The sync must query telemetry by lap_ids found in hotlap_event_entries, not by created_at alone. This requires a JOIN in the sync query rather than a simple timestamp filter — slightly more complex but still one SQL query.
-
-**5. Public leaderboard caching**
-
-The public leaderboard endpoint is called with no auth and no rate limit. At launch scale (Racing Point venue, <100 visitors/day) this is fine. If the endpoint gets shared virally (e.g., WhatsApp share of a championship result), it could spike. A 30-second in-memory cache on the public leaderboard response (same pattern as existing pod status cache) would protect against this. Flag this for the phase that implements public driver profiles.
+| Boundary | Communication | Contract |
+|----------|---------------|---------|
+| rc-agent WS receive → Exec handling | New match arm in main.rs select loop | `CoreToAgentMessage::Exec` → `AgentMessage::ExecResult` |
+| rc-core deploy.rs → WS exec | New `exec_on_pod_ws()` in deploy.rs | Uses `agent_senders` + `pending_ws_execs` |
+| rc-core ws/mod.rs → ExecResult | New arm in `handle_agent()` | Routes to `pending_ws_execs` oneshot |
+| rc-agent startup → firewall | `firewall::ensure_firewall_rules()` in main.rs | Called before `remote_ops::start()` |
+| rc-core → kiosk fleet page | `DashboardEvent::FleetHealth` over `/ws/kiosk` | Existing broadcast channel |
+| NSSM service → start-rcagent.bat | NSSM wraps existing bat | No code change to rc-agent |
 
 ---
 
 ## Sources
 
-- Direct codebase inspection: `crates/rc-core/src/db/mod.rs` (1791 lines, 40+ tables confirmed)
-- Direct codebase inspection: `crates/rc-core/src/api/routes.rs` (276 endpoints mapped)
-- Direct codebase inspection: `crates/rc-core/src/cloud_sync.rs` (full push/pull logic, SYNC_TABLES constant)
-- Direct codebase inspection: `pwa/src/app/` (all existing PWA pages and scaffolds)
-- Direct codebase inspection: `pwa/src/components/TelemetryChart.tsx` (recharts implementation with syncId pattern)
-- Direct codebase inspection: `.planning/PROJECT.md` (v3.0 requirements)
-- Inspiration reference: rps.racecentres.com (Track of the Month, Group Events, Circuit Records, Driver Data patterns)
-- Confidence: HIGH — all architectural claims based on code that exists in the repository
+- Direct codebase inspection: `crates/rc-agent/src/main.rs` (474+ lines startup sequence)
+- Direct codebase inspection: `crates/rc-core/src/deploy.rs` (exec_on_pod, deploy_pod, deploy_rolling)
+- Direct codebase inspection: `crates/rc-core/src/ws/mod.rs` (handle_agent, agent_senders pattern)
+- Direct codebase inspection: `crates/rc-common/src/protocol.rs` (CoreToAgentMessage, AgentMessage, DashboardEvent)
+- Direct codebase inspection: `crates/rc-core/src/state.rs` (AppState field map)
+- Direct codebase inspection: `crates/rc-agent/src/remote_ops.rs` (exec implementation, semaphore pattern)
+- Direct codebase inspection: `kiosk/src/app/control/page.tsx` (useKioskSocket pattern)
+- Project context: `.planning/PROJECT.md` (v4.0 requirements, Mar 15 incident motivation)
+- Memory: Session 0 vs Session 1 HKLM Run key history (deployed all 8 pods)
+- Confidence: HIGH — all architectural claims are derived from reading actual source files
 
 ---
 
-*Architecture research for: RaceControl v3.0 — Leaderboards, Telemetry & Competitive*
-*Researched: 2026-03-14*
+*Architecture research for: Pod Fleet Self-Healing (v4.0)*
+*Researched: 2026-03-15*

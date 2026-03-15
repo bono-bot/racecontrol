@@ -1,14 +1,15 @@
 # Stack Research
 
-**Domain:** Sim racing competitive platform — leaderboards, telemetry visualization, championship management, driver skill rating
-**Researched:** 2026-03-14
-**Confidence:** HIGH (existing stack verified directly in codebase; new additions verified via npm registry, GitHub, official SQLite docs)
+**Domain:** Pod Fleet Self-Healing — Windows Service, Firewall, Registry, Fleet Dashboard
+**Researched:** 2026-03-15
+**Confidence:** HIGH (existing codebase verified directly; new crates verified via crates.io, GitHub, official docs)
 
 ---
 
-> **Note:** This file covers v3.0 Leaderboards, Telemetry & Competitive stack additions.
-> The v2.0 Kiosk URL Reliability stack (NSSM, DHCP reservation, hosts file) remains unchanged.
-> v3.0 adds zero new infrastructure — all new features extend the existing Rust/SQLite/Next.js stack.
+> **Note:** This file covers v4.0 Pod Fleet Self-Healing stack additions ONLY.
+> The v3.0 Leaderboard/Telemetry stack and all prior additions remain unchanged.
+> This research answers four specific questions: Windows Service wrapper, Firewall management,
+> Registry management, and Fleet health dashboard transport.
 
 ---
 
@@ -16,323 +17,387 @@
 
 | Technology | Version | Role |
 |------------|---------|------|
-| Rust/Axum | 0.8 | rc-core HTTP server (port 8080) — all backend logic |
-| sqlx + SQLite | 0.8 | All persistent storage — laps, telemetry, drivers, billing |
-| Next.js App Router | 16.1.6 | PWA at app.racingpoint.cloud |
-| React | 19.2.3 | PWA UI |
-| Tailwind CSS | 4.x | Styling |
-| recharts | 3.8.0 | Charts — speed, throttle, brake, steering, gear, RPM traces already built in TelemetryChart.tsx |
-| tokio, serde, reqwest, chrono | workspace | Rust async, serialization, HTTP client, time |
-| cloud_sync.rs | existing | Pushes laps, personal_bests, track_records, drivers to VPS every 30s |
+| Rust/Axum | 0.8 | rc-agent HTTP server on port 8090 (remote_ops.rs) |
+| tokio | 1 (full) | Async runtime in both rc-core and rc-agent |
+| tokio-tungstenite | 0.26 | WebSocket client in rc-agent → rc-core |
+| axum | 0.8 | Both rc-core (port 8080) and rc-agent (port 8090) |
+| winapi | 0.3 | Already in rc-agent for Windows process management |
+| serde, serde_json | 1 | Serialization throughout |
+| tracing, tracing-appender | 0.1/0.2 | Structured logging |
+| anyhow, thiserror | 1/2 | Error handling |
+| Next.js kiosk | 16.1.6 | Staff dashboard on port 3300 |
+| useKioskSocket | existing | WebSocket hook connecting to `ws://...:8080/ws/dashboard` |
 
-**Key existing endpoints already built:**
-- `GET /public/laps/{id}/telemetry` — returns speed, throttle, brake, steering, gear, rpm, pos_x/pos_y/pos_z samples
-- `GET /public/leaderboard` — top laps per track
-- `GET /public/leaderboard/{track}` — filtered by track
-- `GET /events` — event list (schema exists, logic is stub)
-- `GET /drivers/{id}/full-profile` — driver data
+**Critical existing constraint from PROJECT.md:**
+> "No new dependencies: Use existing crate deps where possible (tokio, reqwest, serde, chrono, tracing)"
 
-**PWA scaffold pages already exist (mostly empty):**
-- `/leaderboard`, `/leaderboard/public` — leaderboard UI stubs
-- `/telemetry` — live telemetry (fully built for real-time display)
-- `/sessions/[id]` — session results
-- `/tournaments` — championships stub
+Every new crate added below is justified by a capability gap — no existing dep covers it.
 
 ---
 
 ## New Stack Additions Required
 
-### Frontend (PWA)
+### 1. Windows Service: `windows-service` crate
 
-#### Charting: Stay on recharts 3.8.0 — no new library
+**Recommendation: `windows-service = "0.8"` (native Rust ServiceMain)**
 
-recharts 3.8.0 is already installed, wired, and working. It supports all v3.0 chart needs:
+Do NOT use NSSM, WinSW, or shawl as external wrappers.
 
-- **Lap comparison:** Two datasets merged onto one `<ComposedChart>` using separate dataKeys (`lap_a_speed`, `lap_b_speed`) on a shared time axis (offset_ms). Multiple `<Line>` components per chart — supported natively.
-- **Synchronized crosshairs:** `syncId` prop on each `<LineChart>` or `<AreaChart>` keeps speed, throttle, brake, and steering charts in sync when hovering. Already used in TelemetryChart.tsx.
-- **Sector delta overlays:** Bar or reference line annotations on the existing chart types.
+**Why `windows-service` over NSSM:**
 
-**Decision: no second charting library.** ECharts (600KB), Chart.js (230KB), and Victory (220KB) all add substantial bundle weight for zero capability gain over the already-working recharts integration.
+NSSM has not been updated since 2017. Its last release (2.24) predates Windows 11. It ships as an external binary that must be bundled separately, added to the deploy kit, and installed idempotently on every pod. Most critically, NSSM wraps the process externally — it cannot participate in the Rust shutdown sequence, cannot signal the existing `tokio_util::CancellationToken` pattern, and cannot report structured startup errors back to rc-core over the WebSocket before dying. The Feb 2026 David Hamann article on writing Windows services in Rust (https://davidhamann.de/2026/02/28/writing-a-windows-service-in-rust/) confirms the `windows-service 0.8` crate integrates cleanly with a tokio runtime and `CancellationToken`.
 
-#### Track Map: Canvas API via useRef — no library
+**Why `windows-service` over `sc.exe`:**
 
-The 2D track map renders pos_x/pos_z telemetry points as a polyline on an HTML `<canvas>`. This is 40-60 lines of vanilla canvas code in a `useRef` + `useEffect` hook. No external library is warranted.
+`sc.exe create` installs a service but provides no service control loop — the binary still needs to call `StartServiceCtrlDispatcher`. Without a `ServiceMain`, Windows kills the process in ~30 seconds with error 1053 ("service did not respond"). `sc.exe` is only the installer; `windows-service` provides the runtime protocol.
 
-**Why no D3:** D3's SVG approach adds 80KB for what is `ctx.lineTo(normalizedX, normalizedZ)` in a loop. Canvas renders crisply at mobile DPR with no DOM node overhead per point. A single lap at 60Hz for 90 seconds produces ~5,400 samples — SVG at that scale is visibly slow on phone CPUs.
+**Why `windows-service` over `shawl`/`WinSW`:**
 
-**Why no react-konva or Pixi.js:** Scene graph frameworks (Konva, Pixi) are justified for interactive game-like rendering. A static track outline with a moving car dot does not need a retained scene graph or WebGL context.
+Shawl is Rust-written but externally wraps any executable — same limitation as NSSM regarding structured shutdown and error reporting. WinSW is .NET-based, requiring .NET runtime on pods. Both are correct choices for apps you cannot modify; rc-agent is our own code.
 
-**Implementation pattern:**
+**Session 0 vs Session 1 — THE critical gotcha:**
 
-```typescript
-// components/TrackMap.tsx
-const canvasRef = useRef<HTMLCanvasElement>(null);
+All Windows services run in Session 0. rc-agent currently shows a GUI (lock screen overlay using WINAPI). A service in Session 0 cannot create visible windows in Session 1 (the logged-in user session). This is a hard OS constraint on Windows Vista+ — there is no "allow interact with desktop" checkbox that works on Windows 10/11.
 
-useEffect(() => {
-  const canvas = canvasRef.current;
-  const ctx = canvas?.getContext("2d");
-  if (!ctx || !samples.length) return;
+**Architecture to handle Session 0/1 split:**
+- The Windows Service (`windows-service` crate) runs the non-GUI logic in Session 0: WebSocket, remote_ops, billing, heartbeat, HID polling
+- A separate lightweight Session 1 helper process (`rc-agent-ui.exe`) handles ONLY the lock screen overlay and kiosk window
+- The service spawns `rc-agent-ui.exe` via `CreateProcessAsUser` into the active user's session, or uses a named pipe / local WebSocket for IPC
+- If rc-agent currently must show UI, the split is mandatory. If GUI responsibility can move to the kiosk (already runs in Session 1), eliminate `rc-agent-ui.exe` entirely
 
-  // Normalize pos_x, pos_z into [0, canvas.width] x [0, canvas.height]
-  const xs = samples.map(s => s.pos_x);
-  const zs = samples.map(s => s.pos_z);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minZ = Math.min(...zs), maxZ = Math.max(...zs);
-  const scale = Math.min(canvas.width / (maxX - minX), canvas.height / (maxZ - minZ));
+**Recommendation:** Move lock screen to kiosk (it runs in Session 1 via HKLM Run already). The service handles all non-UI logic. This eliminates the Session 0/1 split entirely and is the cleanest path.
 
-  const toCanvas = (x: number, z: number) => ({
-    cx: (x - minX) * scale + padding,
-    cy: (z - minZ) * scale + padding,
-  });
-
-  // Draw reference lap outline in grey
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "#5A5A5A";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  samples.forEach((s, i) => {
-    const { cx, cy } = toCanvas(s.pos_x, s.pos_z);
-    i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
-  });
-  ctx.stroke();
-
-  // Draw comparison lap in red (if present)
-  if (compSamples?.length) {
-    ctx.strokeStyle = "#E10600";
-    // ... same pattern
-  }
-
-  // Draw car dot at hoverOffset position
-  if (hoverOffset !== null) {
-    const nearest = findNearestSample(samples, hoverOffset);
-    const { cx, cy } = toCanvas(nearest.pos_x, nearest.pos_z);
-    ctx.fillStyle = "#FFFFFF";
-    ctx.beginPath();
-    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}, [samples, compSamples, hoverOffset]);
-```
-
-#### Date Formatting: date-fns 4.1.0
-
-Required for event timelines ("Event closes in 3 days"), championship standings ("Updated 2 hours ago"), and driver profile history ("Best lap set 5 days ago"). date-fns 4.1.0 is ESM-first and tree-shakes correctly in Next.js App Router server components.
-
-```bash
-# Install in pwa/
-npm install date-fns
-```
-
-**Why not dayjs:** Both are functionally equivalent. date-fns chosen because it tree-shakes to individual function imports (no side effects) — more compatible with Next.js server component boundaries.
-
-**Why not Luxon:** 25KB min+gzip vs date-fns ~13KB. No meaningful feature advantage for formatting and relative time calculations.
-
-#### Driver Skill Rating: Custom percentile in Rust — no npm package
-
-**Decision: custom percentile-based rating implemented in rc-core Rust, not a Glicko-2 npm package.**
-
-Research findings:
-- `glicko2` npm (v1.2.1) was last published 2 years ago. `glicko2.ts` (v1.3.2) is more recent but low-maintenance.
-- Glicko-2 is designed for head-to-head match outcomes (win/loss). Hotlap leaderboards produce lap times, not match results. Adapting Glicko-2 requires treating each lap as a synthetic match against every other driver — a brittle workaround that produces inflated confidence intervals for inactive drivers.
-- A percentile system is more explainable to venue customers: "You are in the top 15% at Spa" is more actionable than a Glicko RD number.
-- iRating (iRacing's system) is Elo-based and similarly requires head-to-head result construction. Not suitable for time trials.
-
-**Rating algorithm (pure Rust, zero new dependencies):**
+**Tokio integration pattern (HIGH confidence — mullvad/windows-service-rs GitHub + Hamann 2026 article):**
 
 ```rust
-// src/driver_rating.rs
-// For each driver, compute percentile across all drivers on same track+car:
-// percentile = (drivers_with_worse_time / total_drivers_with_times) * 100
+// main.rs — dual-mode: service or console depending on launch context
+fn main() -> anyhow::Result<()> {
+    // When launched by SCM, run as service
+    if std::env::args().any(|a| a == "--service") {
+        service_dispatcher::start("rc-agent", ffi_service_main)?;
+    } else {
+        // Direct console launch (dev/debug mode)
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(run_agent())?;
+    }
+    Ok(())
+}
 
-// Class assignment:
-// A: top 10%  (percentile >= 90)
-// B: 10-25%   (percentile >= 75)
-// C: 25-50%   (percentile >= 50)
-// D: bottom 50% (percentile < 50)
+define_windows_service!(ffi_service_main, windows_service_main);
 
-// 107% rule: laps > (class_A_fastest * 1.07) excluded from class placement
-// Recalculate nightly via tokio::time::interval(Duration::from_hours(24))
+fn windows_service_main(args: Vec<OsString>) {
+    // tokio runtime created HERE, not in main()
+    // because service_dispatcher::start blocks the main thread
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let shutdown_token = CancellationToken::new();
+    let token_clone = shutdown_token.clone();
+
+    let status_handle = service_control_handler::register("rc-agent", move |ctrl| {
+        match ctrl {
+            ServiceControl::Stop | ServiceControl::Shutdown => {
+                token_clone.cancel();
+                ServiceControlHandlerResult::NoError
+            }
+            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+            _ => ServiceControlHandlerResult::NotImplemented,
+        }
+    }).unwrap();
+
+    status_handle.set_service_status(ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state: ServiceState::Running,
+        controls_accepted: ServiceControlAccept::STOP,
+        ..ServiceStatus::default()
+    }).unwrap();
+
+    rt.block_on(run_agent_with_shutdown(shutdown_token));
+
+    status_handle.set_service_status(ServiceStatus {
+        current_state: ServiceState::Stopped,
+        ..ServiceStatus::default()
+    }).unwrap();
+}
 ```
 
-Store results in a new `driver_ratings` table. Recompute on demand when new track records are set, and nightly for full recalibration.
+**Service installation from Rust (no sc.exe dependency):**
+
+The `windows-service` crate includes `ServiceManager` and `Service` types for programmatic install/uninstall. Call `ServiceManager::local_computer(None, ServiceManagerAccess::CREATE_SERVICE)` from a one-time `rc-agent --install` subcommand. No external installer script needed.
+
+**`windows-service` crate details:**
+- Crate: `windows-service` on crates.io
+- Current version: 0.8.0 (9 total published versions; 2.8M downloads)
+- Maintained by: Mullvad VPN (production-grade, used in their Windows VPN client)
+- GitHub: https://github.com/mullvad/windows-service-rs
+- No additional Windows SDK dependencies beyond what winapi already provides
+
+**Cargo.toml addition (rc-agent, Windows-only):**
+
+```toml
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8"
+tokio-util = { version = "0.7", features = ["rt"] }  # for CancellationToken
+```
+
+Note: `tokio-util` with `CancellationToken` is the shutdown coordination primitive. Verify whether it's already in the workspace — if not, add it here. `CancellationToken` is the recommended pattern per the Tokio docs for cooperative task cancellation.
 
 ---
 
-### Backend (rc-core Rust)
+### 2. Firewall Management: `std::process::Command` calling `netsh` — no new crate
 
-#### No new Rust crates required
+**Recommendation: Call `netsh advfirewall firewall` via `std::process::Command`. No new crate.**
 
-All v3.0 backend features are achievable with existing workspace dependencies:
+This directly satisfies the project constraint "no new dependencies where existing deps cover it."
 
-| Feature | Implementation | Existing dep used |
-|---------|---------------|-------------------|
-| Championship points accumulation | SQLite `SUM() OVER`, `ROW_NUMBER() OVER` via sqlx raw query strings | sqlx 0.8 |
-| F1-style scoring (25/18/15/12/10/8/6/4/2/1) | Rust `const` array, applied when event closes | serde_json for response |
-| 107% rule filtering | SQL `WHERE lap_time_ms <= ? * 1.07` in event entry query | sqlx 0.8 |
-| Gold/silver/bronze badge assignment | Computed at event close: position 1=gold, 2=silver, 3=bronze | serde_json |
-| Driver rating recalculation | `tokio::time::interval` scheduled task, pure arithmetic in Rust | tokio |
-| Lap comparison API | New endpoint returning two laps' telemetry merged by lap_id pair | sqlx 0.8 |
-| Public championship routes | Extend `api/routes.rs` with unauthenticated routes | axum 0.8 |
+**Why NOT `windows_firewall` crate (0.3.0, lhenry-dev):**
 
-**SQLite is correct at venue scale.** 8 pods, ~50 active drivers, events weekly. The largest leaderboard query will never exceed a few thousand rows. SQLite WAL mode (already enabled: `PRAGMA journal_mode=WAL`) handles concurrent reads from cloud_sync and the API server without contention.
+The `windows_firewall` crate (https://crates.io/crates/windows_firewall, current version 0.3.0) wraps the Windows Firewall COM API. It is maintained by a single developer with low download count and no notable production adoption. The v4.0 requirement is narrow: add two rules on startup (ICMP + TCP 8090), idempotently. A 20-line function using `std::process::Command` is more auditable, less risky to upgrade, and requires no COM initialization in the tokio runtime.
 
-**SQLite window function support:** Available since SQLite 3.25.0 (September 2018). The version bundled with sqlx-sqlite feature is well above this threshold. `ROW_NUMBER() OVER` and `SUM() OVER` work directly via `sqlx::query_as` with raw SQL.
+**Why NOT Windows Filtering Platform (WFP) API via `wfp` crate:**
 
-**sqlx window function quirk:** When using `OVER` clauses, sqlx infers nullable `Option<T>` for non-aggregate columns even when they cannot be NULL. Use the `!` column suffix in query! macros, or select into `Option<T>` and `.unwrap()` safely. See: https://github.com/launchbadge/sqlx/issues/2874
+WFP is the kernel-level packet filtering layer. It is appropriate for building firewalls, VPN clients, and network monitors. For adding named application firewall rules, WFP is the wrong abstraction layer — that's the job of the Windows Firewall service, which netsh controls. The `wfp` crate (https://crates.io/crates/wfp) is unmaintained (last commit 2021).
 
-#### New schema tables (SQL migrations in db/mod.rs)
+**Why NOT `winfw-rs`:**
 
-Add as additional `sqlx::query(...).execute(pool).await?` blocks following the existing pattern in `migrate()`:
+`marirs/winfw-rs` is abandoned (last commit 2021, no crates.io release).
 
-```sql
--- Championships (multi-round competition)
-CREATE TABLE IF NOT EXISTS championships (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    status TEXT DEFAULT 'active',          -- active | completed | archived
-    scoring_system TEXT DEFAULT 'f1_2025', -- f1_2025 | points_json
-    created_at TEXT DEFAULT (datetime('now'))
-);
+**Why netsh is correct for this use case:**
 
--- Links events to championships (one event = one round)
-CREATE TABLE IF NOT EXISTS championship_rounds (
-    id TEXT PRIMARY KEY,
-    championship_id TEXT NOT NULL REFERENCES championships(id),
-    event_id TEXT NOT NULL REFERENCES events(id),
-    round_number INTEGER NOT NULL,
-    created_at TEXT DEFAULT (datetime('now'))
-);
+The CRLF-damaged batch file issue that caused the Mar 15 incident is a git/text-mode issue with `.bat` files, not a problem with netsh itself. Moving the netsh calls into Rust `Command::new("netsh")` eliminates the CRLF vector entirely since Rust strings have no line-ending ambiguity. The idempotency problem (duplicate rules) is solved by checking rule existence before adding.
 
--- Cumulative standings (updated when each round closes)
-CREATE TABLE IF NOT EXISTS championship_standings (
-    championship_id TEXT NOT NULL REFERENCES championships(id),
-    driver_id TEXT NOT NULL REFERENCES drivers(id),
-    points INTEGER DEFAULT 0,
-    rounds_scored INTEGER DEFAULT 0,
-    best_finish INTEGER,
-    updated_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (championship_id, driver_id)
-);
-
--- Driver class rating (recomputed nightly)
-CREATE TABLE IF NOT EXISTS driver_ratings (
-    driver_id TEXT PRIMARY KEY REFERENCES drivers(id),
-    class TEXT NOT NULL DEFAULT 'D',    -- A | B | C | D
-    rating_score REAL DEFAULT 0.0,      -- 0.0-100.0 percentile
-    sample_count INTEGER DEFAULT 0,     -- how many track+car combos rated on
-    computed_at TEXT DEFAULT (datetime('now'))
-);
-```
-
-Additionally, add columns to existing tables via `ALTER TABLE IF NOT EXISTS`:
-
-```sql
--- events table: hotlap event config
-ALTER TABLE events ADD COLUMN cutoff_107_percent INTEGER;  -- fastest_ms * 1.07 computed on close
-ALTER TABLE events ADD COLUMN badge_gold_position INTEGER DEFAULT 1;
-ALTER TABLE events ADD COLUMN badge_silver_position INTEGER DEFAULT 2;
-ALTER TABLE events ADD COLUMN badge_bronze_position INTEGER DEFAULT 3;
-ALTER TABLE events ADD COLUMN scoring_system TEXT DEFAULT 'f1_2025';
-
--- event_entries table: results
-ALTER TABLE event_entries ADD COLUMN points_awarded INTEGER DEFAULT 0;
-ALTER TABLE event_entries ADD COLUMN badge TEXT;            -- gold | silver | bronze | NULL
-ALTER TABLE event_entries ADD COLUMN gap_to_first_ms INTEGER;
-ALTER TABLE event_entries ADD COLUMN lap_id TEXT REFERENCES laps(id);
-```
-
-**Note:** SQLite `ALTER TABLE ADD COLUMN` ignores the statement if the column already exists when wrapped in a try-execute. Use `IF NOT EXISTS` (SQLite 3.37+) or catch the "duplicate column" error. Existing pattern in rc-core uses `CREATE TABLE IF NOT EXISTS`, so extend the pattern consistently.
-
-#### New Rust modules required
-
-| Module | Path | Responsibility |
-|--------|------|---------------|
-| `championship.rs` | `src/championship.rs` | F1-style scoring const array, compute_standings(), close_event_and_score() |
-| `driver_rating.rs` | `src/driver_rating.rs` | compute_percentile_ratings(), schedule_nightly_recalculation() |
-
-Both modules are pure domain logic with no external crate dependencies — just sqlx queries and arithmetic.
-
-#### New public API routes
-
-Extend `api/routes.rs` following the existing `/public/*` pattern (no auth required):
+**Implementation pattern (idempotent — no duplicate rules):**
 
 ```rust
-.route("/public/championships", get(public_championships))
-.route("/public/championships/{id}", get(public_championship_detail))
-.route("/public/championships/{id}/standings", get(public_championship_standings))
-.route("/public/events", get(public_events))
-.route("/public/events/{id}/results", get(public_event_results))
-.route("/public/drivers/{id}/profile", get(public_driver_profile))
-.route("/public/drivers/{id}/laps", get(public_driver_laps))
-.route("/public/laps/compare", get(public_lap_compare))  // ?lap_a=UUID&lap_b=UUID
+// src/firewall.rs — new module in rc-agent
+use std::process::Command;
+use anyhow::Result;
+use tracing::{info, warn};
+
+const RULE_ICMP: &str = "RacingPoint-ICMP";
+const RULE_TCP_8090: &str = "RacingPoint-RemoteOps-8090";
+
+pub fn ensure_firewall_rules() -> Result<()> {
+    ensure_rule(
+        RULE_ICMP,
+        &["protocol=icmpv4", "dir=in", "action=allow"],
+    )?;
+    ensure_rule(
+        RULE_TCP_8090,
+        &["protocol=TCP", "dir=in", "localport=8090", "action=allow"],
+    )?;
+    Ok(())
+}
+
+fn rule_exists(name: &str) -> bool {
+    // netsh exits 0 and prints the rule if it exists; exits non-zero if not found
+    Command::new("netsh")
+        .args(["advfirewall", "firewall", "show", "rule", &format!("name={name}")])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn ensure_rule(name: &str, extra_args: &[&str]) -> Result<()> {
+    if rule_exists(name) {
+        info!("Firewall rule '{}' already exists — skipping", name);
+        return Ok(());
+    }
+    let mut cmd = Command::new("netsh");
+    cmd.args(["advfirewall", "firewall", "add", "rule", &format!("name={name}")]);
+    for arg in extra_args {
+        cmd.arg(arg);
+    }
+    let out = cmd.output()?;
+    if out.status.success() {
+        info!("Firewall rule '{}' created", name);
+    } else {
+        warn!(
+            "Failed to create firewall rule '{}': {}",
+            name,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    Ok(())
+}
 ```
 
-#### Cloud Sync Additions (cloud_sync.rs)
+**Administrator privilege note:** netsh firewall commands require elevation. When rc-agent runs as a Windows Service with `LocalSystem` account, it has the required privilege automatically. During console development, run with admin rights.
 
-The existing `sync_push()` function sends laps, personal_bests, track_records, drivers to the VPS. For v3.0, extend with:
+**No new Cargo.toml entry needed.** `std::process::Command` is in the standard library.
 
-- Push `events` (hotlap event definitions, open/close status, scoring config)
-- Push `event_entries` (results with points, badges, gaps)
-- Push `championships` and `championship_standings`
-- Push `driver_ratings` (class assignments)
+---
 
-No new Rust crates. Add additional `SELECT` queries and `reqwest::Client::post()` calls following the existing `sync_push()` pattern.
+### 3. Registry Management: `winreg = "0.55"` — one new crate
+
+**Recommendation: `winreg = "0.55"`**
+
+**Why winreg over existing `winapi` crate:**
+
+The project already has `winapi = "0.3"` with several feature flags. winapi exposes the raw `RegOpenKeyExW`, `RegSetValueExW`, etc. FFI functions — usable but requires manual `HKEY` lifecycle management, `WCHAR` conversion, and `RegCloseKey` on drop. Writing this correctly without winreg is ~150 lines of unsafe FFI for what winreg provides in 10 lines of safe Rust.
+
+**Why NOT adding winapi registry features:**
+
+`winapi = "0.3"` with features `["winreg", "minwindef"]` would expose the raw registry API. This is viable but produces fragile code. The `winreg` crate wraps exactly these same APIs with proper RAII handles and serde serialization. Given the project already tolerates crate dependencies (hidapi, mdns-sd, sysinfo), adding winreg for a clean registry API is justified.
+
+**Why NOT `windows-registry` crate (microsoft/windows-rs):**
+
+`windows-registry` is part of the `windows` crate ecosystem (Microsoft official). It requires pulling in `windows-targets`, `windows-implement`, etc. — a much heavier dependency tree than `winreg = "0.55"`. For two registry operations (read + write HKLM Run key and config path), winreg is proportionate.
+
+**winreg details:**
+- Crate: `winreg` on crates.io (https://crates.io/crates/winreg)
+- Current version: 0.55.0 (released 2025-01-12)
+- Maintained by: gentoo90 (https://github.com/gentoo90/winreg-rs)
+- Downloads: actively maintained, widely used (>7M downloads)
+- No build.rs, no C dependencies — pure Rust + winapi bindings
+
+**Cargo.toml addition (rc-agent, Windows-only):**
+
+```toml
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+```
+
+**Usage pattern for self-healing config:**
+
+```rust
+// src/config_healer.rs — new module in rc-agent
+#[cfg(windows)]
+use winreg::{RegKey, enums::*};
+use anyhow::Result;
+use tracing::{info, warn};
+
+const RUN_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+const RCAGENT_VALUE: &str = "RCAgent";
+const RCAGENT_BAT: &str = r"C:\RacingPoint\start-rcagent.bat";
+
+/// Verify the HKLM Run key exists and points to the correct batch file.
+/// Re-create if missing or wrong.
+pub fn ensure_startup_registry() -> Result<()> {
+    #[cfg(windows)]
+    {
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let run_key = hklm.open_subkey_with_flags(RUN_KEY, KEY_READ | KEY_WRITE)?;
+
+        let current: Result<String, _> = run_key.get_value(RCAGENT_VALUE);
+        match current {
+            Ok(val) if val == RCAGENT_BAT => {
+                info!("Startup registry key OK");
+            }
+            Ok(val) => {
+                warn!("Startup registry key wrong: '{}' — repairing", val);
+                run_key.set_value(RCAGENT_VALUE, &RCAGENT_BAT)?;
+                info!("Startup registry key repaired");
+            }
+            Err(_) => {
+                warn!("Startup registry key missing — creating");
+                run_key.set_value(RCAGENT_VALUE, &RCAGENT_BAT)?;
+                info!("Startup registry key created");
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+---
+
+### 4. Fleet Health Dashboard: Extend Existing Kiosk WebSocket — no new library
+
+**Recommendation: Add a new `/ws/fleet` endpoint in rc-core (Axum) and a new `/fleet` page in the existing kiosk (Next.js 16.1.6). Zero new libraries.**
+
+**Why NOT a new standalone dashboard app:**
+
+The kiosk already runs at port 3300. It already has `useKioskSocket` connecting to `/ws/dashboard` and rendering all 8 pods in real time. Uday already accesses it from his phone via `http://192.168.31.27:3300`. Adding a new `/fleet` route to the same Next.js app is a single new page file — no new deployment, no new port, no new process.
+
+**Why NOT SSE (Server-Sent Events) for the fleet dashboard:**
+
+SSE is ideal when the server pushes unidirectional event streams to a read-only dashboard. The fleet dashboard is NOT read-only — it needs two-way communication: Uday presses "restart Pod 3" and a command must flow back to rc-core. The existing `/ws/dashboard` already handles bidirectional pod commands (billing, game launch, lock, power). The fleet health view is an extension of the same WebSocket, not a new protocol.
+
+**Why NOT polling from the kiosk:**
+
+Pod state changes within seconds (crash → restart → reconnect). Polling at 2s intervals would produce acceptable UX but wastes HTTP requests when there are already persistent WebSocket connections. The WebSocket already pushes pod state on every change.
+
+**Implementation approach:**
+
+Option A (simpler): Add fleet health fields to the existing `/ws/dashboard` `pod_state` message. The control page already receives these. The `/fleet` kiosk page subscribes to `useKioskSocket` just like `/control` does — same hook, different view.
+
+Option B (separate endpoint): Add `/ws/fleet` as a read-only WebSocket for the fleet health view. Justified if the control page's WebSocket message volume is too high for a simple health view, or if Uday accesses `/fleet` on a different device from where staff use `/control`.
+
+**Recommendation: Option A.** Add fleet-relevant fields to existing pod state messages already flowing on `/ws/dashboard`. Create a new kiosk page at `/fleet` that uses `useKioskSocket`. No new endpoints, no new libraries, no new protocol.
+
+**What the `/fleet` page shows per pod:**
+- Service status (running as service / not a service / unknown)
+- WebSocket connectivity (connected / disconnected, duration)
+- Firewall rules status (present / missing, last verified)
+- Config file health (present / missing / repaired)
+- Last heartbeat timestamp
+- Recent startup error (if any, last N lines)
+- Deploy status (idle / deploying / verifying / rolled-back)
+
+**This data already flows on the WebSocket** from pod_state messages. The missing pieces (service status, firewall status, config health) are NEW fields that rc-agent will report as part of v4.0 startup diagnostics — added to the `AgentMessage::Status` type in rc-common.
+
+**No new npm packages required.** The kiosk already has:
+- `next 16.1.6` — routing and server components
+- `react 19.2.3` — UI rendering
+- `tailwindcss 4.x` — styling
+- `useKioskSocket` — WebSocket hook with pod state
+
+**Mobile optimization note:** Uday accesses the kiosk from his phone. The existing `/control` page renders pod cards in a responsive grid. The `/fleet` page should use a compact list layout (pod number + status indicators) rather than cards, to fit 8 pods on a phone screen without scrolling.
 
 ---
 
 ## Recommended Stack Summary (New Additions Only)
 
-### Frontend (PWA — pwa/package.json)
+### rc-agent Cargo.toml (Windows targets only)
 
-| Library | Version | Purpose | Why |
-|---------|---------|---------|-----|
-| date-fns | 4.1.0 | Event/championship date formatting, relative time | Tree-shakeable ESM, server component safe, ~13KB |
-| Canvas API | browser built-in | 2D track map (pos_x/pos_z polyline + car dot) | Zero bundle cost; 50 lines of ctx beats any library at this complexity |
+| Crate | Version | Purpose | Why New |
+|-------|---------|---------|---------|
+| `windows-service` | 0.8 | ServiceMain protocol, SCM registration, install/uninstall | winapi doesn't have ServiceMain; NSSM abandoned |
+| `winreg` | 0.55 | Registry read/write (HKLM Run key, config path check) | winapi raw FFI requires ~150 lines of unsafe for 10 lines of safe winreg |
+| `tokio-util` | 0.7 | `CancellationToken` for coordinated async shutdown | Required for graceful service stop propagation to all tokio tasks |
 
-**No new charting library.** recharts 3.8.0 is sufficient.
+**No new crate for firewall.** `std::process::Command` + `netsh` is sufficient and already available.
 
-### Backend (rc-core — Cargo.toml)
+### kiosk (Next.js — zero new npm packages)
 
-| Addition | Type | Why |
-|----------|------|-----|
-| championship.rs | New Rust module | F1 points, standings accumulation, event close logic |
-| driver_rating.rs | New Rust module | Percentile computation, nightly scheduled recalc |
-| 4 new SQL tables (migrations) | Schema | Championships, rounds, standings, driver ratings |
-| 4 ALTER TABLE statements (migrations) | Schema | Add scoring/badge columns to events, event_entries |
-| 8 new public API routes | Extend routes.rs | Championships, events, driver profiles, lap comparison |
-| cloud_sync.rs extensions | Extend existing module | Sync new tables to VPS |
+| Addition | Type | What |
+|----------|------|------|
+| `/fleet` page | New route file | Fleet health dashboard (pod service/firewall/config/deploy status) |
+| Extended `Pod` type | Type update | Add `service_status`, `firewall_ok`, `config_ok`, `last_startup_error` fields |
 
-**Zero new Rust crate dependencies.**
+**Zero new npm packages.** All fleet dashboard features use the existing WebSocket hook and Tailwind CSS.
 
 ---
 
 ## Installation
 
-```bash
-# PWA — one new dependency
-cd /c/Users/bono/racingpoint/racecontrol/pwa
-npm install date-fns
+```toml
+# crates/rc-agent/Cargo.toml — add to [target.'cfg(windows)'.dependencies]
+windows-service = "0.8"
+winreg = "0.55"
+tokio-util = { version = "0.7", features = ["rt"] }
+```
 
-# Backend — no new crates
-# Cargo.toml unchanged
-# New code goes in new .rs files + db/mod.rs migration additions
+```bash
+# No npm changes needed
+# Kiosk: add src/app/fleet/page.tsx using existing useKioskSocket hook
 ```
 
 ---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| recharts (existing) for lap comparison | ECharts, Chart.js, Victory | Only if recharts hits a hard limitation with the two-dataset overlay (unlikely — ComposedChart + two Line sets is a documented pattern) |
-| Canvas API for track map | D3.js SVG | If track map needs pan/zoom interactions, zoom-to-sector, or complex path operations. Not needed for v3.0's static outline + dot. |
-| Canvas API for track map | react-konva | If track map becomes a full interactive widget with draggable elements. Not needed for v3.0. |
-| Custom percentile rating | glicko2 npm (1.2.1) | If Racing Point adds real-time matchmaking between drivers in future. Glicko-2 would be appropriate for head-to-head races, not time trials. |
-| Custom percentile rating | iRating-style Elo | Same objection — Elo requires win/loss outcomes. Inappropriate for time-trial data. |
-| SQLite window functions | Application-level ranking | Never — pulling full tables into Rust to rank is both slower and more error-prone than a single SQL window function. |
-| date-fns 4.1.0 | dayjs 1.11.x | dayjs is equally valid if it's already in the project. Neither is in the project currently, so date-fns wins on bundle size and tree-shaking behavior. |
-| SQLite (existing) | PostgreSQL | Only if read concurrency > 100 concurrent requests or write throughput > 1,000 writes/second. Neither applies to an 8-pod venue. |
-| SQLite (existing) | Redis for leaderboard caching | Only if leaderboard queries take > 100ms on cold reads. With proper indexes on (track, car, lap_time_ms), SQLite leaderboard queries complete in < 5ms. Redis adds a new service to manage on the constrained VPS. |
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| `windows-service 0.8` | NSSM (external binary) | Abandoned 2017; can't participate in Rust shutdown; can't report structured errors over WebSocket; must be bundled separately on pendrive |
+| `windows-service 0.8` | `shawl` (Rust wrapper) | External wrapper — same Session 0 problem; can't signal CancellationToken |
+| `windows-service 0.8` | `sc.exe` only | sc.exe installs the service but provides zero service control loop; binary would be killed by SCM after 30s without ServiceMain |
+| `std::process::Command` netsh | `windows_firewall 0.3` crate | Low adoption; single-developer; COM API overkill for two rules; netsh is 20 lines, zero new dep |
+| `std::process::Command` netsh | `wfp` crate (WFP API) | Kernel-level packet filtering — wrong abstraction for named application rules; crate abandoned 2021 |
+| `winreg 0.55` | `winapi` raw registry | Correct but ~150 lines of unsafe FFI for HKEY lifecycle management vs 10 lines of safe Rust with winreg |
+| `winreg 0.55` | `windows-registry` (microsoft/windows-rs) | Much heavier dependency tree; same functionality at 10x the transitive crate count |
+| Extend existing `/ws/dashboard` | New `/ws/fleet` SSE endpoint | SSE is read-only; fleet commands (restart, redeploy) need bidirectional. WebSocket already established and working. |
+| Extend existing `/ws/dashboard` | New standalone fleet app | New deployment, new port, new process — unnecessary when kiosk already runs and is accessible from Uday's phone |
 
 ---
 
@@ -340,64 +405,37 @@ npm install date-fns
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| glicko2 / glicko2.ts npm packages | Designed for win/loss match outcomes; requires synthetic match construction for time-trial data; low maintenance activity (last published 2 years ago) | Custom percentile rating in Rust — simpler, more explainable, zero dependency |
-| D3.js for track map | 80KB gzipped for feature equivalent to 50 lines of Canvas API code; SVG node-per-point approach is slow on mobile at 5,000+ sample counts | Canvas API via useRef in a plain React component |
-| react-konva / Pixi.js | WebGL/canvas scene graph frameworks justified for interactive games, not for a static track map with one moving dot | Canvas API |
-| Redis | New VPS service to manage; leaderboard at venue scale never needs caching layer; SQLite with WAL handles concurrent API + sync reads | SQLite + indexes |
-| PostgreSQL | Full migration of existing SQLite schema; adds operational complexity; no benefit at 8-pod scale | SQLite — already in production |
-| React Query / TanStack Query | Heavy addition (~30KB) for a codebase already using plain fetch() in useEffect; adds complexity without clear gain for v3.0's non-realtime public pages | Plain fetch + useEffect (existing pattern) |
-| WebSockets for public leaderboard | Leaderboards update when laps complete — once per 5-20 minutes per driver, not per frame; poll-on-load is sufficient; WebSocket adds connection overhead on public unauthenticated pages | Page-load server fetch + optional manual refresh button |
-| Separate microservice for competitive features | New deployment target on constrained VPS (2 vCPU, limited RAM); rc-core already handles all domain logic cleanly | Extend rc-core with championship.rs and driver_rating.rs modules |
-| any TypeScript type in PWA | Project constraint; rc-core types flow via API response shapes; define proper interfaces for all new endpoints | Typed API response interfaces in lib/api.ts |
+| NSSM | Last release 2017; abandoned; cannot participate in Rust async shutdown or report errors over WebSocket; CRLF-safe deploy is irrelevant if the wrapper is the problem | `windows-service 0.8` crate |
+| `windows_firewall` / `winfw-rs` crates | Both are low-adoption, low-maintenance; solving a 2-rule idempotent problem with a COM wrapper is disproportionate | `std::process::Command` netsh |
+| `wfp` crate | Kernel-level API for application-layer firewall rules; abandoned 2021 | `std::process::Command` netsh |
+| Session 0 GUI in the service | Hard OS constraint on Windows 10/11: services cannot display windows to user sessions. Attempting this causes blank screens or crashes | Move all GUI (lock screen) to the kiosk which runs in Session 1 |
+| `windows-registry` crate (microsoft/windows-rs ecosystem) | Pulls in 10+ transitive crates for two registry operations | `winreg 0.55` |
+| New standalone fleet dashboard (separate Next.js app, separate port) | New deployment surface; Uday already has kiosk URL; splitting adds ops complexity | Extend existing kiosk with `/fleet` page |
+| Polling-based fleet status in Next.js | 2s polls waste connections when WebSocket already pushes on change; adds latency spikes | Extend existing `/ws/dashboard` WebSocket messages with fleet health fields |
 
 ---
 
-## Stack Patterns by Variant
+## Critical Windows-Specific Gotchas
 
-**Lap comparison (two laps, synchronized charts):**
-- Fetch both laps' telemetry via `GET /public/laps/compare?lap_a=X&lap_b=Y`
-- Backend joins on offset_ms bins (round to nearest 100ms) to produce a merged array
-- Each array entry: `{ offset_ms, a_speed, b_speed, a_throttle, b_throttle, delta_ms }`
-- Frontend: two `<Line>` components per chart with distinct dataKeys; same `syncId` across all charts keeps hover crosshair synchronized
-- Track map: draw lap_a outline in grey, lap_b in red (#E10600), two car dots
+### Session 0 Isolation (CRITICAL)
+**All Windows Services run in Session 0.** Session 0 is non-interactive — it has no display, no keyboard, no ability to show windows to the user in Session 1. The rc-agent lock screen currently uses WINAPI to create a window. If rc-agent is converted to a Windows Service without architectural changes, the lock screen will be invisible. This is not a configuration issue — it is an OS security boundary that cannot be bypassed on Windows 10/11.
 
-**Championship points calculation:**
-```rust
-// src/championship.rs
-const F1_2025_POINTS: [i32; 10] = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+**Mitigation:** Move the lock screen responsibility to the kiosk (`/lock` page), which already runs in Session 1 via the HKLM Run key. The kiosk navigates to `/lock` when it receives a `lock_screen` WebSocket event from rc-core.
 
-fn assign_points(position: usize) -> i32 {
-    F1_2025_POINTS.get(position.saturating_sub(1)).copied().unwrap_or(0)
-}
-```
-- When a group event closes: rank `event_entries` by `result_time_ms ASC`, assign points, write to `championship_standings` via `INSERT OR REPLACE`
-- Championship standings: `SUM(points) GROUP BY driver_id ORDER BY SUM(points) DESC` — no window function needed here
+### ServiceMain Thread vs Main Thread
+The `service_dispatcher::start()` call BLOCKS the calling thread until the service stops. The tokio runtime must be created INSIDE `windows_service_main()`, not in `main()`. Creating the runtime in `main()` before calling `service_dispatcher::start()` will result in the runtime being torn down when `start()` returns on service stop, causing task cancellation before graceful shutdown completes.
 
-**Driver rating with percentile:**
-```sql
--- In driver_rating.rs, run nightly
-WITH driver_best AS (
-    SELECT driver_id, track, car, MIN(lap_time_ms) as best_ms
-    FROM laps WHERE valid = 1
-    GROUP BY driver_id, track, car
-),
-ranked AS (
-    SELECT
-        driver_id,
-        PERCENT_RANK() OVER (PARTITION BY track, car ORDER BY best_ms ASC) as pct_rank
-    FROM driver_best
-)
-SELECT driver_id, AVG(pct_rank) * 100 as rating_score
-FROM ranked
-GROUP BY driver_id
-```
-Note: `PERCENT_RANK()` is a SQLite window function available from 3.25.0.
+### Startup Error Reporting Window
+When a service fails to start within 30 seconds of the SCM registering it, Windows kills the process. If rc-agent startup (config load, WebSocket connect) takes >30s, the service is killed. Set service status to `StartPending` immediately at the top of `windows_service_main`, then update to `Running` after initialization completes. Report startup errors to rc-core over WebSocket before the status becomes `Running`, using the existing `AgentMessage` protocol.
 
-**Public pages with SSR (no login required):**
-- Championship, event results, driver profile pages: use Next.js `async` server components that `fetch()` from rc-core `/public/*` endpoints at request time
-- No `localStorage`, no JWT, no `"use client"` directive needed for the data fetch layer
-- Chart components (recharts) remain `"use client"` as they use DOM/canvas APIs
-- This gives good SEO (HTML content in initial response) and avoids hydration mismatches
+### netsh Requires Elevation
+`netsh advfirewall` commands require administrator rights. When rc-agent runs as a Windows Service under `LocalSystem`, it has these rights automatically. During development/console mode, the executable must be run as Administrator. Consider detecting at runtime and logging a clear warning rather than silently failing.
+
+### winreg Key Access Flags
+`RegKey::open_subkey()` opens with `KEY_READ` only. For writing (ensure_startup_registry), open with `KEY_READ | KEY_WRITE`. Opening HKLM with write access requires administrator rights — same elevation requirement as netsh. As a service, this is automatic.
+
+### tokio-util version alignment
+`tokio-util` must match the major tokio version. With `tokio = "1"` in the workspace, use `tokio-util = "0.7"` (the current stable companion to tokio 1.x). Do not use `tokio-util = "1"` — it does not exist as of March 2026.
 
 ---
 
@@ -405,32 +443,36 @@ Note: `PERCENT_RANK()` is a SQLite window function available from 3.25.0.
 
 | Package | Compatible With | Notes |
 |---------|-----------------|-------|
-| recharts 3.8.0 | React 19.2.3, Next.js 16.1.6 | Already installed and working. React 19 peer dependency may show warning — use `--legacy-peer-deps` if reinstalling. |
-| date-fns 4.1.0 | React 19, Next.js 16, TypeScript 5 | ESM-first, no peer dependency conflicts. |
-| Canvas API | All mobile browsers in active use | Chrome 4+, Safari 9+, Firefox 2+. No polyfill needed. |
-| SQLite window functions (PERCENT_RANK, ROW_NUMBER, SUM OVER) | sqlx 0.8 + bundled SQLite | Requires SQLite >= 3.25.0 (2018). sqlx-sqlite bundles a recent SQLite — this constraint is met. |
-| sqlx 0.8 | Rust 1.93.1 (project version) | No conflict. Already in Cargo.lock. |
+| `windows-service 0.8` | Rust 1.93.1, tokio 1, Windows 11 | Maintained by Mullvad VPN; production tested on Windows Server and Windows 11 |
+| `winreg 0.55` | Rust 1.93.1, winapi 0.3 | Released 2025-01-12; does not conflict with existing winapi 0.3 features |
+| `tokio-util 0.7` | tokio 1 (workspace) | Stable companion to tokio 1.x; provides CancellationToken |
+| netsh (std::process::Command) | Windows 10/11, Windows Server 2016+ | No Rust version dependency; pre-installed on all Windows 11 pods |
+| Kiosk `/fleet` page | Next.js 16.1.6, React 19.2.3, Tailwind 4 | Uses only existing hooks and components; no new npm packages |
 
 ---
 
 ## Sources
 
-- recharts 3.8.0 release history: https://github.com/recharts/recharts/releases (HIGH confidence — official GitHub)
-- recharts React 19 support: https://github.com/recharts/recharts/issues/4558 (HIGH confidence — official issue tracker)
-- glicko2 npm package: https://www.npmjs.com/package/glicko2 — v1.2.1, last published 2 years ago (HIGH confidence — npm registry)
-- glicko2.ts TypeScript package: https://github.com/animafps/glicko2.ts — v1.3.2, low activity (MEDIUM confidence — GitHub)
-- SQLite window functions official docs: https://www.sqlite.org/windowfunctions.html (HIGH confidence — official SQLite docs)
-- sqlx window function nullable columns issue: https://github.com/launchbadge/sqlx/issues/2874 (HIGH confidence — official sqlx issue)
-- date-fns 4.1.0: https://date-fns.org/ (HIGH confidence — official site)
-- 107% rule definition: https://en.wikipedia.org/wiki/107%25_rule (MEDIUM confidence — Wikipedia)
+- windows-service crate: https://crates.io/crates/windows-service (0.8.0, maintained by Mullvad VPN) — HIGH confidence (crates.io official)
+- windows-service-rs GitHub: https://github.com/mullvad/windows-service-rs — HIGH confidence (official source)
+- Writing a Windows Service in Rust (David Hamann, Feb 2026): https://davidhamann.de/2026/02/28/writing-a-windows-service-in-rust/ — HIGH confidence (recent, detailed)
+- Tokio ServiceMain integration: https://users.rust-lang.org/t/tokio-app-as-windows-service/44207 — MEDIUM confidence (community, verified against official tokio docs)
+- Session 0 isolation official docs: https://learn.microsoft.com/en-us/windows/win32/services/interactive-services — HIGH confidence (Microsoft Learn)
+- Session 0 Windows 11 no-workaround: https://learn.microsoft.com/en-us/answers/questions/27517/is-there-any-workaround-in-win10-to-allow-service — HIGH confidence (Microsoft Q&A)
+- winreg crate: https://crates.io/crates/winreg (0.55.0, released 2025-01-12) — HIGH confidence (crates.io official)
+- winreg GitHub: https://github.com/gentoo90/winreg-rs — HIGH confidence
+- windows_firewall crate: https://crates.io/crates/windows_firewall (0.3.0) — MEDIUM confidence (low adoption, single developer)
+- wfp crate (abandoned): https://crates.io/crates/wfp — HIGH confidence it is abandoned (last commit 2021)
+- netsh advfirewall docs: https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/netsh-advfirewall-firewall-control-firewall-behavior — HIGH confidence (Microsoft Learn)
+- axum SSE official example: https://github.com/tokio-rs/axum/blob/main/examples/sse/src/main.rs — HIGH confidence (official axum repo)
 - Existing codebase verified:
-  - `pwa/package.json` — recharts 3.8.0, React 19.2.3, Next.js 16.1.6 confirmed
-  - `pwa/src/components/TelemetryChart.tsx` — existing recharts AreaChart/LineChart/syncId pattern
-  - `crates/rc-core/src/db/mod.rs` — schema: laps, telemetry_samples, events, event_entries, personal_bests, track_records
-  - `crates/rc-core/src/api/routes.rs` — existing /public/* unauthenticated routes pattern
-  - `crates/rc-core/Cargo.toml` — confirmed zero new crates needed (sqlx 0.8, tokio, serde_json, axum 0.8 all present)
+  - `crates/rc-agent/Cargo.toml` — confirmed winapi 0.3, tokio full, axum 0.8, no windows-service
+  - `kiosk/src/hooks/useKioskSocket.ts` — confirmed WebSocket hook at `/ws/dashboard`, bidirectional, handles all pod events
+  - `kiosk/package.json` — confirmed Next.js 16.1.6, zero charting libraries, Tailwind 4
+  - `crates/rc-agent/src/main.rs` — confirmed tokio runtime in main, no ServiceMain
+  - `Cargo.toml` workspace — confirmed constraint: existing deps preferred
 
 ---
 
-*Stack research for: RaceControl v3.0 — Leaderboards, Telemetry & Competitive*
-*Researched: 2026-03-14*
+*Stack research for: RaceControl v4.0 — Pod Fleet Self-Healing*
+*Researched: 2026-03-15*
