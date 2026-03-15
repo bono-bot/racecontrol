@@ -278,6 +278,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/deploy/status", get(deploy_status))
         .route("/deploy/rolling", post(deploy_rolling_handler))
         .route("/deploy/{pod_id}", post(deploy_single_pod))
+        // Watchdog
+        .route("/pods/{pod_id}/watchdog-crash", post(watchdog_crash_report))
 }
 
 async fn health() -> Json<Value> {
@@ -11096,6 +11098,38 @@ async fn deploy_rolling_handler(
     )
 }
 
+// ─── Watchdog ────────────────────────────────────────────────────────────────
+
+async fn watchdog_crash_report(
+    Path(pod_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(report): Json<WatchdogCrashReport>,
+) -> axum::http::StatusCode {
+    tracing::warn!(
+        pod_id = %pod_id,
+        exit_code = ?report.exit_code,
+        restart_count = report.restart_count,
+        crash_time = %report.crash_time,
+        watchdog_version = %report.watchdog_version,
+        "Watchdog crash report: rc-agent restarted on {}",
+        pod_id
+    );
+
+    crate::activity_log::log_pod_activity(
+        &state,
+        &pod_id,
+        "system",
+        "Watchdog Crash Report",
+        &format!(
+            "exit_code={:?} restart_count={} crash_time={} watchdog_version={}",
+            report.exit_code, report.restart_count, report.crash_time, report.watchdog_version
+        ),
+        "watchdog",
+    );
+
+    axum::http::StatusCode::OK
+}
+
 #[cfg(test)]
 mod session_detail_tests {
     use serde_json::{json, Value};
@@ -11378,6 +11412,7 @@ mod watchdog_crash_report_tests {
     use super::*;
     use axum::extract::{Path, State};
     use axum::http::StatusCode;
+    use axum::response::IntoResponse;
     use std::sync::Arc;
 
     async fn make_state() -> Arc<AppState> {
