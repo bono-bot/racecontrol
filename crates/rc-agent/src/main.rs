@@ -207,11 +207,31 @@ async fn main() -> Result<()> {
         handle // held until process exits → mutex released automatically
     };
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "rc_agent=info".into()),
-        )
+    // Logging: stdout + file appender (C:\RacingPoint\rc-agent.log)
+    // File log persists after crashes so we can diagnose via pod-agent.
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "rc_agent=info".into());
+
+    let log_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let file_appender = tracing_appender::rolling::never(&log_dir, "rc-agent.log");
+    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file_appender);
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let stdout_layer = tracing_subscriber::fmt::layer();
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking_file)
+        .with_ansi(false);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stdout_layer)
+        .with(file_layer)
         .init();
 
     println!(r#"
@@ -1801,6 +1821,11 @@ fn validate_config(config: &AgentConfig) -> Result<()> {
     }
 }
 
+fn config_search_paths() -> Vec<std::path::PathBuf> {
+    // Stub — returns empty list (RED phase: tests will fail until Task 2 implements this)
+    Vec::new()
+}
+
 fn load_config() -> Result<AgentConfig> {
     let paths = ["rc-agent.toml", "/etc/racecontrol/rc-agent.toml"];
     for path in paths {
@@ -2131,6 +2156,82 @@ mod tests {
         config.core.url = "ws://127.0.0.1:8080/ws/agent".to_string();
         // This SHOULD pass (valid explicit config, not a sneaky default)
         assert!(validate_config(&config).is_ok(), "Explicitly valid config should pass");
+    }
+
+    #[test]
+    fn test_config_search_paths_includes_exe_dir() {
+        use std::path::PathBuf;
+        let paths = config_search_paths();
+        // Must have at least one path
+        assert!(!paths.is_empty(), "config_search_paths() must return at least one path");
+        // First path must end with rc-agent.toml
+        let first = &paths[0];
+        assert!(
+            first.file_name().map(|n| n == "rc-agent.toml").unwrap_or(false),
+            "First search path must end with rc-agent.toml, got: {}",
+            first.display()
+        );
+        // First path must NOT be just "rc-agent.toml" (must include a parent directory from exe)
+        assert!(
+            first != &PathBuf::from("rc-agent.toml"),
+            "First path must include exe directory, not bare 'rc-agent.toml', got: {}",
+            first.display()
+        );
+    }
+
+    #[test]
+    fn test_config_search_paths_includes_cwd_fallback() {
+        use std::path::PathBuf;
+        let paths = config_search_paths();
+        // Must contain CWD-relative fallback
+        let has_cwd_fallback = paths.contains(&PathBuf::from("rc-agent.toml"));
+        assert!(has_cwd_fallback, "config_search_paths() must include 'rc-agent.toml' (CWD fallback)");
+        // CWD fallback must appear AFTER the exe-dir path (index > 0)
+        let cwd_index = paths.iter().position(|p| p == &PathBuf::from("rc-agent.toml")).unwrap();
+        assert!(
+            cwd_index > 0,
+            "CWD fallback 'rc-agent.toml' must appear after exe-dir path (index {}), not at index 0",
+            cwd_index
+        );
+    }
+
+    #[test]
+    fn test_load_config_error_lists_all_searched_paths() {
+        // Change to a temp directory that has no rc-agent.toml
+        let tmp = std::env::temp_dir().join("rc_agent_test_no_config");
+        let _ = std::fs::create_dir_all(&tmp);
+        let original = std::env::current_dir().ok();
+
+        // Set CWD to temp dir (best effort — doesn't affect exe-dir search)
+        let _ = std::env::set_current_dir(&tmp);
+
+        let result = load_config();
+
+        // Restore original CWD
+        if let Some(orig) = original {
+            let _ = std::env::set_current_dir(orig);
+        }
+
+        let err = result.expect_err("load_config() must return Err when no config file exists");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("No config file found"),
+            "Error must contain 'No config file found', got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("Searched:"),
+            "Error must contain 'Searched:', got: {}",
+            msg
+        );
+        // Must list at least 2 distinct path entries (exe-dir + CWD fallback)
+        let path_count = msg.matches("rc-agent.toml").count();
+        assert!(
+            path_count >= 2,
+            "Error must list at least 2 paths containing 'rc-agent.toml', found {} in: {}",
+            path_count,
+            msg
+        );
     }
 
     #[test]
