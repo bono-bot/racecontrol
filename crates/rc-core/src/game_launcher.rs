@@ -467,3 +467,195 @@ async fn log_game_event(
     .execute(&state.db)
     .await;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::billing::BillingTimer;
+    use crate::config::Config;
+
+    /// Build a minimal AppState for game_launcher unit tests.
+    async fn make_state() -> Arc<AppState> {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        // Create tables needed by launch_game (activity log + game events)
+        let _ = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS game_launch_events (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                sim_type TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                pid INTEGER,
+                error_message TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )"
+        )
+        .execute(&db)
+        .await;
+
+        let _ = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS pod_activity (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                action TEXT NOT NULL,
+                details TEXT,
+                source TEXT,
+                timestamp TEXT NOT NULL
+            )"
+        )
+        .execute(&db)
+        .await;
+
+        let config = Config::default_test();
+        Arc::new(AppState::new(config, db))
+    }
+
+    // ── LIFE-02: Billing gate tests ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_launch_rejected_no_billing() {
+        let state = make_state().await;
+        // No billing timer inserted — active_timers is empty
+
+        let result = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        assert!(result.is_err(), "Expected Err when no billing session");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("no active billing"),
+            "Error should mention 'no active billing', got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_launch_allowed_with_billing() {
+        let state = make_state().await;
+
+        // Insert a dummy billing timer for pod_1
+        {
+            let timer = BillingTimer::dummy("pod_1");
+            state
+                .billing
+                .active_timers
+                .write()
+                .await
+                .insert("pod_1".to_string(), timer);
+        }
+
+        let result = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        // The function will fail further down (no agent sender) — but it should NOT
+        // fail with a billing error. If it errors, the message must NOT be about billing.
+        if let Err(ref err) = result {
+            assert!(
+                !err.contains("no active billing"),
+                "Should pass billing check when timer exists, got: {}",
+                err
+            );
+        }
+        // If it somehow succeeds, that's fine too — billing gate passed.
+    }
+
+    // ── LIFE-04: Double-launch guard tests ───────────────────────────────────
+
+    #[tokio::test]
+    async fn test_double_launch_blocked_running() {
+        let state = make_state().await;
+
+        // Insert billing timer (needed to pass billing gate)
+        {
+            let timer = BillingTimer::dummy("pod_1");
+            state
+                .billing
+                .active_timers
+                .write()
+                .await
+                .insert("pod_1".to_string(), timer);
+        }
+
+        // Insert a GameTracker in Running state
+        {
+            state
+                .game_launcher
+                .active_games
+                .write()
+                .await
+                .insert(
+                    "pod_1".to_string(),
+                    GameTracker {
+                        pod_id: "pod_1".to_string(),
+                        sim_type: SimType::AssettoCorsa,
+                        game_state: GameState::Running,
+                        pid: Some(1234),
+                        launched_at: Some(Utc::now()),
+                        error_message: None,
+                        launch_args: None,
+                        auto_relaunch_count: 0,
+                    },
+                );
+        }
+
+        let result = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        assert!(result.is_err(), "Expected Err when game is already Running");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("already has a game active"),
+            "Error should mention 'already has a game active', got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_double_launch_blocked_launching() {
+        let state = make_state().await;
+
+        // Insert billing timer (needed to pass billing gate)
+        {
+            let timer = BillingTimer::dummy("pod_1");
+            state
+                .billing
+                .active_timers
+                .write()
+                .await
+                .insert("pod_1".to_string(), timer);
+        }
+
+        // Insert a GameTracker in Launching state
+        {
+            state
+                .game_launcher
+                .active_games
+                .write()
+                .await
+                .insert(
+                    "pod_1".to_string(),
+                    GameTracker {
+                        pod_id: "pod_1".to_string(),
+                        sim_type: SimType::AssettoCorsa,
+                        game_state: GameState::Launching,
+                        pid: None,
+                        launched_at: Some(Utc::now()),
+                        error_message: None,
+                        launch_args: None,
+                        auto_relaunch_count: 0,
+                    },
+                );
+        }
+
+        let result = launch_game(&state, "pod_1", SimType::AssettoCorsa, None).await;
+
+        assert!(result.is_err(), "Expected Err when game is already Launching");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("already"),
+            "Error should contain 'already', got: {}",
+            err
+        );
+    }
+}
