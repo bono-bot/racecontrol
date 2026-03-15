@@ -11,7 +11,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 ## Phases
 
 - [x] **Phase 1: Billing-Game Lifecycle** - Stop game on billing end, validate before launch, pod reset after session, anti-double-launch
-- [ ] **Phase 2: Game Crash Recovery** - Detect crash, pause billing, show status, enable re-launch
+- [x] **Phase 2: Game Crash Recovery** - Detect crash, pause billing, show status, enable re-launch
 - [ ] **Phase 3: Launch Resilience** - CM fallback improvements, failure reporting, billing pause on launch failure
 - [ ] **Phase 4: Multiplayer Server Lifecycle** - AC server auto-start/stop wired to billing, kiosk self-serve multiplayer booking
 - [ ] **Phase 5: Synchronized Group Play** - Coordinated launch across pods, continuous race mode, failure recovery
@@ -47,8 +47,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — rc-agent: game process monitor (poll PID every 2s), detect unexpected exit, send GameCrashed to rc-core
-- [ ] 02-02-PLAN.md — rc-core: handle GameCrashed (auto-pause billing, update GameTracker), kiosk re-launch button for crashed pods
+- [x] 02-01-PLAN.md — rc-core: billing auto-pause on GameCrashed + POST /games/relaunch/:pod_id endpoint (CRASH-02, CRASH-04)
+- [x] 02-02-PLAN.md — kiosk: "Game Crashed" badge + "Relaunch Game" button on pod cards (CRASH-03, CRASH-04)
 
 ### Phase 3: Launch Resilience
 **Goal**: When Content Manager fails or AC won't start, the system recovers gracefully — falling back to direct launch, reporting diagnostics, and pausing billing until the issue is resolved
@@ -105,12 +105,12 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 | Phase | Plans | Status | Completed |
 |-------|-------|--------|-----------|
 | 1. Billing-Game Lifecycle | 2/2 | Complete | 2026-03-15 |
-| 2. Game Crash Recovery | 0/2 | Not started | - |
+| 2. Game Crash Recovery | 2/2 | Complete | 2026-03-15 |
 | 3. Launch Resilience | 0/2 | Not started | - |
 | 4. Multiplayer Server Lifecycle | 0/2 | Not started | - |
 | 5. Synchronized Group Play | 0/2 | Not started | - |
 
-**Total: 2/10 plans complete**
+**Total: 4/10 plans complete**
 
 ## Dependency Graph
 

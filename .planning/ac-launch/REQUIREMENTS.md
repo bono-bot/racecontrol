@@ -14,10 +14,10 @@
 
 ### Game Crash Recovery (CRASH)
 
-- [ ] **CRASH-01**: rc-agent detects game process exit within 5 seconds of the process ending
-- [ ] **CRASH-02**: Billing timer auto-pauses when the game process crashes or closes unexpectedly
-- [ ] **CRASH-03**: Staff sees "Game Crashed" status on kiosk dashboard for the affected pod
-- [ ] **CRASH-04**: Staff can re-launch the game from kiosk after a crash without starting a new billing session
+- [x] **CRASH-01**: rc-agent detects game process exit within 5 seconds of the process ending
+- [x] **CRASH-02**: Billing timer auto-pauses when the game process crashes or closes unexpectedly
+- [x] **CRASH-03**: Staff sees "Game Crashed" status on kiosk dashboard for the affected pod
+- [x] **CRASH-04**: Staff can re-launch the game from kiosk after a crash without starting a new billing session
 
 ### Launch Resilience (LAUNCH)
 
@@ -68,10 +68,10 @@
 | LIFE-02 | Phase 1 | Complete (01-01) |
 | LIFE-03 | Phase 1 | Complete (01-02) |
 | LIFE-04 | Phase 1 | Complete (01-01) |
-| CRASH-01 | Phase 2 | Pending |
-| CRASH-02 | Phase 2 | Pending |
-| CRASH-03 | Phase 2 | Pending |
-| CRASH-04 | Phase 2 | Pending |
+| CRASH-01 | Phase 2 | Complete (pre-existing 2s polling) |
+| CRASH-02 | Phase 2 | Complete (02-01) |
+| CRASH-03 | Phase 2 | Complete (02-02) |
+| CRASH-04 | Phase 2 | Complete (02-01 + 02-02) |
 | LAUNCH-01 | Phase 3 | Pending |
 | LAUNCH-02 | Phase 3 | Pending |
 | LAUNCH-03 | Phase 3 | Pending |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: AC Launch Reliability
 status: active
-stopped_at: "Phase 1 complete — verified on Pod 8"
+stopped_at: "Phase 2 complete — crash recovery"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Phase 1 verified on Pod 8, all 4 LIFE requirements confirmed
+last_activity: 2026-03-15 — Phase 2 complete (billing pause on crash + kiosk crash UI + relaunch)
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 10
-  completed_plans: 2
-  percent: 20
+  completed_plans: 4
+  percent: 40
 ---
 
 # Project State
@@ -21,29 +21,30 @@ progress:
 See: .planning/ac-launch/PROJECT.md (created 2026-03-15)
 
 **Core value:** No customer ever plays for free and no customer ever pays for downtime — billing and game process always in sync.
-**Current focus:** Phase 2 — Game Crash Recovery (next)
+**Current focus:** Phase 3 — Launch Resilience (next)
 
 ## Current Position
 
-Phase: 2 of 5 — Game Crash Recovery (not started)
+Phase: 3 of 5 — Launch Resilience (not started)
 Plan: 0 of 2
-Status: Phase 1 complete, planning Phase 2
-Last activity: 2026-03-15 — Phase 1 verified on Pod 8
+Status: Phases 1-2 complete, moving to Phase 3
+Last activity: 2026-03-15 — Phase 2 complete
 
-Progress: [##░░░░░░░░] 20%
+Progress: [####░░░░░░] 40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 2.5min
-- Total execution time: 5min
+- Total plans completed: 4
+- Average duration: 3min
+- Total execution time: 13min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Billing-Game Lifecycle | 2/2 | 5min | 2.5min |
+| 2. Game Crash Recovery | 2/2 | 8min | 4min |
 
 ## Accumulated Context
 
@@ -72,8 +73,7 @@ Progress: [##░░░░░░░░] 20%
 
 ### Pending Todos
 
-- Phase 2: Game Crash Recovery (next — plan then execute)
-- Phase 3: Launch Resilience (after Phase 2 completes)
+- Phase 3: Launch Resilience (next — plan then execute)
 - Phase 4: Multiplayer Server Lifecycle (after Phase 3 completes)
 - Phase 5: Synchronized Group Play (after Phase 4 completes)
 
@@ -84,5 +84,5 @@ Progress: [##░░░░░░░░] 20%
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Phase 1 complete — moving to Phase 2 planning
+Stopped at: Phase 2 complete — moving to Phase 3 planning
 Resume file: None
