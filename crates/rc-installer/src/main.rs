@@ -643,23 +643,31 @@ fn setup_winrm() -> Result<(), String> {
         env::var("USERNAME").map_err(|_| "Cannot determine current username".to_string())?;
 
     // Set password (WinRM requires non-blank password).
-    // Note: pod usernames like "SIM 1" have spaces — net user handles this
-    // because Rust passes each arg separately (no shell quoting issues).
-    let pw_result = run("net", &["user", &username, "racing", "/y"]);
-    match &pw_result {
+    // Try PowerShell first (handles spaced usernames like "SIM 1" reliably),
+    // then fall back to net user.
+    let ps_pw = format!(
+        "Set-LocalUser -Name '{}' -Password (ConvertTo-SecureString 'racing' -AsPlainText -Force)",
+        username
+    );
+    let pw_ok = match run_ps(&ps_pw) {
         Ok(o) if o.status.success() => {
-            info(&format!("Password set for '{}'", username));
+            info(&format!("Password set via Set-LocalUser for '{}'", username));
+            true
         }
         _ => {
-            // Fallback: try PowerShell Set-LocalUser (works with spaces in usernames)
-            warn("net user failed, trying PowerShell fallback...");
-            let ps_pw = format!(
-                "Set-LocalUser -Name '{}' -Password (ConvertTo-SecureString 'racing' -AsPlainText -Force)",
-                username
-            );
-            let _ = run_ps(&ps_pw);
+            warn("Set-LocalUser failed, trying net user fallback...");
+            match run("net", &["user", &username, "racing", "/y"]) {
+                Ok(o) if o.status.success() => {
+                    info(&format!("Password set via net user for '{}'", username));
+                    true
+                }
+                _ => {
+                    warn("Both password methods failed — WinRM may not work");
+                    false
+                }
+            }
         }
-    }
+    };
 
     // Configure auto-login (keeps boot seamless after password change)
     let winlogon = r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon";
@@ -694,10 +702,43 @@ fn setup_winrm() -> Result<(), String> {
     let _ = run("sc", &["config", "WinRM", "start=", "auto"]);
     let _ = run("net", &["start", "WinRM"]);
 
-    ok(&format!(
-        "Password set for '{}', auto-login configured, WinRM enabled",
-        username
-    ));
+    // Verify WinRM is actually working
+    let winrm_test = run_ps("Test-WSMan -ErrorAction SilentlyContinue");
+    match &winrm_test {
+        Ok(o) if o.status.success() => {
+            ok("WinRM listener verified (Test-WSMan passed)");
+        }
+        _ => {
+            // Retry: delete any broken listener and recreate
+            warn("WinRM listener not responding — recreating...");
+            let _ = run_ps("Remove-WSManInstance winrm/config/Listener -SelectorSet @{Address='*';Transport='HTTP'} -ErrorAction SilentlyContinue");
+            let _ = run_ps("New-WSManInstance winrm/config/Listener -SelectorSet @{Address='*';Transport='HTTP'} -ValueSet @{Port=5985} -ErrorAction SilentlyContinue");
+            let _ = run("net", &["stop", "WinRM"]);
+            let _ = run("net", &["start", "WinRM"]);
+
+            // Final check
+            match run_ps("Test-WSMan -ErrorAction SilentlyContinue") {
+                Ok(o) if o.status.success() => {
+                    ok("WinRM listener verified after recreation");
+                }
+                _ => {
+                    warn("WinRM setup failed — remote management won't work (rc-agent unaffected)");
+                }
+            }
+        }
+    }
+
+    if pw_ok {
+        ok(&format!(
+            "Password set for '{}', auto-login configured, WinRM enabled",
+            username
+        ));
+    } else {
+        warn(&format!(
+            "Auto-login configured, WinRM enabled, but password NOT set for '{}'",
+            username
+        ));
+    }
     Ok(())
 }
 
