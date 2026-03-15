@@ -21,7 +21,7 @@ use crate::state::{AppState, CachedAssistState};
 use rc_common::protocol::{
     AgentMessage, AiChannelMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent,
 };
-use rc_common::types::GameState;
+use rc_common::types::{BillingSessionStatus, GameState};
 
 /// WebSocket endpoint for pod agents
 pub async fn agent_ws(
@@ -393,6 +393,18 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         AgentMessage::GameCrashed { pod_id, billing_active } => {
                             tracing::warn!("Pod {} game crashed (billing_active={})", pod_id, billing_active);
                             log_pod_activity(&state, pod_id, "game", "Game Crashed", &format!("billing_active={}", billing_active), "agent");
+                            // CRASH-02: Auto-pause billing on game crash
+                            if *billing_active {
+                                let mut timers = state.billing.active_timers.write().await;
+                                if let Some(timer) = timers.get_mut(pod_id.as_str()) {
+                                    if timer.status == BillingSessionStatus::Active {
+                                        timer.status = BillingSessionStatus::PausedGamePause;
+                                        timer.pause_seconds = 0;
+                                        timer.pause_count += 1;
+                                        tracing::info!("Billing auto-paused on crash for pod {}", pod_id);
+                                    }
+                                }
+                            }
                         }
                         AgentMessage::AssistChanged { pod_id, assist_type, enabled, confirmed } => {
                             tracing::info!(
@@ -451,6 +463,12 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     &format!("{} cars, {} tracks", car_count, track_count), "agent");
                                 state.pod_manifests.write().await.insert(pod_id.clone(), manifest.clone());
                             }
+                        }
+                        AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr } => {
+                            tracing::debug!(
+                                "Exec result for request {}: success={} exit_code={:?} stdout_len={} stderr_len={}",
+                                request_id, success, exit_code, stdout.len(), stderr.len()
+                            );
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);

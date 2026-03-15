@@ -83,6 +83,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/billing/continue-split", post(continue_split))
         // Game Launcher
         .route("/games/launch", post(launch_game))
+        .route("/games/relaunch/:pod_id", post(relaunch_game))
         .route("/games/stop", post(stop_game))
         .route("/games/active", get(active_games))
         .route("/games/history", get(game_launch_history))
@@ -2908,6 +2909,17 @@ async fn launch_game(
     };
 
     match game_launcher::handle_dashboard_command(&state, cmd).await {
+        Ok(()) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+/// CRASH-04: Relaunch a crashed game using stored launch_args
+async fn relaunch_game(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+) -> Json<Value> {
+    match game_launcher::relaunch_game(&state, &pod_id).await {
         Ok(()) => Json(json!({ "ok": true })),
         Err(e) => Json(json!({ "ok": false, "error": e })),
     }

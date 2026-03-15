@@ -172,6 +172,71 @@ async fn launch_game(
     Ok(())
 }
 
+/// CRASH-04: Relaunch a crashed game using stored launch_args from GameTracker.
+/// Resets auto_relaunch_count so Race Engineer gets fresh attempts.
+pub async fn relaunch_game(
+    state: &Arc<AppState>,
+    pod_id: &str,
+) -> Result<(), String> {
+    // Get stored launch info from tracker
+    let (sim_type, launch_args) = {
+        let games = state.game_launcher.active_games.read().await;
+        let tracker = games.get(pod_id).ok_or("No game tracker for pod")?;
+        if tracker.game_state != GameState::Error {
+            return Err(format!("Pod game is {:?}, not Error — cannot relaunch", tracker.game_state));
+        }
+        (tracker.sim_type, tracker.launch_args.clone())
+    };
+
+    // Verify billing is still active
+    let has_billing = state
+        .billing
+        .active_timers
+        .read()
+        .await
+        .contains_key(pod_id);
+    if !has_billing {
+        return Err("No active billing session — cannot relaunch".into());
+    }
+
+    // Reset relaunch counter for fresh Race Engineer attempts
+    {
+        let mut games = state.game_launcher.active_games.write().await;
+        if let Some(tracker) = games.get_mut(pod_id) {
+            tracker.auto_relaunch_count = 0;
+            tracker.game_state = GameState::Launching;
+            tracker.error_message = None;
+            tracker.launched_at = Some(Utc::now());
+        }
+    }
+
+    // Send LaunchGame to agent
+    let senders = state.agent_senders.read().await;
+    let tx = senders.get(pod_id).ok_or("Pod not connected")?;
+    tx.send(CoreToAgentMessage::LaunchGame {
+        sim_type,
+        launch_args,
+    })
+    .await
+    .map_err(|e| format!("Failed to send launch command: {}", e))?;
+
+    // Log + broadcast
+    log_game_event(state, pod_id, &sim_type.to_string(), "relaunched", None, Some("Manual relaunch from kiosk")).await;
+    let info = {
+        let games = state.game_launcher.active_games.read().await;
+        games.get(pod_id).map(|t| t.to_info())
+    };
+    if let Some(info) = info {
+        let _ = state
+            .dashboard_tx
+            .send(DashboardEvent::GameStateChanged(info));
+    }
+
+    log_pod_activity(state, pod_id, "game", "Game Relaunched", "Manual relaunch from kiosk", "core");
+
+    Ok(())
+}
+
 async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
     // Update tracker to Stopping
     let info = {
