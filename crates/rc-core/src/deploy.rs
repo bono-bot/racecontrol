@@ -876,6 +876,84 @@ pub async fn deploy_rolling(
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 
+    // ── Fleet summary and retry (DEP-04) ────────────────────────────────────
+    // NOTE: ordered_pods includes pod_8 (canary). The canary is always Idle/Complete
+    // at this point — if it had failed, deploy_rolling() returned Err early and never
+    // reached this block. No special canary exclusion needed in the retry loop.
+    let initial_states = deploy_status(&state).await;
+    let mut succeeded: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    let mut waiting: Vec<String> = Vec::new();
+
+    for (pod_id, _) in &ordered_pods {
+        match initial_states.get(pod_id) {
+            Some(DeployState::Complete) | Some(DeployState::Idle) => {
+                succeeded.push(pod_id.clone());
+            }
+            Some(DeployState::Failed { .. }) => {
+                failed.push(pod_id.clone());
+            }
+            Some(DeployState::WaitingSession) => {
+                waiting.push(pod_id.clone());
+            }
+            _ => {
+                // Still in progress or unknown -- treat as waiting
+                waiting.push(pod_id.clone());
+            }
+        }
+    }
+
+    // Retry failed pods once (excluding canary -- if canary failed, we already halted above)
+    if !failed.is_empty() {
+        tracing::warn!(
+            "Rolling deploy: retrying {} failed pod(s): {:?}",
+            failed.len(),
+            failed
+        );
+
+        let retry_pod_ids: Vec<String> = failed.drain(..).collect();
+        for retry_id in &retry_pod_ids {
+            let retry_ip = {
+                let pods = state.pods.read().await;
+                pods.get(retry_id).map(|p| p.ip_address.clone())
+            };
+            if let Some(ip) = retry_ip {
+                tracing::info!("Rolling deploy: retry deploying to {}", retry_id);
+                deploy_pod(state.clone(), retry_id.clone(), ip, binary_url.clone()).await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+
+        // Recheck retry results
+        let retry_states = deploy_status(&state).await;
+        for retry_id in &retry_pod_ids {
+            match retry_states.get(retry_id) {
+                Some(DeployState::Complete) | Some(DeployState::Idle) => {
+                    succeeded.push(retry_id.clone());
+                }
+                _ => {
+                    failed.push(retry_id.clone());
+                }
+            }
+        }
+    }
+
+    // Log structured summary
+    tracing::info!(
+        "Rolling deploy COMPLETE: succeeded={:?} failed={:?} waiting_session={:?}",
+        succeeded,
+        failed,
+        waiting
+    );
+
+    // Broadcast fleet summary event to dashboard
+    let _ = state.dashboard_tx.send(DashboardEvent::FleetDeploySummary {
+        succeeded: succeeded.clone(),
+        failed: failed.clone(),
+        waiting: waiting.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+    });
+
     Ok(())
 }
 

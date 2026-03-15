@@ -465,6 +465,14 @@ pub enum DashboardEvent {
 
     /// All pod deploy states (sent on dashboard connect, like PodList)
     DeployStatusList(Vec<DeployPodStatus>),
+
+    /// Fleet-wide rolling deploy completed -- summary of per-pod outcomes
+    FleetDeploySummary {
+        succeeded: Vec<String>,
+        failed: Vec<String>,
+        waiting: Vec<String>,
+        timestamp: String,
+    },
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)
@@ -1094,6 +1102,27 @@ mod tests {
             assert_eq!(statuses[1].pod_id, "pod_8");
         } else {
             panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn fleet_deploy_summary_serde_roundtrip() {
+        let event = DashboardEvent::FleetDeploySummary {
+            succeeded: vec!["pod_1".to_string(), "pod_2".to_string()],
+            failed: vec!["pod_3".to_string()],
+            waiting: vec!["pod_5".to_string()],
+            timestamp: "2026-03-15T12:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("fleet_deploy_summary"), "Expected 'fleet_deploy_summary' tag in JSON: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).unwrap();
+        if let DashboardEvent::FleetDeploySummary { succeeded, failed, waiting, .. } = parsed {
+            assert_eq!(succeeded.len(), 2);
+            assert_eq!(failed.len(), 1);
+            assert_eq!(waiting.len(), 1);
+            assert_eq!(failed[0], "pod_3");
+        } else {
+            panic!("Expected FleetDeploySummary variant");
         }
     }
 
