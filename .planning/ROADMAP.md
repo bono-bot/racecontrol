@@ -34,6 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 12: Data Foundation** - Schema migrations, indexes, WAL tuning, and cloud ID resolution — the safe ground every competitive feature builds on (completed 2026-03-14)
 - [x] **Phase 13: Leaderboard Core** - Public leaderboards, circuit/vehicle records, driver profiles, lap validity hardening, and "beaten" notifications — immediate customer value from existing data (completed 2026-03-15)
+- [ ] **Phase 13.1: Pod Fleet Reliability (INSERTED)** - Fix config self-heal, pod-agent exec hardening, deploy HKLM Run keys, fleet health monitoring
 - [ ] **Phase 14: Events and Championships** - Hotlap events with 107% rule and badges, group event F1 scoring, multi-round championships, and cloud sync for all competitive tables
 - [ ] **Phase 15: Telemetry and Driver Rating** - Speed trace + lap comparison, inputs trace, 2D track map, and percentile-based driver skill classes
 
@@ -76,13 +77,21 @@ Plans:
 
 ### Phase 13.1: Pod Fleet Reliability (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** All 8 pods survive reboots with both services (rc-agent + pod-agent) auto-starting correctly, rc-agent finds its config regardless of working directory, pod-agent exec slots recover faster from stuck commands, and fleet health is continuously monitored every 5 minutes
 **Depends on:** Phase 13
-**Plans:** 0 plans
+**Requirements**: REL-01, REL-02, REL-03, REL-04, REL-05
+**Success Criteria** (what must be TRUE):
+  1. rc-agent finds rc-agent.toml when started from any working directory (DeskIn, explorer, etc.) — not just C:\RacingPoint
+  2. pod-agent default exec timeout is 10s (not 30s), with explicit longer timeouts only for download operations
+  3. All 8 pods have both RCAgent and PodAgent HKLM Run keys, ensuring both services auto-start on reboot
+  4. Fleet-health.py runs every 5 minutes as a scheduled task and reports pod status with exec slot availability
+  5. Pod 8 is verified running the hardened pod-agent with reduced timeout and exhaustion logging
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 13.1 to break down)
+- [ ] 13.1-01-PLAN.md — rc-agent config self-heal: exe-path resolution with unit tests (REL-01)
+- [ ] 13.1-02-PLAN.md — pod-agent exec hardening: reduced timeout, exhaustion logging, health test (REL-02, REL-05)
+- [ ] 13.1-03-PLAN.md — Deploy HKLM Run keys to all pods, upgrade Pod 8, schedule fleet-health.py (REL-03, REL-04)
 
 ### Phase 14: Events and Championships
 **Goal**: Staff can run structured hotlap events and multi-round championships — customers see ranked event leaderboards with 107% rule, gold/silver/bronze badges, F1-scored group results, and cumulative championship standings — all synced to the cloud PWA
@@ -111,9 +120,9 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 12 → 13 → 14 → 15
+Phases execute in numeric order: 12 → 13 → 13.1 → 14 → 15
 
-Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records patterns and require the public PWA architecture to be validated first). Phase 15 depends on Phase 14 because telemetry comparison derives its value from comparing against event leaders — that context does not exist until events have run.
+Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records patterns and require the public PWA architecture to be validated first). Phase 15 depends on Phase 14 because telemetry comparison derives its value from comparing against event leaders — that context does not exist until events have run. Phase 13.1 is an urgent insertion that must complete before Phase 14.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -130,5 +139,6 @@ Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records pa
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 12. Data Foundation | v3.0 | 2/2 | Complete | 2026-03-14 |
 | 13. Leaderboard Core | v3.0 | 5/5 | Complete | 2026-03-15 |
+| 13.1. Pod Fleet Reliability | v3.0 | 0/3 | Not started | - |
 | 14. Events and Championships | v3.0 | 0/? | Not started | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |
