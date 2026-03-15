@@ -478,6 +478,27 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 tracing::warn!("No pending request for request_id={}", request_id);
                             }
                         }
+                        AgentMessage::StartupReport { pod_id, version, uptime_secs, config_hash, crash_recovery, repairs } => {
+                            tracing::info!(
+                                "Pod {} startup report: version={}, uptime={}s, config_hash={}, crash_recovery={}, repairs={:?}",
+                                pod_id, version, uptime_secs, config_hash, crash_recovery, repairs
+                            );
+                            if *crash_recovery {
+                                tracing::warn!("Pod {} recovered from a crash!", pod_id);
+                            }
+                            if !repairs.is_empty() {
+                                tracing::warn!("Pod {} self-healed: {:?}", pod_id, repairs);
+                            }
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "system",
+                                "Startup Report",
+                                &format!("v{} uptime={}s hash={} crash_recovery={} repairs={:?}",
+                                    version, uptime_secs, config_hash, crash_recovery, repairs),
+                                "agent",
+                            );
+                        }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");

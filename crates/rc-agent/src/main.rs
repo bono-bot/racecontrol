@@ -599,6 +599,7 @@ async fn main() -> Result<()> {
     // reconnections — only the WebSocket is re-established.
     let mut reconnect_attempt: u32 = 0;
     let mut startup_complete_logged = false;
+    let mut startup_report_sent = false;
 
     loop {
         // Connect to core server
@@ -653,6 +654,33 @@ async fn main() -> Result<()> {
             startup_log::write_phase("websocket", &format!("connected pod={}", config.pod.number));
             startup_log::write_phase("complete", "");
             startup_complete_logged = true;
+        }
+
+        // Send startup report once per process lifetime (HEAL-02)
+        if !startup_report_sent {
+            let config_path = exe_dir.join("rc-agent.toml");
+            let startup_report = AgentMessage::StartupReport {
+                pod_id: pod_id.clone(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                uptime_secs: agent_start_time.elapsed().as_secs(),
+                config_hash: self_heal::config_hash(&config_path),
+                crash_recovery,
+                repairs: {
+                    let mut r = Vec::new();
+                    if heal_result.config_repaired { r.push("config".to_string()); }
+                    if heal_result.script_repaired { r.push("script".to_string()); }
+                    if heal_result.registry_repaired { r.push("registry_key".to_string()); }
+                    r
+                },
+            };
+            if let Ok(json) = serde_json::to_string(&startup_report) {
+                if ws_tx.send(Message::Text(json.into())).await.is_ok() {
+                    tracing::info!("Sent startup report to core (crash_recovery={})", crash_recovery);
+                    startup_report_sent = true;
+                } else {
+                    tracing::warn!("Failed to send startup report — will retry next connect");
+                }
+            }
         }
 
         // Send content manifest after registration so core knows what's installed
