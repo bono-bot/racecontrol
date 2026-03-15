@@ -76,12 +76,12 @@ None — plan executed exactly as written.
 ## Issues Encountered
 None
 
-## Checkpoint: Pod 8 Verification (PENDING)
-End-to-end verification on Pod 8 required before Phase 1 can be marked complete:
-1. LIFE-01: Game killed within 10s of billing end
-2. LIFE-02: Launch rejected without active billing
-3. LIFE-03: Session summary → 15s → blank screen
-4. LIFE-04: Double-launch blocked
+## Checkpoint: Pod 8 Verification (APPROVED)
+End-to-end verification on Pod 8 confirmed by user (2026-03-15):
+1. LIFE-01: Game killed within 10s of billing end — PASS
+2. LIFE-02: Launch rejected without active billing — PASS
+3. LIFE-03: Session summary → 15s → blank screen — PASS
+4. LIFE-04: Double-launch blocked — PASS
 
 ## Self-Check: PASSED
 
@@ -89,7 +89,7 @@ End-to-end verification on Pod 8 required before Phase 1 can be marked complete:
 - [x] main.rs contains `billing_active.store(false` in BillingStopped handler
 - [x] Commit 9f5891c exists in git log
 - [x] All 483 workspace tests pass
-- [ ] Pod 8 end-to-end verification (checkpoint pending)
+- [x] Pod 8 end-to-end verification — approved
 
 ---
 *Phase: 01-billing-game-lifecycle*

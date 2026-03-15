@@ -9,7 +9,7 @@
 
 - [x] **LIFE-01**: When billing session expires or is manually stopped, the running game is force-closed within 10 seconds
 - [x] **LIFE-02**: Staff cannot launch a game on a pod that has no active billing session
-- [ ] **LIFE-03**: After session ends, pod shows a brief session summary (15s) then returns to the idle lock screen automatically
+- [x] **LIFE-03**: After session ends, pod shows a brief session summary (15s) then returns to the idle lock screen automatically
 - [x] **LIFE-04**: Rapid "launch game" requests are deduplicated — only one game launch per active billing session
 
 ### Game Crash Recovery (CRASH)
@@ -66,7 +66,7 @@
 |-------------|-------|--------|
 | LIFE-01 | Phase 1 | Complete (01-01) |
 | LIFE-02 | Phase 1 | Complete (01-01) |
-| LIFE-03 | Phase 1 | Pending |
+| LIFE-03 | Phase 1 | Complete (01-02) |
 | LIFE-04 | Phase 1 | Complete (01-01) |
 | CRASH-01 | Phase 2 | Pending |
 | CRASH-02 | Phase 2 | Pending |

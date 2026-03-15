@@ -10,7 +10,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 
 ## Phases
 
-- [ ] **Phase 1: Billing-Game Lifecycle** - Stop game on billing end, validate before launch, pod reset after session, anti-double-launch
+- [x] **Phase 1: Billing-Game Lifecycle** - Stop game on billing end, validate before launch, pod reset after session, anti-double-launch
 - [ ] **Phase 2: Game Crash Recovery** - Detect crash, pause billing, show status, enable re-launch
 - [ ] **Phase 3: Launch Resilience** - CM fallback improvements, failure reporting, billing pause on launch failure
 - [ ] **Phase 4: Multiplayer Server Lifecycle** - AC server auto-start/stop wired to billing, kiosk self-serve multiplayer booking
@@ -104,7 +104,7 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 
 | Phase | Plans | Status | Completed |
 |-------|-------|--------|-----------|
-| 1. Billing-Game Lifecycle | 2/2 | Code complete (Pod 8 verification pending) | 2026-03-15 |
+| 1. Billing-Game Lifecycle | 2/2 | Complete | 2026-03-15 |
 | 2. Game Crash Recovery | 0/2 | Not started | - |
 | 3. Launch Resilience | 0/2 | Not started | - |
 | 4. Multiplayer Server Lifecycle | 0/2 | Not started | - |
