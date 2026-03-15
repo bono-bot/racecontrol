@@ -27,8 +27,8 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — rc-core: send StopGame on billing end + billing validation gate in game_launcher.rs + anti-double-launch guard
-- [ ] 01-02-PLAN.md — rc-agent: handle StopGame (kill game process) + lock screen session-end → idle transition with 15s summary
+- [ ] 01-01-PLAN.md — rc-core: billing validation gate + double-launch guard fix in game_launcher.rs (LIFE-01, LIFE-02, LIFE-04)
+- [ ] 01-02-PLAN.md — rc-agent: arm 15s blank_timer in SessionEnded + fix BillingStopped billing_active flag (LIFE-01, LIFE-03)
 
 ### Phase 2: Game Crash Recovery
 **Goal**: When a game crashes, billing pauses instantly, staff sees it on the dashboard, and they can restart the game without touching the pod or creating a new session
