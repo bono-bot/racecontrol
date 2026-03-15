@@ -39,6 +39,7 @@ pub struct SelfHealResult {
     pub config_repaired: bool,
     pub script_repaired: bool,
     pub registry_repaired: bool,
+    pub defender_repaired: bool,
     pub errors: Vec<String>,
 }
 
@@ -55,6 +56,7 @@ pub fn run(exe_dir: &Path) -> SelfHealResult {
         config_repaired: false,
         script_repaired: false,
         registry_repaired: false,
+        defender_repaired: false,
         errors: Vec::new(),
     };
 
@@ -101,6 +103,21 @@ pub fn run(exe_dir: &Path) -> SelfHealResult {
             Err(e) => {
                 tracing::error!("[self-heal] Failed to repair registry key: {}", e);
                 result.errors.push(format!("registry: {}", e));
+            }
+        }
+    }
+
+    // 4. Defender exclusion for C:\RacingPoint\
+    if !defender_exclusion_exists() {
+        tracing::warn!("[self-heal] Defender exclusion for C:\\RacingPoint\\ missing -- attempting repair");
+        match repair_defender_exclusion() {
+            Ok(()) => {
+                tracing::warn!("[self-heal] Defender exclusion added for C:\\RacingPoint\\");
+                result.defender_repaired = true;
+            }
+            Err(e) => {
+                tracing::error!("[self-heal] Failed to add Defender exclusion: {}", e);
+                result.errors.push(format!("defender: {}", e));
             }
         }
     }
@@ -235,6 +252,49 @@ fn repair_registry_key(exe_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Check if C:\RacingPoint\ is in Windows Defender ExclusionPath.
+/// Returns false if PowerShell is unavailable or the check fails (non-fatal).
+fn defender_exclusion_exists() -> bool {
+    let mut cmd = Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        r#"(Get-MpPreference).ExclusionPath -contains 'C:\RacingPoint'"#,
+    ]);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    match cmd.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.trim() == "True"
+        }
+        Err(_) => false,
+    }
+}
+
+/// Add C:\RacingPoint\ to Windows Defender exclusion paths.
+/// Requires admin privileges (rc-agent runs as admin user on pod PCs).
+fn repair_defender_exclusion() -> Result<()> {
+    let mut cmd = Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        r#"Add-MpPreference -ExclusionPath 'C:\RacingPoint'"#,
+    ]);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let output = cmd.output().map_err(|e| anyhow::anyhow!("powershell failed: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Add-MpPreference failed: {}", stderr.trim());
+    }
+    Ok(())
+}
+
 /// Compute a deterministic hash of the config file contents.
 ///
 /// Returns hex string of a u64 hash, or "unknown" if the file cannot be read.
@@ -311,12 +371,28 @@ mod tests {
             config_repaired: false,
             script_repaired: false,
             registry_repaired: false,
+            defender_repaired: false,
             errors: Vec::new(),
         };
         assert!(!result.config_repaired);
         assert!(!result.script_repaired);
         assert!(!result.registry_repaired);
+        assert!(!result.defender_repaired);
         assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_defender_repaired_field_exists() {
+        // Compile-time check: SelfHealResult must have defender_repaired field
+        let result = SelfHealResult {
+            config_repaired: false,
+            script_repaired: false,
+            registry_repaired: false,
+            defender_repaired: false,
+            errors: Vec::new(),
+        };
+        // run() must initialize defender_repaired to false
+        assert!(!result.defender_repaired);
     }
 
     #[test]
