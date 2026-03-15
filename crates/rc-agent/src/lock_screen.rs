@@ -7,6 +7,18 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+/// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
+/// Used for background utilities (taskkill, reg, powershell). NOT for browser launches.
+fn hidden_cmd(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /// Current lock screen state.
@@ -494,7 +506,7 @@ impl LockScreenManager {
         // This prevents the stacking bug where repeated show_blank_screen() calls
         // spawn new Edge windows without fully cleaning up the old ones.
         for exe in &["msedge.exe", "msedgewebview2.exe"] {
-            match std::process::Command::new("taskkill")
+            match hidden_cmd("taskkill")
                 .args(["/F", "/IM", exe])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -526,7 +538,7 @@ impl LockScreenManager {
 fn suppress_notifications(suppress: bool) {
     if suppress {
         // Enable Focus Assist (priority only) via registry — suppresses all toast notifications
-        let _ = std::process::Command::new("reg")
+        let _ = hidden_cmd("reg")
             .args([
                 "add",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings",
@@ -537,7 +549,7 @@ fn suppress_notifications(suppress: bool) {
             ])
             .output();
         // Disable balloon notifications
-        let _ = std::process::Command::new("reg")
+        let _ = hidden_cmd("reg")
             .args([
                 "add",
                 r"HKCU\Software\Policies\Microsoft\Windows\Explorer",
@@ -548,14 +560,14 @@ fn suppress_notifications(suppress: bool) {
             ])
             .output();
         // Kill any active notification toasts / action center
-        let _ = std::process::Command::new("powershell")
+        let _ = hidden_cmd("powershell")
             .args(["-NoProfile", "-Command",
                 "Get-Process -Name 'ShellExperienceHost' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"])
             .output();
         tracing::info!("Notifications suppressed for blanking screen");
     } else {
         // Re-enable toast notifications
-        let _ = std::process::Command::new("reg")
+        let _ = hidden_cmd("reg")
             .args([
                 "add",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings",
@@ -566,7 +578,7 @@ fn suppress_notifications(suppress: bool) {
             ])
             .output();
         // Re-enable notification center
-        let _ = std::process::Command::new("reg")
+        let _ = hidden_cmd("reg")
             .args([
                 "delete",
                 r"HKCU\Software\Policies\Microsoft\Windows\Explorer",
@@ -596,7 +608,7 @@ pub fn enforce_kiosk_foreground() {
                 Write-Output "Kiosk foreground: $($_.ProcessName) (PID $($_.Id))"
             }
     "#;
-    let _ = std::process::Command::new("powershell")
+    let _ = hidden_cmd("powershell")
         .args(["-NoProfile", "-Command", ps_script])
         .output();
 }

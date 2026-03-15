@@ -159,11 +159,16 @@ async fn take_screenshot() -> Result<Vec<u8>, String> {
         tmp_path.replace('\\', "\\\\")
     );
 
-    let output = tokio::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", &ps_script])
-        .output()
-        .await
-        .map_err(|e| format!("powershell exec failed: {}", e))?;
+    let output = {
+        let mut cmd = tokio::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-Command", &ps_script]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        cmd.output().await.map_err(|e| format!("powershell exec failed: {}", e))?
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

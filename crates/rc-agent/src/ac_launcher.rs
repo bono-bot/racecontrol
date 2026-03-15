@@ -12,6 +12,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::lock_screen;
 
+/// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
+/// Used for background utilities (taskkill, tasklist, powershell, cmd, reg).
+/// Do NOT use for game launches or browser launches that need visible windows.
+fn hidden_cmd(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd
+}
+
 /// Dialog/system processes that must be killed between sessions to ensure a clean kiosk state.
 /// Includes crash reporters, settings windows, and system dialogs that can appear after a game crash.
 pub const DIALOG_PROCESSES: &[&str] = &[
@@ -226,10 +239,10 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
 
     // Step 1: Kill existing AC
     tracing::info!("[1/4] Killing existing AC...");
-    let _ = Command::new("taskkill")
+    let _ = hidden_cmd("taskkill")
         .args(["/IM", "acs.exe", "/F"])
         .output();
-    let _ = Command::new("taskkill")
+    let _ = hidden_cmd("taskkill")
         .args(["/IM", "AssettoCorsa.exe", "/F"])
         .output();
     std::thread::sleep(std::time::Duration::from_secs(2));
@@ -1045,7 +1058,7 @@ fn launch_via_cm(params: &AcLaunchParams) -> Result<()> {
     };
 
     tracing::info!("Launching via Content Manager URI: {}", uri);
-    Command::new("cmd")
+    hidden_cmd("cmd")
         .args(["/c", "start", "", &uri])
         .spawn()
         .map_err(|e| anyhow::anyhow!("Failed to open acmanager:// URI: {}", e))?;
@@ -1072,7 +1085,7 @@ fn wait_for_ac_process(timeout_secs: u64) -> Result<u32> {
 
 /// Find acs.exe PID via tasklist.
 fn find_acs_pid() -> Option<u32> {
-    let output = Command::new("tasklist")
+    let output = hidden_cmd("tasklist")
         .args(["/FI", "IMAGENAME eq acs.exe", "/FO", "CSV", "/NH"])
         .output()
         .ok()?;
@@ -1139,7 +1152,7 @@ fn diagnose_cm_failure() -> String {
 /// Get CM process exit code (if it has exited).
 /// Returns Some(-1) if CM exited (code unknown via tasklist), None if still running.
 fn get_cm_exit_code() -> Option<i32> {
-    let output = Command::new("tasklist")
+    let output = hidden_cmd("tasklist")
         .args(["/FI", "IMAGENAME eq Content Manager.exe", "/FO", "CSV", "/NH"])
         .output()
         .ok()?;
@@ -1156,7 +1169,7 @@ fn get_cm_exit_code() -> Option<i32> {
 
 /// Check if Content Manager process is running and what state it's in.
 fn check_cm_process() -> Option<String> {
-    let output = Command::new("tasklist")
+    let output = hidden_cmd("tasklist")
         .args(["/FI", "IMAGENAME eq Content Manager.exe", "/FO", "CSV", "/NH"])
         .output()
         .ok()?;
@@ -1259,7 +1272,7 @@ fn build_cm_log_paths() -> Vec<std::path::PathBuf> {
 
 /// Check if a process is currently running by image name.
 fn is_process_running(name: &str) -> bool {
-    Command::new("tasklist")
+    hidden_cmd("tasklist")
         .args(["/FI", &format!("IMAGENAME eq {}", name), "/FO", "CSV", "/NH"])
         .output()
         .ok()
@@ -1303,7 +1316,7 @@ fn minimize_conspit_window() {
         }
 
         // Fallback: use PowerShell to minimize by process name (wildcard for safety)
-        let result = Command::new("powershell")
+        let result = hidden_cmd("powershell")
             .args([
                 "-NoProfile", "-Command",
                 "Add-Type -Name W -Namespace N -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; Get-Process -Name ConspitLink* -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 6); Write-Output \"Minimized: $($_.ProcessName)\" }"
@@ -1336,7 +1349,7 @@ pub fn ensure_conspit_link_running() {
     }
 
     tracing::warn!("Conspit Link not running — restarting (crash recovery)...");
-    match Command::new("cmd")
+    match hidden_cmd("cmd")
         .args(["/c", "start", "", conspit_path])
         .spawn()
     {
@@ -1426,7 +1439,7 @@ pub fn minimize_background_windows() {
             }
         }
     "#;
-    match Command::new("powershell")
+    match hidden_cmd("powershell")
         .args(["-NoProfile", "-Command", ps_script])
         .output()
     {
@@ -1460,7 +1473,7 @@ fn bring_game_to_foreground() {
             }
         }
         // Fallback: use PowerShell to find acs.exe window and foreground it
-        let _ = Command::new("powershell")
+        let _ = hidden_cmd("powershell")
             .args(["-NoProfile", "-Command",
                 "Add-Type -Name WF -Namespace NF -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; \
                  Get-Process acs -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [NF.WF]::ShowWindow($_.MainWindowHandle, 9); [NF.WF]::SetForegroundWindow($_.MainWindowHandle) }"])
@@ -1476,14 +1489,14 @@ pub fn cleanup_after_session() {
     tracing::info!("[cleanup] Starting post-session cleanup...");
 
     // 1. Kill AC and Content Manager (Conspit Link stays running — minimized in step 3)
-    let _ = Command::new("taskkill").args(["/IM", "acs.exe", "/F"]).output();
-    let _ = Command::new("taskkill").args(["/IM", "AssettoCorsa.exe", "/F"]).output();
-    let _ = Command::new("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
+    let _ = hidden_cmd("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+    let _ = hidden_cmd("taskkill").args(["/IM", "AssettoCorsa.exe", "/F"]).output();
+    let _ = hidden_cmd("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
     tracing::info!("[cleanup] Killed AC + Content Manager (Conspit Link kept alive)");
 
     // 2. Kill error/crash dialogs and system popups
     for proc in DIALOG_PROCESSES {
-        let _ = Command::new("taskkill").args(["/IM", proc, "/F"]).output();
+        let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
     tracing::info!("[cleanup] Dismissed error dialogs and system popups");
 
@@ -1511,7 +1524,7 @@ pub fn cleanup_after_session() {
             [Native.Win]::ShowWindow($edge.MainWindowHandle, 3)  # SW_MAXIMIZE
         }
     "#;
-    let _ = Command::new("powershell")
+    let _ = hidden_cmd("powershell")
         .args(["-NoProfile", "-Command", ps_script])
         .output();
     tracing::info!("[cleanup] Background windows minimized, lock screen foregrounded");
@@ -1541,13 +1554,13 @@ pub fn enforce_safe_state() {
         "ForzaMotorsport.exe", "ForzaHorizon5.exe",
     ];
     for proc in &game_processes {
-        let _ = Command::new("taskkill").args(["/IM", proc, "/F"]).output();
+        let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
     tracing::info!("[safe-state] All game processes killed");
 
     // 2. Kill error/crash dialogs and system popups
     for proc in DIALOG_PROCESSES {
-        let _ = Command::new("taskkill").args(["/IM", proc, "/F"]).output();
+        let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
     tracing::info!("[safe-state] Dismissed error dialogs and system popups");
 

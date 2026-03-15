@@ -195,6 +195,17 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
     None
 }
 
+/// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
+fn hidden_cmd(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd
+}
+
 // ─── Auto-Fix Implementations ────────────────────────────────────────────────
 
 fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
@@ -202,7 +213,7 @@ fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
 
     // Kill any CLOSE_WAIT state by resetting network stack for our ports
     // Safe: only affects orphaned connections, not active ones
-    let result = std::process::Command::new("powershell")
+    let result = hidden_cmd("powershell")
         .args([
             "-NoProfile", "-Command",
             "Get-NetTCPConnection -State CloseWait -ErrorAction SilentlyContinue | \
@@ -252,7 +263,7 @@ fn fix_kill_stale_game() -> AutoFixResult {
         if PROTECTED_PROCESSES.iter().any(|p| p.eq_ignore_ascii_case(exe)) {
             continue;
         }
-        let output = std::process::Command::new("taskkill")
+        let output = hidden_cmd("taskkill")
             .args(["/IM", exe, "/F"])
             .output();
         if let Ok(o) = output {
@@ -279,7 +290,7 @@ fn fix_kill_stale_game() -> AutoFixResult {
 fn fix_clean_temp() -> AutoFixResult {
     tracing::info!("[auto-fix] Cleaning temp files");
 
-    let result = std::process::Command::new("powershell")
+    let result = hidden_cmd("powershell")
         .args([
             "-NoProfile", "-Command",
             "Remove-Item -Path \"$env:TEMP\\*\" -Recurse -Force -ErrorAction SilentlyContinue; \
@@ -309,7 +320,7 @@ fn fix_clean_temp() -> AutoFixResult {
 fn fix_kill_error_dialogs() -> AutoFixResult {
     tracing::info!("[auto-fix] Killing error dialogs");
 
-    let _ = std::process::Command::new("taskkill")
+    let _ = hidden_cmd("taskkill")
         .args(["/IM", "WerFault.exe", "/F"])
         .output();
 

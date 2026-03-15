@@ -4,6 +4,18 @@ use std::process::{Child, Command};
 use rc_common::types::{GameState, SimType};
 use serde::Deserialize;
 
+/// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
+/// Used for background utilities (taskkill, cmd wrappers). NOT for game exe launches.
+fn hidden_cmd(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd
+}
+
 /// Directory where the PID file is persisted.
 /// Windows: C:\RaceControl\  Linux: /tmp/racecontrol/
 fn pid_file_dir() -> PathBuf {
@@ -143,7 +155,7 @@ impl GameProcess {
                 let url = format!("steam://rungameid/{}", app_id);
                 #[cfg(target_os = "windows")]
                 {
-                    Command::new("cmd")
+                    hidden_cmd("cmd")
                         .args(["/C", "start", "", &url])
                         .spawn()?;
                 }
@@ -248,7 +260,7 @@ impl GameProcess {
         tracing::info!("Launching via URL scheme: {}", url);
         #[cfg(target_os = "windows")]
         {
-            Command::new("cmd")
+            hidden_cmd("cmd")
                 .args(["/C", "start", "", url])
                 .spawn()?;
         }
@@ -328,7 +340,7 @@ fn is_process_alive(pid: u32) -> bool {
 /// Platform-specific process kill
 #[cfg(target_os = "windows")]
 fn kill_process(pid: u32) -> anyhow::Result<()> {
-    Command::new("taskkill")
+    hidden_cmd("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
         .output()?;
     Ok(())

@@ -380,11 +380,13 @@ struct CursorResponse {
 }
 
 async fn run_ps(script: &str, timeout_secs: u64) -> Result<std::process::Output, String> {
-    timeout(Duration::from_secs(timeout_secs), Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .kill_on_drop(true)
-        .output()
-    ).await
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    timeout(Duration::from_secs(timeout_secs), cmd.output())
+        .await
         .map_err(|_| format!("PowerShell timed out ({}s)", timeout_secs))?
         .map_err(|e| format!("PowerShell exec failed: {}", e))
 }
@@ -640,12 +642,12 @@ fn map_single_key(key: &str) -> String {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 async fn detect_local_ip() -> Option<String> {
-    let output = Command::new("cmd")
-        .args(["/C", "ipconfig"])
-        .kill_on_drop(true)
-        .output()
-        .await
-        .ok()?;
+    let mut cmd = Command::new("cmd");
+    cmd.args(["/C", "ipconfig"])
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().await.ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     for line in text.lines() {
         if line.contains("IPv4") && line.contains("192.168.") {
