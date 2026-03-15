@@ -10,7 +10,9 @@ mod kiosk;
 mod lock_screen;
 mod overlay;
 mod remote_ops;
+mod self_heal;
 mod sims;
+mod startup_log;
 mod udp_heartbeat;
 
 use std::time::Duration;
@@ -315,11 +317,36 @@ async fn main() -> Result<()> {
   Pod Telemetry Bridge
 "#);
 
+    // Detect crash recovery BEFORE write_phase("init") truncates the previous log
+    let crash_recovery = startup_log::detect_crash_recovery();
+    startup_log::write_phase("init", "");
+    if crash_recovery {
+        tracing::warn!("Detected crash recovery -- previous startup did not complete");
+    }
+
     // Start a minimal lock screen server early so we can show a branded error
     // if config loading fails. The server does not require config values.
     let (early_lock_event_tx, _early_lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
     let mut early_lock_screen = LockScreenManager::new(early_lock_event_tx);
     early_lock_screen.start_server();
+    startup_log::write_phase("lock_screen", "");
+
+    // Self-heal: verify and repair config, start script, registry key (HEAL-01)
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\RacingPoint"));
+    let heal_result = self_heal::run(&exe_dir);
+    if heal_result.config_repaired || heal_result.script_repaired || heal_result.registry_repaired {
+        let repairs: Vec<&str> = [
+            heal_result.config_repaired.then_some("config"),
+            heal_result.script_repaired.then_some("script"),
+            heal_result.registry_repaired.then_some("registry_key"),
+        ].into_iter().flatten().collect();
+        startup_log::write_phase("self_heal", &format!("repairs={}", repairs.join(",")));
+    } else {
+        startup_log::write_phase("self_heal", "no_repairs_needed");
+    }
 
     // Load and validate config — fail fast with branded lock screen error on any issue
     let config = match load_config() {
@@ -334,6 +361,7 @@ async fn main() -> Result<()> {
     };
     // Early lock screen is replaced by the main lock screen manager below
     drop(early_lock_screen);
+    startup_log::write_phase("config_loaded", &format!("pod={}", config.pod.number));
 
     let agent_start_time = std::time::Instant::now();
     tracing::info!("Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
@@ -390,10 +418,12 @@ async fn main() -> Result<()> {
             tracing::warn!("Firewall config failed: {} — continuing anyway", msg);
         }
     }
+    startup_log::write_phase("firewall", "");
 
     // Remote ops HTTP server (merged pod-agent) — port 8090
     remote_ops::start(8090);
     tracing::info!("Remote ops server started on port 8090");
+    startup_log::write_phase("http_server", "port=8090");
 
     // Set up driving detector (USB HID + UDP)
     let detector_config = DetectorConfig {
@@ -568,6 +598,7 @@ async fn main() -> Result<()> {
     // (lock screen, kiosk, HID/UDP monitors, game process) persists across
     // reconnections — only the WebSocket is re-established.
     let mut reconnect_attempt: u32 = 0;
+    let mut startup_complete_logged = false;
 
     loop {
         // Connect to core server
@@ -618,6 +649,11 @@ async fn main() -> Result<()> {
             continue;
         }
         tracing::info!("Connected and registered as Pod #{}", config.pod.number);
+        if !startup_complete_logged {
+            startup_log::write_phase("websocket", &format!("connected pod={}", config.pod.number));
+            startup_log::write_phase("complete", "");
+            startup_complete_logged = true;
+        }
 
         // Send content manifest after registration so core knows what's installed
         let manifest = content_scanner::scan_ac_content();
