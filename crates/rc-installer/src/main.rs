@@ -551,9 +551,11 @@ fn verify_files(dest: &Path) -> Result<u64, String> {
 }
 
 fn verify_config(pod: u8, dest: &Path) -> Result<(), String> {
-    let content = fs::read_to_string(dest.join("rc-agent.toml"))
+    let config_path = dest.join("rc-agent.toml");
+    let content = fs::read_to_string(&config_path)
         .map_err(|e| format!("Cannot read config: {}", e))?;
 
+    // 1. Check pod number matches
     let pod_str = format!("number = {}", pod);
     if !content.contains(&pod_str) {
         return Err(format!(
@@ -562,6 +564,7 @@ fn verify_config(pod: u8, dest: &Path) -> Result<(), String> {
         ));
     }
 
+    // 2. Check core URL present
     if !content.contains(CORE_URL) {
         return Err(format!(
             "Config missing core URL '{}'\nContents:\n{}",
@@ -569,6 +572,52 @@ fn verify_config(pod: u8, dest: &Path) -> Result<(), String> {
         ));
     }
 
+    // 3. Structural checks — catch common TOML errors that would crash rc-agent
+    let mut errors: Vec<String> = Vec::new();
+
+    // Check required sections exist
+    for section in &["[pod]", "[core]"] {
+        if !content.contains(section) {
+            errors.push(format!("Missing section {}", section));
+        }
+    }
+
+    // Check for unbalanced quotes (common copy-paste error)
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
+        }
+        let single_quotes = trimmed.chars().filter(|&c| c == '\'').count();
+        let double_quotes = trimmed.chars().filter(|&c| c == '"').count();
+        if single_quotes % 2 != 0 {
+            errors.push(format!("Line {}: unbalanced single quotes: {}", i + 1, trimmed));
+        }
+        if double_quotes % 2 != 0 {
+            errors.push(format!("Line {}: unbalanced double quotes: {}", i + 1, trimmed));
+        }
+    }
+
+    // Check pod.name is not empty
+    if !content.lines().any(|l| {
+        let t = l.trim();
+        t.starts_with("name") && t.contains('=') && {
+            let val = t.split('=').nth(1).unwrap_or("").trim().trim_matches('"').trim_matches('\'');
+            !val.is_empty()
+        }
+    }) {
+        errors.push("pod.name appears empty or missing".into());
+    }
+
+    if !errors.is_empty() {
+        return Err(format!(
+            "Config validation failed:\n  {}\n\nFull contents:\n{}",
+            errors.join("\n  "),
+            content
+        ));
+    }
+
+    ok("Config verified: pod number, core URL, structure all correct");
     Ok(())
 }
 
@@ -780,7 +829,9 @@ fn start_rc_agent(src: &Path, dest: &Path) -> Result<(), String> {
     thread::sleep(Duration::from_secs(10));
 
     if is_process_running("rc-agent.exe") {
-        ok("rc-agent is running");
+        ok("rc-agent process is alive");
+        // Give HTTP server a few more seconds to bind port 8090
+        wait_for_http(dest);
         return Ok(());
     }
 
@@ -817,6 +868,7 @@ fn start_rc_agent(src: &Path, dest: &Path) -> Result<(), String> {
 
     if is_process_running("rc-agent.exe") {
         ok("rc-agent started on second attempt");
+        wait_for_http(dest);
         return Ok(());
     }
 
@@ -996,6 +1048,30 @@ fn dump_diagnostics(dest: &Path, label: &str) {
             }
         }
     }
+}
+
+/// Wait up to 15s for rc-agent's HTTP server on port 8090.
+/// This confirms rc-agent didn't just start but actually initialized fully.
+fn wait_for_http(dest: &Path) {
+    info("Verifying HTTP server on port 8090...");
+    for i in 1..=15 {
+        let ping = run("curl", &["-s", "-m", "2", "http://127.0.0.1:8090/ping"]);
+        if let Ok(o) = &ping {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            if stdout.contains("pong") {
+                ok(&format!("Port 8090 responding ({}s)", i));
+                return;
+            }
+        }
+        // Also check the process is still alive — if it crashed, don't keep waiting
+        if !is_process_running("rc-agent.exe") {
+            warn("rc-agent died during startup!");
+            dump_diagnostics(dest, "startup crash");
+            return;
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+    warn("Port 8090 not responding after 15s — rc-agent running but HTTP may have failed to bind");
 }
 
 /// Get pod number from CLI argument or interactive prompt.
