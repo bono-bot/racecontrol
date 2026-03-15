@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult } from "./types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -263,6 +263,27 @@ export const api = {
     error?: string;
   }> => {
     const res = await fetch(`${API_BASE}/api/v1/customer/book`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
+  // Kiosk Multiplayer Booking
+  kioskBookMultiplayer: async (
+    token: string,
+    data: {
+      pricing_tier_id: string;
+      pod_count: number;
+      experience_id?: string;
+      custom?: Record<string, unknown>;
+    }
+  ): Promise<KioskMultiplayerResult & { error?: string }> => {
+    const res = await fetch(`${API_BASE}/api/v1/kiosk/book-multiplayer`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

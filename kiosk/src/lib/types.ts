@@ -158,6 +158,23 @@ export interface LaunchDiagnostics {
   direct_exit_code?: number;
 }
 
+// ─── Kiosk Multiplayer ──────────────────────────────────────────────────
+
+export interface KioskMultiplayerAssignment {
+  pin: string;
+  pod_id: string;
+  pod_number: number;
+  role: string; // "host" | "invitee"
+}
+
+export interface KioskMultiplayerResult {
+  group_session_id: string;
+  experience_name: string;
+  tier_name: string;
+  allocated_seconds: number;
+  assignments: KioskMultiplayerAssignment[];
+}
+
 // ─── Kiosk Experiences ────────────────────────────────────────────────────
 
 export interface KioskExperience {
