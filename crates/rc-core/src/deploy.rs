@@ -31,6 +31,46 @@ const POD_AGENT_PORT: u16 = 8090;
 const MIN_BINARY_SIZE: u64 = 5_000_000; // 5MB minimum for a valid rc-agent.exe
 const VERIFY_DELAYS: &[u64] = &[5, 15, 30, 60];
 
+/// Shorter health-check delays for rollback verification (50s total vs 110s for deploy).
+/// Rollback restores a known-good binary — we expect faster recovery.
+const ROLLBACK_VERIFY_DELAYS: &[u64] = &[5, 15, 30];
+
+/// Batch script written to do-swap.bat on the pod before self-swap.
+///
+/// Sequence: wait 3s (for /exec to return) → kill rc-agent → preserve current as
+/// rc-agent-prev.exe → move new binary to rc-agent.exe (with AV retry loop) → start.
+/// CRLF line endings required — Windows batch files reject LF-only scripts.
+const SWAP_SCRIPT_CONTENT: &str = "@echo off\r\n\
+    cd /d C:\\RacingPoint\r\n\
+    timeout /t 3 /nobreak >nul\r\n\
+    taskkill /F /IM rc-agent.exe >nul 2>&1\r\n\
+    timeout /t 2 /nobreak >nul\r\n\
+    if exist rc-agent-prev.exe del /Q rc-agent-prev.exe >nul 2>&1\r\n\
+    if exist rc-agent.exe move /Y rc-agent.exe rc-agent-prev.exe >nul 2>&1\r\n\
+    set RETRIES=0\r\n\
+    :RETRY\r\n\
+    move /Y rc-agent-new.exe rc-agent.exe >nul 2>&1\r\n\
+    if %ERRORLEVEL% NEQ 0 (\r\n\
+        timeout /t 2 /nobreak >nul\r\n\
+        set /a RETRIES+=1\r\n\
+        if %RETRIES% LSS 5 goto RETRY\r\n\
+        echo SWAP FAILED > C:\\RacingPoint\\deploy-error.log\r\n\
+        exit /b 1\r\n\
+    )\r\n\
+    start \"\" /D C:\\RacingPoint rc-agent.exe\r\n";
+
+/// Batch script written to do-rollback.bat on the pod when health verification fails.
+///
+/// Sequence: kill bad binary → restore rc-agent-prev.exe → start.
+/// No sleep between kill and del — prevents watchdog from restarting the bad binary.
+/// CRLF line endings required — Windows batch files reject LF-only scripts.
+const ROLLBACK_SCRIPT_CONTENT: &str = "@echo off\r\n\
+    cd /d C:\\RacingPoint\r\n\
+    taskkill /F /IM rc-agent.exe >nul 2>&1\r\n\
+    if exist rc-agent.exe del /Q rc-agent.exe >nul 2>&1\r\n\
+    move /Y rc-agent-prev.exe rc-agent.exe\r\n\
+    start \"\" /D C:\\RacingPoint rc-agent.exe\r\n";
+
 /// Validate that a binary size meets the minimum threshold.
 /// Returns Ok(()) if valid, Err with descriptive message if too small.
 pub fn validate_binary_size(size_bytes: u64) -> Result<(), String> {
@@ -88,6 +128,7 @@ pub fn deploy_step_label(state: &DeployState) -> String {
         DeployState::Complete => "Deploy completed successfully".to_string(),
         DeployState::Failed { reason } => format!("Deploy failed: {}", reason),
         DeployState::WaitingSession => "Waiting for active billing session to end".to_string(),
+        DeployState::RollingBack => "Rolling back to previous binary".to_string(),
     }
 }
 
@@ -820,6 +861,85 @@ mod tests {
     fn deploy_step_label_complete() {
         let label = deploy_step_label(&DeployState::Complete);
         assert_eq!(label, "Deploy completed successfully");
+    }
+
+    // ── RollingBack + script constant tests (Phase 20-deploy-resilience Plan 01) ──
+
+    #[test]
+    fn deploy_step_label_rolling_back() {
+        let label = deploy_step_label(&DeployState::RollingBack);
+        assert_eq!(label, "Rolling back to previous binary");
+    }
+
+    #[test]
+    fn swap_script_preserves_prev() {
+        assert!(
+            SWAP_SCRIPT_CONTENT.contains("rc-agent-prev.exe"),
+            "SWAP_SCRIPT_CONTENT must reference rc-agent-prev.exe"
+        );
+    }
+
+    #[test]
+    fn swap_script_crlf() {
+        assert!(
+            SWAP_SCRIPT_CONTENT.contains("\r\n"),
+            "SWAP_SCRIPT_CONTENT must use CRLF line endings for Windows batch files"
+        );
+    }
+
+    #[test]
+    fn swap_script_has_av_retry() {
+        assert!(
+            SWAP_SCRIPT_CONTENT.contains(":RETRY"),
+            "SWAP_SCRIPT_CONTENT must have a :RETRY label for AV retry loop"
+        );
+        assert!(
+            SWAP_SCRIPT_CONTENT.contains("LSS 5"),
+            "SWAP_SCRIPT_CONTENT must limit AV retries with LSS 5"
+        );
+    }
+
+    #[test]
+    fn swap_script_preserves_move() {
+        assert!(
+            SWAP_SCRIPT_CONTENT.contains("move /Y rc-agent.exe rc-agent-prev.exe"),
+            "SWAP_SCRIPT_CONTENT must move current binary to rc-agent-prev.exe before swap"
+        );
+    }
+
+    #[test]
+    fn rollback_script_contains_prev() {
+        assert!(
+            ROLLBACK_SCRIPT_CONTENT.contains("rc-agent-prev.exe"),
+            "ROLLBACK_SCRIPT_CONTENT must reference rc-agent-prev.exe"
+        );
+    }
+
+    #[test]
+    fn rollback_script_crlf() {
+        assert!(
+            ROLLBACK_SCRIPT_CONTENT.contains("\r\n"),
+            "ROLLBACK_SCRIPT_CONTENT must use CRLF line endings for Windows batch files"
+        );
+    }
+
+    #[test]
+    fn rollback_script_restores_prev() {
+        assert!(
+            ROLLBACK_SCRIPT_CONTENT.contains("move /Y rc-agent-prev.exe rc-agent.exe"),
+            "ROLLBACK_SCRIPT_CONTENT must restore rc-agent-prev.exe to rc-agent.exe"
+        );
+    }
+
+    #[test]
+    fn rollback_verify_delays_shorter() {
+        assert_eq!(
+            ROLLBACK_VERIFY_DELAYS.len(),
+            3,
+            "ROLLBACK_VERIFY_DELAYS must have 3 entries (shorter than deploy's 4)"
+        );
+        let sum: u64 = ROLLBACK_VERIFY_DELAYS.iter().sum();
+        assert_eq!(sum, 50, "ROLLBACK_VERIFY_DELAYS sum must be 50s (5+15+30)");
     }
 
     // ── generate_pod_config tests ───────────────────────────────────────────

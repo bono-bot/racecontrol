@@ -696,6 +696,8 @@ pub enum DeployState {
     },
     /// Pod has an active billing session — deploy is queued until session ends
     WaitingSession,
+    /// Rolling back to rc-agent-prev.exe after health verification failure
+    RollingBack,
 }
 
 impl Default for DeployState {
@@ -1108,6 +1110,23 @@ mod tests {
         // WaitingSession is a queued state — not "active" in the deploy sense
         // (it doesn't block watchdog; it just defers until session ends)
         assert!(!DeployState::WaitingSession.is_active());
+    }
+
+    // ── RollingBack tests (Phase 20-deploy-resilience Plan 01) ──────────────
+
+    #[test]
+    fn deploy_state_rolling_back_serde() {
+        let state = DeployState::RollingBack;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("rolling_back"), "Expected 'rolling_back' in JSON: {}", json);
+        let parsed: DeployState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, DeployState::RollingBack);
+    }
+
+    #[test]
+    fn rolling_back_is_active() {
+        // RollingBack is an active deploy phase — prevents second deploy from starting
+        assert!(DeployState::RollingBack.is_active());
     }
 
     // ── Phase 09 Plan 01: AcEntrySlot ai_mode + GroupSessionInfo enrichment ─
