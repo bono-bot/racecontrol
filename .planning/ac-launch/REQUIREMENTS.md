@@ -27,10 +27,10 @@
 
 ### Multiplayer Server Lifecycle (MULTI)
 
-- [ ] **MULTI-01**: When a multiplayer booking is confirmed, acServer.exe auto-starts with the selected track/car/session config
-- [ ] **MULTI-02**: When billing ends for all pods in a multiplayer session, acServer.exe auto-stops within 10 seconds
-- [ ] **MULTI-03**: Customer can select "Play with Friends" on kiosk booking wizard to start a multiplayer session without staff
-- [ ] **MULTI-04**: Each friend in a kiosk multiplayer booking gets a unique PIN and assigned pod number
+- [x] **MULTI-01**: When a multiplayer booking is confirmed, acServer.exe auto-starts with the selected track/car/session config
+- [x] **MULTI-02**: When billing ends for all pods in a multiplayer session, acServer.exe auto-stops within 10 seconds
+- [x] **MULTI-03**: Customer can select "Play with Friends" on kiosk booking wizard to start a multiplayer session without staff
+- [x] **MULTI-04**: Each friend in a kiosk multiplayer booking gets a unique PIN and assigned pod number
 
 ### Synchronized Group Play (GROUP)
 
@@ -75,10 +75,10 @@
 | LAUNCH-01 | Phase 3 | Complete (03-01) |
 | LAUNCH-02 | Phase 3 | Complete (03-01) |
 | LAUNCH-03 | Phase 3 | Complete (03-02) |
-| MULTI-01 | Phase 4 | Pending |
-| MULTI-02 | Phase 4 | Pending |
-| MULTI-03 | Phase 4 | Pending |
-| MULTI-04 | Phase 4 | Pending |
+| MULTI-01 | Phase 4 | Complete (04-01) |
+| MULTI-02 | Phase 4 | Complete (04-01) |
+| MULTI-03 | Phase 4 | Complete (04-01 backend, 04-02 UI) |
+| MULTI-04 | Phase 4 | Complete (04-01) |
 | GROUP-01 | Phase 5 | Pending |
 | GROUP-02 | Phase 5 | Pending |
 | GROUP-03 | Phase 5 | Pending |

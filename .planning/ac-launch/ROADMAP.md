@@ -78,7 +78,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — rc-core: wire book_multiplayer() → AcServerManager.start(), wire billing end → AcServerManager.stop(), add server lifecycle events to WebSocket dashboard
+- [x] 04-01-PLAN.md — rc-core: wire book_multiplayer() → AcServerManager.start(), wire billing end → AcServerManager.stop(), add server lifecycle events to WebSocket dashboard
 - [ ] 04-02-PLAN.md — kiosk: add "Play with Friends" flow to booking wizard (pod count → friend count → experience → review → book), display PINs + pod assignments on confirmation
 
 ### Phase 5: Synchronized Group Play
@@ -107,10 +107,10 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 | 1. Billing-Game Lifecycle | 2/2 | Complete | 2026-03-15 |
 | 2. Game Crash Recovery | 2/2 | Complete | 2026-03-15 |
 | 3. Launch Resilience | 2/2 | Complete | 2026-03-15 |
-| 4. Multiplayer Server Lifecycle | 0/2 | Not started | - |
+| 4. Multiplayer Server Lifecycle | 1/2 | In progress | - |
 | 5. Synchronized Group Play | 0/2 | Not started | - |
 
-**Total: 6/10 plans complete**
+**Total: 7/10 plans complete**
 
 ## Dependency Graph
 
