@@ -152,6 +152,6 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 16. Firewall Auto-Config | v4.0 | 1/1 | Complete | 2026-03-15 |
 | 17. WebSocket Exec | v4.0 | 3/3 | Complete | 2026-03-15 |
 | 18. Startup Self-Healing | v4.0 | 2/2 | Complete | 2026-03-15 |
-| 19. Watchdog Service | 2/2 | Complete   | 2026-03-15 | - |
+| 19. Watchdog Service | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 20. Deploy Resilience | v4.0 | 0/? | Not started | - |
 | 21. Fleet Health Dashboard | v4.0 | 0/? | Not started | - |
