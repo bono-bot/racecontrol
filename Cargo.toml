@@ -5,6 +5,7 @@ members = [
     "crates/rc-core",
     "crates/rc-agent",
     "crates/rc-watchdog",
+    "crates/rc-installer",
 ]
 
 [workspace.package]

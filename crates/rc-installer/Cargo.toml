@@ -1,0 +1,12 @@
+[package]
+name = "rc-installer"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rc-installer"
+path = "src/main.rs"
+
+# Zero dependencies — just std.
+# Keeps binary tiny and eliminates supply chain risk.
+# The batch wrapper handles Defender; this handles everything else.
