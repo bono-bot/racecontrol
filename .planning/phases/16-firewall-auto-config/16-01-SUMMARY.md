@@ -103,6 +103,15 @@ None - no external service configuration required. Pod 8 canary verification (st
 - Pod 8 canary should be verified first: `netsh advfirewall firewall show rule name=RacingPoint-ICMP` and `name=RacingPoint-RemoteOps` should show profile=Domain,Private,Public
 - Phase 17 (watchdog service) can proceed — firewall rules will persist through reboots managed by the watchdog
 
+## Self-Check: PASSED
+
+- FOUND: crates/rc-agent/src/firewall.rs
+- FOUND: .planning/phases/16-firewall-auto-config/16-01-SUMMARY.md
+- FOUND commit 531bf99 (firewall.rs + mod declaration)
+- FOUND commit 76a28b7 (main.rs wiring)
+- All 531 tests green (rc-common: 93, rc-agent: 184, rc-core: 254)
+- Release build compiles with 0 errors
+
 ---
 *Phase: 16-firewall-auto-config*
 *Completed: 2026-03-15*
