@@ -47,7 +47,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 18: Startup Self-Healing** - rc-agent verifies and repairs its own config, start script, and registry key on every boot — pods recover from corrupted config without physical intervention (completed 2026-03-15)
 - [x] **Phase 19: Watchdog Service** - rc-watchdog.exe runs as a Windows SYSTEM service and auto-restarts rc-agent in Session 1 after any crash — no more permanent agent death on unhandled panic (completed 2026-03-15)
 - [x] **Phase 20: Deploy Resilience** - Deploys verify pod health post-swap, auto-rollback on failure, and fleet summary reports per-pod outcomes — bad deploys can never leave pods permanently offline (completed 2026-03-15)
-- [ ] **Phase 21: Fleet Health Dashboard** - Uday can see real-time status for all 8 pods (WS connected, HTTP reachable, version, uptime) from his phone via the kiosk /fleet page
+- [x] **Phase 21: Fleet Health Dashboard** - Uday can see real-time status for all 8 pods (WS connected, HTTP reachable, version, uptime) from his phone via the kiosk /fleet page (completed 2026-03-15)
 
 ## Phase Details
 
@@ -125,7 +125,7 @@ Plans:
   1. Uday opens http://192.168.31.23:3300/fleet on his phone and sees a grid of all 8 pods with their current status — no login required, page loads within 3 seconds
   2. The dashboard shows WebSocket connected status and HTTP reachable status as two separate indicators — a pod with WS up but HTTP blocked is visually distinct from a fully healthy pod
   3. Each pod card shows the rc-agent version number and uptime — after a fleet deploy, Uday can confirm all 8 pods show the new version without running any commands
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 21-01-PLAN.md — Backend fleet health module: PodFleetHealth state, HTTP probe loop, StartupReport storage, GET /fleet/health endpoint (FLEET-01, FLEET-02)
 - [ ] 21-02-PLAN.md — Frontend /fleet page: mobile-first card grid with WS/HTTP indicators, version, uptime, 5s polling (FLEET-01, FLEET-03)
@@ -160,4 +160,4 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 18. Startup Self-Healing | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 19. Watchdog Service | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
-| 21. Fleet Health Dashboard | 1/2 | In Progress|  | - |
+| 21. Fleet Health Dashboard | 2/2 | Complete   | 2026-03-15 | - |

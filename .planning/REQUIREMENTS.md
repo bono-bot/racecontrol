@@ -42,7 +42,7 @@
 
 - [x] **FLEET-01**: Kiosk /fleet page shows all 8 pods with real-time status (WS connected, HTTP reachable, version, uptime)
 - [x] **FLEET-02**: Pod status distinguishes WS-connected vs HTTP-reachable (a pod can be WS-up but HTTP-blocked)
-- [ ] **FLEET-03**: Dashboard accessible from Uday's phone (mobile-first layout)
+- [x] **FLEET-03**: Dashboard accessible from Uday's phone (mobile-first layout)
 
 ## Future Requirements
 
@@ -87,7 +87,7 @@
 | DEP-04 | Phase 20 | Complete |
 | FLEET-01 | Phase 21 | Complete |
 | FLEET-02 | Phase 21 | Complete |
-| FLEET-03 | Phase 21 | Pending |
+| FLEET-03 | Phase 21 | Complete |
 
 **Coverage:**
 - v4.0 requirements: 21 total
