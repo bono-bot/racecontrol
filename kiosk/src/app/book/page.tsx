@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useSetupWizard } from "@/hooks/useSetupWizard";
-import type { PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType } from "@/lib/types";
+import type { PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType, KioskMultiplayerAssignment } from "@/lib/types";
 
 // ─── Phase Definitions ──────────────────────────────────────────────────────
 
@@ -85,6 +85,11 @@ export default function BookingPage() {
   const [resultPin, setResultPin] = useState("");
   const [resultPodNumber, setResultPodNumber] = useState(0);
   const [resultAllocatedSeconds, setResultAllocatedSeconds] = useState(0);
+
+  // ─── Multiplayer state ──────────────────────────────────────────────
+  const [podCount, setPodCount] = useState(2);
+  const [multiAssignments, setMultiAssignments] = useState<KioskMultiplayerAssignment[]>([]);
+  const [multiExperienceName, setMultiExperienceName] = useState("");
 
   // ─── Wizard data ───────────────────────────────────────────────────────
   const [tiers, setTiers] = useState<PricingTier[]>([]);
@@ -307,6 +312,47 @@ export default function BookingPage() {
     }
   }
 
+  // ─── Multiplayer booking handler ──────────────────────────────────────
+
+  async function handleBookMultiplayer() {
+    if (!wizard.state.selectedTier) return;
+    setPhase("booking");
+    setErrorMsg("");
+
+    const ws = wizard.state;
+    const bookingData: {
+      pricing_tier_id: string;
+      pod_count: number;
+      experience_id?: string;
+      custom?: Record<string, unknown>;
+    } = {
+      pricing_tier_id: ws.selectedTier!.id,
+      pod_count: podCount,
+    };
+
+    if (ws.experienceMode === "preset" && ws.selectedExperience) {
+      bookingData.experience_id = ws.selectedExperience.id;
+    } else {
+      bookingData.custom = JSON.parse(wizard.buildLaunchArgs());
+    }
+
+    try {
+      const res = await api.kioskBookMultiplayer(authToken, bookingData);
+      if (res.error) {
+        setErrorMsg(res.error);
+        setPhase("error");
+        return;
+      }
+      setMultiAssignments(res.assignments || []);
+      setMultiExperienceName(res.experience_name || "");
+      setResultAllocatedSeconds(res.allocated_seconds || 0);
+      setPhase("success");
+    } catch {
+      setErrorMsg("Network error — please try again");
+      setPhase("error");
+    }
+  }
+
   // ─── Navigation helpers ────────────────────────────────────────────────
 
   function handleWizardBack() {
@@ -318,6 +364,9 @@ export default function BookingPage() {
       setOtp("");
       setAuthToken("");
       wizard.reset();
+      setPodCount(2);
+      setMultiAssignments([]);
+      setMultiExperienceName("");
       return;
     }
     wizard.goBack();
@@ -506,51 +555,98 @@ export default function BookingPage() {
   // ═══════════════════════════════════════════════════════════════════════
   if (phase === "success") {
     const minutes = Math.floor(resultAllocatedSeconds / 60);
+    const isMulti = multiAssignments.length > 0;
 
     return (
-      <div className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center gap-8">
+      <div className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center gap-6 px-8">
         {/* Checkmark */}
-        <div className="w-20 h-20 rounded-full bg-rp-green/20 flex items-center justify-center">
-          <svg className="w-10 h-10 text-rp-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
+          <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
           </svg>
         </div>
 
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white">
-            You&apos;re booked, {driverName}!
+            {isMulti ? "You\u0027re all set!" : `You\u0027re booked, ${driverName}!`}
           </h1>
-          <p className="text-rp-grey text-lg mt-2">Head to your assigned rig</p>
-        </div>
-
-        {/* Pod number */}
-        <div className="bg-rp-surface border-2 border-rp-red rounded-2xl p-8 text-center glow-active">
-          <p className="text-sm text-rp-grey uppercase tracking-wider mb-2">Go to Rig</p>
-          <p className="text-8xl font-bold text-white font-[family-name:var(--font-display)]">
-            {resultPodNumber}
+          <p className="text-rp-grey text-lg mt-1">
+            {isMulti ? "Head to your assigned rigs" : "Head to your assigned rig"}
           </p>
         </div>
 
-        {/* PIN display */}
-        <div className="text-center">
-          <p className="text-rp-grey text-sm mb-1">Your PIN</p>
-          <div className="flex gap-3 justify-center">
-            {resultPin.split("").map((digit, i) => (
+        {isMulti ? (
+          /* ─── Multiplayer: show all assignments ─── */
+          <div className="w-full max-w-md space-y-3">
+            {multiAssignments.map((a, i) => (
               <div
                 key={i}
-                className="w-16 h-20 rounded-xl border-2 border-rp-red bg-rp-red/10 flex items-center justify-center"
+                className="bg-rp-surface border-2 border-rp-red rounded-xl p-4 flex items-center justify-between"
               >
-                <span className="text-4xl font-bold text-white font-[family-name:var(--font-mono-jb)]">
-                  {digit}
-                </span>
+                <div className="flex items-center gap-4">
+                  <div className="text-center">
+                    <p className="text-xs text-rp-grey uppercase tracking-wider">Rig</p>
+                    <p className="text-4xl font-bold text-white font-[family-name:var(--font-display)]">
+                      {a.pod_number}
+                    </p>
+                  </div>
+                  <div className="w-px h-12 bg-rp-border" />
+                  <div className="text-center">
+                    <p className="text-xs text-rp-grey uppercase tracking-wider">PIN</p>
+                    <div className="flex gap-1.5">
+                      {a.pin.split("").map((digit, j) => (
+                        <div
+                          key={j}
+                          className="w-10 h-12 rounded-lg border border-rp-red bg-rp-red/10 flex items-center justify-center"
+                        >
+                          <span className="text-xl font-bold text-white font-[family-name:var(--font-mono-jb)]">
+                            {digit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs text-rp-grey uppercase">
+                  {i === 0 ? "You" : `Friend ${i}`}
+                </div>
               </div>
             ))}
           </div>
-        </div>
+        ) : (
+          /* ─── Single-player: existing pod + PIN display ─── */
+          <>
+            <div className="bg-rp-surface border-2 border-rp-red rounded-2xl p-8 text-center glow-active">
+              <p className="text-sm text-rp-grey uppercase tracking-wider mb-2">Go to Rig</p>
+              <p className="text-8xl font-bold text-white font-[family-name:var(--font-display)]">
+                {resultPodNumber}
+              </p>
+            </div>
+
+            <div className="text-center">
+              <p className="text-rp-grey text-sm mb-1">Your PIN</p>
+              <div className="flex gap-3 justify-center">
+                {resultPin.split("").map((digit, i) => (
+                  <div
+                    key={i}
+                    className="w-16 h-20 rounded-xl border-2 border-rp-red bg-rp-red/10 flex items-center justify-center"
+                  >
+                    <span className="text-4xl font-bold text-white font-[family-name:var(--font-mono-jb)]">
+                      {digit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Session info */}
         <div className="text-center space-y-1">
-          {ws.selectedTier && (
+          {isMulti && multiExperienceName && (
+            <p className="text-rp-grey text-sm">{multiExperienceName}</p>
+          )}
+          {!isMulti && ws.selectedTier && (
             <p className="text-rp-grey text-sm">{ws.selectedTier.name}</p>
           )}
           {minutes > 0 && (
@@ -559,7 +655,7 @@ export default function BookingPage() {
         </div>
 
         {/* Auto-return notice */}
-        <p className="text-rp-grey text-sm mt-4">
+        <p className="text-rp-grey text-sm mt-2">
           This screen will reset automatically
         </p>
 
@@ -805,89 +901,38 @@ export default function BookingPage() {
             </div>
           )}
 
-          {/* ─── MULTIPLAYER LOBBY ────────────────────────────────── */}
+          {/* ─── MULTIPLAYER LOBBY (pod count selector) ──────────── */}
           {step === "multiplayer_lobby" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => wizard.setField("multiplayerMode", "create")}
-                  className={`p-6 rounded-xl border-2 text-center transition-all ${
-                    ws.multiplayerMode === "create"
-                      ? "border-rp-red bg-rp-red/10"
-                      : "border-rp-border bg-rp-surface hover:border-rp-red/50"
-                  }`}
-                >
-                  <svg className="w-10 h-10 mx-auto mb-2 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                  <p className="text-base font-bold text-white">Create Server</p>
-                  <p className="text-xs text-rp-grey mt-1">Host a race lobby</p>
-                </button>
-                <button
-                  onClick={() => wizard.setField("multiplayerMode", "join")}
-                  className={`p-6 rounded-xl border-2 text-center transition-all ${
-                    ws.multiplayerMode === "join"
-                      ? "border-rp-red bg-rp-red/10"
-                      : "border-rp-border bg-rp-surface hover:border-rp-red/50"
-                  }`}
-                >
-                  <svg className="w-10 h-10 mx-auto mb-2 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                  </svg>
-                  <p className="text-base font-bold text-white">Join Server</p>
-                  <p className="text-xs text-rp-grey mt-1">Join an existing lobby</p>
-                </button>
+            <div className="space-y-8">
+              <div className="text-center">
+                <h2 className="text-xl font-bold text-white mb-2">How many rigs?</h2>
+                <p className="text-rp-grey text-sm">Including your own rig</p>
               </div>
 
-              {ws.multiplayerMode === "join" && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">Server IP</label>
-                    <input type="text" placeholder="192.168.31.23" value={ws.serverIp}
-                      onChange={(e) => wizard.setField("serverIp", e.target.value)}
-                      className="w-full px-4 py-3 bg-rp-surface border border-rp-border rounded-lg text-white focus:outline-none focus:border-rp-red" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">Port</label>
-                      <input type="text" placeholder="9600" value={ws.serverPort}
-                        onChange={(e) => wizard.setField("serverPort", e.target.value)}
-                        className="w-full px-4 py-3 bg-rp-surface border border-rp-border rounded-lg text-white focus:outline-none focus:border-rp-red" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">HTTP Port</label>
-                      <input type="text" placeholder="8081" value={ws.serverHttpPort}
-                        onChange={(e) => wizard.setField("serverHttpPort", e.target.value)}
-                        className="w-full px-4 py-3 bg-rp-surface border border-rp-border rounded-lg text-white focus:outline-none focus:border-rp-red" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">Password (optional)</label>
-                    <input type="text" placeholder="Server password" value={ws.serverPassword}
-                      onChange={(e) => wizard.setField("serverPassword", e.target.value)}
-                      className="w-full px-4 py-3 bg-rp-surface border border-rp-border rounded-lg text-white focus:outline-none focus:border-rp-red" />
-                  </div>
-                </div>
-              )}
+              {/* Pod count grid */}
+              <div className="grid grid-cols-4 gap-3">
+                {[2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setPodCount(n)}
+                    className={`h-20 rounded-xl border-2 text-center transition-all ${
+                      podCount === n
+                        ? "border-rp-red bg-rp-red/10"
+                        : "border-rp-border bg-rp-surface hover:border-rp-red/50"
+                    }`}
+                  >
+                    <span className="text-3xl font-bold text-white">{n}</span>
+                    <p className="text-xs text-rp-grey mt-1">rigs</p>
+                  </button>
+                ))}
+              </div>
 
-              {ws.multiplayerMode === "create" && (
-                <div className="bg-rp-surface border border-rp-border rounded-xl p-5">
-                  <p className="text-sm text-rp-grey">
-                    A dedicated server will be started on Racing-Point-Server.
-                    Other pods can join using the server details shown after creation.
-                  </p>
-                </div>
-              )}
-
-              {ws.multiplayerMode && (
-                <button
-                  onClick={() => wizard.goNext()}
-                  disabled={ws.multiplayerMode === "join" && !ws.serverIp}
-                  className="w-full py-4 bg-rp-red hover:bg-rp-red-hover disabled:opacity-40 text-white font-bold text-lg rounded-xl transition-colors"
-                >
-                  Continue
-                </button>
-              )}
+              <button
+                onClick={() => wizard.goNext()}
+                className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
+              >
+                Continue with {podCount} Rigs
+              </button>
             </div>
           )}
 
@@ -1141,19 +1186,16 @@ export default function BookingPage() {
                 <ReviewRow label="Difficulty" value={DIFFICULTY_PRESETS[ws.drivingDifficulty]?.label || ws.drivingDifficulty} />
                 <ReviewRow label="Transmission" value={ws.transmission === "auto" ? "Automatic" : "Manual"} />
                 <ReviewRow label="FFB" value={ws.ffb.charAt(0).toUpperCase() + ws.ffb.slice(1)} />
-                {ws.playerMode === "multi" && ws.multiplayerMode === "join" && (
-                  <ReviewRow label="Server" value={`${ws.serverIp}:${ws.serverPort}`} />
-                )}
-                {ws.playerMode === "multi" && ws.multiplayerMode === "create" && (
-                  <ReviewRow label="Server" value="Create new (Racing-Point-Server)" />
+                {ws.playerMode === "multi" && (
+                  <ReviewRow label="Rigs" value={`${podCount} rigs`} />
                 )}
               </div>
 
               <button
-                onClick={handleBook}
+                onClick={ws.playerMode === "multi" ? handleBookMultiplayer : handleBook}
                 className="w-full py-5 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-xl rounded-xl transition-colors"
               >
-                BOOK SESSION
+                {ws.playerMode === "multi" ? `BOOK ${podCount} RIGS` : "BOOK SESSION"}
               </button>
             </div>
           )}
