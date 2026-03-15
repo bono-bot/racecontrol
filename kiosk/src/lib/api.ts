@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse } from "./types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -21,6 +21,7 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
 export const api = {
   // Health
   health: () => fetchApi<{ status: string; version: string }>("/health"),
+  fleetHealth: () => fetchApi<FleetHealthResponse>("/fleet/health"),
 
   // Pods
   listPods: () => fetchApi<{ pods: Pod[] }>("/pods"),

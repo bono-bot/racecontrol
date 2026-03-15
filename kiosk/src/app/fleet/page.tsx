@@ -1,0 +1,149 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import type { PodFleetStatus } from "@/lib/types";
+
+function formatUptime(secs: number | null): string {
+  if (secs === null) return "--";
+  const hours = Math.floor(secs / 3600);
+  const minutes = Math.floor((secs % 3600) / 60);
+  return `${hours}h ${minutes}m`;
+}
+
+function statusBorder(ws: boolean, http: boolean): string {
+  if (ws && http) return "border-l-green-500";
+  if (ws && !http) return "border-l-yellow-500";
+  if (!ws && http) return "border-l-orange-500";
+  return "border-l-red-500/50";
+}
+
+function statusLabel(ws: boolean, http: boolean): string {
+  if (ws && http) return "Healthy";
+  if (ws && !http) return "WS Only";
+  if (!ws && http) return "HTTP Only";
+  return "Offline";
+}
+
+function statusLabelColor(ws: boolean, http: boolean): string {
+  if (ws && http) return "text-green-500";
+  if (ws && !http) return "text-yellow-500";
+  if (!ws && http) return "text-orange-500";
+  return "text-red-500/50";
+}
+
+interface StatusDotProps {
+  active: boolean;
+}
+
+function StatusDot({ active }: StatusDotProps) {
+  return (
+    <span
+      className={`w-2 h-2 rounded-full inline-block mr-1.5 ${active ? "bg-green-500" : "bg-red-500/50"}`}
+    />
+  );
+}
+
+export default function FleetPage() {
+  const [pods, setPods] = useState<PodFleetStatus[]>([]);
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval>;
+
+    async function fetchFleet() {
+      try {
+        const data = await api.fleetHealth();
+        setPods(data.pods);
+        setLastUpdate(data.timestamp);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to fetch fleet status");
+      }
+    }
+
+    fetchFleet();
+    intervalId = setInterval(fetchFleet, 5000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  function formatTimestamp(ts: string): string {
+    try {
+      const d = new Date(ts);
+      return d.toLocaleTimeString();
+    } catch {
+      return ts;
+    }
+  }
+
+  return (
+    <div className="bg-[var(--color-rp-black)] min-h-screen text-white">
+      <div className="px-4 pt-6 pb-2">
+        <h1 className="text-xl font-bold">Fleet Health</h1>
+        <p className="text-xs text-gray-500 mt-1">
+          {lastUpdate ? `Last updated: ${formatTimestamp(lastUpdate)}` : "Connecting..."}
+        </p>
+        {error && (
+          <p className="text-yellow-500 text-xs mt-1">{error}</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 pb-4">
+        {pods.map((pod) => {
+          const ws = pod.ws_connected;
+          const http = pod.http_reachable;
+          const offline = !ws && !http;
+
+          return (
+            <div
+              key={pod.pod_number}
+              className={`bg-[var(--color-rp-card)] rounded-lg p-3 border-l-4 ${statusBorder(ws, http)} ${offline ? "opacity-50" : ""}`}
+            >
+              <div className="flex items-baseline justify-between mb-0.5">
+                <span className="text-sm font-bold text-white">Pod {pod.pod_number}</span>
+                <span className="text-xs text-gray-400">{pod.version ? `v${pod.version}` : "v--"}</span>
+              </div>
+
+              <div className={`text-xs font-medium mb-2 ${statusLabelColor(ws, http)}`}>
+                {statusLabel(ws, http)}
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center text-xs">
+                  <StatusDot active={ws} />
+                  <span className="text-gray-500 mr-1">WS</span>
+                  <span className={ws ? "text-white" : "text-gray-600"}>
+                    {ws ? "Connected" : "Disconnected"}
+                  </span>
+                </div>
+                <div className="flex items-center text-xs">
+                  <StatusDot active={http} />
+                  <span className="text-gray-500 mr-1">HTTP</span>
+                  <span className={http ? "text-white" : "text-gray-600"}>
+                    {http ? "Reachable" : "Blocked"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-2 text-xs text-gray-500">
+                Uptime: {formatUptime(pod.uptime_secs)}
+              </div>
+
+              {pod.crash_recovery === true && (
+                <div className="mt-1 text-xs text-red-500">Crash recovered</div>
+              )}
+            </div>
+          );
+        })}
+
+        {pods.length === 0 && !error && (
+          <div className="col-span-2 sm:col-span-4 text-center text-gray-500 text-sm py-8">
+            Loading pod data...
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

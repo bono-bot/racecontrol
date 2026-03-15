@@ -320,6 +320,25 @@ export interface PodActivityEntry {
   source: ActivitySource;
 }
 
+// ─── Fleet Health Types ──────────────────────────────────────────────────
+export interface PodFleetStatus {
+  pod_number: number;
+  pod_id: string | null;
+  ws_connected: boolean;
+  http_reachable: boolean;
+  version: string | null;
+  uptime_secs: number | null;
+  crash_recovery: boolean | null;
+  ip_address: string | null;
+  last_seen: string | null;
+  last_http_check: string | null;
+}
+
+export interface FleetHealthResponse {
+  pods: PodFleetStatus[];
+  timestamp: string;
+}
+
 // ─── Debug System ────────────────────────────────────────────────────────
 
 export type DebugHealthColor = "green" | "yellow" | "orange" | "red" | "grey";
