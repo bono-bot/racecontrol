@@ -125,7 +125,7 @@ Plans:
   1. Uday opens http://192.168.31.23:3300/fleet on his phone and sees a grid of all 8 pods with their current status — no login required, page loads within 3 seconds
   2. The dashboard shows WebSocket connected status and HTTP reachable status as two separate indicators — a pod with WS up but HTTP blocked is visually distinct from a fully healthy pod
   3. Each pod card shows the rc-agent version number and uptime — after a fleet deploy, Uday can confirm all 8 pods show the new version without running any commands
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 21-01-PLAN.md — Backend fleet health module: PodFleetHealth state, HTTP probe loop, StartupReport storage, GET /fleet/health endpoint (FLEET-01, FLEET-02)
 - [ ] 21-02-PLAN.md — Frontend /fleet page: mobile-first card grid with WS/HTTP indicators, version, uptime, 5s polling (FLEET-01, FLEET-03)
@@ -160,4 +160,4 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 18. Startup Self-Healing | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 19. Watchdog Service | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
-| 21. Fleet Health Dashboard | v4.0 | 0/2 | In Progress | - |
+| 21. Fleet Health Dashboard | 1/2 | In Progress|  | - |

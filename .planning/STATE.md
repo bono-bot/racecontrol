@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
+stopped_at: Completed 21-01-PLAN.md (fleet health backend)
+last_updated: "2026-03-15T13:15:51.988Z"
+last_activity: 2026-03-15 — Phase 20 Deploy Resilience complete (binary preservation, auto-rollback, Defender exclusion, fleet summary).
+progress:
+  total_phases: 6
+  completed_phases: 5
+  total_plans: 12
+  completed_plans: 11
+  percent: 91
+---
+
+---
+gsd_state_version: 1.0
+milestone: v4.0
+milestone_name: Pod Fleet Self-Healing
+status: active
 stopped_at: Phase 20 complete. Phase 21 next.
 last_updated: "2026-03-15T11:30:00Z"
 last_activity: 2026-03-15 — Phase 20 Deploy Resilience complete (4 commits, 5 files, 14 new tests). All requirements DEP-01..04 done.
 progress:
-  total_phases: 6
+  [█████████░] 91%
   completed_phases: 5
   total_plans: 10
   completed_plans: 10
@@ -52,6 +68,7 @@ Progress: [█████████░] 91%
 | 19-watchdog-service P02 | 9 min | 2 tasks | 2 files |
 | 20-deploy-resilience P01 | 12 min | 2 tasks | 2 files |
 | 20-deploy-resilience P02 | 4 min | 2 tasks | 3 files |
+| Phase 21-fleet-health-dashboard P01 | 6 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -73,6 +90,8 @@ Progress: [█████████░] 91%
 - [Phase 19 P02]: Bare StatusCode::OK crash report; log_pod_activity source='watchdog'; sc.exe failure actions
 - [Phase 20 P01]: RollingBack is active (prevents concurrent deploy); SWAP via /write endpoint; rollback success = Failed with reason
 - [Phase 20 P02]: Defender check non-fatal; failed.drain() retry pattern avoids double-counting
+- [Phase 21-01]: Used futures_util::join_all (existing dep) instead of adding futures crate; dedicated probe client with 3s timeout; uptime_secs computed live from agent_started_at
+- [Phase 21-01]: fleet_health route is public (no auth) for Uday's LAN phone access; clear_on_disconnect preserves http_reachable (probe-driven, survives disconnect)
 
 ### Pending Todos
 
@@ -86,6 +105,6 @@ Progress: [█████████░] 91%
 
 ## Session Continuity
 
-Last session: 2026-03-15T11:30:00Z
-Stopped at: Phase 20 complete. Phase 21 ready to plan.
+Last session: 2026-03-15T13:15:51.985Z
+Stopped at: Completed 21-01-PLAN.md (fleet health backend)
 Resume file: None
