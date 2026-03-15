@@ -838,6 +838,7 @@ async fn main() -> Result<()> {
                                 pid: Some(pid),
                                 launched_at: Some(Utc::now()),
                                 error_message: None,
+                                diagnostics: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json = serde_json::to_string(&msg)?;
@@ -857,6 +858,7 @@ async fn main() -> Result<()> {
                                 pid: game.pid,
                                 launched_at: None,
                                 error_message: Some(err_msg.clone()),
+                                diagnostics: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json = serde_json::to_string(&msg)?;
@@ -1043,6 +1045,7 @@ async fn main() -> Result<()> {
                     pid: None,
                     launched_at: None,
                     error_message: Some("Crash recovery: forced safe state after 30s timeout".to_string()),
+                    diagnostics: None,
                 });
                 let json = serde_json::to_string(&msg)?;
                 let _ = ws_tx.send(Message::Text(json.into())).await;
@@ -1296,6 +1299,7 @@ async fn main() -> Result<()> {
                                             pid: None,
                                             launched_at: Some(Utc::now()),
                                             error_message: None,
+                                            diagnostics: None,
                                         };
                                         let msg = AgentMessage::GameStateUpdate(info);
                                         let json_str = serde_json::to_string(&msg)?;
@@ -1335,6 +1339,13 @@ async fn main() -> Result<()> {
                                                     pid: Some(result.pid),
                                                     launched_at: Some(Utc::now()),
                                                     error_message: result.cm_error.clone(),
+                                                    diagnostics: Some(rc_common::types::LaunchDiagnostics {
+                                                        cm_attempted: result.diagnostics.cm_attempted,
+                                                        cm_exit_code: result.diagnostics.cm_exit_code,
+                                                        cm_log_errors: result.diagnostics.cm_log_errors.clone(),
+                                                        fallback_used: result.diagnostics.fallback_used,
+                                                        direct_exit_code: result.diagnostics.direct_exit_code,
+                                                    }),
                                                 };
                                                 game_process::persist_pid(result.pid);
                                                 game_process = Some(game_process::GameProcess {
@@ -1402,6 +1413,7 @@ async fn main() -> Result<()> {
                                                     pid: None,
                                                     launched_at: None,
                                                     error_message: Some(e.to_string()),
+                                                    diagnostics: None,
                                                 };
                                                 let msg = AgentMessage::GameStateUpdate(info);
                                                 let json_str = serde_json::to_string(&msg)?;
@@ -1460,6 +1472,7 @@ async fn main() -> Result<()> {
                                                     pid: gp.pid,
                                                     launched_at: Some(Utc::now()),
                                                     error_message: None,
+                                                    diagnostics: None,
                                                 };
                                                 game_process = Some(gp);
                                                 let msg = AgentMessage::GameStateUpdate(info);
@@ -1475,6 +1488,7 @@ async fn main() -> Result<()> {
                                                     pid: None,
                                                     launched_at: None,
                                                     error_message: Some(e.to_string()),
+                                                    diagnostics: None,
                                                 };
                                                 let msg = AgentMessage::GameStateUpdate(info);
                                                 let json_str = serde_json::to_string(&msg)?;
@@ -1508,6 +1522,7 @@ async fn main() -> Result<()> {
                                                     pid: None,
                                                     launched_at: None,
                                                     error_message: None,
+                                                    diagnostics: None,
                                                 };
                                                 let msg = AgentMessage::GameStateUpdate(info);
                                                 let json = serde_json::to_string(&msg)?;

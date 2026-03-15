@@ -199,13 +199,25 @@ fn default_ffb() -> String { "medium".to_string() }
 fn default_duration() -> u32 { 60 }
 fn one() -> u8 { 1 }
 
-/// Result from AC launch — carries PID and optional CM error for debug reporting.
+/// Result from AC launch — carries PID, optional CM error, and structured diagnostics.
 #[derive(Debug)]
 pub struct LaunchResult {
     pub pid: u32,
-    /// If CM was used (multiplayer) and failed, this contains the error details.
-    /// The game may still be running via direct acs.exe fallback.
+    /// Legacy CM error string (still used for error_message field)
     pub cm_error: Option<String>,
+    /// Structured diagnostics for dashboard display
+    pub diagnostics: LaunchDiagnostics,
+}
+
+/// Structured diagnostics from a launch attempt (agent-side).
+/// Converted to rc_common::types::LaunchDiagnostics when sending GameStateUpdate.
+#[derive(Debug, Default)]
+pub struct LaunchDiagnostics {
+    pub cm_attempted: bool,
+    pub cm_exit_code: Option<i32>,
+    pub cm_log_errors: Option<String>,
+    pub fallback_used: bool,
+    pub direct_exit_code: Option<i32>,
 }
 
 /// Runs the full AC launch sequence. Blocks for ~10 seconds.
@@ -240,8 +252,10 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     //   CM's acmanager://race/config fails with "Settings are not specified"
     //   if CM's Quick Drive preset was never configured on this pod.
     let mut cm_error: Option<String> = None;
+    let mut diag = LaunchDiagnostics::default();
 
     let pid = if params.game_mode == "multi" && find_cm_exe().is_some() {
+        diag.cm_attempted = true;
         tracing::info!("[3/5] Launching multiplayer via Content Manager...");
         launch_via_cm(params)?;
         match wait_for_ac_process(15) {
@@ -255,6 +269,9 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                 );
                 tracing::error!("[CM_ERROR] {}", error_detail);
                 cm_error = Some(error_detail);
+                diag.cm_log_errors = read_cm_log_errors();
+                diag.cm_exit_code = get_cm_exit_code();
+                diag.fallback_used = true;
 
                 // Fall back to direct acs.exe (race.ini has [REMOTE] ACTIVE=1)
                 tracing::warn!("Falling back to direct acs.exe launch for multiplayer...");
@@ -289,7 +306,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     minimize_background_windows();
     bring_game_to_foreground();
 
-    Ok(LaunchResult { pid, cm_error })
+    Ok(LaunchResult { pid, cm_error, diagnostics: diag })
 }
 
 /// Update AUTO_SHIFTER in race.ini without restarting AC.
@@ -1116,6 +1133,24 @@ fn diagnose_cm_failure() -> String {
         "No specific CM error found — CM may have silently failed or shown a GUI dialog".to_string()
     } else {
         findings.join("; ")
+    }
+}
+
+/// Get CM process exit code (if it has exited).
+/// Returns Some(-1) if CM exited (code unknown via tasklist), None if still running.
+fn get_cm_exit_code() -> Option<i32> {
+    let output = Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq Content Manager.exe", "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.trim().is_empty() || stdout.contains("No tasks") {
+        // CM exited — we can't easily get the exit code from tasklist
+        // Return -1 to indicate "exited but code unknown"
+        Some(-1)
+    } else {
+        // CM still running (stuck on dialog)
+        None
     }
 }
 

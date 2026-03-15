@@ -33,6 +33,7 @@ impl GameTracker {
             pid: self.pid,
             launched_at: self.launched_at,
             error_message: self.error_message.clone(),
+            diagnostics: None,
         }
     }
 }
@@ -497,6 +498,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             pid: None,
             launched_at: None,
             error_message: Some("Launch timed out (60s)".to_string()),
+            diagnostics: None,
         };
 
         // Update tracker

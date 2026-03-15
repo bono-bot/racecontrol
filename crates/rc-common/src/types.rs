@@ -366,6 +366,28 @@ pub struct GameLaunchInfo {
     pub pid: Option<u32>,
     pub launched_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<LaunchDiagnostics>,
+}
+
+/// Structured diagnostics from a game launch attempt.
+/// Populated by rc-agent, forwarded to rc-core for dashboard display.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LaunchDiagnostics {
+    /// Whether Content Manager was attempted (multiplayer only)
+    pub cm_attempted: bool,
+    /// CM process exit code (None if CM wasn't used or is still running)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cm_exit_code: Option<i32>,
+    /// CM log error excerpts (None if no errors found)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cm_log_errors: Option<String>,
+    /// Whether direct acs.exe fallback was used after CM failure
+    #[serde(default)]
+    pub fallback_used: bool,
+    /// acs.exe exit code if it exited immediately (None if still running)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_exit_code: Option<i32>,
 }
 
 // ─── AC Dedicated Server ──────────────────────────────────────────────────
