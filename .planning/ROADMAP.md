@@ -60,7 +60,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. rc-agent can be started 10 times in a row and the firewall rule list does not accumulate duplicate entries — idempotency verified by running `netsh advfirewall show` before and after
   3. The firewall rules apply to all network profiles (domain, private, public) — verified by checking `profile=any` in the rule output
   4. rc-agent startup log shows "Firewall configured" before the HTTP server bind line — confirming rules are applied before the port opens
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 16-01-PLAN.md — Create firewall.rs module and wire into rc-agent startup
 
 ### Phase 17: WebSocket Exec
 **Goal**: rc-core can send any shell command to any connected pod over the existing WebSocket connection and receive stdout, stderr, and exit code — so pods remain manageable even when HTTP port 8090 is firewall-blocked
@@ -141,7 +143,7 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 13.1. Pod Fleet Reliability | v3.0 | 3/3 | Complete | 2026-03-15 |
 | 14. Events and Championships | v3.0 | 0/? | Deferred | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Deferred | - |
-| 16. Firewall Auto-Config | v4.0 | 0/? | Not started | - |
+| 16. Firewall Auto-Config | v4.0 | 0/1 | Planning | - |
 | 17. WebSocket Exec | v4.0 | 0/? | Not started | - |
 | 18. Startup Self-Healing | v4.0 | 0/? | Not started | - |
 | 19. Watchdog Service | v4.0 | 0/? | Not started | - |
