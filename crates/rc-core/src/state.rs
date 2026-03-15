@@ -11,6 +11,7 @@ use crate::ac_server::AcServerManager;
 use crate::billing::BillingManager;
 use crate::config::Config;
 use crate::email_alerts::EmailAlerter;
+use crate::fleet_health::FleetHealthStore;
 use crate::game_launcher::GameManager;
 use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
@@ -130,6 +131,9 @@ pub struct AppState {
     /// Shared relay availability flag — written by cloud_sync (with hysteresis),
     /// read by action_queue. Avoids duplicate health-check loops.
     pub relay_available: AtomicBool,
+    /// Per-pod fleet health state: version, agent_started_at, http_reachable.
+    /// Written by WS StartupReport/Disconnect handlers and background probe loop.
+    pub pod_fleet_health: RwLock<HashMap<String, FleetHealthStore>>,
 }
 
 impl AppState {
@@ -175,6 +179,7 @@ impl AppState {
             assist_cache: RwLock::new(HashMap::new()),
             pending_ws_execs: RwLock::new(HashMap::new()),
             relay_available: AtomicBool::new(false),
+            pod_fleet_health: RwLock::new(HashMap::new()),
         }
     }
 
