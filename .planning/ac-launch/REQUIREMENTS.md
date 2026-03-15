@@ -25,6 +25,20 @@
 - [ ] **LAUNCH-02**: Game launch failure details (exit code, CM log errors) are reported to rc-core and visible on the dashboard
 - [ ] **LAUNCH-03**: When game launch fails entirely, billing is auto-paused until staff takes action
 
+### Multiplayer Server Lifecycle (MULTI)
+
+- [ ] **MULTI-01**: When a multiplayer booking is confirmed, acServer.exe auto-starts with the selected track/car/session config
+- [ ] **MULTI-02**: When billing ends for all pods in a multiplayer session, acServer.exe auto-stops within 10 seconds
+- [ ] **MULTI-03**: Customer can select "Play with Friends" on kiosk booking wizard to start a multiplayer session without staff
+- [ ] **MULTI-04**: Each friend in a kiosk multiplayer booking gets a unique PIN and assigned pod number
+
+### Synchronized Group Play (GROUP)
+
+- [ ] **GROUP-01**: All pods in a multiplayer group launch AC and join the server simultaneously (coordinated start)
+- [ ] **GROUP-02**: Staff can enable "continuous" mode — when a race ends, a new session auto-starts while billing is active
+- [ ] **GROUP-03**: If any pod fails to join the AC server, staff sees which pod failed and can retry from kiosk
+- [ ] **GROUP-04**: Staff can change track/car between races in continuous mode without stopping the full AC server
+
 ## Future Requirements
 
 ### Session Intelligence
@@ -42,6 +56,9 @@
 | Cloud dashboard game state | Separate GSD (billing-pos Phase 2) |
 | Lock screen visual redesign | Only lifecycle state transitions, not visual changes |
 | QR auth race conditions | Separate issue (customer-journey-gaps #3) |
+| Per-pod scenario groups | All 8 pods identical — no hardware differentiation needed |
+| Public lobby browser | Venue is invite-only multiplayer, not open lobbies |
+| Tournament/championship scoring | Separate GSD (v3.0 Phase 14 — Events & Championships) |
 
 ## Traceability
 
@@ -58,12 +75,20 @@
 | LAUNCH-01 | Phase 3 | Pending |
 | LAUNCH-02 | Phase 3 | Pending |
 | LAUNCH-03 | Phase 3 | Pending |
+| MULTI-01 | Phase 4 | Pending |
+| MULTI-02 | Phase 4 | Pending |
+| MULTI-03 | Phase 4 | Pending |
+| MULTI-04 | Phase 4 | Pending |
+| GROUP-01 | Phase 5 | Pending |
+| GROUP-02 | Phase 5 | Pending |
+| GROUP-03 | Phase 5 | Pending |
+| GROUP-04 | Phase 5 | Pending |
 
 **Coverage:**
-- v5.0 requirements: 11 total
-- Mapped to phases: 11
+- v5.0 requirements: 19 total
+- Mapped to phases: 19
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-15*
-*Last updated: 2026-03-15 after Plan 01-01 completion*
+*Last updated: 2026-03-15 after adding Phases 4-5 (Multiplayer Automation)*

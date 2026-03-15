@@ -2,7 +2,9 @@
 
 ## Overview
 
-The billing engine and game launcher both work independently — but they're not wired together. When billing ends, the game keeps running. When the game crashes, billing keeps counting. When staff launches without billing, there's no guard. This milestone closes every gap between billing lifecycle and game process lifecycle.
+The billing engine and game launcher both work independently — but they're not wired together. When billing ends, the game keeps running. When the game crashes, billing keeps counting. When staff launches without billing, there's no guard. The AC server manager exists but isn't tied to billing. Multiplayer booking works from PWA but not from kiosk.
+
+This milestone closes every gap between billing lifecycle and game process lifecycle, then extends to multiplayer server automation and self-serve kiosk multiplayer.
 
 No billing rewrite. No game launcher rewrite. Pure wiring between existing systems.
 
@@ -11,6 +13,8 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 - [ ] **Phase 1: Billing-Game Lifecycle** - Stop game on billing end, validate before launch, pod reset after session, anti-double-launch
 - [ ] **Phase 2: Game Crash Recovery** - Detect crash, pause billing, show status, enable re-launch
 - [ ] **Phase 3: Launch Resilience** - CM fallback improvements, failure reporting, billing pause on launch failure
+- [ ] **Phase 4: Multiplayer Server Lifecycle** - AC server auto-start/stop wired to billing, kiosk self-serve multiplayer booking
+- [ ] **Phase 5: Synchronized Group Play** - Coordinated launch across pods, continuous race mode, failure recovery
 
 ## Phase Details
 
@@ -61,18 +65,52 @@ Plans:
 - [ ] 03-01-PLAN.md — rc-agent: improve CM fallback diagnostics (structured LaunchResult with error details), report to rc-core via enhanced GameStateChanged
 - [ ] 03-02-PLAN.md — rc-core: handle LaunchFailed (auto-pause billing, store diagnostics), kiosk shows launch error details + retry button
 
+### Phase 4: Multiplayer Server Lifecycle
+**Goal**: When staff or customer books multiplayer, the AC server starts automatically. When billing ends, the server stops. Customers can book multiplayer directly from the kiosk without staff — friends walk in, pick a game, get PINs, and drive together.
+**Depends on**: Phase 3 (uses launch resilience + billing pause infrastructure)
+**Requirements**: MULTI-01, MULTI-02, MULTI-03, MULTI-04
+**Success Criteria** (what must be TRUE):
+  1. Staff books a multiplayer session from kiosk → acServer.exe starts automatically with the selected track/car config, verified via `tasklist` on server (.23)
+  2. All pods in the multiplayer session have billing end → acServer.exe stops within 10 seconds, server process no longer running
+  3. Customer walks to kiosk, taps "Play with Friends", selects 2 pods, picks a game → multiplayer booking created, 2 PINs generated, acServer.exe started — all without staff
+  4. Each friend in the kiosk booking sees their PIN and pod number on the booking confirmation screen
+  5. Existing single-player kiosk booking flow unchanged (regression check)
+**Plans**: 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — rc-core: wire book_multiplayer() → AcServerManager.start(), wire billing end → AcServerManager.stop(), add server lifecycle events to WebSocket dashboard
+- [ ] 04-02-PLAN.md — kiosk: add "Play with Friends" flow to booking wizard (pod count → friend count → experience → review → book), display PINs + pod assignments on confirmation
+
+### Phase 5: Synchronized Group Play
+**Goal**: Group events run smoothly — all pods launch and join the server at the same time, staff can run continuous races that auto-restart, and if a pod fails to join the server, staff can see and fix it without restarting everything
+**Depends on**: Phase 4 (uses multiplayer server lifecycle)
+**Requirements**: GROUP-01, GROUP-02, GROUP-03, GROUP-04
+**Success Criteria** (what must be TRUE):
+  1. All 3 pods in a multiplayer group validate their PINs → all 3 launch AC and join the server within 5 seconds of each other (coordinated, not sequential)
+  2. Staff enables "continuous" mode on a multiplayer session → race ends → new race session starts automatically within 15 seconds — verified by watching acServer output
+  3. Continuous mode auto-restart only fires if at least one pod still has active billing — when all billing expires, server stops
+  4. Pod 3 fails to join the server → kiosk dashboard shows "Pod 3: Join Failed" with a "Retry" button → staff clicks retry → Pod 3 re-launches and joins
+  5. Staff changes track from Monza to Spa between races in continuous mode → next race starts on Spa without stopping/restarting the full flow
+**Plans**: 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — rc-core: coordinated launch trigger (wait for all PINs validated → send LaunchGame to all pods simultaneously), continuous mode flag on AcServerManager with auto-restart on session end
+- [ ] 05-02-PLAN.md — rc-core + kiosk: per-pod join status tracking, failure display on dashboard with retry button, mid-session config change (track/car swap between races)
+
 ## Progress
 
 **Execution Order:**
-Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's game state infrastructure. Phase 3 depends on Phase 2's billing pause infrastructure.
+Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's game state infrastructure. Phase 3 depends on Phase 2's billing pause infrastructure. Phase 4 depends on Phase 3 (launch resilience needed before automating multiplayer). Phase 5 depends on Phase 4 (server lifecycle needed before coordinated play).
 
 | Phase | Plans | Status | Completed |
 |-------|-------|--------|-----------|
 | 1. Billing-Game Lifecycle | 1/2 | In progress | Plan 01-01 done |
 | 2. Game Crash Recovery | 0/2 | Not started | - |
 | 3. Launch Resilience | 0/2 | Not started | - |
+| 4. Multiplayer Server Lifecycle | 0/2 | Not started | - |
+| 5. Synchronized Group Play | 0/2 | Not started | - |
 
-**Total: 1/6 plans complete**
+**Total: 1/10 plans complete**
 
 ## Dependency Graph
 
@@ -82,6 +120,10 @@ Phase 1: Billing-Game Lifecycle (CRITICAL — fixes revenue loss)
     +---> Phase 2: Game Crash Recovery (uses StopGame + game state)
               |
               +---> Phase 3: Launch Resilience (uses crash detection + billing pause)
+                        |
+                        +---> Phase 4: Multiplayer Server Lifecycle (uses launch resilience + billing wiring)
+                                  |
+                                  +---> Phase 5: Synchronized Group Play (uses server lifecycle)
 ```
 
-Execution order: 1 → 2 → 3 (strict dependency chain)
+Execution order: 1 → 2 → 3 → 4 → 5 (strict dependency chain)
