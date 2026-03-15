@@ -67,33 +67,33 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SVC-01 | TBD | Pending |
-| SVC-02 | TBD | Pending |
-| SVC-03 | TBD | Pending |
-| SVC-04 | TBD | Pending |
-| WSEX-01 | TBD | Pending |
-| WSEX-02 | TBD | Pending |
-| WSEX-03 | TBD | Pending |
-| WSEX-04 | TBD | Pending |
-| FW-01 | TBD | Pending |
-| FW-02 | TBD | Pending |
-| FW-03 | TBD | Pending |
-| HEAL-01 | TBD | Pending |
-| HEAL-02 | TBD | Pending |
-| HEAL-03 | TBD | Pending |
-| DEP-01 | TBD | Pending |
-| DEP-02 | TBD | Pending |
-| DEP-03 | TBD | Pending |
-| DEP-04 | TBD | Pending |
-| FLEET-01 | TBD | Pending |
-| FLEET-02 | TBD | Pending |
-| FLEET-03 | TBD | Pending |
+| FW-01 | Phase 16 | Pending |
+| FW-02 | Phase 16 | Pending |
+| FW-03 | Phase 16 | Pending |
+| WSEX-01 | Phase 17 | Pending |
+| WSEX-02 | Phase 17 | Pending |
+| WSEX-03 | Phase 17 | Pending |
+| WSEX-04 | Phase 17 | Pending |
+| HEAL-01 | Phase 18 | Pending |
+| HEAL-02 | Phase 18 | Pending |
+| HEAL-03 | Phase 18 | Pending |
+| SVC-01 | Phase 19 | Pending |
+| SVC-02 | Phase 19 | Pending |
+| SVC-03 | Phase 19 | Pending |
+| SVC-04 | Phase 19 | Pending |
+| DEP-01 | Phase 20 | Pending |
+| DEP-02 | Phase 20 | Pending |
+| DEP-03 | Phase 20 | Pending |
+| DEP-04 | Phase 20 | Pending |
+| FLEET-01 | Phase 21 | Pending |
+| FLEET-02 | Phase 21 | Pending |
+| FLEET-03 | Phase 21 | Pending |
 
 **Coverage:**
 - v4.0 requirements: 21 total
-- Mapped to phases: 0
-- Unmapped: 21
+- Mapped to phases: 21
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-15*
-*Last updated: 2026-03-15 after initial definition*
+*Last updated: 2026-03-15 — traceability populated after roadmap creation*

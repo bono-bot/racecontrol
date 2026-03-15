@@ -18,11 +18,21 @@ Phases: Diagnosis → Server-Side Pinning → Pod Lock Screen Hardening → Edge
 
 </details>
 
+<details>
+<summary>v3.0 Leaderboards, Telemetry & Competitive — Phases 12–13.1 complete, 14–15 paused (2026-03-15)</summary>
+
+Phases complete: Data Foundation → Leaderboard Core → Pod Fleet Reliability (inserted)
+Phases paused: Events and Championships (Phase 14), Telemetry and Driver Rating (Phase 15) — deferred until v4.0 completes.
+
+</details>
+
 ## Current Milestone
 
-### v3.0 Leaderboards, Telemetry & Competitive (Phases 12–15)
+### v4.0 Pod Fleet Self-Healing (Phases 16–21)
 
-**Milestone Goal:** Give customers a public competitive platform — leaderboards, telemetry analysis, group event results, and championships — accessible from their phones via the cloud PWA.
+**Milestone Goal:** Every pod survives any failure — crashes, reboots, firewall resets, missing files — without physical intervention. Pods self-heal and remain remotely manageable at all times.
+
+**Motivated by:** 4-hour debugging session on Mar 15, 2026 — Pods 1/3/4 offline due to exec exhaustion, CRLF-damaged batch files, missing firewall rules, rc-agent crash with no restart, no remote diagnostics when HTTP blocked.
 
 ## Phases
 
@@ -32,97 +42,86 @@ Phases: Diagnosis → Server-Side Pinning → Pod Lock Screen Hardening → Edge
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 12: Data Foundation** - Schema migrations, indexes, WAL tuning, and cloud ID resolution — the safe ground every competitive feature builds on (completed 2026-03-14)
-- [x] **Phase 13: Leaderboard Core** - Public leaderboards, circuit/vehicle records, driver profiles, lap validity hardening, and "beaten" notifications — immediate customer value from existing data (completed 2026-03-15)
-- [ ] **Phase 13.1: Pod Fleet Reliability (INSERTED)** - Fix config self-heal, pod-agent exec hardening, deploy HKLM Run keys, fleet health monitoring
-- [ ] **Phase 14: Events and Championships** - Hotlap events with 107% rule and badges, group event F1 scoring, multi-round championships, and cloud sync for all competitive tables
-- [ ] **Phase 15: Telemetry and Driver Rating** - Speed trace + lap comparison, inputs trace, 2D track map, and percentile-based driver skill classes
+- [ ] **Phase 16: Firewall Auto-Config** - rc-agent configures ICMP + TCP 8090 rules in Rust on every startup — eliminates CRLF-damaged batch file failures permanently
+- [ ] **Phase 17: WebSocket Exec** - rc-core can send shell commands to any pod over the existing WebSocket — pods remain manageable even when HTTP port 8090 is firewall-blocked
+- [ ] **Phase 18: Startup Self-Healing** - rc-agent verifies and repairs its own config, start script, and registry key on every boot — pods recover from corrupted config without physical intervention
+- [ ] **Phase 19: Watchdog Service** - rc-watchdog.exe runs as a Windows SYSTEM service and auto-restarts rc-agent in Session 1 after any crash — no more permanent agent death on unhandled panic
+- [ ] **Phase 20: Deploy Resilience** - Deploys verify pod health post-swap, auto-rollback on failure, and fleet summary reports per-pod outcomes — bad deploys can never leave pods permanently offline
+- [ ] **Phase 21: Fleet Health Dashboard** - Uday can see real-time status for all 8 pods (WS connected, HTTP reachable, version, uptime) from his phone via the kiosk /fleet page
 
 ## Phase Details
 
-### Phase 12: Data Foundation
-**Goal**: The database is correctly indexed, WAL-tuned, and extended with all v3.0 tables — every competitive feature that follows builds on a safe, performant foundation with zero risk of silent data corruption or query performance collapse
-**Depends on**: Phase 11 (v2.0 complete)
-**Requirements**: DATA-01, DATA-02, DATA-03, DATA-04, DATA-05, DATA-06
+### Phase 16: Firewall Auto-Config
+**Goal**: rc-agent ensures its own firewall rules are correct on every startup — ICMP echo and TCP 8090 open with profile=any — so pods are always reachable from the server after any reboot or firewall reset
+**Depends on**: Phase 13.1 (v3.0 complete)
+**Requirements**: FW-01, FW-02, FW-03
 **Success Criteria** (what must be TRUE):
-  1. A leaderboard query for a specific track returns results in under 50ms with 10,000 laps in the database — verified by query EXPLAIN showing index usage
-  2. A telemetry fetch for any lap returns in under 100ms with 500,000 telemetry_samples rows — verified by EXPLAIN showing idx_telemetry_lap_offset used
-  3. All six new competitive tables (hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, driver_ratings) exist in the schema and accept valid inserts
-  4. A lap sync operation completes without UUID mismatch error — the cloud_driver_id column resolves before any lap is written to competitive tables
-  5. The laps table has a car_class column and new laps are automatically assigned a class on completion
-**Plans**: 2 plans
-
-Plans:
-- [x] 12-01-PLAN.md — Schema infrastructure: WAL tuning, covering indexes, cloud_driver_id, 6 competitive tables (DATA-01 through DATA-05)
-- [x] 12-02-PLAN.md — car_class column on laps + persist_lap auto-population (DATA-06)
-
-### Phase 13: Leaderboard Core
-**Goal**: Customers can browse public leaderboards, circuit records, vehicle records, and driver profiles from the cloud PWA using existing lap data — and receive an automated email when their track record is broken — all without any login
-**Depends on**: Phase 12
-**Requirements**: LB-01, LB-02, LB-03, LB-04, LB-05, LB-06, DRV-01, DRV-02, DRV-03, DRV-04, NTF-01, NTF-02, PUB-01, PUB-02
-**Success Criteria** (what must be TRUE):
-  1. User on a phone can open app.racingpoint.cloud, navigate to any track's leaderboard, filter by car and sim type, and see the fastest valid laps sorted by time — without logging in
-  2. User can navigate to circuit records and see the all-time fastest lap per vehicle per circuit, and to vehicle records and see the fastest laps per circuit for a specific vehicle
-  3. User can search for a driver by name, open their public profile via a shareable URL, and see their stats, personal bests, and full lap history with sector times
-  4. When a track record is beaten, the previous record holder receives an email with the track name, car, old time, new time, new holder name, and a link to the leaderboard
-  5. Invalid laps are hidden by default on all leaderboards; user can toggle to show invalid laps
-**Plans**: 5 plans
-
-Plans:
-- [x] 13-01-PLAN.md — Suspect column + lap validity hardening in persist_lap (LB-05)
-- [x] 13-02-PLAN.md — Leaderboard sim_type filter + circuit/vehicle records endpoints (LB-01, LB-02, LB-03, LB-04, LB-06)
-- [x] 13-03-PLAN.md — Track record "beaten" email notification (NTF-01, NTF-02)
-- [x] 13-04-PLAN.md — Public driver search and profile endpoints (DRV-01, DRV-02, DRV-03, DRV-04)
-- [x] 13-05-PLAN.md — PWA pages: leaderboard, records, driver search, driver profile (PUB-01, PUB-02)
-
-### Phase 13.1: Pod Fleet Reliability (INSERTED)
-
-**Goal:** All 8 pods survive reboots with both services (rc-agent + pod-agent) auto-starting correctly, rc-agent finds its config regardless of working directory, pod-agent exec slots recover faster from stuck commands, and fleet health is continuously monitored every 5 minutes
-**Depends on:** Phase 13
-**Requirements**: REL-01, REL-02, REL-03, REL-04, REL-05
-**Success Criteria** (what must be TRUE):
-  1. rc-agent finds rc-agent.toml when started from any working directory (DeskIn, explorer, etc.) — not just C:\RacingPoint
-  2. pod-agent default exec timeout is 10s (not 30s), with explicit longer timeouts only for download operations
-  3. All 8 pods have both RCAgent and PodAgent HKLM Run keys, ensuring both services auto-start on reboot
-  4. Fleet-health.py runs every 5 minutes as a scheduled task and reports pod status with exec slot availability
-  5. Pod 8 is verified running the hardened pod-agent with reduced timeout and exhaustion logging
-**Plans**: 3 plans
-
-Plans:
-- [x] 13.1-01-PLAN.md — rc-agent config self-heal: exe-path resolution with unit tests (REL-01)
-- [x] 13.1-02-PLAN.md — pod-agent exec hardening: reduced timeout, exhaustion logging, health test (REL-05)
-- [ ] 13.1-03-PLAN.md — Deploy HKLM Run keys to all pods, upgrade Pod 8, schedule fleet-health.py (REL-02, REL-03, REL-04)
-
-### Phase 14: Events and Championships
-**Goal**: Staff can run structured hotlap events and multi-round championships — customers see ranked event leaderboards with 107% rule, gold/silver/bronze badges, F1-scored group results, and cumulative championship standings — all synced to the cloud PWA
-**Depends on**: Phase 13
-**Requirements**: EVT-01, EVT-02, EVT-03, EVT-04, EVT-05, EVT-06, EVT-07, GRP-01, GRP-02, GRP-03, GRP-04, CHP-01, CHP-02, CHP-03, CHP-04, CHP-05, SYNC-01, SYNC-02, SYNC-03
-**Success Criteria** (what must be TRUE):
-  1. Staff can create a hotlap event (track, car class, date range, reference time, description) and see it appear on the public events listing page immediately
-  2. When a customer drives a lap matching an active event's track, car class, and date range, their lap automatically appears on the event leaderboard without any manual entry
-  3. User can open an event leaderboard and see per-class tabs, gold/silver/bronze badges, and laps outside 107% of the class leader flagged
-  4. When a multiplayer group session completes, user can view the results page showing position, driver, gap-to-leader, best laps, qual points, race points (F1 25/18/15...), and total
-  5. Staff can create a championship, assign group event rounds to it, and users can view the standings table with per-round point breakdowns and F1 tiebreaker ordering
-  6. All event, championship, and standings data is visible on app.racingpoint.cloud and reflects venue data within 60 seconds of a change
+  1. After a fresh reboot of any pod, port 8090 is reachable from the server without running any batch file or manual netsh command
+  2. rc-agent can be started 10 times in a row and the firewall rule list does not accumulate duplicate entries — idempotency verified by running `netsh advfirewall show` before and after
+  3. The firewall rules apply to all network profiles (domain, private, public) — verified by checking `profile=any` in the rule output
+  4. rc-agent startup log shows "Firewall configured" before the HTTP server bind line — confirming rules are applied before the port opens
 **Plans**: TBD
 
-### Phase 15: Telemetry and Driver Rating
-**Goal**: Customers can compare lap telemetry — speed trace, time delta, throttle/brake/steering, and 2D track map — and see their skill class badge (A/B/C/D) on their profile and leaderboard entries, based on percentile ranking among all drivers
-**Depends on**: Phase 14
-**Requirements**: TEL-01, TEL-02, TEL-03, TEL-04, TEL-05, RAT-01, RAT-02, RAT-03
+### Phase 17: WebSocket Exec
+**Goal**: rc-core can send any shell command to any connected pod over the existing WebSocket connection and receive stdout, stderr, and exit code — so pods remain manageable even when HTTP port 8090 is firewall-blocked
+**Depends on**: Phase 16
+**Requirements**: WSEX-01, WSEX-02, WSEX-03, WSEX-04
 **Success Criteria** (what must be TRUE):
-  1. User can open any lap's telemetry page and see a speed trace chart with throttle and brake overlaid, plotted against track distance
-  2. User can select two laps from the same track and see them compared side-by-side with a time delta channel showing where time was gained or lost, with a linked cursor across all traces
-  3. User can view a 2D track map for any lap showing the racing line colored by speed (green fast, red braking zones)
-  4. Every driver profile and leaderboard entry shows a class badge (A/B/C/D) that reflects the driver's percentile rank among all drivers on that track and car combination — updating automatically when new laps are recorded
+  1. From rc-core (or a test harness), a shell command sent via WebSocket to a pod returns the correct stdout/stderr/exit code within 30 seconds — verified with a simple `whoami` or `dir` command
+  2. WebSocket exec works correctly even when a simultaneous HTTP exec request fills all 4 HTTP exec slots — the two paths do not compete for the same semaphore
+  3. When HTTP port 8090 is blocked on a pod (firewall rule manually deleted), deploy.rs falls back to WebSocket exec and the deploy completes successfully
+  4. Each WebSocket exec response includes the same request_id that was sent — confirmed by sending two concurrent commands and verifying responses are correctly correlated
+**Plans**: TBD
+
+### Phase 18: Startup Self-Healing
+**Goal**: rc-agent detects and repairs its own broken state on every startup — missing config file, CRLF-damaged start script, missing registry key — so a pod recovers from corruption automatically the next time it reboots
+**Depends on**: Phase 16
+**Requirements**: HEAL-01, HEAL-02, HEAL-03
+**Success Criteria** (what must be TRUE):
+  1. If the rc-agent.toml config file is deleted from a pod, the next rc-agent startup recreates it from an embedded template and continues running — no manual file copy needed
+  2. If the HKLM Run key for rc-agent is deleted, the next rc-agent startup recreates it — verified by checking the registry after a run with the key manually removed
+  3. rc-core logs a startup report from each pod within 10 seconds of the pod's WebSocket connecting — the report includes agent version, uptime, config hash, and a crash recovery flag
+  4. If rc-agent crashes before writing its startup log, a partial log file exists at `C:\RacingPoint\rc-agent-startup.log` with the last phase name reached before exit
+**Plans**: TBD
+
+### Phase 19: Watchdog Service
+**Goal**: rc-watchdog.exe runs as a Windows SYSTEM service that auto-restarts rc-agent in Session 1 after any crash — so an unhandled panic or OOM kill no longer leaves the pod permanently dead until a human physically intervenes
+**Depends on**: Phase 18
+**Requirements**: SVC-01, SVC-02, SVC-03, SVC-04
+**Success Criteria** (what must be TRUE):
+  1. After rc-agent is forcibly killed (TaskKill) on any pod, rc-watchdog detects the absence and restarts it in Session 1 within 10 seconds — verified by watching `tasklist` and the pod reconnecting to rc-core
+  2. After a pod reboots with no one logged in, rc-watchdog starts automatically and then starts rc-agent in Session 1 without any manual login — the kiosk lock screen appears within 60 seconds of Windows boot
+  3. rc-core receives a crash report from the watchdog within 30 seconds of rc-agent dying — the report includes exit code, crash time, and restart count
+  4. rc-agent running under the watchdog shows Session# = 1 in `tasklist /v` output — confirmed on Pod 8 canary before fleet rollout
+**Plans**: TBD
+
+### Phase 20: Deploy Resilience
+**Goal**: Deploying a new rc-agent binary is safe — the previous binary is preserved for rollback, health is verified after swap, and if health fails the pod automatically reverts — so a bad deploy can never leave all 8 pods permanently offline
+**Depends on**: Phase 17
+**Requirements**: DEP-01, DEP-02, DEP-03, DEP-04
+**Success Criteria** (what must be TRUE):
+  1. After a successful deploy to any pod, `rc-agent-prev.exe` exists at `C:\RacingPoint\` — confirmed by checking the file listing via pod-agent exec after deploy
+  2. If a deployed binary crashes immediately on startup, the pod automatically rolls back to the previous binary within 60 seconds — verified by deploying a known-bad binary and watching the pod recover
+  3. Staging `rc-agent-new.exe` on a pod does not trigger a Windows Defender quarantine — Defender exclusion for the staging filename is present and verified via registry check at startup
+  4. After a fleet deploy across all 8 pods, rc-core logs a per-pod summary showing which pods succeeded, which failed, and which were retried — Uday can see the outcome without SSHing into each pod
+**Plans**: TBD
+
+### Phase 21: Fleet Health Dashboard
+**Goal**: Uday can open his phone and see the real-time health of all 8 pods on a single screen — which pods are connected, which are reachable, what version is running, how long they have been up — so he knows the fleet state without calling James
+**Depends on**: Phase 19, Phase 20
+**Requirements**: FLEET-01, FLEET-02, FLEET-03
+**Success Criteria** (what must be TRUE):
+  1. Uday opens http://192.168.31.23:3300/fleet on his phone and sees a grid of all 8 pods with their current status — no login required, page loads within 3 seconds
+  2. The dashboard shows WebSocket connected status and HTTP reachable status as two separate indicators — a pod with WS up but HTTP blocked is visually distinct from a fully healthy pod
+  3. Each pod card shows the rc-agent version number and uptime — after a fleet deploy, Uday can confirm all 8 pods show the new version without running any commands
 **Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 12 → 13 → 13.1 → 14 → 15
+Phases execute in numeric order: 16 → 17 → 18 → 19 → 20 → 21
 
-Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records patterns and require the public PWA architecture to be validated first). Phase 15 depends on Phase 14 because telemetry comparison derives its value from comparing against event leaders — that context does not exist until events have run. Phase 13.1 is an urgent insertion that must complete before Phase 14.
+Note: Phase 16 (Firewall) is independent and ships first for immediate pain relief. Phase 17 (WebSocket Exec) requires rc-common protocol additions as its first implementation step — both rc-agent and rc-core are built together in this phase. Phase 18 (Self-Healing) can be developed in parallel with 17 but deploys after 16 is live. Phase 19 (Watchdog) must come after 18 because crash-restarts bring up a fresh agent — that agent needs firewall and self-healing to work on first restart. Phase 20 (Deploy Resilience) needs WebSocket exec as its fallback path (Phase 17). Phase 21 (Fleet Dashboard) is read-only and depends on health data from all preceding phases.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -139,6 +138,12 @@ Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records pa
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 12. Data Foundation | v3.0 | 2/2 | Complete | 2026-03-14 |
 | 13. Leaderboard Core | v3.0 | 5/5 | Complete | 2026-03-15 |
-| 13.1. Pod Fleet Reliability | v3.0 | 2/3 | In Progress | - |
-| 14. Events and Championships | v3.0 | 0/? | Not started | - |
-| 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |
+| 13.1. Pod Fleet Reliability | v3.0 | 3/3 | Complete | 2026-03-15 |
+| 14. Events and Championships | v3.0 | 0/? | Deferred | - |
+| 15. Telemetry and Driver Rating | v3.0 | 0/? | Deferred | - |
+| 16. Firewall Auto-Config | v4.0 | 0/? | Not started | - |
+| 17. WebSocket Exec | v4.0 | 0/? | Not started | - |
+| 18. Startup Self-Healing | v4.0 | 0/? | Not started | - |
+| 19. Watchdog Service | v4.0 | 0/? | Not started | - |
+| 20. Deploy Resilience | v4.0 | 0/? | Not started | - |
+| 21. Fleet Health Dashboard | v4.0 | 0/? | Not started | - |
