@@ -1,455 +1,431 @@
 # Phase 21: Fleet Health Dashboard - Research
 
 **Researched:** 2026-03-15
-**Domain:** Next.js 16 + Axum — read-only status dashboard, per-pod health data aggregation
-**Confidence:** HIGH
+**Domain:** Rust/Axum backend endpoint + Next.js 16 frontend page
+**Confidence:** HIGH — all findings verified against actual source code
 
 ## Summary
 
-Phase 21 is the final phase of v4.0. Its goal is a read-only, mobile-first page at `/fleet` that
-shows Uday the real-time health of all 8 pods — WebSocket connection status, HTTP reachability,
-agent version, and uptime — without requiring any login. This is a pure presentation layer on top
-of data that Phases 16–20 already produce.
+Phase 21 adds a read-only fleet health view to the existing kiosk app at `/fleet`. The backend must expose a new `GET /api/v1/fleet/health` endpoint that combines three pieces of data: WS connection state (already in `state.agent_senders`), HTTP reachability (a live probe to `:8090/health`), and per-pod version + uptime (currently logged but not stored from `AgentMessage::StartupReport`).
 
-The key architectural insight: **all required health data already exists in AppState today**, but
-two fields are missing. `agent_senders` tracks WS-connected pods. HTTP reachability requires a
-new periodic probe (one GET to `http://{pod_ip}:8090/health`). The `StartupReport` message carries
-`version` and `uptime_secs`, but those values are currently only logged — they must be stored in a
-new `pod_startup_reports` map in `AppState`.
+The frontend is a single Next.js page at `kiosk/src/app/fleet/page.tsx` that polls the new endpoint every 5 seconds and renders 8 pod cards in a 2x4 grid. No WebSocket required — HTTP polling is sufficient for a health dashboard that refreshes every 5s. No login required (matches kiosk's other unauthenticated pages).
 
-The frontend is a new Next.js page `kiosk/src/app/fleet/page.tsx` that:
-1. Polls `GET /api/v1/fleet/health` every 5 seconds (or receives a new `DashboardEvent::FleetHealth`
-   push — polling is simpler, adequate, and zero risk to existing WS protocol).
-2. Renders an 8-card grid optimised for a phone screen (single column on mobile, 2-col on tablet+).
+The key open questions from the previous research are now resolved by reading source code:
 
-**Primary recommendation:** Add a `pod_fleet_health` state map to `AppState`, populate it from
-`StartupReport` + periodic HTTP probe + WS-connected check, expose via `GET /api/v1/fleet/health`,
-and build a standalone `/fleet` page in the kiosk app.
+1. **`state.config.pods` does NOT have structured IP data per-pod.** The `PodsConfig` struct has only `count: u32`, `discovery: bool`, `static_pods: Vec<StaticPodConfig>`, and `healer_enabled`. IPs are stored in `state.pods` (the `RwLock<HashMap<String, PodInfo>>`), which is populated when each pod connects via WebSocket and sends a `Register` message. `PodInfo.ip_address` is the live source of truth.
+
+2. **`GET :8090/health` on rc-agent DOES return HTTP 200 with JSON** (`{"status":"ok","version":"...","uptime_secs":...,"exec_slots_available":...,"exec_slots_total":4}`). Verified in `remote_ops.rs` lines 93-103.
+
+3. **`StartupReport` data is NOT stored in AppState** — it is currently only logged via `tracing::info!` and `log_pod_activity`. The backend plan must add a `pod_startup_reports: RwLock<HashMap<String, StartupReportData>>` to `AppState` and populate it in the `ws/mod.rs` StartupReport handler.
+
+**Primary recommendation:** Add a `pod_startup_reports` map to AppState (storing version + uptime_secs + crash_recovery per pod), add a background HTTP probe loop task, expose `GET /api/v1/fleet/health`, and render a simple polling page in the kiosk.
 
 <phase_requirements>
 ## Phase Requirements
 
 | ID | Description | Research Support |
 |----|-------------|-----------------|
-| FLEET-01 | Kiosk /fleet page shows all 8 pods with real-time status (WS connected, HTTP reachable, version, uptime) | New Next.js page `kiosk/src/app/fleet/page.tsx` polling a new `GET /api/v1/fleet/health` endpoint |
-| FLEET-02 | Pod status distinguishes WS-connected vs HTTP-reachable as separate indicators | Two boolean fields (`ws_connected`, `http_reachable`) in the API response; distinct visual treatment in the card |
-| FLEET-03 | Dashboard accessible from Uday's phone, no login required, loads within 3 seconds | Mobile-first single-column Tailwind grid; endpoint is public (no auth guard); `last_seen` data is already in-memory |
+| FLEET-01 | Kiosk /fleet page shows all 8 pods with real-time status (WS connected, HTTP reachable, version, uptime) | Backend endpoint + frontend page; HTTP polling every 5s; PodInfo.ip_address provides pod IPs |
+| FLEET-02 | Pod status distinguishes WS-connected vs HTTP-reachable (a pod can be WS-up but HTTP-blocked) | `state.agent_senders` tracks WS; separate HTTP probe to `:8090/health` tracks HTTP; two independent boolean fields in response |
+| FLEET-03 | Dashboard accessible from Uday's phone (mobile-first layout) | Next.js with Tailwind; 2-column grid on mobile (sm:grid-cols-4); no auth required |
 </phase_requirements>
-
----
 
 ## Standard Stack
 
 ### Core
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| Next.js | 16.1.6 (already in use) | `/fleet` page | Existing kiosk app — same framework, same dev server on :3300 |
-| React | 19.2.3 (already in use) | UI components | Existing choice |
-| Tailwind CSS | 4.x (already in use) | Styling | All existing kiosk pages use it |
-| Axum | 0.8 (already in use) | New `/fleet/health` endpoint | Existing backend framework |
-| reqwest | 0.12 (already in use) | HTTP probe to pod :8090 | Already in rc-core `AppState.http_client` |
+| Axum | 0.7.x (already in rc-core) | New GET /api/v1/fleet/health endpoint | Already used for all rc-core HTTP routes |
+| tokio | 1.x (already in rc-core) | Background HTTP probe loop task | Already the runtime |
+| reqwest | 0.12.x (already in AppState as `http_client`) | HTTP GET to pod :8090/health | Re-use `state.http_client` — no new dep |
+| Next.js | 16.1.6 (already in kiosk) | /fleet page | Existing app router, same as all other pages |
+| Tailwind CSS | 4.x (already in kiosk) | Styling | Existing; use rp-* color tokens |
+| TypeScript | 5.9.3 (already in kiosk) | Fleet page types | Existing codebase standard |
 
 ### No New Dependencies Required
-This phase adds zero new crates and zero new npm packages. Everything needed is already present.
+All work fits within existing dependencies. The probe loop uses `state.http_client` (already a `reqwest::Client` in AppState). The frontend uses `fetch()` (no extra library needed for 5s polling).
 
----
+**Installation:** None required.
 
 ## Architecture Patterns
 
-### New Data: `PodFleetHealth` in AppState
-
-The key gap: `StartupReport` data (version, uptime_secs) is currently logged and discarded. A new
-map must store it.
-
-```rust
-// In crates/rc-common/src/types.rs (or rc-core/src/state.rs)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PodFleetHealth {
-    pub pod_id: String,
-    pub pod_number: u32,
-    pub pod_ip: String,
-    pub ws_connected: bool,         // agent_senders contains pod_id and sender is not closed
-    pub http_reachable: bool,       // last HTTP probe to :8090/health succeeded
-    pub agent_version: Option<String>,  // from StartupReport.version
-    pub uptime_secs: Option<u64>,   // from StartupReport.uptime_secs (time since last start)
-    pub last_seen: Option<DateTime<Utc>>,  // last heartbeat timestamp from PodInfo.last_seen
-    pub last_http_check: Option<DateTime<Utc>>,  // when HTTP probe last ran
-}
-```
-
-Add to `AppState`:
-```rust
-pub pod_fleet_health: RwLock<HashMap<String, PodFleetHealth>>,
-```
-
-### Where to Update `ws_connected`
-
-- **On `AgentMessage::Register`** → set `ws_connected = true`
-- **On `AgentMessage::StartupReport`** → store `agent_version` and `uptime_secs`
-- **On agent disconnect** (socket close / `AgentMessage::Disconnect`) → set `ws_connected = false`, clear `agent_version` and `uptime_secs`
-
-This is in `crates/rc-core/src/ws/mod.rs` `handle_agent()`.
-
-### HTTP Reachability Probe Loop
-
-A new background task (spawned in `main.rs`) probes each pod's HTTP endpoint every 15 seconds:
-
-```rust
-// In crates/rc-core/src/fleet_health.rs (new module)
-pub async fn probe_loop(state: Arc<AppState>) {
-    let mut interval = tokio::time::interval(Duration::from_secs(15));
-    loop {
-        interval.tick().await;
-        let pod_configs = state.config.pods.list.clone(); // from racecontrol.toml
-        for pod in &pod_configs {
-            let url = format!("http://{}:8090/health", pod.ip);
-            let reachable = state.http_client
-                .get(&url)
-                .timeout(Duration::from_secs(3))
-                .send()
-                .await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false);
-            // Update pod_fleet_health map
-        }
-    }
-}
-```
-
-**Timeout: 3 seconds per probe.** With 8 pods and sequential probing, worst case is 24 seconds.
-Use `tokio::join_all` or `futures::future::join_all` to probe all 8 in parallel — reduces to 3s.
-
-### New API Endpoint
-
-```
-GET /api/v1/fleet/health
-```
-
-No auth required (like `/api/v1/public/*` endpoints). Returns:
-
-```json
-{
-  "pods": [
-    {
-      "pod_id": "pod_1",
-      "pod_number": 1,
-      "pod_ip": "192.168.31.89",
-      "ws_connected": true,
-      "http_reachable": true,
-      "agent_version": "0.5.2",
-      "uptime_secs": 3600,
-      "last_seen": "2026-03-15T11:30:00Z",
-      "last_http_check": "2026-03-15T11:30:10Z"
-    },
-    ...
-  ],
-  "timestamp": "2026-03-15T11:30:15Z"
-}
-```
-
-### Frontend: `/fleet` Page
-
-New file: `kiosk/src/app/fleet/page.tsx`
-
-**Polling approach** (simpler than WS for a status page):
-```typescript
-// "use client"
-// useEffect: fetch /api/v1/fleet/health every 5000ms
-// setInterval + cleanup on unmount
-```
-
-The kiosk runs on :3300 and the API on :8080. The existing proxy in `main.rs` only proxies
-`/kiosk*` and `/_next/*`. The `/fleet` page calls the API at `http://192.168.31.23:8080/api/v1/fleet/health`
-or uses `window.location.hostname:8080`.
-
-The lib/api.ts already has a pattern for API calls — add `getFleetHealth()`.
-
-### Pod Card Layout (Mobile-First)
-
-```
-┌─────────────────────────────────────┐
-│ POD 1                    v0.5.2      │
-│ ● WS Connected           ↑ 2h 15m   │
-│ ● HTTP Reachable                     │
-└─────────────────────────────────────┘
-```
-
-Status combinations and visual treatment:
-| WS | HTTP | Card appearance |
-|----|------|-----------------|
-| true | true | Green border — fully healthy |
-| true | false | Yellow border — WS up, HTTP blocked |
-| false | true | Orange border — not yet seen (HTTP up = process alive but not connected) |
-| false | false | Red border / dim — offline |
-
-CSS grid: `grid-cols-1 sm:grid-cols-2` — single column on phone (< 640px), 2 columns on tablet.
-
-### Recommended File Structure
-
+### Recommended Project Structure (new files only)
 ```
 crates/rc-core/src/
-├── fleet_health.rs         # NEW: PodFleetHealth struct, probe_loop(), AppState init
-├── state.rs                # ADD: pod_fleet_health field
-├── ws/mod.rs               # MODIFY: store StartupReport data, update ws_connected
-├── api/routes.rs           # ADD: GET /fleet/health handler + route
+└── fleet_health.rs          # New: PodFleetHealth struct, probe loop, GET handler
 
-kiosk/src/
-├── app/fleet/
-│   └── page.tsx            # NEW: Fleet Health Dashboard page
-├── lib/
-│   ├── api.ts              # ADD: getFleetHealth()
-│   └── types.ts            # ADD: PodFleetHealth interface
+kiosk/src/app/fleet/
+└── page.tsx                 # New: fleet dashboard page
 ```
+
+### Data Flow
+
+```
+rc-core startup
+  └── spawn fleet_health probe loop (every 10s)
+        └── GET http://{pod_ip}:8090/health per registered pod
+              └── write bool to pod_http_reachable map in AppState
+
+Pod WS connects → AgentMessage::StartupReport arrives
+  └── ws/mod.rs handler stores {version, uptime_secs, crash_recovery}
+        in pod_startup_reports map in AppState
+
+GET /api/v1/fleet/health (called by frontend every 5s)
+  └── for pod_number 1..=8:
+        find pod in state.pods where number == n
+        ws_connected = agent_senders.contains(pod_id) && !sender.is_closed()
+        http_reachable = pod_http_reachable.get(pod_id)
+        startup = pod_startup_reports.get(pod_id)
+  └── return JSON array of 8 PodFleetStatus objects
+```
+
+### Pattern 1: AppState extension for new data
+
+Two new fields added to `AppState` in `state.rs`:
+
+```rust
+/// Per-pod startup report data (version, uptime_secs, crash_recovery).
+/// Populated when agent sends StartupReport after WS connect.
+pub pod_startup_reports: RwLock<HashMap<String, PodStartupData>>,
+
+/// Per-pod HTTP health probe results (true = reachable on :8090, false = blocked/down).
+/// Updated every 10s by fleet_health probe loop.
+pub pod_http_reachable: RwLock<HashMap<String, bool>>,
+```
+
+```rust
+// Companion struct — define in fleet_health.rs, import into state.rs
+#[derive(Debug, Clone)]
+pub struct PodStartupData {
+    pub version: String,
+    pub uptime_secs: u64,
+    pub crash_recovery: bool,
+    pub received_at: chrono::DateTime<chrono::Utc>,
+}
+```
+
+Initialize both to `HashMap::new()` in `AppState::new()`.
+
+### Pattern 2: StartupReport storage in ws/mod.rs
+
+The existing StartupReport handler at `ws/mod.rs:481` only logs. Add storage:
+
+```rust
+AgentMessage::StartupReport { pod_id, version, uptime_secs, crash_recovery, .. } => {
+    // ... existing tracing/log_pod_activity code remains ...
+
+    // Store for fleet health endpoint
+    use crate::fleet_health::PodStartupData;
+    state.pod_startup_reports.write().await.insert(
+        pod_id.clone(),
+        PodStartupData {
+            version: version.clone(),
+            uptime_secs: *uptime_secs,
+            crash_recovery: *crash_recovery,
+            received_at: chrono::Utc::now(),
+        },
+    );
+}
+```
+
+### Pattern 3: HTTP probe loop (fleet_health.rs)
+
+Pattern copied directly from `deploy.rs` `http_exec_on_pod` which uses the same `state.http_client`:
+
+```rust
+// Source: rc-core/src/deploy.rs http_exec_on_pod pattern
+pub fn start_probe_loop(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            let pods_snapshot: Vec<(String, String)> = {
+                let pods = state.pods.read().await;
+                pods.values()
+                    .map(|p| (p.id.clone(), p.ip_address.clone()))
+                    .collect()
+            };
+            for (pod_id, pod_ip) in pods_snapshot {
+                let url = format!("http://{}:8090/health", pod_ip);
+                let reachable = state.http_client
+                    .get(&url)
+                    .timeout(Duration::from_secs(3))
+                    .send()
+                    .await
+                    .map(|r| r.status().is_success())
+                    .unwrap_or(false);
+                state.pod_http_reachable.write().await.insert(pod_id, reachable);
+            }
+        }
+    });
+}
+```
+
+### Pattern 4: GET /api/v1/fleet/health response shape
+
+```rust
+#[derive(Serialize)]
+pub struct PodFleetStatus {
+    pub pod_number: u32,                        // 1-8 (always present)
+    pub pod_id: Option<String>,                 // None if never registered
+    pub ws_connected: bool,
+    pub http_reachable: bool,
+    pub version: Option<String>,               // from StartupReport
+    pub uptime_secs: Option<u64>,              // from StartupReport
+    pub crash_recovery: Option<bool>,          // from StartupReport
+    pub ip_address: Option<String>,            // from PodInfo
+    pub last_startup_report_at: Option<String>, // ISO-8601 timestamp
+}
+```
+
+The endpoint always returns exactly 8 entries (one per pod number 1-8), regardless of how many pods have connected.
+
+### Pattern 5: Frontend polling (Next.js page)
+
+Plain `useEffect` + `setInterval` — no WebSocket, no `useKioskSocket`. The `/kiosk/fleet` URL is the accessible path (see Pitfall 4):
+
+```typescript
+// Source: pattern matches kiosk's lib/api.ts fetchApi
+"use client";
+import { useState, useEffect } from "react";
+
+const API_BASE = typeof window !== "undefined"
+  ? `http://${window.location.hostname}:8080`
+  : "http://localhost:8080";
+
+export default function FleetPage() {
+  const [pods, setPods] = useState<PodFleetStatus[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    async function poll() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/fleet/health`);
+        if (res.ok) {
+          const data: { pods: PodFleetStatus[] } = await res.json();
+          setPods(data.pods);
+          setLastUpdated(new Date());
+          setError(false);
+        }
+      } catch {
+        setError(true);
+      }
+    }
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, []);
+  // ...
+}
+```
+
+### Pattern 6: Mobile-first card grid
+
+The kiosk basePath is `/kiosk`. Use 2-column on mobile, 4-column on sm+ screens:
+
+```tsx
+<div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4">
+  {pods.map((pod) => (
+    <PodCard key={pod.pod_number} pod={pod} />
+  ))}
+</div>
+```
+
+### Pattern 7: Four-state visual indicators (FLEET-02)
+
+Two independent dots per card — one for WS, one for HTTP:
+
+| WS | HTTP | Border | Label |
+|----|------|--------|-------|
+| true | true | `border-green-500` | Healthy |
+| true | false | `border-yellow-500` | WS only |
+| false | true | `border-amber-500` | HTTP only |
+| false | false | `border-rp-border opacity-40` | Offline |
+
+Use Tailwind tokens from globals.css: `bg-rp-card`, `border-rp-border`, `text-rp-grey`, `text-rp-red`.
 
 ### Anti-Patterns to Avoid
 
-- **Don't reuse the WS dashboard socket for this page.** The /fleet page is a read-only status
-  view for an ops user on a phone. Polling every 5 seconds is sufficient and has zero risk of
-  breaking existing WS protocol.
-- **Don't add version/uptime fields to `PodInfo`.** `PodInfo` is in rc-common and used everywhere
-  (billing, game launcher, etc.). Fleet health is ops-only data — it belongs in a separate map.
-- **Don't block the probe loop on slow pods.** Use `tokio::join_all` so one unreachable pod
-  (3s timeout) doesn't delay the others.
-
----
+- **Don't probe pods from inside the HTTP handler.** The handler must read cached state only. Probing 8 pods inline would take up to 24s (8 pods * 3s timeout).
+- **Don't probe from the frontend.** CORS and LAN topology mean pod IPs are not reachable from Uday's phone — probing must be server-side.
+- **Don't require login.** FLEET-03 explicitly says "no login required". The kiosk's other unauthenticated pages (/, /book, /spectator) confirm this pattern.
+- **Don't use `useKioskSocket` for the fleet page.** The dashboard WS feed does not emit fleet health events — adding WS complexity for a polling page is unnecessary.
 
 ## Don't Hand-Roll
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| HTTP probe to pod | Custom TCP socket | `state.http_client.get(url)` with timeout | Already in AppState; handles redirects, connection errors, timeouts cleanly |
-| Uptime formatting | Custom duration formatter | Simple arithmetic in TypeScript | `Math.floor(secs / 3600)h Math.floor((secs % 3600) / 60)m` — 2 lines |
-| Status icons | SVG from scratch | Tailwind `rounded-full` color dots (same pattern as existing kiosk header) | Existing kiosk uses `w-2 h-2 rounded-full bg-green-500` — reuse the pattern |
-| Auth guard | JWT middleware | None — `/fleet/health` is intentionally public | It shows version strings and IPs; not sensitive for Uday's LAN-only use case |
-
----
+| HTTP probe client | Custom TCP probe or new reqwest Client | `state.http_client` (already in AppState) | Handles timeouts, keep-alive, error handling |
+| Uptime string formatting | Rust formatter | Pass `uptime_secs: u64` to frontend, format in TypeScript | Simpler, flexible display |
+| Pod IP lookup | Config file parser | `state.pods.read().get_by_number(n).ip_address` | Already populated from WS Register |
+| Real-time updates | WebSocket event emission | `setInterval` + `fetch` every 5s | Adequate for health dashboard, no WS complexity |
 
 ## Common Pitfalls
 
-### Pitfall 1: `agent_senders` Key Not Present vs Sender Closed
-**What goes wrong:** A pod that never connected has no key in `agent_senders`. A pod that
-disconnected has a key but a closed sender. Both should show `ws_connected = false`.
-**How to avoid:** `ws_connected = senders.get(pod_id).map(|s| !s.is_closed()).unwrap_or(false)`
-**This pattern already exists** in `deploy.rs`'s `is_ws_connected()` — copy it exactly.
+### Pitfall 1: state.pods is empty until pods connect
+**What goes wrong:** `state.pods` is a live registry — empty on startup. If no pods are registered, the endpoint returns 0 pods and the frontend shows blank.
+**Why it happens:** Pods only appear in `state.pods` after WebSocket `Register` message.
+**How to avoid:** The endpoint iterates `1..=8u32` and searches `state.pods.values()` for matching `pod.number`. Missing numbers produce an entry with all status flags false.
 
-### Pitfall 2: Pod Numbers vs Pod IDs
-**What goes wrong:** `AppState.pods` is keyed by pod_id (e.g. `"pod_1"`). The fleet health map
-must also key by pod_id. The kiosk expects to display pods 1–8 sorted by `pod_number`.
-**How to avoid:** In the API response, sort by `pod_number`. For empty slots (pods that have
-never connected), create placeholder entries with `ws_connected: false, http_reachable: false`.
+### Pitfall 2: StartupReport not stored — version/uptime always None before fix
+**What goes wrong:** Before the Phase 21 backend change, `pod_startup_reports` doesn't exist. After adding the field but before deploying rc-agent, version/uptime will be None until each pod reconnects and sends a new StartupReport.
+**Why it happens:** StartupReport is only sent once per agent lifetime (at WS connect after Register).
+**How to avoid:** This is expected and acceptable — the dashboard shows "—" for version/uptime on pods that haven't reconnected since deploy. Force reconnection by restarting rc-agent during fleet deploy.
 
-### Pitfall 3: Pod IP Source
-**What goes wrong:** Pod IPs aren't always in `AppState.pods` on first load. `PodInfo.ip_address`
-is populated from the `Register` message, but before that it comes from `racecontrol.toml`.
-**How to avoid:** Use `state.config.pods.list` as the authoritative source for the 8 pod IPs.
-Merge with `pods` map data at query time.
+### Pitfall 3: URL discrepancy in success criteria
+**What goes wrong:** ROADMAP success criteria says `http://192.168.31.23:3300/fleet`. The actual path is `http://192.168.31.23:3300/kiosk/fleet` because `next.config.ts` sets `basePath: "/kiosk"`.
+**Why it happens:** The success criteria was written without checking the Next.js config.
+**How to avoid:** Implement at `/kiosk/fleet`. Either document the URL correctly or add an nginx/Python redirect from `/fleet` to `/kiosk/fleet` at port 3300.
 
-### Pitfall 4: `uptime_secs` Is Snapshot-at-Connect, Not Live Counter
-**What goes wrong:** `StartupReport.uptime_secs` is the uptime at the moment the agent connected.
-Displaying it verbatim will show a stale number after the agent has been running for hours.
-**How to avoid:** Store `started_at = Utc::now() - Duration::from_secs(uptime_secs)` when the
-StartupReport arrives. Compute live uptime as `Utc::now() - started_at` in the API response.
+### Pitfall 4: Probe loop probes only registered pods
+**What goes wrong:** A pod that has never WS-connected won't be in `state.pods`, so the probe loop never probes it, so `pod_http_reachable` is empty for it, so the health endpoint shows it as HTTP-unreachable by default.
+**Why it happens:** Probe loop iterates `state.pods` which only has registered pods.
+**How to avoid:** This is correct behavior — if rc-agent never connected, we truly don't know the IP. The endpoint renders it as "Offline" with pod number visible but no other data.
 
-### Pitfall 5: CORS / Proxy on `/fleet`
-**What goes wrong:** The kiosk proxy in `main.rs` only forwards `/kiosk*` and `/_next/*`. The
-`/fleet` page is served by Next.js at `:3300` — but Uday opens `http://192.168.31.23:3300/fleet`,
-not through the rc-core proxy.
-**This is fine.** Uday should use `:3300` directly. The `/fleet` page calls the API at `:8080`.
-The CORS config in `main.rs` already allows `192.168.31.*` origins.
-
-### Pitfall 6: Version Inconsistency (Pre-Existing)
-**State.md note:** "USB-installed pods report v0.1.0, HTTP-deployed report v0.5.2".
-**Impact:** The fleet dashboard will show this discrepancy accurately — which is actually
-*useful* for Uday (he can see which pods need a fresh deploy). Don't paper over this.
-
----
+### Pitfall 5: Uptime resets on every rc-agent restart
+**What goes wrong:** After a watchdog restart, `uptime_secs` resets to near-0. This might look alarming.
+**Why it happens:** `uptime_secs` in `StartupReport` is `agent_start_time.elapsed().as_secs()` — agent process uptime, not system uptime.
+**How to avoid:** Label it "Agent uptime" in the dashboard, not "System uptime". A low uptime after a known deploy is expected and informative.
 
 ## Code Examples
 
-### Pattern: Reading ws_connected (from deploy.rs)
+### GET :8090/health response (verified in remote_ops.rs:93-103)
+```json
+{
+  "status": "ok",
+  "version": "0.5.2",
+  "uptime_secs": 3847,
+  "exec_slots_available": 4,
+  "exec_slots_total": 4
+}
+```
+Returns HTTP 200. The fleet probe only needs the 200 status — version/uptime come from `StartupReport` via the map.
+
+### StartupReport protocol (verified in protocol.rs:100-108)
 ```rust
-// Source: crates/rc-core/src/deploy.rs:is_ws_connected()
-async fn is_ws_connected(state: &Arc<AppState>, pod_id: &str) -> bool {
-    let senders = state.agent_senders.read().await;
-    match senders.get(pod_id) {
-        Some(sender) => !sender.is_closed(),
-        None => false,
-    }
+AgentMessage::StartupReport {
+    pod_id: String,       // e.g. "pod_3"
+    version: String,      // e.g. "0.5.2"
+    uptime_secs: u64,     // agent process uptime since last start
+    config_hash: String,  // SHA of config file (for change detection)
+    crash_recovery: bool, // true if watchdog restarted agent after crash
+    repairs: Vec<String>, // self-heal actions taken at startup
 }
 ```
 
-### Pattern: Background loop spawn (from main.rs)
+### WS connection check (verified in deploy.rs:280-286)
 ```rust
-// Source: crates/rc-core/src/main.rs — billing tick loop pattern
-let fleet_state = state.clone();
-tokio::spawn(async move {
-    fleet_health::probe_loop(fleet_state).await;
-});
+// Direct copy from is_ws_connected() in deploy.rs
+let senders = state.agent_senders.read().await;
+let ws_connected = match senders.get(pod_id) {
+    Some(sender) => !sender.is_closed(),
+    None => false,
+};
 ```
 
-### Pattern: Parallel HTTP probes with join_all
+### Pod IP from state.pods (verified in deploy.rs:783)
 ```rust
-// Source: standard Tokio pattern — use futures::future::join_all
-// futures-util is already in rc-core Cargo.toml
-use futures_util::future::join_all;
-
-let probes: Vec<_> = pod_configs.iter().map(|pod| {
-    let client = state.http_client.clone();
-    let url = format!("http://{}:8090/health", pod.ip);
-    async move {
-        client
-            .get(&url)
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
-    }
-}).collect();
-let results = join_all(probes).await;
+// Pattern from deploy_rolling_fleet in deploy.rs
+let pods = state.pods.read().await;
+let pod_ip = pods.get(&pod_id).map(|p| p.ip_address.clone());
 ```
 
-### Pattern: Public route (no auth)
+### Fleet endpoint route registration (follow routes.rs pattern at line 32)
 ```rust
-// Source: crates/rc-core/src/api/routes.rs — /api/v1/public/* routes
-// No auth extractor — just State(state) — same as public_leaderboard()
-.route("/fleet/health", get(fleet_health_handler))
+// Add in api/routes.rs Router::new() block
+.route("/fleet/health", get(fleet_health))
 ```
 
-### Pattern: Kiosk page with polling
+### Frontend TypeScript type
 ```typescript
-// Source: pattern consistent with kiosk/src/app/page.tsx
-"use client";
-import { useState, useEffect } from "react";
-
-export default function FleetDashboard() {
-  const [pods, setPods] = useState<PodFleetHealth[]>([]);
-
-  useEffect(() => {
-    async function fetchHealth() {
-      const res = await fetch(
-        `http://${window.location.hostname}:8080/api/v1/fleet/health`
-      );
-      const data = await res.json();
-      setPods(data.pods ?? []);
-    }
-    fetchHealth();
-    const id = setInterval(fetchHealth, 5000);
-    return () => clearInterval(id);
-  }, []);
-
-  // ... render
+// Add to kiosk/src/lib/types.ts
+export interface PodFleetStatus {
+  pod_number: number;
+  pod_id: string | null;
+  ws_connected: boolean;
+  http_reachable: boolean;
+  version: string | null;
+  uptime_secs: number | null;
+  crash_recovery: boolean | null;
+  ip_address: string | null;
+  last_startup_report_at: string | null; // ISO-8601
 }
 ```
-
-### Pattern: Uptime display (computed from stored start time)
-```rust
-// In fleet_health handler — compute live uptime at query time
-let uptime_secs = started_at.map(|t| {
-    (Utc::now() - t).num_seconds().max(0) as u64
-});
-```
-
----
 
 ## State of the Art
 
-| Old Approach | Current Approach | Impact |
-|--------------|------------------|--------|
-| StartupReport data logged and discarded | Store in `pod_fleet_health` map | Version and uptime become queryable |
-| HTTP reachability = "can exec via pod-agent" | Periodic 3s probe to :8090/health | Independent of exec slots; shows firewall state |
-| Fleet state checked by running commands | Read-only API + visual dashboard | Zero-command ops visibility for Uday |
+| Old Approach | Current Approach | When Changed | Impact |
+|--------------|------------------|--------------|--------|
+| Separate pod-agent binary | pod-agent merged into rc-agent at port 8090 | Phase 13.1 (eea644e) | Single binary per pod, same port for exec and health probes |
+| No WS exec fallback | HTTP first, WS fallback | Phase 17 | deploy.rs pattern available to copy |
+| No version tracking | StartupReport protocol (HEAL-02) | Phase 18 | version + uptime available after each agent connect |
+| Manual fleet status check | Fleet dashboard (this phase) | Phase 21 | Uday sees 8-pod status without SSH |
 
-**Not applicable (nothing deprecated in this domain for this phase).**
-
----
-
-## Open Questions
-
-1. **Pod IP source when no pods are registered yet**
-   - What we know: `racecontrol.toml` has static pod IPs; `AppState.pods` only has IPs after Register
-   - What's unclear: Does `state.config.pods.list` exist as a structured list, or is it just a count?
-   - Recommendation: Check `crates/rc-core/src/config.rs` during Plan phase. If it's only a count,
-     derive IPs from the network map (192.168.31.{89,33,28,88,86,87,38,91}) as a fallback constant.
-
-2. **HTTP probe endpoint on pod-agent**
-   - What we know: pod-agent was merged into rc-agent (Phase 13.1). rc-agent serves HTTP on port 8090.
-   - What's unclear: Does `GET /health` on port 8090 return 200? Or does it need a different path?
-   - Recommendation: Check `crates/rc-agent/src/remote_ops.rs` during Plan phase. If no `/health`
-     endpoint exists, probe `/` or use a TCP connect check instead.
-
-3. **`started_at` vs `uptime_secs` storage granularity**
-   - What we know: `StartupReport.uptime_secs` is a u64 count-up from process start
-   - What's unclear: Whether to store the raw `uptime_secs` + arrival timestamp, or a computed
-     `started_at: DateTime<Utc>`
-   - Recommendation: Store `agent_started_at: Option<DateTime<Utc>>` = `Utc::now() - uptime_secs`.
-     Simpler to compute live uptime in the response handler.
-
----
+**Deprecated/outdated:**
+- Separate pod-agent binary: gone since Phase 13.1 — do not look for it
+- Port 8090 as a "pod-agent" port: still the port, but now part of rc-agent (remote_ops.rs)
 
 ## Validation Architecture
 
 ### Test Framework
 | Property | Value |
 |----------|-------|
-| Framework | Rust built-in `#[test]` + `#[tokio::test]` |
-| Config file | None (workspace Cargo.toml) |
-| Quick run command | `cargo test -p rc-core` |
+| Framework | cargo test (Rust) + tsc (TypeScript) |
+| Config file | Cargo.toml per-crate / kiosk/tsconfig.json |
+| Quick run command | `cargo test -p rc-core -- fleet` |
 | Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
 
-### Phase Requirements → Test Map
+### Phase Requirements to Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| FLEET-01 | `/fleet/health` returns 8 pod entries sorted by number | unit | `cargo test -p rc-core fleet_health` | Wave 0 |
-| FLEET-01 | Placeholder entries created for pods never seen | unit | `cargo test -p rc-core fleet_health_missing_pods` | Wave 0 |
-| FLEET-02 | WS-up + HTTP-blocked pod has distinct fields | unit | `cargo test -p rc-core fleet_health_ws_only` | Wave 0 |
-| FLEET-02 | `ws_connected` uses sender.is_closed() correctly | unit | `cargo test -p rc-core fleet_health_ws_connected` | Wave 0 |
-| FLEET-03 | `/fleet/health` requires no auth header | unit | `cargo test -p rc-core fleet_health_no_auth` | Wave 0 |
-| FLEET-03 | Page loads < 3s — manual verification | manual | Visual check on Uday's phone | N/A |
+| FLEET-01 | `GET /api/v1/fleet/health` returns exactly 8 entries | unit | `cargo test -p rc-core -- fleet_health_returns_8_pods` | No — Wave 0 |
+| FLEET-01 | All fields present (ws_connected, http_reachable, version, uptime) | unit | `cargo test -p rc-core -- fleet_health_fields` | No — Wave 0 |
+| FLEET-02 | ws_connected reflects agent_senders state independently of http_reachable | unit | `cargo test -p rc-core -- fleet_ws_independent_of_http` | No — Wave 0 |
+| FLEET-02 | http_reachable reflects pod_http_reachable map independently of WS | unit | `cargo test -p rc-core -- fleet_http_independent_of_ws` | No — Wave 0 |
+| FLEET-03 | Fleet page TypeScript compiles without errors | smoke | `cd /c/Users/bono/racingpoint/racecontrol/kiosk && npx tsc --noEmit` | No — Wave 0 |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-core`
+- **Per task commit:** `cargo test -p rc-core -- fleet`
 - **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
-- [ ] `crates/rc-core/src/fleet_health.rs` — module with `PodFleetHealth` struct and unit tests
-- [ ] Tests for `fleet_health_handler` in `routes.rs` (same pattern as `pod_status_summary_tests`)
-- [ ] TypeScript: No test framework in kiosk — frontend verified manually on phone
+- [ ] `crates/rc-core/src/fleet_health.rs` — new module with `PodStartupData`, `PodFleetStatus`, `start_probe_loop`, `fleet_health` handler, and all unit tests
+- [ ] `kiosk/src/app/fleet/page.tsx` — new Next.js page
+- [ ] `PodFleetStatus` TypeScript interface in `kiosk/src/lib/types.ts`
 
-*(Existing test infrastructure in `crates/rc-core/src/state.rs` and `crates/rc-core/tests/integration.rs` covers the data layer pattern; new fleet_health tests follow the same `#[cfg(test)]` inline pattern.)*
-
----
+*(No new test framework install needed — cargo test and tsc already present)*
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Codebase: `crates/rc-core/src/state.rs` — AppState structure, pod_deploy_states pattern, is_ws_connected() in deploy.rs
-- Codebase: `crates/rc-common/src/protocol.rs` — StartupReport message (version, uptime_secs fields)
-- Codebase: `crates/rc-core/src/ws/mod.rs` — where StartupReport is received (lines 481–501); currently logs only
-- Codebase: `crates/rc-core/src/api/routes.rs` — existing patterns (pod_status_summary, public routes, deploy_status)
-- Codebase: `crates/rc-core/src/main.rs` — background loop spawn pattern, CORS config (192.168.31.*)
-- Codebase: `kiosk/src/hooks/useKioskSocket.ts` — how dashboard receives events (WS pattern with deploy_progress)
-- Codebase: `kiosk/src/lib/types.ts` — TypeScript type conventions for the project
-- Codebase: `kiosk/src/app/page.tsx` — existing pod grid layout, Tailwind classes, color tokens
+- `crates/rc-agent/src/remote_ops.rs:93-103` — verified `GET /health` returns 200 JSON with version, uptime_secs, exec_slots; port 8090
+- `crates/rc-core/src/state.rs` — verified AppState fields: `pods`, `agent_senders`; confirmed NO `pod_startup_reports` field exists yet
+- `crates/rc-core/src/config.rs` — verified `PodsConfig` has `count`, `discovery`, `static_pods` (no per-pod IPs)
+- `crates/rc-common/src/protocol.rs:100-108` — verified `StartupReport` variant fields
+- `crates/rc-common/src/types.rs:51-73` — verified `PodInfo.ip_address: String`, `PodInfo.number: u32`
+- `crates/rc-core/src/ws/mod.rs:481-501` — verified StartupReport handler logs only, no AppState write
+- `crates/rc-core/src/deploy.rs:280-286` — verified `is_ws_connected()` pattern using agent_senders
+- `crates/rc-core/src/deploy.rs:30` — verified `POD_AGENT_PORT = 8090`
+- `crates/rc-agent/src/main.rs:424` — verified rc-agent starts remote_ops on port 8090
+- `kiosk/src/hooks/useKioskSocket.ts` — verified WS URL pattern and event handling approach
+- `kiosk/next.config.ts` — verified `basePath: "/kiosk"`, port 3300 in package.json
+- `kiosk/package.json` — verified Next.js 16.1.6, React 19, Tailwind 4, TypeScript 5.9.3
+- `kiosk/src/app/globals.css` — verified rp-* color tokens available
+- `kiosk/src/lib/api.ts` — verified `API_BASE` pattern using `window.location.hostname`
+- `racecontrol.toml` — verified `pods.count = 8`, no `[[pods.static]]` entries (IPs come from agent registration only)
 
 ### Secondary (MEDIUM confidence)
-- Project MEMORY.md — Network map (pod IPs), brand colors (#E10600 red, #1A1A1A black, #5A5A5A grey)
-- REQUIREMENTS.md — FLEET-01, FLEET-02, FLEET-03 definitions (confirmed implementation requirements)
-- STATE.md — Known issue: version string inconsistency (v0.1.0 vs v0.5.2) expected behavior
-
-### Tertiary (LOW confidence)
-- None — all findings are codebase-verified
-
----
+- ROADMAP.md Phase 21 description — intent and success criteria (URL discrepancy noted in Pitfall 3)
 
 ## Metadata
 
 **Confidence breakdown:**
-- Standard stack: HIGH — zero new deps; everything confirmed in package.json and Cargo.toml
-- Architecture: HIGH — all patterns copied from existing, working code in the same repo
-- Pitfalls: HIGH — specifically identified from actual codebase state (StartupReport not stored, sender key gap)
-- Open questions: MEDIUM — config.rs and remote_ops.rs not read; planner should check these in Wave 0
+- Standard stack: HIGH — all deps already in use, verified from package.json and Cargo files
+- Architecture: HIGH — data structures verified from actual source, patterns copied from deploy.rs
+- Pitfalls: HIGH — confirmed from source code, not guessed
+- Frontend patterns: HIGH — verified from existing kiosk pages
 
 **Research date:** 2026-03-15
-**Valid until:** 2026-04-15 (stable codebase, no external API dependencies)
+**Valid until:** 2026-04-15
