@@ -1822,23 +1822,41 @@ fn validate_config(config: &AgentConfig) -> Result<()> {
 }
 
 fn config_search_paths() -> Vec<std::path::PathBuf> {
-    // Stub — returns empty list (RED phase: tests will fail until Task 2 implements this)
-    Vec::new()
+    let mut paths: Vec<std::path::PathBuf> = Vec::new();
+
+    // Primary: exe directory (correct on Windows regardless of CWD)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            paths.push(exe_dir.join("rc-agent.toml"));
+        }
+    }
+    // Fallback: CWD (useful for `cargo run` in dev)
+    paths.push(std::path::PathBuf::from("rc-agent.toml"));
+    // Legacy Linux path
+    paths.push(std::path::PathBuf::from("/etc/racecontrol/rc-agent.toml"));
+
+    paths
 }
 
 fn load_config() -> Result<AgentConfig> {
-    let paths = ["rc-agent.toml", "/etc/racecontrol/rc-agent.toml"];
-    for path in paths {
+    let search_paths = config_search_paths();
+
+    for path in &search_paths {
         if let Ok(content) = std::fs::read_to_string(path) {
             let config: AgentConfig = toml::from_str(&content)?;
-            tracing::info!("Loaded config from {}", path);
+            tracing::info!("Loaded config from {}", path.display());
             validate_config(&config)?;
             return Ok(config);
         }
     }
 
     Err(anyhow::anyhow!(
-        "No config file found. Expected rc-agent.toml in current directory or /etc/racecontrol/"
+        "No config file found. Searched: {}",
+        search_paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
     ))
 }
 
