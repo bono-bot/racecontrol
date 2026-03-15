@@ -638,10 +638,23 @@ fn setup_winrm() -> Result<(), String> {
     let username =
         env::var("USERNAME").map_err(|_| "Cannot determine current username".to_string())?;
 
-    // Set password (WinRM requires non-blank password)
+    // Set password (WinRM requires non-blank password).
+    // Note: pod usernames like "SIM 1" have spaces — net user handles this
+    // because Rust passes each arg separately (no shell quoting issues).
     let pw_result = run("net", &["user", &username, "racing", "/y"]);
-    if let Err(e) = &pw_result {
-        warn(&format!("Password set may have failed: {}", e));
+    match &pw_result {
+        Ok(o) if o.status.success() => {
+            info(&format!("Password set for '{}'", username));
+        }
+        _ => {
+            // Fallback: try PowerShell Set-LocalUser (works with spaces in usernames)
+            warn("net user failed, trying PowerShell fallback...");
+            let ps_pw = format!(
+                "Set-LocalUser -Name '{}' -Password (ConvertTo-SecureString 'racing' -AsPlainText -Force)",
+                username
+            );
+            let _ = run_ps(&ps_pw);
+        }
     }
 
     // Configure auto-login (keeps boot seamless after password change)
