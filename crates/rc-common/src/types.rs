@@ -776,6 +776,20 @@ pub struct GroupMemberInfo {
     pub pod_number: Option<u32>,
 }
 
+// ─── Watchdog ──────────────────────────────────────────────────────────────
+
+/// Crash report sent by rc-watchdog to rc-core after restarting rc-agent.
+/// Fire-and-forget HTTP POST — delivery failure is non-fatal.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WatchdogCrashReport {
+    pub pod_id: String,
+    pub exit_code: Option<i32>,
+    /// ISO 8601 UTC timestamp of the detected crash (Utc::now().to_rfc3339())
+    pub crash_time: String,
+    pub restart_count: u32,
+    pub watchdog_version: String,
+}
+
 // -- Content Manifest (Phase 05) --
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1169,6 +1183,53 @@ mod tests {
         assert!(json.contains("\"car\":\"ks_ferrari_488_gt3\""), "car must appear: {}", json);
         assert!(json.contains("\"ai_count\":15"), "ai_count must appear: {}", json);
         assert!(json.contains("\"difficulty_tier\":\"semi_pro\""), "difficulty_tier must appear: {}", json);
+    }
+
+    // ── WatchdogCrashReport tests (Phase 19 Plan 01) ──────────────────────
+
+    #[test]
+    fn test_watchdog_crash_report_serde_roundtrip() {
+        let report = WatchdogCrashReport {
+            pod_id: "pod_3".to_string(),
+            exit_code: Some(-1073741819), // STATUS_ACCESS_VIOLATION
+            crash_time: "2026-03-15T10:00:00+00:00".to_string(),
+            restart_count: 5,
+            watchdog_version: "0.1.0".to_string(),
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let parsed: WatchdogCrashReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(report, parsed);
+    }
+
+    #[test]
+    fn test_watchdog_crash_report_exit_code_none() {
+        let report = WatchdogCrashReport {
+            pod_id: "pod_1".to_string(),
+            exit_code: None,
+            crash_time: "2026-03-15T10:00:00+00:00".to_string(),
+            restart_count: 1,
+            watchdog_version: "0.1.0".to_string(),
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("\"exit_code\":null"));
+        let parsed: WatchdogCrashReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.exit_code, None);
+    }
+
+    #[test]
+    fn test_watchdog_crash_report_json_fields() {
+        let report = WatchdogCrashReport {
+            pod_id: "pod_8".to_string(),
+            exit_code: Some(1),
+            crash_time: "2026-03-15T12:30:00+00:00".to_string(),
+            restart_count: 42,
+            watchdog_version: "0.1.0".to_string(),
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("\"pod_id\":\"pod_8\""));
+        assert!(json.contains("\"exit_code\":1"));
+        assert!(json.contains("\"restart_count\":42"));
+        assert!(json.contains("\"watchdog_version\":\"0.1.0\""));
     }
 
     #[test]
