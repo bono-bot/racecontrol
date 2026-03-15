@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: "Completed 13.1-01-PLAN.md"
+stopped_at: "Checkpoint in 13.1-03-PLAN.md — awaiting human verification of fleet health"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Completed Phase 13.1 Plan 01 (rc-agent exe-path config self-heal, 3 new tests)
+last_activity: 2026-03-15 — Reached checkpoint in Phase 13.1 Plan 03 (PodAgent Run key deployment, fleet-health scheduled task)
 progress:
   total_phases: 4
   completed_phases: 2
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 ## Current Position
 
 Phase: 13.1 (Pod Fleet Reliability) -- IN PROGRESS
-Plan: 1 of 3 complete (backfilled: Plan 01 was executed after Plan 02 due to ordering)
+Plan: 2 of 3 complete (Plan 03 at checkpoint:human-verify)
 Status: Active
-Last activity: 2026-03-15 — Completed Phase 13.1 Plan 01 (rc-agent exe-path config self-heal, 3 new tests)
+Last activity: 2026-03-15 — Task 1 complete in Plan 03: PodAgent Run key confirmed on 5/8 pods, FleetHealth scheduled task created
 
 Progress: [██████████] 100%
 
@@ -45,7 +45,7 @@ Progress: [██████████] 100%
 |-------|-------|-------|----------|
 | 12. Data Foundation | 2/2 | 11 min | 5.5 min |
 | 13. Leaderboard Core | 5/5 | 38 min | 7.6 min |
-| 13.1 Pod Fleet Reliability | 2/TBD | 20 min | 10 min |
+| 13.1 Pod Fleet Reliability | 2/3 (03 at checkpoint) | 45 min | 15 min |
 | 14. Events and Championships | TBD | - | - |
 | 15. Telemetry and Driver Rating | TBD | - | - |
 
@@ -95,10 +95,14 @@ Progress: [██████████] 100%
 - [13.1-02] Used eprintln! for exec slot exhaustion warning (not tracing::warn!) — pod-agent uses println!/eprintln! consistently, no tracing dep
 - [13.1-02] DEFAULT_EXEC_TIMEOUT_MS reduced to 10s — deploy pipeline explicitly passes 120000ms so no deploy regression
 - [13.1-02] Version bumped 0.5.0 -> 0.5.1 to distinguish new binary from existing deployed pods
+- [13.1-03] Pods 1, 3, 4 exec timeout — cannot verify/set registry remotely, need physical access; likely already have PodAgent Run key from install.bat v2
+- [13.1-03] Pod 8 pod-agent killed during v0.5.1 upgrade — HKLM Run key set, will auto-start on reboot; old v0.5.0 binary on pod
+- [13.1-03] FleetHealth scheduled task uses current-user context (not SYSTEM) — ensures network access to pod IPs
 
 ### Pending Todos
 
-None.
+- Pod 8: Restart pod-agent (reboot pod or manual start) then re-deploy v0.5.1 binary
+- Pods 1, 3, 4: Physical access to verify/set PodAgent Run key and diagnose exec timeout issues
 
 ### Roadmap Evolution
 
@@ -111,6 +115,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-15T07:43:00Z
-Stopped at: Completed 13.1-02-PLAN.md — pod-agent v0.5.1 hardened exec handler
+Last session: 2026-03-15T03:04:00Z
+Stopped at: Checkpoint in 13.1-03-PLAN.md — Task 2 is human-verify checkpoint
 Resume file: None
