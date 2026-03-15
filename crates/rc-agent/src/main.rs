@@ -4,6 +4,7 @@ mod content_scanner;
 mod debug_server;
 mod driving_detector;
 mod ffb_controller;
+mod firewall;
 mod game_process;
 mod kiosk;
 mod lock_screen;
