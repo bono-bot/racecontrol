@@ -6,23 +6,22 @@
 
 The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls. v2.0 delivered server IP pinning, lock screen hardening, Edge hardening, pod lockdown UI, and session results display.
 
-## Current Milestone: v3.0 Leaderboards, Telemetry & Competitive
+## Current Milestone: v4.0 Pod Fleet Self-Healing
 
-**Goal:** Give customers a public competitive platform — leaderboards, telemetry analysis, group event results, and championships — accessible from their phones via the cloud PWA.
+**Goal:** Every pod survives any failure — crashes, reboots, firewall resets, missing files — without physical intervention. Pods self-heal and remain remotely manageable at all times.
 
 **Target features:**
-- Hotlap events (staff-created, car class rankings A/B/C/D, 107% rule, gold/silver/bronze badges)
-- Group event results with F1-style auto-scoring (25/18/15/12/10/8/6/4/2/1)
-- Multi-round championship system with cumulative points across events
-- Circuit records (best lap per vehicle per circuit) and vehicle records (best per circuit for a vehicle)
-- Driver profiles with class rating, lap history, sector times
-- Telemetry visualization (speed trace + inputs, lap comparison, 2D track map overlay)
-- Driver skill rating system alongside vehicle-based classes
-- All fully public — no login required to browse leaderboards and records
+- rc-agent as Windows Service with auto-restart on crash (NSSM or native Service API)
+- WebSocket-based remote exec (`CoreToAgentMessage::Exec`) — manage pods even when firewall blocks HTTP
+- Firewall auto-configuration in Rust on startup (ICMP + TCP 8090) — no dependency on batch files
+- Startup error capture and reporting to rc-core before crash
+- Self-healing config: detect and repair missing toml, bat, registry keys on every startup
+- Deploy resilience: verify after deploy, rollback on failure, handle partial fleet failures
+- Fleet health dashboard: real-time pod status visible to Uday from phone
 
-**Inspired by:** rps.racecentres.com (Sim Racing Limited venue management platform)
+**Motivated by:** 4-hour debugging session on Mar 15, 2026 — Pods 1/3/4 offline due to exec exhaustion, missing firewall rules, CRLF-damaged batch files, rc-agent crash with no restart, no remote diagnostics when HTTP blocked
 
-**Surface:** Cloud PWA at app.racingpoint.cloud — data synced from venue via existing cloud_sync module
+**Paused:** v3.0 Phases 14 (Events) and 15 (Telemetry) deferred until fleet is bulletproof
 
 ## What This Is
 
@@ -67,12 +66,21 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Staff dashboard lockdown and power controls (KIOSK-01, KIOSK-02, PWR-01 through PWR-06) — v2.0
 - ✓ Customer experience branding and session results (BRAND-01 through BRAND-03, SESS-01 through SESS-03) — v2.0
 
-### Active (v3.0)
+### Active (v4.0)
+
+- [ ] rc-agent as Windows Service with auto-restart on crash
+- [ ] WebSocket-based remote exec for pod management when HTTP blocked
+- [ ] Firewall auto-configuration in Rust on startup
+- [ ] Startup error capture and reporting to rc-core
+- [ ] Self-healing config (detect and repair missing toml/bat/registry)
+- [ ] Deploy resilience (verify, rollback, handle partial failures)
+- [ ] Fleet health dashboard for Uday (real-time pod status)
+
+### Paused (v3.0 — resume after v4.0)
 
 - [ ] Hotlap events with staff creation and car class rankings
 - [ ] Group event results with F1-style auto-scoring
 - [ ] Multi-round championship system
-- [ ] Circuit and vehicle record tables
 - [ ] Driver profiles with class rating and lap history
 - [ ] Telemetry visualization with speed trace, lap comparison, and track map
 - [ ] Driver skill rating system
@@ -102,7 +110,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 ## Constraints
 
 - **Rust/Axum:** rc-core and rc-agent must stay Rust — no language change
-- **Pod-agent:** Node.js, runs on each pod alongside rc-agent
+- **Pod-agent:** MERGED into rc-agent (v3.0 Phase 13.1) — remote_ops.rs module on port 8090
 - **No new dependencies:** Use existing crate deps where possible (tokio, reqwest, serde, chrono, tracing)
 - **Email via send_email.js:** Reuse existing Gmail auth, don't add SMTP crate
 - **Windows:** All pods run Windows 11, Session 1 requirement for GUI processes
@@ -128,5 +136,9 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - On-site deployment automation improvements
 - Kiosk spectator leaderboard display (venue TV screens)
 
+| Merge pod-agent into rc-agent | Eliminates 2-process dependency, simplifies deploy | ✓ Good — deployed all 8 pods |
+| HKLM Run key for Session 1 GUI | Ensures rc-agent starts in user session at login | ⚠️ Revisit — no crash restart, needs Windows Service |
+| Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
+
 ---
-*Last updated: 2026-03-14 after milestone v3.0 started*
+*Last updated: 2026-03-15 after milestone v4.0 started*
