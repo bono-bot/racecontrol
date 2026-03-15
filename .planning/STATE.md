@@ -4,6 +4,21 @@ milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
 stopped_at: Completed 17-websocket-exec 17-03-PLAN.md
+last_updated: "2026-03-15T08:47:02.390Z"
+last_activity: 2026-03-15 — Completed Plan 17-03 (Core-Side Handler + Deploy Fallback). ExecResult handler, ws_exec_on_pod, deploy WS fallback.
+progress:
+  total_phases: 6
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 4
+---
+
+---
+gsd_state_version: 1.0
+milestone: v4.0
+milestone_name: Pod Fleet Self-Healing
+status: active
+stopped_at: Completed 17-websocket-exec 17-03-PLAN.md
 last_updated: "2026-03-15T08:33:33Z"
 last_activity: 2026-03-15 — Completed Plan 17-03 (Core-Side Handler + Deploy Fallback). ExecResult handler, ws_exec_on_pod, deploy WS fallback.
 progress:
