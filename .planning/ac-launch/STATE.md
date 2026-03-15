@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: AC Launch Reliability
 status: active
-stopped_at: "Phase 3 Plan 01 complete — LaunchDiagnostics pipeline"
+stopped_at: "Phase 3 complete — Launch Resilience done, ready for Phase 4"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Phase 3 Plan 01 complete (LaunchDiagnostics struct + GameLaunchInfo field + diagnostics threading)
+last_activity: 2026-03-15 — Phase 3 Plan 02 complete (billing auto-pause on launch failure + kiosk diagnostics display)
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
-  completed_plans: 5
-  percent: 50
+  completed_plans: 6
+  percent: 60
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/ac-launch/PROJECT.md (created 2026-03-15)
 
 **Core value:** No customer ever plays for free and no customer ever pays for downtime — billing and game process always in sync.
-**Current focus:** Phase 3 — Launch Resilience (next)
+**Current focus:** Phase 4 — Multiplayer Server Lifecycle (next)
 
 ## Current Position
 
-Phase: 3 of 5 — Launch Resilience (in progress)
-Plan: 1 of 2
-Status: Phase 3 Plan 01 complete — diagnostics pipeline done, moving to Plan 02
-Last activity: 2026-03-15 — Phase 3 Plan 01 complete
+Phase: 4 of 5 — Multiplayer Server Lifecycle (next)
+Plan: 0 of 2
+Status: Phase 3 complete — Launch Resilience done, ready for Phase 4
+Last activity: 2026-03-15 — Phase 3 Plan 02 complete
 
-Progress: [#####░░░░░] 50%
+Progress: [######░░░░] 60%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 3min
-- Total execution time: 13min
+- Total plans completed: 6
+- Average duration: 6min
+- Total execution time: 33min
 
 **By Phase:**
 
@@ -45,7 +45,7 @@ Progress: [#####░░░░░] 50%
 |-------|-------|-------|----------|
 | 1. Billing-Game Lifecycle | 2/2 | 5min | 2.5min |
 | 2. Game Crash Recovery | 2/2 | 8min | 4min |
-| 3. Launch Resilience | 1/2 | 15min (so far) | 15min |
+| 3. Launch Resilience | 2/2 | 20min | 10min |
 
 ## Accumulated Context
 
@@ -58,6 +58,8 @@ Progress: [#####░░░░░] 50%
 - No research needed — all issues documented in customer-journey-gaps.md with known code paths
 - Billing gate placed after catalog validation but before double-launch guard in launch_game()
 - Double-launch guard error message generalized to "already has a game active" covering both Launching and Running
+- Reused PausedGamePause status (from Phase 2) for launch failure billing pause — no new enum variant needed
+- StateLabel component receives gameInfo prop for context-aware crashed/launch-failed label
 
 ### Existing Infrastructure (do NOT rebuild)
 
@@ -74,8 +76,7 @@ Progress: [#####░░░░░] 50%
 
 ### Pending Todos
 
-- Phase 3 Plan 02: rc-core LaunchFailed handler + billing auto-pause + kiosk error display + retry button
-- Phase 4: Multiplayer Server Lifecycle (after Phase 3 completes)
+- Phase 4: Multiplayer Server Lifecycle (after Phase 3 completes -- READY)
 - Phase 5: Synchronized Group Play (after Phase 4 completes)
 
 ### Blockers/Concerns
@@ -88,5 +89,5 @@ Progress: [#####░░░░░] 50%
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Phase 3 Plan 01 complete — moving to Plan 02
+Stopped at: Phase 3 complete — Launch Resilience done, ready for Phase 4
 Resume file: None

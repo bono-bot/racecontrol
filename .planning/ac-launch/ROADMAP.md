@@ -12,7 +12,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 
 - [x] **Phase 1: Billing-Game Lifecycle** - Stop game on billing end, validate before launch, pod reset after session, anti-double-launch
 - [x] **Phase 2: Game Crash Recovery** - Detect crash, pause billing, show status, enable re-launch
-- [ ] **Phase 3: Launch Resilience** - CM fallback improvements, failure reporting, billing pause on launch failure
+- [x] **Phase 3: Launch Resilience** - CM fallback improvements, failure reporting, billing pause on launch failure
 - [ ] **Phase 4: Multiplayer Server Lifecycle** - AC server auto-start/stop wired to billing, kiosk self-serve multiplayer booking
 - [ ] **Phase 5: Synchronized Group Play** - Coordinated launch across pods, continuous race mode, failure recovery
 
@@ -63,7 +63,7 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md — rc-agent: improve CM fallback diagnostics (structured LaunchResult with error details), report to rc-core via enhanced GameStateChanged
-- [ ] 03-02-PLAN.md — rc-core: handle LaunchFailed (auto-pause billing, store diagnostics), kiosk shows launch error details + retry button
+- [x] 03-02-PLAN.md — rc-core: handle LaunchFailed (auto-pause billing, store diagnostics), kiosk shows launch error details + retry button
 
 ### Phase 4: Multiplayer Server Lifecycle
 **Goal**: When staff or customer books multiplayer, the AC server starts automatically. When billing ends, the server stops. Customers can book multiplayer directly from the kiosk without staff — friends walk in, pick a game, get PINs, and drive together.
@@ -106,11 +106,11 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 |-------|-------|--------|-----------|
 | 1. Billing-Game Lifecycle | 2/2 | Complete | 2026-03-15 |
 | 2. Game Crash Recovery | 2/2 | Complete | 2026-03-15 |
-| 3. Launch Resilience | 1/2 | In progress | - |
+| 3. Launch Resilience | 2/2 | Complete | 2026-03-15 |
 | 4. Multiplayer Server Lifecycle | 0/2 | Not started | - |
 | 5. Synchronized Group Play | 0/2 | Not started | - |
 
-**Total: 5/10 plans complete**
+**Total: 6/10 plans complete**
 
 ## Dependency Graph
 
