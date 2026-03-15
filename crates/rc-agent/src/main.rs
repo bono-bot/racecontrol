@@ -480,6 +480,9 @@ async fn main() -> Result<()> {
     // AI debugger result channel
     let (ai_result_tx, mut ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
 
+    // WebSocket command result channel — spawned tasks send results here, select loop drains and sends via ws_tx
+    let (ws_exec_result_tx, mut ws_exec_result_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(16);
+
     // Kiosk mode — prevent unauthorized desktop access on gaming PCs
     let kiosk_enabled = config.kiosk.enabled;
     let mut kiosk = KioskManager::new();
@@ -1055,6 +1058,15 @@ async fn main() -> Result<()> {
                         let json = serde_json::to_string(&msg)?;
                         let _ = ws_tx.send(Message::Text(json.into())).await;
                         tracing::info!("PIN submitted, forwarding to core for verification");
+                    }
+                }
+            }
+            // WebSocket command results from spawned tasks
+            Some(ws_exec_msg) = ws_exec_result_rx.recv() => {
+                if let Ok(json) = serde_json::to_string(&ws_exec_msg) {
+                    if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                        tracing::error!("Failed to send WS command result, connection lost");
+                        break;
                     }
                 }
             }
@@ -1810,6 +1822,14 @@ async fn main() -> Result<()> {
                                             break;
                                         }
                                     }
+                                }
+                                rc_common::protocol::CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } => {
+                                    tracing::info!("WS command request {}: {}", request_id, cmd);
+                                    let result_tx = ws_exec_result_tx.clone();
+                                    tokio::spawn(async move {
+                                        let result = handle_ws_exec(request_id, cmd, timeout_ms).await;
+                                        let _ = result_tx.send(result).await;
+                                    });
                                 }
                                 other => {
                                     tracing::warn!("Unhandled CoreToAgentMessage: {:?}", other);
