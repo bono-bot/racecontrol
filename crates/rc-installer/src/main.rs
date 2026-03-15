@@ -308,8 +308,12 @@ fn verify_defender_exclusion(dest: &Path) -> Result<(), String> {
         dest_str
     ));
     let _ = run_ps(
-        "Add-MpPreference -ExclusionProcess 'rc-agent.exe' -ErrorAction SilentlyContinue",
+        &format!("Add-MpPreference -ExclusionProcess '{}\\rc-agent.exe' -ErrorAction SilentlyContinue", dest_str),
     );
+
+    // Wait for WdFilter.sys minifilter to recognize new exclusions
+    info("Waiting 2s for exclusion propagation...");
+    thread::sleep(Duration::from_secs(2));
 
     // Verify
     let check = run_ps(&format!(
@@ -476,7 +480,7 @@ fn quarantine_check(src: &Path, dest: &Path) -> Result<(), String> {
         dest_str
     ));
     let _ = run_ps(
-        "Add-MpPreference -ExclusionProcess 'rc-agent.exe' -ErrorAction SilentlyContinue",
+        &format!("Add-MpPreference -ExclusionProcess '{}\\rc-agent.exe' -ErrorAction SilentlyContinue", dest_str),
     );
 
     thread::sleep(Duration::from_secs(2));
