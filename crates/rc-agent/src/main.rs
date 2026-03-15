@@ -307,6 +307,16 @@ async fn main() -> Result<()> {
         installed_games: installed_games.clone(),
     };
 
+    // Firewall auto-config — ensure ICMP + TCP 8090 rules exist (FW-01, FW-02, FW-03)
+    match firewall::configure() {
+        firewall::FirewallResult::Configured => {
+            tracing::info!("Firewall configured");
+        }
+        firewall::FirewallResult::Failed(msg) => {
+            tracing::warn!("Firewall config failed: {} — continuing anyway", msg);
+        }
+    }
+
     // Remote ops HTTP server (merged pod-agent) — port 8090
     remote_ops::start(8090);
     tracing::info!("Remote ops server started on port 8090");
