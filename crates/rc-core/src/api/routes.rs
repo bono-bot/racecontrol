@@ -11372,3 +11372,89 @@ mod public_session_tests {
         assert!(row.expect("no error").is_none(), "Must return None for non-existent session");
     }
 }
+
+#[cfg(test)]
+mod watchdog_crash_report_tests {
+    use super::*;
+    use axum::extract::{Path, State};
+    use axum::http::StatusCode;
+    use std::sync::Arc;
+
+    async fn make_state() -> Arc<AppState> {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        let config = crate::config::Config::default_test();
+        Arc::new(AppState::new(config, db))
+    }
+
+    #[tokio::test]
+    async fn watchdog_crash_report_returns_200_for_valid_payload() {
+        let state = make_state().await;
+
+        let report = WatchdogCrashReport {
+            pod_id: "pod_8".to_string(),
+            exit_code: Some(-1073741819),
+            crash_time: "2026-03-15T10:00:00+00:00".to_string(),
+            restart_count: 3,
+            watchdog_version: "0.1.0".to_string(),
+        };
+
+        let response = watchdog_crash_report(
+            Path("pod_8".to_string()),
+            State(state),
+            Json(report),
+        )
+        .await;
+
+        let status = response.into_response().status();
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn watchdog_crash_report_accepts_none_exit_code() {
+        let state = make_state().await;
+
+        let report = WatchdogCrashReport {
+            pod_id: "pod_1".to_string(),
+            exit_code: None,
+            crash_time: "2026-03-15T12:00:00+00:00".to_string(),
+            restart_count: 1,
+            watchdog_version: "0.1.0".to_string(),
+        };
+
+        let response = watchdog_crash_report(
+            Path("pod_1".to_string()),
+            State(state),
+            Json(report),
+        )
+        .await;
+
+        let status = response.into_response().status();
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn watchdog_crash_report_high_restart_count() {
+        let state = make_state().await;
+
+        let report = WatchdogCrashReport {
+            pod_id: "pod_5".to_string(),
+            exit_code: Some(1),
+            crash_time: "2026-03-15T14:30:00+00:00".to_string(),
+            restart_count: 42,
+            watchdog_version: "0.1.0".to_string(),
+        };
+
+        let response = watchdog_crash_report(
+            Path("pod_5".to_string()),
+            State(state),
+            Json(report),
+        )
+        .await;
+
+        let status = response.into_response().status();
+        assert_eq!(status, StatusCode::OK);
+    }
+}
