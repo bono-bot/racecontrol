@@ -452,6 +452,20 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 state.pod_manifests.write().await.insert(pod_id.clone(), manifest.clone());
                             }
                         }
+                        AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr } => {
+                            tracing::info!("WS command result {}: success={}", request_id, success);
+                            let mut pending = state.pending_ws_execs.write().await;
+                            if let Some(sender) = pending.remove(request_id) {
+                                let _ = sender.send(crate::state::WsExecResult {
+                                    success: *success,
+                                    exit_code: *exit_code,
+                                    stdout: stdout.clone(),
+                                    stderr: stderr.clone(),
+                                });
+                            } else {
+                                tracing::warn!("No pending request for request_id={}", request_id);
+                            }
+                        }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");
@@ -511,6 +525,22 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
         } else {
             state.agent_senders.write().await.remove(pod_id);
             state.agent_conn_ids.write().await.remove(pod_id);
+
+            // Sweep pending WS command entries for this pod (they use "pod_X:" prefix)
+            {
+                let prefix = format!("{}:", pod_id);
+                let mut pending = state.pending_ws_execs.write().await;
+                let stale_keys: Vec<String> = pending.keys()
+                    .filter(|k| k.starts_with(&prefix))
+                    .cloned()
+                    .collect();
+                for key in &stale_keys {
+                    pending.remove(key);
+                }
+                if !stale_keys.is_empty() {
+                    tracing::info!("Cleaned {} pending WS command(s) for disconnected {}", stale_keys.len(), pod_id);
+                }
+            }
 
             let has_active_billing = state
                 .billing
@@ -972,4 +1002,56 @@ async fn handle_ai(socket: WebSocket, state: Arc<AppState>) {
     *state.ai_peer_tx.write().await = None;
     send_task.abort();
     tracing::info!("AI channel: {} disconnected", identity);
+}
+
+/// Send a shell command to a pod agent via WebSocket and wait for the result.
+///
+/// Uses pod-prefixed request_id (e.g. "pod_3:uuid") so disconnect cleanup
+/// can identify and remove stale entries.
+///
+/// Returns (success, stdout, stderr) or an error string.
+pub async fn ws_exec_on_pod(
+    state: &std::sync::Arc<crate::state::AppState>,
+    pod_id: &str,
+    cmd: &str,
+    timeout_ms: u64,
+) -> Result<(bool, String, String), String> {
+    let request_id = format!("{}:{}", pod_id, uuid::Uuid::new_v4());
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    // Register pending response
+    state.pending_ws_execs.write().await.insert(request_id.clone(), tx);
+
+    // Clone the sender, drop the lock immediately (avoid holding lock across await)
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        senders.get(pod_id).cloned()
+            .ok_or_else(|| format!("Pod {} not connected via WebSocket", pod_id))?
+    };
+
+    // Send the command
+    if sender.send(rc_common::protocol::CoreToAgentMessage::Exec {
+        request_id: request_id.clone(),
+        cmd: cmd.to_string(),
+        timeout_ms,
+    }).await.is_err() {
+        state.pending_ws_execs.write().await.remove(&request_id);
+        return Err(format!("Failed to send command to pod {}", pod_id));
+    }
+
+    // Wait for response with buffer timeout (command timeout + 5s for WS round trip)
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms + 5000),
+        rx,
+    ).await {
+        Ok(Ok(result)) => Ok((result.success, result.stdout, result.stderr)),
+        Ok(Err(_)) => {
+            state.pending_ws_execs.write().await.remove(&request_id);
+            Err("WS response channel closed unexpectedly".to_string())
+        }
+        Err(_) => {
+            state.pending_ws_execs.write().await.remove(&request_id);
+            Err(format!("WS command timed out after {}ms", timeout_ms + 5000))
+        }
+    }
 }
