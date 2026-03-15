@@ -13,7 +13,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 - [x] **Phase 1: Billing-Game Lifecycle** - Stop game on billing end, validate before launch, pod reset after session, anti-double-launch
 - [x] **Phase 2: Game Crash Recovery** - Detect crash, pause billing, show status, enable re-launch
 - [x] **Phase 3: Launch Resilience** - CM fallback improvements, failure reporting, billing pause on launch failure
-- [ ] **Phase 4: Multiplayer Server Lifecycle** - AC server auto-start/stop wired to billing, kiosk self-serve multiplayer booking
+- [x] **Phase 4: Multiplayer Server Lifecycle** - AC server auto-start/stop wired to billing, kiosk self-serve multiplayer booking
 - [ ] **Phase 5: Synchronized Group Play** - Coordinated launch across pods, continuous race mode, failure recovery
 
 ## Phase Details
@@ -79,7 +79,7 @@ Plans:
 
 Plans:
 - [x] 04-01-PLAN.md — rc-core: wire book_multiplayer() → AcServerManager.start(), wire billing end → AcServerManager.stop(), add server lifecycle events to WebSocket dashboard
-- [ ] 04-02-PLAN.md — kiosk: add "Play with Friends" flow to booking wizard (pod count → friend count → experience → review → book), display PINs + pod assignments on confirmation
+- [x] 04-02-PLAN.md — kiosk: add "Play with Friends" flow to booking wizard (pod count → experience → review → book), display PINs + pod assignments on confirmation
 
 ### Phase 5: Synchronized Group Play
 **Goal**: Group events run smoothly — all pods launch and join the server at the same time, staff can run continuous races that auto-restart, and if a pod fails to join the server, staff can see and fix it without restarting everything
@@ -107,10 +107,10 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 | 1. Billing-Game Lifecycle | 2/2 | Complete | 2026-03-15 |
 | 2. Game Crash Recovery | 2/2 | Complete | 2026-03-15 |
 | 3. Launch Resilience | 2/2 | Complete | 2026-03-15 |
-| 4. Multiplayer Server Lifecycle | 1/2 | In progress | - |
+| 4. Multiplayer Server Lifecycle | 2/2 | Complete | 2026-03-15 |
 | 5. Synchronized Group Play | 0/2 | Not started | - |
 
-**Total: 7/10 plans complete**
+**Total: 8/10 plans complete**
 
 ## Dependency Graph
 

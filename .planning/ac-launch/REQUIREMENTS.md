@@ -77,8 +77,8 @@
 | LAUNCH-03 | Phase 3 | Complete (03-02) |
 | MULTI-01 | Phase 4 | Complete (04-01) |
 | MULTI-02 | Phase 4 | Complete (04-01) |
-| MULTI-03 | Phase 4 | Complete (04-01 backend, 04-02 UI) |
-| MULTI-04 | Phase 4 | Complete (04-01) |
+| MULTI-03 | Phase 4 | Complete (04-01 backend + 04-02 kiosk UI) |
+| MULTI-04 | Phase 4 | Complete (04-01 backend + 04-02 kiosk UI) |
 | GROUP-01 | Phase 5 | Pending |
 | GROUP-02 | Phase 5 | Pending |
 | GROUP-03 | Phase 5 | Pending |
@@ -91,4 +91,4 @@
 
 ---
 *Requirements defined: 2026-03-15*
-*Last updated: 2026-03-15 after adding Phases 4-5 (Multiplayer Automation)*
+*Last updated: 2026-03-15 after Phase 4 Plan 02 (kiosk multiplayer UI)*

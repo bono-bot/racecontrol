@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: AC Launch Reliability
 status: active
-stopped_at: "Phase 4 Plan 01 complete — multiplayer server lifecycle wiring done, kiosk UI next"
+stopped_at: "Phase 4 complete — multiplayer server lifecycle done (backend + kiosk UI), ready for Phase 5"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Phase 4 Plan 01 complete (multiplayer AC server auto-start/stop + kiosk booking endpoint)
+last_activity: 2026-03-15 — Phase 4 Plan 02 complete (kiosk multiplayer booking wizard UI)
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 10
-  completed_plans: 7
-  percent: 70
+  completed_plans: 8
+  percent: 80
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/ac-launch/PROJECT.md (created 2026-03-15)
 
 **Core value:** No customer ever plays for free and no customer ever pays for downtime — billing and game process always in sync.
-**Current focus:** Phase 4 Plan 02 — Kiosk multiplayer booking wizard UI
+**Current focus:** Phase 5 — Synchronized Group Play
 
 ## Current Position
 
-Phase: 4 of 5 — Multiplayer Server Lifecycle
-Plan: 1 of 2
-Status: Plan 01 complete — backend wiring done, kiosk UI next (Plan 02)
-Last activity: 2026-03-15 — Phase 4 Plan 01 complete
+Phase: 5 of 5 — Synchronized Group Play
+Plan: 0 of 2
+Status: Phase 4 complete — ready for Phase 5
+Last activity: 2026-03-15 — Phase 4 Plan 02 complete
 
-Progress: [#######░░░] 70%
+Progress: [########░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 6min
-- Total execution time: 41min
+- Total execution time: 44min
 
 **By Phase:**
 
@@ -46,7 +46,7 @@ Progress: [#######░░░] 70%
 | 1. Billing-Game Lifecycle | 2/2 | 5min | 2.5min |
 | 2. Game Crash Recovery | 2/2 | 8min | 4min |
 | 3. Launch Resilience | 2/2 | 20min | 10min |
-| 4. Multiplayer Server Lifecycle | 1/2 | 8min | 8min |
+| 4. Multiplayer Server Lifecycle | 2/2 | 11min | 5.5min |
 
 ## Accumulated Context
 
@@ -65,6 +65,9 @@ Progress: [#######░░░] 70%
 - ac_session_id column added via idempotent ALTER TABLE (safe for rolling deploy)
 - check_and_stop_multiplayer_server wired at three billing-end paths (tick-expired, manual, orphan)
 - Kiosk multiplayer uses unique PINs per pod (not shared group PIN)
+- Replaced old multiplayer_lobby join/create UI with pod count selector for kiosk self-serve
+- Success screen uses multiAssignments.length > 0 as multiplayer discriminator
+- Review button text changes to "BOOK N RIGS" in multi mode
 
 ### Existing Infrastructure (do NOT rebuild)
 
@@ -76,14 +79,15 @@ Progress: [#######░░░] 70%
 - Protocol messages: CoreToAgentMessage::LaunchGame, AgentToCoreMessage::GameStateChanged already exist
 - AcServerManager in rc-core/ac_server.rs — full server lifecycle (start/stop/monitor/orphan cleanup)
 - multiplayer.rs in rc-core — group booking, pod allocation, friend invites, PIN generation + kiosk booking
-- kiosk/src/app/book/page.tsx — booking wizard (single-player only, needs multiplayer flow)
+- kiosk/src/app/book/page.tsx — booking wizard with multiplayer "Play with Friends" flow
 - DB tables: group_sessions (+ ac_session_id column), group_session_members, multiplayer_results, pod_reservations
-- POST /kiosk/book-multiplayer endpoint (backend ready, needs kiosk UI)
+- POST /kiosk/book-multiplayer endpoint (backend + kiosk UI both complete)
+- api.kioskBookMultiplayer() in kiosk/src/lib/api.ts
+- KioskMultiplayerAssignment + KioskMultiplayerResult in kiosk/src/lib/types.ts
 
 ### Pending Todos
 
-- Phase 4 Plan 02: Kiosk multiplayer booking wizard UI (next)
-- Phase 5: Synchronized Group Play (after Phase 4 completes)
+- Phase 5: Synchronized Group Play (coordinated launch, continuous mode, join failure recovery)
 
 ### Blockers/Concerns
 
@@ -95,5 +99,5 @@ Progress: [#######░░░] 70%
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Phase 4 Plan 01 complete — multiplayer server lifecycle wiring done, kiosk UI next
+Stopped at: Phase 4 complete — multiplayer server lifecycle done (backend + kiosk UI), ready for Phase 5
 Resume file: None
