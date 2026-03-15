@@ -1046,6 +1046,7 @@ async fn main() -> Result<()> {
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingStopped { billing_session_id } => {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
+                                    heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
                                     overlay.deactivate();
                                     // Reset STATUS tracking and LaunchState
                                     last_ac_status = None;
@@ -1108,8 +1109,9 @@ async fn main() -> Result<()> {
                                     // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
                                     tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                                     current_driver_name = None;
-                                    // SESS-03: results stay on screen until next session starts
-                                    // (blank_timer NOT armed here — removed per SESS-03 requirement)
+                                    // LIFE-03: auto-return to idle after 15s session summary display
+                                    blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(15));
+                                    blank_timer_armed = true;
                                 }
                                 rc_common::protocol::CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
                                     tracing::info!("Launching game: {:?} (args: {:?})", launch_sim, launch_args);
