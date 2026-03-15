@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: "Completed 13-05-PLAN.md"
+stopped_at: "Completed 13.1-02-PLAN.md"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Completed Plan 05 (PWA pages: leaderboard, records, driver search, driver profile)
+last_activity: 2026-03-15 — Completed Phase 13.1 Plan 02 (pod-agent exec hardening: 10s timeout, slot exhaustion warning, v0.5.1)
 progress:
   total_phases: 4
   completed_phases: 2
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 
 ## Current Position
 
-Phase: 13 of 15 (Leaderboard Core) -- COMPLETE
-Plan: 5 of 5 complete
-Status: Phase Complete
-Last activity: 2026-03-15 — Completed Plan 05 (PWA pages: leaderboard, records, driver search, driver profile)
+Phase: 13.1 (Pod Fleet Reliability) -- IN PROGRESS
+Plan: 2 of TBD complete
+Status: Active
+Last activity: 2026-03-15 — Completed Phase 13.1 Plan 02 (pod-agent exec hardening: 10s timeout, slot exhaustion warning, v0.5.1)
 
 Progress: [██████████] 100%
 
@@ -45,6 +45,7 @@ Progress: [██████████] 100%
 |-------|-------|-------|----------|
 | 12. Data Foundation | 2/2 | 11 min | 5.5 min |
 | 13. Leaderboard Core | 5/5 | 38 min | 7.6 min |
+| 13.1 Pod Fleet Reliability | 2/TBD | 20 min | 10 min |
 | 14. Events and Championships | TBD | - | - |
 | 15. Telemetry and Driver Rating | TBD | - | - |
 
@@ -88,6 +89,9 @@ Progress: [██████████] 100%
 - [13-05] Inline formatLapTime utility per page rather than shared module — avoids premature abstraction
 - [13-05] Debounced driver search at 300ms with 2-char minimum to reduce API chatter
 - [13-05] class_badge conditionally rendered only when non-null — Phase 15 RAT-01 populates it
+- [13.1-02] Used eprintln! for exec slot exhaustion warning (not tracing::warn!) — pod-agent uses println!/eprintln! consistently, no tracing dep
+- [13.1-02] DEFAULT_EXEC_TIMEOUT_MS reduced to 10s — deploy pipeline explicitly passes 120000ms so no deploy regression
+- [13.1-02] Version bumped 0.5.0 -> 0.5.1 to distinguish new binary from existing deployed pods
 
 ### Pending Todos
 
@@ -104,6 +108,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T22:06:08Z
-Stopped at: Completed 13-05-PLAN.md — Phase 13 Leaderboard Core fully complete
+Last session: 2026-03-15T07:43:00Z
+Stopped at: Completed 13.1-02-PLAN.md — pod-agent v0.5.1 hardened exec handler
 Resume file: None

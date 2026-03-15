@@ -87,6 +87,14 @@ Requirements for milestone v3.0. Each maps to roadmap phases.
 - [x] **PUB-01**: All leaderboard, records, events, championships, and driver profile pages are accessible without login
 - [x] **PUB-02**: PWA pages are mobile-first with responsive tables/cards (minimum 14px for times, 16px for positions)
 
+### Pod Fleet Reliability (Phase 13.1 — Inserted)
+
+- [ ] **REL-01**: rc-agent finds rc-agent.toml when started from any working directory (not just C:\RacingPoint)
+- [ ] **REL-02**: All 8 pods have both RCAgent and PodAgent HKLM Run keys ensuring both services auto-start on reboot
+- [ ] **REL-03**: Fleet-health.py runs every 5 minutes as a scheduled task and reports pod status with exec slot availability
+- [ ] **REL-04**: Pod 8 is verified running the hardened pod-agent with reduced timeout and exhaustion logging
+- [x] **REL-05**: pod-agent default exec timeout is 10s (not 30s), exec slot exhaustion emits warning log, /health reports exec_slots_available
+
 ## v2 Requirements
 
 Deferred to future milestone. Tracked but not in current roadmap.
@@ -164,6 +172,11 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | RAT-01 | Phase 15 | Pending |
 | RAT-02 | Phase 15 | Pending |
 | RAT-03 | Phase 15 | Pending |
+| REL-01 | Phase 13.1 | Pending |
+| REL-02 | Phase 13.1 | Pending |
+| REL-03 | Phase 13.1 | Pending |
+| REL-04 | Phase 13.1 | Pending |
+| REL-05 | Phase 13.1 | Complete |
 
 **Coverage:**
 - v1 requirements: 47 total (note: requirements doc self-count of 42 is off; 47 are listed above)
