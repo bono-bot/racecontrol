@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
-stopped_at: Completed 20-deploy-resilience 20-01-PLAN.md
-last_updated: "2026-03-15T11:07:58.966Z"
+stopped_at: Checkpoint 20-deploy-resilience 20-02-PLAN.md Task 3 (human-verify Pod 8 canary)
+last_updated: "2026-03-15T11:14:55.474Z"
 last_activity: 2026-03-15 — Completed Plan 19-02 Task 1 (crash report endpoint + install script). Checkpoint pending for Pod 8 canary verification.
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
   percent: 91
 ---
 
@@ -68,6 +68,7 @@ Progress: [█████████░] 93%
 
 *Updated after each plan completion*
 | Phase 20-deploy-resilience P01 | 12 | 2 tasks | 2 files |
+| Phase 20-deploy-resilience P02 | 4 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Progress: [█████████░] 93%
 - [Phase 20-deploy-resilience]: RollingBack is an active deploy phase (is_active() returns true) — prevents second deploy during rollback
 - [Phase 20-deploy-resilience]: SWAP_SCRIPT_CONTENT uses /write endpoint not echo pipeline — avoids shell escaping issues
 - [Phase 20-deploy-resilience]: Rollback success sets Failed with rolled-back reason — no separate RolledBack variant needed
+- [Phase 20-deploy-resilience]: Defender check non-fatal: errors pushed to SelfHealResult.errors, never panic — agent startup never blocked by Defender API failure
+- [Phase 20-deploy-resilience]: failed.drain() retry pattern avoids double-counting — drain removes from failed, re-check re-populates based on retry result
 
 ### Pending Todos
 
@@ -104,6 +107,6 @@ Progress: [█████████░] 93%
 
 ## Session Continuity
 
-Last session: 2026-03-15T11:07:58.964Z
-Stopped at: Completed 20-deploy-resilience 20-01-PLAN.md
+Last session: 2026-03-15T11:14:55.471Z
+Stopped at: Checkpoint 20-deploy-resilience 20-02-PLAN.md Task 3 (human-verify Pod 8 canary)
 Resume file: None
