@@ -89,12 +89,21 @@ async fn launch_game(
         }
     }
 
-    // Check if a game is currently launching (avoid double-launch race)
+    // LIFE-02: Reject launch if no active billing session
+    {
+        let timers = state.billing.active_timers.read().await;
+        if !timers.contains_key(pod_id) {
+            tracing::warn!("Launch rejected for pod {}: no active billing session", pod_id);
+            return Err(format!("Pod {} has no active billing session", pod_id));
+        }
+    }
+
+    // LIFE-04: Check if a game is currently launching or running (avoid double-launch)
     {
         let games = state.game_launcher.active_games.read().await;
         if let Some(tracker) = games.get(pod_id) {
-            if matches!(tracker.game_state, GameState::Launching) {
-                return Err(format!("Pod {} already launching a game", pod_id));
+            if matches!(tracker.game_state, GameState::Launching | GameState::Running) {
+                return Err(format!("Pod {} already has a game active", pod_id));
             }
         }
     }
