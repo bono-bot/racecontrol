@@ -96,6 +96,16 @@ pub enum AgentMessage {
         stdout: String,
         stderr: String,
     },
+
+    /// Agent reports startup status after connecting (HEAL-02)
+    StartupReport {
+        pod_id: String,
+        version: String,
+        uptime_secs: u64,
+        config_hash: String,
+        crash_recovery: bool,
+        repairs: Vec<String>,
+    },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -1598,6 +1608,54 @@ mod tests {
         let deserialized: AgentMessage = serde_json::from_str(&json).unwrap();
         if let AgentMessage::ExecResult { exit_code, .. } = deserialized {
             assert_eq!(exit_code, None);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    // ── Phase 18 Plan 02: StartupReport serde tests ─────────────────────
+
+    #[test]
+    fn test_startup_report_roundtrip() {
+        let msg = AgentMessage::StartupReport {
+            pod_id: "pod_3".to_string(),
+            version: "0.6.0".to_string(),
+            uptime_secs: 5,
+            config_hash: "abc123".to_string(),
+            crash_recovery: false,
+            repairs: vec!["config".to_string()],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("startup_report"), "JSON must contain 'startup_report', got: {}", json);
+        assert!(json.contains("pod_3"));
+        assert!(json.contains("0.6.0"));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::StartupReport { pod_id, version, uptime_secs, crash_recovery, repairs, .. } = parsed {
+            assert_eq!(pod_id, "pod_3");
+            assert_eq!(version, "0.6.0");
+            assert_eq!(uptime_secs, 5);
+            assert!(!crash_recovery);
+            assert_eq!(repairs, vec!["config"]);
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_startup_report_crash_recovery() {
+        let msg = AgentMessage::StartupReport {
+            pod_id: "pod_8".to_string(),
+            version: "0.6.0".to_string(),
+            uptime_secs: 0,
+            config_hash: "def456".to_string(),
+            crash_recovery: true,
+            repairs: vec![],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::StartupReport { crash_recovery, repairs, .. } = parsed {
+            assert!(crash_recovery);
+            assert!(repairs.is_empty());
         } else {
             panic!("Wrong variant");
         }
