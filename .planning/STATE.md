@@ -93,6 +93,10 @@ Progress: [██████████] 100%
 
 None.
 
+### Roadmap Evolution
+
+- Phase 13.1 inserted after Phase 13: Pod Fleet Reliability (URGENT) — fix pod-agent exec exhaustion, config self-heal, deploy resilience. Based on Mar 15 debugging session where 3/8 pods went offline.
+
 ### Blockers/Concerns
 
 - [Pre-Phase 15] Driver rating class boundaries (A=top X%?) are a product decision — need Uday sign-off before Phase 15 planning begins

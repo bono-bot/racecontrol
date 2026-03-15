@@ -74,6 +74,16 @@ Plans:
 - [x] 13-04-PLAN.md — Public driver search and profile endpoints (DRV-01, DRV-02, DRV-03, DRV-04)
 - [x] 13-05-PLAN.md — PWA pages: leaderboard, records, driver search, driver profile (PUB-01, PUB-02)
 
+### Phase 13.1: Pod Fleet Reliability (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 13
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 13.1 to break down)
+
 ### Phase 14: Events and Championships
 **Goal**: Staff can run structured hotlap events and multi-round championships — customers see ranked event leaderboards with 107% rule, gold/silver/bronze badges, F1-scored group results, and cumulative championship standings — all synced to the cloud PWA
 **Depends on**: Phase 13
