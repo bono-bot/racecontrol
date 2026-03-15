@@ -167,9 +167,9 @@ async fn set_deploy_state(state: &Arc<AppState>, pod_id: &str, deploy_state: Dep
     }
 }
 
-/// Execute a command on a pod via pod-agent POST /exec.
+/// Execute a command on a pod via pod-agent HTTP POST /exec.
 /// Returns (success, stdout, stderr).
-async fn exec_on_pod(
+async fn http_exec_on_pod(
     state: &Arc<AppState>,
     pod_ip: &str,
     cmd: &str,
@@ -204,9 +204,32 @@ async fn exec_on_pod(
     }
 }
 
+/// Execute a command on a pod: try HTTP first, fall back to WebSocket.
+///
+/// HTTP is preferred (lower latency, direct). If HTTP fails (firewall, pod-agent down),
+/// falls back to WebSocket which is always reachable (outbound connection from pod).
+async fn exec_on_pod(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    pod_ip: &str,
+    cmd: &str,
+    timeout_ms: u64,
+) -> Result<(bool, String, String), String> {
+    match http_exec_on_pod(state, pod_ip, cmd, timeout_ms).await {
+        Ok(result) => Ok(result),
+        Err(http_err) => {
+            tracing::warn!(
+                "HTTP command failed for {} ({}): {}. Trying WS fallback.",
+                pod_id, pod_ip, http_err
+            );
+            crate::ws::ws_exec_on_pod(state, pod_id, cmd, timeout_ms).await
+        }
+    }
+}
+
 /// Check if rc-agent.exe is running on the pod.
-async fn is_process_alive(state: &Arc<AppState>, pod_ip: &str) -> bool {
-    match exec_on_pod(state, pod_ip, "tasklist /NH | findstr rc-agent", 5000).await {
+async fn is_process_alive(state: &Arc<AppState>, pod_id: &str, pod_ip: &str) -> bool {
+    match exec_on_pod(state, pod_id, pod_ip, "tasklist /NH | findstr rc-agent", 5000).await {
         Ok((_, stdout, _)) => stdout.contains("rc-agent"),
         Err(_) => false,
     }
@@ -222,9 +245,9 @@ async fn is_ws_connected(state: &Arc<AppState>, pod_id: &str) -> bool {
 }
 
 /// Check if lock screen HTTP server is responsive on the pod.
-async fn is_lock_screen_healthy(state: &Arc<AppState>, pod_ip: &str) -> bool {
+async fn is_lock_screen_healthy(state: &Arc<AppState>, pod_id: &str, pod_ip: &str) -> bool {
     let cmd = r#"powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18923/health' -TimeoutSec 3 -UseBasicParsing; $r.StatusCode } catch { 0 }""#;
-    match exec_on_pod(state, pod_ip, cmd, 8000).await {
+    match exec_on_pod(state, pod_id, pod_ip, cmd, 8000).await {
         Ok((_, stdout, _)) => {
             let code: u32 = stdout.trim().parse().unwrap_or(0);
             code == 200
@@ -299,6 +322,7 @@ pub async fn deploy_pod(
     // Clean any stale staging binary first
     let _ = exec_on_pod(
         &state,
+        &pod_id,
         &pod_ip,
         "del /F C:\\RacingPoint\\rc-agent-new.exe",
         5000,
@@ -309,7 +333,7 @@ pub async fn deploy_pod(
         "curl.exe -s -f -o C:\\RacingPoint\\rc-agent-new.exe {}",
         binary_url
     );
-    match exec_on_pod(&state, &pod_ip, &download_cmd, 120_000).await {
+    match exec_on_pod(&state, &pod_id, &pod_ip, &download_cmd, 120_000).await {
         Ok((success, _stdout, stderr)) => {
             if !success {
                 let reason = format!(
@@ -342,6 +366,7 @@ pub async fn deploy_pod(
     set_deploy_state(&state, &pod_id, DeployState::SizeCheck).await;
     let dir_result = exec_on_pod(
         &state,
+        &pod_id,
         &pod_ip,
         "dir C:\\RacingPoint\\rc-agent-new.exe",
         5000,
@@ -450,7 +475,7 @@ pub async fn deploy_pod(
     // The /exec handler returns before the kill happens (bat runs independently).
     set_deploy_state(&state, &pod_id, DeployState::Starting).await;
     let swap_cmd = r#"cd /d C:\RacingPoint & (echo @echo off & echo timeout /t 3 /nobreak & echo taskkill /F /IM rc-agent.exe & echo timeout /t 2 /nobreak & echo del /Q rc-agent.exe & echo move rc-agent-new.exe rc-agent.exe & echo start "" /D C:\RacingPoint rc-agent.exe) > do-swap.bat & start /min cmd /c do-swap.bat"#;
-    let _ = exec_on_pod(&state, &pod_ip, swap_cmd, 5000).await;
+    let _ = exec_on_pod(&state, &pod_id, &pod_ip, swap_cmd, 5000).await;
 
     // Step 6: Verify health (process + WS + lock screen)
     // Self-swap takes ~5s (3s wait + 2s kill/rename/start), so first check at 5s is expected to find nothing.
@@ -463,13 +488,13 @@ pub async fn deploy_pod(
             return;
         }
 
-        let process_ok = is_process_alive(&state, &pod_ip).await;
+        let process_ok = is_process_alive(&state, &pod_id, &pod_ip).await;
         if !process_ok {
             continue; // process not yet started -- wait for next check
         }
 
         let ws_ok = is_ws_connected(&state, &pod_id).await;
-        let lock_ok = is_lock_screen_healthy(&state, &pod_ip).await;
+        let lock_ok = is_lock_screen_healthy(&state, &pod_id, &pod_ip).await;
 
         if ws_ok && lock_ok {
             // Full health verified
@@ -493,9 +518,9 @@ pub async fn deploy_pod(
     }
 
     // All verify delays exhausted without full health
-    let process_ok = is_process_alive(&state, &pod_ip).await;
+    let process_ok = is_process_alive(&state, &pod_id, &pod_ip).await;
     let ws_ok = is_ws_connected(&state, &pod_id).await;
-    let lock_ok = is_lock_screen_healthy(&state, &pod_ip).await;
+    let lock_ok = is_lock_screen_healthy(&state, &pod_id, &pod_ip).await;
 
     let reason = if !process_ok {
         "Process not running after start".to_string()
