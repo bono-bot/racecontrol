@@ -98,7 +98,10 @@ Plans:
   2. After a pod reboots with no one logged in, rc-watchdog starts automatically and then starts rc-agent in Session 1 without any manual login — the kiosk lock screen appears within 60 seconds of Windows boot
   3. rc-core receives a crash report from the watchdog within 30 seconds of rc-agent dying — the report includes exit code, crash time, and restart count
   4. rc-agent running under the watchdog shows Session# = 1 in `tasklist /v` output — confirmed on Pod 8 canary before fleet rollout
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 19-01-PLAN.md — Create rc-watchdog crate with service entry, poll loop, Session 1 spawn, and crash reporting (SVC-01, SVC-02, SVC-03)
+- [ ] 19-02-PLAN.md — rc-core crash report endpoint + install script + Pod 8 canary verification (SVC-03, SVC-04)
 
 ### Phase 20: Deploy Resilience
 **Goal**: Deploying a new rc-agent binary is safe — the previous binary is preserved for rollback, health is verified after swap, and if health fails the pod automatically reverts — so a bad deploy can never leave all 8 pods permanently offline
@@ -149,6 +152,6 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 16. Firewall Auto-Config | v4.0 | 1/1 | Complete | 2026-03-15 |
 | 17. WebSocket Exec | v4.0 | 3/3 | Complete | 2026-03-15 |
 | 18. Startup Self-Healing | v4.0 | 2/2 | Complete | 2026-03-15 |
-| 19. Watchdog Service | v4.0 | 0/? | Not started | - |
+| 19. Watchdog Service | v4.0 | 0/2 | In progress | - |
 | 20. Deploy Resilience | v4.0 | 0/? | Not started | - |
 | 21. Fleet Health Dashboard | v4.0 | 0/? | Not started | - |
