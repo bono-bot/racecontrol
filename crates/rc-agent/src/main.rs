@@ -19,7 +19,7 @@ use anyhow::Result;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use driving_detector::{
@@ -182,6 +182,80 @@ enum LaunchState {
         attempt: u8, // 1 or 2
     },
     Live,
+}
+
+/// Independent semaphore for WebSocket command execution — separate from HTTP remote_ops semaphore (WSEX-02).
+/// Ensures WS commands work even when all HTTP slots are full.
+const WS_MAX_CONCURRENT_EXECS: usize = 4;
+static WS_EXEC_SEMAPHORE: Semaphore = Semaphore::const_new(WS_MAX_CONCURRENT_EXECS);
+
+/// Handle a WebSocket command request: acquire semaphore permit, run command with timeout,
+/// return AgentMessage::ExecResult with stdout/stderr/exit_code.
+async fn handle_ws_exec(request_id: String, cmd: String, timeout_ms: u64) -> rc_common::protocol::AgentMessage {
+    use tokio::time::{timeout, Duration};
+
+    let permit = match WS_EXEC_SEMAPHORE.try_acquire() {
+        Ok(p) => p,
+        Err(_) => {
+            return rc_common::protocol::AgentMessage::ExecResult {
+                request_id,
+                success: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: format!("WS slots exhausted ({} max)", WS_MAX_CONCURRENT_EXECS),
+            };
+        }
+    };
+
+    let result = timeout(Duration::from_millis(timeout_ms), async {
+        let mut cmd_proc = tokio::process::Command::new("cmd");
+        cmd_proc.args(["/C", &cmd]).kill_on_drop(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd_proc.creation_flags(CREATE_NO_WINDOW);
+        }
+        cmd_proc.output().await
+    })
+    .await;
+
+    drop(permit);
+
+    // Truncate stdout/stderr to 64KB to prevent oversized WebSocket messages
+    let truncate = |s: String| -> String {
+        if s.len() > 65_536 {
+            let mut t = s[..65_536].to_string();
+            t.push_str("\n... [truncated]");
+            t
+        } else {
+            s
+        }
+    };
+
+    match result {
+        Ok(Ok(output)) => rc_common::protocol::AgentMessage::ExecResult {
+            request_id,
+            success: output.status.success(),
+            exit_code: output.status.code(),
+            stdout: truncate(String::from_utf8_lossy(&output.stdout).to_string()),
+            stderr: truncate(String::from_utf8_lossy(&output.stderr).to_string()),
+        },
+        Ok(Err(e)) => rc_common::protocol::AgentMessage::ExecResult {
+            request_id,
+            success: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: format!("Failed to run command: {}", e),
+        },
+        Err(_) => rc_common::protocol::AgentMessage::ExecResult {
+            request_id,
+            success: false,
+            exit_code: Some(124),
+            stdout: String::new(),
+            stderr: format!("Command timed out after {}ms", timeout_ms),
+        },
+    }
 }
 
 #[tokio::main]
@@ -405,6 +479,9 @@ async fn main() -> Result<()> {
 
     // AI debugger result channel
     let (ai_result_tx, mut ai_result_rx) = mpsc::channel::<AiDebugSuggestion>(16);
+
+    // WebSocket command result channel — spawned tasks send results here, select loop drains and sends via ws_tx
+    let (ws_exec_result_tx, mut ws_exec_result_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(16);
 
     // Kiosk mode — prevent unauthorized desktop access on gaming PCs
     let kiosk_enabled = config.kiosk.enabled;
@@ -981,6 +1058,15 @@ async fn main() -> Result<()> {
                         let json = serde_json::to_string(&msg)?;
                         let _ = ws_tx.send(Message::Text(json.into())).await;
                         tracing::info!("PIN submitted, forwarding to core for verification");
+                    }
+                }
+            }
+            // WebSocket command results from spawned tasks
+            Some(ws_exec_msg) = ws_exec_result_rx.recv() => {
+                if let Ok(json) = serde_json::to_string(&ws_exec_msg) {
+                    if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                        tracing::error!("Failed to send WS command result, connection lost");
+                        break;
                     }
                 }
             }
@@ -1736,6 +1822,14 @@ async fn main() -> Result<()> {
                                             break;
                                         }
                                     }
+                                }
+                                rc_common::protocol::CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } => {
+                                    tracing::info!("WS command request {}: {}", request_id, cmd);
+                                    let result_tx = ws_exec_result_tx.clone();
+                                    tokio::spawn(async move {
+                                        let result = handle_ws_exec(request_id, cmd, timeout_ms).await;
+                                        let _ = result_tx.send(result).await;
+                                    });
                                 }
                                 other => {
                                     tracing::warn!("Unhandled CoreToAgentMessage: {:?}", other);
