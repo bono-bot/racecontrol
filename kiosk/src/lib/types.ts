@@ -292,6 +292,7 @@ export type KioskPodState =
   | "waiting"
   | "selecting"
   | "on_track"
+  | "crashed"
   | "ending";
 
 // ─── Pod Activity Log ────────────────────────────────────────────────────

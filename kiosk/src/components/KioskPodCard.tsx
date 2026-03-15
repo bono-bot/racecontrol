@@ -31,6 +31,7 @@ interface KioskPodCardProps {
   onExtendSession: (billingSessionId: string) => void;
   onCancelAssignment: (tokenId: string) => void;
   onLaunchGame?: (podId: string) => void;
+  onRelaunchGame?: (podId: string) => void;
   onStartNow?: (authToken: AuthTokenInfo) => void;
   onTopUp?: (driverId: string) => void;
   onWakePod?: (podId: string) => void;
@@ -54,6 +55,7 @@ function derivePodState(
     if (billing.status === "completed" || billing.status === "ended_early") return "ending";
     if (gameInfo?.game_state === "running") return "on_track";
     if (gameInfo?.game_state === "launching") return "selecting";
+    if (gameInfo?.game_state === "error") return "crashed";
     return "on_track";
   }
 
@@ -90,6 +92,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
   onExtendSession,
   onCancelAssignment,
   onLaunchGame,
+  onRelaunchGame,
   onStartNow,
   walletBalance,
   onTopUp,
@@ -148,6 +151,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           ${state === "on_track" && !isSelected ? "bg-rp-card border-rp-red/40" : ""}
           ${state === "waiting" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
           ${state === "selecting" && !isSelected ? "bg-rp-card border-blue-500/40" : ""}
+          ${state === "crashed" && !isSelected ? "bg-rp-card border-red-600/60" : ""}
           ${state === "ending" && !isSelected ? "bg-rp-card border-green-500/40" : ""}
           ${hasWarning && !isSelected ? "border-amber-500 animate-pulse" : ""}
         `}
@@ -227,6 +231,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
         ${state === "on_track" && !isSelected ? "bg-rp-card border-rp-red/40 glow-active" : ""}
         ${state === "waiting" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
         ${state === "selecting" && !isSelected ? "bg-rp-card border-blue-500/40" : ""}
+        ${state === "crashed" && !isSelected ? "bg-rp-card border-red-600/60" : ""}
         ${state === "ending" && !isSelected ? "bg-rp-card border-green-500/40" : ""}
         ${hasWarning && !isSelected ? "border-amber-500 animate-pulse" : ""}
       `}
@@ -370,6 +375,24 @@ export const KioskPodCard = React.memo(function KioskPodCard({
               >
                 Launch Game
               </button>
+            )}
+
+            {/* Game Crashed banner + Relaunch button */}
+            {gameInfo?.game_state === "error" && (
+              <div className="bg-red-900/30 border border-red-600/50 rounded-md px-3 py-2 text-center">
+                <span className="text-red-500 text-xs font-bold uppercase tracking-wider">Game Crashed</span>
+                {gameInfo.error_message && (
+                  <p className="text-red-400/70 text-[10px] mt-0.5 truncate">{gameInfo.error_message}</p>
+                )}
+                {onRelaunchGame && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRelaunchGame(pod.id); }}
+                    className="mt-1.5 px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-md transition-colors text-xs"
+                  >
+                    Relaunch Game
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Live Telemetry */}
@@ -592,6 +615,7 @@ function StateLabel({ state, isOffline }: { state: KioskPodState; isOffline: boo
     waiting: "text-amber-400 bg-amber-400/10",
     selecting: "text-blue-400 bg-blue-400/10",
     on_track: "text-rp-red bg-rp-red/10",
+    crashed: "text-red-500 bg-red-500/10",
     ending: "text-green-400 bg-green-400/10",
   };
 
@@ -601,6 +625,7 @@ function StateLabel({ state, isOffline }: { state: KioskPodState; isOffline: boo
     waiting: "Waiting",
     selecting: "Launching",
     on_track: "On Track",
+    crashed: "Crashed",
     ending: "Complete",
   };
 

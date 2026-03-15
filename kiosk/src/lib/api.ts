@@ -91,6 +91,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ pod_id, sim_type, launch_args }),
     }),
+  relaunchGame: (pod_id: string) =>
+    fetchApi<{ ok: boolean }>(`/games/relaunch/${pod_id}`, {
+      method: "POST",
+    }),
   stopGame: (pod_id: string) =>
     fetchApi<{ ok: boolean }>("/games/stop", {
       method: "POST",

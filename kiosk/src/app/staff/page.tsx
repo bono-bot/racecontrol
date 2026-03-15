@@ -417,6 +417,13 @@ export default function StaffTerminal() {
                       wizard.reset();
                       wizard.goToStep("select_game");
                     }}
+                    onRelaunchGame={async (podId) => {
+                      try {
+                        await api.relaunchGame(podId);
+                      } catch (err) {
+                        alert(`Relaunch failed: ${err instanceof Error ? err.message : "Network error"}`);
+                      }
+                    }}
                     onStartNow={handleStartNow}
                     onTopUp={handleTopUp}
                     onWakePod={handleWakePod}
@@ -473,6 +480,13 @@ export default function StaffTerminal() {
                 setPanelMode("setup");
                 wizard.reset();
                 wizard.goToStep("select_game");
+              }}
+              onRelaunchGame={async (podId) => {
+                try {
+                  await api.relaunchGame(podId);
+                } catch (err) {
+                  alert(`Relaunch failed: ${err instanceof Error ? err.message : "Network error"}`);
+                }
               }}
               onTopUp={handleTopUp}
             />

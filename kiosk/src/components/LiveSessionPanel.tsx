@@ -23,6 +23,7 @@ interface LiveSessionPanelProps {
   onResumeSession: (billingSessionId: string) => void;
   onExtendSession: (billingSessionId: string) => void;
   onLaunchGame?: (podId: string) => void;
+  onRelaunchGame?: (podId: string) => void;
   onTopUp?: (driverId: string) => void;
 }
 
@@ -44,6 +45,7 @@ export function LiveSessionPanel({
   onResumeSession,
   onExtendSession,
   onLaunchGame,
+  onRelaunchGame,
   onTopUp,
 }: LiveSessionPanelProps) {
   const hasWarning = !!warning;
@@ -145,6 +147,24 @@ export function LiveSessionPanel({
         >
           Launch Game
         </button>
+      )}
+
+      {/* Game Crashed banner + Relaunch button */}
+      {gameInfo?.game_state === "error" && (
+        <div className="bg-red-900/30 border border-red-600/50 rounded-xl px-4 py-3 text-center">
+          <span className="text-red-400 font-bold text-sm uppercase tracking-wider">Game Crashed</span>
+          {gameInfo.error_message && (
+            <p className="text-red-400/70 text-xs mt-1">{gameInfo.error_message}</p>
+          )}
+          {onRelaunchGame && (
+            <button
+              onClick={() => onRelaunchGame(pod.id)}
+              className="mt-2 w-full py-3 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl transition-colors"
+            >
+              Relaunch Game
+            </button>
+          )}
+        </div>
       )}
 
       {/* Live Telemetry — expanded */}
