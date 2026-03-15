@@ -160,4 +160,4 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 18. Startup Self-Healing | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 19. Watchdog Service | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
-| 21. Fleet Health Dashboard | 2/2 | Complete   | 2026-03-15 | - |
+| 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |

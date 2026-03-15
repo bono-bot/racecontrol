@@ -2,32 +2,16 @@
 gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
-status: active
-stopped_at: "Completed 21-02-PLAN.md (fleet health dashboard UI) — awaiting checkpoint:human-verify"
-last_updated: "2026-03-15T13:20:49.817Z"
-last_activity: 2026-03-15 — Phase 20 Deploy Resilience complete (binary preservation, auto-rollback, Defender exclusion, fleet summary).
+status: complete
+stopped_at: "v4.0 milestone complete — all 6 phases (16-21) done, 12 plans executed"
+last_updated: "2026-03-15T18:55:00Z"
+last_activity: 2026-03-15 — Phase 21 Fleet Health Dashboard complete. v4.0 milestone finished.
 progress:
   total_phases: 6
   completed_phases: 6
   total_plans: 12
   completed_plans: 12
-  percent: 91
----
-
----
-gsd_state_version: 1.0
-milestone: v4.0
-milestone_name: Pod Fleet Self-Healing
-status: active
-stopped_at: Phase 20 complete. Phase 21 next.
-last_updated: "2026-03-15T11:30:00Z"
-last_activity: 2026-03-15 — Phase 20 Deploy Resilience complete (4 commits, 5 files, 14 new tests). All requirements DEP-01..04 done.
-progress:
-  [█████████░] 91%
-  completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
-  percent: 91
+  percent: 100
 ---
 
 # Project State
@@ -37,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-15)
 
 **Core value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
-**Current focus:** Phase 21 — Fleet Health Dashboard. Last phase of v4.0.
+**Current focus:** v4.0 COMPLETE. All 6 phases shipped. Ready for milestone completion.
 
 ## Current Position
 
-Phase: 21 of 21 (Fleet Health Dashboard)
-Plan: Not yet planned
-Status: Phase 20 complete. Ready to plan Phase 21.
-Last activity: 2026-03-15 — Phase 20 Deploy Resilience complete (binary preservation, auto-rollback, Defender exclusion, fleet summary).
+Phase: 21 of 21 (Fleet Health Dashboard) — COMPLETE
+Plan: All 12 plans complete
+Status: v4.0 milestone complete. Ready for /gsd:complete-milestone.
+Last activity: 2026-03-15 — Phase 21 Fleet Health Dashboard UI approved.
 
-Progress: [█████████░] 91%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 12
 - Average duration: ~7 min
-- Total execution time: ~64 min
+- Total execution time: ~80 min
 
 **By Phase:**
 
@@ -68,8 +52,8 @@ Progress: [█████████░] 91%
 | 19-watchdog-service P02 | 9 min | 2 tasks | 2 files |
 | 20-deploy-resilience P01 | 12 min | 2 tasks | 2 files |
 | 20-deploy-resilience P02 | 4 min | 2 tasks | 3 files |
-| Phase 21-fleet-health-dashboard P01 | 6 | 2 tasks | 6 files |
-| Phase 21-fleet-health-dashboard P02 | 5 | 1 tasks | 3 files |
+| 21-fleet-health-dashboard P01 | 6 min | 2 tasks | 6 files |
+| 21-fleet-health-dashboard P02 | 5 min | 1 task | 3 files |
 
 ## Accumulated Context
 
@@ -91,10 +75,9 @@ Progress: [█████████░] 91%
 - [Phase 19 P02]: Bare StatusCode::OK crash report; log_pod_activity source='watchdog'; sc.exe failure actions
 - [Phase 20 P01]: RollingBack is active (prevents concurrent deploy); SWAP via /write endpoint; rollback success = Failed with reason
 - [Phase 20 P02]: Defender check non-fatal; failed.drain() retry pattern avoids double-counting
-- [Phase 21-01]: Used futures_util::join_all (existing dep) instead of adding futures crate; dedicated probe client with 3s timeout; uptime_secs computed live from agent_started_at
-- [Phase 21-01]: fleet_health route is public (no auth) for Uday's LAN phone access; clear_on_disconnect preserves http_reachable (probe-driven, survives disconnect)
-- [Phase 21-02]: No auth on /fleet page — standalone ops page for Uday's LAN phone access
-- [Phase 21-02]: Keep last known pod data on poll error — error shown as yellow banner, cards never blank
+- [Phase 21 P01]: Used futures_util::join_all (existing dep) for parallel probes; dedicated 3s timeout client; uptime_secs computed live from agent_started_at
+- [Phase 21 P01]: fleet_health route is public (no auth) for Uday's LAN phone access; clear_on_disconnect preserves http_reachable
+- [Phase 21 P02]: No auth on /fleet page; keep last known pod data on poll error; error shown as yellow banner, cards never blank
 
 ### Pending Todos
 
@@ -104,10 +87,10 @@ Progress: [█████████░] 91%
 
 ### Blockers/Concerns
 
-- [Phase 21] Fleet dashboard depends on health data flowing from Phases 16–20. All code complete; needs fleet deploy first.
+- Fleet deploy needed: all v4.0 code complete but needs release build + fleet rollout to verify end-to-end
 
 ## Session Continuity
 
-Last session: 2026-03-15T13:20:42.973Z
-Stopped at: Completed 21-02-PLAN.md (fleet health dashboard UI) — awaiting checkpoint:human-verify
+Last session: 2026-03-15T18:55:00Z
+Stopped at: v4.0 milestone complete — all phases done, ready for /gsd:complete-milestone
 Resume file: None
