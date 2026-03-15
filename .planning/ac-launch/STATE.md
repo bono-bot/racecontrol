@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: AC Launch Reliability
 status: active
-stopped_at: "Phase 2 complete — crash recovery"
+stopped_at: "Phase 3 Plan 01 complete — LaunchDiagnostics pipeline"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Phase 2 complete (billing pause on crash + kiosk crash UI + relaunch)
+last_activity: 2026-03-15 — Phase 3 Plan 01 complete (LaunchDiagnostics struct + GameLaunchInfo field + diagnostics threading)
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 10
-  completed_plans: 4
-  percent: 40
+  completed_plans: 5
+  percent: 50
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/ac-launch/PROJECT.md (created 2026-03-15)
 
 ## Current Position
 
-Phase: 3 of 5 — Launch Resilience (not started)
-Plan: 0 of 2
-Status: Phases 1-2 complete, moving to Phase 3
-Last activity: 2026-03-15 — Phase 2 complete
+Phase: 3 of 5 — Launch Resilience (in progress)
+Plan: 1 of 2
+Status: Phase 3 Plan 01 complete — diagnostics pipeline done, moving to Plan 02
+Last activity: 2026-03-15 — Phase 3 Plan 01 complete
 
-Progress: [####░░░░░░] 40%
+Progress: [#####░░░░░] 50%
 
 ## Performance Metrics
 
@@ -45,6 +45,7 @@ Progress: [####░░░░░░] 40%
 |-------|-------|-------|----------|
 | 1. Billing-Game Lifecycle | 2/2 | 5min | 2.5min |
 | 2. Game Crash Recovery | 2/2 | 8min | 4min |
+| 3. Launch Resilience | 1/2 | 15min (so far) | 15min |
 
 ## Accumulated Context
 
@@ -73,16 +74,19 @@ Progress: [####░░░░░░] 40%
 
 ### Pending Todos
 
-- Phase 3: Launch Resilience (next — plan then execute)
+- Phase 3 Plan 02: rc-core LaunchFailed handler + billing auto-pause + kiosk error display + retry button
 - Phase 4: Multiplayer Server Lifecycle (after Phase 3 completes)
 - Phase 5: Synchronized Group Play (after Phase 4 completes)
 
 ### Blockers/Concerns
 
 - Protocol changes need serde(default) for rolling deploy compatibility
+- Agent-side LaunchDiagnostics is a separate struct from protocol type — converted explicitly at WebSocket send boundary
+- get_cm_exit_code() returns Some(-1) for "exited but code unknown", None for "still running" (tasklist limitation)
+- diagnostics: None on all non-CM-path GameLaunchInfo constructions — avoids false positives on direct launches
 
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Phase 2 complete — moving to Phase 3 planning
+Stopped at: Phase 3 Plan 01 complete — moving to Plan 02
 Resume file: None

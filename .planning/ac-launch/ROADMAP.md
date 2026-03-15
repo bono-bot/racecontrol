@@ -62,7 +62,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — rc-agent: improve CM fallback diagnostics (structured LaunchResult with error details), report to rc-core via enhanced GameStateChanged
+- [x] 03-01-PLAN.md — rc-agent: improve CM fallback diagnostics (structured LaunchResult with error details), report to rc-core via enhanced GameStateChanged
 - [ ] 03-02-PLAN.md — rc-core: handle LaunchFailed (auto-pause billing, store diagnostics), kiosk shows launch error details + retry button
 
 ### Phase 4: Multiplayer Server Lifecycle
@@ -106,11 +106,11 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 |-------|-------|--------|-----------|
 | 1. Billing-Game Lifecycle | 2/2 | Complete | 2026-03-15 |
 | 2. Game Crash Recovery | 2/2 | Complete | 2026-03-15 |
-| 3. Launch Resilience | 0/2 | Not started | - |
+| 3. Launch Resilience | 1/2 | In progress | - |
 | 4. Multiplayer Server Lifecycle | 0/2 | Not started | - |
 | 5. Synchronized Group Play | 0/2 | Not started | - |
 
-**Total: 4/10 plans complete**
+**Total: 5/10 plans complete**
 
 ## Dependency Graph
 
