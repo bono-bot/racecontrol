@@ -7,9 +7,9 @@
 
 ### Service & Crash Recovery
 
-- [ ] **SVC-01**: rc-watchdog.exe runs as a Windows Service (SYSTEM) and auto-starts on boot
-- [ ] **SVC-02**: Watchdog detects rc-agent crash within 10 seconds and restarts it in Session 1
-- [ ] **SVC-03**: Watchdog reports crash events to rc-core via HTTP (startup count, crash time, exit code)
+- [x] **SVC-01**: rc-watchdog.exe runs as a Windows Service (SYSTEM) and auto-starts on boot
+- [x] **SVC-02**: Watchdog detects rc-agent crash within 10 seconds and restarts it in Session 1
+- [x] **SVC-03**: Watchdog reports crash events to rc-core via HTTP (startup count, crash time, exit code)
 - [ ] **SVC-04**: Install script registers watchdog service with SCM failure actions (restart on failure)
 
 ### Remote Exec via WebSocket
@@ -77,9 +77,9 @@
 | HEAL-01 | Phase 18 | Complete |
 | HEAL-02 | Phase 18 | Complete |
 | HEAL-03 | Phase 18 | Complete |
-| SVC-01 | Phase 19 | Pending |
-| SVC-02 | Phase 19 | Pending |
-| SVC-03 | Phase 19 | Pending |
+| SVC-01 | Phase 19 | Complete |
+| SVC-02 | Phase 19 | Complete |
+| SVC-03 | Phase 19 | Complete |
 | SVC-04 | Phase 19 | Pending |
 | DEP-01 | Phase 20 | Pending |
 | DEP-02 | Phase 20 | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
-stopped_at: Completed 18-startup-self-healing 18-02-PLAN.md
-last_updated: "2026-03-15T09:30:22Z"
-last_activity: 2026-03-15 — Completed Plan 18-02 (Startup Report Protocol). AgentMessage::StartupReport in protocol.rs, sent from rc-agent, handled in rc-core.
+stopped_at: Completed 19-watchdog-service 19-01-PLAN.md
+last_updated: "2026-03-15T10:06:52Z"
+last_activity: 2026-03-15 — Completed Plan 19-01 (Watchdog Service Crate). rc-watchdog Windows SYSTEM service with SCM lifecycle, tasklist polling, Session 1 spawn, crash reporting.
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
 ---
 
 # Project State
@@ -20,23 +20,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-15)
 
 **Core value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
-**Current focus:** Phase 18 — Startup Self-Healing COMPLETE. Both plans done (P01: self-heal + startup log, P02: startup report protocol).
+**Current focus:** Phase 19 — Watchdog Service. Plan 01 (crate creation) COMPLETE. Plan 02 (install + deploy) pending.
 
 ## Current Position
 
-Phase: 18 of 21 (Startup Self-Healing) -- COMPLETE
-Plan: 2 of 2
-Status: Phase 18 complete -- all plans executed
-Last activity: 2026-03-15 — Completed Plan 18-02 (Startup Report Protocol). AgentMessage::StartupReport in protocol.rs, sent from rc-agent, handled in rc-core.
+Phase: 19 of 21 (Watchdog Service)
+Plan: 1 of 2
+Status: Plan 19-01 complete — rc-watchdog crate created, compiled, tested
+Last activity: 2026-03-15 — Completed Plan 19-01 (Watchdog Service Crate). rc-watchdog Windows SYSTEM service with SCM lifecycle, tasklist polling, Session 1 spawn, crash reporting.
 
-Progress: [██████████] 100%
+Progress: [████████░░] 87%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: ~5 min
-- Total execution time: ~29 min
+- Total plans completed: 7
+- Average duration: ~6 min
+- Total execution time: ~39 min
 
 **By Phase:**
 
@@ -47,6 +47,7 @@ Progress: [██████████] 100%
 | 17-websocket-exec P03 | 3 tasks | 3 files | 9 min |
 | 18-startup-self-healing P01 | 2 tasks | 3 files | 7 min |
 | 18-startup-self-healing P02 | 2 tasks | 3 files | 6 min |
+| 19-watchdog-service P01 | 1 task | 8 files | 10 min |
 
 *Updated after each plan completion*
 
@@ -66,6 +67,7 @@ Progress: [██████████] 100%
 - [Phase 17-websocket-exec P03]: Pod-prefixed request_id (pod_X:uuid) for disconnect cleanup; HTTP-first WS-fallback exec pattern; oneshot channel resolution for ExecResult; deploy.rs public API unchanged
 - [Phase 18-startup-self-healing P01]: Synchronous self-heal before load_config; embedded config template via include_str!; START_SCRIPT_CONTENT as const with CRLF; AtomicBool for startup log first-write truncation; cfg(windows) gating for registry ops
 - [Phase 18-startup-self-healing P02]: StartupReport sent once per process lifetime using startup_report_sent bool flag; fire-and-forget from agent side; message ordering Register -> StartupReport -> ContentManifest; core logs + records pod activity
+- [Phase 19-watchdog-service P01]: rc-watchdog crate with windows-service 0.8 for SCM; tasklist polling (not sysinfo); reqwest blocking (no tokio); 15s restart grace window; WTSQueryUserToken + CreateProcessAsUser for Session 1 spawn; read rc-agent.toml with COMPUTERNAME fallback
 
 ### Pending Todos
 
@@ -80,6 +82,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-15T09:30:22Z
-Stopped at: Completed 18-startup-self-healing 18-02-PLAN.md
+Last session: 2026-03-15T10:06:52Z
+Stopped at: Completed 19-watchdog-service 19-01-PLAN.md
 Resume file: None
