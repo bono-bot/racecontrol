@@ -32,7 +32,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 
 Plans:
 - [x] 01-01-PLAN.md — rc-core: billing validation gate + double-launch guard fix in game_launcher.rs (LIFE-01, LIFE-02, LIFE-04)
-- [ ] 01-02-PLAN.md — rc-agent: arm 15s blank_timer in SessionEnded + fix BillingStopped billing_active flag (LIFE-01, LIFE-03)
+- [x] 01-02-PLAN.md — rc-agent: arm 15s blank_timer in SessionEnded + fix BillingStopped billing_active flag (LIFE-01, LIFE-03)
 
 ### Phase 2: Game Crash Recovery
 **Goal**: When a game crashes, billing pauses instantly, staff sees it on the dashboard, and they can restart the game without touching the pod or creating a new session
@@ -104,13 +104,13 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 
 | Phase | Plans | Status | Completed |
 |-------|-------|--------|-----------|
-| 1. Billing-Game Lifecycle | 1/2 | In progress | Plan 01-01 done |
+| 1. Billing-Game Lifecycle | 2/2 | Code complete (Pod 8 verification pending) | 2026-03-15 |
 | 2. Game Crash Recovery | 0/2 | Not started | - |
 | 3. Launch Resilience | 0/2 | Not started | - |
 | 4. Multiplayer Server Lifecycle | 0/2 | Not started | - |
 | 5. Synchronized Group Play | 0/2 | Not started | - |
 
-**Total: 1/10 plans complete**
+**Total: 2/10 plans complete**
 
 ## Dependency Graph
 
