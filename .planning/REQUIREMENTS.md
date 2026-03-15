@@ -21,9 +21,9 @@
 
 ### Firewall Auto-Config
 
-- [ ] **FW-01**: rc-agent configures firewall rules (ICMP + TCP 8090) in Rust on every startup
-- [ ] **FW-02**: Firewall rules use profile=any and are idempotent (no duplicate accumulation)
-- [ ] **FW-03**: Firewall configuration runs before HTTP server bind (ensures port 8090 is reachable immediately)
+- [x] **FW-01**: rc-agent configures firewall rules (ICMP + TCP 8090) in Rust on every startup
+- [x] **FW-02**: Firewall rules use profile=any and are idempotent (no duplicate accumulation)
+- [x] **FW-03**: Firewall configuration runs before HTTP server bind (ensures port 8090 is reachable immediately)
 
 ### Startup & Self-Healing
 
@@ -67,9 +67,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FW-01 | Phase 16 | Pending |
-| FW-02 | Phase 16 | Pending |
-| FW-03 | Phase 16 | Pending |
+| FW-01 | Phase 16 | Complete |
+| FW-02 | Phase 16 | Complete |
+| FW-03 | Phase 16 | Complete |
 | WSEX-01 | Phase 17 | Pending |
 | WSEX-02 | Phase 17 | Pending |
 | WSEX-03 | Phase 17 | Pending |

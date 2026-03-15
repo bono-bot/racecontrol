@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
+stopped_at: Completed 16-firewall-auto-config 16-01-PLAN.md
+last_updated: "2026-03-15T07:47:07.231Z"
+last_activity: 2026-03-15 — Roadmap created for v4.0. 6 phases, 21 requirements, 100% coverage.
+progress:
+  total_phases: 6
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 91
+---
+
+---
+gsd_state_version: 1.0
+milestone: v4.0
+milestone_name: Pod Fleet Self-Healing
+status: active
 stopped_at: "Roadmap created — ready to plan Phase 16"
 last_updated: "2026-03-15"
 last_activity: 2026-03-15 — Roadmap created. 6 phases (16–21), 21 requirements mapped. Ready to plan Phase 16.
 progress:
-  total_phases: 6
+  [█████████░] 91%
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -46,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | TBD | - | - | - |
 
 *Updated after each plan completion*
+| Phase 16-firewall-auto-config P01 | 4 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -58,6 +75,7 @@ Progress: [░░░░░░░░░░] 0%
 - AV exclusion: Directory-wide C:\RacingPoint\ exclusion — simpler, avoids staging filename enumeration
 - v3.0 Phases 14 and 15 paused until v4.0 completes
 - Pod-agent merged into rc-agent (Phase 13.1, commit eea644e) — single binary per pod
+- [Phase 16-firewall-auto-config]: Firewall Phase 16: synchronous std::process::Command for netsh, non-fatal on failure, RacingPoint-prefixed rule names, old batch rules left intact as additive safety net
 
 ### Pending Todos
 
@@ -72,6 +90,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-15
-Stopped at: Roadmap written. Next: /gsd:plan-phase 16
+Last session: 2026-03-15T07:47:07.229Z
+Stopped at: Completed 16-firewall-auto-config 16-01-PLAN.md
 Resume file: None
