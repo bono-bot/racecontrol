@@ -44,7 +44,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 16: Firewall Auto-Config** - rc-agent configures ICMP + TCP 8090 rules in Rust on every startup — eliminates CRLF-damaged batch file failures permanently (completed 2026-03-15)
 - [x] **Phase 17: WebSocket Exec** - rc-core can send shell commands to any pod over the existing WebSocket — pods remain manageable even when HTTP port 8090 is firewall-blocked (completed 2026-03-15)
-- [ ] **Phase 18: Startup Self-Healing** - rc-agent verifies and repairs its own config, start script, and registry key on every boot — pods recover from corrupted config without physical intervention
+- [x] **Phase 18: Startup Self-Healing** - rc-agent verifies and repairs its own config, start script, and registry key on every boot — pods recover from corrupted config without physical intervention (completed 2026-03-15)
 - [ ] **Phase 19: Watchdog Service** - rc-watchdog.exe runs as a Windows SYSTEM service and auto-restarts rc-agent in Session 1 after any crash — no more permanent agent death on unhandled panic
 - [ ] **Phase 20: Deploy Resilience** - Deploys verify pod health post-swap, auto-rollback on failure, and fleet summary reports per-pod outcomes — bad deploys can never leave pods permanently offline
 - [ ] **Phase 21: Fleet Health Dashboard** - Uday can see real-time status for all 8 pods (WS connected, HTTP reachable, version, uptime) from his phone via the kiosk /fleet page
@@ -84,7 +84,7 @@ Plans:
   2. If the HKLM Run key for rc-agent is deleted, the next rc-agent startup recreates it — verified by checking the registry after a run with the key manually removed
   3. rc-core logs a startup report from each pod within 10 seconds of the pod's WebSocket connecting — the report includes agent version, uptime, config hash, and a crash recovery flag
   4. If rc-agent crashes before writing its startup log, a partial log file exists at `C:\RacingPoint\rc-agent-startup.log` with the last phase name reached before exit
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 18-01-PLAN.md — Self-heal module + startup log + main.rs wiring (HEAL-01, HEAL-03)
 - [ ] 18-02-PLAN.md — StartupReport protocol + core handler (HEAL-02)
@@ -148,7 +148,7 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Deferred | - |
 | 16. Firewall Auto-Config | 1/1 | Complete    | 2026-03-15 | - |
 | 17. WebSocket Exec | 3/3 | Complete    | 2026-03-15 | - |
-| 18. Startup Self-Healing | v4.0 | 0/2 | Planned | - |
+| 18. Startup Self-Healing | 2/2 | Complete   | 2026-03-15 | - |
 | 19. Watchdog Service | v4.0 | 0/? | Not started | - |
 | 20. Deploy Resilience | v4.0 | 0/? | Not started | - |
 | 21. Fleet Health Dashboard | v4.0 | 0/? | Not started | - |
