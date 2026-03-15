@@ -166,7 +166,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
             />
             <span className="font-semibold text-xs">Pod {pod.number}</span>
           </div>
-          <StateLabel state={state} isOffline={isOffline} />
+          <StateLabel state={state} isOffline={isOffline} gameInfo={gameInfo} />
         </div>
 
         {/* Compact Body */}
@@ -283,7 +283,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           )}
           {/* Blank screen toggle — available when online */}
           {!isOffline && <BlankScreenButton podId={pod.id} />}
-          <StateLabel state={state} isOffline={isOffline} />
+          <StateLabel state={state} isOffline={isOffline} gameInfo={gameInfo} />
         </div>
       </div>
 
@@ -377,13 +377,27 @@ export const KioskPodCard = React.memo(function KioskPodCard({
               </button>
             )}
 
-            {/* Game Crashed banner + Relaunch button */}
+            {/* Game Crashed / Launch Failed banner + Relaunch button */}
             {gameInfo?.game_state === "error" && (
               <div className="bg-red-900/30 border border-red-600/50 rounded-md px-3 py-2 text-center">
-                <span className="text-red-500 text-xs font-bold uppercase tracking-wider">Game Crashed</span>
-                {gameInfo.error_message && (
+                <span className="text-red-500 text-xs font-bold uppercase tracking-wider">
+                  {gameInfo.diagnostics?.cm_attempted ? "Launch Failed" : "Game Crashed"}
+                </span>
+                {gameInfo.diagnostics ? (
+                  <div className="mt-0.5 text-[10px] text-red-400/70 space-y-0.5">
+                    {gameInfo.diagnostics.cm_attempted && (
+                      <p>CM: {gameInfo.diagnostics.cm_exit_code != null ? `exited (${gameInfo.diagnostics.cm_exit_code})` : "not started"}</p>
+                    )}
+                    {gameInfo.diagnostics.cm_log_errors && (
+                      <p className="truncate" title={gameInfo.diagnostics.cm_log_errors}>
+                        Log: {gameInfo.diagnostics.cm_log_errors}
+                      </p>
+                    )}
+                    {gameInfo.diagnostics.fallback_used && <p>Fallback: direct acs.exe</p>}
+                  </div>
+                ) : gameInfo.error_message ? (
                   <p className="text-red-400/70 text-[10px] mt-0.5 truncate">{gameInfo.error_message}</p>
-                )}
+                ) : null}
                 {onRelaunchGame && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onRelaunchGame(pod.id); }}
@@ -605,7 +619,7 @@ function BlankScreenButton({ podId }: { podId: string }) {
   );
 }
 
-function StateLabel({ state, isOffline }: { state: KioskPodState; isOffline: boolean }) {
+function StateLabel({ state, isOffline, gameInfo }: { state: KioskPodState; isOffline: boolean; gameInfo?: GameLaunchInfo }) {
   if (isOffline)
     return <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-wider">Offline</span>;
 
@@ -625,7 +639,7 @@ function StateLabel({ state, isOffline }: { state: KioskPodState; isOffline: boo
     waiting: "Waiting",
     selecting: "Launching",
     on_track: "On Track",
-    crashed: "Crashed",
+    crashed: gameInfo?.diagnostics?.cm_attempted ? "Launch Failed" : "Crashed",
     ending: "Complete",
   };
 

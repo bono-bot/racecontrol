@@ -147,6 +147,15 @@ export interface GameLaunchInfo {
   pid?: number;
   launched_at?: string;
   error_message?: string;
+  diagnostics?: LaunchDiagnostics;
+}
+
+export interface LaunchDiagnostics {
+  cm_attempted: boolean;
+  cm_exit_code?: number;
+  cm_log_errors?: string;
+  fallback_used: boolean;
+  direct_exit_code?: number;
 }
 
 // ─── Kiosk Experiences ────────────────────────────────────────────────────

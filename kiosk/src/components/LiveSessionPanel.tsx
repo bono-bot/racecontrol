@@ -149,13 +149,27 @@ export function LiveSessionPanel({
         </button>
       )}
 
-      {/* Game Crashed banner + Relaunch button */}
+      {/* Game Crashed / Launch Failed banner + Relaunch button */}
       {gameInfo?.game_state === "error" && (
         <div className="bg-red-900/30 border border-red-600/50 rounded-xl px-4 py-3 text-center">
-          <span className="text-red-400 font-bold text-sm uppercase tracking-wider">Game Crashed</span>
-          {gameInfo.error_message && (
+          <span className="text-red-400 font-bold text-sm uppercase tracking-wider">
+            {gameInfo.diagnostics?.cm_attempted ? "Launch Failed" : "Game Crashed"}
+          </span>
+          {gameInfo.diagnostics ? (
+            <div className="mt-1 text-xs text-red-400/70 space-y-0.5">
+              {gameInfo.diagnostics.cm_attempted && (
+                <p>CM: {gameInfo.diagnostics.cm_exit_code != null ? `exited (${gameInfo.diagnostics.cm_exit_code})` : "not started"}</p>
+              )}
+              {gameInfo.diagnostics.cm_log_errors && (
+                <p className="truncate max-w-xs mx-auto" title={gameInfo.diagnostics.cm_log_errors}>
+                  Log: {gameInfo.diagnostics.cm_log_errors}
+                </p>
+              )}
+              {gameInfo.diagnostics.fallback_used && <p>Fallback: direct acs.exe used</p>}
+            </div>
+          ) : gameInfo.error_message ? (
             <p className="text-red-400/70 text-xs mt-1">{gameInfo.error_message}</p>
-          )}
+          ) : null}
           {onRelaunchGame && (
             <button
               onClick={() => onRelaunchGame(pod.id)}

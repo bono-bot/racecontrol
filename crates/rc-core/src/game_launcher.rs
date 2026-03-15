@@ -455,14 +455,30 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     }
                 });
             } else {
+                // LAUNCH-03: All relaunch attempts exhausted — pause billing
                 log_pod_activity(
                     state,
                     pod_id,
                     "race_engineer",
                     "Relaunch Limit Reached",
-                    &format!("Race Engineer: max relaunch attempts (2) reached for {}", info.sim_type),
+                    &format!(
+                        "Race Engineer: max relaunch attempts (2) reached for {}. Billing paused — staff action required.",
+                        info.sim_type
+                    ),
                     "race_engineer",
                 );
+
+                // Pause billing so customer doesn't pay for downtime
+                let mut timers = state.billing.active_timers.write().await;
+                if let Some(timer) = timers.get_mut(pod_id) {
+                    if timer.status == BillingSessionStatus::Active {
+                        timer.status = BillingSessionStatus::PausedGamePause;
+                        tracing::info!(
+                            "LAUNCH-03: Billing paused on pod {} — launch failed after 2 auto-relaunch attempts",
+                            pod_id
+                        );
+                    }
+                }
             }
         }
     }
