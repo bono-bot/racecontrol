@@ -62,7 +62,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. rc-agent startup log shows "Firewall configured" before the HTTP server bind line — confirming rules are applied before the port opens
 **Plans:** 1/1 plans complete
 Plans:
-- [ ] 16-01-PLAN.md — Create firewall.rs module and wire into rc-agent startup
+- [x] 16-01-PLAN.md — Create firewall.rs module and wire into rc-agent startup
 
 ### Phase 17: WebSocket Exec
 **Goal**: rc-core can send any shell command to any connected pod over the existing WebSocket connection and receive stdout, stderr, and exit code — so pods remain manageable even when HTTP port 8090 is firewall-blocked
@@ -73,7 +73,11 @@ Plans:
   2. WebSocket exec works correctly even when a simultaneous HTTP exec request fills all 4 HTTP exec slots — the two paths do not compete for the same semaphore
   3. When HTTP port 8090 is blocked on a pod (firewall rule manually deleted), deploy.rs falls back to WebSocket exec and the deploy completes successfully
   4. Each WebSocket exec response includes the same request_id that was sent — confirmed by sending two concurrent commands and verifying responses are correctly correlated
-**Plans**: TBD
+**Plans:** 3/3 plans complete
+Plans:
+- [x] 17-01-PLAN.md — WebSocket exec protocol types + agent handler (WSEX-01, WSEX-04)
+- [x] 17-02-PLAN.md — Core WS exec sender + HTTP-first fallback (WSEX-02, WSEX-03)
+- [x] 17-03-PLAN.md — Deploy fallback integration (WSEX-03)
 
 ### Phase 18: Startup Self-Healing
 **Goal**: rc-agent detects and repairs its own broken state on every startup — missing config file, CRLF-damaged start script, missing registry key — so a pod recovers from corruption automatically the next time it reboots
@@ -86,8 +90,8 @@ Plans:
   4. If rc-agent crashes before writing its startup log, a partial log file exists at `C:\RacingPoint\rc-agent-startup.log` with the last phase name reached before exit
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 18-01-PLAN.md — Self-heal module + startup log + main.rs wiring (HEAL-01, HEAL-03)
-- [ ] 18-02-PLAN.md — StartupReport protocol + core handler (HEAL-02)
+- [x] 18-01-PLAN.md — Self-heal module + startup log + main.rs wiring (HEAL-01, HEAL-03)
+- [x] 18-02-PLAN.md — StartupReport protocol + core handler (HEAL-02)
 
 ### Phase 19: Watchdog Service
 **Goal**: rc-watchdog.exe runs as a Windows SYSTEM service that auto-restarts rc-agent in Session 1 after any crash — so an unhandled panic or OOM kill no longer leaves the pod permanently dead until a human physically intervenes
@@ -100,8 +104,8 @@ Plans:
   4. rc-agent running under the watchdog shows Session# = 1 in `tasklist /v` output — confirmed on Pod 8 canary before fleet rollout
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 19-01-PLAN.md — Create rc-watchdog crate with service entry, poll loop, Session 1 spawn, and crash reporting (SVC-01, SVC-02, SVC-03)
-- [ ] 19-02-PLAN.md — rc-core crash report endpoint + install script + Pod 8 canary verification (SVC-03, SVC-04)
+- [x] 19-01-PLAN.md — Create rc-watchdog crate with service entry, poll loop, Session 1 spawn, and crash reporting (SVC-01, SVC-02, SVC-03)
+- [x] 19-02-PLAN.md — rc-core crash report endpoint + install script + Pod 8 canary verification (SVC-03, SVC-04)
 
 ### Phase 20: Deploy Resilience
 **Goal**: Deploying a new rc-agent binary is safe — the previous binary is preserved for rollback, health is verified after swap, and if health fails the pod automatically reverts — so a bad deploy can never leave all 8 pods permanently offline
@@ -114,8 +118,8 @@ Plans:
   4. After a fleet deploy across all 8 pods, rc-core logs a per-pod summary showing which pods succeeded, which failed, and which were retried — Uday can see the outcome without SSHing into each pod
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 20-01-PLAN.md — Self-swap binary preservation + DeployState::RollingBack + automatic rollback on health failure (DEP-01, DEP-02)
-- [ ] 20-02-PLAN.md — Defender exclusion self-heal + fleet deploy summary with retry + Pod 8 canary verification (DEP-03, DEP-04)
+- [x] 20-01-PLAN.md — Self-swap binary preservation + DeployState::RollingBack + automatic rollback on health failure (DEP-01, DEP-02)
+- [x] 20-02-PLAN.md — Defender exclusion self-heal + fleet deploy summary with retry + Pod 8 canary verification (DEP-03, DEP-04)
 
 ### Phase 21: Fleet Health Dashboard
 **Goal**: Uday can open his phone and see the real-time health of all 8 pods on a single screen — which pods are connected, which are reachable, what version is running, how long they have been up — so he knows the fleet state without calling James
@@ -127,8 +131,8 @@ Plans:
   3. Each pod card shows the rc-agent version number and uptime — after a fleet deploy, Uday can confirm all 8 pods show the new version without running any commands
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 21-01-PLAN.md — Backend fleet health module: PodFleetHealth state, HTTP probe loop, StartupReport storage, GET /fleet/health endpoint (FLEET-01, FLEET-02)
-- [ ] 21-02-PLAN.md — Frontend /fleet page: mobile-first card grid with WS/HTTP indicators, version, uptime, 5s polling (FLEET-01, FLEET-03)
+- [x] 21-01-PLAN.md — Backend fleet health module: PodFleetHealth state, HTTP probe loop, StartupReport storage, GET /fleet/health endpoint (FLEET-01, FLEET-02)
+- [x] 21-02-PLAN.md — Frontend /fleet page: mobile-first card grid with WS/HTTP indicators, version, uptime, 5s polling (FLEET-01, FLEET-03)
 
 ## Progress
 
