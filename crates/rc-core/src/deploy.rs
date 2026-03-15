@@ -512,11 +512,51 @@ pub async fn deploy_pod(
     }
 
     // Step 5: Trigger self-swap via detached batch script.
-    // Creates do-swap.bat that waits 3s, kills rc-agent, renames new→current, starts.
-    // The /exec handler returns before the kill happens (bat runs independently).
+    // Write do-swap.bat via /write endpoint (cleaner than echo pipeline), then run detached.
+    // The script: waits 3s → kills rc-agent → preserves current as rc-agent-prev.exe →
+    // moves new→current (with AV retry) → starts new binary.
     set_deploy_state(&state, &pod_id, DeployState::Starting).await;
-    let swap_cmd = r#"cd /d C:\RacingPoint & (echo @echo off & echo timeout /t 3 /nobreak & echo taskkill /F /IM rc-agent.exe & echo timeout /t 2 /nobreak & echo del /Q rc-agent.exe & echo move rc-agent-new.exe rc-agent.exe & echo start "" /D C:\RacingPoint rc-agent.exe) > do-swap.bat & start /min cmd /c do-swap.bat"#;
-    let _ = exec_on_pod(&state, &pod_id, &pod_ip, swap_cmd, 5000).await;
+
+    // Write do-swap.bat via /write endpoint (clean, no echo pipeline)
+    let write_url = format!("http://{}:{}/write", pod_ip, POD_AGENT_PORT);
+    let write_result = state
+        .http_client
+        .post(&write_url)
+        .json(&serde_json::json!({
+            "path": "C:\\RacingPoint\\do-swap.bat",
+            "content": SWAP_SCRIPT_CONTENT
+        }))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await;
+
+    match write_result {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!("Deploy [{}]: do-swap.bat written via /write", pod_id);
+        }
+        Ok(resp) => {
+            let reason = format!("Failed to write do-swap.bat: HTTP {}", resp.status());
+            set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
+            send_deploy_failure_alert(&state, &pod_id, &reason).await;
+            return;
+        }
+        Err(e) => {
+            let reason = format!("Failed to write do-swap.bat: {}", e);
+            set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
+            send_deploy_failure_alert(&state, &pod_id, &reason).await;
+            return;
+        }
+    }
+
+    // Run do-swap.bat detached (returns immediately; bat takes ~5s to run)
+    let _ = exec_on_pod(
+        &state,
+        &pod_id,
+        &pod_ip,
+        r#"start /min cmd /c C:\RacingPoint\do-swap.bat"#,
+        5000,
+    )
+    .await;
 
     // Step 6: Verify health (process + WS + lock screen)
     // Self-swap takes ~5s (3s wait + 2s kill/rename/start), so first check at 5s is expected to find nothing.
@@ -558,12 +598,12 @@ pub async fn deploy_pod(
         }
     }
 
-    // All verify delays exhausted without full health
+    // All verify delays exhausted without full health — determine failure reason
     let process_ok = is_process_alive(&state, &pod_id, &pod_ip).await;
     let ws_ok = is_ws_connected(&state, &pod_id).await;
     let lock_ok = is_lock_screen_healthy(&state, &pod_id, &pod_ip).await;
 
-    let reason = if !process_ok {
+    let failure_reason = if !process_ok {
         "Process not running after start".to_string()
     } else if !ws_ok {
         "WebSocket not connected after 60s".to_string()
@@ -573,14 +613,149 @@ pub async fn deploy_pod(
         "Health verification failed (unknown reason)".to_string()
     };
 
-    set_deploy_state(
+    tracing::warn!("Deploy [{}]: health check failed: {}", pod_id, failure_reason);
+
+    // Check if rc-agent-prev.exe exists for rollback
+    let prev_check = exec_on_pod(
         &state,
         &pod_id,
-        DeployState::Failed { reason: reason.clone() },
+        &pod_ip,
+        "if exist C:\\RacingPoint\\rc-agent-prev.exe (echo EXISTS) else (echo MISSING)",
+        5000,
     )
     .await;
-    send_deploy_failure_alert(&state, &pod_id, &reason).await;
-    log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
+
+    let prev_exists = match &prev_check {
+        Ok((_, stdout, _)) => stdout.contains("EXISTS"),
+        Err(_) => false,
+    };
+
+    if prev_exists {
+        tracing::info!("Deploy [{}]: rc-agent-prev.exe found, triggering rollback", pod_id);
+        set_deploy_state(&state, &pod_id, DeployState::RollingBack).await;
+
+        // Write do-rollback.bat via /write endpoint
+        let write_url = format!("http://{}:{}/write", pod_ip, POD_AGENT_PORT);
+        let rollback_written = match state
+            .http_client
+            .post(&write_url)
+            .json(&serde_json::json!({
+                "path": "C:\\RacingPoint\\do-rollback.bat",
+                "content": ROLLBACK_SCRIPT_CONTENT
+            }))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => true,
+            _ => false,
+        };
+
+        if !rollback_written {
+            let reason = format!(
+                "Health failed ({}), rollback script write also failed",
+                failure_reason
+            );
+            set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
+            send_deploy_failure_alert(&state, &pod_id, &reason).await;
+            log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
+            return;
+        }
+
+        // Execute rollback script detached
+        let _ = exec_on_pod(
+            &state,
+            &pod_id,
+            &pod_ip,
+            r#"start /min cmd /c C:\RacingPoint\do-rollback.bat"#,
+            5000,
+        )
+        .await;
+
+        // Verify rollback health with shorter delays
+        let mut rollback_healthy = false;
+        for delay in ROLLBACK_VERIFY_DELAYS {
+            tokio::time::sleep(Duration::from_secs(*delay)).await;
+
+            if is_cancelled(&state, &pod_id).await {
+                return;
+            }
+
+            let proc_ok = is_process_alive(&state, &pod_id, &pod_ip).await;
+            if !proc_ok {
+                continue;
+            }
+
+            let ws_ok = is_ws_connected(&state, &pod_id).await;
+            let lock_ok = is_lock_screen_healthy(&state, &pod_id, &pod_ip).await;
+
+            if ws_ok && lock_ok {
+                rollback_healthy = true;
+                break;
+            }
+        }
+
+        if rollback_healthy {
+            tracing::info!("Deploy [{}]: rollback succeeded, previous binary restored", pod_id);
+            set_deploy_state(
+                &state,
+                &pod_id,
+                DeployState::Failed {
+                    reason: format!(
+                        "Deploy failed ({}), rolled back to previous binary",
+                        failure_reason
+                    ),
+                },
+            )
+            .await;
+            log_pod_activity(
+                &state,
+                &pod_id,
+                "deploy",
+                "Deploy Rolled Back",
+                &format!(
+                    "Health failed: {}. Rolled back to rc-agent-prev.exe.",
+                    failure_reason
+                ),
+                "deploy",
+            );
+            // Note: state stays Failed (with rollback context in reason) — pod is alive.
+            // No separate RolledBack variant; the reason string tells the dashboard.
+        } else {
+            let reason = format!(
+                "Deploy failed ({}) AND rollback failed -- pod may need manual intervention",
+                failure_reason
+            );
+            set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
+            send_deploy_failure_alert(&state, &pod_id, &reason).await;
+            log_pod_activity(
+                &state,
+                &pod_id,
+                "deploy",
+                "Deploy + Rollback Failed",
+                &reason,
+                "deploy",
+            );
+        }
+    } else {
+        // No previous binary available — cannot rollback (first deploy, or prev was deleted)
+        tracing::warn!("Deploy [{}]: no rc-agent-prev.exe found, cannot rollback", pod_id);
+        set_deploy_state(
+            &state,
+            &pod_id,
+            DeployState::Failed { reason: failure_reason.clone() },
+        )
+        .await;
+        send_deploy_failure_alert(&state, &pod_id, &failure_reason).await;
+        log_pod_activity(
+            &state,
+            &pod_id,
+            "deploy",
+            "Deploy Failed",
+            &failure_reason,
+            "deploy",
+        );
+    }
 }
 
 /// Rolling deploy: Pod 8 first (canary), then remaining pods.
