@@ -27,7 +27,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — rc-core: billing validation gate + double-launch guard fix in game_launcher.rs (LIFE-01, LIFE-02, LIFE-04)
+- [x] 01-01-PLAN.md — rc-core: billing validation gate + double-launch guard fix in game_launcher.rs (LIFE-01, LIFE-02, LIFE-04)
 - [ ] 01-02-PLAN.md — rc-agent: arm 15s blank_timer in SessionEnded + fix BillingStopped billing_active flag (LIFE-01, LIFE-03)
 
 ### Phase 2: Game Crash Recovery
@@ -68,11 +68,11 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 
 | Phase | Plans | Status | Completed |
 |-------|-------|--------|-----------|
-| 1. Billing-Game Lifecycle | 0/2 | Not started | - |
+| 1. Billing-Game Lifecycle | 1/2 | In progress | Plan 01-01 done |
 | 2. Game Crash Recovery | 0/2 | Not started | - |
 | 3. Launch Resilience | 0/2 | Not started | - |
 
-**Total: 0/6 plans complete**
+**Total: 1/6 plans complete**
 
 ## Dependency Graph
 
