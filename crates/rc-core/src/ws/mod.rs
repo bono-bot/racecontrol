@@ -498,6 +498,12 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     version, uptime_secs, config_hash, crash_recovery, repairs),
                                 "agent",
                             );
+                            // Store version + uptime for fleet health dashboard.
+                            {
+                                let mut fleet = state.pod_fleet_health.write().await;
+                                let store = fleet.entry(pod_id.clone()).or_default();
+                                crate::fleet_health::store_startup_report(store, version, *uptime_secs, *crash_recovery);
+                            }
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
@@ -532,6 +538,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 rc_common::types::DrivingState::NoDevice,
                             )
                             .await;
+                            // Clear fleet health version/uptime on graceful disconnect.
+                            {
+                                let mut fleet = state.pod_fleet_health.write().await;
+                                if let Some(store) = fleet.get_mut(pod_id.as_str()) {
+                                    crate::fleet_health::clear_on_disconnect(store);
+                                }
+                            }
                             break;
                         }
                     }
@@ -558,6 +571,14 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
         } else {
             state.agent_senders.write().await.remove(pod_id);
             state.agent_conn_ids.write().await.remove(pod_id);
+
+            // Clear fleet health version/uptime on ungraceful disconnect.
+            {
+                let mut fleet = state.pod_fleet_health.write().await;
+                if let Some(store) = fleet.get_mut(pod_id.as_str()) {
+                    crate::fleet_health::clear_on_disconnect(store);
+                }
+            }
 
             // Sweep pending WS command entries for this pod (they use "pod_X:" prefix)
             {

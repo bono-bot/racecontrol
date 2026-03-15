@@ -13,6 +13,7 @@ use crate::auth;
 use crate::billing;
 use crate::catalog;
 use crate::cloud_sync;
+use crate::fleet_health;
 use crate::friends;
 use crate::game_launcher;
 use crate::multiplayer;
@@ -28,6 +29,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
         // Health
         .route("/health", get(health))
+        // Fleet health (public — no auth required)
+        .route("/fleet/health", get(fleet_health::fleet_health_handler))
         // Pods
         .route("/pods", get(list_pods).post(register_pod))
         .route("/pod-status-summary", get(pod_status_summary))
