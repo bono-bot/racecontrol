@@ -66,6 +66,16 @@ pub struct OtpFailedAttempts {
     pub locked_until: Option<Instant>,
 }
 
+/// Result of a WebSocket command sent to a pod agent.
+/// Stored in a oneshot channel and resolved when ExecResult arrives.
+#[derive(Debug)]
+pub struct WsExecResult {
+    pub success: bool,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 pub struct AppState {
     pub config: Config,
     pub db: SqlitePool,
@@ -113,6 +123,10 @@ pub struct AppState {
     /// Updated by WS handlers on AssistChanged/FfbGainChanged/AssistState messages.
     /// Read by GET /pods/{pod_id}/assist-state to return real values immediately.
     pub assist_cache: RwLock<HashMap<String, CachedAssistState>>,
+    /// Pending WebSocket command responses: request_id -> oneshot sender.
+    /// Populated by ws_exec_on_pod(), resolved by ExecResult handler in ws/mod.rs.
+    /// Cleaned up on agent disconnect (entries prefixed with pod_id).
+    pub pending_ws_execs: RwLock<HashMap<String, tokio::sync::oneshot::Sender<WsExecResult>>>,
     /// Shared relay availability flag — written by cloud_sync (with hysteresis),
     /// read by action_queue. Avoids duplicate health-check loops.
     pub relay_available: AtomicBool,
@@ -159,6 +173,7 @@ impl AppState {
             pod_deploy_states: RwLock::new(create_initial_deploy_states()),
             pending_deploys: RwLock::new(HashMap::new()),
             assist_cache: RwLock::new(HashMap::new()),
+            pending_ws_execs: RwLock::new(HashMap::new()),
             relay_available: AtomicBool::new(false),
         }
     }
