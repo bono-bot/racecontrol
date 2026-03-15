@@ -146,9 +146,9 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 13.1. Pod Fleet Reliability | v3.0 | 3/3 | Complete | 2026-03-15 |
 | 14. Events and Championships | v3.0 | 0/? | Deferred | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Deferred | - |
-| 16. Firewall Auto-Config | 1/1 | Complete    | 2026-03-15 | - |
-| 17. WebSocket Exec | 3/3 | Complete    | 2026-03-15 | - |
-| 18. Startup Self-Healing | 2/2 | Complete   | 2026-03-15 | - |
+| 16. Firewall Auto-Config | v4.0 | 1/1 | Complete | 2026-03-15 |
+| 17. WebSocket Exec | v4.0 | 3/3 | Complete | 2026-03-15 |
+| 18. Startup Self-Healing | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 19. Watchdog Service | v4.0 | 0/? | Not started | - |
 | 20. Deploy Resilience | v4.0 | 0/? | Not started | - |
 | 21. Fleet Health Dashboard | v4.0 | 0/? | Not started | - |

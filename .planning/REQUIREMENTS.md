@@ -27,9 +27,9 @@
 
 ### Startup & Self-Healing
 
-- [ ] **HEAL-01**: rc-agent verifies config file, start script, and registry key on every startup — repairs if missing
+- [x] **HEAL-01**: rc-agent verifies config file, start script, and registry key on every startup — repairs if missing
 - [x] **HEAL-02**: rc-agent reports startup status to rc-core immediately after WebSocket connect (version, uptime, config hash, crash recovery flag)
-- [ ] **HEAL-03**: Startup errors are captured to a log file before rc-agent exits (for post-mortem)
+- [x] **HEAL-03**: Startup errors are captured to a log file before rc-agent exits (for post-mortem)
 
 ### Deploy Resilience
 
@@ -74,9 +74,9 @@
 | WSEX-02 | Phase 17 | Complete |
 | WSEX-03 | Phase 17 | Complete |
 | WSEX-04 | Phase 17 | Complete |
-| HEAL-01 | Phase 18 | Pending |
+| HEAL-01 | Phase 18 | Complete |
 | HEAL-02 | Phase 18 | Complete |
-| HEAL-03 | Phase 18 | Pending |
+| HEAL-03 | Phase 18 | Complete |
 | SVC-01 | Phase 19 | Pending |
 | SVC-02 | Phase 19 | Pending |
 | SVC-03 | Phase 19 | Pending |
