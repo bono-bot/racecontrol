@@ -23,6 +23,14 @@ use std::time::Duration;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+// FFI for mutex probing (zombie process detection)
+#[cfg(windows)]
+unsafe extern "system" {
+    fn OpenMutexA(dwDesiredAccess: u32, bInheritHandle: i32, lpName: *const u8) -> *mut core::ffi::c_void;
+    fn CloseHandle(hObject: *mut core::ffi::c_void) -> i32;
+}
+const SYNCHRONIZE: u32 = 0x00100000;
+
 // Windows process creation flags
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const DETACHED_PROCESS: u32 = 0x00000008;
@@ -328,12 +336,17 @@ fn kill_processes() -> Result<(), String> {
         let _ = run("taskkill", &["/F", "/IM", proc]);
     }
 
-    // Verify rc-agent is truly dead (critical for mutex release)
-    // Check every second for up to 15 seconds, re-kill every 3s
+    // Verify rc-agent is truly dead (critical for mutex release).
+    // taskkill /F calls TerminateProcess which is ASYNCHRONOUS — it can return
+    // success while the kernel is still closing handles (including the mutex).
+    // Check every second for up to 15 seconds, re-kill every 3s.
     for elapsed in 1..=15 {
         thread::sleep(Duration::from_secs(1));
 
         if !is_process_running("rc-agent.exe") {
+            // Process gone from tasklist, but kernel may still be closing handles.
+            // Add safety margin for mutex handle cleanup.
+            thread::sleep(Duration::from_millis(500));
             ok(&format!("All processes confirmed dead ({}s)", elapsed));
             return Ok(());
         }
@@ -345,6 +358,14 @@ fn kill_processes() -> Result<(), String> {
             ));
             let _ = run("taskkill", &["/F", "/IM", "rc-agent.exe"]);
         }
+    }
+
+    // Last resort: process may be "zombie" in tasklist (held by antivirus handle)
+    // but mutex is already released. Check if mutex is actually free.
+    if !is_mutex_held("Global\\RacingPoint_RCAgent_SingleInstance") {
+        warn("rc-agent still in tasklist but mutex is released (zombie process)");
+        ok("Safe to proceed — mutex is free");
+        return Ok(());
     }
 
     Err("rc-agent.exe won't die after 15 seconds. Reboot the pod and try again.".into())
@@ -873,6 +894,22 @@ fn is_process_running(name: &str) -> bool {
                 lower.split_whitespace().next().map_or(false, |first| first == name_lower)
             })
         })
+}
+
+/// Check if a named mutex exists (is held by some process).
+/// Returns false if the mutex doesn't exist (safe to proceed).
+/// Used as zombie-process fallback: tasklist shows process but mutex is gone.
+fn is_mutex_held(name: &str) -> bool {
+    let mut name_bytes = name.as_bytes().to_vec();
+    name_bytes.push(0); // null-terminate
+    let handle = unsafe { OpenMutexA(SYNCHRONIZE, 0, name_bytes.as_ptr()) };
+    if handle.is_null() {
+        // ERROR_FILE_NOT_FOUND (2) = mutex doesn't exist = safe
+        false
+    } else {
+        unsafe { CloseHandle(handle) };
+        true
+    }
 }
 
 /// Dump rc-agent.log and rc-agent-stderr.txt if they exist.
