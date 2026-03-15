@@ -170,6 +170,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
         .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
         .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
+        .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
         // AI Chat
         .route("/ai/chat", post(ai_chat))
         .route("/customer/ai/chat", post(customer_ai_chat))
@@ -5903,6 +5904,66 @@ async fn kiosk_pod_launch_experience(
     .await;
 
     Json(json!({ "ok": true, "billing_session_id": billing_session_id }))
+}
+
+/// Kiosk self-service multiplayer booking.
+/// Customers call this after authenticating via phone+OTP.
+/// Creates a multiplayer group session, allocates pods, generates unique PINs per pod,
+/// and auto-starts the AC server.
+async fn kiosk_book_multiplayer(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<Value>,
+) -> Json<Value> {
+    // Extract driver_id from Bearer token (same auth as customer_book_session)
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    let pricing_tier_id = match req.get("pricing_tier_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return Json(json!({ "error": "Missing 'pricing_tier_id'" })),
+    };
+
+    let pod_count = match req.get("pod_count").and_then(|v| v.as_u64()) {
+        Some(n) => n as usize,
+        None => return Json(json!({ "error": "Missing 'pod_count'" })),
+    };
+
+    let experience_id = req.get("experience_id").and_then(|v| v.as_str()).map(String::from);
+
+    let custom = req.get("custom").and_then(|v| {
+        let game = v.get("game")?.as_str()?.to_string();
+        let track = v.get("track")?.as_str()?.to_string();
+        let car = v.get("car")?.as_str()?.to_string();
+        Some((game, track, car))
+    });
+
+    if experience_id.is_none() && custom.is_none() {
+        return Json(json!({ "error": "Must provide 'experience_id' or 'custom' payload" }));
+    }
+
+    match multiplayer::book_multiplayer_kiosk(
+        &state,
+        &driver_id,
+        &pricing_tier_id,
+        pod_count,
+        experience_id.as_deref(),
+        custom,
+    )
+    .await
+    {
+        Ok(result) => Json(json!({
+            "status": "ok",
+            "group_session_id": result.group_session_id,
+            "experience_name": result.experience_name,
+            "tier_name": result.tier_name,
+            "allocated_seconds": result.allocated_seconds,
+            "assignments": result.assignments,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
 }
 
 async fn get_kiosk_settings(State(state): State<Arc<AppState>>) -> Json<Value> {

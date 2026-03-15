@@ -1013,6 +1013,11 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         }
     }
 
+    // MULTI-02: Check if any expired pod was part of a multiplayer group
+    for (pod_id, _, _, _) in &expired_sessions {
+        check_and_stop_multiplayer_server(state, pod_id).await;
+    }
+
     // Broadcast warnings
     for (session_id, pod_id, remaining, driving_seconds) in warnings {
         let _ = state.dashboard_tx.send(DashboardEvent::BillingWarning {
@@ -1919,6 +1924,9 @@ async fn end_billing_session(
                 }
             }
 
+            // MULTI-02: Check if this pod was part of a multiplayer group
+            check_and_stop_multiplayer_server(state, &pod_id).await;
+
             // Proportional refund for early end with wallet debit
             if end_status == BillingSessionStatus::EndedEarly {
                 let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>)>(
@@ -2081,6 +2089,9 @@ async fn end_billing_session(
                 let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
             }
         }
+
+        // MULTI-02: Check if this orphaned pod was part of a multiplayer group
+        check_and_stop_multiplayer_server(state, &pod_id).await;
 
         // Notify agent to deactivate overlay and show blank
         let agent_senders = state.agent_senders.read().await;
@@ -2448,6 +2459,76 @@ pub async fn update_driving_state(
                 .send(DashboardEvent::BillingSessionChanged(info));
         }
     }
+}
+
+/// MULTI-02: Check if all pods in a multiplayer group session have ended billing.
+/// If so, stop the AC server associated with the group.
+/// Called after each billing end (both tick-expired and manual stop).
+pub async fn check_and_stop_multiplayer_server(state: &Arc<AppState>, pod_id: &str) {
+    // Look up the group_session_id for this pod's billing session
+    let group_info = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT gs.id, gs.ac_session_id
+         FROM group_session_members gsm
+         JOIN group_sessions gs ON gs.id = gsm.group_session_id
+         WHERE gsm.pod_id = ? AND gs.status IN ('active', 'forming')
+         ORDER BY gs.created_at DESC LIMIT 1",
+    )
+    .bind(pod_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let (group_session_id, ac_session_id) = match group_info {
+        Some(info) => info,
+        None => return, // Not a multiplayer pod
+    };
+
+    let ac_session_id = match ac_session_id {
+        Some(id) => id,
+        None => return, // No AC server for this group
+    };
+
+    // Get all pod_ids in this group session
+    let member_pods: Vec<(String,)> = sqlx::query_as(
+        "SELECT pod_id FROM group_session_members WHERE group_session_id = ? AND pod_id IS NOT NULL",
+    )
+    .bind(&group_session_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // Check if any pod still has active billing
+    let timers = state.billing.active_timers.read().await;
+    let any_still_billing = member_pods.iter().any(|(mpod,)| timers.contains_key(mpod));
+    drop(timers);
+
+    if any_still_billing {
+        tracing::debug!(
+            "Multiplayer group {} still has active billing — AC server {} stays running",
+            group_session_id, ac_session_id
+        );
+        return;
+    }
+
+    // All pods done — stop the AC server
+    tracing::info!(
+        "MULTI-02: All billing ended for multiplayer group {} — stopping AC server {}",
+        group_session_id, ac_session_id
+    );
+
+    if let Err(e) = crate::ac_server::stop_ac_server(state, &ac_session_id).await {
+        tracing::error!(
+            "Failed to stop AC server {} for group {}: {}",
+            ac_session_id, group_session_id, e
+        );
+    }
+
+    // Update group session status to completed
+    let _ = sqlx::query("UPDATE group_sessions SET status = 'completed' WHERE id = ?")
+        .bind(&group_session_id)
+        .execute(&state.db)
+        .await;
 }
 
 #[cfg(test)]
