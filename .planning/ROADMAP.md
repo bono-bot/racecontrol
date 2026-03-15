@@ -43,7 +43,7 @@ Phases paused: Events and Championships (Phase 14), Telemetry and Driver Rating 
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 16: Firewall Auto-Config** - rc-agent configures ICMP + TCP 8090 rules in Rust on every startup — eliminates CRLF-damaged batch file failures permanently (completed 2026-03-15)
-- [ ] **Phase 17: WebSocket Exec** - rc-core can send shell commands to any pod over the existing WebSocket — pods remain manageable even when HTTP port 8090 is firewall-blocked
+- [x] **Phase 17: WebSocket Exec** - rc-core can send shell commands to any pod over the existing WebSocket — pods remain manageable even when HTTP port 8090 is firewall-blocked (completed 2026-03-15)
 - [ ] **Phase 18: Startup Self-Healing** - rc-agent verifies and repairs its own config, start script, and registry key on every boot — pods recover from corrupted config without physical intervention
 - [ ] **Phase 19: Watchdog Service** - rc-watchdog.exe runs as a Windows SYSTEM service and auto-restarts rc-agent in Session 1 after any crash — no more permanent agent death on unhandled panic
 - [ ] **Phase 20: Deploy Resilience** - Deploys verify pod health post-swap, auto-rollback on failure, and fleet summary reports per-pod outcomes — bad deploys can never leave pods permanently offline
@@ -144,7 +144,7 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 14. Events and Championships | v3.0 | 0/? | Deferred | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Deferred | - |
 | 16. Firewall Auto-Config | 1/1 | Complete    | 2026-03-15 | - |
-| 17. WebSocket Exec | 1/3 | In Progress|  | - |
+| 17. WebSocket Exec | 3/3 | Complete | 2026-03-15 | - |
 | 18. Startup Self-Healing | v4.0 | 0/? | Not started | - |
 | 19. Watchdog Service | v4.0 | 0/? | Not started | - |
 | 20. Deploy Resilience | v4.0 | 0/? | Not started | - |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
-stopped_at: Completed 17-websocket-exec 17-01-PLAN.md
-last_updated: "2026-03-15T08:20:13Z"
-last_activity: 2026-03-15 — Completed Plan 17-01 (Protocol Extension). Exec/ExecResult variants + 5 serde tests.
+stopped_at: Completed 17-websocket-exec 17-03-PLAN.md
+last_updated: "2026-03-15T08:33:33Z"
+last_activity: 2026-03-15 — Completed Plan 17-03 (Core-Side Handler + Deploy Fallback). ExecResult handler, ws_exec_on_pod, deploy WS fallback.
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 2
-  percent: 87
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-15)
 
 **Core value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
-**Current focus:** Phase 17 — WebSocket Exec (Plan 01 complete, Plans 02-03 remaining)
+**Current focus:** Phase 17 — WebSocket Exec COMPLETE. Ready for Phase 18 (Deploy Rollback).
 
 ## Current Position
 
 Phase: 17 of 21 (WebSocket Exec)
-Plan: 2 of 3
-Status: Plan 01 complete, ready for Plan 02
-Last activity: 2026-03-15 — Completed Plan 17-01 (Protocol Extension). Exec/ExecResult variants + 5 serde tests.
+Plan: 3 of 3
+Status: Phase 17 complete (all 3 plans done)
+Last activity: 2026-03-15 — Completed Plan 17-03 (Core-Side Handler + Deploy Fallback). ExecResult handler, ws_exec_on_pod, deploy WS fallback.
 
-Progress: [████████░░] 87%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: ~3 min
-- Total execution time: ~7 min
+- Total plans completed: 4
+- Average duration: ~5 min
+- Total execution time: ~16 min
 
 **By Phase:**
 
@@ -45,6 +45,7 @@ Progress: [████████░░] 87%
 |-------|-------|-------|----------|
 | 16-firewall-auto-config P01 | 4 tasks | 2 files | ~4 min |
 | 17-websocket-exec P01 | 2 tasks | 1 file | 3 min |
+| 17-websocket-exec P03 | 3 tasks | 3 files | 9 min |
 
 *Updated after each plan completion*
 
@@ -61,6 +62,7 @@ Progress: [████████░░] 87%
 - Pod-agent merged into rc-agent (Phase 13.1, commit eea644e) — single binary per pod
 - [Phase 16-firewall-auto-config]: Firewall Phase 16: synchronous std::process::Command for netsh, non-fatal on failure, RacingPoint-prefixed rule names, old batch rules left intact as additive safety net
 - [Phase 17-websocket-exec P01]: Struct-style enum variants for Exec/ExecResult; serde default 10s timeout; request_id correlation pattern
+- [Phase 17-websocket-exec P03]: Pod-prefixed request_id (pod_X:uuid) for disconnect cleanup; HTTP-first WS-fallback exec pattern; oneshot channel resolution for ExecResult; deploy.rs public API unchanged
 
 ### Pending Todos
 
@@ -75,6 +77,6 @@ Progress: [████████░░] 87%
 
 ## Session Continuity
 
-Last session: 2026-03-15T08:20:13Z
-Stopped at: Completed 17-websocket-exec 17-01-PLAN.md
+Last session: 2026-03-15T08:33:33Z
+Stopped at: Completed 17-websocket-exec 17-03-PLAN.md
 Resume file: None
