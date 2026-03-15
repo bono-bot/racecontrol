@@ -14,9 +14,9 @@
 
 ### Remote Exec via WebSocket
 
-- [ ] **WSEX-01**: rc-core can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec)
+- [x] **WSEX-01**: rc-core can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec)
 - [ ] **WSEX-02**: rc-agent executes WebSocket commands with independent semaphore (separate from HTTP exec slots)
-- [ ] **WSEX-03**: Exec responses include stdout, stderr, exit code, and request_id correlation
+- [x] **WSEX-03**: Exec responses include stdout, stderr, exit code, and request_id correlation
 - [ ] **WSEX-04**: deploy.rs uses WebSocket exec as fallback when HTTP :8090 is unreachable
 
 ### Firewall Auto-Config
@@ -70,9 +70,9 @@
 | FW-01 | Phase 16 | Complete |
 | FW-02 | Phase 16 | Complete |
 | FW-03 | Phase 16 | Complete |
-| WSEX-01 | Phase 17 | Pending |
+| WSEX-01 | Phase 17 | Complete |
 | WSEX-02 | Phase 17 | Pending |
-| WSEX-03 | Phase 17 | Pending |
+| WSEX-03 | Phase 17 | Complete |
 | WSEX-04 | Phase 17 | Pending |
 | HEAL-01 | Phase 18 | Pending |
 | HEAL-02 | Phase 18 | Pending |
