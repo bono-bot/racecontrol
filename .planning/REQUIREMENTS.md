@@ -1,188 +1,99 @@
-# Requirements: RaceControl v3.0 Leaderboards, Telemetry & Competitive
+# Requirements: RaceControl v4.0
 
-**Defined:** 2026-03-14
-**Core Value:** Customers see their lap times, compete on leaderboards, and compare telemetry — driving repeat visits and social sharing from a publicly accessible cloud PWA.
+**Defined:** 2026-03-15
+**Core Value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
 
-## v1 Requirements
+## v4.0 Requirements
 
-Requirements for milestone v3.0. Each maps to roadmap phases.
+### Service & Crash Recovery
 
-### Data Foundation
+- [ ] **SVC-01**: rc-watchdog.exe runs as a Windows Service (SYSTEM) and auto-starts on boot
+- [ ] **SVC-02**: Watchdog detects rc-agent crash within 10 seconds and restarts it in Session 1
+- [ ] **SVC-03**: Watchdog reports crash events to rc-core via HTTP (startup count, crash time, exit code)
+- [ ] **SVC-04**: Install script registers watchdog service with SCM failure actions (restart on failure)
 
-- [x] **DATA-01**: Database has composite covering indexes on laps table for leaderboard queries (track, car, valid, lap_time_ms)
-- [x] **DATA-02**: Database has index on telemetry_samples (lap_id, offset_ms) for telemetry visualization
-- [x] **DATA-03**: SQLite WAL checkpoint is tuned (wal_autocheckpoint=400, connection max_lifetime=300s) to prevent read latency growth
-- [x] **DATA-04**: Venue drivers table has cloud_driver_id column that resolves UUID mismatch before lap sync
-- [x] **DATA-05**: Database schema includes hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, and driver_ratings tables
-- [x] **DATA-06**: Laps table has car_class column populated from car-to-class mapping on lap completion
+### Remote Exec via WebSocket
 
-### Leaderboards & Records
+- [ ] **WSEX-01**: rc-core can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec)
+- [ ] **WSEX-02**: rc-agent executes WebSocket commands with independent semaphore (separate from HTTP exec slots)
+- [ ] **WSEX-03**: Exec responses include stdout, stderr, exit code, and request_id correlation
+- [ ] **WSEX-04**: deploy.rs uses WebSocket exec as fallback when HTTP :8090 is unreachable
 
-- [x] **LB-01**: User can view public leaderboard for any track, filtered by car and sim_type, sorted by fastest valid lap time
-- [x] **LB-02**: User can view circuit records page showing the all-time fastest lap per vehicle per circuit
-- [x] **LB-03**: User can view vehicle records page showing the fastest lap per circuit for a given vehicle
-- [x] **LB-04**: Leaderboard endpoints require sim_type filter — AC and F1 25 laps are never mixed on the same board
-- [x] **LB-05**: Lap validity is hardened with sanity range check and sector-sum consistency before accepting a lap as valid
-- [x] **LB-06**: Only valid laps appear on leaderboards by default; user can toggle to show invalid laps
+### Firewall Auto-Config
 
-### Driver Profiles
+- [ ] **FW-01**: rc-agent configures firewall rules (ICMP + TCP 8090) in Rust on every startup
+- [ ] **FW-02**: Firewall rules use profile=any and are idempotent (no duplicate accumulation)
+- [ ] **FW-03**: Firewall configuration runs before HTTP server bind (ensures port 8090 is reachable immediately)
 
-- [x] **DRV-01**: User can search for any driver by name and view their public profile page (no login required)
-- [x] **DRV-02**: Driver profile shows stats cards: total laps, total time, personal bests per track/car, class badge
-- [x] **DRV-03**: Driver profile shows full lap history with circuit, vehicle, date, time, S1/S2/S3 sector times
-- [x] **DRV-04**: Driver profile is accessible via shareable URL (e.g. /drivers/{id} or /drivers?name=X)
+### Startup & Self-Healing
 
-### Hotlap Events
+- [ ] **HEAL-01**: rc-agent verifies config file, start script, and registry key on every startup — repairs if missing
+- [ ] **HEAL-02**: rc-agent reports startup status to rc-core immediately after WebSocket connect (version, uptime, config hash, crash recovery flag)
+- [ ] **HEAL-03**: Startup errors are captured to a log file before rc-agent exits (for post-mortem)
 
-- [ ] **EVT-01**: Staff can create a hotlap event with track, car class(es), start date, end date, description, and optional reference time
-- [ ] **EVT-02**: Laps automatically enter the matching hotlap event when track, car class, and date range match
-- [ ] **EVT-03**: User can view public event leaderboard showing position, driver, time, date, vehicle, and venue
-- [ ] **EVT-04**: Event leaderboard displays car class tabs — one ranking per class within the event
-- [ ] **EVT-05**: 107% rule is enforced — laps slower than 107% of the class leader are flagged as outside representative pace
-- [ ] **EVT-06**: Gold/Silver/Bronze badges are auto-calculated from staff-set reference time (within 2%/5%/8%)
-- [ ] **EVT-07**: User can browse all active and past hotlap events from an events listing page
+### Deploy Resilience
 
-### Group Events & Scoring
+- [ ] **DEP-01**: Self-swap preserves previous binary as rc-agent-prev.exe for rollback
+- [ ] **DEP-02**: deploy.rs verifies pod health (WS + HTTP + process) after deploy, triggers rollback on failure
+- [ ] **DEP-03**: Defender exclusion covers rc-agent-new.exe staging filename (prevents AV interference)
+- [ ] **DEP-04**: Fleet deploy reports per-pod success/failure summary with retry for failed pods
 
-- [ ] **GRP-01**: When a multiplayer group session completes, race results are auto-scored using F1 points (25/18/15/12/10/8/6/4/2/1)
-- [ ] **GRP-02**: User can view group event summary showing position, driver, qual points, race points, best laps, wins, total points
-- [ ] **GRP-03**: User can view per-session breakdowns within a group event (qualification, race)
-- [ ] **GRP-04**: Group event results include gap-to-leader timing for each driver
+### Fleet Health Dashboard
 
-### Championships
+- [ ] **FLEET-01**: Kiosk /fleet page shows all 8 pods with real-time status (WS connected, HTTP reachable, version, uptime)
+- [ ] **FLEET-02**: Pod status distinguishes WS-connected vs HTTP-reachable (a pod can be WS-up but HTTP-blocked)
+- [ ] **FLEET-03**: Dashboard accessible from Uday's phone (mobile-first layout)
 
-- [ ] **CHP-01**: Staff can create a championship with name, description, and assign group events as rounds
-- [ ] **CHP-02**: Championship standings are auto-calculated by summing F1 points across rounds
-- [ ] **CHP-03**: User can view championship standings page with overall table and per-round breakdown
-- [ ] **CHP-04**: Championship tiebreaker follows F1 rules: most wins, then most P2s, then most P3s, then earliest occurrence
-- [ ] **CHP-05**: Event entries have result_status (finished/DNS/DNF/pending) for correct scoring of incomplete results
+## Future Requirements
 
-### Telemetry Visualization
+### Advanced Fleet Ops (v5.0+)
 
-- [ ] **TEL-01**: User can view speed trace chart for any lap (speed vs track distance/time with throttle/brake overlay)
-- [ ] **TEL-02**: User can compare two laps side-by-side — speed trace with time delta channel showing where time was gained/lost
-- [ ] **TEL-03**: Inputs trace shows throttle, brake, and steering angle plotted alongside the speed trace with linked cursor
-- [ ] **TEL-04**: User can view 2D track map overlay showing racing line colored by speed (green=fast, red=braking)
-- [ ] **TEL-05**: Telemetry comparison allows selecting personal best vs track record, or any two laps from the same track
-
-### Driver Skill Rating
-
-- [ ] **RAT-01**: Drivers are assigned a skill class (A/B/C/D) per track+car combination based on percentile ranking of their best valid lap
-- [ ] **RAT-02**: Driver class badge is displayed on profile page and leaderboard entries
-- [ ] **RAT-03**: Skill class recalculates automatically when new laps are recorded (requires minimum 5 drivers per track+car before classification)
-
-### Notifications
-
-- [x] **NTF-01**: When a track record is beaten, the previous record holder receives an automated email via send_email.js
-- [x] **NTF-02**: Notification email includes track, car, old time, new time, and new record holder name with a link to the leaderboard
-
-### Cloud Sync
-
-- [ ] **SYNC-01**: Cloud sync extends to push hotlap_events, event_entries, championships, standings, and driver_ratings to app.racingpoint.cloud
-- [ ] **SYNC-02**: Telemetry sync is targeted — only event-entered lap telemetry is synced (bounded volume, not all laps)
-- [ ] **SYNC-03**: Competitive data sync is venue-authoritative one-way push — cloud never writes back to venue competitive tables
-
-### Public Access
-
-- [x] **PUB-01**: All leaderboard, records, events, championships, and driver profile pages are accessible without login
-- [x] **PUB-02**: PWA pages are mobile-first with responsive tables/cards (minimum 14px for times, 16px for positions)
-
-### Pod Fleet Reliability (Phase 13.1 — Inserted)
-
-- [x] **REL-01**: rc-agent finds rc-agent.toml when started from any working directory (not just C:\RacingPoint)
-- [ ] **REL-02**: All 8 pods have both RCAgent and PodAgent HKLM Run keys ensuring both services auto-start on reboot
-- [ ] **REL-03**: Fleet-health.py runs every 5 minutes as a scheduled task and reports pod status with exec slot availability
-- [ ] **REL-04**: Pod 8 is verified running the hardened pod-agent with reduced timeout and exhaustion logging
-- [x] **REL-05**: pod-agent default exec timeout is 10s (not 30s), exec slot exhaustion emits warning log, /health reports exec_slots_available
-
-## v2 Requirements
-
-Deferred to future milestone. Tracked but not in current roadmap.
-
-### Social & Sharing
-
-- **SHARE-01**: Auto-generated OG image share card (position, time, track, car, branding) for WhatsApp/iMessage
-- **SHARE-02**: Discord bot posts leaderboard updates to venue Discord server
-
-### Advanced Visualization
-
-- **VIZ-01**: Mini-map showing car position on track in real-time during live sessions (spectator mode)
+- **ADVFLEET-01**: One-click deploy from dashboard (select pods, upload binary, deploy with progress)
+- **ADVFLEET-02**: Historical uptime and crash graphs per pod
+- **ADVFLEET-03**: Automated canary deploy (Pod 8 first, wait, then fleet)
+- **ADVFLEET-04**: Remote pod screenshot from dashboard
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Real-time WebSocket leaderboard push | At 8 pods, updates every ~15s — polling every 30s is visually identical. Adds complexity for zero benefit at venue scale. |
-| Login/account system for browsing | racecentres.com is fully public. Adding login adds friction that kills organic sharing. PIN-linked driver IDs are sufficient. |
-| Social feed / comments / likes | Social moderation is a full-time job. Venue scale doesn't generate enough content for a feed. |
-| Video replay / session recording | Storage and processing requirements incompatible with venue hardware. Telemetry visualization serves the same coaching use case. |
-| Cross-car performance normalization | No calibrated lap time model exists per car. Keep leaderboards within same car or car class. |
-| Global multi-venue leaderboards | Requires proprietary API integration with closed racecentres.com VMS ecosystem. |
-| Elo/Glicko rating system | Designed for head-to-head matchups, not time-trials. Percentile-based class is correct for venue context. |
-| Venue kiosk changes | v3.0 targets cloud PWA only. Kiosk spectator display is a future milestone. |
+| Lock screen move to kiosk | Deferred — watchdog service pattern avoids this refactor |
+| Native Windows Service API in rc-agent | Session 0 kills GUI; watchdog pattern chosen instead |
+| NSSM dependency | External binary; prefer Rust watchdog we control |
+| Cloud-based fleet monitoring | v4.0 is LAN-only; cloud dashboard is future milestone |
+| Automatic security patching | Out of scope — OS updates are manual |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | Phase 12 | Complete |
-| DATA-02 | Phase 12 | Complete |
-| DATA-03 | Phase 12 | Complete |
-| DATA-04 | Phase 12 | Complete |
-| DATA-05 | Phase 12 | Complete |
-| DATA-06 | Phase 12 | Complete |
-| LB-01 | Phase 13 | Complete |
-| LB-02 | Phase 13 | Complete |
-| LB-03 | Phase 13 | Complete |
-| LB-04 | Phase 13 | Complete |
-| LB-05 | Phase 13 | Complete |
-| LB-06 | Phase 13 | Complete |
-| DRV-01 | Phase 13 | Complete |
-| DRV-02 | Phase 13 | Complete |
-| DRV-03 | Phase 13 | Complete |
-| DRV-04 | Phase 13 | Complete |
-| NTF-01 | Phase 13 | Complete |
-| NTF-02 | Phase 13 | Complete |
-| PUB-01 | Phase 13 | Complete |
-| PUB-02 | Phase 13 | Complete |
-| EVT-01 | Phase 14 | Pending |
-| EVT-02 | Phase 14 | Pending |
-| EVT-03 | Phase 14 | Pending |
-| EVT-04 | Phase 14 | Pending |
-| EVT-05 | Phase 14 | Pending |
-| EVT-06 | Phase 14 | Pending |
-| EVT-07 | Phase 14 | Pending |
-| GRP-01 | Phase 14 | Pending |
-| GRP-02 | Phase 14 | Pending |
-| GRP-03 | Phase 14 | Pending |
-| GRP-04 | Phase 14 | Pending |
-| CHP-01 | Phase 14 | Pending |
-| CHP-02 | Phase 14 | Pending |
-| CHP-03 | Phase 14 | Pending |
-| CHP-04 | Phase 14 | Pending |
-| CHP-05 | Phase 14 | Pending |
-| SYNC-01 | Phase 14 | Pending |
-| SYNC-02 | Phase 14 | Pending |
-| SYNC-03 | Phase 14 | Pending |
-| TEL-01 | Phase 15 | Pending |
-| TEL-02 | Phase 15 | Pending |
-| TEL-03 | Phase 15 | Pending |
-| TEL-04 | Phase 15 | Pending |
-| TEL-05 | Phase 15 | Pending |
-| RAT-01 | Phase 15 | Pending |
-| RAT-02 | Phase 15 | Pending |
-| RAT-03 | Phase 15 | Pending |
-| REL-01 | Phase 13.1 | Complete |
-| REL-02 | Phase 13.1 | Pending |
-| REL-03 | Phase 13.1 | Pending |
-| REL-04 | Phase 13.1 | Pending |
-| REL-05 | Phase 13.1 | Complete |
+| SVC-01 | TBD | Pending |
+| SVC-02 | TBD | Pending |
+| SVC-03 | TBD | Pending |
+| SVC-04 | TBD | Pending |
+| WSEX-01 | TBD | Pending |
+| WSEX-02 | TBD | Pending |
+| WSEX-03 | TBD | Pending |
+| WSEX-04 | TBD | Pending |
+| FW-01 | TBD | Pending |
+| FW-02 | TBD | Pending |
+| FW-03 | TBD | Pending |
+| HEAL-01 | TBD | Pending |
+| HEAL-02 | TBD | Pending |
+| HEAL-03 | TBD | Pending |
+| DEP-01 | TBD | Pending |
+| DEP-02 | TBD | Pending |
+| DEP-03 | TBD | Pending |
+| DEP-04 | TBD | Pending |
+| FLEET-01 | TBD | Pending |
+| FLEET-02 | TBD | Pending |
+| FLEET-03 | TBD | Pending |
 
 **Coverage:**
-- v1 requirements: 47 total (note: requirements doc self-count of 42 is off; 47 are listed above)
-- Mapped to phases: 47
-- Unmapped: 0
+- v4.0 requirements: 21 total
+- Mapped to phases: 0
+- Unmapped: 21
 
 ---
-*Requirements defined: 2026-03-14*
-*Last updated: 2026-03-14 after roadmap created (traceability populated)*
+*Requirements defined: 2026-03-15*
+*Last updated: 2026-03-15 after initial definition*
