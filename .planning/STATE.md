@@ -3,30 +3,14 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
-stopped_at: Completed 17-websocket-exec 17-03-PLAN.md
-last_updated: "2026-03-15T08:47:02.390Z"
-last_activity: 2026-03-15 — Completed Plan 17-03 (Core-Side Handler + Deploy Fallback). ExecResult handler, ws_exec_on_pod, deploy WS fallback.
+stopped_at: Completed 18-startup-self-healing 18-01-PLAN.md
+last_updated: "2026-03-15T09:19:36Z"
+last_activity: 2026-03-15 — Completed Plan 18-01 (Self-Heal + Startup Log). self_heal.rs, startup_log.rs, wired into main.rs.
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
----
-
----
-gsd_state_version: 1.0
-milestone: v4.0
-milestone_name: Pod Fleet Self-Healing
-status: active
-stopped_at: Completed 17-websocket-exec 17-03-PLAN.md
-last_updated: "2026-03-15T08:33:33Z"
-last_activity: 2026-03-15 — Completed Plan 17-03 (Core-Side Handler + Deploy Fallback). ExecResult handler, ws_exec_on_pod, deploy WS fallback.
-progress:
-  total_phases: 6
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  total_plans: 5
+  completed_plans: 5
 ---
 
 # Project State
@@ -36,23 +20,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-15)
 
 **Core value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
-**Current focus:** Phase 17 — WebSocket Exec COMPLETE. Ready for Phase 18 (Deploy Rollback).
+**Current focus:** Phase 18 — Startup Self-Healing. Plan 01 complete (self-heal + startup log).
 
 ## Current Position
 
-Phase: 17 of 21 (WebSocket Exec)
-Plan: 3 of 3
-Status: Phase 17 complete (all 3 plans done)
-Last activity: 2026-03-15 — Completed Plan 17-03 (Core-Side Handler + Deploy Fallback). ExecResult handler, ws_exec_on_pod, deploy WS fallback.
+Phase: 18 of 21 (Startup Self-Healing)
+Plan: 1 of 2
+Status: Plan 18-01 complete (self-heal + startup log modules)
+Last activity: 2026-03-15 — Completed Plan 18-01 (Self-Heal + Startup Log). self_heal.rs, startup_log.rs, wired into main.rs.
 
-Progress: [██████████] 100%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 5
 - Average duration: ~5 min
-- Total execution time: ~16 min
+- Total execution time: ~23 min
 
 **By Phase:**
 
@@ -61,6 +45,7 @@ Progress: [██████████] 100%
 | 16-firewall-auto-config P01 | 4 tasks | 2 files | ~4 min |
 | 17-websocket-exec P01 | 2 tasks | 1 file | 3 min |
 | 17-websocket-exec P03 | 3 tasks | 3 files | 9 min |
+| 18-startup-self-healing P01 | 2 tasks | 3 files | 7 min |
 
 *Updated after each plan completion*
 
@@ -78,6 +63,7 @@ Progress: [██████████] 100%
 - [Phase 16-firewall-auto-config]: Firewall Phase 16: synchronous std::process::Command for netsh, non-fatal on failure, RacingPoint-prefixed rule names, old batch rules left intact as additive safety net
 - [Phase 17-websocket-exec P01]: Struct-style enum variants for Exec/ExecResult; serde default 10s timeout; request_id correlation pattern
 - [Phase 17-websocket-exec P03]: Pod-prefixed request_id (pod_X:uuid) for disconnect cleanup; HTTP-first WS-fallback exec pattern; oneshot channel resolution for ExecResult; deploy.rs public API unchanged
+- [Phase 18-startup-self-healing P01]: Synchronous self-heal before load_config; embedded config template via include_str!; START_SCRIPT_CONTENT as const with CRLF; AtomicBool for startup log first-write truncation; cfg(windows) gating for registry ops
 
 ### Pending Todos
 
@@ -92,6 +78,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-15T08:33:33Z
-Stopped at: Completed 17-websocket-exec 17-03-PLAN.md
+Last session: 2026-03-15T09:19:36Z
+Stopped at: Completed 18-startup-self-healing 18-01-PLAN.md
 Resume file: None
