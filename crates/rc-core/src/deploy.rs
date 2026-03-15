@@ -1,15 +1,17 @@
 //! Deploy executor: orchestrates rc-agent binary deployment to pods.
 //!
+//! Uses self-swap pattern since rc-agent hosts both game management AND the
+//! remote ops HTTP server (port 8090). We can't kill the process handling
+//! our deploy commands, so we download alongside and swap via detached script.
+//!
 //! The deploy lifecycle for a single pod:
 //!   1. Validate binary URL is reachable (HEAD request)
-//!   2. Kill rc-agent.exe on pod (taskkill /F /IM rc-agent.exe)
-//!   3. Wait for process to exit (poll tasklist every 2s, up to 10s)
-//!   4. Delete old binary (del /F C:\RacingPoint\rc-agent.exe)
-//!   5. Download new binary (curl -s -f -o ... <url>)
-//!   6. Verify binary size >= 5MB threshold
-//!   7. Write config from template (via pod-agent /write)
-//!   8. Start new rc-agent.exe (cd /d C:\RacingPoint && start /b rc-agent.exe)
-//!   9. Verify health: process alive + WebSocket connected + lock screen responsive
+//!   2. Download new binary as rc-agent-new.exe (curl via /exec)
+//!   3. Verify binary size >= 5MB threshold
+//!   4. Write config from template (via /write on port 8090)
+//!   5. Trigger self-swap: create do-swap.bat and run it detached
+//!      (waits 3s → kills rc-agent → renames new→current → starts)
+//!   6. Verify health: process alive + WebSocket connected + lock screen responsive
 //!
 //! Each step updates DeployState in AppState and broadcasts DashboardEvent::DeployProgress.
 //! On failure at any step, state is set to Failed and an email alert is sent.
@@ -27,8 +29,6 @@ use rc_common::types::DeployState;
 
 const POD_AGENT_PORT: u16 = 8090;
 const MIN_BINARY_SIZE: u64 = 5_000_000; // 5MB minimum for a valid rc-agent.exe
-const PROCESS_KILL_TIMEOUT_SECS: u64 = 10;
-const PROCESS_POLL_INTERVAL_SECS: u64 = 2;
 const VERIFY_DELAYS: &[u64] = &[5, 15, 30, 60];
 
 /// Validate that a binary size meets the minimum threshold.
@@ -48,16 +48,19 @@ pub fn validate_binary_size(size_bytes: u64) -> Result<(), String> {
 /// Parse the file size from Windows `dir` command output.
 /// Example input line: "03/13/2026  10:30 AM        15,234,567 rc-agent.exe"
 /// Returns the size in bytes, or None if parsing fails.
-pub fn parse_file_size_from_dir(dir_output: &str) -> Option<u64> {
+///
+/// The `filename` parameter specifies which file to look for (e.g. "rc-agent.exe"
+/// or "rc-agent-new.exe").
+pub fn parse_file_size_from_dir(dir_output: &str, filename: &str) -> Option<u64> {
     for line in dir_output.lines() {
-        if line.contains("rc-agent.exe")
+        if line.contains(filename)
             && !line.contains("File Not Found")
             && !line.contains("DIR")
         {
-            // Split on whitespace, find the field before "rc-agent.exe"
+            // Split on whitespace, find the field before the filename
             let parts: Vec<&str> = line.split_whitespace().collect();
             for (i, part) in parts.iter().enumerate() {
-                if part.contains("rc-agent") && i > 0 {
+                if part.contains(filename) && i > 0 {
                     // The field before the filename is the size (may have commas)
                     let size_str = parts[i - 1].replace(',', "");
                     return size_str.parse::<u64>().ok();
@@ -236,20 +239,17 @@ async fn is_cancelled(state: &Arc<AppState>, pod_id: &str) -> bool {
     matches!(deploy_states.get(pod_id), Some(DeployState::Failed { .. }))
 }
 
-/// Deploy rc-agent to a single pod.
+/// Deploy rc-agent to a single pod using self-swap pattern.
 ///
 /// This is the main deploy executor. It runs as a tokio::spawn'd background task.
 /// The caller (API endpoint or rolling deploy) should spawn this and return immediately.
 ///
 /// Steps:
 /// 1. Validate binary URL is reachable
-/// 2. Kill rc-agent.exe
-/// 3. Wait for process to die (poll every 2s, up to 10s)
-/// 4. Delete old binary
-/// 5. Download new binary
-/// 6. Size check
-/// 7. Write config
-/// 8. Start new process
+/// 2. Download new binary as rc-agent-new.exe
+/// 3. Size check
+/// 4. Write config
+/// 5. Trigger detached self-swap (bat script kills → renames → starts)
 /// 9. Verify health (process + WS + lock screen)
 pub async fn deploy_pod(
     state: Arc<AppState>,
@@ -283,63 +283,30 @@ pub async fn deploy_pod(
         }
     }
 
-    // Step 1: Kill rc-agent.exe
-    set_deploy_state(&state, &pod_id, DeployState::Killing).await;
+    // Step 1: Download new binary as rc-agent-new.exe (self-swap pattern)
+    // rc-agent hosts both game management AND remote ops on port 8090.
+    // We can't kill it to replace it — instead download alongside, then swap.
+    set_deploy_state(&state, &pod_id, DeployState::Downloading { progress_pct: 0 }).await;
     log_pod_activity(
         &state,
         &pod_id,
         "deploy",
         "Deploy Started",
-        &format!("Binary: {}", binary_url),
+        &format!("Binary: {} (self-swap)", binary_url),
         "deploy",
     );
-    // taskkill may fail if not running — that is OK
-    let _ = exec_on_pod(&state, &pod_ip, "taskkill /F /IM rc-agent.exe", 5000).await;
 
-    // Step 2: Wait for process to exit
-    set_deploy_state(&state, &pod_id, DeployState::WaitingDead).await;
-    let mut dead = false;
-    let max_polls = PROCESS_KILL_TIMEOUT_SECS / PROCESS_POLL_INTERVAL_SECS;
-    for _ in 0..max_polls {
-        tokio::time::sleep(Duration::from_secs(PROCESS_POLL_INTERVAL_SECS)).await;
-        if is_cancelled(&state, &pod_id).await {
-            return;
-        }
-        if !is_process_alive(&state, &pod_ip).await {
-            dead = true;
-            break;
-        }
-    }
-
-    if !dead {
-        let reason = format!(
-            "Process still running after {}s of polling. File lock likely prevents binary replacement.",
-            PROCESS_KILL_TIMEOUT_SECS
-        );
-        set_deploy_state(&state, &pod_id, DeployState::Failed { reason: reason.clone() }).await;
-        send_deploy_failure_alert(&state, &pod_id, &reason).await;
-        log_pod_activity(&state, &pod_id, "deploy", "Deploy Failed", &reason, "deploy");
-        return;
-    }
-
-    // Step 3: Delete old binary (may fail if already gone — OK)
+    // Clean any stale staging binary first
     let _ = exec_on_pod(
         &state,
         &pod_ip,
-        "del /F C:\\RacingPoint\\rc-agent.exe",
+        "del /F C:\\RacingPoint\\rc-agent-new.exe",
         5000,
     )
     .await;
 
-    // Cancellation check before download
-    if is_cancelled(&state, &pod_id).await {
-        return;
-    }
-
-    // Step 4: Download new binary
-    set_deploy_state(&state, &pod_id, DeployState::Downloading { progress_pct: 0 }).await;
     let download_cmd = format!(
-        "curl.exe -s -f -o C:\\RacingPoint\\rc-agent.exe {}",
+        "curl.exe -s -f -o C:\\RacingPoint\\rc-agent-new.exe {}",
         binary_url
     );
     match exec_on_pod(&state, &pod_ip, &download_cmd, 120_000).await {
@@ -371,17 +338,17 @@ pub async fn deploy_pod(
     )
     .await;
 
-    // Step 5: Size check
+    // Step 2: Size check on rc-agent-new.exe
     set_deploy_state(&state, &pod_id, DeployState::SizeCheck).await;
     let dir_result = exec_on_pod(
         &state,
         &pod_ip,
-        "dir C:\\RacingPoint\\rc-agent.exe",
+        "dir C:\\RacingPoint\\rc-agent-new.exe",
         5000,
     )
     .await;
     match dir_result {
-        Ok((_, stdout, _)) => match parse_file_size_from_dir(&stdout) {
+        Ok((_, stdout, _)) => match parse_file_size_from_dir(&stdout, "rc-agent-new.exe") {
             Some(size) => {
                 if let Err(reason) = validate_binary_size(size) {
                     set_deploy_state(
@@ -478,13 +445,15 @@ pub async fn deploy_pod(
         }
     }
 
-    // Step 7: Start new rc-agent.exe
+    // Step 5: Trigger self-swap via detached batch script.
+    // Creates do-swap.bat that waits 3s, kills rc-agent, renames new→current, starts.
+    // The /exec handler returns before the kill happens (bat runs independently).
     set_deploy_state(&state, &pod_id, DeployState::Starting).await;
-    let start_cmd = "cd /d C:\\RacingPoint && start /b rc-agent.exe";
-    // start /b exits immediately (or times out) — both are OK
-    let _ = exec_on_pod(&state, &pod_ip, start_cmd, 5000).await;
+    let swap_cmd = r#"cd /d C:\RacingPoint & (echo @echo off & echo timeout /t 3 /nobreak & echo taskkill /F /IM rc-agent.exe & echo timeout /t 2 /nobreak & echo del /Q rc-agent.exe & echo move rc-agent-new.exe rc-agent.exe & echo start "" /D C:\RacingPoint rc-agent.exe) > do-swap.bat & start /min cmd /c do-swap.bat"#;
+    let _ = exec_on_pod(&state, &pod_ip, swap_cmd, 5000).await;
 
-    // Step 8: Verify health (process + WS + lock screen)
+    // Step 6: Verify health (process + WS + lock screen)
+    // Self-swap takes ~5s (3s wait + 2s kill/rename/start), so first check at 5s is expected to find nothing.
     set_deploy_state(&state, &pod_id, DeployState::VerifyingHealth).await;
 
     for delay in VERIFY_DELAYS {
@@ -780,24 +749,24 @@ mod tests {
     #[test]
     fn parse_file_size_normal_dir_output() {
         let output = " Volume in drive C is Windows\n Directory of C:\\RacingPoint\n\n03/13/2026  10:30 AM        15,234,567 rc-agent.exe\n               1 File(s)     15,234,567 bytes\n";
-        assert_eq!(parse_file_size_from_dir(output), Some(15234567));
+        assert_eq!(parse_file_size_from_dir(output, "rc-agent.exe"), Some(15234567));
     }
 
     #[test]
     fn parse_file_size_file_not_found() {
         let output = "File Not Found\n";
-        assert_eq!(parse_file_size_from_dir(output), None);
+        assert_eq!(parse_file_size_from_dir(output, "rc-agent.exe"), None);
     }
 
     #[test]
     fn parse_file_size_empty() {
-        assert_eq!(parse_file_size_from_dir(""), None);
+        assert_eq!(parse_file_size_from_dir("", "rc-agent.exe"), None);
     }
 
     #[test]
     fn parse_file_size_no_commas() {
         let output = "03/13/2026  10:30 AM        15234567 rc-agent.exe\n";
-        assert_eq!(parse_file_size_from_dir(output), Some(15234567));
+        assert_eq!(parse_file_size_from_dir(output, "rc-agent.exe"), Some(15234567));
     }
 
     // ── deploy_step_label tests ─────────────────────────────────────────────

@@ -17,6 +17,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
@@ -38,6 +39,9 @@ sysinfo = "0.33"
 # HTTP client for AI debugger
 reqwest = { version = "0.12", features = ["json"] }
 
+# Remote ops HTTP server (merged pod-agent)
+axum = "0.8"
+
 # QR code generation for lock screen
 qrcode = "0.13"
 
@@ -53,3 +57,6 @@ winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi
 
 [dev-dependencies]
 tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+serial_test = "3"
