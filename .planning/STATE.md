@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
-stopped_at: Completed 19-watchdog-service 19-01-PLAN.md
-last_updated: "2026-03-15T10:06:52Z"
-last_activity: 2026-03-15 — Completed Plan 19-01 (Watchdog Service Crate). rc-watchdog Windows SYSTEM service with SCM lifecycle, tasklist polling, Session 1 spawn, crash reporting.
+stopped_at: Checkpoint 19-watchdog-service 19-02-PLAN.md Task 2 (human-verify Pod 8 canary)
+last_updated: "2026-03-15T10:20:00Z"
+last_activity: 2026-03-15 — Completed Plan 19-02 Task 1 (crash report endpoint + install script). Checkpoint pending for Pod 8 canary verification.
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -20,23 +20,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-15)
 
 **Core value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
-**Current focus:** Phase 19 — Watchdog Service. Plan 01 (crate creation) COMPLETE. Plan 02 (install + deploy) pending.
+**Current focus:** Phase 19 — Watchdog Service. Plan 02 Task 1 COMPLETE (endpoint + script). Checkpoint pending: Pod 8 canary verification.
 
 ## Current Position
 
 Phase: 19 of 21 (Watchdog Service)
-Plan: 1 of 2
-Status: Plan 19-01 complete — rc-watchdog crate created, compiled, tested
-Last activity: 2026-03-15 — Completed Plan 19-01 (Watchdog Service Crate). rc-watchdog Windows SYSTEM service with SCM lifecycle, tasklist polling, Session 1 spawn, crash reporting.
+Plan: 2 of 2 (Task 1 done, Task 2 checkpoint pending)
+Status: Plan 19-02 Task 1 complete — crash report endpoint in rc-core + install-watchdog.bat. Awaiting Pod 8 canary verification.
+Last activity: 2026-03-15 — Completed Plan 19-02 Task 1 (crash report endpoint + install script). Checkpoint pending for Pod 8 canary verification.
 
-Progress: [████████░░] 87%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: ~6 min
-- Total execution time: ~39 min
+- Total execution time: ~48 min
 
 **By Phase:**
 
@@ -48,6 +48,7 @@ Progress: [████████░░] 87%
 | 18-startup-self-healing P01 | 2 tasks | 3 files | 7 min |
 | 18-startup-self-healing P02 | 2 tasks | 3 files | 6 min |
 | 19-watchdog-service P01 | 1 task | 8 files | 10 min |
+| 19-watchdog-service P02 | 2 tasks | 2 files | 9 min |
 
 *Updated after each plan completion*
 
@@ -68,6 +69,7 @@ Progress: [████████░░] 87%
 - [Phase 18-startup-self-healing P01]: Synchronous self-heal before load_config; embedded config template via include_str!; START_SCRIPT_CONTENT as const with CRLF; AtomicBool for startup log first-write truncation; cfg(windows) gating for registry ops
 - [Phase 18-startup-self-healing P02]: StartupReport sent once per process lifetime using startup_report_sent bool flag; fire-and-forget from agent side; message ordering Register -> StartupReport -> ContentManifest; core logs + records pod activity
 - [Phase 19-watchdog-service P01]: rc-watchdog crate with windows-service 0.8 for SCM; tasklist polling (not sysinfo); reqwest blocking (no tokio); 15s restart grace window; WTSQueryUserToken + CreateProcessAsUser for Session 1 spawn; read rc-agent.toml with COMPUTERNAME fallback
+- [Phase 19-watchdog-service P02]: Bare StatusCode::OK return (no JSON body) for fire-and-forget crash report; log_pod_activity source='watchdog'; install-watchdog.bat with sc.exe failure actions (5s/10s/30s restart)
 
 ### Pending Todos
 
@@ -82,6 +84,6 @@ Progress: [████████░░] 87%
 
 ## Session Continuity
 
-Last session: 2026-03-15T10:06:52Z
-Stopped at: Completed 19-watchdog-service 19-01-PLAN.md
+Last session: 2026-03-15T10:20:00Z
+Stopped at: Checkpoint 19-watchdog-service 19-02-PLAN.md Task 2 (human-verify Pod 8 canary)
 Resume file: None
