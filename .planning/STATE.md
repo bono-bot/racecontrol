@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Leaderboards, Telemetry & Competitive
 status: active
-stopped_at: "Completed 13.1-02-PLAN.md"
+stopped_at: "Completed 13.1-01-PLAN.md"
 last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Completed Phase 13.1 Plan 02 (pod-agent exec hardening: 10s timeout, slot exhaustion warning, v0.5.1)
+last_activity: 2026-03-15 — Completed Phase 13.1 Plan 01 (rc-agent exe-path config self-heal, 3 new tests)
 progress:
   total_phases: 4
   completed_phases: 2
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 ## Current Position
 
 Phase: 13.1 (Pod Fleet Reliability) -- IN PROGRESS
-Plan: 2 of TBD complete
+Plan: 1 of 3 complete (backfilled: Plan 01 was executed after Plan 02 due to ordering)
 Status: Active
-Last activity: 2026-03-15 — Completed Phase 13.1 Plan 02 (pod-agent exec hardening: 10s timeout, slot exhaustion warning, v0.5.1)
+Last activity: 2026-03-15 — Completed Phase 13.1 Plan 01 (rc-agent exe-path config self-heal, 3 new tests)
 
 Progress: [██████████] 100%
 
@@ -89,6 +89,9 @@ Progress: [██████████] 100%
 - [13-05] Inline formatLapTime utility per page rather than shared module — avoids premature abstraction
 - [13-05] Debounced driver search at 300ms with 2-char minimum to reduce API chatter
 - [13-05] class_badge conditionally rendered only when non-null — Phase 15 RAT-01 populates it
+- [13.1-01] Exe directory is primary config search candidate so rc-agent self-heals when launched by DeskIn or SYSTEM services with different CWD
+- [13.1-01] CWD fallback kept at index 1 (not removed) so cargo run in dev continues to work
+- [13.1-01] config_search_paths() extracted as pure function for testability — load_config() consumes it
 - [13.1-02] Used eprintln! for exec slot exhaustion warning (not tracing::warn!) — pod-agent uses println!/eprintln! consistently, no tracing dep
 - [13.1-02] DEFAULT_EXEC_TIMEOUT_MS reduced to 10s — deploy pipeline explicitly passes 120000ms so no deploy regression
 - [13.1-02] Version bumped 0.5.0 -> 0.5.1 to distinguish new binary from existing deployed pods

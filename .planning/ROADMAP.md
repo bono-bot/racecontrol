@@ -89,7 +89,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 13.1-01-PLAN.md — rc-agent config self-heal: exe-path resolution with unit tests (REL-01)
+- [x] 13.1-01-PLAN.md — rc-agent config self-heal: exe-path resolution with unit tests (REL-01)
 - [x] 13.1-02-PLAN.md — pod-agent exec hardening: reduced timeout, exhaustion logging, health test (REL-05)
 - [ ] 13.1-03-PLAN.md — Deploy HKLM Run keys to all pods, upgrade Pod 8, schedule fleet-health.py (REL-02, REL-03, REL-04)
 
@@ -139,6 +139,6 @@ Note: Phase 14 depends on Phase 13 (event leaderboards extend circuit records pa
 | 11. Customer Experience Polish | v2.0 | 2/2 | Complete | 2026-03-14 |
 | 12. Data Foundation | v3.0 | 2/2 | Complete | 2026-03-14 |
 | 13. Leaderboard Core | v3.0 | 5/5 | Complete | 2026-03-15 |
-| 13.1. Pod Fleet Reliability | v3.0 | 1/3 | In Progress | - |
+| 13.1. Pod Fleet Reliability | v3.0 | 2/3 | In Progress | - |
 | 14. Events and Championships | v3.0 | 0/? | Not started | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Not started | - |

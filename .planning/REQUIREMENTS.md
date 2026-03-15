@@ -89,7 +89,7 @@ Requirements for milestone v3.0. Each maps to roadmap phases.
 
 ### Pod Fleet Reliability (Phase 13.1 — Inserted)
 
-- [ ] **REL-01**: rc-agent finds rc-agent.toml when started from any working directory (not just C:\RacingPoint)
+- [x] **REL-01**: rc-agent finds rc-agent.toml when started from any working directory (not just C:\RacingPoint)
 - [ ] **REL-02**: All 8 pods have both RCAgent and PodAgent HKLM Run keys ensuring both services auto-start on reboot
 - [ ] **REL-03**: Fleet-health.py runs every 5 minutes as a scheduled task and reports pod status with exec slot availability
 - [ ] **REL-04**: Pod 8 is verified running the hardened pod-agent with reduced timeout and exhaustion logging
@@ -172,7 +172,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | RAT-01 | Phase 15 | Pending |
 | RAT-02 | Phase 15 | Pending |
 | RAT-03 | Phase 15 | Pending |
-| REL-01 | Phase 13.1 | Pending |
+| REL-01 | Phase 13.1 | Complete |
 | REL-02 | Phase 13.1 | Pending |
 | REL-03 | Phase 13.1 | Pending |
 | REL-04 | Phase 13.1 | Pending |
