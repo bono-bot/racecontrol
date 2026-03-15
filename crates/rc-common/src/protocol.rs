@@ -1487,4 +1487,119 @@ mod tests {
             }
         }
     }
+
+    // ── Phase 17 Plan 01: WebSocket exec protocol tests ──────────────────
+
+    #[test]
+    fn test_exec_roundtrip() {
+        let msg = CoreToAgentMessage::Exec {
+            request_id: "req-abc-123".to_string(),
+            cmd: "whoami".to_string(),
+            timeout_ms: 5000,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } = deserialized {
+            assert_eq!(request_id, "req-abc-123");
+            assert_eq!(cmd, "whoami");
+            assert_eq!(timeout_ms, 5000);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_exec_wire_format() {
+        let msg = CoreToAgentMessage::Exec {
+            request_id: "r1".to_string(),
+            cmd: "echo hi".to_string(),
+            timeout_ms: 10_000,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "exec");
+        assert_eq!(v["data"]["request_id"], "r1");
+        assert_eq!(v["data"]["cmd"], "echo hi");
+        assert_eq!(v["data"]["timeout_ms"], 10_000);
+    }
+
+    #[test]
+    fn test_exec_default_timeout() {
+        // When timeout_ms is missing from JSON, default_exec_timeout_ms() should provide 10_000
+        let json = r#"{"type":"exec","data":{"request_id":"r2","cmd":"dir"}}"#;
+        let msg: CoreToAgentMessage = serde_json::from_str(json).unwrap();
+        if let CoreToAgentMessage::Exec { timeout_ms, .. } = msg {
+            assert_eq!(timeout_ms, 10_000);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_exec_result_roundtrip() {
+        let msg = AgentMessage::ExecResult {
+            request_id: "req-abc-123".to_string(),
+            success: true,
+            exit_code: Some(0),
+            stdout: "bono\\user".to_string(),
+            stderr: String::new(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr } = deserialized {
+            assert_eq!(request_id, "req-abc-123");
+            assert!(success);
+            assert_eq!(exit_code, Some(0));
+            assert_eq!(stdout, "bono\\user");
+            assert!(stderr.is_empty());
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_exec_result_success_and_error() {
+        // Success case
+        let success = AgentMessage::ExecResult {
+            request_id: "s1".to_string(),
+            success: true,
+            exit_code: Some(0),
+            stdout: "ok".to_string(),
+            stderr: String::new(),
+        };
+        let json = serde_json::to_string(&success).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "exec_result");
+        assert_eq!(v["data"]["success"], true);
+
+        // Error case (timeout)
+        let err = AgentMessage::ExecResult {
+            request_id: "e1".to_string(),
+            success: false,
+            exit_code: Some(124),
+            stdout: String::new(),
+            stderr: "Command timed out after 10000ms".to_string(),
+        };
+        let json = serde_json::to_string(&err).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "exec_result");
+        assert_eq!(v["data"]["success"], false);
+        assert_eq!(v["data"]["exit_code"], 124);
+
+        // Error case (no exit code — semaphore exhausted)
+        let sem_err = AgentMessage::ExecResult {
+            request_id: "e2".to_string(),
+            success: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: "WS slots exhausted (4 max)".to_string(),
+        };
+        let json = serde_json::to_string(&sem_err).unwrap();
+        let deserialized: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::ExecResult { exit_code, .. } = deserialized {
+            assert_eq!(exit_code, None);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
 }
