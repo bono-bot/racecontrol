@@ -87,6 +87,15 @@ pub enum AgentMessage {
         auto_shifter: bool,
         ffb_percent: u8,
     },
+
+    /// Result of a WebSocket exec command (response to CoreToAgentMessage::Exec)
+    ExecResult {
+        request_id: String,
+        success: bool,
+        exit_code: Option<i32>,
+        stdout: String,
+        stderr: String,
+    },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -253,6 +262,18 @@ pub enum CoreToAgentMessage {
 
     /// Query current assist state from agent (Phase 6)
     QueryAssistState,
+
+    /// Run a shell command on this pod (remote exec via WebSocket)
+    Exec {
+        request_id: String,
+        cmd: String,
+        #[serde(default = "default_exec_timeout_ms")]
+        timeout_ms: u64,
+    },
+}
+
+fn default_exec_timeout_ms() -> u64 {
+    10_000
 }
 
 /// Messages sent from Core Server → Web Dashboard
