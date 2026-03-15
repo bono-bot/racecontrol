@@ -112,7 +112,7 @@ Plans:
   2. If a deployed binary crashes immediately on startup, the pod automatically rolls back to the previous binary within 60 seconds — verified by deploying a known-bad binary and watching the pod recover
   3. Staging `rc-agent-new.exe` on a pod does not trigger a Windows Defender quarantine — Defender exclusion for the staging filename is present and verified via registry check at startup
   4. After a fleet deploy across all 8 pods, rc-core logs a per-pod summary showing which pods succeeded, which failed, and which were retried — Uday can see the outcome without SSHing into each pod
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 20-01-PLAN.md — Self-swap binary preservation + DeployState::RollingBack + automatic rollback on health failure (DEP-01, DEP-02)
 - [ ] 20-02-PLAN.md — Defender exclusion self-heal + fleet deploy summary with retry + Pod 8 canary verification (DEP-03, DEP-04)
@@ -156,5 +156,5 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 17. WebSocket Exec | v4.0 | 3/3 | Complete | 2026-03-15 |
 | 18. Startup Self-Healing | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 19. Watchdog Service | v4.0 | 2/2 | Complete | 2026-03-15 |
-| 20. Deploy Resilience | v4.0 | 0/2 | Planned | - |
+| 20. Deploy Resilience | 1/2 | In Progress|  | - |
 | 21. Fleet Health Dashboard | v4.0 | 0/? | Not started | - |

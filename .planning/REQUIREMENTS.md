@@ -33,8 +33,8 @@
 
 ### Deploy Resilience
 
-- [ ] **DEP-01**: Self-swap preserves previous binary as rc-agent-prev.exe for rollback
-- [ ] **DEP-02**: deploy.rs verifies pod health (WS + HTTP + process) after deploy, triggers rollback on failure
+- [x] **DEP-01**: Self-swap preserves previous binary as rc-agent-prev.exe for rollback
+- [x] **DEP-02**: deploy.rs verifies pod health (WS + HTTP + process) after deploy, triggers rollback on failure
 - [ ] **DEP-03**: Defender exclusion covers rc-agent-new.exe staging filename (prevents AV interference)
 - [ ] **DEP-04**: Fleet deploy reports per-pod success/failure summary with retry for failed pods
 
@@ -81,8 +81,8 @@
 | SVC-02 | Phase 19 | Complete |
 | SVC-03 | Phase 19 | Complete |
 | SVC-04 | Phase 19 | Complete |
-| DEP-01 | Phase 20 | Pending |
-| DEP-02 | Phase 20 | Pending |
+| DEP-01 | Phase 20 | Complete |
+| DEP-02 | Phase 20 | Complete |
 | DEP-03 | Phase 20 | Pending |
 | DEP-04 | Phase 20 | Pending |
 | FLEET-01 | Phase 21 | Pending |

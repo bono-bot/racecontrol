@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
 status: active
+stopped_at: Completed 20-deploy-resilience 20-01-PLAN.md
+last_updated: "2026-03-15T11:07:58.966Z"
+last_activity: 2026-03-15 — Completed Plan 19-02 Task 1 (crash report endpoint + install script). Checkpoint pending for Pod 8 canary verification.
+progress:
+  total_phases: 6
+  completed_phases: 4
+  total_plans: 10
+  completed_plans: 9
+  percent: 91
+---
+
+---
+gsd_state_version: 1.0
+milestone: v4.0
+milestone_name: Pod Fleet Self-Healing
+status: active
 stopped_at: Checkpoint 19-watchdog-service 19-02-PLAN.md Task 2 (human-verify Pod 8 canary)
 last_updated: "2026-03-15T10:20:00Z"
 last_activity: 2026-03-15 — Completed Plan 19-02 Task 1 (crash report endpoint + install script). Checkpoint pending for Pod 8 canary verification.
 progress:
-  total_phases: 6
+  [█████████░] 91%
   completed_phases: 3
   total_plans: 8
   completed_plans: 8
@@ -51,6 +67,7 @@ Progress: [█████████░] 93%
 | 19-watchdog-service P02 | 2 tasks | 2 files | 9 min |
 
 *Updated after each plan completion*
+| Phase 20-deploy-resilience P01 | 12 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -70,6 +87,9 @@ Progress: [█████████░] 93%
 - [Phase 18-startup-self-healing P02]: StartupReport sent once per process lifetime using startup_report_sent bool flag; fire-and-forget from agent side; message ordering Register -> StartupReport -> ContentManifest; core logs + records pod activity
 - [Phase 19-watchdog-service P01]: rc-watchdog crate with windows-service 0.8 for SCM; tasklist polling (not sysinfo); reqwest blocking (no tokio); 15s restart grace window; WTSQueryUserToken + CreateProcessAsUser for Session 1 spawn; read rc-agent.toml with COMPUTERNAME fallback
 - [Phase 19-watchdog-service P02]: Bare StatusCode::OK return (no JSON body) for fire-and-forget crash report; log_pod_activity source='watchdog'; install-watchdog.bat with sc.exe failure actions (5s/10s/30s restart)
+- [Phase 20-deploy-resilience]: RollingBack is an active deploy phase (is_active() returns true) — prevents second deploy during rollback
+- [Phase 20-deploy-resilience]: SWAP_SCRIPT_CONTENT uses /write endpoint not echo pipeline — avoids shell escaping issues
+- [Phase 20-deploy-resilience]: Rollback success sets Failed with rolled-back reason — no separate RolledBack variant needed
 
 ### Pending Todos
 
@@ -84,6 +104,6 @@ Progress: [█████████░] 93%
 
 ## Session Continuity
 
-Last session: 2026-03-15T10:20:00Z
-Stopped at: Checkpoint 19-watchdog-service 19-02-PLAN.md Task 2 (human-verify Pod 8 canary)
+Last session: 2026-03-15T11:07:58.964Z
+Stopped at: Completed 20-deploy-resilience 20-01-PLAN.md
 Resume file: None
