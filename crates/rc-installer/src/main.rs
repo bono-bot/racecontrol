@@ -90,9 +90,16 @@ fn main() {
 
     println!("  Pod {} | Source: {}", pod, src.display());
     println!("  Destination: {}", dest.display());
-    println!();
-    println!("  Press Enter to start, or close window to cancel.");
-    let _ = io::stdin().read_line(&mut String::new());
+
+    // --yes or -y skips the interactive confirmation (for kiosk environments)
+    let auto_confirm = env::args().any(|a| a == "--yes" || a == "-y");
+    if !auto_confirm {
+        println!();
+        println!("  Press Enter to start, or close window to cancel.");
+        let _ = io::stdin().read_line(&mut String::new());
+    } else {
+        println!("  Auto-confirmed (--yes flag)");
+    }
 
     println!();
     println!("  ========================================");
