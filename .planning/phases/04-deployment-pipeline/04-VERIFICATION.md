@@ -51,9 +51,9 @@ orphaned_requirements:
 |----------|----------|--------|---------|
 | `crates/rc-common/src/types.rs` | DeployState enum with 10 variants (9 original + WaitingSession) | VERIFIED | 10 variants confirmed: Idle, Killing, WaitingDead, Downloading, SizeCheck, Starting, VerifyingHealth, Complete, Failed, WaitingSession |
 | `crates/rc-common/src/protocol.rs` | DeployProgress event, DeployPod/DeployRolling/CancelDeploy commands | VERIFIED | All variants present; 6 serde roundtrip tests pass |
-| `crates/rc-core/src/state.rs` | pod_deploy_states and pending_deploys fields in AppState | VERIFIED | Both fields present at lines 85 and 88; create_initial_deploy_states() pre-populates pods 1-8 as Idle |
-| `crates/rc-core/src/deploy.rs` | deploy_pod() async executor, deploy_rolling(), deploy_status() | VERIFIED | 853 lines; all three functions present and substantive |
-| `crates/rc-core/src/api/routes.rs` | POST /api/deploy/:pod_id, POST /api/deploy/rolling, GET /api/deploy/status | VERIFIED | All three routes wired at lines 260-262; deploy_single_pod returns 202/409/404; deploy_rolling_handler returns 202/409 |
+| `crates/racecontrol/src/state.rs` | pod_deploy_states and pending_deploys fields in AppState | VERIFIED | Both fields present at lines 85 and 88; create_initial_deploy_states() pre-populates pods 1-8 as Idle |
+| `crates/racecontrol/src/deploy.rs` | deploy_pod() async executor, deploy_rolling(), deploy_status() | VERIFIED | 853 lines; all three functions present and substantive |
+| `crates/racecontrol/src/api/routes.rs` | POST /api/deploy/:pod_id, POST /api/deploy/rolling, GET /api/deploy/status | VERIFIED | All three routes wired at lines 260-262; deploy_single_pod returns 202/409/404; deploy_rolling_handler returns 202/409 |
 | `kiosk/src/components/DeployPanel.tsx` | Deploy UI with URL input, Deploy button, 8 pod cards | VERIFIED | 198 lines; DeployPanel function exported; pod cards with color coding; CANARY badge for pod_8 |
 
 ---
@@ -63,14 +63,14 @@ orphaned_requirements:
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
 | `crates/rc-common/src/types.rs` | `crates/rc-common/src/protocol.rs` | DeployState used in DashboardEvent::DeployProgress | WIRED | DeployState imported and used at protocol.rs lines 361-369 |
-| `crates/rc-core/src/deploy.rs` | `crates/rc-core/src/state.rs` | Reads/writes pod_deploy_states in AppState | WIRED | pod_deploy_states.write() at multiple steps in deploy_pod(); pending_deploys.write() in deploy_rolling() |
-| `crates/rc-core/src/api/routes.rs` | `crates/rc-core/src/deploy.rs` | deploy_single_pod calls deploy::deploy_pod() | WIRED | tokio::spawn at line 9700 calls crate::deploy::deploy_pod() |
-| `crates/rc-core/src/ws/mod.rs` | `crates/rc-core/src/deploy.rs` | DeployPod/DeployRolling/CancelDeploy dispatch | WIRED | Lines 603-672 in ws/mod.rs handle all three commands; DeployRolling calls deploy_rolling() |
-| `crates/rc-core/src/deploy.rs` | `crates/rc-core/src/billing.rs` | Reads active_timers to check if pod has active session | WIRED | state.billing.active_timers.read() in deploy_rolling() line 636 |
-| `crates/rc-core/src/billing.rs` | `crates/rc-core/src/deploy.rs` | Session-end hook triggers pending deploy | WIRED | check_and_trigger_pending_deploy() called at 3 billing sites (lines 267, 270, 1172) |
+| `crates/racecontrol/src/deploy.rs` | `crates/racecontrol/src/state.rs` | Reads/writes pod_deploy_states in AppState | WIRED | pod_deploy_states.write() at multiple steps in deploy_pod(); pending_deploys.write() in deploy_rolling() |
+| `crates/racecontrol/src/api/routes.rs` | `crates/racecontrol/src/deploy.rs` | deploy_single_pod calls deploy::deploy_pod() | WIRED | tokio::spawn at line 9700 calls crate::deploy::deploy_pod() |
+| `crates/racecontrol/src/ws/mod.rs` | `crates/racecontrol/src/deploy.rs` | DeployPod/DeployRolling/CancelDeploy dispatch | WIRED | Lines 603-672 in ws/mod.rs handle all three commands; DeployRolling calls deploy_rolling() |
+| `crates/racecontrol/src/deploy.rs` | `crates/racecontrol/src/billing.rs` | Reads active_timers to check if pod has active session | WIRED | state.billing.active_timers.read() in deploy_rolling() line 636 |
+| `crates/racecontrol/src/billing.rs` | `crates/racecontrol/src/deploy.rs` | Session-end hook triggers pending deploy | WIRED | check_and_trigger_pending_deploy() called at 3 billing sites (lines 267, 270, 1172) |
 | `kiosk/src/hooks/useKioskSocket.ts` | `kiosk/src/components/DeployPanel.tsx` | DeployProgress events update deploy state map | WIRED | useKioskSocket handles deploy_progress events (line 275), exposes deployStates and sendDeployRolling; settings/page.tsx passes both to DeployPanel |
-| `crates/rc-core/src/pod_monitor.rs` | deploy skip logic | pod_deploy_states.read() + is_active() skip | WIRED | Lines 223-229 in pod_monitor.rs; deploy state read and is_active() checked |
-| `crates/rc-core/src/pod_healer.rs` | deploy skip logic | pod_deploy_states.read() + is_active() skip | WIRED | Lines 166-172 in pod_healer.rs; deploy state read and is_active() checked |
+| `crates/racecontrol/src/pod_monitor.rs` | deploy skip logic | pod_deploy_states.read() + is_active() skip | WIRED | Lines 223-229 in pod_monitor.rs; deploy state read and is_active() checked |
+| `crates/racecontrol/src/pod_healer.rs` | deploy skip logic | pod_deploy_states.read() + is_active() skip | WIRED | Lines 166-172 in pod_healer.rs; deploy state read and is_active() checked |
 
 ---
 
@@ -78,7 +78,7 @@ orphaned_requirements:
 
 | Requirement | Source Plan(s) | Description | Status | Evidence |
 |-------------|---------------|-------------|--------|----------|
-| DEPLOY-02 | 04-01, 04-02 | Deploy sequence enforces kill->wait->verify-dead->download->size-check->start->verify-reconnect | SATISFIED | deploy_pod() implements all steps; 20 serde tests pass in rc-common; 17 pure-function tests pass in rc-core |
+| DEPLOY-02 | 04-01, 04-02 | Deploy sequence enforces kill->wait->verify-dead->download->size-check->start->verify-reconnect | SATISFIED | deploy_pod() implements all steps; 20 serde tests pass in rc-common; 17 pure-function tests pass in racecontrol |
 | DEPLOY-05 | 04-02, 04-03 | Deploy without disrupting active sessions; rolling update with backward-compatible transitions | SATISFIED | deploy_rolling() with WaitingSession queuing; session-end hook fires pending deploy; 5s inter-pod delay |
 | PERF-01 | 04-03 | Game launch completes within target time from kiosk Start to game visible on pod | NEEDS HUMAN | Claimed by plan 04-03 but research explicitly marked "manual verification, N/A". No code changes target this; existing launch path unchanged. Human must time a live launch. |
 | PERF-02 | (none) | Lock screen responds to PIN entry within 1-2 seconds | ORPHANED | Not in any plan frontmatter. ROADMAP lists it under Phase 4 requirements; REQUIREMENTS.md marks Pending. Never addressed. See orphaned requirements section. |
@@ -89,9 +89,9 @@ orphaned_requirements:
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `crates/rc-core/src/api/routes.rs` | 2115 | unused variable `sid` | Info | Pre-existing warning; unrelated to this phase |
-| `crates/rc-core/src/api/routes.rs` | 2156 | unused variable `new_balance` | Info | Pre-existing warning; unrelated to this phase |
-| `crates/rc-core/src/deploy.rs` | — | `deploy_rolling()`: non-canary pod failure swallowed with error log only | Warning | If pod 3 fails mid-rolling deploy, the deploy continues to pods 4-7 without alerting staff. Canary failure does halt. This is documented behavior (per-plan decision) but no email alert fires for non-canary failures. |
+| `crates/racecontrol/src/api/routes.rs` | 2115 | unused variable `sid` | Info | Pre-existing warning; unrelated to this phase |
+| `crates/racecontrol/src/api/routes.rs` | 2156 | unused variable `new_balance` | Info | Pre-existing warning; unrelated to this phase |
+| `crates/racecontrol/src/deploy.rs` | — | `deploy_rolling()`: non-canary pod failure swallowed with error log only | Warning | If pod 3 fails mid-rolling deploy, the deploy continues to pods 4-7 without alerting staff. Canary failure does halt. This is documented behavior (per-plan decision) but no email alert fires for non-canary failures. |
 
 No stub patterns, placeholder components, or TODO/FIXME markers found in phase 4 files.
 
@@ -123,7 +123,7 @@ The two automated-check gaps are human-verification items, not implementation ga
 
 **PERF-01** is a measurement requirement (not a build requirement). The deployment pipeline does not change the game launch path at all, so PERF-01 is best characterized as "no regression expected, but unverified." A 5-minute live test would close it.
 
-**PERF-02** is an orphaned requirement — the ROADMAP listed it under Phase 4 but no plan claimed it. The lock screen PIN validation path (rc-agent lock screen HTTP server on port 18923, validate PIN via rc-core WebSocket) was built in earlier phases. Whether it already meets the 1-2s target is unknown. If it fails human testing, it should be assigned to Phase 5 (Blanking Screen Protocol) which already owns AUTH-01 and SCREEN-01-03.
+**PERF-02** is an orphaned requirement — the ROADMAP listed it under Phase 4 but no plan claimed it. The lock screen PIN validation path (rc-agent lock screen HTTP server on port 18923, validate PIN via racecontrol WebSocket) was built in earlier phases. Whether it already meets the 1-2s target is unknown. If it fails human testing, it should be assigned to Phase 5 (Blanking Screen Protocol) which already owns AUTH-01 and SCREEN-01-03.
 
 The core phase goal — automated kill->verify-dead->download->size-check->start->verify-reconnect with session protection — is fully achieved. All 6 verifiable must-haves pass.
 

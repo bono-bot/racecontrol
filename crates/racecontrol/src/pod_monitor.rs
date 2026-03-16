@@ -1,6 +1,6 @@
 //! Pod Monitor: Tier 2 watchdog that detects stale pods and attempts auto-recovery.
 //!
-//! Runs as a background task on rc-core. Checks all known pods every N seconds,
+//! Runs as a background task on racecontrol. Checks all known pods every N seconds,
 //! marks them Offline if heartbeat is stale, and tries to restart rc-agent via
 //! the pod's pod-agent HTTP endpoint.
 //!

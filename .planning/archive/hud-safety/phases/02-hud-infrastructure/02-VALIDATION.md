@@ -19,16 +19,16 @@ created: 2026-03-11
 |----------|-------|
 | **Framework** | cargo test (Rust built-in) |
 | **Config file** | `crates/rc-agent/Cargo.toml` |
-| **Quick run command** | `cargo test -p rc-agent` |
-| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| **Quick run command** | `cargo test -p rc-agent-crate` |
+| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 | **Estimated runtime** | ~15 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo test -p rc-agent`
-- **After every plan wave:** Run `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **After every task commit:** Run `cargo test -p rc-agent-crate`
+- **After every plan wave:** Run `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 15 seconds
 
@@ -38,15 +38,15 @@ created: 2026-03-11
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 02-01-01 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent -- overlay::tests::test_format_timer` | ❌ W0 | ⬜ pending |
-| 02-01-02 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent -- overlay::tests::test_format_lap` | ❌ W0 | ⬜ pending |
-| 02-01-02 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent -- overlay::tests::test_format_sector` | ❌ W0 | ⬜ pending |
-| 02-01-03 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent -- overlay::tests::test_sector_color` | ❌ W0 | ⬜ pending |
-| 02-01-04 | 01 | 2 | INFRA-01 | unit | `cargo test -p rc-agent` | N/A | ⬜ pending |
-| 02-01-05 | 01 | 2 | INFRA-02 | unit | `cargo test -p rc-agent -- overlay::tests::test_compute_layout` | ❌ W0 | ⬜ pending |
-| 02-01-06 | 01 | 3 | INFRA-02 | unit | `cargo test -p rc-agent` | N/A | ⬜ pending |
+| 02-01-01 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_format_timer` | ❌ W0 | ⬜ pending |
+| 02-01-02 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_format_lap` | ❌ W0 | ⬜ pending |
+| 02-01-02 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_format_sector` | ❌ W0 | ⬜ pending |
+| 02-01-03 | 01 | 1 | INFRA-01 | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_sector_color` | ❌ W0 | ⬜ pending |
+| 02-01-04 | 01 | 2 | INFRA-01 | unit | `cargo test -p rc-agent-crate` | N/A | ⬜ pending |
+| 02-01-05 | 01 | 2 | INFRA-02 | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_compute_layout` | ❌ W0 | ⬜ pending |
+| 02-01-06 | 01 | 3 | INFRA-02 | unit | `cargo test -p rc-agent-crate` | N/A | ⬜ pending |
 | 02-01-06 | 01 | 3 | INFRA-02 | manual | Deploy to Pod 8, visual regression check | N/A | ⬜ pending |
-| 02-01-07 | 01 | 4 | INFRA-01 | unit | `cargo test -p rc-agent` | N/A | ⬜ pending |
+| 02-01-07 | 01 | 4 | INFRA-01 | unit | `cargo test -p rc-agent-crate` | N/A | ⬜ pending |
 | 02-01-07 | 01 | 4 | INFRA-01 | manual | Deploy to Pod 8, 30-min GDI handle count | N/A | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*

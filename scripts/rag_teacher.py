@@ -7,7 +7,7 @@ Inserts into ai_training_pairs in the local SQLite DB.
 
 Run: python scripts/rag_teacher.py [--dry-run] [--api]
   --dry-run : Print pairs without inserting into DB
-  --api     : Use rc-core /ai/training/import endpoint instead of direct DB
+  --api     : Use racecontrol /ai/training/import endpoint instead of direct DB
 """
 
 import hashlib
@@ -92,7 +92,7 @@ TRAINING_PAIRS = [
     {
         "category": "billing",
         "question": "How does a billing session start in RaceControl?",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
@@ -103,47 +103,47 @@ TRAINING_PAIRS = [
     {
         "category": "billing",
         "question": "How does the billing timer tick and sync to the database?",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
         "question": "What happens when a billing session ends? Walk me through the flow.",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
         "question": "How does idle detection work during a billing session?",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
         "question": "How does wallet debit work when a customer starts a session?",
-        "context_file": "rc-core/src/wallet.rs",
+        "context_file": "racecontrol/src/wallet.rs",
     },
     {
         "category": "billing",
         "question": "Can a billing session be paused and resumed?",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
-        "question": "How does billing recover after rc-core restarts?",
-        "context_file": "rc-core/src/billing.rs",
+        "question": "How does billing recover after racecontrol restarts?",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
         "question": "What is the billing session lifecycle from start to end?",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
         "question": "How does extending a billing session work?",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
         "question": "What billing events are logged and where?",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     {
         "category": "billing",
@@ -154,17 +154,17 @@ TRAINING_PAIRS = [
     {
         "category": "billing",
         "question": "How does dynamic pricing work in RaceControl?",
-        "context_file": "rc-core/src/api/routes.rs",
+        "context_file": "racecontrol/src/api/routes.rs",
     },
     {
         "category": "billing",
         "question": "What is the daily revenue report endpoint and what does it return?",
-        "context_file": "rc-core/src/api/routes.rs",
+        "context_file": "racecontrol/src/api/routes.rs",
     },
     {
         "category": "billing",
         "question": "How does the auto-end feature work when a session timer runs out?",
-        "context_file": "rc-core/src/billing.rs",
+        "context_file": "racecontrol/src/billing.rs",
     },
     # ── Pods (15) ──
     {
@@ -176,40 +176,40 @@ TRAINING_PAIRS = [
     {
         "category": "pods",
         "question": "How does pod discovery work via mDNS?",
-        "context_file": "rc-core/src/main.rs",
+        "context_file": "racecontrol/src/main.rs",
     },
     {
         "category": "pods",
         "question": "How does Wake-on-LAN (WoL) work for pods?",
-        "context_file": "rc-core/src/wol.rs",
+        "context_file": "racecontrol/src/wol.rs",
     },
     {
         "category": "pods",
         "question": "What does the pod monitor do and how often does it run?",
-        "context_file": "rc-core/src/pod_monitor.rs",
+        "context_file": "racecontrol/src/pod_monitor.rs",
     },
     {
         "category": "pods",
         "question": "How does the pod healer work? What does it auto-fix?",
-        "context_file": "rc-core/src/pod_healer.rs",
+        "context_file": "racecontrol/src/pod_healer.rs",
     },
     {
         "category": "pods",
         "question": "What is the pod registration flow when a new pod connects?",
         "context_file": None,
-        "static_answer": "When rc-agent starts on a pod, it connects via WebSocket to ws://<core_ip>:8080/ws/agent and sends AgentMessage::Register(PodInfo) with pod_id, number, IP, MAC, and initial status. rc-core's ws/mod.rs handles this — inserts/updates the pods table, adds to state.pods HashMap, creates an agent_senders channel entry, and broadcasts DashboardEvent::PodUpdate to web dashboards.",
+        "static_answer": "When rc-agent starts on a pod, it connects via WebSocket to ws://<core_ip>:8080/ws/agent and sends AgentMessage::Register(PodInfo) with pod_id, number, IP, MAC, and initial status. racecontrol's ws/mod.rs handles this — inserts/updates the pods table, adds to state.pods HashMap, creates an agent_senders channel entry, and broadcasts DashboardEvent::PodUpdate to web dashboards.",
     },
     {
         "category": "pods",
         "question": "What is the pod network topology? List all pod IPs.",
         "context_file": None,
-        "static_answer": "8 sim racing pods on subnet 192.168.31.x: Pod 1 (.89), Pod 2 (.33), Pod 3 (.28), Pod 4 (.88), Pod 5 (.86), Pod 6 (.87), Pod 7 (.38), Pod 8 (.91). All share MAC prefix 30-56-0F. The rc-core server is at 192.168.31.27. Router/gateway is 192.168.31.1. Each pod runs Windows 11 with 32GB RAM and 16 CPUs. pod-agent runs on port 8090, rc-agent on the WebSocket connection to core.",
+        "static_answer": "8 sim racing pods on subnet 192.168.31.x: Pod 1 (.89), Pod 2 (.33), Pod 3 (.28), Pod 4 (.88), Pod 5 (.86), Pod 6 (.87), Pod 7 (.38), Pod 8 (.91). All share MAC prefix 30-56-0F. The racecontrol server is at 192.168.31.27. Router/gateway is 192.168.31.1. Each pod runs Windows 11 with 32GB RAM and 16 CPUs. pod-agent runs on port 8090, rc-agent on the WebSocket connection to core.",
     },
     {
         "category": "pods",
         "question": "How does DHCP drift cause pods to go offline?",
         "context_file": None,
-        "static_answer": "Pods get IPs via DHCP from the router. After reboot, a pod may get a different IP. rc-core still tries the old IP and marks the pod as offline. Fix: scan subnet for port 8090 responses, or set DHCP reservations in the router (192.168.31.1) binding each pod's MAC to a fixed IP. TCP scan: try socket.connect((ip, 8090)) across 192.168.31.2-254.",
+        "static_answer": "Pods get IPs via DHCP from the router. After reboot, a pod may get a different IP. racecontrol still tries the old IP and marks the pod as offline. Fix: scan subnet for port 8090 responses, or set DHCP reservations in the router (192.168.31.1) binding each pod's MAC to a fixed IP. TCP scan: try socket.connect((ip, 8090)) across 192.168.31.2-254.",
     },
     {
         "category": "pods",
@@ -220,22 +220,22 @@ TRAINING_PAIRS = [
     {
         "category": "pods",
         "question": "What happens when a pod crashes or becomes unresponsive?",
-        "context_file": "rc-core/src/pod_healer.rs",
+        "context_file": "racecontrol/src/pod_healer.rs",
     },
     {
         "category": "pods",
         "question": "How do I shutdown a pod remotely?",
-        "context_file": "rc-core/src/api/routes.rs",
+        "context_file": "racecontrol/src/api/routes.rs",
     },
     {
         "category": "pods",
         "question": "What is the error_aggregator and how does it detect patterns?",
-        "context_file": "rc-core/src/error_aggregator.rs",
+        "context_file": "racecontrol/src/error_aggregator.rs",
     },
     {
         "category": "pods",
         "question": "How does the smart scheduler decide when to wake/shutdown pods?",
-        "context_file": "rc-core/src/scheduler.rs",
+        "context_file": "racecontrol/src/scheduler.rs",
     },
     {
         "category": "pods",
@@ -246,7 +246,7 @@ TRAINING_PAIRS = [
     {
         "category": "pods",
         "question": "What is the pod reservation system?",
-        "context_file": "rc-core/src/pod_reservation.rs",
+        "context_file": "racecontrol/src/pod_reservation.rs",
     },
     # ── Games (10) ──
     {
@@ -270,23 +270,23 @@ TRAINING_PAIRS = [
     {
         "category": "games",
         "question": "How does game health monitoring work?",
-        "context_file": "rc-core/src/game_launcher.rs",
+        "context_file": "racecontrol/src/game_launcher.rs",
     },
     {
         "category": "games",
         "question": "How does the AC dedicated server work for multiplayer?",
-        "context_file": "rc-core/src/ac_server.rs",
+        "context_file": "racecontrol/src/ac_server.rs",
     },
     {
         "category": "games",
         "question": "What is the game launcher flow from API call to game running?",
-        "context_file": "rc-core/src/game_launcher.rs",
+        "context_file": "racecontrol/src/game_launcher.rs",
     },
     {
         "category": "games",
         "question": "How does telemetry data flow from game to dashboard?",
         "context_file": None,
-        "static_answer": "Game → UDP packet → rc-agent sim adapter (e.g., assetto_corsa.rs parses AC shared memory/UDP) → builds TelemetryFrame → sends AgentMessage::Telemetry(frame) over WebSocket to rc-core → core broadcasts DashboardEvent::Telemetry(frame) to all connected dashboards. TelemetryFrame has 130+ fields: speed, RPM, gear, throttle, brake, steering, lap time, position, tire data, etc.",
+        "static_answer": "Game → UDP packet → rc-agent sim adapter (e.g., assetto_corsa.rs parses AC shared memory/UDP) → builds TelemetryFrame → sends AgentMessage::Telemetry(frame) over WebSocket to racecontrol → core broadcasts DashboardEvent::Telemetry(frame) to all connected dashboards. TelemetryFrame has 130+ fields: speed, RPM, gear, throttle, brake, steering, lap time, position, tire data, etc.",
     },
     {
         "category": "games",
@@ -297,7 +297,7 @@ TRAINING_PAIRS = [
     {
         "category": "games",
         "question": "How does the camera controller work for spectator mode?",
-        "context_file": "rc-core/src/ac_camera.rs",
+        "context_file": "racecontrol/src/ac_camera.rs",
     },
     {
         "category": "games",
@@ -308,74 +308,74 @@ TRAINING_PAIRS = [
     # ── Cloud Sync (10) ──
     {
         "category": "cloud_sync",
-        "question": "How does cloud sync work between rc-core and the cloud?",
-        "context_file": "rc-core/src/cloud_sync.rs",
+        "question": "How does cloud sync work between racecontrol and the cloud?",
+        "context_file": "racecontrol/src/cloud_sync.rs",
     },
     {
         "category": "cloud_sync",
         "question": "What tables are synced from cloud and what is the merge strategy?",
         "context_file": None,
-        "static_answer": "Cloud-authoritative tables: drivers, wallets, pricing_tiers, kiosk_experiences, kiosk_settings. rc-core polls GET /sync/changes?since=<last_sync>&tables=<list> every 30 seconds with x-terminal-secret header. Upsert strategy: drivers/pricing/settings → cloud wins (INSERT OR REPLACE). Wallets → MAX(credits) from cloud, preserve local debits. Local-authoritative: billing_sessions, laps, game_state — never overwritten by cloud.",
+        "static_answer": "Cloud-authoritative tables: drivers, wallets, pricing_tiers, kiosk_experiences, kiosk_settings. racecontrol polls GET /sync/changes?since=<last_sync>&tables=<list> every 30 seconds with x-terminal-secret header. Upsert strategy: drivers/pricing/settings → cloud wins (INSERT OR REPLACE). Wallets → MAX(credits) from cloud, preserve local debits. Local-authoritative: billing_sessions, laps, game_state — never overwritten by cloud.",
     },
     {
         "category": "cloud_sync",
         "question": "What is the sync_state table and how is it used?",
-        "context_file": "rc-core/src/cloud_sync.rs",
+        "context_file": "racecontrol/src/cloud_sync.rs",
     },
     {
         "category": "cloud_sync",
         "question": "How does the remote terminal allow cloud commands to execute locally?",
-        "context_file": "rc-core/src/remote_terminal.rs",
+        "context_file": "racecontrol/src/remote_terminal.rs",
     },
     {
         "category": "cloud_sync",
         "question": "What is the action queue and how does it reduce booking latency?",
         "context_file": None,
-        "static_answer": "The action queue is a cloud→rc-core path that polls every 3 seconds (vs 30s for sync). rc-core calls GET /actions/pending and processes CloudAction variants: BookingCreated, WalletTopUp, BookingCancelled, QrConfirmed, SettingsChanged, Notification. After processing, it ACKs via POST /actions/{id}/ack. This reduces PWA booking latency from 30s to ~3s without requiring port forwarding or tunnels.",
+        "static_answer": "The action queue is a cloud→racecontrol path that polls every 3 seconds (vs 30s for sync). racecontrol calls GET /actions/pending and processes CloudAction variants: BookingCreated, WalletTopUp, BookingCancelled, QrConfirmed, SettingsChanged, Notification. After processing, it ACKs via POST /actions/{id}/ack. This reduces PWA booking latency from 30s to ~3s without requiring port forwarding or tunnels.",
     },
     {
         "category": "cloud_sync",
         "question": "What is the cloud API URL and what authentication does it use?",
         "context_file": None,
-        "static_answer": "Cloud API: https://app.racingpoint.cloud/api/v1 (Bono's VPS at 72.60.101.58). Authentication: x-terminal-secret header with value from racecontrol.toml [cloud].terminal_secret. The terminal_pin is for the web UI authentication only (Uday's PIN). API gateway (Express.js, port 3100) proxies requests to rc-core on the cloud side.",
+        "static_answer": "Cloud API: https://app.racingpoint.cloud/api/v1 (Bono's VPS at 72.60.101.58). Authentication: x-terminal-secret header with value from racecontrol.toml [cloud].terminal_secret. The terminal_pin is for the web UI authentication only (Uday's PIN). API gateway (Express.js, port 3100) proxies requests to racecontrol on the cloud side.",
     },
     {
         "category": "cloud_sync",
         "question": "How does the wallet merge strategy prevent double-spending?",
-        "context_file": "rc-core/src/cloud_sync.rs",
+        "context_file": "racecontrol/src/cloud_sync.rs",
     },
     {
         "category": "cloud_sync",
         "question": "What happens if cloud sync fails or the internet goes down?",
         "context_file": None,
-        "static_answer": "rc-core is designed for offline resilience. If cloud sync fails, it logs a warning and retries next interval (30s). All billing, pod management, game launching, and lock screen functionality works offline — these are local-authoritative. Only new customer registrations and wallet top-ups from the PWA are delayed. The sync_state table tracks last successful sync per table, so when internet returns, only changes since the last sync are pulled.",
+        "static_answer": "racecontrol is designed for offline resilience. If cloud sync fails, it logs a warning and retries next interval (30s). All billing, pod management, game launching, and lock screen functionality works offline — these are local-authoritative. Only new customer registrations and wallet top-ups from the PWA are delayed. The sync_state table tracks last successful sync per table, so when internet returns, only changes since the last sync are pulled.",
     },
     {
         "category": "cloud_sync",
         "question": "What is the terminal_secret and how is it used across services?",
         "context_file": None,
-        "static_answer": "terminal_secret ('rp-terminal-2026') is a shared secret between rc-core (local) and the cloud API gateway. It's sent as x-terminal-secret header on all cloud API calls: sync/changes, terminal/commands/pending, actions/pending. The cloud validates this header to ensure requests come from an authorized rc-core instance, not random internet traffic. Set in racecontrol.toml [cloud].terminal_secret.",
+        "static_answer": "terminal_secret ('rp-terminal-2026') is a shared secret between racecontrol (local) and the cloud API gateway. It's sent as x-terminal-secret header on all cloud API calls: sync/changes, terminal/commands/pending, actions/pending. The cloud validates this header to ensure requests come from an authorized racecontrol instance, not random internet traffic. Set in racecontrol.toml [cloud].terminal_secret.",
     },
     {
         "category": "cloud_sync",
         "question": "How does the sync push work to send local data to the cloud?",
-        "context_file": "rc-core/src/cloud_sync.rs",
+        "context_file": "racecontrol/src/cloud_sync.rs",
     },
     # ── Auth (10) ──
     {
         "category": "auth",
         "question": "How does the PIN authentication flow work for customers?",
-        "context_file": "rc-core/src/auth/mod.rs",
+        "context_file": "racecontrol/src/auth/mod.rs",
     },
     {
         "category": "auth",
         "question": "How does QR code authentication work for the PWA?",
-        "context_file": "rc-core/src/auth/mod.rs",
+        "context_file": "racecontrol/src/auth/mod.rs",
     },
     {
         "category": "auth",
         "question": "How does OTP verification work for customer login?",
-        "context_file": "rc-core/src/auth/mod.rs",
+        "context_file": "racecontrol/src/auth/mod.rs",
     },
     {
         "category": "auth",
@@ -392,7 +392,7 @@ TRAINING_PAIRS = [
     {
         "category": "auth",
         "question": "How does JWT authentication work for the customer PWA?",
-        "context_file": "rc-core/src/auth/mod.rs",
+        "context_file": "racecontrol/src/auth/mod.rs",
     },
     {
         "category": "auth",
@@ -403,7 +403,7 @@ TRAINING_PAIRS = [
     {
         "category": "auth",
         "question": "How does the start-now staff override work?",
-        "context_file": "rc-core/src/api/routes.rs",
+        "context_file": "racecontrol/src/api/routes.rs",
     },
     {
         "category": "auth",
@@ -414,14 +414,14 @@ TRAINING_PAIRS = [
     {
         "category": "auth",
         "question": "How are rate limits enforced on OTP requests?",
-        "context_file": "rc-core/src/auth/mod.rs",
+        "context_file": "racecontrol/src/auth/mod.rs",
     },
     # ── Troubleshooting (15) ──
     {
         "category": "troubleshooting",
         "question": "A pod shows as offline but it's powered on. What should I check?",
         "context_file": None,
-        "static_answer": "Checklist: 1) DHCP drift — pod got new IP after reboot. Scan subnet: try port 8090 on 192.168.31.2-254. 2) Windows Firewall — Domain profile may be ON even if Private/Public are OFF. Fix: netsh advfirewall set domainprofile state off. 3) rc-agent not running — check Task Manager. Watchdog should auto-restart, but verify scheduled task exists. 4) WebSocket connection failed — check rc-core logs for connection errors. 5) Network cable unplugged or switch port issue.",
+        "static_answer": "Checklist: 1) DHCP drift — pod got new IP after reboot. Scan subnet: try port 8090 on 192.168.31.2-254. 2) Windows Firewall — Domain profile may be ON even if Private/Public are OFF. Fix: netsh advfirewall set domainprofile state off. 3) rc-agent not running — check Task Manager. Watchdog should auto-restart, but verify scheduled task exists. 4) WebSocket connection failed — check racecontrol logs for connection errors. 5) Network cable unplugged or switch port issue.",
     },
     {
         "category": "troubleshooting",
@@ -444,13 +444,13 @@ TRAINING_PAIRS = [
     {
         "category": "troubleshooting",
         "question": "A game crashed on a pod. How does RaceControl handle it?",
-        "context_file": "rc-core/src/game_launcher.rs",
+        "context_file": "racecontrol/src/game_launcher.rs",
     },
     {
         "category": "troubleshooting",
         "question": "How do I debug a billing session that's stuck?",
         "context_file": None,
-        "static_answer": "Check: 1) GET /billing/active — is the session listed? Status should be 'active'. 2) Check rc-core logs for BillingTick errors. 3) Verify the pod's agent_sender channel exists in state — if the WebSocket dropped, ticks won't reach the pod. 4) Direct DB check: SELECT * FROM billing_sessions WHERE status = 'active'. 5) Force-end: POST /billing/{id}/stop. 6) If timer is stuck in memory but DB says ended, restart rc-core — recover_active_sessions() will re-sync.",
+        "static_answer": "Check: 1) GET /billing/active — is the session listed? Status should be 'active'. 2) Check racecontrol logs for BillingTick errors. 3) Verify the pod's agent_sender channel exists in state — if the WebSocket dropped, ticks won't reach the pod. 4) Direct DB check: SELECT * FROM billing_sessions WHERE status = 'active'. 5) Force-end: POST /billing/{id}/stop. 6) If timer is stuck in memory but DB says ended, restart racecontrol — recover_active_sessions() will re-sync.",
     },
     {
         "category": "troubleshooting",
@@ -473,13 +473,13 @@ TRAINING_PAIRS = [
     {
         "category": "troubleshooting",
         "question": "Cloud sync is not pulling new data. How to diagnose?",
-        "context_file": "rc-core/src/cloud_sync.rs",
+        "context_file": "racecontrol/src/cloud_sync.rs",
     },
     {
         "category": "troubleshooting",
         "question": "The lock screen is not showing on a pod after customer assignment.",
         "context_file": None,
-        "static_answer": "Check: 1) Is rc-agent running on the pod? (Check WebSocket connection in rc-core logs). 2) Is the agent_senders channel populated for this pod_id? (Core must have received a Register message). 3) Was ShowPinLockScreen/ShowQrLockScreen sent? Check rc-core logs. 4) Is Edge kiosk mode working? The lock screen runs in msedge --kiosk mode on port 18923. 5) Is the port 18923 accessible? (firewall). 6) Check rc-agent logs for lock screen errors.",
+        "static_answer": "Check: 1) Is rc-agent running on the pod? (Check WebSocket connection in racecontrol logs). 2) Is the agent_senders channel populated for this pod_id? (Core must have received a Register message). 3) Was ShowPinLockScreen/ShowQrLockScreen sent? Check racecontrol logs. 4) Is Edge kiosk mode working? The lock screen runs in msedge --kiosk mode on port 18923. 5) Is the port 18923 accessible? (firewall). 6) Check rc-agent logs for lock screen errors.",
     },
     {
         "category": "troubleshooting",
@@ -489,9 +489,9 @@ TRAINING_PAIRS = [
     },
     {
         "category": "troubleshooting",
-        "question": "rc-core won't start. What are common causes?",
+        "question": "racecontrol won't start. What are common causes?",
         "context_file": None,
-        "static_answer": "Common causes: 1) Port 8080 already in use — another rc-core instance or process. Fix: netstat -ano | findstr 8080, then kill the PID. 2) SQLite DB locked — another process has data/racecontrol.db open. 3) Invalid racecontrol.toml — TOML parse error. Check syntax. 4) Missing data/ directory — create it. 5) Rust panic in initialization — check stderr for backtrace. 6) Missing DLLs (Windows) — ensure MSVC redistributable is installed.",
+        "static_answer": "Common causes: 1) Port 8080 already in use — another racecontrol instance or process. Fix: netstat -ano | findstr 8080, then kill the PID. 2) SQLite DB locked — another process has data/racecontrol.db open. 3) Invalid racecontrol.toml — TOML parse error. Check syntax. 4) Missing data/ directory — create it. 5) Rust panic in initialization — check stderr for backtrace. 6) Missing DLLs (Windows) — ensure MSVC redistributable is installed.",
     },
     {
         "category": "troubleshooting",
@@ -516,12 +516,12 @@ TRAINING_PAIRS = [
         "category": "business",
         "question": "How does the customer journey work from walk-in to racing?",
         "context_file": None,
-        "static_answer": "Walk-in flow: 1) Customer arrives → staff creates/finds driver profile. 2) Staff assigns customer to a pod with pricing tier via kiosk terminal (POST /auth/assign). 3) Pod lock screen shows PIN entry. 4) Customer enters 4-digit PIN at the pod. 5) rc-core validates → billing starts → lock screen clears → game launches. 6) Customer races with countdown timer visible on pod. 7) Timer ends → session summary shows laps/best time → pod returns to idle. PWA flow adds: customer registers online → books → QR code at pod → auto-validates.",
+        "static_answer": "Walk-in flow: 1) Customer arrives → staff creates/finds driver profile. 2) Staff assigns customer to a pod with pricing tier via kiosk terminal (POST /auth/assign). 3) Pod lock screen shows PIN entry. 4) Customer enters 4-digit PIN at the pod. 5) racecontrol validates → billing starts → lock screen clears → game launches. 6) Customer races with countdown timer visible on pod. 7) Timer ends → session summary shows laps/best time → pod returns to idle. PWA flow adds: customer registers online → books → QR code at pod → auto-validates.",
     },
     {
         "category": "business",
         "question": "How does the wallet and credits system work?",
-        "context_file": "rc-core/src/wallet.rs",
+        "context_file": "racecontrol/src/wallet.rs",
     },
     {
         "category": "business",
@@ -533,7 +533,7 @@ TRAINING_PAIRS = [
         "category": "business",
         "question": "How does the leaderboard work?",
         "context_file": None,
-        "static_answer": "Leaderboards track best lap times per track+car combination. When AgentMessage::LapCompleted arrives, rc-core updates: 1) personal_bests table (driver's best per track/car). 2) track_records table (global best per track/car). 3) Broadcasts DashboardEvent::LeaderboardUpdate. Public API: GET /api/v1/public/leaderboard returns top entries. The customer PWA shows leaderboards so players can compare times. Fastest lap of the day is highlighted in the AI chat context.",
+        "static_answer": "Leaderboards track best lap times per track+car combination. When AgentMessage::LapCompleted arrives, racecontrol updates: 1) personal_bests table (driver's best per track/car). 2) track_records table (global best per track/car). 3) Broadcasts DashboardEvent::LeaderboardUpdate. Public API: GET /api/v1/public/leaderboard returns top entries. The customer PWA shows leaderboards so players can compare times. Fastest lap of the day is highlighted in the AI chat context.",
     },
 ]
 
@@ -562,7 +562,7 @@ def insert_pair_db(conn, question: str, answer: str, source: str, quality: int, 
 
 
 def insert_pair_api(question: str, answer: str, source: str, quality: int):
-    """Insert via rc-core API endpoint."""
+    """Insert via racecontrol API endpoint."""
     import requests
     r = requests.post(
         f"{CORE_URL}/ai/training/import",

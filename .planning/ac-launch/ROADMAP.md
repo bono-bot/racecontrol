@@ -14,7 +14,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 - [x] **Phase 2: Game Crash Recovery** - Detect crash, pause billing, show status, enable re-launch
 - [x] **Phase 3: Launch Resilience** - CM fallback improvements, failure reporting, billing pause on launch failure
 - [x] **Phase 4: Multiplayer Server Lifecycle** - AC server auto-start/stop wired to billing, kiosk self-serve multiplayer booking
-- [x] **Phase 5: Synchronized Group Play** - Coordinated launch across pods, continuous race mode, failure recovery
+- [ ] **Phase 5: Synchronized Group Play** - Coordinated launch across pods, continuous race mode, failure recovery
 
 ## Phase Details
 
@@ -31,7 +31,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 **Plans**: 2 plans
 
 Plans:
-- [x] 01-01-PLAN.md — rc-core: billing validation gate + double-launch guard fix in game_launcher.rs (LIFE-01, LIFE-02, LIFE-04)
+- [x] 01-01-PLAN.md — racecontrol: billing validation gate + double-launch guard fix in game_launcher.rs (LIFE-01, LIFE-02, LIFE-04)
 - [x] 01-02-PLAN.md — rc-agent: arm 15s blank_timer in SessionEnded + fix BillingStopped billing_active flag (LIFE-01, LIFE-03)
 
 ### Phase 2: Game Crash Recovery
@@ -47,7 +47,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [x] 02-01-PLAN.md — rc-core: billing auto-pause on GameCrashed + POST /games/relaunch/:pod_id endpoint (CRASH-02, CRASH-04)
+- [x] 02-01-PLAN.md — racecontrol: billing auto-pause on GameCrashed + POST /games/relaunch/:pod_id endpoint (CRASH-02, CRASH-04)
 - [x] 02-02-PLAN.md — kiosk: "Game Crashed" badge + "Relaunch Game" button on pod cards (CRASH-03, CRASH-04)
 
 ### Phase 3: Launch Resilience
@@ -62,8 +62,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [x] 03-01-PLAN.md — rc-agent: improve CM fallback diagnostics (structured LaunchResult with error details), report to rc-core via enhanced GameStateChanged
-- [x] 03-02-PLAN.md — rc-core: handle LaunchFailed (auto-pause billing, store diagnostics), kiosk shows launch error details + retry button
+- [x] 03-01-PLAN.md — rc-agent: improve CM fallback diagnostics (structured LaunchResult with error details), report to racecontrol via enhanced GameStateChanged
+- [x] 03-02-PLAN.md — racecontrol: handle LaunchFailed (auto-pause billing, store diagnostics), kiosk shows launch error details + retry button
 
 ### Phase 4: Multiplayer Server Lifecycle
 **Goal**: When staff or customer books multiplayer, the AC server starts automatically. When billing ends, the server stops. Customers can book multiplayer directly from the kiosk without staff — friends walk in, pick a game, get PINs, and drive together.
@@ -78,7 +78,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [x] 04-01-PLAN.md — rc-core: wire book_multiplayer() → AcServerManager.start(), wire billing end → AcServerManager.stop(), add server lifecycle events to WebSocket dashboard
+- [x] 04-01-PLAN.md — racecontrol: wire book_multiplayer() → AcServerManager.start(), wire billing end → AcServerManager.stop(), add server lifecycle events to WebSocket dashboard
 - [x] 04-02-PLAN.md — kiosk: add "Play with Friends" flow to booking wizard (pod count → experience → review → book), display PINs + pod assignments on confirmation
 
 ### Phase 5: Synchronized Group Play
@@ -94,8 +94,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [x] 05-01-PLAN.md — rc-core: coordinated launch trigger (wait for all PINs validated → send LaunchGame to all pods simultaneously), continuous mode flag on AcServerManager with auto-restart on session end
-- [x] 05-02-PLAN.md — rc-core + kiosk: per-pod join status tracking, failure display on dashboard with retry button, mid-session config change (track/car swap between races)
+- [ ] 05-01-PLAN.md — racecontrol: coordinated launch trigger (wait for all PINs validated → send LaunchGame to all pods simultaneously), continuous mode flag on AcServerManager with auto-restart on session end
+- [ ] 05-02-PLAN.md — racecontrol + kiosk: per-pod join status tracking, failure display on dashboard with retry button, mid-session config change (track/car swap between races)
 
 ## Progress
 
@@ -108,9 +108,9 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 | 2. Game Crash Recovery | 2/2 | Complete | 2026-03-15 |
 | 3. Launch Resilience | 2/2 | Complete | 2026-03-15 |
 | 4. Multiplayer Server Lifecycle | 2/2 | Complete | 2026-03-15 |
-| 5. Synchronized Group Play | 2/2 | Complete | 2026-03-16 |
+| 5. Synchronized Group Play | 0/2 | Not started | - |
 
-**Total: 10/10 plans complete — MILESTONE v5.0 COMPLETE**
+**Total: 8/10 plans complete**
 
 ## Dependency Graph
 

@@ -29,7 +29,7 @@
 ### Rust
 - **Unit tests**: Colocate with modules using `#[cfg(test)]` blocks at end of each file
   ```rust
-  // In crates/rc-core/src/billing.rs
+  // In crates/racecontrol/src/billing.rs
   #[cfg(test)]
   mod tests {
       use super::*;
@@ -38,8 +38,8 @@
       fn test_billing_timer_tick() { ... }
   }
   ```
-- **Integration tests**: Would go in `crates/rc-core/tests/` directory (not present)
-- **Run**: `cargo test -p rc-core`
+- **Integration tests**: Would go in `crates/racecontrol/tests/` directory (not present)
+- **Run**: `cargo test -p racecontrol-crate`
 
 ### TypeScript/JavaScript
 - **Unit tests**: Colocate with modules

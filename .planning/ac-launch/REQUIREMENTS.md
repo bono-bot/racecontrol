@@ -22,7 +22,7 @@
 ### Launch Resilience (LAUNCH)
 
 - [x] **LAUNCH-01**: When Content Manager hangs or fails, AC falls back to direct acs.exe launch within 15 seconds
-- [x] **LAUNCH-02**: Game launch failure details (exit code, CM log errors) are reported to rc-core and visible on the dashboard
+- [x] **LAUNCH-02**: Game launch failure details (exit code, CM log errors) are reported to racecontrol and visible on the dashboard
 - [x] **LAUNCH-03**: When game launch fails entirely, billing is auto-paused until staff takes action
 
 ### Multiplayer Server Lifecycle (MULTI)

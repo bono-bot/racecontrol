@@ -8,11 +8,11 @@
 
 ## Summary
 
-Phase 4 automates the manual deploy workflow into a reliable, repeatable pipeline managed from rc-core. Today, deploying a new rc-agent binary to pods requires James (or a human) to manually run a Python script or curl commands. The deploy sequence (kill process, delete binary, download new binary, start process) has multiple failure modes on Windows: file lock errors when overwriting a running .exe, partial installs when downloads fail mid-way, no visibility into deploy progress, and no protection for pods with active customer sessions.
+Phase 4 automates the manual deploy workflow into a reliable, repeatable pipeline managed from racecontrol. Today, deploying a new rc-agent binary to pods requires James (or a human) to manually run a Python script or curl commands. The deploy sequence (kill process, delete binary, download new binary, start process) has multiple failure modes on Windows: file lock errors when overwriting a running .exe, partial installs when downloads fail mid-way, no visibility into deploy progress, and no protection for pods with active customer sessions.
 
 The phase introduces three layers:
 1. **Shared protocol types** (DeployState enum, DeployCommand/DeployProgress messages) in rc-common for cross-crate communication.
-2. **Deploy executor** in rc-core that orchestrates the kill->verify-dead->download->size-check->start->verify-reconnect sequence for a single pod via pod-agent /exec calls.
+2. **Deploy executor** in racecontrol that orchestrates the kill->verify-dead->download->size-check->start->verify-reconnect sequence for a single pod via pod-agent /exec calls.
 3. **Rolling deploy controller** that deploys to Pod 8 (canary) first, verifies health, then rolls to remaining pods while skipping any pod with an active billing session.
 
 Every building block exists: pod-agent /exec runs commands on pods, pod-agent /write pushes files, deploy_pod.py proves the sequence works manually, pod_monitor's verify_restart() shows how to confirm health post-restart, and billing.active_timers tracks active sessions. The work is integration — wiring these into an automated, observable pipeline with proper error handling.
@@ -82,7 +82,7 @@ File: `C:\Users\bono\racingpoint\deploy-staging\install.bat`
 
 ### pod_monitor verify_restart() (Phase 2)
 
-- **File:** `crates/rc-core/src/pod_monitor.rs` lines 498-683
+- **File:** `crates/racecontrol/src/pod_monitor.rs` lines 498-683
 - **Checks:** process alive (tasklist), WebSocket connected (is_closed()), lock screen responsive (/health on 18923)
 - **Schedule:** 5s, 15s, 30s, 60s polling intervals
 - **Result:** Full recovery (3/3 pass) -> WatchdogState::Healthy; failure -> RecoveryFailed + email alert
@@ -90,13 +90,13 @@ File: `C:\Users\bono\racingpoint\deploy-staging\install.bat`
 
 ### wol::restart_pod()
 
-- **File:** `crates/rc-core/src/wol.rs` lines 56-74
+- **File:** `crates/racecontrol/src/wol.rs` lines 56-74
 - **Does:** `shutdown /r /f /t 0` via pod-agent /exec
 - **Different from deploy restart:** This reboots the entire Windows machine, not just rc-agent
 
 ### API route: POST /pods/{id}/restart
 
-- **File:** `crates/rc-core/src/api/routes.rs` line 39
+- **File:** `crates/racecontrol/src/api/routes.rs` line 39
 - **Calls:** `wol::restart_pod()` which reboots the entire machine
 - **Not suitable for binary deploy:** We need to restart rc-agent only, not the whole pod
 
@@ -141,7 +141,7 @@ File: `C:\Users\bono\racingpoint\deploy-staging\install.bat`
 Killing rc-agent during a billing session means:
 - Customer's game window may stay open but no billing tick updates
 - Lock screen goes away (no PIN gate after session)
-- Billing timer in rc-core still runs but agent can't receive SessionEnded
+- Billing timer in racecontrol still runs but agent can't receive SessionEnded
 - Customer sees "Disconnected" on overlay
 - On rc-agent restart, billing resync sends current timer state, but game state may be inconsistent
 
@@ -224,7 +224,7 @@ The deploy executor can reuse this same verification logic. After starting the n
 
 | Library | Purpose | Notes |
 |---------|---------|-------|
-| axum | HTTP endpoints for deploy API | Already in rc-core |
+| axum | HTTP endpoints for deploy API | Already in racecontrol |
 | tokio | Async executor, spawn, sleep | Already in use |
 | reqwest | HTTP client for pod-agent calls | Already in AppState.http_client |
 | serde/serde_json | Serialize/deserialize protocol messages | Already in use |
@@ -331,9 +331,9 @@ At each step, the executor broadcasts DashboardEvent::DeployProgress so the kios
    - Recommendation: Always write config on deploy (matches deploy_pod.py behavior). The template is the source of truth. Config-only deploys can use the existing deploy_pod.py --config-only.
 
 3. **Binary source for deploy executor**
-   - What we know: deploy_pod.py downloads from `http://192.168.31.27:9998/rc-agent.exe`. The executor in rc-core could serve the binary itself or use the same HTTP server.
-   - What's unclear: Should rc-core serve the binary from its own port (8080), or rely on the separate HTTP server?
-   - Recommendation: Use the existing HTTP server pattern (9998 on James). rc-core's job is orchestration, not file serving. The binary_url is a parameter to the deploy endpoint.
+   - What we know: deploy_pod.py downloads from `http://192.168.31.27:9998/rc-agent.exe`. The executor in racecontrol could serve the binary itself or use the same HTTP server.
+   - What's unclear: Should racecontrol serve the binary from its own port (8080), or rely on the separate HTTP server?
+   - Recommendation: Use the existing HTTP server pattern (9998 on James). racecontrol's job is orchestration, not file serving. The binary_url is a parameter to the deploy endpoint.
 
 4. **Minimum binary size threshold**
    - What we know: rc-agent.exe is typically 15-25MB (static CRT build). A corrupted download could be 0 bytes or a few KB.
@@ -354,8 +354,8 @@ At each step, the executor broadcasts DashboardEvent::DeployProgress so the kios
 | Property | Value |
 |----------|-------|
 | Framework | cargo test (Rust built-in) |
-| Quick run | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-core` |
-| Full suite | Same + `cargo test -p rc-agent` |
+| Quick run | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p racecontrol-crate` |
+| Full suite | Same + `cargo test -p rc-agent-crate` |
 
 ### Phase Requirements -> Test Map
 
@@ -382,14 +382,14 @@ At each step, the executor broadcasts DashboardEvent::DeployProgress so the kios
   - `deploy-staging/deploy-cmd.json` -- ad-hoc compound command
   - `deploy-staging/install.bat` -- USB pendrive installer
   - `deploy-staging/rc-agent.template.toml` -- config template
-  - `crates/rc-core/src/pod_monitor.rs` -- verify_restart() pattern, WatchdogState skip logic
-  - `crates/rc-core/src/pod_healer.rs` -- WatchdogState skip pattern, billing check
-  - `crates/rc-core/src/state.rs` -- AppState structure, WatchdogState enum
+  - `crates/racecontrol/src/pod_monitor.rs` -- verify_restart() pattern, WatchdogState skip logic
+  - `crates/racecontrol/src/pod_healer.rs` -- WatchdogState skip pattern, billing check
+  - `crates/racecontrol/src/state.rs` -- AppState structure, WatchdogState enum
   - `crates/rc-common/src/protocol.rs` -- DashboardEvent, DashboardCommand, AgentMessage enums
-  - `crates/rc-core/src/ws/mod.rs` -- WebSocket handler, agent registration, billing resync
-  - `crates/rc-core/src/billing.rs` -- BillingTimer, active_timers
-  - `crates/rc-core/src/wol.rs` -- restart_pod (machine reboot, not rc-agent restart)
-  - `crates/rc-core/src/api/routes.rs` -- existing API routes, POST /pods/{id}/restart
+  - `crates/racecontrol/src/ws/mod.rs` -- WebSocket handler, agent registration, billing resync
+  - `crates/racecontrol/src/billing.rs` -- BillingTimer, active_timers
+  - `crates/racecontrol/src/wol.rs` -- restart_pod (machine reboot, not rc-agent restart)
+  - `crates/racecontrol/src/api/routes.rs` -- existing API routes, POST /pods/{id}/restart
 
 ### Secondary (MEDIUM confidence)
 

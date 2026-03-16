@@ -63,8 +63,8 @@ Pure function at module level with 3 unit tests covering:
 
 ## Verification Results
 
-- [x] `cargo test -p rc-agent` — 47 tests pass (including 3 new reconnect_delay tests)
-- [x] `cargo build -p rc-agent` — compiles cleanly
+- [x] `cargo test -p rc-agent-crate` — 47 tests pass (including 3 new reconnect_delay tests)
+- [x] `cargo build -p rc-agent-crate` — compiles cleanly
 - [x] Lock screen disconnect behavior unchanged (verified by code review)
 - [x] No `Message::Pong` send in rc-agent (only app-level Pong via AgentMessage)
 

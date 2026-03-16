@@ -47,11 +47,11 @@ human_verification:
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/rc-core/src/wol.rs` | Unit tests for parse_mac | VERIFIED | 6 tests at lines 94-129: colon, dash, lowercase, too-few-parts, invalid-hex, empty — all passing |
-| `crates/rc-core/src/api/routes.rs` | lockdown_pod + lockdown_all_pods handlers + unit tests | VERIFIED | Handlers at lines 576-648; 4 unit tests in `mod lockdown_tests` at lines 650-819 — all passing |
+| `crates/racecontrol/src/wol.rs` | Unit tests for parse_mac | VERIFIED | 6 tests at lines 94-129: colon, dash, lowercase, too-few-parts, invalid-hex, empty — all passing |
+| `crates/racecontrol/src/api/routes.rs` | lockdown_pod + lockdown_all_pods handlers + unit tests | VERIFIED | Handlers at lines 576-648; 4 unit tests in `mod lockdown_tests` at lines 650-819 — all passing |
 | `kiosk/src/lib/api.ts` | lockdownPod, lockdownAllPods, restartAllPods API functions | VERIFIED | All three present at lines 289-300; each wired to correct backend path |
 | `kiosk/src/app/control/page.tsx` | 5 bulk buttons + per-pod lockdown toggle | VERIFIED | `handleLockAll`, `handleUnlockAll`, `handleRestartAll` at lines 94-123; 5 buttons in bulk action bar at lines 138-169; per-pod padlock at lines 236-254 |
-| `crates/rc-core/src/billing.rs` | BillingTimer::dummy() test helper | VERIFIED | `pub fn dummy(pod_id: &str)` at line 200 with `#[cfg(test)]` gate |
+| `crates/racecontrol/src/billing.rs` | BillingTimer::dummy() test helper | VERIFIED | `pub fn dummy(pod_id: &str)` at line 200 with `#[cfg(test)]` gate |
 
 ### Key Link Verification
 
@@ -93,7 +93,7 @@ None detected. Scan of `routes.rs` (lockdown section), `wol.rs`, `api.ts`, and `
 ### Test Results
 
 ```
-cargo test -p rc-core
+cargo test -p racecontrol-crate
 running 175 tests
 ...
 test api::routes::lockdown_tests::lockdown_all_skips_billing_active_and_closed_sends_to_healthy ... ok
@@ -147,9 +147,9 @@ ROADMAP.md line 108 shows `- [ ] 10-02-PLAN.md` (unchecked), while the SUMMARY a
 
 #### 5. End-to-end lockdown reaching a pod
 
-**Test:** With rc-core running on server and at least one pod connected, click a per-pod Lock button.
+**Test:** With racecontrol running on server and at least one pod connected, click a per-pod Lock button.
 **Expected:** That pod's taskbar disappears and Win key is blocked within a few seconds
-**Why human:** Requires physical pod with rc-agent connected to rc-core WebSocket; cannot test without live hardware
+**Why human:** Requires physical pod with rc-agent connected to racecontrol WebSocket; cannot test without live hardware
 
 ---
 

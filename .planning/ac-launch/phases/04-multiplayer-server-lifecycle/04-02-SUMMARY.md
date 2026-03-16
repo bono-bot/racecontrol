@@ -55,7 +55,7 @@ Kiosk "Play with Friends" flow: pod count selector (2-8), multiplayer booking vi
 
 ## Decisions Made
 
-1. **Replaced multiplayer_lobby content** -- The old join/create server UI was for a different multiplayer model. The kiosk self-serve "Play with Friends" flow only needs a pod count selector (the server is auto-managed by rc-core).
+1. **Replaced multiplayer_lobby content** -- The old join/create server UI was for a different multiplayer model. The kiosk self-serve "Play with Friends" flow only needs a pod count selector (the server is auto-managed by racecontrol).
 2. **Success screen conditional branch** -- Used `multiAssignments.length > 0` as the discriminator rather than `playerMode === "multi"` to ensure the multi display only shows when the API actually returned assignments.
 3. **Button text differentiation** -- Changed "BOOK SESSION" to "BOOK N RIGS" in multi mode so customers see their pod count reflected in the CTA.
 

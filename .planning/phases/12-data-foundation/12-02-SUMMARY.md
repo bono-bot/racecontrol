@@ -24,9 +24,9 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - "crates/rc-core/src/db/mod.rs"
-    - "crates/rc-core/src/lap_tracker.rs"
-    - "crates/rc-core/tests/integration.rs"
+    - "crates/racecontrol/src/db/mod.rs"
+    - "crates/racecontrol/src/lap_tracker.rs"
+    - "crates/racecontrol/tests/integration.rs"
 
 key-decisions:
   - "No backfill of historical laps: NULL car_class is explicit sentinel for pre-v3.0 data"
@@ -71,9 +71,9 @@ Each task was committed atomically (TDD pattern):
 2. **Task 1 GREEN: Implement car_class column and lookup** - `a733868` (feat)
 
 ## Files Created/Modified
-- `crates/rc-core/src/db/mod.rs` - Added ALTER TABLE laps ADD COLUMN car_class TEXT + idx_laps_car_class index
-- `crates/rc-core/src/lap_tracker.rs` - Added car_class lookup from billing_sessions JOIN kiosk_experiences before INSERT, added car_class bind parameter
-- `crates/rc-core/tests/integration.rs` - Added kiosk_experiences table to run_test_migrations(), car_class column to laps CREATE, idx_laps_car_class index, 2 new test functions
+- `crates/racecontrol/src/db/mod.rs` - Added ALTER TABLE laps ADD COLUMN car_class TEXT + idx_laps_car_class index
+- `crates/racecontrol/src/lap_tracker.rs` - Added car_class lookup from billing_sessions JOIN kiosk_experiences before INSERT, added car_class bind parameter
+- `crates/racecontrol/tests/integration.rs` - Added kiosk_experiences table to run_test_migrations(), car_class column to laps CREATE, idx_laps_car_class index, 2 new test functions
 
 ## Decisions Made
 - No backfill of historical laps: NULL car_class is the explicit sentinel for pre-v3.0 data, preserving data provenance
@@ -88,7 +88,7 @@ Each task was committed atomically (TDD pattern):
 - **Found during:** Task 1 RED phase
 - **Issue:** run_test_migrations() did not include kiosk_experiences table, but tests need it for the billing_sessions JOIN kiosk_experiences query
 - **Fix:** Added CREATE TABLE IF NOT EXISTS kiosk_experiences to run_test_migrations() mirroring production schema
-- **Files modified:** crates/rc-core/tests/integration.rs
+- **Files modified:** crates/racecontrol/tests/integration.rs
 - **Verification:** Tests compile and pass
 - **Committed in:** be3085a (Task 1 RED commit)
 
@@ -96,7 +96,7 @@ Each task was committed atomically (TDD pattern):
 - **Found during:** Task 1 RED phase
 - **Issue:** Test inserted laps with invalid session_id references ('bs-test-1', 'no-session') but PRAGMA foreign_keys=ON rejects invalid FK references
 - **Fix:** Created proper sessions table entries before inserting laps
-- **Files modified:** crates/rc-core/tests/integration.rs
+- **Files modified:** crates/racecontrol/tests/integration.rs
 - **Verification:** Tests pass without FK constraint errors
 - **Committed in:** be3085a (Task 1 RED commit)
 
@@ -119,9 +119,9 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 
-- [x] crates/rc-core/src/db/mod.rs exists
-- [x] crates/rc-core/src/lap_tracker.rs exists
-- [x] crates/rc-core/tests/integration.rs exists
+- [x] crates/racecontrol/src/db/mod.rs exists
+- [x] crates/racecontrol/src/lap_tracker.rs exists
+- [x] crates/racecontrol/tests/integration.rs exists
 - [x] .planning/phases/12-data-foundation/12-02-SUMMARY.md exists
 - [x] Commit be3085a (Task 1 RED) found
 - [x] Commit a733868 (Task 1 GREEN) found

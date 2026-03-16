@@ -9,7 +9,7 @@ requires:
   - phase: 04-01
     provides: DeployState enum, DeployProgress event, DashboardCommand::DeployPod/DeployRolling/CancelDeploy, pod_deploy_states in AppState
 provides:
-  - deploy_pod() async executor in crates/rc-core/src/deploy.rs — full kill->wait-dead->download->size-check->start->verify sequence
+  - deploy_pod() async executor in crates/racecontrol/src/deploy.rs — full kill->wait-dead->download->size-check->start->verify sequence
   - POST /api/deploy/:pod_id endpoint — 202 Accepted, background deploy spawn, 409 Conflict guards
   - GET /api/deploy/status — snapshot of all pod deploy states
   - DashboardCommand::DeployPod/DeployRolling/CancelDeploy handlers in ws/mod.rs
@@ -28,11 +28,11 @@ tech-stack:
 
 key-files:
   created:
-    - crates/rc-core/src/deploy.rs
+    - crates/racecontrol/src/deploy.rs
   modified:
-    - crates/rc-core/src/lib.rs
-    - crates/rc-core/src/api/routes.rs
-    - crates/rc-core/src/ws/mod.rs
+    - crates/racecontrol/src/lib.rs
+    - crates/racecontrol/src/api/routes.rs
+    - crates/racecontrol/src/ws/mod.rs
 
 key-decisions:
   - "Binary URL validated via HEAD request before killing old process — prevents leaving pod without agent on 404/network error"
@@ -83,10 +83,10 @@ Each task was committed atomically:
 _Note: Task 1 used TDD — pure functions written and tested in RED/GREEN cycle_
 
 ## Files Created/Modified
-- `crates/rc-core/src/deploy.rs` - Deploy executor module: deploy_pod(), validate_binary_size(), parse_file_size_from_dir(), deploy_step_label(), generate_pod_config(), is_cancelled()
-- `crates/rc-core/src/lib.rs` - Added `pub mod deploy;`
-- `crates/rc-core/src/api/routes.rs` - Added POST /api/deploy/:pod_id and GET /api/deploy/status handlers
-- `crates/rc-core/src/ws/mod.rs` - Wired DashboardCommand::DeployPod, DeployRolling, CancelDeploy match arms
+- `crates/racecontrol/src/deploy.rs` - Deploy executor module: deploy_pod(), validate_binary_size(), parse_file_size_from_dir(), deploy_step_label(), generate_pod_config(), is_cancelled()
+- `crates/racecontrol/src/lib.rs` - Added `pub mod deploy;`
+- `crates/racecontrol/src/api/routes.rs` - Added POST /api/deploy/:pod_id and GET /api/deploy/status handlers
+- `crates/racecontrol/src/ws/mod.rs` - Wired DashboardCommand::DeployPod, DeployRolling, CancelDeploy match arms
 
 ## Decisions Made
 - Binary URL validated via HEAD request before killing old process — prevents leaving pod without agent on URL errors
@@ -108,7 +108,7 @@ None - no external service configuration required.
 ## Next Phase Readiness
 - Deploy executor is complete and tested. POST /api/deploy/:pod_id is live.
 - Plan 04-03 (rolling deploy + kiosk UI) can now wire up the rolling deploy UI using the DeployProgress events and GET /api/deploy/status endpoint.
-- All 153 tests pass (100 rc-core + 53 rc-common).
+- All 153 tests pass (100 racecontrol + 53 rc-common).
 
 ---
 *Phase: 04-deployment-pipeline*

@@ -48,10 +48,10 @@ human_verification:
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/rc-core/src/fleet_health.rs` | FleetHealthStore, PodFleetStatus, store_startup_report, clear_on_disconnect, start_probe_loop, fleet_health_handler, unit tests | VERIFIED | 430 lines; all 6 public items present; 13 unit tests; no stubs or TODOs |
-| `crates/rc-core/src/state.rs` | `pod_fleet_health` field on AppState | VERIFIED | Line 136: `pub pod_fleet_health: RwLock<HashMap<String, FleetHealthStore>>,`; initialized at line 182 |
-| `crates/rc-core/src/ws/mod.rs` | StartupReport storage + disconnect cleanup | VERIFIED | Lines 503-505 (StartupReport), 543-545 (graceful Disconnect), 577-579 (ungraceful socket-drop) |
-| `crates/rc-core/src/api/routes.rs` | GET /fleet/health route | VERIFIED | Line 33: `.route("/fleet/health", get(fleet_health::fleet_health_handler))` |
+| `crates/racecontrol/src/fleet_health.rs` | FleetHealthStore, PodFleetStatus, store_startup_report, clear_on_disconnect, start_probe_loop, fleet_health_handler, unit tests | VERIFIED | 430 lines; all 6 public items present; 13 unit tests; no stubs or TODOs |
+| `crates/racecontrol/src/state.rs` | `pod_fleet_health` field on AppState | VERIFIED | Line 136: `pub pod_fleet_health: RwLock<HashMap<String, FleetHealthStore>>,`; initialized at line 182 |
+| `crates/racecontrol/src/ws/mod.rs` | StartupReport storage + disconnect cleanup | VERIFIED | Lines 503-505 (StartupReport), 543-545 (graceful Disconnect), 577-579 (ungraceful socket-drop) |
+| `crates/racecontrol/src/api/routes.rs` | GET /fleet/health route | VERIFIED | Line 33: `.route("/fleet/health", get(fleet_health::fleet_health_handler))` |
 
 ### Plan 21-02 (Frontend)
 
@@ -69,10 +69,10 @@ human_verification:
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `crates/rc-core/src/ws/mod.rs` | `state.pod_fleet_health` | write on StartupReport + clear on Disconnect/socket-drop | WIRED | 3 separate write blocks confirmed at lines 503, 543, 577 |
-| `crates/rc-core/src/fleet_health.rs` | `state.pods + reqwest::Client` | parallel HTTP probes to :8090/health | WIRED | `join_all(probe_futs)` with `format!("http://{}:8090/health", ip)` |
-| `crates/rc-core/src/api/routes.rs` | `fleet_health::fleet_health_handler` | route registration | WIRED | `.route("/fleet/health", get(fleet_health::fleet_health_handler))` |
-| `crates/rc-core/src/main.rs` | `fleet_health::start_probe_loop` | tokio::spawn background task | WIRED | Line 314: `fleet_health::start_probe_loop(state.clone())` after udp_heartbeat |
+| `crates/racecontrol/src/ws/mod.rs` | `state.pod_fleet_health` | write on StartupReport + clear on Disconnect/socket-drop | WIRED | 3 separate write blocks confirmed at lines 503, 543, 577 |
+| `crates/racecontrol/src/fleet_health.rs` | `state.pods + reqwest::Client` | parallel HTTP probes to :8090/health | WIRED | `join_all(probe_futs)` with `format!("http://{}:8090/health", ip)` |
+| `crates/racecontrol/src/api/routes.rs` | `fleet_health::fleet_health_handler` | route registration | WIRED | `.route("/fleet/health", get(fleet_health::fleet_health_handler))` |
+| `crates/racecontrol/src/main.rs` | `fleet_health::start_probe_loop` | tokio::spawn background task | WIRED | Line 314: `fleet_health::start_probe_loop(state.clone())` after udp_heartbeat |
 
 ### Plan 21-02
 
@@ -102,9 +102,9 @@ No anti-patterns found in new or modified files.
 | — | — | No TODOs, no stubs, no empty handlers, no `any` types, no `return null` in new code | — | — |
 
 **Warnings in pre-existing code (not introduced by Phase 21):**
-- `crates/rc-core/src/api/routes.rs`: 4 pre-existing unused variable/field warnings (sid, new_balance, CouponDiscount fields, JournalQuery struct)
-- `crates/rc-core/src/main.rs`: 11 unused import warnings (pre-existing — these imports are side-effect registrations, not phase 21 additions)
-- `crates/rc-core/src/auth/mod.rs`: 1 unused function warning (pre-existing)
+- `crates/racecontrol/src/api/routes.rs`: 4 pre-existing unused variable/field warnings (sid, new_balance, CouponDiscount fields, JournalQuery struct)
+- `crates/racecontrol/src/main.rs`: 11 unused import warnings (pre-existing — these imports are side-effect registrations, not phase 21 additions)
+- `crates/racecontrol/src/auth/mod.rs`: 1 unused function warning (pre-existing)
 
 None of these were introduced by Phase 21 and none are blockers.
 
@@ -112,10 +112,10 @@ None of these were introduced by Phase 21 and none are blockers.
 
 ## Test Results
 
-### Rust (rc-core)
+### Rust (racecontrol)
 
 ```
-cargo test -p rc-core fleet_health
+cargo test -p racecontrol-crate fleet_health
 running 13 tests ... test result: ok. 13 passed; 0 failed
 ```
 
@@ -135,15 +135,15 @@ All 13 fleet_health unit tests pass:
 - `fleet_health_ws_connected_false_when_receiver_dropped`
 
 ```
-cargo test -p rc-core
+cargo test -p racecontrol-crate
 running 238 unit + 41 integration tests ... test result: ok. 279 passed; 0 failed
 ```
 
-No regressions in rc-core.
+No regressions in racecontrol.
 
 ### Pre-existing failure (not Phase 21)
 
-`cargo test -p rc-agent`: `remote_ops::tests::test_exec_timeout_returns_500` FAILS — expects exit_code 124, gets 1. This test was failing before Phase 21 (the failure is in `rc-agent/src/remote_ops.rs` which was not modified in this phase). All Phase 21 commits touch only `rc-core` and `kiosk`.
+`cargo test -p rc-agent-crate`: `remote_ops::tests::test_exec_timeout_returns_500` FAILS — expects exit_code 124, gets 1. This test was failing before Phase 21 (the failure is in `rc-agent/src/remote_ops.rs` which was not modified in this phase). All Phase 21 commits touch only `racecontrol` and `kiosk`.
 
 ### TypeScript
 
@@ -178,7 +178,7 @@ TypeScript passes cleanly. No `any` types introduced.
 
 ### 4. Live WS State Flip
 
-**Test:** Start rc-core + kiosk. Open /kiosk/fleet. Then connect Pod 8's rc-agent (or restart it). Watch Pod 8's card.
+**Test:** Start racecontrol + kiosk. Open /kiosk/fleet. Then connect Pod 8's rc-agent (or restart it). Watch Pod 8's card.
 **Expected:** Within the next 5-second poll cycle, Pod 8's card border turns green, the WS dot turns green, version populates (e.g. "v0.5.2"), uptime starts counting.
 **Why human:** Requires a live WS connection event flowing through the StartupReport handler path.
 
@@ -191,7 +191,7 @@ Phase 21 is fully implemented and all automated checks pass:
 - The backend (`fleet_health.rs`, 430 lines) is substantive and complete: FleetHealthStore state, 15s probe loop with dedicated 3s-timeout client, StartupReport wiring, disconnect cleanup in both graceful and ungraceful paths, and a public GET handler returning 8 sorted entries.
 - The frontend (`kiosk/src/app/fleet/page.tsx`, 149 lines) is substantive and complete: 5s polling with immediate first fetch, error banner without data loss, 4-state color coding, mobile-first 2-col/4-col grid, crash recovery badge.
 - All wiring is confirmed: route registered, probe loop spawned, WS events wired, TypeScript types matched.
-- 279/279 rc-core tests pass (238 unit + 41 integration). 13/13 fleet_health tests pass. TypeScript type checks clean.
+- 279/279 racecontrol tests pass (238 unit + 41 integration). 13/13 fleet_health tests pass. TypeScript type checks clean.
 - The only remaining gate is Uday's visual approval on his phone at `http://192.168.31.23:3300/kiosk/fleet`.
 
 ---

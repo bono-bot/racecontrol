@@ -18,9 +18,9 @@
 | Technology | Version | Role |
 |------------|---------|------|
 | Rust/Axum | 0.8 | rc-agent HTTP server on port 8090 (remote_ops.rs) |
-| tokio | 1 (full) | Async runtime in both rc-core and rc-agent |
-| tokio-tungstenite | 0.26 | WebSocket client in rc-agent → rc-core |
-| axum | 0.8 | Both rc-core (port 8080) and rc-agent (port 8090) |
+| tokio | 1 (full) | Async runtime in both racecontrol and rc-agent |
+| tokio-tungstenite | 0.26 | WebSocket client in rc-agent → racecontrol |
+| axum | 0.8 | Both racecontrol (port 8080) and rc-agent (port 8090) |
 | winapi | 0.3 | Already in rc-agent for Windows process management |
 | serde, serde_json | 1 | Serialization throughout |
 | tracing, tracing-appender | 0.1/0.2 | Structured logging |
@@ -45,7 +45,7 @@ Do NOT use NSSM, WinSW, or shawl as external wrappers.
 
 **Why `windows-service` over NSSM:**
 
-NSSM has not been updated since 2017. Its last release (2.24) predates Windows 11. It ships as an external binary that must be bundled separately, added to the deploy kit, and installed idempotently on every pod. Most critically, NSSM wraps the process externally — it cannot participate in the Rust shutdown sequence, cannot signal the existing `tokio_util::CancellationToken` pattern, and cannot report structured startup errors back to rc-core over the WebSocket before dying. The Feb 2026 David Hamann article on writing Windows services in Rust (https://davidhamann.de/2026/02/28/writing-a-windows-service-in-rust/) confirms the `windows-service 0.8` crate integrates cleanly with a tokio runtime and `CancellationToken`.
+NSSM has not been updated since 2017. Its last release (2.24) predates Windows 11. It ships as an external binary that must be bundled separately, added to the deploy kit, and installed idempotently on every pod. Most critically, NSSM wraps the process externally — it cannot participate in the Rust shutdown sequence, cannot signal the existing `tokio_util::CancellationToken` pattern, and cannot report structured startup errors back to racecontrol over the WebSocket before dying. The Feb 2026 David Hamann article on writing Windows services in Rust (https://davidhamann.de/2026/02/28/writing-a-windows-service-in-rust/) confirms the `windows-service 0.8` crate integrates cleanly with a tokio runtime and `CancellationToken`.
 
 **Why `windows-service` over `sc.exe`:**
 
@@ -303,7 +303,7 @@ pub fn ensure_startup_registry() -> Result<()> {
 
 ### 4. Fleet Health Dashboard: Extend Existing Kiosk WebSocket — no new library
 
-**Recommendation: Add a new `/ws/fleet` endpoint in rc-core (Axum) and a new `/fleet` page in the existing kiosk (Next.js 16.1.6). Zero new libraries.**
+**Recommendation: Add a new `/ws/fleet` endpoint in racecontrol (Axum) and a new `/fleet` page in the existing kiosk (Next.js 16.1.6). Zero new libraries.**
 
 **Why NOT a new standalone dashboard app:**
 
@@ -311,7 +311,7 @@ The kiosk already runs at port 3300. It already has `useKioskSocket` connecting 
 
 **Why NOT SSE (Server-Sent Events) for the fleet dashboard:**
 
-SSE is ideal when the server pushes unidirectional event streams to a read-only dashboard. The fleet dashboard is NOT read-only — it needs two-way communication: Uday presses "restart Pod 3" and a command must flow back to rc-core. The existing `/ws/dashboard` already handles bidirectional pod commands (billing, game launch, lock, power). The fleet health view is an extension of the same WebSocket, not a new protocol.
+SSE is ideal when the server pushes unidirectional event streams to a read-only dashboard. The fleet dashboard is NOT read-only — it needs two-way communication: Uday presses "restart Pod 3" and a command must flow back to racecontrol. The existing `/ws/dashboard` already handles bidirectional pod commands (billing, game launch, lock, power). The fleet health view is an extension of the same WebSocket, not a new protocol.
 
 **Why NOT polling from the kiosk:**
 
@@ -420,13 +420,13 @@ tokio-util = { version = "0.7", features = ["rt"] }
 ### Session 0 Isolation (CRITICAL)
 **All Windows Services run in Session 0.** Session 0 is non-interactive — it has no display, no keyboard, no ability to show windows to the user in Session 1. The rc-agent lock screen currently uses WINAPI to create a window. If rc-agent is converted to a Windows Service without architectural changes, the lock screen will be invisible. This is not a configuration issue — it is an OS security boundary that cannot be bypassed on Windows 10/11.
 
-**Mitigation:** Move the lock screen responsibility to the kiosk (`/lock` page), which already runs in Session 1 via the HKLM Run key. The kiosk navigates to `/lock` when it receives a `lock_screen` WebSocket event from rc-core.
+**Mitigation:** Move the lock screen responsibility to the kiosk (`/lock` page), which already runs in Session 1 via the HKLM Run key. The kiosk navigates to `/lock` when it receives a `lock_screen` WebSocket event from racecontrol.
 
 ### ServiceMain Thread vs Main Thread
 The `service_dispatcher::start()` call BLOCKS the calling thread until the service stops. The tokio runtime must be created INSIDE `windows_service_main()`, not in `main()`. Creating the runtime in `main()` before calling `service_dispatcher::start()` will result in the runtime being torn down when `start()` returns on service stop, causing task cancellation before graceful shutdown completes.
 
 ### Startup Error Reporting Window
-When a service fails to start within 30 seconds of the SCM registering it, Windows kills the process. If rc-agent startup (config load, WebSocket connect) takes >30s, the service is killed. Set service status to `StartPending` immediately at the top of `windows_service_main`, then update to `Running` after initialization completes. Report startup errors to rc-core over WebSocket before the status becomes `Running`, using the existing `AgentMessage` protocol.
+When a service fails to start within 30 seconds of the SCM registering it, Windows kills the process. If rc-agent startup (config load, WebSocket connect) takes >30s, the service is killed. Set service status to `StartPending` immediately at the top of `windows_service_main`, then update to `Running` after initialization completes. Report startup errors to racecontrol over WebSocket before the status becomes `Running`, using the existing `AgentMessage` protocol.
 
 ### netsh Requires Elevation
 `netsh advfirewall` commands require administrator rights. When rc-agent runs as a Windows Service under `LocalSystem`, it has these rights automatically. During development/console mode, the executable must be run as Administrator. Consider detecting at runtime and logging a clear warning rather than silently failing.

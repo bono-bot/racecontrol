@@ -35,8 +35,8 @@ The key open questions from the previous research are now resolved by reading so
 ### Core
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| Axum | 0.7.x (already in rc-core) | New GET /api/v1/fleet/health endpoint | Already used for all rc-core HTTP routes |
-| tokio | 1.x (already in rc-core) | Background HTTP probe loop task | Already the runtime |
+| Axum | 0.7.x (already in racecontrol) | New GET /api/v1/fleet/health endpoint | Already used for all racecontrol HTTP routes |
+| tokio | 1.x (already in racecontrol) | Background HTTP probe loop task | Already the runtime |
 | reqwest | 0.12.x (already in AppState as `http_client`) | HTTP GET to pod :8090/health | Re-use `state.http_client` — no new dep |
 | Next.js | 16.1.6 (already in kiosk) | /fleet page | Existing app router, same as all other pages |
 | Tailwind CSS | 4.x (already in kiosk) | Styling | Existing; use rp-* color tokens |
@@ -51,7 +51,7 @@ All work fits within existing dependencies. The probe loop uses `state.http_clie
 
 ### Recommended Project Structure (new files only)
 ```
-crates/rc-core/src/
+crates/racecontrol/src/
 └── fleet_health.rs          # New: PodFleetHealth struct, probe loop, GET handler
 
 kiosk/src/app/fleet/
@@ -61,7 +61,7 @@ kiosk/src/app/fleet/
 ### Data Flow
 
 ```
-rc-core startup
+racecontrol startup
   └── spawn fleet_health probe loop (every 10s)
         └── GET http://{pod_ip}:8090/health per registered pod
               └── write bool to pod_http_reachable map in AppState
@@ -133,7 +133,7 @@ AgentMessage::StartupReport { pod_id, version, uptime_secs, crash_recovery, .. }
 Pattern copied directly from `deploy.rs` `http_exec_on_pod` which uses the same `state.http_client`:
 
 ```rust
-// Source: rc-core/src/deploy.rs http_exec_on_pod pattern
+// Source: racecontrol/src/deploy.rs http_exec_on_pod pattern
 pub fn start_probe_loop(state: Arc<AppState>) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
@@ -373,25 +373,25 @@ export interface PodFleetStatus {
 |----------|-------|
 | Framework | cargo test (Rust) + tsc (TypeScript) |
 | Config file | Cargo.toml per-crate / kiosk/tsconfig.json |
-| Quick run command | `cargo test -p rc-core -- fleet` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p racecontrol-crate -- fleet` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements to Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| FLEET-01 | `GET /api/v1/fleet/health` returns exactly 8 entries | unit | `cargo test -p rc-core -- fleet_health_returns_8_pods` | No — Wave 0 |
-| FLEET-01 | All fields present (ws_connected, http_reachable, version, uptime) | unit | `cargo test -p rc-core -- fleet_health_fields` | No — Wave 0 |
-| FLEET-02 | ws_connected reflects agent_senders state independently of http_reachable | unit | `cargo test -p rc-core -- fleet_ws_independent_of_http` | No — Wave 0 |
-| FLEET-02 | http_reachable reflects pod_http_reachable map independently of WS | unit | `cargo test -p rc-core -- fleet_http_independent_of_ws` | No — Wave 0 |
+| FLEET-01 | `GET /api/v1/fleet/health` returns exactly 8 entries | unit | `cargo test -p racecontrol-crate -- fleet_health_returns_8_pods` | No — Wave 0 |
+| FLEET-01 | All fields present (ws_connected, http_reachable, version, uptime) | unit | `cargo test -p racecontrol-crate -- fleet_health_fields` | No — Wave 0 |
+| FLEET-02 | ws_connected reflects agent_senders state independently of http_reachable | unit | `cargo test -p racecontrol-crate -- fleet_ws_independent_of_http` | No — Wave 0 |
+| FLEET-02 | http_reachable reflects pod_http_reachable map independently of WS | unit | `cargo test -p racecontrol-crate -- fleet_http_independent_of_ws` | No — Wave 0 |
 | FLEET-03 | Fleet page TypeScript compiles without errors | smoke | `cd /c/Users/bono/racingpoint/racecontrol/kiosk && npx tsc --noEmit` | No — Wave 0 |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-core -- fleet`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p racecontrol-crate -- fleet`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
-- [ ] `crates/rc-core/src/fleet_health.rs` — new module with `PodStartupData`, `PodFleetStatus`, `start_probe_loop`, `fleet_health` handler, and all unit tests
+- [ ] `crates/racecontrol/src/fleet_health.rs` — new module with `PodStartupData`, `PodFleetStatus`, `start_probe_loop`, `fleet_health` handler, and all unit tests
 - [ ] `kiosk/src/app/fleet/page.tsx` — new Next.js page
 - [ ] `PodFleetStatus` TypeScript interface in `kiosk/src/lib/types.ts`
 
@@ -401,13 +401,13 @@ export interface PodFleetStatus {
 
 ### Primary (HIGH confidence)
 - `crates/rc-agent/src/remote_ops.rs:93-103` — verified `GET /health` returns 200 JSON with version, uptime_secs, exec_slots; port 8090
-- `crates/rc-core/src/state.rs` — verified AppState fields: `pods`, `agent_senders`; confirmed NO `pod_startup_reports` field exists yet
-- `crates/rc-core/src/config.rs` — verified `PodsConfig` has `count`, `discovery`, `static_pods` (no per-pod IPs)
+- `crates/racecontrol/src/state.rs` — verified AppState fields: `pods`, `agent_senders`; confirmed NO `pod_startup_reports` field exists yet
+- `crates/racecontrol/src/config.rs` — verified `PodsConfig` has `count`, `discovery`, `static_pods` (no per-pod IPs)
 - `crates/rc-common/src/protocol.rs:100-108` — verified `StartupReport` variant fields
 - `crates/rc-common/src/types.rs:51-73` — verified `PodInfo.ip_address: String`, `PodInfo.number: u32`
-- `crates/rc-core/src/ws/mod.rs:481-501` — verified StartupReport handler logs only, no AppState write
-- `crates/rc-core/src/deploy.rs:280-286` — verified `is_ws_connected()` pattern using agent_senders
-- `crates/rc-core/src/deploy.rs:30` — verified `POD_AGENT_PORT = 8090`
+- `crates/racecontrol/src/ws/mod.rs:481-501` — verified StartupReport handler logs only, no AppState write
+- `crates/racecontrol/src/deploy.rs:280-286` — verified `is_ws_connected()` pattern using agent_senders
+- `crates/racecontrol/src/deploy.rs:30` — verified `POD_AGENT_PORT = 8090`
 - `crates/rc-agent/src/main.rs:424` — verified rc-agent starts remote_ops on port 8090
 - `kiosk/src/hooks/useKioskSocket.ts` — verified WS URL pattern and event handling approach
 - `kiosk/next.config.ts` — verified `basePath: "/kiosk"`, port 3300 in package.json

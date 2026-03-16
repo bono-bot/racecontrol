@@ -86,7 +86,7 @@ Variables `crash_recovery`, `heal_result`, and `exe_dir` remain in scope for Pla
 
 - self_heal: 8 tests passing (pod number parsing, config generation, script CRLF, hash, no-repair-when-exists)
 - startup_log: 7 tests passing (write, append, truncate, crash detection complete/incomplete/no-file)
-- Full suite: 510 tests green (rc-common: 98, rc-agent: 199, rc-core: 213)
+- Full suite: 510 tests green (rc-common: 98, rc-agent: 199, racecontrol: 213)
 - No new warnings from self_heal.rs or startup_log.rs
 
 ## Commits

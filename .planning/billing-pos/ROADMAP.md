@@ -2,7 +2,7 @@
 
 ## Overview
 
-The billing engine in rc-core is complete — timers, cost calculation, dynamic pricing, wallet, split sessions, and double-entry journal entries all work. This milestone adds the *visibility and operations layer* on top: sync billing data to cloud, build the live dashboard and analytics at dashboard.racingpoint.cloud, give customers a proper session receipt on PWA, and give staff refund/discount controls on the kiosk.
+The billing engine in racecontrol is complete — timers, cost calculation, dynamic pricing, wallet, split sessions, and double-entry journal entries all work. This milestone adds the *visibility and operations layer* on top: sync billing data to cloud, build the live dashboard and analytics at dashboard.racingpoint.cloud, give customers a proper session receipt on PWA, and give staff refund/discount controls on the kiosk.
 
 No billing engine rewrite. This is pure wiring, frontend, and surface-level backend.
 
@@ -82,7 +82,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [x] 04-01-PLAN.md — rc-core: add events to customer_session_detail, public_session_summary endpoint, WhatsApp receipt via Evolution API in post_session_hooks
+- [x] 04-01-PLAN.md — racecontrol: add events to customer_session_detail, public_session_summary endpoint, WhatsApp receipt via Evolution API in post_session_hooks
 - [x] 04-02-PLAN.md — PWA: session timeline + top speed N/A on detail page, public shareable session page at /sessions/[id]/public
 
 ### Phase 5: Kiosk POS — Staff Operations
@@ -98,7 +98,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — rc-core: payment_method column in billing_sessions, POST /billing/{id}/refund (already exists — add audit_log write); POST /billing/{id}/discount for pre-session discount; audit_log on all POS mutations
+- [ ] 05-01-PLAN.md — racecontrol: payment_method column in billing_sessions, POST /billing/{id}/refund (already exists — add audit_log write); POST /billing/{id}/discount for pre-session discount; audit_log on all POS mutations
 - [ ] 05-02-PLAN.md — Kiosk: payment method selector in booking wizard; Refund modal on session detail; Discount panel on booking review step
 
 ## Progress

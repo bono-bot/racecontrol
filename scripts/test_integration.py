@@ -194,7 +194,7 @@ def cleanup():
     if not test_driver_id:
         return
     print("\n  Cleaning up test data...")
-    # Note: rc-core may not have a DELETE /drivers endpoint — that's fine
+    # Note: racecontrol may not have a DELETE /drivers endpoint — that's fine
     try:
         requests.delete(f"{CORE_URL}/drivers/{test_driver_id}", timeout=5)
     except Exception:

@@ -13,7 +13,7 @@ human_verification:
     why_human: "Requires a running acServer.exe process exit event; cannot simulate with grep/file checks"
   - test: "Force a pod into game_state=error during a multiplayer session, observe kiosk UI"
     expected: "Pod card shows orange 'Join Failed' banner and 'Retry Join' button; other pods unaffected"
-    why_human: "Requires live WebSocket event from rc-core to kiosk; UI rendering cannot be verified statically"
+    why_human: "Requires live WebSocket event from racecontrol to kiosk; UI rendering cannot be verified statically"
   - test: "Click 'Retry Join' on a failed pod"
     expected: "Pod receives StopGame then LaunchGame; game_state transitions back to 'launching'"
     why_human: "Requires live pod connection and observable state transition on kiosk dashboard"
@@ -59,11 +59,11 @@ human_verification:
 
 | Artifact | Status | Details |
 |----------|--------|---------|
-| `crates/rc-core/src/auth/mod.rs` | VERIFIED | `find_group_session_for_token()` called at line 423; `on_member_validated()` at 429; `is_group_member` guard at 506 |
-| `crates/rc-core/src/multiplayer.rs` | VERIFIED | `on_member_validated()` at line 574; calls `start_ac_lan_for_group()` at 627; AC server start removed from both booking functions |
-| `crates/rc-core/src/ac_server.rs` | VERIFIED | `continuous_mode` + `group_session_id` fields on `AcServerInstance`; `set_continuous_mode()`, `monitor_continuous_session()`, `retry_pod_join()`, `update_session_config()` all present |
-| `crates/rc-core/src/billing.rs` | VERIFIED | `continuous_mode` guard at line 2518 — defers stop to monitor loop |
-| `crates/rc-core/src/api/routes.rs` | VERIFIED | `/ac/session/{session_id}/continuous`, `/ac/session/retry-pod`, `/ac/session/update-config` all registered |
+| `crates/racecontrol/src/auth/mod.rs` | VERIFIED | `find_group_session_for_token()` called at line 423; `on_member_validated()` at 429; `is_group_member` guard at 506 |
+| `crates/racecontrol/src/multiplayer.rs` | VERIFIED | `on_member_validated()` at line 574; calls `start_ac_lan_for_group()` at 627; AC server start removed from both booking functions |
+| `crates/racecontrol/src/ac_server.rs` | VERIFIED | `continuous_mode` + `group_session_id` fields on `AcServerInstance`; `set_continuous_mode()`, `monitor_continuous_session()`, `retry_pod_join()`, `update_session_config()` all present |
+| `crates/racecontrol/src/billing.rs` | VERIFIED | `continuous_mode` guard at line 2518 — defers stop to monitor loop |
+| `crates/racecontrol/src/api/routes.rs` | VERIFIED | `/ac/session/{session_id}/continuous`, `/ac/session/retry-pod`, `/ac/session/update-config` all registered |
 | `crates/rc-common/src/types.rs` | VERIFIED | `AcServerInfo.continuous_mode: bool` with `#[serde(default)]` at line 570 |
 | `kiosk/src/lib/types.ts` | VERIFIED | `AcServerInfo`, `MultiplayerGroupStatus` interfaces defined; `"join_failed"` in `KioskPodState` |
 | `kiosk/src/hooks/useKioskSocket.ts` | VERIFIED | `acServerInfo` and `multiplayerGroup` state; both WebSocket event handlers; both returned |
@@ -132,7 +132,7 @@ No blockers or warnings found. Spot checks on modified files:
 
 **Test:** Start a multiplayer group session. Force one pod's AC to fail (kill game process immediately on that pod). Wait for `game_state=error` from rc-agent.
 **Expected:** Kiosk dashboard pod card for the failed pod turns orange, shows "Join Failed" label and "Retry Join" button. Other pods remain unaffected and show normal state.
-**Why human:** Requires live WebSocket event delivery from rc-core to kiosk browser. Static analysis confirms the handler exists but cannot confirm the event fires correctly from billing/game state integration.
+**Why human:** Requires live WebSocket event delivery from racecontrol to kiosk browser. Static analysis confirms the handler exists but cannot confirm the event fires correctly from billing/game state integration.
 
 #### 4. Retry Join Execution
 

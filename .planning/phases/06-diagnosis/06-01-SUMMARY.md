@@ -9,10 +9,10 @@ requires: []
 provides:
   - "DIAG-01: rc-agent log status and error patterns for all 8 pods"
   - "DIAG-03: Edge browser version and kiosk-relevant registry settings for all 8 pods"
-  - "Root cause: rc-core unreachable on .23:8080 causes all pods to show disconnected lock screen"
+  - "Root cause: racecontrol unreachable on .23:8080 causes all pods to show disconnected lock screen"
   - "Edge policy gap: StartupBoost + BackgroundMode not disabled on any pod (all default-enabled)"
 affects:
-  - phase 7 (rc-core auto-start + server IP pinning)
+  - phase 7 (racecontrol auto-start + server IP pinning)
   - phase 8 (lock screen WebSocket reconnection)
   - phase 9 (Edge startup boost + background mode remediation)
 
@@ -30,7 +30,7 @@ key-files:
 
 key-decisions:
   - "DIAG-01: Only Pod 8 has a persistent log file — Pods 1-7 stdout not redirected, no log to read"
-  - "DIAG-01: Pod 3 debug server confirms lock_screen_state=disconnected — rc-core unreachable is root cause"
+  - "DIAG-01: Pod 3 debug server confirms lock_screen_state=disconnected — racecontrol unreachable is root cause"
   - "DIAG-01: Pod 8 shows 5 UDP port conflicts (10048) and watchdog crash loop — Pod 8 has stale rc-agent instance"
   - "DIAG-03: All 8 pods on Edge 145.0.3800.97 — consistent fleet, single remediation script covers all"
   - "DIAG-03: StartupBoost and BackgroundMode not set = default-enabled on all 8 pods — all need Phase 9 remediation"
@@ -51,7 +51,7 @@ completed: 2026-03-13
 
 # Phase 6 Plan 01: Diagnostic Data Collection Summary
 
-**rc-agent log analysis + Edge registry baseline for all 8 pods reveals rc-core unreachable as universal lock screen root cause and confirms all 8 pods need Phase 9 Edge policy remediation**
+**rc-agent log analysis + Edge registry baseline for all 8 pods reveals racecontrol unreachable as universal lock screen root cause and confirms all 8 pods need Phase 9 Edge policy remediation**
 
 ## Performance
 
@@ -63,9 +63,9 @@ completed: 2026-03-13
 
 ## Accomplishments
 
-- Established DIAG-01: Pod 3 debug server confirms lock_screen_state=disconnected; Pod 8 full log shows rc-core WebSocket timeout to ws://192.168.31.23:8080/ws/agent with exponential backoff 0-6+ attempts
+- Established DIAG-01: Pod 3 debug server confirms lock_screen_state=disconnected; Pod 8 full log shows racecontrol WebSocket timeout to ws://192.168.31.23:8080/ws/agent with exponential backoff 0-6+ attempts
 - Established DIAG-03: All 8 pods on Edge 145.0.3800.97; StartupBoost and BackgroundMode not set (default-enabled) on all pods; EdgeUpdate service STOPPED but not DISABLED
-- Identified that rc-core unreachable on .23:8080 is the single systemic root cause — all pods will show disconnected lock screen until Phase 7 fixes server auto-start
+- Identified that racecontrol unreachable on .23:8080 is the single systemic root cause — all pods will show disconnected lock screen until Phase 7 fixes server auto-start
 
 ## Task Commits
 
@@ -100,7 +100,7 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 
-- **Phase 7 (rc-core auto-start):** Blocked on DIAG-02/DIAG-04 (server MAC + port audit) — Plan 06-02 must complete first before Phase 7 can begin
+- **Phase 7 (racecontrol auto-start):** Blocked on DIAG-02/DIAG-04 (server MAC + port audit) — Plan 06-02 must complete first before Phase 7 can begin
 - **Phase 9 (Edge remediation):** Ready to plan — all data collected. Script: set StartupBoost=0, BackgroundMode=0 in HKLM\SOFTWARE\Policies\Microsoft\Edge; disable EdgeUpdate and edgeupdate services; deploy to all 8 pods
 - **Critical prerequisite for Phase 7:** Server MAC address for DHCP reservation still pending (DIAG-02/04)
 - **Pod 8 specific:** Upgrade pod-agent to v0.5.0 to fix watchdog crash loop on port 10048

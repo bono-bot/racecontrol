@@ -8,7 +8,7 @@
 ├── Cargo.lock                    # Dependency lock
 ├── crates/                       # Rust crates
 │   ├── rc-common/                # Shared types and protocol
-│   ├── rc-core/                  # Central HTTP server (port 8080)
+│   ├── racecontrol/                  # Central HTTP server (port 8080)
 │   └── rc-agent/                 # Gaming PC agent
 ├── pwa/                          # Next.js customer web app
 ├── kiosk/                        # Next.js staff kiosk interface
@@ -31,7 +31,7 @@
 
 **Location**: `crates/rc-common/src/`
 
-**Purpose**: Single source of truth for data structures and messages shared between rc-core and rc-agent.
+**Purpose**: Single source of truth for data structures and messages shared between racecontrol and rc-agent.
 
 **Files**:
 
@@ -90,18 +90,18 @@ tokio.workspace = true
 
 ---
 
-### 2. rc-core: Central HTTP Server
+### 2. racecontrol: Central HTTP Server
 
-**Location**: `crates/rc-core/src/`
+**Location**: `crates/racecontrol/src/`
 
 **Port**: 8080 (default)
 
 **Purpose**: RESTful API, WebSocket hub, billing engine, cloud sync orchestrator.
 
-**Cargo.toml** (`crates/rc-core/Cargo.toml`):
+**Cargo.toml** (`crates/racecontrol/Cargo.toml`):
 ```toml
 [package]
-name = "rc-core"
+name = "racecontrol"
 version.workspace = true
 
 [dependencies]
@@ -368,7 +368,7 @@ thiserror.workspace = true
 
 **Location**: `crates/rc-agent/src/`
 
-**Port**: 18923 (WebSocket to rc-core)
+**Port**: 18923 (WebSocket to racecontrol)
 
 **Purpose**: Runs on each gaming PC. Manages game lifecycle, captures telemetry, handles UI overlays.
 
@@ -408,7 +408,7 @@ winapi = { version = "0.3", features = ["processthreadsapi", "winnt"] }
     - UDP telemetry listeners (6 ports in parallel)
     - Driving detector (HID wheelbase input)
     - WebSocket sender/receiver
-  - Connects to rc-core WebSocket: `ws://core:8080/ws?pod_id={id}`
+  - Connects to racecontrol WebSocket: `ws://core:8080/ws?pod_id={id}`
 
 - **`game_process.rs`** (~400 lines)
   - `GameProcessManager` struct: Spawn, monitor, kill game processes
@@ -449,7 +449,7 @@ winapi = { version = "0.3", features = ["processthreadsapi", "winnt"] }
   - `LockScreenManager` struct: Display/hide fullscreen overlay
   - Rendering: Windows API (DirectX or GDI), Linux Xlib
   - Shows: Customer name, track, timer, fuel gauge, current speed
-  - Receives `SetLockScreen` messages from rc-core
+  - Receives `SetLockScreen` messages from racecontrol
 
 - **`overlay.rs`** (~250 lines)
   - `OverlayManager` struct: In-game telemetry overlay
@@ -460,23 +460,23 @@ winapi = { version = "0.3", features = ["processthreadsapi", "winnt"] }
 - **`kiosk.rs`** (~500 lines)
   - `KioskManager` struct: Staff interface
   - Features:
-    - Staff PIN login (4-digit, verified against rc-core)
+    - Staff PIN login (4-digit, verified against racecontrol)
     - Pod status display (online/idle/in-session)
     - Quick launch buttons for games (AC, F1, iRacing, etc.)
     - Active session timer (elapsed drive time, estimated total)
     - Current fuel gauge, seat position, telemetry graph
-  - Commands sent to rc-core: `LaunchGame`, `StopGame`, `ShowOverlay`
+  - Commands sent to racecontrol: `LaunchGame`, `StopGame`, `ShowOverlay`
   - UI: Windows API or web-based (Electron or native webview)
 
 - **`ai_debugger.rs`** (~150 lines)
   - AI coaching integration (optional)
   - Hooks into lap data
-  - Sends queries to rc-core `/ai/coaching` endpoint
+  - Sends queries to racecontrol `/ai/coaching` endpoint
   - Displays coaching tips in overlay (delta time, braking points, gear selection)
 
 - **`udp_heartbeat.rs`** (~80 lines)
-  - Sends `Pong` to rc-core every 2 minutes over WebSocket
-  - rc-core flags offline if no heartbeat for 6 minutes
+  - Sends `Pong` to racecontrol every 2 minutes over WebSocket
+  - racecontrol flags offline if no heartbeat for 6 minutes
 
 - **`debug_server.rs`** (~100 lines)
   - Local HTTP server for debugging (port 3000)
@@ -522,15 +522,15 @@ winapi = { version = "0.3", features = ["processthreadsapi", "winnt"] }
 - `/terminal` — Staff terminal (PIN login, quick launch)
 
 **APIs Called**:
-- `GET /api/me` → rc-core `/customer/me`
-- `POST /api/book` → rc-core `/customer/book`
-- `GET /api/sessions` → rc-core `/customer/sessions`
-- `GET /api/ac/catalog` → rc-core `/customer/ac/catalog`
-- WebSocket to rc-core `/ws` for live pod status, telemetry
+- `GET /api/me` → racecontrol `/customer/me`
+- `POST /api/book` → racecontrol `/customer/book`
+- `GET /api/sessions` → racecontrol `/customer/sessions`
+- `GET /api/ac/catalog` → racecontrol `/customer/ac/catalog`
+- WebSocket to racecontrol `/ws` for live pod status, telemetry
 
 **Styling**: Tailwind CSS (or custom CSS in `/web/`)
 
-**Environment**: `.env.local` contains rc-core API base URL
+**Environment**: `.env.local` contains racecontrol API base URL
 
 ### 2. Kiosk: Staff UI
 
@@ -553,10 +553,10 @@ winapi = { version = "0.3", features = ["processthreadsapi", "winnt"] }
 - Bottom ticker (active sessions)
 
 **APIs Called**:
-- `POST /api/terminal/auth` → rc-core `/terminal/auth` (PIN verify)
-- `POST /api/terminal/{pod_id}/launch` → rc-core `/terminal/{pod_id}/launch`
-- `GET /api/pods` → rc-core `/pods`
-- WebSocket to rc-core `/ws` for live updates
+- `POST /api/terminal/auth` → racecontrol `/terminal/auth` (PIN verify)
+- `POST /api/terminal/{pod_id}/launch` → racecontrol `/terminal/{pod_id}/launch`
+- `GET /api/pods` → racecontrol `/pods`
+- WebSocket to racecontrol `/ws` for live updates
 
 **Styling**: Custom CSS (on-site testing)
 
@@ -568,10 +568,10 @@ winapi = { version = "0.3", features = ["processthreadsapi", "winnt"] }
 Build, deploy, and test scripts.
 
 **Common files**:
-- `build.sh` — Compile Rust (rc-core, rc-agent), Next.js (PWA, kiosk)
+- `build.sh` — Compile Rust (racecontrol, rc-agent), Next.js (PWA, kiosk)
 - `deploy.sh` — Copy binaries to cloud, venue servers
 - `test.sh` — Run Rust unit tests
-- `docker-build.sh` — Build Docker image for rc-core
+- `docker-build.sh` — Build Docker image for racecontrol
 - `setup.sh` — Initialize databases, create directories
 
 ### `/pod-scripts/`
@@ -586,16 +586,16 @@ Scripts run on each gaming PC.
 Deployment configurations.
 
 **Common files**:
-- `docker-compose.yml` — Run rc-core + db in containers
+- `docker-compose.yml` — Run racecontrol + db in containers
 - `nginx.conf` — Reverse proxy config (if using Nginx)
-- `systemd/rc-core.service` — systemd unit for rc-core on cloud
+- `systemd/racecontrol.service` — systemd unit for racecontrol on cloud
 - `env.example` — Template for environment variables
 
 ### `/docs/`
 Technical documentation.
 
 **Common files**:
-- `API.md` — OpenAPI spec for rc-core REST endpoints
+- `API.md` — OpenAPI spec for racecontrol REST endpoints
 - `PROTOCOL.md` — WebSocket message format and examples
 - `SETUP.md` — Local development setup (install Rust, Node.js, databases)
 - `CLOUD-SYNC.md` — Cloud ↔ venue sync architecture
@@ -682,7 +682,7 @@ lmu = 5555
 
 **Location**: `/root/racecontrol/Cargo.toml`
 
-Defines workspace members (rc-common, rc-core, rc-agent) and shared dependencies.
+Defines workspace members (rc-common, racecontrol, rc-agent) and shared dependencies.
 
 ### `package.json` (PWA & Kiosk)
 
@@ -730,10 +730,10 @@ cargo build
 cargo build --release
 
 # Specific crate
-cargo build -p rc-core --release
+cargo build -p racecontrol-crate --release
 
 # Output binary locations
-target/release/rc-core       # rc-core executable
+target/release/racecontrol       # racecontrol executable
 target/release/rc-agent      # rc-agent executable
 ```
 
@@ -748,7 +748,7 @@ cd kiosk && npm run build → .next/ output
 
 ### Docker Deployment
 ```bash
-docker build -f deploy/Dockerfile -t racingpoint/rc-core:latest .
+docker build -f deploy/Dockerfile -t racingpoint/racecontrol:latest .
 docker run -p 8080:8080 -v /tmp/racecontrol.db:/app/data/racecontrol.db ...
 ```
 
@@ -758,13 +758,13 @@ docker run -p 8080:8080 -v /tmp/racecontrol.db:/app/data/racecontrol.db ...
 
 ```
 pwa/ (Next.js PWA)
-  ├── calls → rc-core API (port 8080)
-  └── WebSocket → rc-core /ws
+  ├── calls → racecontrol API (port 8080)
+  └── WebSocket → racecontrol /ws
 
 kiosk/ (Next.js Kiosk)
-  └── calls → rc-core API (port 8080)
+  └── calls → racecontrol API (port 8080)
 
-rc-core/ (Rust server)
+racecontrol/ (Rust server)
   ├── imports → rc-common (types, protocol)
   ├── reads/writes → /tmp/racecontrol.db (SQLite)
   ├── calls → Cloud API (sync)
@@ -775,7 +775,7 @@ rc-agent/ (Rust agent, runs on pod)
   ├── spawns → Game EXE (AC, F1, iRacing, etc.)
   ├── listens → UDP 9996, 20777, 6789, 5300, 5555 (telemetry)
   ├── reads → Wheelbase HID input (OpenFFBoard)
-  └── WebSocket → rc-core /ws
+  └── WebSocket → racecontrol /ws
 ```
 
 ---
@@ -784,7 +784,7 @@ rc-agent/ (Rust agent, runs on pod)
 
 | Component | Type | Location | Port | Purpose |
 |-----------|------|----------|------|---------|
-| **rc-core** | Rust | `crates/rc-core/src/` | 8080 | HTTP API, WebSocket hub, billing, cloud sync |
+| **racecontrol** | Rust | `crates/racecontrol/src/` | 8080 | HTTP API, WebSocket hub, billing, cloud sync |
 | **rc-agent** | Rust | `crates/rc-agent/src/` | WebSocket to 8080 | Game launcher, telemetry capture, lock screen, kiosk |
 | **rc-common** | Rust lib | `crates/rc-common/src/` | — | Shared types, protocol messages, UDP format |
 | **PWA** | Next.js | `pwa/` | 3500 | Customer web app (booking, sessions, leaderboard) |

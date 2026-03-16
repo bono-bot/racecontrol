@@ -13,7 +13,7 @@
 |----|-------------|-----------------|
 | SVC-01 | rc-watchdog.exe runs as a Windows Service (SYSTEM) and auto-starts on boot | windows-service 0.8 crate provides ServiceMain + SCM registration; `sc create` with `start= auto` |
 | SVC-02 | Watchdog detects rc-agent crash within 10 seconds and restarts it in Session 1 | sysinfo or tasklist polling loop ≤10s; WTSGetActiveConsoleSessionId + WTSQueryUserToken + CreateProcessAsUser via winapi to spawn in Session 1 |
-| SVC-03 | Watchdog reports crash events to rc-core via HTTP (startup count, crash time, exit code) | reqwest blocking client; POST to rc-core `/api/watchdog/crash-report`; new `WatchdogCrashReport` type in rc-common |
+| SVC-03 | Watchdog reports crash events to racecontrol via HTTP (startup count, crash time, exit code) | reqwest blocking client; POST to racecontrol `/api/watchdog/crash-report`; new `WatchdogCrashReport` type in rc-common |
 | SVC-04 | Install script registers watchdog service with SCM failure actions (restart on failure) | `sc.exe create` + `sc.exe failure` with `actions= restart/5000` in install.bat; covered by existing deploy pipeline |
 </phase_requirements>
 
@@ -25,7 +25,7 @@ Phase 19 builds `rc-watchdog.exe` — a new binary in the workspace (`crates/rc-
 
 The implementation requires two distinct capabilities: (1) running as a proper Windows service via the `windows-service` crate, and (2) launching `start-rcagent.bat` in the active interactive session (Session 1) from a SYSTEM context. The second capability requires WinAPI calls — `WTSGetActiveConsoleSessionId`, `WTSQueryUserToken`, and `CreateProcessAsUser` — because `std::process::Command` from SYSTEM always lands in Session 0 and cannot show a GUI.
 
-After each rc-agent crash, the watchdog must report to rc-core (SVC-03) via a fire-and-forget HTTP POST within 30 seconds. rc-core receives the report at a new endpoint and logs it as pod activity. The `EscalatingBackoff` struct in rc-common already exists and can be reused for crash loop detection.
+After each rc-agent crash, the watchdog must report to racecontrol (SVC-03) via a fire-and-forget HTTP POST within 30 seconds. racecontrol receives the report at a new endpoint and logs it as pod activity. The `EscalatingBackoff` struct in rc-common already exists and can be reused for crash loop detection.
 
 **Primary recommendation:** New workspace crate `crates/rc-watchdog` using `windows-service 0.8`, `winapi` with `wtsapi32` + `processthreadsapi` features, and `reqwest` blocking for crash reports. Install via updated `install.bat` using `sc create` + `sc failure`.
 
@@ -39,7 +39,7 @@ After each rc-agent crash, the watchdog must report to rc-core (SVC-03) via a fi
 |---------|---------|---------|--------------|
 | windows-service | 0.8.0 | ServiceMain, service_control_handler, service_manager | The only maintained Rust crate for Windows SCM integration; used by Mullvad VPN |
 | winapi | 0.3 | WTSQueryUserToken, CreateProcessAsUser, WTSGetActiveConsoleSessionId | Already in rc-agent Cargo.toml; provides wtsapi32 + processthreadsapi features |
-| reqwest | 0.12 | HTTP POST crash reports to rc-core | Already in rc-agent; use blocking feature in watchdog (no tokio runtime needed in watchdog) |
+| reqwest | 0.12 | HTTP POST crash reports to racecontrol | Already in rc-agent; use blocking feature in watchdog (no tokio runtime needed in watchdog) |
 | serde / serde_json | 1 | Serialize WatchdogCrashReport payload | Already workspace dep |
 | chrono | 0.4 | Timestamp crash events | Already workspace dep |
 | tracing / tracing-appender | 0.1 / 0.2 | Log to file (C:\RacingPoint\watchdog.log) | Already workspace dep |
@@ -84,7 +84,7 @@ crates/rc-watchdog/
     ├── main.rs          # Service entry point: define_windows_service! + SCM dispatch
     ├── service.rs       # Service main loop: poll + restart logic
     ├── session.rs       # Session 1 process spawn (WTSQueryUserToken + CreateProcessAsUser)
-    └── reporter.rs      # HTTP crash report to rc-core (blocking reqwest)
+    └── reporter.rs      # HTTP crash report to racecontrol (blocking reqwest)
 ```
 
 ### Pattern 1: Windows Service Entry Point
@@ -266,9 +266,9 @@ sc failure RCWatchdog reset= 3600 actions= restart/5000/restart/10000/restart/30
 
 ### Pattern 6: WatchdogCrashReport Protocol (SVC-03)
 
-**What:** Add `WatchdogCrashReport` to `rc-common::protocol::AgentMessage` OR as a standalone HTTP POST body to a new rc-core endpoint. HTTP POST is preferred — watchdog has no WebSocket connection.
+**What:** Add `WatchdogCrashReport` to `rc-common::protocol::AgentMessage` OR as a standalone HTTP POST body to a new racecontrol endpoint. HTTP POST is preferred — watchdog has no WebSocket connection.
 
-**Decision:** New HTTP POST endpoint in rc-core (not WebSocket — watchdog runs as SYSTEM and has no agent identity). The report is fire-and-forget; failure to deliver is non-fatal.
+**Decision:** New HTTP POST endpoint in racecontrol (not WebSocket — watchdog runs as SYSTEM and has no agent identity). The report is fire-and-forget; failure to deliver is non-fatal.
 
 ```rust
 // rc-common/src/types.rs — new type
@@ -281,11 +281,11 @@ pub struct WatchdogCrashReport {
     pub watchdog_version: String,
 }
 
-// rc-core — new handler in api/ or ws/
+// racecontrol — new handler in api/ or ws/
 // POST /api/pods/{pod_id}/watchdog-report
 ```
 
-**rc-core handler** logs as pod activity (same pattern as StartupReport) and updates pod state.
+**racecontrol handler** logs as pod activity (same pattern as StartupReport) and updates pod state.
 
 ### Anti-Patterns to Avoid
 
@@ -319,7 +319,7 @@ pub struct WatchdogCrashReport {
 
 **How to avoid:** Always use `WTSGetActiveConsoleSessionId` + `WTSQueryUserToken` + `CreateProcessAsUserW`. Spawn `cmd.exe /c start-rcagent.bat` — the batch file then does `start "" /D C:\RacingPoint rc-agent.exe` which launches rc-agent on the user desktop.
 
-**Warning signs:** `tasklist /v` shows rc-agent in Session# = 0. Lock screen never appears. Pod does not connect to rc-core.
+**Warning signs:** `tasklist /v` shows rc-agent in Session# = 0. Lock screen never appears. Pod does not connect to racecontrol.
 
 ### Pitfall 2: No Active Session at Boot Time
 
@@ -380,7 +380,7 @@ winapi = { version = "0.3", features = [
 # Root Cargo.toml — add to workspace members
 members = [
     "crates/rc-common",
-    "crates/rc-core",
+    "crates/racecontrol",
     "crates/rc-agent",
     "crates/rc-watchdog",   # NEW
 ]
@@ -461,7 +461,7 @@ sc.exe start RCWatchdog
 | watchdog-rc-agent.cmd (batch loop) | rc-watchdog.exe (SYSTEM service) | Phase 19 | Service starts on boot without login; SCM manages lifecycle |
 | HKLM Run key (Session 1 via user login) | SYSTEM service + WTSQueryUserToken spawn | Phase 19 | Survives crashes WITHOUT requiring user logout/login cycle |
 | pod_monitor.rs restart via pod-agent HTTP | Watchdog restarts locally on pod | Phase 19 | Faster (local, no network hop); works when pod-agent is dead |
-| No crash telemetry from watchdog | WatchdogCrashReport HTTP POST | Phase 19 | rc-core knows crash count, exit code, time |
+| No crash telemetry from watchdog | WatchdogCrashReport HTTP POST | Phase 19 | racecontrol knows crash count, exit code, time |
 
 **Deprecated/outdated:**
 - `watchdog-rc-agent.cmd`: Replaced by rc-watchdog.exe; can be deleted from deploy/ after Phase 19 ships
@@ -474,14 +474,14 @@ sc.exe start RCWatchdog
 ## Open Questions
 
 1. **rc-watchdog config: hardcoded vs TOML**
-   - What we know: rc-agent reads rc-agent.toml for pod_id and rc-core URL. The watchdog needs the same info.
+   - What we know: rc-agent reads rc-agent.toml for pod_id and racecontrol URL. The watchdog needs the same info.
    - What's unclear: Should watchdog have its own rc-watchdog.toml or read rc-agent.toml directly?
-   - Recommendation: Read rc-agent.toml (same format; watchdog is a companion). If not found, fall back to hardcoded defaults (pod_id from COMPUTERNAME, rc-core at 192.168.31.23:8080). Self-heal pattern: if rc-agent.toml missing, skip HTTP report (non-fatal).
+   - Recommendation: Read rc-agent.toml (same format; watchdog is a companion). If not found, fall back to hardcoded defaults (pod_id from COMPUTERNAME, racecontrol at 192.168.31.23:8080). Self-heal pattern: if rc-agent.toml missing, skip HTTP report (non-fatal).
 
-2. **rc-core endpoint for WatchdogCrashReport**
-   - What we know: Crash report needs a POST handler in rc-core.
-   - What's unclear: Where in rc-core to add it. Options: new `watchdog.rs` module in api/, or add to existing `pod_monitor.rs` / `ws/mod.rs`.
-   - Recommendation: New `api/watchdog.rs` handler at `POST /api/pods/:pod_id/watchdog-crash` — consistent with existing REST pattern in rc-core. No WS needed (watchdog is not the agent process).
+2. **racecontrol endpoint for WatchdogCrashReport**
+   - What we know: Crash report needs a POST handler in racecontrol.
+   - What's unclear: Where in racecontrol to add it. Options: new `watchdog.rs` module in api/, or add to existing `pod_monitor.rs` / `ws/mod.rs`.
+   - Recommendation: New `api/watchdog.rs` handler at `POST /api/pods/:pod_id/watchdog-crash` — consistent with existing REST pattern in racecontrol. No WS needed (watchdog is not the agent process).
 
 3. **Exit code capture**
    - What we know: SVC-03 requires exit code in crash report. But if rc-agent is killed by `taskkill /F`, there is no graceful exit and the exit code may be 1 or a Windows error code.
@@ -499,7 +499,7 @@ sc.exe start RCWatchdog
 | Framework | Rust built-in (`cargo test`) |
 | Config file | Cargo.toml per crate, workspace root |
 | Quick run command | `cargo test -p rc-common && cargo test -p rc-watchdog` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core && cargo test -p rc-watchdog` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate && cargo test -p rc-watchdog` |
 
 ### Phase Requirements to Test Map
 
@@ -510,7 +510,7 @@ sc.exe start RCWatchdog
 | SVC-02 | spawn_in_session1 returns error when no active session | unit | `cargo test -p rc-watchdog -- test_no_session_graceful` | Wave 0 |
 | SVC-02 | restart grace window prevents double-spawn | unit | `cargo test -p rc-watchdog -- test_double_restart_prevention` | Wave 0 |
 | SVC-03 | WatchdogCrashReport serializes to expected JSON | unit | `cargo test -p rc-common -- test_watchdog_crash_report_roundtrip` | Wave 0 |
-| SVC-03 | rc-core handler logs crash report as pod activity | unit | `cargo test -p rc-core -- test_watchdog_crash_handler` | Wave 0 |
+| SVC-03 | racecontrol handler logs crash report as pod activity | unit | `cargo test -p racecontrol-crate -- test_watchdog_crash_handler` | Wave 0 |
 | SVC-04 | install.bat sc commands accepted by SCM | manual-only | Run install.bat on Pod 8, verify `sc.exe qfailure RCWatchdog` | N/A |
 
 **Manual-only justification for SVC-01 and SVC-04:** Windows SCM interactions require running as Administrator on a real pod. Cannot be meaningfully tested in cargo test without mocking the entire SCM API.
@@ -518,7 +518,7 @@ sc.exe start RCWatchdog
 ### Sampling Rate
 
 - **Per task commit:** `cargo test -p rc-common && cargo test -p rc-watchdog`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core && cargo test -p rc-watchdog`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate && cargo test -p rc-watchdog`
 - **Phase gate:** Full suite green + Pod 8 canary `tasklist /v` confirms Session# = 1
 
 ### Wave 0 Gaps
@@ -528,7 +528,7 @@ sc.exe start RCWatchdog
 - [ ] `crates/rc-watchdog/src/session.rs` — Session 1 spawn via WinAPI + unit tests (mocked for non-Windows)
 - [ ] `crates/rc-watchdog/src/reporter.rs` — HTTP crash report + unit tests
 - [ ] `crates/rc-common/src/types.rs` — `WatchdogCrashReport` struct + serde test
-- [ ] `crates/rc-core/src/api/watchdog.rs` — crash report handler + unit test
+- [ ] `crates/racecontrol/src/api/watchdog.rs` — crash report handler + unit test
 
 ---
 

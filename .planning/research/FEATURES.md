@@ -45,11 +45,11 @@ say the product is not production-ready.
 | Feature | Why Expected | Complexity | Dependency on Existing | Notes |
 |---------|--------------|------------|----------------------|-------|
 | **Service auto-restart on crash** | Windows service failure actions have existed since Win2000. Any fleet agent that dies and stays dead is not a fleet agent. The SCM restart action is the first thing any ops engineer checks when setting up a Windows service. | LOW | Replaces HKLM Run key which has no crash restart capability. Requires Windows Service registration. Does not change rc-agent code. | Use a service wrapper (shawl, WinSW, or NSSM). NSSM is abandoned (last release 2017). shawl (Rust, MIT, mtkennerly/shawl) is the best fit for a Rust shop — wraps any exe as a service, handles ctrl-C. Configure failure actions via `sc.exe failure RCAgent reset=3600 actions=restart/5000/restart/30000/restart/60000`. |
-| **Startup self-check before connecting to rc-core** | Before announcing presence, verify own prerequisites. This is the "health check before accepting traffic" pattern from AWS Builders Library. Any distributed system that connects to a coordinator without verifying its own state causes cascading confusion. | LOW | Extends existing `config.rs` startup validation. New checks: registry key present, firewall rule present, bat file not CRLF-corrupted. | Pattern: startup phase returns `StartupHealth { ok: bool, anomalies: Vec<String> }`. If anomalies found, attempt repair. If repair fails, report to rc-core before proceeding. This prevents a pod from appearing "registered" while actually broken. |
-| **Remote exec over existing WebSocket** | When firewall blocks HTTP port 8090, management fails. WebSocket connection is already established and authenticated — routing commands over it is the universal pattern (Kubernetes kubectl exec, AWS Systems Manager, Ansible over SSH). No ops team expects management to stop working because a firewall rule is missing. | MEDIUM | Uses existing `CoreToAgentMessage` enum. Add `Exec { request_id: String, cmd: String, timeout_ms: u64 }` variant. Add `ExecResult { request_id: String, success: bool, exit_code: Option<i32>, stdout: String, stderr: String }` to `AgentMessage`. rc-core routes by pod_id (already does this for all CoreToAgentMessage variants). | Both crates must be rebuilt and redeployed. Command execution logic copies existing `remote_ops.rs` exec handler — same semaphore-gated, `CREATE_NO_WINDOW`, timeout-wrapped pattern. Correlation by `request_id` UUID matches responses to requests without message ordering assumptions. |
-| **Deploy verification with automatic rollback gate** | The existing deploy sequence checks health at 5/15/30/60s. That is correct. What is missing is the response to failure: currently, failure sends an email and stops. Every deployment system (Kubernetes, CodeDeploy, Octopus Deploy) uses health check failure as an automatic rollback trigger on canary deployments. | MEDIUM | Extends existing `deploy.rs` VERIFY_DELAYS logic. Requires: keeping `rc-agent-prev.exe` alongside `rc-agent.exe` on the pod (modified `do-swap.bat`). If 60s check fails, send rollback Exec command over WebSocket (since HTTP may be blocked at this point). | Gate on Pod 8 canary: Pod 8 must pass 60s check before rc-core proceeds to pods 1-7. If Pod 8 rolls back, fleet deploy aborts and email fires. This converts the existing canary pattern from convention into a safety mechanism. |
+| **Startup self-check before connecting to racecontrol** | Before announcing presence, verify own prerequisites. This is the "health check before accepting traffic" pattern from AWS Builders Library. Any distributed system that connects to a coordinator without verifying its own state causes cascading confusion. | LOW | Extends existing `config.rs` startup validation. New checks: registry key present, firewall rule present, bat file not CRLF-corrupted. | Pattern: startup phase returns `StartupHealth { ok: bool, anomalies: Vec<String> }`. If anomalies found, attempt repair. If repair fails, report to racecontrol before proceeding. This prevents a pod from appearing "registered" while actually broken. |
+| **Remote exec over existing WebSocket** | When firewall blocks HTTP port 8090, management fails. WebSocket connection is already established and authenticated — routing commands over it is the universal pattern (Kubernetes kubectl exec, AWS Systems Manager, Ansible over SSH). No ops team expects management to stop working because a firewall rule is missing. | MEDIUM | Uses existing `CoreToAgentMessage` enum. Add `Exec { request_id: String, cmd: String, timeout_ms: u64 }` variant. Add `ExecResult { request_id: String, success: bool, exit_code: Option<i32>, stdout: String, stderr: String }` to `AgentMessage`. racecontrol routes by pod_id (already does this for all CoreToAgentMessage variants). | Both crates must be rebuilt and redeployed. Command execution logic copies existing `remote_ops.rs` exec handler — same semaphore-gated, `CREATE_NO_WINDOW`, timeout-wrapped pattern. Correlation by `request_id` UUID matches responses to requests without message ordering assumptions. |
+| **Deploy verification with automatic rollback gate** | The existing deploy sequence checks health at 5/15/30/60s. That is correct. What is missing is the response to failure: currently, failure sends an email and stops. Every deployment system (Kubernetes, CodeDeploy, Octopus Deploy) uses health check failure as an automatic rollback trigger on canary deployments. | MEDIUM | Extends existing `deploy.rs` VERIFY_DELAYS logic. Requires: keeping `rc-agent-prev.exe` alongside `rc-agent.exe` on the pod (modified `do-swap.bat`). If 60s check fails, send rollback Exec command over WebSocket (since HTTP may be blocked at this point). | Gate on Pod 8 canary: Pod 8 must pass 60s check before racecontrol proceeds to pods 1-7. If Pod 8 rolls back, fleet deploy aborts and email fires. This converts the existing canary pattern from convention into a safety mechanism. |
 | **Firewall rules applied in Rust, not batch files** | CRLF-damaged batch files silently failing to apply firewall rules was a direct root cause of the Mar 15 incident. Batch files are fragile: they can be CRLF-corrupted, they can fail silently, they depend on working netsh which can itself be blocked. Moving to Rust `Command::new("netsh")` at startup eliminates the entire failure mode. This is what any ops engineer would recommend after a CRLF-caused outage. | LOW | New module in rc-agent, runs at startup before WebSocket connect attempt. Uses `std::process::Command` to invoke `netsh advfirewall firewall add rule`. Does NOT depend on Windows Service (netsh can be called from any elevated context). | Two rules: ICMP echo (ping) + TCP 8090 (remote ops inbound). Idempotent: check with `netsh advfirewall firewall show rule name="..."` first, add only if missing. Running as SYSTEM (via service wrapper) satisfies the elevation requirement. |
-| **Startup error reporting before crash** | If rc-agent panics during init, the failure is invisible to rc-core. The pod appears offline with no diagnostic information. Distributed systems fail loudly: report last known error before exiting. This is standard practice for any agent that manages critical infrastructure. | MEDIUM | New: structured startup phase with named stages. If a stage fails, POST to rc-core `/api/agent/startup-error` (new endpoint) with `{ pod_id, phase, error, timestamp }` before exiting. Uses existing `reqwest` client. | If WebSocket not yet established (startup failure happens before connect), use HTTP POST directly to rc-core. If rc-core unreachable, write structured JSON to `C:\RacingPoint\startup-error.json` for manual retrieval via remote_ops `/file` endpoint. |
+| **Startup error reporting before crash** | If rc-agent panics during init, the failure is invisible to racecontrol. The pod appears offline with no diagnostic information. Distributed systems fail loudly: report last known error before exiting. This is standard practice for any agent that manages critical infrastructure. | MEDIUM | New: structured startup phase with named stages. If a stage fails, POST to racecontrol `/api/agent/startup-error` (new endpoint) with `{ pod_id, phase, error, timestamp }` before exiting. Uses existing `reqwest` client. | If WebSocket not yet established (startup failure happens before connect), use HTTP POST directly to racecontrol. If racecontrol unreachable, write structured JSON to `C:\RacingPoint\startup-error.json` for manual retrieval via remote_ops `/file` endpoint. |
 
 ### Differentiators (Competitive Advantage for Racing Point Operations)
 
@@ -59,10 +59,10 @@ one ops person (Uday), mobile-first management, no on-site IT staff available at
 | Feature | Value Proposition | Complexity | Dependency on Existing | Notes |
 |---------|-------------------|------------|----------------------|-------|
 | **Config self-heal: detect and repair missing files** | Pods 1/3/4 went offline on Mar 15 partly due to missing/corrupted files and registry keys. Auto-repair means a freshly imaged pod returns to operational without physical intervention. This is desired-state enforcement (Chef/Puppet/Ansible philosophy) applied to Windows endpoints. | MEDIUM | Extends startup self-check. Check list: `rc-agent-podN.toml` (present, parses), `start-rcagent.bat` (present, LF not CRLF), HKLM Run key (exists with correct path), `C:\RacingPoint\` directory structure. Repair using embedded templates via `include_str!()`. | Embed default toml + bat templates as string literals in rc-agent binary. On startup, if file missing or CRLF-corrupted, write correct version from embedded template and log the anomaly. Report via `AgentMessage::StartupReport`. |
-| **Fleet health dashboard for Uday's phone** | Uday manages from his phone. Without a visual overview, every pod problem requires either checking rc-core logs (not phone-friendly) or physical inspection. A mobile-friendly dashboard with pod status, uptime, and last crash time is the minimum viable ops view. Fleet management tools (Geotab, Verizon Connect, Lytx) all show this as their primary screen. | MEDIUM | Uses existing `DashboardEvent::PodUpdate` and `PodList`. Gap: no dedicated mobile-friendly view. Requires: add `agent_version`, `last_restart_time`, `last_crash_time` fields to `PodInfo`. Render as status cards in `/fleet` Next.js route. | Color coding: green = healthy WS + heartbeat within 6s, yellow = restarted in last 15 min or version mismatch, red = offline >5 min or RecoveryFailed state. 10s auto-refresh. No new backend protocol needed — just field additions to PodInfo. |
+| **Fleet health dashboard for Uday's phone** | Uday manages from his phone. Without a visual overview, every pod problem requires either checking racecontrol logs (not phone-friendly) or physical inspection. A mobile-friendly dashboard with pod status, uptime, and last crash time is the minimum viable ops view. Fleet management tools (Geotab, Verizon Connect, Lytx) all show this as their primary screen. | MEDIUM | Uses existing `DashboardEvent::PodUpdate` and `PodList`. Gap: no dedicated mobile-friendly view. Requires: add `agent_version`, `last_restart_time`, `last_crash_time` fields to `PodInfo`. Render as status cards in `/fleet` Next.js route. | Color coding: green = healthy WS + heartbeat within 6s, yellow = restarted in last 15 min or version mismatch, red = offline >5 min or RecoveryFailed state. 10s auto-refresh. No new backend protocol needed — just field additions to PodInfo. |
 | **Agent version visible in heartbeat and dashboard** | Without per-pod version display, deploying to 8 pods has no verification that all pods actually updated. Version drift (some pods on old binary, some on new) is silent. This is the "did it actually work on all 8 pods?" check. | LOW | Extend `PodInfo` struct in rc-common with `agent_version: Option<String>`. Populate in rc-agent Register and Heartbeat messages using `env!("CARGO_PKG_VERSION")`. Display in fleet dashboard pod card. | One field addition. Low risk. Required to make the fleet dashboard useful. If version after deploy does not match expected, show yellow alert on that pod. |
 | **Exec slot visibility in health endpoint** | The Mar 15 incident included exec slot exhaustion. The semaphore exists (4 slots) but there is no visibility into which commands are holding slots or for how long. Without this, diagnosing a frozen pod requires guessing. | LOW | Extends existing `/health` endpoint response in `remote_ops.rs`. Add `exec_queue: Vec<{ cmd_preview: String, elapsed_ms: u64 }>` to health JSON. Track start time per acquired permit. | A command held >30s (expected max for any command) is a diagnostic signal. Surface in dashboard. Adding per-command timing to semaphore acquisition is ~10 lines of Rust. |
-| **WebSocket exec with request_id correlation** | The HTTP exec endpoint blocks for the full command duration. Long-running commands (curl binary download) hold exec slots and have a hard 10s timeout. WebSocket exec with request_id decouples command dispatch from response handling — rc-core can fire commands and process responses asynchronously without blocking. | MEDIUM | This is the async pattern for WS exec. `request_id` UUID generated by rc-core. Agent matches response to pending request map. Timeout handled client-side: if no ExecResult within `timeout_ms + 5000ms`, rc-core marks it timed out. | This is the preferred implementation of WS exec — not just adding exec to WS but using the correlation pattern that allows multiple outstanding commands to a single pod. More robust than fire-and-forget. |
+| **WebSocket exec with request_id correlation** | The HTTP exec endpoint blocks for the full command duration. Long-running commands (curl binary download) hold exec slots and have a hard 10s timeout. WebSocket exec with request_id decouples command dispatch from response handling — racecontrol can fire commands and process responses asynchronously without blocking. | MEDIUM | This is the async pattern for WS exec. `request_id` UUID generated by racecontrol. Agent matches response to pending request map. Timeout handled client-side: if no ExecResult within `timeout_ms + 5000ms`, racecontrol marks it timed out. | This is the preferred implementation of WS exec — not just adding exec to WS but using the correlation pattern that allows multiple outstanding commands to a single pod. More robust than fire-and-forget. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
@@ -72,9 +72,9 @@ one ops person (Uday), mobile-first management, no on-site IT staff available at
 | **Continuous config file monitoring (inotify-style)** | "Watch all config files and repair on any change." | Creates a feedback loop: repair writes trigger change events, which trigger more repairs. Also, polling file system every second wastes I/O on a gaming PC running a sim at 60fps. | Startup-time check only. Config is only missing after OS reinstall or human error — both require a restart to manifest. Startup check is sufficient. |
 | **Full Windows Service implementation in rc-agent** | "Native service is cleaner — write the SCM dispatcher in rc-agent itself." | rc-agent is a GUI process with a lock screen window. Windows Services run in Session 0 and cannot show UI. Writing a full service dispatcher in rc-agent forces a Session 0/Session 1 split that defeats the purpose of the HKLM Run key + service wrapper hybrid. | Use a lightweight service wrapper (shawl, ~2MB binary) that handles SCM communication while rc-agent stays as a normal Session 1 process. The wrapper and the agent are separate executables. |
 | **WebSocket exec output streaming (real-time stdout)** | "I want to see curl download progress live." Better DX. | Streaming output over WebSocket requires: partial line buffering, ordering guarantees, backpressure on slow dashboard connections, and cleanup when dashboard disconnects mid-stream. This is 3x the complexity of request/response exec. Not needed for the stability goal of v4.0. | Use request/response (non-streaming) WS exec for v4.0. For download progress, use a two-step: trigger download (returns immediately), then poll `/health` exec_queue field for slot occupancy. Streaming exec is a v5.0 feature. |
-| **Centralized push-config management** | "Push configuration updates to all pods from rc-core." | The existing `CoreToAgentMessage::Configure { config_json }` already provides this protocol primitive. Building a separate config management system duplicates the protocol and adds a management layer that is not needed at 8-pod scale. | Extend the existing Configure message and config.rs validation. The gap is not the protocol — it is that the agent does not verify and repair config at startup. Fix the startup check, not the protocol. |
-| **Crash dump collection and minidump analysis** | "When rc-agent crashes, capture a minidump for diagnosis." | Windows minidump collection requires WER registration or DbgHelp API. Parsing minidumps requires a symbol server and a debugger. This is debugger tooling, not ops tooling. The setup overhead exceeds the diagnostic value for a 8-pod venue. | Use structured startup error reporting: name each startup phase, catch panics at the phase level, report last known phase + error to rc-core before exiting. This delivers 90% of the diagnostic value at 5% of the complexity. |
-| **Agent self-update (pull new binary on version mismatch)** | "Agent should update itself when a new version is deployed." | The self-swap deploy pattern already does this from rc-core side. An agent that spontaneously self-updates outside of the controlled deploy sequence creates race conditions with billing sessions and skips the Pod 8 canary gate. | Use the existing rc-core-orchestrated deploy with self-swap. The deploy is initiated by staff from kiosk — this is intentional. Autonomous self-update skips the human review gate. |
+| **Centralized push-config management** | "Push configuration updates to all pods from racecontrol." | The existing `CoreToAgentMessage::Configure { config_json }` already provides this protocol primitive. Building a separate config management system duplicates the protocol and adds a management layer that is not needed at 8-pod scale. | Extend the existing Configure message and config.rs validation. The gap is not the protocol — it is that the agent does not verify and repair config at startup. Fix the startup check, not the protocol. |
+| **Crash dump collection and minidump analysis** | "When rc-agent crashes, capture a minidump for diagnosis." | Windows minidump collection requires WER registration or DbgHelp API. Parsing minidumps requires a symbol server and a debugger. This is debugger tooling, not ops tooling. The setup overhead exceeds the diagnostic value for a 8-pod venue. | Use structured startup error reporting: name each startup phase, catch panics at the phase level, report last known phase + error to racecontrol before exiting. This delivers 90% of the diagnostic value at 5% of the complexity. |
+| **Agent self-update (pull new binary on version mismatch)** | "Agent should update itself when a new version is deployed." | The self-swap deploy pattern already does this from racecontrol side. An agent that spontaneously self-updates outside of the controlled deploy sequence creates race conditions with billing sessions and skips the Pod 8 canary gate. | Use the existing racecontrol-orchestrated deploy with self-swap. The deploy is initiated by staff from kiosk — this is intentional. Autonomous self-update skips the human review gate. |
 
 ---
 
@@ -94,7 +94,7 @@ one ops person (Uday), mobile-first management, no on-site IT staff available at
 [Startup self-check (STARTUP-01)]
     └──enables──> [Config self-heal (CFGHEAL-01)]
     └──enables──> [Startup error reporting (ERR-01)]
-    └──runs before──> [WebSocket connect to rc-core]
+    └──runs before──> [WebSocket connect to racecontrol]
 
 [Config self-heal (CFGHEAL-01)]
     └──requires──> [Startup self-check (STARTUP-01)]
@@ -103,14 +103,14 @@ one ops person (Uday), mobile-first management, no on-site IT staff available at
     └──reports via──> [AgentMessage::StartupReport (PROTO-03)]
 
 [Startup error reporting (ERR-01)]
-    └──requires──> [HTTP POST to rc-core OR local file fallback]
-    └──requires──> [New rc-core endpoint: POST /api/agent/startup-error]
+    └──requires──> [HTTP POST to racecontrol OR local file fallback]
+    └──requires──> [New racecontrol endpoint: POST /api/agent/startup-error]
     └──runs on──> [startup phase failure, before process exit]
 
 [WebSocket exec (WS-EXEC-01)]
     └──requires──> [CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } (PROTO-01)]
     └──requires──> [AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr } (PROTO-02)]
-    └──requires──> [rc-core: pending-request map keyed by request_id]
+    └──requires──> [racecontrol: pending-request map keyed by request_id]
     └──enables──> [Deploy rollback when HTTP blocked (ROLL-01)]
     └──enables──> [Management when firewall has not yet been repaired]
 
@@ -131,15 +131,15 @@ one ops person (Uday), mobile-first management, no on-site IT staff available at
     └──renders in──> [New /fleet Next.js route in kiosk]
 
 [AgentMessage::StartupReport (PROTO-03)]
-    └──requires──> [New rc-core handler: persist anomalies, surface in dashboard]
+    └──requires──> [New racecontrol handler: persist anomalies, surface in dashboard]
     └──displayed in──> [Fleet health dashboard pod card (DASH-01)]
 ```
 
 ### Dependency Notes
 
 - **Windows Service is the prerequisite chain opener:** It enables SYSTEM context, which enables reliable firewall rules and registry writes. Everything in self-healing config depends on having SYSTEM-level privileges. The service wrapper is the first thing to implement.
-- **WebSocket exec requires protocol changes in rc-common:** Both rc-core and rc-agent must be rebuilt and redeployed simultaneously. This is a two-crate atomic change — ship it as a single commit.
-- **Deploy rollback depends on prev-binary existing:** The modified `do-swap.bat` must be deployed to all pods BEFORE rollback can function. Rollback without a prev binary is a no-op. The bat file update must be part of the same deploy that enables rollback in rc-core.
+- **WebSocket exec requires protocol changes in rc-common:** Both racecontrol and rc-agent must be rebuilt and redeployed simultaneously. This is a two-crate atomic change — ship it as a single commit.
+- **Deploy rollback depends on prev-binary existing:** The modified `do-swap.bat` must be deployed to all pods BEFORE rollback can function. Rollback without a prev binary is a no-op. The bat file update must be part of the same deploy that enables rollback in racecontrol.
 - **Fleet dashboard needs two new PodInfo fields:** `last_restart_time` and `last_crash_time` are captured in pod_monitor.rs state transitions but not currently persisted in PodInfo. These must be added to rc-common types (PodInfo struct) and populated by pod_monitor.rs.
 
 ---
@@ -224,7 +224,7 @@ Translation: restart after 5s on first failure, 30s on second, 60s on third. Res
 ```rust
 // Add to CoreToAgentMessage:
 Exec {
-    request_id: String,   // UUID, generated by rc-core
+    request_id: String,   // UUID, generated by racecontrol
     cmd: String,          // Command string (same as HTTP /exec)
     timeout_ms: u64,      // Default 10000, overridable
 }
@@ -239,15 +239,15 @@ ExecResult {
 }
 ```
 
-**rc-core side:** Maintain a `HashMap<String, oneshot::Sender<ExecResult>>` per pod in AppState. When Exec is sent, insert a pending entry. When ExecResult arrives from the agent, look up and resolve the sender. If timeout elapses without ExecResult, remove from map and return timeout error to caller.
+**racecontrol side:** Maintain a `HashMap<String, oneshot::Sender<ExecResult>>` per pod in AppState. When Exec is sent, insert a pending entry. When ExecResult arrives from the agent, look up and resolve the sender. If timeout elapses without ExecResult, remove from map and return timeout error to caller.
 
 **rc-agent side:** Receive Exec in the CoreToAgentMessage handler. Execute using the same logic as `remote_ops.rs::exec_command` (same semaphore, same CREATE_NO_WINDOW, same timeout). Send ExecResult back via the WebSocket sender.
 
-**Timeout handling:** Agent-side timeout is `timeout_ms`. Client-side timeout in rc-core is `timeout_ms + 5000ms` (buffer for network RTT). If client timeout fires, ExecResult may still arrive — discard it (no pending entry in map).
+**Timeout handling:** Agent-side timeout is `timeout_ms`. Client-side timeout in racecontrol is `timeout_ms + 5000ms` (buffer for network RTT). If client timeout fires, ExecResult may still arrive — discard it (no pending entry in map).
 
 **Streaming deferral rationale:** Streaming stdout line-by-line requires: partial line buffering in the agent, ordered delivery guarantees (WebSocket does NOT guarantee message ordering under reconnection), backpressure if the dashboard consumer is slow, and cleanup if the dashboard disconnects mid-stream. This is a separate feature with 3x the complexity of request/response. Start with request/response for v4.0.
 
-**Complexity:** MEDIUM. Protocol changes require both crates rebuilt. Execution logic is a copy of existing code. Main risk: reconnection during a pending Exec (the response arrives on a new WebSocket connection after reconnect). Mitigation: pending requests time out on the rc-core side; the agent retries nothing (fire and forget on the agent's end).
+**Complexity:** MEDIUM. Protocol changes require both crates rebuilt. Execution logic is a copy of existing code. Main risk: reconnection during a pending Exec (the response arrives on a new WebSocket connection after reconnect). Mitigation: pending requests time out on the racecontrol side; the agent retries nothing (fire and forget on the agent's end).
 
 ### 3. Self-Healing Configuration
 
@@ -266,7 +266,7 @@ ExecResult {
 
 **Embedded templates:** Use `include_str!()` for bat file template. TOML template cannot embed pod number — if toml is missing, report anomaly and continue with defaults (do not exit). The bat file template is universal across all pods.
 
-**Anomaly reporting:** Send `AgentMessage::StartupReport { pod_id, anomalies: Vec<String>, repairs: Vec<String> }` once WebSocket connected. rc-core persists this and displays in fleet dashboard as a warning badge on the pod card.
+**Anomaly reporting:** Send `AgentMessage::StartupReport { pod_id, anomalies: Vec<String>, repairs: Vec<String> }` once WebSocket connected. racecontrol persists this and displays in fleet dashboard as a warning badge on the pod card.
 
 **Complexity:** MEDIUM. Requires: `winreg` crate (check if already in dependency tree — it may be via registry-based pod lockdown code), embedded templates, structured startup phase enum. No new async complexity.
 
@@ -285,7 +285,7 @@ if exist C:\RacingPoint\rc-agent.exe (
 :: Existing swap logic follows...
 ```
 
-**Part B — rc-core rollback trigger** (in deploy.rs, at 60s health gate):
+**Part B — racecontrol rollback trigger** (in deploy.rs, at 60s health gate):
 If the 60s check fails:
 1. Log rollback trigger with reason
 2. Send `CoreToAgentMessage::Exec` with rollback command: `copy /Y C:\RacingPoint\rc-agent-prev.exe C:\RacingPoint\rc-agent.exe && taskkill /F /IM rc-agent.exe && start "" C:\RacingPoint\start-rcagent.bat`
@@ -295,7 +295,7 @@ If the 60s check fails:
 
 **Fleet rollback gate:** If Pod 8 (canary) rolls back, abort the fleet deploy. Do not proceed to pods 1-7. This requires pod 8 to be explicitly tracked as canary in the deploy sequence (it already is by convention — make it explicit in code).
 
-**Complexity:** MEDIUM. Two independent pieces: bat file modification (simple, LOW) and rc-core rollback branch (MEDIUM — depends on WebSocket exec being available when HTTP is down).
+**Complexity:** MEDIUM. Two independent pieces: bat file modification (simple, LOW) and racecontrol rollback branch (MEDIUM — depends on WebSocket exec being available when HTTP is down).
 
 ### 5. Fleet Health Dashboard
 
@@ -343,7 +343,7 @@ If the 60s check fails:
 - Canary deployment patterns: [Canary Deployments — Netdata](https://www.netdata.cloud/academy/canary-deployment/)
 - Fleet health dashboard table stakes: [Fleet Management Dashboard — PCS Software](https://pcssoft.com/blog/fleet-management-dashboard/)
 - Self-healing device fleet patterns: [Self-Healing Devices — Radix International](https://radix-int.com/self-healing-devices-future-intelligent-fleet-management/)
-- Existing codebase analyzed: `crates/rc-agent/src/remote_ops.rs`, `crates/rc-core/src/deploy.rs`, `crates/rc-core/src/pod_monitor.rs`, `crates/rc-common/src/protocol.rs`, `.planning/PROJECT.md`
+- Existing codebase analyzed: `crates/rc-agent/src/remote_ops.rs`, `crates/racecontrol/src/deploy.rs`, `crates/racecontrol/src/pod_monitor.rs`, `crates/rc-common/src/protocol.rs`, `.planning/PROJECT.md`
 
 ---
 

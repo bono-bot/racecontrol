@@ -96,8 +96,8 @@ The combined command for a single pod-agent call:
 ```
 
 Expected ports already in use on server .23:
-- `8080` — rc-core (Axum HTTP + WebSocket)
-- `9996`, `20777`, `5300`, `6789`, `5555` — UDP telemetry listeners (rc-core `udp_heartbeat.rs`)
+- `8080` — racecontrol (Axum HTTP + WebSocket)
+- `9996`, `20777`, `5300`, `6789`, `5555` — UDP telemetry listeners (racecontrol `udp_heartbeat.rs`)
 - `18923` would only be on pods (rc-agent lock screen), NOT server
 - `3300` — kiosk if already running (unlikely in current state)
 - `3000` — web/legacy Next.js app (if running)
@@ -207,10 +207,10 @@ The server does not have pod-agent installed, so this command must be run via RD
 **How to avoid:** DIAG-02 and DIAG-04 require direct server access via RDP. Plan for James to RDP to .23 and run the commands manually. The commands are short (under 2 minutes of work).
 **Warning signs:** curl to port 8090 on .23 returns "Connection refused."
 
-### Pitfall 5: rc-core Logs Are Also Not in a File by Default
-**What goes wrong:** Looking for a log file for rc-core on the server and finding nothing.
-**Why it happens:** rc-core (the Axum server) also uses `tracing_subscriber::fmt()` writing to stdout, same pattern as rc-agent. No file redirect in the current startup mechanism.
-**How to avoid:** On the server, run `type C:\RacingPoint\racecontrol-log.txt 2>nul || echo NO_LOG_FILE` to check. If missing, restart rc-core with: `C:\RacingPoint\racecontrol.exe > C:\RacingPoint\racecontrol-log.txt 2>&1`. This is acceptable for a brief diagnostic capture.
+### Pitfall 5: racecontrol Logs Are Also Not in a File by Default
+**What goes wrong:** Looking for a log file for racecontrol on the server and finding nothing.
+**Why it happens:** racecontrol (the Axum server) also uses `tracing_subscriber::fmt()` writing to stdout, same pattern as rc-agent. No file redirect in the current startup mechanism.
+**How to avoid:** On the server, run `type C:\RacingPoint\racecontrol-log.txt 2>nul || echo NO_LOG_FILE` to check. If missing, restart racecontrol with: `C:\RacingPoint\racecontrol.exe > C:\RacingPoint\racecontrol-log.txt 2>&1`. This is acceptable for a brief diagnostic capture.
 **Warning signs:** No log file in `C:\RacingPoint\`.
 
 ### Pitfall 6: Edge Service Name Varies by Windows Version
@@ -309,17 +309,17 @@ done
 
 **Current log state:**
 - rc-agent: Writes to stdout when started interactively. If started via HKLM Run key (production path), logs go to the Session 1 console window only — no file unless `start-rcagent-log.bat` redirects it.
-- rc-core: Same — tracing writes to stdout only. No log file unless started with redirect.
+- racecontrol: Same — tracing writes to stdout only. No log file unless started with redirect.
 - pod-agent: Node.js, writes to its own console. No known log file.
 
 ## Open Questions
 
 1. **What does the rc-agent log actually say on a failing pod?**
-   - What we know: The `Disconnected` lock screen state is shown when WebSocket to rc-core fails (from `lock_screen.rs`)
-   - What's unclear: Are the pods failing because rc-core is unreachable (wrong IP), because port 8080 is blocked, or because the URL in `rc-agent.toml` has a stale hostname?
+   - What we know: The `Disconnected` lock screen state is shown when WebSocket to racecontrol fails (from `lock_screen.rs`)
+   - What's unclear: Are the pods failing because racecontrol is unreachable (wrong IP), because port 8080 is blocked, or because the URL in `rc-agent.toml` has a stale hostname?
    - Recommendation: DIAG-01 resolves this. Run log capture on a pod that has shown "Site cannot be reached" and read what WebSocket connect error appears.
 
-2. **What port is rc-core currently listening on in production?**
+2. **What port is racecontrol currently listening on in production?**
    - What we know: `rc-agent.example.toml` defaults to `ws://127.0.0.1:8080/ws/agent` and `config.rs` defaults to port 8080
    - What's unclear: Whether the production `racecontrol.toml` on server .23 overrides this
    - Recommendation: DIAG-02 confirms this. `netstat -ano | findstr LISTENING` on .23 will show exactly what port the `racecontrol.exe` process holds.
@@ -343,7 +343,7 @@ done
 | Framework | None — Phase 6 has no code changes |
 | Config file | N/A |
 | Quick run command | N/A |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` (existing suite, run to confirm baseline is green before starting) |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` (existing suite, run to confirm baseline is green before starting) |
 
 ### Phase Requirements → Test Map
 
@@ -358,7 +358,7 @@ All four requirements produce human-readable diagnostic output, not software beh
 
 ### Sampling Rate
 
-- **Per task commit:** Run `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` to confirm no regressions (47 existing tests must remain green — Phase 6 makes no code changes, so this is a sanity gate only).
+- **Per task commit:** Run `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` to confirm no regressions (47 existing tests must remain green — Phase 6 makes no code changes, so this is a sanity gate only).
 - **Per wave merge:** Same full suite.
 - **Phase gate:** All four DIAG requirements have documented findings. No code changes to test.
 
@@ -376,7 +376,7 @@ None — existing test infrastructure covers all phase requirements. Phase 6 cre
 - `deploy-staging/pod8-edge-check.json` — confirmed `tasklist /NH | findstr msedge` pattern
 - `deploy-staging/pod8-full-diag.json` — confirmed combined diagnostic command pattern
 - `crates/rc-agent/src/main.rs` lines 197–202 — tracing setup: `rc_agent=info` default level, writes to stdout only
-- `crates/rc-core/src/main.rs` lines 92–98 — rc-core tracing: `rc_core=info,tower_http=info` default, writes to stdout only
+- `crates/racecontrol/src/main.rs` lines 92–98 — racecontrol tracing: `racecontrol=info,tower_http=info` default, writes to stdout only
 - `crates/rc-agent/src/debug_server.rs` — debug server port 18924, `/status` endpoint available on all pods
 - `kiosk/package.json` (from SUMMARY.md) — confirmed `"start": "next start -p 3300"`
 - `.planning/STATE.md` — confirmed server MAC address needed before Phase 7, port 3300 vs 3000 ambiguity flagged
@@ -391,7 +391,7 @@ None — existing test infrastructure covers all phase requirements. Phase 6 cre
 ### Tertiary (LOW confidence — verify during execution)
 
 - Exact EdgeUpdate service name on venue pods: querying both `EdgeUpdate` and `MicrosoftEdgeUpdate` covers both possibilities; actual name depends on Edge channel installed
-- Whether rc-core is currently running on server .23 at all: assumed yes, but not verified since last reboot
+- Whether racecontrol is currently running on server .23 at all: assumed yes, but not verified since last reboot
 
 ## Metadata
 

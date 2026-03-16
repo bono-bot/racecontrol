@@ -9,12 +9,12 @@
 
 - [x] **SVC-01**: rc-watchdog.exe runs as a Windows Service (SYSTEM) and auto-starts on boot
 - [x] **SVC-02**: Watchdog detects rc-agent crash within 10 seconds and restarts it in Session 1
-- [x] **SVC-03**: Watchdog reports crash events to rc-core via HTTP (startup count, crash time, exit code)
+- [x] **SVC-03**: Watchdog reports crash events to racecontrol via HTTP (startup count, crash time, exit code)
 - [x] **SVC-04**: Install script registers watchdog service with SCM failure actions (restart on failure)
 
 ### Remote Exec via WebSocket
 
-- [x] **WSEX-01**: rc-core can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec)
+- [x] **WSEX-01**: racecontrol can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec)
 - [x] **WSEX-02**: rc-agent executes WebSocket commands with independent semaphore (separate from HTTP exec slots)
 - [x] **WSEX-03**: Exec responses include stdout, stderr, exit code, and request_id correlation
 - [x] **WSEX-04**: deploy.rs uses WebSocket exec as fallback when HTTP :8090 is unreachable
@@ -28,7 +28,7 @@
 ### Startup & Self-Healing
 
 - [x] **HEAL-01**: rc-agent verifies config file, start script, and registry key on every startup — repairs if missing
-- [x] **HEAL-02**: rc-agent reports startup status to rc-core immediately after WebSocket connect (version, uptime, config hash, crash recovery flag)
+- [x] **HEAL-02**: rc-agent reports startup status to racecontrol immediately after WebSocket connect (version, uptime, config hash, crash recovery flag)
 - [x] **HEAL-03**: Startup errors are captured to a log file before rc-agent exits (for post-mortem)
 
 ### Deploy Resilience

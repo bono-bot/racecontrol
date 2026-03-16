@@ -1,7 +1,7 @@
 //! Remote operations HTTP server (merged pod-agent).
 //!
 //! Binds to 0.0.0.0:8090 (LAN-accessible). Provides the same API contract
-//! that rc-core's deploy.rs expects, so no server-side changes needed.
+//! that racecontrol's deploy.rs expects, so no server-side changes needed.
 //!
 //! Endpoints:
 //!   GET  /ping       — "pong"

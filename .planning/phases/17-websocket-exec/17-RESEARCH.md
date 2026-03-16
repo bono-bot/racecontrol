@@ -12,18 +12,18 @@ created: 2026-03-15
 
 ## Summary
 
-Phase 17 adds remote shell command execution over the existing WebSocket channel between rc-core and rc-agent. Currently, remote command execution is only available via HTTP POST to port 8090 (the `remote_ops` module in rc-agent). This phase extends the WebSocket protocol so rc-core can send shell commands to any connected pod without needing HTTP reachability on port 8090.
+Phase 17 adds remote shell command execution over the existing WebSocket channel between racecontrol and rc-agent. Currently, remote command execution is only available via HTTP POST to port 8090 (the `remote_ops` module in rc-agent). This phase extends the WebSocket protocol so racecontrol can send shell commands to any connected pod without needing HTTP reachability on port 8090.
 
-The codebase is well-structured for this change. The protocol enums (`CoreToAgentMessage` and `AgentMessage`) in `rc-common/src/protocol.rs` use serde-tagged JSON and are the single source of truth for all WebSocket messages. The rc-core side already tracks per-agent mpsc senders in `AppState.agent_senders`, and the rc-agent side already has a complete match arm for every `CoreToAgentMessage` variant with a catch-all `other =>` at the end. The existing HTTP implementation in `remote_ops.rs` provides a proven pattern for semaphore-gated, timeout-wrapped, CREATE_NO_WINDOW process spawning that can be directly reused.
+The codebase is well-structured for this change. The protocol enums (`CoreToAgentMessage` and `AgentMessage`) in `rc-common/src/protocol.rs` use serde-tagged JSON and are the single source of truth for all WebSocket messages. The racecontrol side already tracks per-agent mpsc senders in `AppState.agent_senders`, and the rc-agent side already has a complete match arm for every `CoreToAgentMessage` variant with a catch-all `other =>` at the end. The existing HTTP implementation in `remote_ops.rs` provides a proven pattern for semaphore-gated, timeout-wrapped, CREATE_NO_WINDOW process spawning that can be directly reused.
 
-**Primary recommendation:** Add `Exec` and `ExecResult` variants to the shared protocol, implement the handler in rc-agent's existing match block, and add a `ws_exec_on_pod` function in rc-core that sends via `agent_senders` and waits for a correlated response. Deploy.rs gets a fallback path when HTTP :8090 is unreachable.
+**Primary recommendation:** Add `Exec` and `ExecResult` variants to the shared protocol, implement the handler in rc-agent's existing match block, and add a `ws_exec_on_pod` function in racecontrol that sends via `agent_senders` and waits for a correlated response. Deploy.rs gets a fallback path when HTTP :8090 is unreachable.
 
 <phase_requirements>
 ## Phase Requirements
 
 | ID | Description | Research Support |
 |----|-------------|-----------------|
-| WSEX-01 | rc-core can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec) | New `Exec` variant in CoreToAgentMessage with cmd, timeout_ms, request_id fields. Agent sender pattern already exists in `AppState.agent_senders`. |
+| WSEX-01 | racecontrol can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec) | New `Exec` variant in CoreToAgentMessage with cmd, timeout_ms, request_id fields. Agent sender pattern already exists in `AppState.agent_senders`. |
 | WSEX-02 | rc-agent runs WebSocket commands with independent semaphore (separate from HTTP slots) | New `static WS_EXEC_SEMAPHORE: Semaphore` in rc-agent, separate from `remote_ops::EXEC_SEMAPHORE`. Same `const_new(4)` pattern. |
 | WSEX-03 | Responses include stdout, stderr, exit code, and request_id correlation | New `ExecResult` variant in AgentMessage. `request_id: String` for correlation. Use `uuid::Uuid::new_v4()` for IDs. |
 | WSEX-04 | deploy.rs uses WebSocket as fallback when HTTP :8090 is unreachable | Wrap existing `exec_on_pod` with try-HTTP-first, fallback-to-WS pattern. New `ws_exec_on_pod` function using `agent_senders` + oneshot response channel. |
@@ -38,7 +38,7 @@ The codebase is well-structured for this change. The protocol enums (`CoreToAgen
 | serde/serde_json | 1.x (workspace) | JSON serialization for WebSocket messages | Already in use for all protocol types |
 | uuid | 1.x (workspace) | Request ID generation | Already a workspace dependency |
 | tokio-tungstenite | 0.26 | WebSocket client (rc-agent side) | Already in use |
-| axum | 0.8 (with ws feature) | WebSocket server (rc-core side) | Already in use |
+| axum | 0.8 (with ws feature) | WebSocket server (racecontrol side) | Already in use |
 
 ### Supporting
 | Library | Version | Purpose | When to Use |
@@ -61,9 +61,9 @@ The codebase is well-structured for this change. The protocol enums (`CoreToAgen
 ```
 crates/rc-common/src/protocol.rs    # Add Exec variant to CoreToAgentMessage, ExecResult to AgentMessage
 crates/rc-agent/src/main.rs         # Add match arm for CoreToAgentMessage::Exec (line ~1740)
-crates/rc-core/src/ws/mod.rs        # Add ExecResult handler in agent message match
-crates/rc-core/src/deploy.rs        # Add ws_exec_on_pod fallback, modify exec_on_pod signature
-crates/rc-core/src/state.rs         # Add pending_ws_execs: RwLock<HashMap<String, oneshot::Sender<WsExecResult>>>
+crates/racecontrol/src/ws/mod.rs        # Add ExecResult handler in agent message match
+crates/racecontrol/src/deploy.rs        # Add ws_exec_on_pod fallback, modify exec_on_pod signature
+crates/racecontrol/src/state.rs         # Add pending_ws_execs: RwLock<HashMap<String, oneshot::Sender<WsExecResult>>>
 ```
 
 ### Pattern 1: Protocol Extension (CoreToAgentMessage::Exec)
@@ -171,11 +171,11 @@ async fn handle_ws_exec(request_id: String, cmd: String, timeout_ms: u64) -> Age
 
 ### Pattern 4: Core-Side Request-Response Correlation
 
-**What:** rc-core sends command, waits for result with matching request_id.
+**What:** racecontrol sends command, waits for result with matching request_id.
 **Uses:** `oneshot::channel` stored in AppState keyed by request_id.
 
 ```rust
-// In rc-core state.rs -- add to AppState:
+// In racecontrol state.rs -- add to AppState:
 pub pending_ws_execs: RwLock<HashMap<String, tokio::sync::oneshot::Sender<WsExecResult>>>,
 
 // Data struct for the result (in deploy.rs or new module)
@@ -248,7 +248,7 @@ All callers in deploy.rs already have both `pod_id` and `pod_ip` in scope.
 
 - **Sharing the HTTP semaphore with WS:** WSEX-02 explicitly requires an independent semaphore. If HTTP slots are exhausted, WS must still work (that is the whole point of the fallback).
 - **Blocking the agent event loop:** The handler MUST be spawned as a separate `tokio::spawn` task. The agent's `tokio::select!` loop processes heartbeats, telemetry, and billing ticks. A long-running command must not block those.
-- **Fire-and-forget without correlation:** The `request_id` is essential. Without it, rc-core cannot match responses to requests when multiple commands are in flight.
+- **Fire-and-forget without correlation:** The `request_id` is essential. Without it, racecontrol cannot match responses to requests when multiple commands are in flight.
 - **Holding agent_senders lock across await:** Clone the sender, drop the lock, then send. Existing pattern in billing.rs and auth/mod.rs.
 
 ## Don't Hand-Roll
@@ -346,7 +346,7 @@ Some(exec_result) = ws_exec_result_rx.recv() => {
 }
 ```
 
-**5. rc-core/src/ws/mod.rs** - ExecResult handler in agent message match:
+**5. racecontrol/src/ws/mod.rs** - ExecResult handler in agent message match:
 ```rust
 AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr } => {
     tracing::info!("WS exec result {}: success={}", request_id, success);
@@ -359,7 +359,7 @@ AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr } => {
 }
 ```
 
-**6. rc-core/src/deploy.rs** - fallback pattern (rename current fn, add wrapper):
+**6. racecontrol/src/deploy.rs** - fallback pattern (rename current fn, add wrapper):
 ```rust
 // Current exec_on_pod (line 172) becomes http_exec_on_pod (same body).
 // New exec_on_pod with pod_id parameter and fallback:
@@ -397,21 +397,21 @@ async fn exec_on_pod(
 | Framework | cargo test (built-in, Rust edition 2024) |
 | Config file | Cargo.toml workspace |
 | Quick run command | `cargo test -p rc-common` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements -> Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
 | WSEX-01 | Exec variant serializes/deserializes correctly | unit | `cargo test -p rc-common -- protocol::tests::test_exec_roundtrip` | Wave 0 |
 | WSEX-01 | CoreToAgentMessage::Exec wire format matches snake_case tag | unit | `cargo test -p rc-common -- protocol::tests::test_exec_wire_format` | Wave 0 |
-| WSEX-02 | WS semaphore is independent from HTTP semaphore | unit | `cargo test -p rc-agent -- tests::test_ws_exec_semaphore_independent` | Wave 0 |
+| WSEX-02 | WS semaphore is independent from HTTP semaphore | unit | `cargo test -p rc-agent-crate -- tests::test_ws_exec_semaphore_independent` | Wave 0 |
 | WSEX-03 | ExecResult includes all required fields and request_id correlation | unit | `cargo test -p rc-common -- protocol::tests::test_exec_result_roundtrip` | Wave 0 |
 | WSEX-03 | ExecResult success and error variants both serialize | unit | `cargo test -p rc-common -- protocol::tests::test_exec_result_success_and_error` | Wave 0 |
 | WSEX-04 | Deploy fallback attempts HTTP then WS | integration | Manual: deploy to pod with port 8090 blocked | manual-only (requires live pod) |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-common && cargo test -p rc-agent`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p rc-common && cargo test -p rc-agent-crate`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
@@ -444,9 +444,9 @@ async fn exec_on_pod(
 - **rc-common/src/protocol.rs** - Full protocol definition, 40+ serde roundtrip tests
 - **rc-agent/src/remote_ops.rs** - HTTP implementation (lines 222-300), semaphore pattern, 7 tests
 - **rc-agent/src/main.rs** - Agent WebSocket handler, CoreToAgentMessage match (lines 1017-1742)
-- **rc-core/src/ws/mod.rs** - Core WebSocket handler, agent_senders pattern, mpsc forwarding
-- **rc-core/src/deploy.rs** - Deploy executor, exec_on_pod (lines 172-205), 14 tests
-- **rc-core/src/state.rs** - AppState definition, agent_senders/agent_conn_ids (lines 69-119)
+- **racecontrol/src/ws/mod.rs** - Core WebSocket handler, agent_senders pattern, mpsc forwarding
+- **racecontrol/src/deploy.rs** - Deploy executor, exec_on_pod (lines 172-205), 14 tests
+- **racecontrol/src/state.rs** - AppState definition, agent_senders/agent_conn_ids (lines 69-119)
 
 ### Secondary (MEDIUM confidence)
 - **tokio::sync::Semaphore** - API verified via crate docs (const_new, try_acquire)

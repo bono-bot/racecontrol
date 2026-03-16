@@ -60,5 +60,5 @@ The auto-relaunch (Race Engineer) and manual relaunch (kiosk button) are complem
 
 ## Plan Split
 
-- **Plan 02-01**: rc-core (billing pause on GameCrashed + relaunch endpoint for manual recovery)
+- **Plan 02-01**: racecontrol (billing pause on GameCrashed + relaunch endpoint for manual recovery)
 - **Plan 02-02**: kiosk ("Game Crashed" badge + manual relaunch button on KioskPodCard and LiveSessionPanel)

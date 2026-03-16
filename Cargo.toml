@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/rc-common",
-    "crates/rc-core",
+    "crates/racecontrol",
     "crates/rc-agent",
     "crates/rc-watchdog",
     "crates/rc-installer",

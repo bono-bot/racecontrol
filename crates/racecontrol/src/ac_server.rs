@@ -58,7 +58,7 @@ impl AcServerManager {
 // ─── Orphaned Process Cleanup ─────────────────────────────────────────────────
 
 /// On startup, find ac_sessions rows that are still 'starting' or 'running' (left over
-/// from a previous rc-core instance) and kill their processes if still alive.  This
+/// from a previous racecontrol instance) and kill their processes if still alive.  This
 /// prevents orphaned acServer processes from holding ports and blocking new sessions.
 /// Also adds orphaned ports to the PortAllocator cooldown to avoid TIME_WAIT collisions.
 pub async fn cleanup_orphaned_sessions(

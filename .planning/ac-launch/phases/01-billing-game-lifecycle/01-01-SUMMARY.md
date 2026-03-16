@@ -22,7 +22,7 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/game_launcher.rs
+    - crates/racecontrol/src/game_launcher.rs
 
 key-decisions:
   - "Billing gate placed after catalog validation but before double-launch guard — validates billing before checking game state"
@@ -54,7 +54,7 @@ completed: 2026-03-15
 - launch_game() now rejects requests when pod has no active billing session (LIFE-02)
 - launch_game() now blocks both Launching AND Running states, preventing double-launch (LIFE-04)
 - LIFE-01 (game killed on billing end) confirmed already working via StopGame + SessionEnded flow
-- 4 unit tests added via TDD (RED-GREEN), all 213 rc-core tests + 41 integration tests pass
+- 4 unit tests added via TDD (RED-GREEN), all 213 racecontrol tests + 41 integration tests pass
 
 ## Task Commits
 
@@ -65,7 +65,7 @@ Each task was committed atomically:
    - GREEN: `675a2bc` (feat: add billing gate + expand double-launch guard in launch_game())
 
 ## Files Created/Modified
-- `crates/rc-core/src/game_launcher.rs` - Added billing gate (LIFE-02), expanded double-launch guard to block Running state (LIFE-04), added 4 unit tests
+- `crates/racecontrol/src/game_launcher.rs` - Added billing gate (LIFE-02), expanded double-launch guard to block Running state (LIFE-04), added 4 unit tests
 
 ## Decisions Made
 - Billing gate uses the same `active_timers.read().await.contains_key(pod_id)` pattern already established in pod_healer.rs and ws/mod.rs
@@ -83,7 +83,7 @@ None
 None - no external service configuration required.
 
 ## Next Phase Readiness
-- Billing gate and double-launch guard are in place for rc-core
+- Billing gate and double-launch guard are in place for racecontrol
 - Plan 01-02 (rc-agent: arm 15s blank_timer in SessionEnded + fix BillingStopped billing_active flag) is ready to execute
 - Phase 2 (Game Crash Recovery) depends on Phase 1 completion
 
@@ -93,7 +93,7 @@ None - no external service configuration required.
 - [x] Commit 157f8f9 (RED) exists in git log
 - [x] Commit 675a2bc (GREEN) exists in git log
 - [x] SUMMARY.md created at correct path
-- [x] All 213 rc-core unit tests + 41 integration tests + 93 rc-common tests pass
+- [x] All 213 racecontrol unit tests + 41 integration tests + 93 rc-common tests pass
 
 ---
 *Phase: 01-billing-game-lifecycle*

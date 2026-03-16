@@ -142,7 +142,7 @@ None - no external service configuration required. Wallpaper URL is configured v
 
 - Phase 11 Plan 01 complete — Racing Point branding consistent across all lock screen states
 - Session summary shows top speed (when telemetry records > 0 km/h) and race position (when `Some`)
-- Wallpaper URL can be set from rc-core SettingsUpdated message using key `lock_screen_wallpaper_url`
+- Wallpaper URL can be set from racecontrol SettingsUpdated message using key `lock_screen_wallpaper_url`
 - Race position accumulator wired but stays `None` until `TelemetryFrame` carries position data from AC shared memory
 
 ---

@@ -86,8 +86,8 @@ When at venue, follow these steps to complete Phase 5 deployment:
 ```bash
 export PATH="$PATH:/c/Users/bono/.cargo/bin"
 cd /c/Users/bono/racingpoint/racecontrol
-cargo test -p rc-agent && cargo test -p rc-common && cargo test -p rc-core
-cargo build -p rc-agent --release
+cargo test -p rc-agent-crate && cargo test -p rc-common && cargo test -p racecontrol-crate
+cargo build -p rc-agent-crate --release
 cp target/release/rc-agent.exe /c/Users/bono/racingpoint/deploy-staging/
 python3 -m http.server 9998 --directory /c/Users/bono/racingpoint/deploy-staging --bind 0.0.0.0
 ```
@@ -111,7 +111,7 @@ python3 -m http.server 9998 --directory /c/Users/bono/racingpoint/deploy-staging
 5. PIN error: confirm identical message on pod lock screen and kiosk
 
 **Step 5: Roll out to all 8 pods after Pod 8 passes**
-- Use rolling deploy via rc-core /api/deploy/rolling
+- Use rolling deploy via racecontrol /api/deploy/rolling
 - Or deploy to each pod individually via pod-agent /exec
 
 ## Issues Encountered

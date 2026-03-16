@@ -56,7 +56,7 @@ Progress: [##########] 100%
 - Billing-game lifecycle is a separate GSD from v4.0 (Pod Fleet Self-Healing)
 - 5 phases: Lifecycle first (revenue), Crash Recovery, Launch Resilience, Multiplayer Server Lifecycle, Synchronized Group Play
 - Phases 4-5 added after VMS analysis — wiring existing ac_server.rs + multiplayer.rs to billing lifecycle
-- rc-core is billing-authoritative — rc-agent reports game state, rc-core decides billing actions
+- racecontrol is billing-authoritative — rc-agent reports game state, racecontrol decides billing actions
 - No research needed — all issues documented in customer-journey-gaps.md with known code paths
 - Billing gate placed after catalog validation but before double-launch guard in launch_game()
 - Double-launch guard error message generalized to "already has a game active" covering both Launching and Running
@@ -79,14 +79,14 @@ Progress: [##########] 100%
 
 ### Existing Infrastructure (do NOT rebuild)
 
-- BillingManager + BillingTimer in rc-core/billing.rs — full timer lifecycle
-- GameTracker in rc-core/game_launcher.rs — launch FSM (Launching -> Running -> Error)
+- BillingManager + BillingTimer in racecontrol/billing.rs — full timer lifecycle
+- GameTracker in racecontrol/game_launcher.rs — launch FSM (Launching -> Running -> Error)
 - ac_launcher.rs in rc-agent — 1,400+ lines, CM fallback already exists
 - game_process.rs in rc-agent — PID tracking, orphan cleanup
 - lock_screen.rs in rc-agent — state machine for lock screen
 - Protocol messages: CoreToAgentMessage::LaunchGame, AgentToCoreMessage::GameStateChanged already exist
-- AcServerManager in rc-core/ac_server.rs — full server lifecycle (start/stop/monitor/orphan cleanup)
-- multiplayer.rs in rc-core — group booking, pod allocation, friend invites, PIN generation + kiosk booking
+- AcServerManager in racecontrol/ac_server.rs — full server lifecycle (start/stop/monitor/orphan cleanup)
+- multiplayer.rs in racecontrol — group booking, pod allocation, friend invites, PIN generation + kiosk booking
 - kiosk/src/app/book/page.tsx — booking wizard with multiplayer "Play with Friends" flow
 - DB tables: group_sessions (+ ac_session_id column), group_session_members, multiplayer_results, pod_reservations
 - POST /kiosk/book-multiplayer endpoint (backend + kiosk UI both complete)

@@ -23,8 +23,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/lap_tracker.rs
-    - crates/rc-core/tests/integration.rs
+    - crates/racecontrol/src/lap_tracker.rs
+    - crates/racecontrol/tests/integration.rs
 
 key-decisions:
   - "Previous record holder data (name, email) fetched BEFORE the UPSERT to avoid reading back the new holder's data"
@@ -64,7 +64,7 @@ completed: 2026-03-15
 - Fire-and-forget email notification via tokio::spawn + node send_email.js with full error handling and logging
 - Email body includes track, car, old time (M:SS.mmm), new time, new holder name, and public leaderboard link
 - 3 integration tests covering: data ordering verification, NULL email skip, first record no-notify
-- Full test suite green: rc-core 209 unit + 34 integration = 243 tests pass
+- Full test suite green: racecontrol 209 unit + 34 integration = 243 tests pass
 
 ## Task Commits
 
@@ -76,8 +76,8 @@ Each task was committed atomically:
 _TDD REFACTOR phase not needed -- implementation is clean and well-structured._
 
 ## Files Created/Modified
-- `crates/rc-core/src/lap_tracker.rs` - Added get_previous_record_holder(), restructured track record section with fetch-before-UPSERT, tokio::spawn email notification, format_lap_time() helper
-- `crates/rc-core/tests/integration.rs` - Added 3 notification tests: test_notification_data_before_upsert, test_notification_skip_no_email, test_notification_first_record_no_notify
+- `crates/racecontrol/src/lap_tracker.rs` - Added get_previous_record_holder(), restructured track record section with fetch-before-UPSERT, tokio::spawn email notification, format_lap_time() helper
+- `crates/racecontrol/tests/integration.rs` - Added 3 notification tests: test_notification_data_before_upsert, test_notification_skip_no_email, test_notification_first_record_no_notify
 
 ## Decisions Made
 - Previous record holder data (name, email) is fetched BEFORE the UPSERT. This is the critical data ordering requirement -- if fetched after, the ON CONFLICT DO UPDATE would have already replaced the holder with the new driver.
@@ -106,7 +106,7 @@ None - no external service configuration required. Uses existing send_email.js a
 
 - All 2 modified files exist on disk
 - Both commit hashes (f916ec2, d76ff9d) verified in git log
-- All 243 tests pass across rc-core (209 unit + 34 integration)
+- All 243 tests pass across racecontrol (209 unit + 34 integration)
 
 ---
 *Phase: 13-leaderboard-core*

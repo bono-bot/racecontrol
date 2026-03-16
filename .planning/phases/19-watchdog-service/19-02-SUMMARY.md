@@ -9,7 +9,7 @@ requires:
   - phase: 19-watchdog-service/01
     provides: rc-watchdog crate + WatchdogCrashReport type in rc-common
 provides:
-  - POST /api/v1/pods/{pod_id}/watchdog-crash endpoint in rc-core
+  - POST /api/v1/pods/{pod_id}/watchdog-crash endpoint in racecontrol
   - install-watchdog.bat for fleet SCM registration
   - Release binary rc-watchdog.exe (3.6 MB)
 affects: [20-deploy-pipeline, 21-fleet-dashboard, pod-deploy]
@@ -21,7 +21,7 @@ tech-stack:
 
 key-files:
   created: [deploy/install-watchdog.bat]
-  modified: [crates/rc-core/src/api/routes.rs]
+  modified: [crates/racecontrol/src/api/routes.rs]
 
 key-decisions:
   - "Handler returns StatusCode::OK (no JSON body) -- watchdog is fire-and-forget, no response parsing needed"
@@ -39,7 +39,7 @@ completed: 2026-03-15
 
 # Phase 19 Plan 02: Crash Report Endpoint + Install Script Summary
 
-**rc-core POST /api/v1/pods/{pod_id}/watchdog-crash endpoint with WARN-level structured logging, activity recording, and install-watchdog.bat for fleet SCM registration with failure restart actions**
+**racecontrol POST /api/v1/pods/{pod_id}/watchdog-crash endpoint with WARN-level structured logging, activity recording, and install-watchdog.bat for fleet SCM registration with failure restart actions**
 
 ## Performance
 
@@ -68,7 +68,7 @@ Each task was committed atomically:
 _TDD task: RED produced compilation failure (E0425: function not found), GREEN made all 3 tests pass._
 
 ## Files Created/Modified
-- `crates/rc-core/src/api/routes.rs` - Added watchdog_crash_report handler + route + 3 unit tests
+- `crates/racecontrol/src/api/routes.rs` - Added watchdog_crash_report handler + route + 3 unit tests
 - `deploy/install-watchdog.bat` - Windows service installer with sc.exe create + failure actions
 
 ## Decisions Made
@@ -87,7 +87,7 @@ None
 None - no external service configuration required.
 
 ## Next Phase Readiness
-- Crash report endpoint is live (once rc-core is rebuilt/restarted)
+- Crash report endpoint is live (once racecontrol is rebuilt/restarted)
 - install-watchdog.bat is ready for fleet deployment
 - rc-watchdog.exe release binary ready for Pod 8 canary test
 - Pod 8 canary verification pending (Task 2 checkpoint)
@@ -95,7 +95,7 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 
-- [x] `crates/rc-core/src/api/routes.rs` -- FOUND
+- [x] `crates/racecontrol/src/api/routes.rs` -- FOUND
 - [x] `deploy/install-watchdog.bat` -- FOUND
 - [x] `target/release/rc-watchdog.exe` -- FOUND (3.6 MB)
 - [x] Commit `faea0d6` (RED) -- FOUND

@@ -10,7 +10,7 @@ human_verification:
     why_human: "Visual appearance cannot be verified from source code — requires screenshot from a live pod"
   - test: "Wallpaper appears on pod after settings change in kiosk dashboard"
     expected: "Within 10 seconds of entering a URL in Pod Display settings, pod lock screen shows that image as background"
-    why_human: "End-to-end chain (kiosk -> rc-core broadcast -> rc-agent -> CSS render) requires live pods and network"
+    why_human: "End-to-end chain (kiosk -> racecontrol broadcast -> rc-agent -> CSS render) requires live pods and network"
   - test: "Loading splash appears before AC game launch"
     expected: "LaunchSplash screen with Racing Point branding visible between session start and game loading"
     why_human: "Requires triggering a real billing session and game launch on a pod"
@@ -85,7 +85,7 @@ human_verification:
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|-------------|--------|---------|
 | BRAND-01 | 11-01 | Lock screen displays the Racing Point logo prominently | SATISFIED | `RP_LOGO_SVG` inline SVG constant embedded in `PAGE_SHELL` via `{{RP_LOGO_SVG}}` placeholder; all lock screen states served through `page_shell` / `page_shell_with_bg` render the logo; `logo_in_page_shell` test passes |
-| BRAND-02 | 11-01, 11-02 | Staff can set a dynamic or static wallpaper for the blanking/lock screen from the kiosk dashboard | SATISFIED | End-to-end chain complete: settings/page.tsx UI -> `PUT /kiosk/settings` -> rc-core broadcast -> `SettingsUpdated` -> `set_wallpaper_url()` -> `page_shell_with_bg()` renders CSS `background-image`; `wallpaper_url_renders_in_css` test passes |
+| BRAND-02 | 11-01, 11-02 | Staff can set a dynamic or static wallpaper for the blanking/lock screen from the kiosk dashboard | SATISFIED | End-to-end chain complete: settings/page.tsx UI -> `PUT /kiosk/settings` -> racecontrol broadcast -> `SettingsUpdated` -> `set_wallpaper_url()` -> `page_shell_with_bg()` renders CSS `background-image`; `wallpaper_url_renders_in_css` test passes |
 | BRAND-03 | 11-01 | A branded loading screen with Racing Point identity is shown before each game session launches | SATISFIED | `render_launch_splash_page()` embeds `RP_LOGO_SVG` directly (line 829); `LaunchSplash` state shown when game is loading; `logo_in_launch_splash` test passes |
 | SESS-01 | 11-01 | After each session, the pod displays telemetry summary (lap times, top speed, best lap) | SATISFIED | `session_max_speed_kmh` accumulator tracks peak speed during telemetry loop; passed to `show_session_summary` on `SessionEnded`; top speed card conditionally rendered in `SESSION_SUMMARY_PAGE`; tests `session_summary_shows_top_speed` and `session_summary_hides_top_speed_when_zero` pass |
 | SESS-02 | 11-01 | After each session, the pod displays race position if racing against AI or in multiplayer | PARTIAL-SATISFIED | `race_position: Option<u32>` field exists on `SessionSummary` state; card renders conditionally when `Some(pos)` (test passes); however `session_race_position` stays `None` because `TelemetryFrame` does not yet carry race position from AC shared memory. Per SUMMARY decisions: intentional deferral until AC position is plumbed. Visual card infrastructure is complete. |
@@ -113,7 +113,7 @@ No blockers or warnings introduced by Phase 11 work.
 | `rc-agent` (lock_screen only) | 26 | 26 | 0 |
 | `rc-agent` (full) | 167 | 167 | 0 |
 | `rc-common` | 85 | 85 | 0 |
-| `rc-core` | 191 (178 lib + 13 integration) | 191 | 0 |
+| `racecontrol` | 191 (178 lib + 13 integration) | 191 | 0 |
 | **Total** | **443** | **443** | **0** |
 
 All tests green. The 10 new Phase 11 tests (previously marked RED) now pass.
@@ -132,7 +132,7 @@ All tests green. The 10 new Phase 11 tests (previously marked RED) now pass.
 
 **Test:** In kiosk settings -> Pod Display, enter a publicly accessible image URL and save. Wait 10 seconds and check a pod lock screen.
 **Expected:** Pod lock screen shows the image as a full-screen background behind the lock screen content
-**Why human:** Requires live pods connected to rc-core, network accessibility of the URL, and visual inspection
+**Why human:** Requires live pods connected to racecontrol, network accessibility of the URL, and visual inspection
 
 #### 3. LaunchSplash Timing
 

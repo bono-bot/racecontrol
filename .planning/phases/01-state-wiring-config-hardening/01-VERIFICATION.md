@@ -35,7 +35,7 @@ The previous verification (2026-03-13) found 2 gaps sharing a single root cause:
 | 2  | rc-agent started with a missing config file exits with non-zero code and does NOT silently use default config | VERIFIED | `load_config()` returns `Err(anyhow!(...))` when neither path exists. `std::process::exit(1)` called in error branch (main.rs line 190). No default fallback block. |
 | 3  | rc-agent started with pod.number=0 or pod.number=9 exits with non-zero code and a descriptive error | VERIFIED | `validate_config()` rejects 0 and >8, error message contains "pod.number must be 1-8". 2 unit tests pass: `validate_config_rejects_pod_number_zero`, `validate_config_rejects_pod_number_nine`. |
 | 4  | rc-agent started with an empty or non-ws:// core.url exits with non-zero code | VERIFIED | `validate_config()` rejects non-ws:// prefix and empty URL; error contains "ws://". 2 unit tests pass. |
-| 5  | On first boot after email is configured, rc-core sends a test email (flag file prevents repeat) | VERIFIED | `maybe_send_first_boot_email()` at rc-core/src/main.rs line 23; checks `./data/email_verified.flag`; called at line 129 after AppState construction. |
+| 5  | On first boot after email is configured, racecontrol sends a test email (flag file prevents repeat) | VERIFIED | `maybe_send_first_boot_email()` at racecontrol/src/main.rs line 23; checks `./data/email_verified.flag`; called at line 129 after AppState construction. |
 | 6  | pod-agent /exec returns HTTP 200 with success:true ONLY when command exits with code 0 | VERIFIED | `if success { Ok(Json(resp)) } else { Err((StatusCode::INTERNAL_SERVER_ERROR, Json(resp))) }`. Test `test_exec_success_echo` passes. |
 | 7  | pod-agent /exec returns HTTP 500 with success:false when command exits non-zero, on spawn failure, or on timeout | VERIFIED | All three error arms return `Err((StatusCode::INTERNAL_SERVER_ERROR, ...))` with `success: false`. 3 tests pass. |
 | 8  | Remote deploy deletes old rc-agent.toml before writing new config | VERIFIED | `deploy_pod.py` Step 2 runs `del /Q C:\RacingPoint\rc-agent.toml` before Step 3 writes the new config. Script logic unchanged from previous verification. |
@@ -47,10 +47,10 @@ The previous verification (2026-03-13) found 2 gaps sharing a single root cause:
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/rc-core/src/state.rs` | Pre-populated pod_backoffs HashMap in AppState::new() | VERIFIED | `create_initial_backoffs()` at line 225, called at line 94. `pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>` field confirmed. |
+| `crates/racecontrol/src/state.rs` | Pre-populated pod_backoffs HashMap in AppState::new() | VERIFIED | `create_initial_backoffs()` at line 225, called at line 94. `pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>` field confirmed. |
 | `crates/rc-agent/src/main.rs` | validate_config() and load_config() without default fallback | VERIFIED | `validate_config()` at line 1272, `load_config()` at line 1301 returns Err on missing file. 8 unit tests pass. |
 | `crates/rc-agent/src/lock_screen.rs` | LockScreenState::ConfigError variant for branded error display | VERIFIED | `ConfigError { message: String }` at line 68. `render_config_error_page()` at line 692. `show_config_error()` at line 295. |
-| `crates/rc-core/src/main.rs` | maybe_send_first_boot_email() with flag file pattern | VERIFIED | Function at line 23, called at line 129. Uses `./data/email_verified.flag`. |
+| `crates/racecontrol/src/main.rs` | maybe_send_first_boot_email() with flag file pattern | VERIFIED | Function at line 23, called at line 129. Uses `./data/email_verified.flag`. |
 | `../pod-agent/src/main.rs` | ExecResponse with success field and honest HTTP status codes | VERIFIED | `success: bool` in ExecResponse. HTTP 500 for non-zero exit, spawn failure, timeout. 5 tests pass including `test_exec_success_echo`. |
 | `deploy/deploy_pod.py` | Deploy helper with explicit config delete before write | VERIFIED | Step 2: `del /Q C:\RacingPoint\rc-agent.toml`. Step 3: writes config from fixed template. Script logic correct and unchanged. |
 | `deploy/rc-agent.template.toml` | Template with [pod]/[core] sections matching AgentConfig struct | VERIFIED | `[pod]` section with `number`, `name`, `sim`, `sim_ip`, `sim_port`. `[core]` section with `url`. No `[agent]` section. Both deploy/ and deploy-staging/ copies are identical. |
@@ -60,7 +60,7 @@ The previous verification (2026-03-13) found 2 gaps sharing a single root cause:
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `crates/rc-core/src/state.rs` | `rc_common::watchdog::EscalatingBackoff` | `create_initial_backoffs()` loop `for pod_num in 1u32..=8` | WIRED | `EscalatingBackoff::new()` inserted per pod. Function called in `AppState::new()`. Tests confirm. |
+| `crates/racecontrol/src/state.rs` | `rc_common::watchdog::EscalatingBackoff` | `create_initial_backoffs()` loop `for pod_num in 1u32..=8` | WIRED | `EscalatingBackoff::new()` inserted per pod. Function called in `AppState::new()`. Tests confirm. |
 | `crates/rc-agent/src/main.rs` | `crates/rc-agent/src/lock_screen.rs` | `LockScreenState::ConfigError` shown before exit(1) | WIRED | `early_lock_screen.show_config_error()` called in error branch; `std::process::exit(1)` follows after 2s sleep. |
 | `../pod-agent/src/main.rs` | `ExecResponse` | `success` field added to response struct | WIRED | `success: bool` computed from `out.status.success()` in match arm. |
 | `deploy/rc-agent.template.toml` | `crates/rc-agent/src/main.rs AgentConfig` | TOML section names match serde Deserialize field names | WIRED | Template `[pod]` matches `AgentConfig.pod: PodConfig`. Template fields `number`, `name`, `sim` match PodConfig struct fields exactly. `[core].url` matches CoreConfig. Python assertions for pods 1 and 8 both PASS. |

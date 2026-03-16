@@ -8,7 +8,7 @@ re_verification: false
 
 # Phase 18: Startup Self-Healing Verification Report
 
-**Phase Goal:** rc-agent verifies and repairs its own prerequisites (config, start script, registry key) on every startup, reports startup status to rc-core after connecting, and captures startup errors to a log for post-mortem diagnosis.
+**Phase Goal:** rc-agent verifies and repairs its own prerequisites (config, start script, registry key) on every startup, reports startup status to racecontrol after connecting, and captures startup errors to a log for post-mortem diagnosis.
 **Verified:** 2026-03-15T10:05:00Z
 **Status:** PASSED
 **Re-verification:** No — initial verification
@@ -27,7 +27,7 @@ re_verification: false
 | 4 | Self-heal repairs are non-fatal: if any repair fails, rc-agent logs a warning and continues | VERIFIED | Each of the 4 repair branches in `run()` wraps repair calls in `match Ok/Err` — errors push to `result.errors` and log at ERROR, then execution continues. Function never panics. |
 | 5 | A phased startup log at C:\RacingPoint\rc-agent-startup.log records each startup phase with a timestamp | VERIFIED | `startup_log.rs:write_phase()` builds RFC3339 timestamp + `phase=X details` line. 8 `write_phase()` calls in `main.rs`: init, lock_screen, self_heal, config_loaded, firewall, http_server, websocket, complete. Tests confirm file creation, append, and truncation on first call. |
 | 6 | If rc-agent crashes mid-startup, the log file shows the last phase reached before exit | VERIFIED | `startup_log.rs:detect_crash_recovery_from()` reads last non-empty line, returns `true` if it does not contain `phase=complete`. `detect_crash_recovery()` is called BEFORE `write_phase("init")` (which truncates), preserving the previous run's log for inspection. Tests `test_detect_crash_incomplete` and `test_detect_crash_complete` confirm behavior. |
-| 7 | rc-core logs a startup report from each pod within 10 seconds of the pod's WebSocket connecting, with version, uptime, config_hash, crash_recovery, and repairs | VERIFIED | `AgentMessage::StartupReport` added to `protocol.rs` with all 6 fields. `main.rs` sends it immediately after `Register` succeeds, guarded by `startup_report_sent` flag. `ws/mod.rs` handles it with `tracing::info!` + WARN for crash/repairs + `fleet_health::store_startup_report()`. Serde roundtrip tests pass. |
+| 7 | racecontrol logs a startup report from each pod within 10 seconds of the pod's WebSocket connecting, with version, uptime, config_hash, crash_recovery, and repairs | VERIFIED | `AgentMessage::StartupReport` added to `protocol.rs` with all 6 fields. `main.rs` sends it immediately after `Register` succeeds, guarded by `startup_report_sent` flag. `ws/mod.rs` handles it with `tracing::info!` + WARN for crash/repairs + `fleet_health::store_startup_report()`. Serde roundtrip tests pass. |
 
 **Score: 7/7 truths verified**
 
@@ -42,7 +42,7 @@ re_verification: false
 | `crates/rc-agent/src/main.rs` | Startup sequence with self-heal before `load_config()`, `startup_log` at each phase | VERIFIED | `mod self_heal` (line 13), `mod startup_log` (line 15). `self_heal::run()` called at line 339 (before `load_config()` at line 352). 8 `write_phase()` calls at correct phases. |
 | `crates/rc-common/src/protocol.rs` | `AgentMessage::StartupReport` variant with 6 fields and serde roundtrip tests | VERIFIED | Variant at lines 101-108 with `pod_id`, `version`, `uptime_secs`, `config_hash`, `crash_recovery`, `repairs` fields. 2 passing roundtrip tests (`test_startup_report_roundtrip`, `test_startup_report_crash_recovery`). |
 | `crates/rc-agent/src/main.rs` | StartupReport sent once after first WS connection | VERIFIED | `startup_report_sent` flag (line 602). Send block at lines 660-684, guarded by `!startup_report_sent`, set to `true` on successful send. Fire-and-forget with WARN on failure. |
-| `crates/rc-core/src/ws/mod.rs` | Handler for `AgentMessage::StartupReport` that logs and records pod startup info | VERIFIED | Match arm at line 481. Logs at INFO with all 6 fields. WARN on `crash_recovery=true` and non-empty repairs. Also calls `fleet_health::store_startup_report()` (bonus: stores in fleet health state for Phase 21). |
+| `crates/racecontrol/src/ws/mod.rs` | Handler for `AgentMessage::StartupReport` that logs and records pod startup info | VERIFIED | Match arm at line 481. Logs at INFO with all 6 fields. WARN on `crash_recovery=true` and non-empty repairs. Also calls `fleet_health::store_startup_report()` (bonus: stores in fleet health state for Phase 21). |
 | `deploy/rc-agent.template.toml` | Config template embedded via `include_str!()` in self_heal.rs | VERIFIED | File exists with `{pod_number}` and `{pod_name}` placeholders. Embedded at `self_heal.rs:20` via `include_str!("../../../deploy/rc-agent.template.toml")`. |
 
 ---
@@ -66,7 +66,7 @@ re_verification: false
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|------------|-------------|--------|----------|
 | HEAL-01 | 18-01 | rc-agent verifies config, start script, and registry key on every startup — repairs if missing | SATISFIED | `self_heal::run()` called unconditionally at startup before `load_config()`. Checks and repairs all three. 9 unit tests cover the repair logic. |
-| HEAL-02 | 18-02 | rc-agent reports startup status to rc-core immediately after WebSocket connect | SATISFIED | `StartupReport` sent after `Register` succeeds, once per process lifetime. Fields: version, uptime_secs, config_hash, crash_recovery, repairs. rc-core logs and stores to fleet health. |
+| HEAL-02 | 18-02 | rc-agent reports startup status to racecontrol immediately after WebSocket connect | SATISFIED | `StartupReport` sent after `Register` succeeds, once per process lifetime. Fields: version, uptime_secs, config_hash, crash_recovery, repairs. racecontrol logs and stores to fleet health. |
 | HEAL-03 | 18-01 | Startup errors are captured to a log file before rc-agent exits (for post-mortem) | SATISFIED | `startup_log::write_phase()` called at 8 phases. `detect_crash_recovery()` reads previous log before truncating. If rc-agent crashes mid-startup, log shows last reached phase. |
 
 ---
@@ -75,7 +75,7 @@ re_verification: false
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `self_heal.rs` | 340, 670-672 | `heal_result.defender_repaired` is not included in the startup log's repairs list or the StartupReport's repairs Vec | Info | Defender repair events are silently omitted from rc-core visibility and the startup log's repairs line. The Defender repair itself works correctly — it is only the reporting that is incomplete. Does not block any requirement. |
+| `self_heal.rs` | 340, 670-672 | `heal_result.defender_repaired` is not included in the startup log's repairs list or the StartupReport's repairs Vec | Info | Defender repair events are silently omitted from racecontrol visibility and the startup log's repairs line. The Defender repair itself works correctly — it is only the reporting that is incomplete. Does not block any requirement. |
 
 No TODOs, FIXMEs, stubs, placeholder returns, or empty implementations found. No `.unwrap()` in production code paths (only in `#[cfg(test)]` blocks, which is correct).
 
@@ -89,10 +89,10 @@ All tests passing as of verification:
 |-------|-------|--------|
 | rc-common | 106 | PASS (includes `test_startup_report_roundtrip`, `test_startup_report_crash_recovery`) |
 | rc-agent | 200 (9 self_heal + 7 startup_log + 184 existing) | PASS |
-| rc-core | 238 unit + 41 integration = 279 | PASS (includes 13 fleet_health tests) |
+| racecontrol | 238 unit + 41 integration = 279 | PASS (includes 13 fleet_health tests) |
 | **Total** | **585** | **PASS — no regressions** |
 
-Notable: rc-core gained a `fleet_health.rs` module (not in the plan) with 13 tests covering `store_startup_report`, `clear_on_disconnect`, and WS sender liveness — this is bonus work that prepares for Phase 21 (Fleet Dashboard).
+Notable: racecontrol gained a `fleet_health.rs` module (not in the plan) with 13 tests covering `store_startup_report`, `clear_on_disconnect`, and WS sender liveness — this is bonus work that prepares for Phase 21 (Fleet Dashboard).
 
 ---
 
@@ -122,17 +122,17 @@ Notable: rc-core gained a `fleet_health.rs` module (not in the plan) with 13 tes
 **Expected:** rc-agent logs `"Detected crash recovery -- previous startup did not complete"` at WARN. New startup log begins with `phase=init` (previous log truncated) and all phases complete.
 **Why human:** Requires controlled mid-startup kill on a live pod.
 
-### 5. StartupReport visible in rc-core logs
+### 5. StartupReport visible in racecontrol logs
 
-**Test:** Restart Pod 8. Within 10 seconds of connection, check rc-core logs.
+**Test:** Restart Pod 8. Within 10 seconds of connection, check racecontrol logs.
 **Expected:** Log line like `Pod pod_8 startup report: version=0.X.X, uptime=Xs, config_hash=XXXX, crash_recovery=false, repairs=[]`.
-**Why human:** Requires live pod + rc-core running and log access.
+**Why human:** Requires live pod + racecontrol running and log access.
 
 ---
 
 ## Bonus: fleet_health.rs (beyond plan scope)
 
-The implementation added `crates/rc-core/src/fleet_health.rs` (247 lines, 13 tests) which was not in the Phase 18 plans. This module:
+The implementation added `crates/racecontrol/src/fleet_health.rs` (247 lines, 13 tests) which was not in the Phase 18 plans. This module:
 - Stores `StartupReport` data (version, agent_started_at, crash_recovery) per pod in `AppState::pod_fleet_health`
 - Provides `GET /api/v1/fleet/health` endpoint returning all 8 pods' health status
 - Runs a background HTTP probe loop (`:8090/health`) every 15 seconds
@@ -144,7 +144,7 @@ This is additive work that does not affect Phase 18 requirements but is worth no
 
 ## Summary
 
-Phase 18 goal is fully achieved. All three requirements (HEAL-01, HEAL-02, HEAL-03) are satisfied with substantive implementations — no stubs, no placeholder returns, no missing wiring. The self-heal module runs synchronously before config load, the startup log captures 8 phases with crash-recovery detection, and the StartupReport protocol flows end-to-end from rc-agent through the WebSocket to rc-core with logging and fleet health storage.
+Phase 18 goal is fully achieved. All three requirements (HEAL-01, HEAL-02, HEAL-03) are satisfied with substantive implementations — no stubs, no placeholder returns, no missing wiring. The self-heal module runs synchronously before config load, the startup log captures 8 phases with crash-recovery detection, and the StartupReport protocol flows end-to-end from rc-agent through the WebSocket to racecontrol with logging and fleet health storage.
 
 The one informational finding (Defender repair not reported in StartupReport repairs list) is an oversight that does not block any requirement. A pod that auto-repairs its Defender exclusion will show `repairs=[]` in the startup report rather than `repairs=["defender"]`, which could cause minor confusion during debugging but has no operational impact.
 

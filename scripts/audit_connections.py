@@ -146,9 +146,9 @@ def main():
     start = time.time()
 
     checks = [
-        (" 1. rc-core health", test_core_health),
+        (" 1. racecontrol health", test_core_health),
         (" 2. Pod 8 agent", test_pod8_agent),
-        (" 3. Pod 8 in rc-core", test_pod8_in_core),
+        (" 3. Pod 8 in racecontrol", test_pod8_in_core),
         (" 4. Cloud reachable", test_cloud_reachable),
         (" 6. Cloud sync pull", test_cloud_sync_pull),
         (" 7. Sync state (DB)", test_sync_state_recent),

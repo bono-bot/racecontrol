@@ -68,7 +68,7 @@ Phase 13 adds zero new Rust crates and zero new npm packages. All functionality 
 All public endpoints live in routes.rs under the `/public/` prefix with no auth middleware. The current set is lines 247-251:
 
 ```rust
-// Source: crates/rc-core/src/api/routes.rs lines 247-251
+// Source: crates/racecontrol/src/api/routes.rs lines 247-251
 .route("/public/leaderboard", get(public_leaderboard))
 .route("/public/leaderboard/{track}", get(public_track_leaderboard))
 .route("/public/time-trial", get(public_time_trial))
@@ -189,7 +189,7 @@ No SSR, no ISR, no revalidateTag needed for Phase 13 — the cloud PWA is a clie
 ### Recommended Project Structure (Phase 13 additions)
 
 ```
-crates/rc-core/src/
+crates/racecontrol/src/
 ├── lap_tracker.rs          MODIFY: add suspect column logic + track record notification
 ├── db/mod.rs               MODIFY: ADD COLUMN suspect INTEGER to laps
 ├── api/routes.rs           MODIFY: add 4 new public routes + extend existing 2
@@ -502,47 +502,47 @@ nyquist_validation is enabled (config.json).
 
 | Property | Value |
 |----------|-------|
-| Framework | Rust `#[tokio::test]` (in-memory SQLite) — in `crates/rc-core/tests/integration.rs` |
+| Framework | Rust `#[tokio::test]` (in-memory SQLite) — in `crates/racecontrol/tests/integration.rs` |
 | Config file | Cargo.toml (test in `[[test]]` — auto-discovered) |
-| Quick run command | `cargo test -p rc-core test_leaderboard` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p racecontrol-crate test_leaderboard` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| LB-01 | Leaderboard query returns fastest valid lap per driver/car for a track, filtered by sim_type | unit | `cargo test -p rc-core test_leaderboard_sim_type_filter` | Wave 0 |
-| LB-02 | Circuit records query returns all-time best per (track, car, sim_type) | unit | `cargo test -p rc-core test_circuit_records` | Wave 0 |
-| LB-03 | Vehicle records query returns best per track for a given car | unit | `cargo test -p rc-core test_vehicle_records` | Wave 0 |
-| LB-04 | Leaderboard with two sims on same track returns only the requested sim_type | unit | `cargo test -p rc-core test_leaderboard_no_cross_sim` | Wave 0 |
-| LB-05 | Lap with sector sum mismatch >500ms gets suspect=1; lap <20s gets suspect=1 | unit | `cargo test -p rc-core test_lap_suspect_sector_sum` `cargo test -p rc-core test_lap_suspect_sanity` | Wave 0 |
-| LB-06 | Suspect laps excluded from default leaderboard; show_invalid=true includes valid=0 (not suspect) | unit | `cargo test -p rc-core test_leaderboard_invalid_toggle` | Wave 0 |
-| DRV-01 | Driver search by name returns matching drivers (case-insensitive LIKE) | unit | `cargo test -p rc-core test_driver_search` | Wave 0 |
-| DRV-02 | Public driver profile returns stats without PII (no email, no phone, no wallet) | unit | `cargo test -p rc-core test_public_driver_no_pii` | Wave 0 |
-| DRV-03 | Driver lap history returns sector times as null (not 0) when sectors=0 in DB | unit | `cargo test -p rc-core test_driver_lap_history_null_sectors` | Wave 0 |
+| LB-01 | Leaderboard query returns fastest valid lap per driver/car for a track, filtered by sim_type | unit | `cargo test -p racecontrol-crate test_leaderboard_sim_type_filter` | Wave 0 |
+| LB-02 | Circuit records query returns all-time best per (track, car, sim_type) | unit | `cargo test -p racecontrol-crate test_circuit_records` | Wave 0 |
+| LB-03 | Vehicle records query returns best per track for a given car | unit | `cargo test -p racecontrol-crate test_vehicle_records` | Wave 0 |
+| LB-04 | Leaderboard with two sims on same track returns only the requested sim_type | unit | `cargo test -p racecontrol-crate test_leaderboard_no_cross_sim` | Wave 0 |
+| LB-05 | Lap with sector sum mismatch >500ms gets suspect=1; lap <20s gets suspect=1 | unit | `cargo test -p racecontrol-crate test_lap_suspect_sector_sum` `cargo test -p racecontrol-crate test_lap_suspect_sanity` | Wave 0 |
+| LB-06 | Suspect laps excluded from default leaderboard; show_invalid=true includes valid=0 (not suspect) | unit | `cargo test -p racecontrol-crate test_leaderboard_invalid_toggle` | Wave 0 |
+| DRV-01 | Driver search by name returns matching drivers (case-insensitive LIKE) | unit | `cargo test -p racecontrol-crate test_driver_search` | Wave 0 |
+| DRV-02 | Public driver profile returns stats without PII (no email, no phone, no wallet) | unit | `cargo test -p racecontrol-crate test_public_driver_no_pii` | Wave 0 |
+| DRV-03 | Driver lap history returns sector times as null (not 0) when sectors=0 in DB | unit | `cargo test -p racecontrol-crate test_driver_lap_history_null_sectors` | Wave 0 |
 | DRV-04 | Public driver endpoint accessible without auth token | integration (HTTP) | Manual smoke test — curl with no Authorization header | N/A |
-| NTF-01 | persist_lap returns is_record=true when new time beats existing track record | unit | `cargo test -p rc-core test_track_record_detected` | ✅ (existing test covers partially) |
-| NTF-02 | Previous record holder data fetched before UPSERT (new holder data not returned) | unit | `cargo test -p rc-core test_notification_data_before_upsert` | Wave 0 |
+| NTF-01 | persist_lap returns is_record=true when new time beats existing track record | unit | `cargo test -p racecontrol-crate test_track_record_detected` | ✅ (existing test covers partially) |
+| NTF-02 | Previous record holder data fetched before UPSERT (new holder data not returned) | unit | `cargo test -p racecontrol-crate test_notification_data_before_upsert` | Wave 0 |
 | PUB-01 | All /public/* routes return 200 without Authorization header | integration (HTTP) | Manual smoke test | N/A |
 | PUB-02 | Mobile layout — tested visually | manual | Browser DevTools mobile emulation at 375px | N/A |
 
 ### Sampling Rate
 
-- **Per task commit:** `cargo test -p rc-core 2>&1 | tail -5`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p racecontrol-crate 2>&1 | tail -5`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_leaderboard_sim_type_filter` covering LB-01, LB-04
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_lap_suspect_sector_sum` and `test_lap_suspect_sanity` covering LB-05
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_leaderboard_invalid_toggle` covering LB-06
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_circuit_records` covering LB-02
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_vehicle_records` covering LB-03
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_driver_search` covering DRV-01
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_public_driver_no_pii` covering DRV-02
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_notification_data_before_upsert` covering NTF-02
-- [ ] `crates/rc-core/db/mod.rs` — `suspect` column must be in `run_test_migrations()` (mirroring production)
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_leaderboard_sim_type_filter` covering LB-01, LB-04
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_lap_suspect_sector_sum` and `test_lap_suspect_sanity` covering LB-05
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_leaderboard_invalid_toggle` covering LB-06
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_circuit_records` covering LB-02
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_vehicle_records` covering LB-03
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_driver_search` covering DRV-01
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_public_driver_no_pii` covering DRV-02
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_notification_data_before_upsert` covering NTF-02
+- [ ] `crates/racecontrol/db/mod.rs` — `suspect` column must be in `run_test_migrations()` (mirroring production)
 
 Existing `test_leaderboard_ordering` (line 1108) partially covers LB-01 but does not test sim_type or suspect. It will be updated rather than replaced.
 
@@ -552,15 +552,15 @@ Existing `test_leaderboard_ordering` (line 1108) partially covers LB-01 but does
 
 ### Primary (HIGH confidence — direct codebase inspection)
 
-- `crates/rc-core/src/api/routes.rs` lines 247-251, 8137-8320 — existing public endpoint implementations confirmed; sim_type absence confirmed
-- `crates/rc-core/src/lap_tracker.rs` lines 1-166 — full persist_lap() flow read; track_records UPSERT pattern confirmed; no notification hook confirmed
-- `crates/rc-core/src/email_alerts.rs` lines 1-158 — `tokio::process::Command::new("node")` pattern confirmed; send_email.js integration confirmed
+- `crates/racecontrol/src/api/routes.rs` lines 247-251, 8137-8320 — existing public endpoint implementations confirmed; sim_type absence confirmed
+- `crates/racecontrol/src/lap_tracker.rs` lines 1-166 — full persist_lap() flow read; track_records UPSERT pattern confirmed; no notification hook confirmed
+- `crates/racecontrol/src/email_alerts.rs` lines 1-158 — `tokio::process::Command::new("node")` pattern confirmed; send_email.js integration confirmed
 - `pwa/src/app/leaderboard/public/page.tsx` lines 1-60+ — existing public PWA page structure confirmed; "use client" pattern confirmed
 - `pwa/src/lib/api.ts` lines 926-941 — existing `publicApi` functions confirmed; gaps identified
 - `pwa/src/components/` — only 3 components exist (BottomNav, SessionCard, TelemetryChart); no shared lap time formatter
 - `.planning/phases/12-data-foundation/12-01-SUMMARY.md` — confirmed: idx_laps_leaderboard (track, car, valid, lap_time_ms) exists; track_records has no sim_type column
 - `.planning/phases/12-data-foundation/12-02-SUMMARY.md` — confirmed: laps.car_class exists; kiosk_experiences in test migrations; NULL sentinel for pre-v3.0 laps
-- `crates/rc-core/tests/integration.rs` — 20 integration tests, test infrastructure confirmed; run_test_migrations() must mirror production schema
+- `crates/racecontrol/tests/integration.rs` — 20 integration tests, test infrastructure confirmed; run_test_migrations() must mirror production schema
 
 ### Secondary (MEDIUM confidence — domain research from prior research phase)
 

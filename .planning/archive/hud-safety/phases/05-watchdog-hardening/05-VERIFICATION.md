@@ -46,11 +46,11 @@ human_verification: []
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
 | `crates/rc-common/src/watchdog.rs` | EscalatingBackoff state machine | VERIFIED | 221 lines; `pub struct EscalatingBackoff` with `new()`, `with_steps()`, `current_cooldown()`, `ready()`, `record_attempt()`, `reset()`, `exhausted()`, `attempt()`; 14 unit tests |
-| `crates/rc-core/src/email_alerts.rs` | Email notification module with rate limiting | VERIFIED | 312 lines; `pub struct EmailAlerter` with dual rate limiting, async `send_alert()`, `format_alert_body()`; 9 unit tests |
-| `crates/rc-core/src/config.rs` | Extended WatchdogConfig with email alert fields | VERIFIED | `WatchdogConfig` has `email_enabled`, `email_recipient`, `email_script_path`, `email_pod_cooldown_secs`, `email_venue_cooldown_secs`, `escalation_steps_secs` with sane defaults |
-| `crates/rc-core/src/state.rs` | Shared watchdog state in AppState | VERIFIED | `pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>` and `email_alerter: RwLock<EmailAlerter>` at lines 60-62; initialized in `new()` at lines 94-99 |
-| `crates/rc-core/src/pod_monitor.rs` | Escalating backoff + post-restart verification + email alerts | VERIFIED | Uses `state.pod_backoffs`, spawns `verify_restart()`, sends emails on exhaustion and verification failure |
-| `crates/rc-core/src/pod_healer.rs` | Shared backoff consumption, no independent restarts | VERIFIED | Reads `state.pod_backoffs`, no `HealCooldown` struct, no `restart_rc_agent` action, defers via issues list |
+| `crates/racecontrol/src/email_alerts.rs` | Email notification module with rate limiting | VERIFIED | 312 lines; `pub struct EmailAlerter` with dual rate limiting, async `send_alert()`, `format_alert_body()`; 9 unit tests |
+| `crates/racecontrol/src/config.rs` | Extended WatchdogConfig with email alert fields | VERIFIED | `WatchdogConfig` has `email_enabled`, `email_recipient`, `email_script_path`, `email_pod_cooldown_secs`, `email_venue_cooldown_secs`, `escalation_steps_secs` with sane defaults |
+| `crates/racecontrol/src/state.rs` | Shared watchdog state in AppState | VERIFIED | `pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>` and `email_alerter: RwLock<EmailAlerter>` at lines 60-62; initialized in `new()` at lines 94-99 |
+| `crates/racecontrol/src/pod_monitor.rs` | Escalating backoff + post-restart verification + email alerts | VERIFIED | Uses `state.pod_backoffs`, spawns `verify_restart()`, sends emails on exhaustion and verification failure |
+| `crates/racecontrol/src/pod_healer.rs` | Shared backoff consumption, no independent restarts | VERIFIED | Reads `state.pod_backoffs`, no `HealCooldown` struct, no `restart_rc_agent` action, defers via issues list |
 
 ---
 
@@ -108,9 +108,9 @@ Items that are operationally observable but do not block goal verification:
 | Suite | Command | Result |
 |-------|---------|--------|
 | rc-common watchdog tests | `cargo test -p rc-common -- watchdog` | 14/14 passed |
-| rc-core email_alerts tests | `cargo test -p rc-core -- email_alerts::tests` | 9/9 passed (includes disabled + custom cooldowns) |
-| rc-core config tests | `cargo test -p rc-core -- config::tests` | 2/2 passed (defaults + explicit TOML values) |
-| rc-core build | `cargo build -p rc-core` | Clean (5 pre-existing warnings, no errors) |
+| racecontrol email_alerts tests | `cargo test -p racecontrol-crate -- email_alerts::tests` | 9/9 passed (includes disabled + custom cooldowns) |
+| racecontrol config tests | `cargo test -p racecontrol-crate -- config::tests` | 2/2 passed (defaults + explicit TOML values) |
+| racecontrol build | `cargo build -p racecontrol-crate` | Clean (5 pre-existing warnings, no errors) |
 
 Total: 25 unit tests across 2 crates, all green. Build clean.
 

@@ -58,7 +58,7 @@ completed: 2026-03-15
 - Created `firewall.rs` with `configure()`, `FirewallResult` enum, `run_netsh()`, and testable arg-building helpers
 - 7 unit tests verify rule name namespacing, distinctness, enum inequality, and all required netsh args (icmpv4:8,any, TCP/8090, profile=any, dir=in, action=allow)
 - Wired `firewall::configure()` into `main.rs` before `remote_ops::start(8090)` — FW-03 call order guaranteed
-- Full test suite green: 93 rc-common + 184 rc-agent + 254 rc-core = 531 tests, 0 failures
+- Full test suite green: 93 rc-common + 184 rc-agent + 254 racecontrol = 531 tests, 0 failures
 - Release build compiles without errors, all warnings are pre-existing (none introduced by new code)
 
 ## Task Commits
@@ -109,7 +109,7 @@ None - no external service configuration required. Pod 8 canary verification (st
 - FOUND: .planning/phases/16-firewall-auto-config/16-01-SUMMARY.md
 - FOUND commit 531bf99 (firewall.rs + mod declaration)
 - FOUND commit 76a28b7 (main.rs wiring)
-- All 531 tests green (rc-common: 93, rc-agent: 184, rc-core: 254)
+- All 531 tests green (rc-common: 93, rc-agent: 184, racecontrol: 254)
 - Release build compiles with 0 errors
 
 ---

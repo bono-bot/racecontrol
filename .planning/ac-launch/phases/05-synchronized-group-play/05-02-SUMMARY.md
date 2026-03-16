@@ -29,8 +29,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/ac_server.rs
-    - crates/rc-core/src/api/routes.rs
+    - crates/racecontrol/src/ac_server.rs
+    - crates/racecontrol/src/api/routes.rs
     - kiosk/src/lib/types.ts
     - kiosk/src/hooks/useKioskSocket.ts
     - kiosk/src/components/KioskPodCard.tsx
@@ -80,8 +80,8 @@ completed: 2026-03-16
 
 ## Files Created/Modified
 
-- `crates/rc-core/src/ac_server.rs` — Added `retry_pod_join()` (StopGame + LaunchGame + GameTracker reset) and `update_session_config()` (continuous-mode config mutation + broadcast)
-- `crates/rc-core/src/api/routes.rs` — Added `POST /ac/session/retry-pod` and `POST /ac/session/update-config` routes + handlers; no duplicate continuous handler
+- `crates/racecontrol/src/ac_server.rs` — Added `retry_pod_join()` (StopGame + LaunchGame + GameTracker reset) and `update_session_config()` (continuous-mode config mutation + broadcast)
+- `crates/racecontrol/src/api/routes.rs` — Added `POST /ac/session/retry-pod` and `POST /ac/session/update-config` routes + handlers; no duplicate continuous handler
 - `kiosk/src/lib/types.ts` — Added `AcServerInfo`, `MultiplayerGroupStatus` interfaces; added `"join_failed"` to `KioskPodState`
 - `kiosk/src/hooks/useKioskSocket.ts` — Added `AcServerInfo`/`MultiplayerGroupStatus` imports; added `acServerInfo`/`multiplayerGroup` state; added `ac_server_update` and `group_session_all_validated` switch cases; exposed both in return object
 - `kiosk/src/components/KioskPodCard.tsx` — Added `onRetryJoin`/`acSessionId` props; updated `derivePodState()` with `isMultiplayerPod` param; added `"join_failed"` to compact/full border classes and StateLabel; added `join_failed` top-level content block with "Retry Join" button
@@ -119,7 +119,7 @@ completed: 2026-03-16
 
 - Phase 5 Plan 02 is the final plan in the ac-launch GSD project
 - All 5 phases complete: Billing-Game Lifecycle, Crash Recovery, Launch Resilience, Multiplayer Server Lifecycle, Synchronized Group Play
-- 238 tests passing (all rc-core unit tests)
+- 238 tests passing (all racecontrol unit tests)
 - TypeScript compiles cleanly
 
 ## Self-Check: PASSED

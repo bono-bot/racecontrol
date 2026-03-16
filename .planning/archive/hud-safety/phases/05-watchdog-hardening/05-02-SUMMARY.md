@@ -21,8 +21,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/pod_monitor.rs
-    - crates/rc-core/src/pod_healer.rs
+    - crates/racecontrol/src/pod_monitor.rs
+    - crates/racecontrol/src/pod_healer.rs
 
 key-decisions:
   - "pod_monitor owns all rc-agent restarts; pod_healer defers via issues list instead of restarting independently"
@@ -67,8 +67,8 @@ Each task was committed atomically:
 2. **Task 2: Modify pod_healer.rs to use shared backoff and defer restarts** - `1a82cd7` (feat)
 
 ## Files Created/Modified
-- `crates/rc-core/src/pod_monitor.rs` - Escalating backoff, verify_restart() with 4-stage progressive health check, email alerts on exhaustion/failure, active billing guard
-- `crates/rc-core/src/pod_healer.rs` - Shared backoff via AppState, restart deferral to pod_monitor, email alerts for persistent issues (3+)
+- `crates/racecontrol/src/pod_monitor.rs` - Escalating backoff, verify_restart() with 4-stage progressive health check, email alerts on exhaustion/failure, active billing guard
+- `crates/racecontrol/src/pod_healer.rs` - Shared backoff via AppState, restart deferral to pod_monitor, email alerts for persistent issues (3+)
 
 ## Decisions Made
 - pod_monitor is the single owner of rc-agent restarts; pod_healer logs issues but never executes restart_rc_agent -- prevents duplicate restarts and backoff confusion
@@ -81,7 +81,7 @@ Each task was committed atomically:
 None - plan executed exactly as written.
 
 ## Issues Encountered
-- Pre-existing rc-agent compilation errors (installed_games field removal, LockScreenManager signature change) prevented `cargo test --workspace` from succeeding, but these are in the rc-agent crate and unrelated to this plan's scope. rc-common and rc-core tests all pass (30 + 31 unit + 13 integration = 74 tests).
+- Pre-existing rc-agent compilation errors (installed_games field removal, LockScreenManager signature change) prevented `cargo test --workspace` from succeeding, but these are in the rc-agent crate and unrelated to this plan's scope. rc-common and racecontrol tests all pass (30 + 31 unit + 13 integration = 74 tests).
 
 ## User Setup Required
 None - no external service configuration required. Email alerting uses the configuration from Plan 01 (disabled by default, configurable via racecontrol.toml).

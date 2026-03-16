@@ -85,7 +85,7 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 - WS exec handler complete -- Plan 03 (Core-side dispatch) can now send Exec messages that rc-agent will handle
-- AgentMessage::ExecResult responses will flow back to rc-core via WebSocket
+- AgentMessage::ExecResult responses will flow back to racecontrol via WebSocket
 
 ## Self-Check: PASSED
 

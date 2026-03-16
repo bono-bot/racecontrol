@@ -6,7 +6,7 @@
   "databases": {
     "racecontrol.db": {
       "path": "/root/racecontrol/data/racecontrol.db",
-      "schema_source": "crates/rc-core/src/db/mod.rs",
+      "schema_source": "crates/racecontrol/src/db/mod.rs",
       "owner": "racecontrol",
       "readers": [
         {
@@ -163,9 +163,9 @@
   },
 
   "api_contracts": {
-    "rc-core": {
+    "racecontrol": {
       "base_url": "http://localhost:8080/api/v1",
-      "route_source": "crates/rc-core/src/api/routes.rs",
+      "route_source": "crates/racecontrol/src/api/routes.rs",
       "consumers": [
         {
           "service": "racingpoint-admin",
@@ -228,7 +228,7 @@
         "kiosk_experiences",
         "kiosk_settings"
       ],
-      "sync_source": "crates/rc-core/src/cloud_sync.rs",
+      "sync_source": "crates/racecontrol/src/cloud_sync.rs",
       "sync_const": "SYNC_TABLES"
     },
     "venue_to_cloud": {
@@ -242,7 +242,7 @@
         "wallets",
         "wallet_transactions"
       ],
-      "sync_source": "crates/rc-core/src/cloud_sync.rs"
+      "sync_source": "crates/racecontrol/src/cloud_sync.rs"
     }
   },
 

@@ -23,8 +23,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/api/routes.rs
-    - crates/rc-core/tests/integration.rs
+    - crates/racecontrol/src/api/routes.rs
+    - crates/racecontrol/tests/integration.rs
 
 key-decisions:
   - "PII exclusion by construction: SELECT only safe fields (never SELECT * then filter)"
@@ -75,8 +75,8 @@ Each task was committed atomically:
 _TDD REFACTOR phase not needed -- handlers are clean and follow existing patterns._
 
 ## Files Created/Modified
-- `crates/rc-core/src/api/routes.rs` - Added DriverSearchQuery struct, public_drivers_search and public_driver_profile handlers, registered 2 new routes
-- `crates/rc-core/tests/integration.rs` - Added 7 new tests (driver_search, search_limit, no_pii, class_badge_null, personal_bests, null_sectors, nickname)
+- `crates/racecontrol/src/api/routes.rs` - Added DriverSearchQuery struct, public_drivers_search and public_driver_profile handlers, registered 2 new routes
+- `crates/racecontrol/tests/integration.rs` - Added 7 new tests (driver_search, search_limit, no_pii, class_badge_null, personal_bests, null_sectors, nickname)
 
 ## Decisions Made
 - PII exclusion implemented by construction: the SQL SELECT statement only names safe columns (display_name, total_laps, total_time_ms, avatar_url, created_at). Email, phone, wallet, and billing data are never selected, making PII leakage structurally impossible.

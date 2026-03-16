@@ -515,8 +515,8 @@ pub enum AiChannelMessage {
     Pong,
 }
 
-/// Actions pushed from cloud → local rc-core via action queue.
-/// Cloud inserts these; rc-core polls and processes them every 3 seconds.
+/// Actions pushed from cloud → local racecontrol via action queue.
+/// Cloud inserts these; racecontrol polls and processes them every 3 seconds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action_type", content = "payload")]
 #[serde(rename_all = "snake_case")]

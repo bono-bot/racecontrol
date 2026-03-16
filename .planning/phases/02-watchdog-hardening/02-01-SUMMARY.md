@@ -10,7 +10,7 @@ requires:
     provides: EscalatingBackoff, EmailAlerter, AppState base structure
 
 provides:
-  - WatchdogState enum (Healthy/Restarting/Verifying/RecoveryFailed) in rc-core/state.rs
+  - WatchdogState enum (Healthy/Restarting/Verifying/RecoveryFailed) in racecontrol/state.rs
   - pod_watchdog_states and pod_needs_restart fields in AppState, pre-populated for pods 1-8
   - PodRestarting, PodVerifying, PodRecoveryFailed DashboardEvent variants
   - format_alert_body extended with failure_type, last_heartbeat, next_action params
@@ -24,21 +24,21 @@ affects:
 tech-stack:
   added: []
   patterns:
-    - "WatchdogState FSM defined in rc-core (not rc-common) — core-local concern, not shared protocol"
+    - "WatchdogState FSM defined in racecontrol (not rc-common) — core-local concern, not shared protocol"
     - "health_response_body() extracted as pure fn for testability — async TCP handler delegates to it"
     - "TDD: tests written before implementation in all tasks"
 
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/state.rs
+    - crates/racecontrol/src/state.rs
     - crates/rc-common/src/protocol.rs
-    - crates/rc-core/src/email_alerts.rs
-    - crates/rc-core/src/pod_monitor.rs
+    - crates/racecontrol/src/email_alerts.rs
+    - crates/racecontrol/src/pod_monitor.rs
     - crates/rc-agent/src/lock_screen.rs
 
 key-decisions:
-  - "WatchdogState defined in rc-core not rc-common — it is a core-side FSM, not a shared protocol type"
+  - "WatchdogState defined in racecontrol not rc-common — it is a core-side FSM, not a shared protocol type"
   - "health_response_body() is a pure function (not inline in async handler) — enables unit testing without TCP"
   - "/health returns HTTP 200 always; JSON body distinguishes ok/degraded — server liveness is the primary signal"
   - "verify_restart gains last_seen: Option<DateTime<Utc>> param so email context is correct at alert time"
@@ -80,15 +80,15 @@ completed: 2026-03-13
 
 ## Files Created/Modified
 
-- `crates/rc-core/src/state.rs` - WatchdogState enum, pod_watchdog_states/pod_needs_restart fields, create_initial_watchdog_states()/create_initial_needs_restart() helpers, 5 new tests
+- `crates/racecontrol/src/state.rs` - WatchdogState enum, pod_watchdog_states/pod_needs_restart fields, create_initial_watchdog_states()/create_initial_needs_restart() helpers, 5 new tests
 - `crates/rc-common/src/protocol.rs` - PodRestarting/PodVerifying/PodRecoveryFailed DashboardEvent variants, 3 serde roundtrip tests
-- `crates/rc-core/src/email_alerts.rs` - format_alert_body extended with failure_type/last_heartbeat/next_action, 4 new tests
-- `crates/rc-core/src/pod_monitor.rs` - 3 format_alert_body callers updated, verify_restart gains last_seen param
+- `crates/racecontrol/src/email_alerts.rs` - format_alert_body extended with failure_type/last_heartbeat/next_action, 4 new tests
+- `crates/racecontrol/src/pod_monitor.rs` - 3 format_alert_body callers updated, verify_restart gains last_seen param
 - `crates/rc-agent/src/lock_screen.rs` - GET /health handler in serve_lock_screen(), health_response_body() pure helper, 6 unit tests
 
 ## Decisions Made
 
-- WatchdogState lives in rc-core (not rc-common): it is internal to core's watchdog FSM, not a shared protocol type that agents need to understand
+- WatchdogState lives in racecontrol (not rc-common): it is internal to core's watchdog FSM, not a shared protocol type that agents need to understand
 - health_response_body() extracted as pure function for testability — the async TCP handler just calls it and writes the result
 - /health always returns HTTP 200; the JSON body (ok/degraded) provides additional context but the primary failure signal is "server not reachable at all"
 - verify_restart gains last_seen parameter to pass accurate heartbeat timestamp into failure alert email

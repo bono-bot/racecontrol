@@ -16,7 +16,7 @@ gaps:
     status: partial
     reason: "PWA publicApi.vehicleRecords passes sim_type param, but backend public_vehicle_records handler does not accept Query params -- only Path(car). The sim_type is silently ignored. Records page still works but filtering by sim on vehicle records view has no effect."
     artifacts:
-      - path: "crates/rc-core/src/api/routes.rs"
+      - path: "crates/racecontrol/src/api/routes.rs"
         issue: "public_vehicle_records at line 8367 takes only Path(car), no Query extractor for sim_type"
     missing:
       - "Add VehicleRecordsQuery struct with sim_type: Option<String> and add WHERE sim_type = ? clause to public_vehicle_records handler"
@@ -56,10 +56,10 @@ human_verification:
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/rc-core/src/db/mod.rs` | suspect column migration | VERIFIED | ALTER TABLE at line 1968; idempotent with `let _ =` |
-| `crates/rc-core/src/lap_tracker.rs` | suspect computation + notification | VERIFIED | 294 lines; suspect logic lines 47-60; notification logic lines 131-243; get_previous_record_holder exported |
-| `crates/rc-core/src/api/routes.rs` | all new public endpoints | VERIFIED | Routes registered lines 247-252; 6 handlers: public_leaderboard, public_track_leaderboard, public_circuit_records, public_vehicle_records, public_drivers_search, public_driver_profile |
-| `crates/rc-core/tests/integration.rs` | Phase 13 integration tests | VERIFIED | 5 suspect tests (lines 1449-1677), 6 leaderboard/records tests (lines 1681-1927), 3 notification tests (lines 1940-2193), 7 driver search/profile tests (lines 2195-2430) |
+| `crates/racecontrol/src/db/mod.rs` | suspect column migration | VERIFIED | ALTER TABLE at line 1968; idempotent with `let _ =` |
+| `crates/racecontrol/src/lap_tracker.rs` | suspect computation + notification | VERIFIED | 294 lines; suspect logic lines 47-60; notification logic lines 131-243; get_previous_record_holder exported |
+| `crates/racecontrol/src/api/routes.rs` | all new public endpoints | VERIFIED | Routes registered lines 247-252; 6 handlers: public_leaderboard, public_track_leaderboard, public_circuit_records, public_vehicle_records, public_drivers_search, public_driver_profile |
+| `crates/racecontrol/tests/integration.rs` | Phase 13 integration tests | VERIFIED | 5 suspect tests (lines 1449-1677), 6 leaderboard/records tests (lines 1681-1927), 3 notification tests (lines 1940-2193), 7 driver search/profile tests (lines 2195-2430) |
 | `pwa/src/lib/api.ts` | publicApi methods | VERIFIED | trackLeaderboard (with params), circuitRecords, vehicleRecords, searchDrivers, driverProfile (lines 926-968) |
 | `pwa/src/app/leaderboard/public/page.tsx` | leaderboard with sim_type + show_invalid | VERIFIED (partial) | 346 lines; sim_type dropdown, show_invalid toggle, tab switcher, mobile card + desktop table layouts; MISSING: car filter dropdown |
 | `pwa/src/app/records/page.tsx` | circuit + vehicle records page | VERIFIED | 242 lines; fetches circuitRecords, groups by track, car filter dropdown pivots to vehicleRecords view; mobile/desktop responsive |
@@ -122,7 +122,7 @@ No blocker or warning anti-patterns found in Phase 13 artifacts.
 
 ### 2. Email Notification End-to-End
 
-**Test:** With rc-core running and send_email.js configured, have Driver A set a track record, then Driver B beat it. Check Driver A's email inbox.
+**Test:** With racecontrol running and send_email.js configured, have Driver A set a track record, then Driver B beat it. Check Driver A's email inbox.
 **Expected:** Email arrives with subject "Your {car} record at {track} has been beaten!", body contains old time, new time, new holder name, link to /leaderboard/public.
 **Why human:** Email delivery depends on send_email.js, Node runtime, and SMTP configuration.
 

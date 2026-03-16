@@ -8,7 +8,7 @@ human_verification:
   - test: "Observe kiosk header during a game launch on any pod"
     expected: "Header stays green throughout shader compilation (10-30s). No 'Disconnected' flash."
     why_human: "Requires live CPU spike condition that cannot be simulated with static analysis"
-  - test: "Check rc-core logs 30 minutes after startup"
+  - test: "Check racecontrol logs 30 minutes after startup"
     expected: "tracing::debug or tracing::warn messages containing 'WS round-trip' every ~30s per connected agent"
     why_human: "Round-trip measurement fires on intervals; requires live run to confirm logging"
 ---
@@ -26,9 +26,9 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | rc-core sends WS ping frames every 15s to keep TCP alive during CPU spikes | VERIFIED | `ping_interval = interval(Duration::from_secs(15))` with `MissedTickBehavior::Skip` in `ws/mod.rs:65-66`. `Message::Ping(vec![].into())` sent at line 92. |
-| 2 | rc-core sends app-level Ping every 30s and warns on round-trip >200ms | VERIFIED | `measure_interval = interval(Duration::from_secs(30))` at line 68. `CoreToAgentMessage::Ping { id }` sent at line 99-104. `tracing::warn!` at line 358 when elapsed_ms > 200. |
-| 3 | Existing agent message handling is unaffected | VERIFIED | All pre-existing match arms (Register, Heartbeat, Telemetry, LapCompleted, etc.) intact. 83 rc-core tests + 13 integration tests all pass. |
+| 1 | racecontrol sends WS ping frames every 15s to keep TCP alive during CPU spikes | VERIFIED | `ping_interval = interval(Duration::from_secs(15))` with `MissedTickBehavior::Skip` in `ws/mod.rs:65-66`. `Message::Ping(vec![].into())` sent at line 92. |
+| 2 | racecontrol sends app-level Ping every 30s and warns on round-trip >200ms | VERIFIED | `measure_interval = interval(Duration::from_secs(30))` at line 68. `CoreToAgentMessage::Ping { id }` sent at line 99-104. `tracing::warn!` at line 358 when elapsed_ms > 200. |
+| 3 | Existing agent message handling is unaffected | VERIFIED | All pre-existing match arms (Register, Heartbeat, Telemetry, LapCompleted, etc.) intact. 83 racecontrol tests + 13 integration tests all pass. |
 | 4 | rc-agent reconnects within 1s for attempts 0-2 (fast retry) | VERIFIED | `reconnect_delay_for_attempt(attempt: u32)` at line 1284. Returns `Duration::from_secs(1)` when `attempt < 3`. Tests confirm: attempt 0, 1, 2 all return 1s. |
 | 5 | After attempt 3, rc-agent uses exponential backoff capped at 30s | VERIFIED | Formula `(attempt - 2).min(5)` as exponent. Tests verify: attempt 3→2s, 4→4s, 5→8s, 6→16s, 7→30s, 100→30s. |
 | 6 | rc-agent responds to CoreToAgentMessage::Ping with AgentMessage::Pong carrying same id | VERIFIED | Match arm at `main.rs:1232`. Creates `AgentMessage::Pong { id }` and sends via `ws_tx`. |
@@ -44,7 +44,7 @@ human_verification:
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
 | `crates/rc-common/src/protocol.rs` | `Ping`/`Pong` variants on `CoreToAgentMessage`/`AgentMessage` | VERIFIED | `CoreToAgentMessage::Ping { id: u64 }` at line 180; `AgentMessage::Pong { id: u64 }` at line 46. Both have roundtrip serde tests. |
-| `crates/rc-core/src/ws/mod.rs` | WS keepalive ping + app-level round-trip measurement | VERIFIED | `ping_interval` at line 65; `measure_interval` at line 68; `tokio::select!` at line 76 with 3 arms; `pending_ping Arc<Mutex>` at line 58. |
+| `crates/racecontrol/src/ws/mod.rs` | WS keepalive ping + app-level round-trip measurement | VERIFIED | `ping_interval` at line 65; `measure_interval` at line 68; `tokio::select!` at line 76 with 3 arms; `pending_ping Arc<Mutex>` at line 58. |
 | `crates/rc-agent/src/main.rs` | Fast-then-backoff reconnect + Ping handler | VERIFIED | `reconnect_attempt: u32` counter at line 421; `reconnect_delay_for_attempt()` function at line 1284; `CoreToAgentMessage::Ping` match arm at line 1232. |
 | `kiosk/src/hooks/useKioskSocket.ts` | 15s disconnect debounce via useRef timer | VERIFIED | `disconnectTimerRef` at line 39 (`useRef`, not `useState`); timer guard at line 282; cleanup in useEffect at line 305. |
 | `kiosk/src/components/KioskPodCard.tsx` | React.memo wrapper | VERIFIED | `export const KioskPodCard = React.memo(function KioskPodCard(...))` at line 76. No custom comparator. |
@@ -88,13 +88,13 @@ No blocker anti-patterns. No stubs, no TODO/FIXME comments in modified files, no
 
 #### 2. WS Round-Trip Latency Logging
 
-**Test:** Start rc-core, connect a pod agent, wait 30 minutes. Check rc-core logs for `WS round-trip` entries.
+**Test:** Start racecontrol, connect a pod agent, wait 30 minutes. Check racecontrol logs for `WS round-trip` entries.
 **Expected:** `tracing::debug!("WS round-trip: Xms (pod_N)")` every ~30 seconds per connected agent. `tracing::warn!` if any round-trip exceeds 200ms.
 **Why human:** The measurement interval fires asynchronously after full startup; cannot confirm logging occurs without a running system.
 
 ### Gaps Summary
 
-No gaps. All 10 observable truths verified. All 5 artifacts confirmed substantive and wired. All 5 requirements satisfied with implementation evidence. All tests pass: 35 rc-common, 83+13 rc-core, 47 rc-agent (including 3 new reconnect_delay tests). rc-core builds cleanly.
+No gaps. All 10 observable truths verified. All 5 artifacts confirmed substantive and wired. All 5 requirements satisfied with implementation evidence. All tests pass: 35 rc-common, 83+13 racecontrol, 47 rc-agent (including 3 new reconnect_delay tests). racecontrol builds cleanly.
 
 One minor documentation gap: REQUIREMENTS.md traceability table shows CONN-01, CONN-03, PERF-03 as "Pending" — should be updated to "Complete" to reflect Phase 3 completion.
 

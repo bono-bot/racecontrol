@@ -34,7 +34,7 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/pod_monitor.rs
+    - crates/racecontrol/src/pod_monitor.rs
 
 key-decisions:
   - "partial recovery (process+WS ok, lock screen fail) is FAILED per CONTEXT.md -- lock screen is essential for customer flow"
@@ -79,7 +79,7 @@ completed: 2026-03-13
 
 ## Files Created/Modified
 
-- `crates/rc-core/src/pod_monitor.rs` - Full restart lifecycle rewrite with WatchdogState management, is_ws_alive(), backoff_label(), determine_failure_reason(), failure_type_from_reason(), 30 new tests
+- `crates/racecontrol/src/pod_monitor.rs` - Full restart lifecycle rewrite with WatchdogState management, is_ws_alive(), backoff_label(), determine_failure_reason(), failure_type_from_reason(), 30 new tests
 
 ## Decisions Made
 
@@ -97,7 +97,7 @@ completed: 2026-03-13
 - **Found during:** Task 2 (verify_restart implementation)
 - **Issue:** Original code checked `http://127.0.0.1:18923/` (root) but Plan 01 added a dedicated `/health` endpoint at `GET /health`. Checking root would not trigger the health_response_body() logic added in Plan 01
 - **Fix:** Updated PowerShell command in check_lock_screen() to hit `http://127.0.0.1:18923/health`
-- **Files modified:** crates/rc-core/src/pod_monitor.rs
+- **Files modified:** crates/racecontrol/src/pod_monitor.rs
 - **Verification:** Build clean, test logic correct
 - **Committed in:** 4bdd2c7 (combined task commit)
 
@@ -125,9 +125,9 @@ completed: 2026-03-13
 
 - [x] SUMMARY.md created: `.planning/phases/02-watchdog-hardening/02-02-SUMMARY.md`
 - [x] Commit 4bdd2c7 exists: `feat(02-02): rewrite pod_monitor restart lifecycle with WatchdogState management`
-- [x] All 83 rc-core tests pass (44 unit + 9 pod_healer + 30 pod_monitor)
+- [x] All 83 racecontrol tests pass (44 unit + 9 pod_healer + 30 pod_monitor)
 - [x] All 33 rc-common tests pass
-- [x] cargo build -p rc-core succeeds (no new warnings from pod_monitor)
+- [x] cargo build -p racecontrol-crate succeeds (no new warnings from pod_monitor)
 - [x] contains_key() no longer used for WS liveness in pod_monitor.rs
 - [x] STATE.md updated with 02-02 decisions
 - [x] ROADMAP.md updated (Phase 2: 3/3 plans complete, Status: Complete)

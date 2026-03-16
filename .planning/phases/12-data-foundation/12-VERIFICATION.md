@@ -34,9 +34,9 @@ re_verification: false
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/rc-core/src/db/mod.rs` | WAL pragmas, covering indexes, cloud_driver_id column, 6 competitive tables with indexes, car_class ALTER | VERIFIED | File exists. Contains all required elements at lines 11-28 (init_pool + pragmas), 1791-1965 (Phase 12 additions). No stubs — all `sqlx::query(...).execute(pool).await?` calls are real SQL. |
-| `crates/rc-core/src/lap_tracker.rs` | car_class lookup from billing_sessions.experience_id -> kiosk_experiences.car_class | VERIFIED | File exists. Lines 31-43 perform the JOIN query. Lines 46-64 bind car_class to the INSERT. Fully substantive — no placeholder. |
-| `crates/rc-core/tests/integration.rs` | 7 new test functions (5 for DATA-01..05, 2 for DATA-06) | VERIFIED | All 7 test functions exist at lines 1169, 1200, 1226, 1242, 1274, 1358, 1418. All have `#[tokio::test]` and substantive assertions (not trivial). All 20 integration tests pass. |
+| `crates/racecontrol/src/db/mod.rs` | WAL pragmas, covering indexes, cloud_driver_id column, 6 competitive tables with indexes, car_class ALTER | VERIFIED | File exists. Contains all required elements at lines 11-28 (init_pool + pragmas), 1791-1965 (Phase 12 additions). No stubs — all `sqlx::query(...).execute(pool).await?` calls are real SQL. |
+| `crates/racecontrol/src/lap_tracker.rs` | car_class lookup from billing_sessions.experience_id -> kiosk_experiences.car_class | VERIFIED | File exists. Lines 31-43 perform the JOIN query. Lines 46-64 bind car_class to the INSERT. Fully substantive — no placeholder. |
+| `crates/racecontrol/tests/integration.rs` | 7 new test functions (5 for DATA-01..05, 2 for DATA-06) | VERIFIED | All 7 test functions exist at lines 1169, 1200, 1226, 1242, 1274, 1358, 1418. All have `#[tokio::test]` and substantive assertions (not trivial). All 20 integration tests pass. |
 
 ### Key Link Verification
 
@@ -82,8 +82,8 @@ No gaps. All 8 truths verified, all 3 artifacts substantive and wired, all 8 key
 
 ## Test Run Summary
 
-**rc-core unit tests:** 209/209 passed
-**rc-core integration tests:** 20/20 passed (includes all 7 new Phase 12 tests)
+**racecontrol unit tests:** 209/209 passed
+**racecontrol integration tests:** 20/20 passed (includes all 7 new Phase 12 tests)
 **rc-common unit tests:** 93/93 passed
 **rc-agent:** Compiled cleanly for tests (output file read error in tooling, not a test failure — binary compiled with exit code 0)
 

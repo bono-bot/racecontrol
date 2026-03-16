@@ -51,7 +51,7 @@ human_verification:
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/rc-core/src/auth/mod.rs` | PinSource enum + INVALID_PIN_MESSAGE constant + identical error in both validate paths | ✓ VERIFIED | INVALID_PIN_MESSAGE at line 19, PinSource enum at line 26, used at validate_pin (367) and validate_pin_kiosk (1137); 3 tests pass |
+| `crates/racecontrol/src/auth/mod.rs` | PinSource enum + INVALID_PIN_MESSAGE constant + identical error in both validate paths | ✓ VERIFIED | INVALID_PIN_MESSAGE at line 19, PinSource enum at line 26, used at validate_pin (367) and validate_pin_kiosk (1137); 3 tests pass |
 | `deploy/pod-lockdown.ps1` | One-time pod registry lockdown script with StuckRects3, NoWinKeys, NoAutoRebootWithLoggedOnUsers | ✓ VERIFIED | File exists, all 3 registry keys present, -Undo flag present, Explorer restart on apply |
 
 ---
@@ -126,7 +126,7 @@ For each game, also confirm:
 
 ### Gaps Summary
 
-No code gaps. All 5 requirements are satisfied in the codebase. Both planned code changes (05-01 and 05-02) are committed (commits 37ba5f0, 6dec739, c370cdc, c76e634) and all 55 tests across rc-agent (52) and rc-core auth (3) pass.
+No code gaps. All 5 requirements are satisfied in the codebase. Both planned code changes (05-01 and 05-02) are committed (commits 37ba5f0, 6dec739, c370cdc, c76e634) and all 55 tests across rc-agent (52) and racecontrol auth (3) pass.
 
 The only open item is human verification: the anti-cheat gate and visual screen transition check require on-site pod deployment, which was explicitly deferred per the phase scope (05-03 deferred to manual on-site execution).
 

@@ -2,11 +2,11 @@
 phase: 03-websocket-resilience
 plan: "01"
 subsystem: protocol-ws
-tags: [websocket, keepalive, ping-pong, latency, tokio, rc-core, rc-common]
+tags: [websocket, keepalive, ping-pong, latency, tokio, racecontrol, rc-common]
 dependency_graph:
   requires: []
   provides: [ws-keepalive-ping, app-level-ping-pong, round-trip-measurement]
-  affects: [crates/rc-common/src/protocol.rs, crates/rc-core/src/ws/mod.rs]
+  affects: [crates/rc-common/src/protocol.rs, crates/racecontrol/src/ws/mod.rs]
 tech_stack:
   added: []
   patterns: [tokio-select-interval, arc-mutex-shared-state, atomic-counter]
@@ -14,7 +14,7 @@ key_files:
   created: []
   modified:
     - crates/rc-common/src/protocol.rs
-    - crates/rc-core/src/ws/mod.rs
+    - crates/racecontrol/src/ws/mod.rs
 decisions:
   - pending_ping uses Arc<Mutex<Option<(u64, Instant)>>> shared between send_task and receive loop -- only one outstanding measurement at a time
   - MissedTickBehavior::Skip on both intervals -- skip rather than burst pings if channel is busy
@@ -37,7 +37,7 @@ metrics:
 | # | Task | Commit | Files |
 |---|------|--------|-------|
 | 1 | Add Ping/Pong protocol variants with roundtrip serde tests | 5640c76 | crates/rc-common/src/protocol.rs |
-| 2 | Rewrite send_task with WS keepalive ping + app-level round-trip measurement | c2fb701 | crates/rc-core/src/ws/mod.rs |
+| 2 | Rewrite send_task with WS keepalive ping + app-level round-trip measurement | c2fb701 | crates/racecontrol/src/ws/mod.rs |
 
 ## What Was Built
 
@@ -51,7 +51,7 @@ Two roundtrip serde tests verify JSON serialization with correct tag names ("pin
 
 ### Task 2: send_task Rewrite with tokio::select! (CONN-01, PERF-03)
 
-Rewrote rc-core's `send_task` in `crates/rc-core/src/ws/mod.rs` from a simple `while let` loop to a `tokio::select!` with 3 arms:
+Rewrote racecontrol's `send_task` in `crates/racecontrol/src/ws/mod.rs` from a simple `while let` loop to a `tokio::select!` with 3 arms:
 
 1. **cmd_rx.recv()** — forwards CoreToAgentMessage as JSON (existing behavior preserved)
 2. **ping_interval (15s)** — sends WS-level `Message::Ping` frame to keep TCP alive during shader compilation spikes
@@ -70,9 +70,9 @@ Round-trip measurement uses `Arc<tokio::sync::Mutex<Option<(u64, Instant)>>>` sh
 ## Verification Results
 
 - [x] `cargo test -p rc-common` — Ping/Pong serde roundtrip tests pass
-- [x] `cargo test -p rc-core` — 83 unit + 13 integration tests pass
+- [x] `cargo test -p racecontrol-crate` — 83 unit + 13 integration tests pass
 - [x] send_task has exactly 3 select! arms (cmd_rx, ping_interval, measure_interval)
-- [x] No `Message::Pong` send anywhere in rc-core (auto-handled by tungstenite)
+- [x] No `Message::Pong` send anywhere in racecontrol (auto-handled by tungstenite)
 
 ## Deviations from Plan
 

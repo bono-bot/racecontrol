@@ -1,7 +1,7 @@
 ---
 phase: 21-fleet-health-dashboard
 plan: "01"
-subsystem: rc-core
+subsystem: racecontrol
 tags: [fleet-health, api, background-task, tdd]
 dependency_graph:
   requires: []
@@ -12,13 +12,13 @@ tech_stack:
   patterns: [futures_util::future::join_all for parallel probes, RwLock<HashMap> for fleet state, dedicated reqwest::Client with 3s timeout]
 key_files:
   created:
-    - crates/rc-core/src/fleet_health.rs
+    - crates/racecontrol/src/fleet_health.rs
   modified:
-    - crates/rc-core/src/lib.rs
-    - crates/rc-core/src/state.rs
-    - crates/rc-core/src/main.rs
-    - crates/rc-core/src/ws/mod.rs
-    - crates/rc-core/src/api/routes.rs
+    - crates/racecontrol/src/lib.rs
+    - crates/racecontrol/src/state.rs
+    - crates/racecontrol/src/main.rs
+    - crates/racecontrol/src/ws/mod.rs
+    - crates/racecontrol/src/api/routes.rs
 key_decisions:
   - Used futures_util::future::join_all (already a dependency) instead of adding new futures crate
   - Dedicated probe client with 3s connect+read timeout; never reuse state.http_client (30s)
@@ -42,7 +42,7 @@ metrics:
 
 A complete backend fleet health system for 8 pods, exposed as `GET /api/v1/fleet/health`.
 
-**New module: `crates/rc-core/src/fleet_health.rs`**
+**New module: `crates/racecontrol/src/fleet_health.rs`**
 
 - `FleetHealthStore`: per-pod in-memory state — `version`, `agent_started_at`, `http_reachable`, `last_http_check`, `crash_recovery`. Stored in `AppState::pod_fleet_health` (RwLock<HashMap<String, FleetHealthStore>>).
 - `store_startup_report()`: called from WS StartupReport handler. Stores version, computes `agent_started_at = Utc::now() - uptime_secs`, stores `crash_recovery`.
@@ -117,13 +117,13 @@ The only minor adaptation: the plan mentioned `futures::future::join_all` but `f
 
 ## Self-Check: PASSED
 
-- `crates/rc-core/src/fleet_health.rs`: EXISTS (440 lines)
-- `crates/rc-core/src/lib.rs`: contains `pub mod fleet_health`
-- `crates/rc-core/src/state.rs`: contains `pod_fleet_health`
-- `crates/rc-core/src/ws/mod.rs`: contains `pod_fleet_health`
-- `crates/rc-core/src/api/routes.rs`: contains `fleet/health`
-- `crates/rc-core/src/main.rs`: contains `fleet_health::start_probe_loop`
+- `crates/racecontrol/src/fleet_health.rs`: EXISTS (440 lines)
+- `crates/racecontrol/src/lib.rs`: contains `pub mod fleet_health`
+- `crates/racecontrol/src/state.rs`: contains `pod_fleet_health`
+- `crates/racecontrol/src/ws/mod.rs`: contains `pod_fleet_health`
+- `crates/racecontrol/src/api/routes.rs`: contains `fleet/health`
+- `crates/racecontrol/src/main.rs`: contains `fleet_health::start_probe_loop`
 - Commit 9eec64d: EXISTS
 - Commit 9d2f986: EXISTS
-- `cargo test -p rc-core fleet_health`: 13/13 PASSED
-- `cargo test -p rc-core`: 279/279 PASSED
+- `cargo test -p racecontrol-crate fleet_health`: 13/13 PASSED
+- `cargo test -p racecontrol-crate`: 279/279 PASSED

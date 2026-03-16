@@ -19,11 +19,11 @@ key_files:
     - kiosk/src/components/DeployPanel.tsx
   modified:
     - crates/rc-common/src/types.rs
-    - crates/rc-core/src/deploy.rs
-    - crates/rc-core/src/state.rs
-    - crates/rc-core/src/billing.rs
-    - crates/rc-core/src/api/routes.rs
-    - crates/rc-core/src/ws/mod.rs
+    - crates/racecontrol/src/deploy.rs
+    - crates/racecontrol/src/state.rs
+    - crates/racecontrol/src/billing.rs
+    - crates/racecontrol/src/api/routes.rs
+    - crates/racecontrol/src/ws/mod.rs
     - kiosk/src/lib/types.ts
     - kiosk/src/hooks/useKioskSocket.ts
     - kiosk/src/app/settings/page.tsx
@@ -54,7 +54,7 @@ Rolling deploy with canary-first ordering and billing-session protection. Uday a
 - Added `deploy_step_label()` arm: "Waiting for active billing session to end"
 - TDD: RED tests written first (compile failures confirmed), GREEN by adding variant
 - Added `deploy_status()` public function to deploy.rs returning HashMap of all 8 pod states
-- All 55 rc-common + 100 rc-core tests pass
+- All 55 rc-common + 100 racecontrol tests pass
 
 ### Task 2: deploy_rolling() with canary-first + session-aware scheduling
 - Added `pending_deploys: RwLock<HashMap<String, String>>` to AppState
@@ -81,8 +81,8 @@ Rolling deploy with canary-first ordering and billing-session protection. Uday a
 ## Verification Results
 
 - `cargo test -p rc-common`: 55 passed
-- `cargo test -p rc-core`: 100 passed (13 integration)
-- `cargo build -p rc-core`: clean (5 pre-existing warnings only)
+- `cargo test -p racecontrol-crate`: 100 passed (13 integration)
+- `cargo build -p racecontrol-crate`: clean (5 pre-existing warnings only)
 - `npx next build`: compiled successfully, 0 TypeScript errors
 
 ## Deviations from Plan
@@ -93,14 +93,14 @@ Rolling deploy with canary-first ordering and billing-session protection. Uday a
 - **Found during:** Task 2 — when implementing deploy_rolling() sort logic
 - **Issue:** Plan's interface showed `format!("pod-{}", n)` but AppState maps (backoffs, watchdog, deploy states) all use `pod_N` (underscore) format as established in Phase 1
 - **Fix:** Used `pod_8`/`pod_N` format in deploy_rolling() to match existing AppState keys
-- **Files modified:** crates/rc-core/src/deploy.rs
+- **Files modified:** crates/racecontrol/src/deploy.rs
 - **Commit:** 29611fd
 
 **2. [Rule 1 - Adaptation] deploy_pod() signature includes pod_ip — plan's interface showed binary_url only**
 - **Found during:** Task 2 — deploy_rolling() needed to call deploy_pod()
 - **Issue:** Plan context showed simplified signature. Actual deploy_pod() in Plan 02 takes (state, pod_id, pod_ip, binary_url)
 - **Fix:** deploy_rolling() resolves pod_ip from AppState.pods for each pod before calling deploy_pod()
-- **Files modified:** crates/rc-core/src/deploy.rs
+- **Files modified:** crates/racecontrol/src/deploy.rs
 
 **3. [Rule 2 - Enhancement] WaitingSession is_active() explicit — not added to existing is_active() match**
 - **Found during:** Task 1 — implementing WaitingSession
@@ -111,10 +111,10 @@ Rolling deploy with canary-first ordering and billing-session protection. Uday a
 ## Self-Check: PASSED
 
 All files verified present:
-- FOUND: crates/rc-core/src/deploy.rs
+- FOUND: crates/racecontrol/src/deploy.rs
 - FOUND: crates/rc-common/src/types.rs
-- FOUND: crates/rc-core/src/state.rs
-- FOUND: crates/rc-core/src/billing.rs
+- FOUND: crates/racecontrol/src/state.rs
+- FOUND: crates/racecontrol/src/billing.rs
 - FOUND: kiosk/src/components/DeployPanel.tsx
 - FOUND: kiosk/src/app/settings/page.tsx
 - FOUND: .planning/phases/04-deployment-pipeline/04-03-SUMMARY.md

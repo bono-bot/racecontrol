@@ -1,12 +1,12 @@
 ---
 phase: 04-deployment-pipeline
 plan: "01"
-subsystem: rc-common, rc-core, kiosk
+subsystem: rc-common, racecontrol, kiosk
 tags: [deploy, types, protocol, appstate, typescript]
 dependency_graph:
   requires: []
   provides: [DeployState, DeployProgress, DeployPod, DeployRolling, CancelDeploy, pod_deploy_states]
-  affects: [rc-core/pod_monitor, rc-core/pod_healer, kiosk/types]
+  affects: [racecontrol/pod_monitor, racecontrol/pod_healer, kiosk/types]
 tech_stack:
   added: []
   patterns:
@@ -18,9 +18,9 @@ key_files:
   modified:
     - crates/rc-common/src/types.rs
     - crates/rc-common/src/protocol.rs
-    - crates/rc-core/src/state.rs
-    - crates/rc-core/src/pod_monitor.rs
-    - crates/rc-core/src/pod_healer.rs
+    - crates/racecontrol/src/state.rs
+    - crates/racecontrol/src/pod_monitor.rs
+    - crates/racecontrol/src/pod_healer.rs
     - kiosk/src/lib/types.ts
 decisions:
   - "DeployState uses serde(tag=state, content=detail) — consistent with protocol.rs adjacently-tagged enums; TS union uses { state: 'x' } discriminant matching Rust output"
@@ -60,13 +60,13 @@ Added:
 
 6 new serde roundtrip tests pass (53 total in rc-common).
 
-### Task 3: AppState + watchdog skip logic (rc-core)
+### Task 3: AppState + watchdog skip logic (racecontrol)
 
 - `AppState.pod_deploy_states: RwLock<HashMap<String, DeployState>>` — new field
 - `create_initial_deploy_states()` — pre-populates all 8 pods as `Idle`
 - `pod_monitor`: deploy state skip check after WatchdogState check — if `deploy_state.is_active()`, logs and `continue`
 - `pod_healer`: deploy state skip check after WatchdogState check — if `deploy_state.is_active()`, logs and `return Ok(())`
-- 84 rc-core tests pass, 13 integration tests pass, `cargo build -p rc-core` succeeds
+- 84 racecontrol tests pass, 13 integration tests pass, `cargo build -p racecontrol-crate` succeeds
 
 ### Task 4: TypeScript types (kiosk/src/lib/types.ts)
 
@@ -80,8 +80,8 @@ Added:
 ## Verification
 
 - `cargo test -p rc-common` — 53 passed (12 DeployState + 6 protocol deploy tests + existing)
-- `cargo test -p rc-core` — 84 passed (1 deploy state init test + existing 83)
-- `cargo build -p rc-core` — succeeds with existing pre-existing warnings (unrelated)
+- `cargo test -p racecontrol-crate` — 84 passed (1 deploy state init test + existing 83)
+- `cargo build -p racecontrol-crate` — succeeds with existing pre-existing warnings (unrelated)
 - Manual: DeployState has exactly 9 variants
 - Manual: DashboardEvent::DeployProgress has pod_id, state, message, timestamp fields
 - Manual: DashboardCommand has DeployPod, DeployRolling, CancelDeploy variants
@@ -96,9 +96,9 @@ None — plan executed exactly as written.
 **Files:**
 - FOUND: crates/rc-common/src/types.rs
 - FOUND: crates/rc-common/src/protocol.rs
-- FOUND: crates/rc-core/src/state.rs
-- FOUND: crates/rc-core/src/pod_monitor.rs
-- FOUND: crates/rc-core/src/pod_healer.rs
+- FOUND: crates/racecontrol/src/state.rs
+- FOUND: crates/racecontrol/src/pod_monitor.rs
+- FOUND: crates/racecontrol/src/pod_healer.rs
 - FOUND: kiosk/src/lib/types.ts
 
 **Commits:**

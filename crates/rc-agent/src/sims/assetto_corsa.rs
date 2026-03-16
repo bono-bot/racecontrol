@@ -294,8 +294,8 @@ impl SimAdapter for AssettoCorsaAdapter {
             if lap_ms > 0 {
                 let lap_data = LapData {
                     id: uuid::Uuid::new_v4().to_string(),
-                    session_id: String::new(), // Filled by rc-core from billing session
-                    driver_id: String::new(),  // Filled by rc-core from billing session
+                    session_id: String::new(), // Filled by racecontrol from billing session
+                    driver_id: String::new(),  // Filled by racecontrol from billing session
                     pod_id: self.pod_id.clone(),
                     sim_type: SimType::AssettoCorsa,
                     track: self.current_track.clone(),

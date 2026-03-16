@@ -15,23 +15,23 @@
 - Silent debounce: pod card stays green/online during the 15s debounce window. Staff only sees "Disconnected" after 15s confirmed absence. No false alarm flashing during game launches.
 - Single "Offline" state after debounce expires — no timed stages or age indicators. Activity log has timestamps if staff needs history.
 - Card color change only on offline — no toast notifications, no sound alerts. Uday already gets email alerts from Phase 2 watchdog.
-- Kiosk's OWN WebSocket connection also uses 15s debounce before showing disconnected in the header. Brief rc-core restarts are invisible.
+- Kiosk's OWN WebSocket connection also uses 15s debounce before showing disconnected in the header. Brief racecontrol restarts are invisible.
 
 **Pod screen during WS drop:**
 - During active billing: customer sees NOTHING on WS drop. Game keeps running locally. Lock screen does not show "Disconnected". The drop is completely invisible to the customer.
 - During idle (no billing): lock screen shows "Disconnected" IMMEDIATELY on WS drop. No debounce for idle pods — staff needs to know unoccupied pods lost connection.
 - On reconnect after a drop during active billing: silent resume. No "Connection restored" toast or notification to the customer. They never knew anything happened.
-- Game keeps running during long WS drops (2+ minutes) — no warning overlay, no billing pause, no action on pod side. pod_monitor on rc-core handles alerting staff via email.
-- Full re-register on every reconnect — pod sends fresh Register message with complete PodInfo. Same as initial connect. rc-core gets accurate state immediately.
+- Game keeps running during long WS drops (2+ minutes) — no warning overlay, no billing pause, no action on pod side. pod_monitor on racecontrol handles alerting staff via email.
+- Full re-register on every reconnect — pod sends fresh Register message with complete PodInfo. Same as initial connect. racecontrol gets accurate state immediately.
 
 **Reconnect aggressiveness:**
 - rc-agent uses fast-then-backoff: first 3 attempts at 1s intervals (covers brief CPU spike blips), then exponential backoff 2s→4s→...→30s max.
 - Kiosk frontend keeps current 3s fixed retry interval — simple, fast enough for staff-facing LAN connection. 15s debounce hides brief drops anyway.
-- Both WS-level ping (from rc-core) AND application-level heartbeat (from rc-agent at 5s) — belt-and-suspenders. WS ping keeps TCP alive during CPU spikes. App heartbeat carries pod state data.
-- rc-core sends WS ping frames every 15s to all connected agents. Low overhead, frequent enough to prevent TCP idle timeout during shader compilation (typically 10-30s).
+- Both WS-level ping (from racecontrol) AND application-level heartbeat (from rc-agent at 5s) — belt-and-suspenders. WS ping keeps TCP alive during CPU spikes. App heartbeat carries pod state data.
+- racecontrol sends WS ping frames every 15s to all connected agents. Low overhead, frequent enough to prevent TCP idle timeout during shader compilation (typically 10-30s).
 
 **Performance targets:**
-- WS command round-trip (rc-core → rc-agent → response) must complete under 200ms during normal operation on LAN.
+- WS command round-trip (racecontrol → rc-agent → response) must complete under 200ms during normal operation on LAN.
 - ALL kiosk interactions — pod card clicks, page transitions, state updates, button responses — must respond within 100ms.
 - Log slow round-trips: tracing::warn! when WS command round-trip exceeds 200ms. No metrics dashboard, no Prometheus — just log lines for debugging.
 - No WebSocket message compression (permessage-deflate) — LAN bandwidth is not the bottleneck, pod state messages are small (~1-2KB), compression adds latency.
@@ -43,7 +43,7 @@
 - Exact debounce implementation in useKioskSocket.ts (setTimeout vs useRef timer)
 - How to measure WS round-trip time for the tracing::warn! threshold
 - React.memo granularity — which sub-components of pod cards to memoize
-- Whether to add a pong timeout on rc-core side (and what threshold)
+- Whether to add a pong timeout on racecontrol side (and what threshold)
 
 ### Deferred Ideas (OUT OF SCOPE)
 - Start billing timer on confirmed game launch (not at session creation) — billing/session management phase
@@ -58,10 +58,10 @@
 
 | ID | Description | Research Support |
 |----|-------------|-----------------|
-| CONN-01 | WebSocket ping/pong keepalive prevents drops during game launch CPU spikes | axum Message::Ping sent every 15s from rc-core send_task; tungstenite auto-responds with Pong on agent side |
+| CONN-01 | WebSocket ping/pong keepalive prevents drops during game launch CPU spikes | axum Message::Ping sent every 15s from racecontrol send_task; tungstenite auto-responds with Pong on agent side |
 | CONN-02 | Kiosk debounces disconnect events — only shows "Disconnected" after 15s+ confirmed absence | useRef timer pattern in useKioskSocket.ts onclose; disconnectTimer ref cleared on reconnect |
 | CONN-03 | rc-agent reconnects automatically with short backoff on WebSocket drop | Modify existing reconnect_delay logic: attempt_count guards first 3 retries at 1s before exponential |
-| PERF-03 | WebSocket command round-trip (rc-core → rc-agent → response) stays under low threshold | Timestamp in CoreToAgentMessage; agent echoes timestamp back; core logs tracing::warn! if >200ms |
+| PERF-03 | WebSocket command round-trip (racecontrol → rc-agent → response) stays under low threshold | Timestamp in CoreToAgentMessage; agent echoes timestamp back; core logs tracing::warn! if >200ms |
 | PERF-04 | Kiosk UI interactions (page loads, button responses, state updates) feel instant to staff | React.memo on KioskPodCard; React 18 auto-batching handles rapid WS messages; stable pod.id keys |
 </phase_requirements>
 
@@ -69,9 +69,9 @@
 
 ## Summary
 
-Phase 3 is a targeted resilience improvement across three layers: the server-side WebSocket (axum rc-core), the client WebSocket agent (tokio-tungstenite rc-agent), and the kiosk React frontend. The changes are surgical modifications to existing code paths — not rewrites.
+Phase 3 is a targeted resilience improvement across three layers: the server-side WebSocket (axum racecontrol), the client WebSocket agent (tokio-tungstenite rc-agent), and the kiosk React frontend. The changes are surgical modifications to existing code paths — not rewrites.
 
-The core problem: Assetto Corsa shader compilation spikes the pod CPU for 10-30 seconds. During this window, the rc-agent event loop cannot pump the WebSocket, so the TCP connection can appear dead to the OS and get terminated by idle-timeout rules. The fix is periodic WS ping frames from rc-core (server-initiated, every 15s) which keep TCP alive even when the agent's event loop is busy. Tungstenite automatically queues pong replies; when the agent's event loop resumes it drains the send queue and the pong goes out, proving liveness.
+The core problem: Assetto Corsa shader compilation spikes the pod CPU for 10-30 seconds. During this window, the rc-agent event loop cannot pump the WebSocket, so the TCP connection can appear dead to the OS and get terminated by idle-timeout rules. The fix is periodic WS ping frames from racecontrol (server-initiated, every 15s) which keep TCP alive even when the agent's event loop is busy. Tungstenite automatically queues pong replies; when the agent's event loop resumes it drains the send queue and the pong goes out, proving liveness.
 
 The kiosk debounce prevents staff seeing false "Disconnected" flashes during the same CPU spike window. Because the agent heartbeat (every 5s) may be delayed up to 30s during shader compilation, a 15s debounce window on the kiosk side matches the worst-case single heartbeat skip without introducing enough delay to hide real failures. Round-trip measurement gives observability into latency without needing a metrics stack.
 
@@ -84,7 +84,7 @@ The kiosk debounce prevents staff seeing false "Disconnected" flashes during the
 ### Core (already in use — verified from Cargo.toml)
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| axum | 0.8 | HTTP + WebSocket server (rc-core) | Already in use; provides `Message::Ping` variant |
+| axum | 0.8 | HTTP + WebSocket server (racecontrol) | Already in use; provides `Message::Ping` variant |
 | tokio-tungstenite | 0.26 | WebSocket client (rc-agent) | Already in use; auto-queues pong replies to pings |
 | futures-util | 0.3 | SinkExt/StreamExt for WS split | Already in use across both crates |
 | React 18 | current (Next.js app) | Kiosk frontend | Auto-batching handles burst WS messages natively |
@@ -100,7 +100,7 @@ Phase 3 adds zero new dependencies. All required primitives exist:
 
 ## Architecture Patterns
 
-### Pattern 1: Server-Side Ping in send_task (rc-core ws/mod.rs)
+### Pattern 1: Server-Side Ping in send_task (racecontrol ws/mod.rs)
 
 **What:** Replace the current `handle_agent` send_task (which only forwards mpsc messages) with a task that also fires WS ping frames every 15s.
 
@@ -280,14 +280,14 @@ export const KioskPodCard = React.memo(function KioskPodCard({ ... }: KioskPodCa
 
 ### Pattern 6: Round-Trip Measurement (PERF-03)
 
-**What:** Measure time from when rc-core sends a CoreToAgentMessage to when it receives the corresponding agent response. Log a `tracing::warn!` if >200ms.
+**What:** Measure time from when racecontrol sends a CoreToAgentMessage to when it receives the corresponding agent response. Log a `tracing::warn!` if >200ms.
 
-**Decision (Claude's Discretion):** Use a lightweight in-memory `HashMap<correlation_id, Instant>` keyed by a ping ID. rc-core adds a `Ping { id: u64 }` variant to `CoreToAgentMessage` and rc-agent adds a `Pong { id: u64 }` variant to `AgentMessage`. This is cleaner than reusing WS-level ping/pong frames (which don't carry correlation IDs through the axum API).
+**Decision (Claude's Discretion):** Use a lightweight in-memory `HashMap<correlation_id, Instant>` keyed by a ping ID. racecontrol adds a `Ping { id: u64 }` variant to `CoreToAgentMessage` and rc-agent adds a `Pong { id: u64 }` variant to `AgentMessage`. This is cleaner than reusing WS-level ping/pong frames (which don't carry correlation IDs through the axum API).
 
 **Implementation touch points:**
 - `rc-common/src/protocol.rs`: Add `Ping { id: u64 }` to `CoreToAgentMessage` and `Pong { id: u64 }` to `AgentMessage`
-- `rc-core/src/ws/mod.rs`: In send_task, send `CoreToAgentMessage::Ping { id }` every 30s (separate from WS-level ping every 15s); record `Instant::now()` in a `HashMap` keyed by id
-- `rc-core/src/ws/mod.rs`: In receive loop, on `AgentMessage::Pong { id }`, look up the Instant, compute elapsed, `tracing::warn!` if >200ms
+- `racecontrol/src/ws/mod.rs`: In send_task, send `CoreToAgentMessage::Ping { id }` every 30s (separate from WS-level ping every 15s); record `Instant::now()` in a `HashMap` keyed by id
+- `racecontrol/src/ws/mod.rs`: In receive loop, on `AgentMessage::Pong { id }`, look up the Instant, compute elapsed, `tracing::warn!` if >200ms
 - `rc-agent/src/main.rs`: Handle `CoreToAgentMessage::Ping { id }` in the `_ => {}` arm → send `AgentMessage::Pong { id }` immediately
 
 **Why not WS-level ping frames:** The tungstenite pong is generated automatically with no application-layer callback. We cannot timestamp the round-trip at the application level using protocol-level frames.
@@ -299,7 +299,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({ ... }: KioskPodCa
 ### Recommended File Change Map
 
 ```
-crates/rc-core/src/ws/mod.rs        # Ping task in send_task + Pong receive handler
+crates/racecontrol/src/ws/mod.rs        # Ping task in send_task + Pong receive handler
 crates/rc-common/src/protocol.rs    # Add Ping/Pong to CoreToAgentMessage/AgentMessage
 crates/rc-agent/src/main.rs         # Fast-then-backoff + handle Ping → send Pong
 kiosk/src/hooks/useKioskSocket.ts   # disconnectTimerRef + 15s debounce
@@ -340,7 +340,7 @@ rc-agent lock_screen behavior: NO CHANGE (existing billing check already handles
 **Warning signs:** Disconnect toast appears even after quick reconnect.
 
 ### Pitfall 3: Reconnect Loop Runs While Old Send_Task Still Alive
-**What goes wrong:** In rc-core's handle_agent, if send_task is not aborted before the next iteration and a new connection registers for the same pod, the old send_task's mpsc sender lingers in `agent_senders`. Commands may go to a dead sender.
+**What goes wrong:** In racecontrol's handle_agent, if send_task is not aborted before the next iteration and a new connection registers for the same pod, the old send_task's mpsc sender lingers in `agent_senders`. Commands may go to a dead sender.
 **Why it happens:** The `send_task.abort()` is already at the end of handle_agent (line 392), but if handle_agent returns early (e.g., before pod registers), the abort still fires. The stale-conn_id guard (lines 349-390) correctly prevents the old connection from overwriting the new one's state.
 **How to avoid:** This is already handled by the `is_closed()` check (Phase 02 fix). The ping task runs inside send_task, so aborting send_task kills both the command forwarder and the ping timer simultaneously. No extra cleanup needed.
 **Warning signs:** Pods showing "connected" in agent_senders but never responding.
@@ -352,7 +352,7 @@ rc-agent lock_screen behavior: NO CHANGE (existing billing check already handles
 **Warning signs:** React "Can't perform state update on unmounted component" warning in browser console (React 17 and earlier; React 18 silently ignores it but it's still a logic error).
 
 ### Pitfall 5: Ping Interval Races with cmd_rx Close
-**What goes wrong:** In the rc-core send_task, if cmd_rx is dropped (because handle_agent returns), the `cmd_rx.recv()` returns None and the select! terminates. The ping_interval.tick() arm continues firing even though there's nothing to do.
+**What goes wrong:** In the racecontrol send_task, if cmd_rx is dropped (because handle_agent returns), the `cmd_rx.recv()` returns None and the select! terminates. The ping_interval.tick() arm continues firing even though there's nothing to do.
 **Why it happens:** tokio::select! exits on the first arm to resolve, but if `cmd_rx.recv()` returns `None` first, the loop breaks. This is correct behavior — send_task should exit when cmd_rx closes.
 **How to avoid:** Use `while let Some(cmd) = cmd_rx.recv()` inside the select! arm that handles commands, OR handle `None` from recv by breaking the loop. The `tokio::select!` pattern shown in Pattern 1 above already handles this: `Some(cmd) = cmd_rx.recv()` will not match on None, causing the select! to only resolve via the ping tick, which will then fail to send on the closed ws_sender and break.
 **Warning signs:** Ping tasks accumulating after connections drop; check with `tokio::runtime::Handle::current().metrics()`.
@@ -366,7 +366,7 @@ rc-agent lock_screen behavior: NO CHANGE (existing billing check already handles
 
 ## Code Examples
 
-### Send Ping from rc-core send_task
+### Send Ping from racecontrol send_task
 
 ```rust
 // Source: axum 0.8 docs.rs - Message::Ping variant confirmed
@@ -402,7 +402,7 @@ let send_task = tokio::spawn(async move {
 });
 ```
 
-**Note on bytes dependency:** `bytes::Bytes::new()` requires the `bytes` crate. axum already depends on it transitively. Confirm by checking `Cargo.lock` — if `bytes` is not a direct dependency of rc-core, add `bytes = "1"` to rc-core/Cargo.toml.
+**Note on bytes dependency:** `bytes::Bytes::new()` requires the `bytes` crate. axum already depends on it transitively. Confirm by checking `Cargo.lock` — if `bytes` is not a direct dependency of racecontrol, add `bytes = "1"` to racecontrol/Cargo.toml.
 
 ### Fast-Then-Backoff in rc-agent main.rs
 
@@ -519,7 +519,7 @@ CoreToAgentMessage::Ping { id: u64 },
 // In rc-common/src/protocol.rs — add to AgentMessage:
 AgentMessage::Pong { id: u64 },
 
-// In rc-core ws/mod.rs — inside handle_agent, alongside send_task:
+// In racecontrol ws/mod.rs — inside handle_agent, alongside send_task:
 use std::collections::HashMap;
 use std::time::Instant;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -576,10 +576,10 @@ rc_common::protocol::CoreToAgentMessage::Ping { id } => {
 
 1. **bytes crate availability for `Message::Ping(bytes::Bytes::new())`**
    - What we know: axum and tokio-tungstenite both depend on `bytes` crate transitively
-   - What's unclear: Whether `bytes` is available as a direct dep in rc-core without explicit Cargo.toml entry
-   - Recommendation: Check `cargo tree -p rc-core | grep bytes` in the plan's Wave 0 task; if not direct, add `bytes = "1"` to rc-core/Cargo.toml. Alternatively use `Message::Ping(vec![].into())` — axum's Message::Ping accepts `Bytes` which can be constructed from `Vec<u8>` via `.into()`.
+   - What's unclear: Whether `bytes` is available as a direct dep in racecontrol without explicit Cargo.toml entry
+   - Recommendation: Check `cargo tree -p racecontrol-crate | grep bytes` in the plan's Wave 0 task; if not direct, add `bytes = "1"` to racecontrol/Cargo.toml. Alternatively use `Message::Ping(vec![].into())` — axum's Message::Ping accepts `Bytes` which can be constructed from `Vec<u8>` via `.into()`.
 
-2. **Pong timeout on rc-core side (Claude's Discretion)**
+2. **Pong timeout on racecontrol side (Claude's Discretion)**
    - What we know: WS-level pong is auto-sent by tungstenite; app-level Pong has the 30s measurement window
    - What's unclear: Whether a "pong not received in Xs → close connection" guard is needed
    - Recommendation: Do NOT add a pong timeout for this phase. The existing `is_closed()` check in pod_monitor already detects dead connections. Adding a pong timeout would create a second detection path that could race with the Phase 2 watchdog. Keep it simple: if pong doesn't arrive in the measurement window, the next ping measurement attempt will show high latency (or the WS will have already dropped due to the agent's event loop being dead, which the OS will detect via TCP RST).
@@ -598,21 +598,21 @@ rc_common::protocol::CoreToAgentMessage::Ping { id } => {
 |----------|-------|
 | Framework | Rust `cargo test` (built-in, no extra setup) |
 | Config file | None — uses `#[cfg(test)]` inline modules |
-| Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 | Full suite command | Same — all 3 crates (47 tests baseline) |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| CONN-01 | WS ping sent every 15s from rc-core send_task | unit | `cargo test -p rc-core ws_ping_keepalive` | ❌ Wave 0 |
-| CONN-02 | Kiosk shows connected during 15s debounce window | manual | Browser dev tools — disconnect rc-core, verify header stays green for 15s | N/A manual |
-| CONN-03 | First 3 reconnect attempts at 1s, then exponential | unit | `cargo test -p rc-agent reconnect_delay_for_attempt` | ❌ Wave 0 |
-| PERF-03 | tracing::warn! fires when round-trip >200ms | unit | `cargo test -p rc-core ws_round_trip_slow_logs_warn` | ❌ Wave 0 |
+| CONN-01 | WS ping sent every 15s from racecontrol send_task | unit | `cargo test -p racecontrol-crate ws_ping_keepalive` | ❌ Wave 0 |
+| CONN-02 | Kiosk shows connected during 15s debounce window | manual | Browser dev tools — disconnect racecontrol, verify header stays green for 15s | N/A manual |
+| CONN-03 | First 3 reconnect attempts at 1s, then exponential | unit | `cargo test -p rc-agent-crate reconnect_delay_for_attempt` | ❌ Wave 0 |
+| PERF-03 | tracing::warn! fires when round-trip >200ms | unit | `cargo test -p racecontrol-crate ws_round_trip_slow_logs_warn` | ❌ Wave 0 |
 | PERF-04 | Only changed pod card re-renders | manual | React DevTools Profiler — trigger pod_update for Pod 1, verify Pods 2-8 show no render | N/A manual |
 
 ### Sampling Rate
-- **Per task commit:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Per wave merge:** Same (all 47+ tests green)
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
@@ -632,7 +632,7 @@ rc_common::protocol::CoreToAgentMessage::Ping { id } => {
 - `axum 0.8 docs.rs` — `Message::Ping(Bytes)` variant confirmed, pong auto-sent by server on incoming ping
 - `tungstenite docs` — "Upon receiving ping messages, tungstenite queues pong replies automatically. The next call to read, write or flush will write & flush the pong reply."
 - `axum::discussions::1340` — Confirmed: "tungstenite will automatically respond to pings... you should never need to manually handle Message::Ping"
-- Project codebase (rc-core/src/ws/mod.rs, rc-agent/src/main.rs, kiosk/src/hooks/useKioskSocket.ts) — read directly; line numbers cited
+- Project codebase (racecontrol/src/ws/mod.rs, rc-agent/src/main.rs, kiosk/src/hooks/useKioskSocket.ts) — read directly; line numbers cited
 
 ### Secondary (MEDIUM confidence)
 - React 18 automatic batching — confirmed via reactwg/react-18 Discussion #21 (official React team authored)

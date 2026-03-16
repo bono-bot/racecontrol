@@ -27,8 +27,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - "crates/rc-core/src/db/mod.rs"
-    - "crates/rc-core/tests/integration.rs"
+    - "crates/racecontrol/src/db/mod.rs"
+    - "crates/racecontrol/tests/integration.rs"
 
 key-decisions:
   - "Added idx_telemetry_lap_offset alongside existing idx_telemetry_lap (no drop) to avoid production table locking"
@@ -75,8 +75,8 @@ Each task was committed atomically:
 2. **Task 2: Implement schema migrations and make tests pass** - `673dea4` (feat)
 
 ## Files Created/Modified
-- `crates/rc-core/src/db/mod.rs` - Added WAL pragmas, max_lifetime, covering indexes, cloud_driver_id column, 6 competitive tables, 8 new indexes
-- `crates/rc-core/tests/integration.rs` - Added 5 new test functions + mirrored all schema changes in run_test_migrations() including telemetry_samples table
+- `crates/racecontrol/src/db/mod.rs` - Added WAL pragmas, max_lifetime, covering indexes, cloud_driver_id column, 6 competitive tables, 8 new indexes
+- `crates/racecontrol/tests/integration.rs` - Added 5 new test functions + mirrored all schema changes in run_test_migrations() including telemetry_samples table
 
 ## Decisions Made
 - Added idx_telemetry_lap_offset alongside existing idx_telemetry_lap rather than dropping and recreating — avoids production table locking risk
@@ -102,8 +102,8 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 
-- [x] crates/rc-core/src/db/mod.rs exists
-- [x] crates/rc-core/tests/integration.rs exists
+- [x] crates/racecontrol/src/db/mod.rs exists
+- [x] crates/racecontrol/tests/integration.rs exists
 - [x] .planning/phases/12-data-foundation/12-01-SUMMARY.md exists
 - [x] Commit ecf2bab (Task 1) found
 - [x] Commit 673dea4 (Task 2) found

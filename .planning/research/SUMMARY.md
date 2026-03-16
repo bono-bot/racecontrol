@@ -11,7 +11,7 @@ RaceControl v4.0 addresses five root causes uncovered during a 4-hour outage on 
 
 The recommended approach uses a minimal set of additions on top of the existing Rust/Axum/WebSocket infrastructure. The critical architectural decision is the Windows Service strategy: rc-agent must NOT be converted to a native Windows Service because it owns a Session 1 GUI (lock screen overlay). Instead, use NSSM as a crash-restart watchdog that wraps the existing startup bat file, combined with a Task Scheduler task for Session 1 restart-on-failure. The stack adds only three new Rust crates (windows-service or NSSM, winreg 0.55, tokio-util 0.7) and zero new npm packages. All fleet dashboard functionality is achievable by extending the existing kiosk WebSocket hook and adding one new Next.js route.
 
-The highest risks are all in the first phase: the Session 0/Session 1 split is a hard OS boundary that will cause a blank lock screen if mishandled, CRLF batch file generation must be unit-tested from the start, and the WebSocket exec protocol change requires rc-common, rc-core, and rc-agent to all be rebuilt and deployed atomically. Every subsequent phase builds on a foundation that must be verified on Pod 8 (canary) before fleet-wide deployment.
+The highest risks are all in the first phase: the Session 0/Session 1 split is a hard OS boundary that will cause a blank lock screen if mishandled, CRLF batch file generation must be unit-tested from the start, and the WebSocket exec protocol change requires rc-common, racecontrol, and rc-agent to all be rebuilt and deployed atomically. Every subsequent phase builds on a foundation that must be verified on Pod 8 (canary) before fleet-wide deployment.
 
 ---
 
@@ -37,7 +37,7 @@ ARCHITECTURE.md and FEATURES.md diverge slightly on this choice. ARCHITECTURE.md
 - Windows Service wrapper with auto-restart on crash — eliminates root cause #4 (HKLM Run key has no crash restart)
 - Firewall auto-configuration in Rust on startup — eliminates root causes #2 and #3 (CRLF-damaged batch files)
 - Config self-heal at startup: verify toml, bat file (LF check), HKLM Run/Task Scheduler key, firewall rules — eliminates root cause #3 broadly
-- Startup error reporting: structured phase names, pre-exit HTTP POST to rc-core, file fallback — eliminates root cause #5 partially
+- Startup error reporting: structured phase names, pre-exit HTTP POST to racecontrol, file fallback — eliminates root cause #5 partially
 - WebSocket exec (CoreToAgentMessage::Exec with request_id correlation) — eliminates root cause #5 fully (management when HTTP blocked)
 
 **Should have (P2 — operational visibility):**
@@ -58,15 +58,15 @@ ARCHITECTURE.md and FEATURES.md diverge slightly on this choice. ARCHITECTURE.md
 
 ### Architecture Approach
 
-The architecture layers new capabilities onto the existing two-crate WebSocket protocol (rc-common defines messages; rc-core sends to pods; rc-agent handles and responds) without restructuring the established communication pattern. All five v4.0 concerns map to distinct, low-coupling additions: a new `firewall.rs` module in rc-agent, a new `self_healing.rs` module in rc-agent, two new message variants in rc-common (Exec + ExecResult), a new `fleet_health.rs` background task in rc-core, and a new kiosk `/fleet` page. The most invasive change is deploy.rs gaining a WebSocket exec fallback path when HTTP :8090 is unavailable.
+The architecture layers new capabilities onto the existing two-crate WebSocket protocol (rc-common defines messages; racecontrol sends to pods; rc-agent handles and responds) without restructuring the established communication pattern. All five v4.0 concerns map to distinct, low-coupling additions: a new `firewall.rs` module in rc-agent, a new `self_healing.rs` module in rc-agent, two new message variants in rc-common (Exec + ExecResult), a new `fleet_health.rs` background task in racecontrol, and a new kiosk `/fleet` page. The most invasive change is deploy.rs gaining a WebSocket exec fallback path when HTTP :8090 is unavailable.
 
 **Major components (new and modified):**
 1. `rc-agent/src/firewall.rs` (new) — idempotent netsh wrapper; runs before `remote_ops::start()`; returns `Vec<FirewallAction>` for startup report
 2. `rc-agent/src/self_healing.rs` (new) — checks toml, bat CRLF, registry key, AV exclusions on startup; repairs via embedded templates; reports anomalies
 3. `rc-common/src/protocol.rs` (modified) — add `CoreToAgentMessage::Exec { request_id, cmd, timeout_ms }`, `AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr }`, `DashboardEvent::FleetHealth(Vec<PodHealthSnapshot>)`, `DeployState::Rollback`
-4. `rc-core/src/state.rs` (modified) — add `pending_ws_execs: RwLock<HashMap<String, oneshot::Sender<ExecResult>>>` field
-5. `rc-core/src/deploy.rs` (modified) — dual-path exec (HTTP first, WS fallback); rollback logic on 60s gate failure; save `rc-agent-prev.exe` in do-swap.bat
-6. `rc-core/src/fleet_health.rs` (new) — background task; reads AppState every 5s; broadcasts `DashboardEvent::FleetHealth`
+4. `racecontrol/src/state.rs` (modified) — add `pending_ws_execs: RwLock<HashMap<String, oneshot::Sender<ExecResult>>>` field
+5. `racecontrol/src/deploy.rs` (modified) — dual-path exec (HTTP first, WS fallback); rollback logic on 60s gate failure; save `rc-agent-prev.exe` in do-swap.bat
+6. `racecontrol/src/fleet_health.rs` (new) — background task; reads AppState every 5s; broadcasts `DashboardEvent::FleetHealth`
 7. `kiosk/src/app/fleet/page.tsx` + `FleetGrid.tsx` + `PodHealthCard.tsx` (new) — mobile-first health grid; reuses `useKioskSocket`; shows WS status, deploy state, watchdog state, last error
 8. NSSM or Task Scheduler install scripts (new) — deployed via pod-agent HTTP; service wraps `start-rcagent.bat`
 
@@ -76,7 +76,7 @@ The architecture layers new capabilities onto the existing two-crate WebSocket p
 
 2. **CRLF line endings silently break batch files** — cmd.exe splits on `\r\n`; LF-only bat files are silently misparsed as a single line. This was the direct root cause of the Mar 15 outage. Any Rust code writing a .bat file must use `lines.join("\r\n") + "\r\n"`. A unit test asserting CRLF presence is mandatory in the firewall module.
 
-3. **Exec slot exhaustion blocks all management** — the 4-slot semaphore in remote_ops.rs is shared across all HTTP exec operations. WebSocket exec MUST use an independent semaphore; if both management paths share the semaphore, they fail together. rc-core must also serialize exec requests per pod (per-pod Mutex) to avoid concurrent slot exhaustion.
+3. **Exec slot exhaustion blocks all management** — the 4-slot semaphore in remote_ops.rs is shared across all HTTP exec operations. WebSocket exec MUST use an independent semaphore; if both management paths share the semaphore, they fail together. racecontrol must also serialize exec requests per pod (per-pod Mutex) to avoid concurrent slot exhaustion.
 
 4. **Windows Defender holds new binary during self-swap** — `rc-agent-new.exe` is a fresh unsigned Rust binary that triggers AV heuristic scanning. The scanner holds a file handle while `do-swap.bat` tries to rename it, causing `ERROR_SHARING_VIOLATION`. Mitigation: retry loop (5 attempts, 2s sleep) in do-swap.bat PLUS AV exclusion verification at startup via winreg.
 
@@ -86,13 +86,13 @@ The architecture layers new capabilities onto the existing two-crate WebSocket p
 
 ## Implications for Roadmap
 
-Based on the combined research, the dependency graph is clear: rc-common protocol additions must precede both rc-core and rc-agent changes; firewall auto-config and self-healing are independent and can ship first as isolated modules; the Windows Service install must come after all agent changes are live (service restarts bring up the new agent). The natural phase split is 7 implementation phases matching the ARCHITECTURE.md build order.
+Based on the combined research, the dependency graph is clear: rc-common protocol additions must precede both racecontrol and rc-agent changes; firewall auto-config and self-healing are independent and can ship first as isolated modules; the Windows Service install must come after all agent changes are live (service restarts bring up the new agent). The natural phase split is 7 implementation phases matching the ARCHITECTURE.md build order.
 
 ### Phase 1: rc-common Protocol Additions (Foundation)
-**Rationale:** rc-common is the contract between rc-agent and rc-core. Adding `Exec`, `ExecResult`, `FleetHealth`, `DeployState::Rollback`, and `PodHealthSnapshot` here first means all downstream crates can be updated without breaking the build incrementally. This is zero user-visible work but blocks everything else.
+**Rationale:** rc-common is the contract between rc-agent and racecontrol. Adding `Exec`, `ExecResult`, `FleetHealth`, `DeployState::Rollback`, and `PodHealthSnapshot` here first means all downstream crates can be updated without breaking the build incrementally. This is zero user-visible work but blocks everything else.
 **Delivers:** Updated protocol types; all existing enum variants still serialize identically (characterization tests must pass before proceeding).
 **Addresses:** Protocol foundation for WS exec (P1 feature), fleet health broadcast (P2 feature), deploy rollback state (P2 feature)
-**Avoids:** Mid-development protocol breaks that force simultaneous rebuilds of both rc-core and rc-agent
+**Avoids:** Mid-development protocol breaks that force simultaneous rebuilds of both racecontrol and rc-agent
 
 ### Phase 2: rc-agent Firewall Module
 **Rationale:** Isolated, independent, immediately addresses a root cause. No dependency on Phase 1 new variants (firewall.rs uses std::process::Command only). Can be deployed to Pod 8 (canary) for fast verification.
@@ -101,7 +101,7 @@ Based on the combined research, the dependency graph is clear: rc-common protoco
 **Avoids:** Duplicate firewall rules (Pitfall 8) via idempotency check; wrong profile (Pitfall 5) via `profile=any`; CRLF failures (Pitfall 2) by moving entirely out of batch files
 
 ### Phase 3: rc-agent WebSocket Exec Handling
-**Rationale:** Depends on Phase 1 (Exec variant must exist in rc-common). rc-agent just needs to receive `CoreToAgentMessage::Exec`, execute the command, and send `AgentMessage::ExecResult` — the rc-core side is not needed yet for the agent to build and test.
+**Rationale:** Depends on Phase 1 (Exec variant must exist in rc-common). rc-agent just needs to receive `CoreToAgentMessage::Exec`, execute the command, and send `AgentMessage::ExecResult` — the racecontrol side is not needed yet for the agent to build and test.
 **Delivers:** Exec handler in rc-agent main.rs WS receive loop; shared exec helper extracted from remote_ops.rs; independent semaphore for WS exec path.
 **Addresses:** WS-EXEC-01 (agent side); eliminates dependency on HTTP :8090 being reachable for basic management
 **Avoids:** Shared semaphore failure (Pitfall 3); zombie processes from WS exec (Pitfall 7) via AbortHandle tracking and correlation_id
@@ -112,8 +112,8 @@ Based on the combined research, the dependency graph is clear: rc-common protoco
 **Addresses:** CFGHEAL-01; eliminates root cause #3 broadly; prevents AV quarantine of new binaries (Pitfall 4)
 **Uses:** `winreg = "0.55"` crate for registry read/write; `include_str!()` for embedded bat template
 
-### Phase 5: rc-core WS Exec Path + Deploy.rs Changes
-**Rationale:** Depends on Phase 1 (ExecResult variant) and Phase 3 (agent actually handles Exec). Can now be tested end-to-end: send Exec from rc-core, receive ExecResult from agent.
+### Phase 5: racecontrol WS Exec Path + Deploy.rs Changes
+**Rationale:** Depends on Phase 1 (ExecResult variant) and Phase 3 (agent actually handles Exec). Can now be tested end-to-end: send Exec from racecontrol, receive ExecResult from agent.
 **Delivers:** `pending_ws_execs` in AppState; `exec_on_pod_ws()` helper in deploy.rs; dual-path exec (HTTP first, WS fallback on connection refused); rollback logic at 60s health gate; modified do-swap.bat saving `rc-agent-prev.exe`.
 **Addresses:** Root cause #5 (no management when HTTP blocked); deploy resilience; eliminates process death race (Pitfall 9) via poll-until-dead loop in do-swap.bat
 **Avoids:** WS-only exec for binary download (Anti-Pattern 2) — download stays HTTP; WatchdogState direct access in deploy.rs (Anti-Pattern 3) — deploy.rs reads only its own state fields
@@ -126,7 +126,7 @@ Based on the combined research, the dependency graph is clear: rc-common protoco
 
 ### Phase 7: Fleet Health Dashboard
 **Rationale:** Observability layer — can only display meaningful data after Phases 2-6 make that data available (firewall status, startup anomalies, service status, deploy rollback state). Built last because it is read-only and independent; does not affect any existing functionality.
-**Delivers:** `fleet_health.rs` rc-core background task (5s broadcast); `DashboardEvent::FleetHealth` over existing kiosk WS; new `/fleet` kiosk route with `FleetGrid.tsx` + `PodHealthCard.tsx`; mobile-first 2-column layout for Uday's phone.
+**Delivers:** `fleet_health.rs` racecontrol background task (5s broadcast); `DashboardEvent::FleetHealth` over existing kiosk WS; new `/fleet` kiosk route with `FleetGrid.tsx` + `PodHealthCard.tsx`; mobile-first 2-column layout for Uday's phone.
 **Addresses:** DASH-01 (fleet health for Uday's phone); VER-01 (agent version visible in dashboard); real-time WS + HTTP status as independent indicators
 **Avoids:** Fleet monitoring overhead (Pitfall 11) — dashboard is a read-only AppState view, no new polling loops; separate Next.js app (Anti-Pattern 5) — extends existing kiosk
 
@@ -134,7 +134,7 @@ Based on the combined research, the dependency graph is clear: rc-common protoco
 
 - Phase 1 must be first because rc-common is the shared contract. A protocol change mid-development forces simultaneous rebuilds of both crates. Do it once, cleanly.
 - Phases 2 and 4 can be developed in parallel (both are isolated rc-agent modules) but must deploy sequentially to Pod 8 before Phase 3 is layered on.
-- Phase 3 before Phase 5 because rc-core's WS exec path depends on the agent actually implementing the handler. Testing without the agent side produces silent timeouts.
+- Phase 3 before Phase 5 because racecontrol's WS exec path depends on the agent actually implementing the handler. Testing without the agent side produces silent timeouts.
 - Phase 5 before Phase 6 because deploy rollback requires WebSocket exec to be available as the fallback path when :8090 is blocked post-restart.
 - Phase 6 before Phase 7 because the service status field in `PodHealthSnapshot` is only meaningful once the service is actually installed.
 - Phase 7 last because it depends on all health data flowing through AppState from the preceding phases.
@@ -160,7 +160,7 @@ Phases with standard patterns (skip research-phase):
 |------|------------|-------|
 | Stack | HIGH | Verified against actual Cargo.toml files and kiosk/package.json. New crates confirmed on crates.io with exact version numbers. NSSM vs native service debate resolved with clear rationale. Zero new npm packages confirmed. |
 | Features | HIGH | All P1 features directly map to Mar 15 incident root causes, which are fully documented. P2 features derived from operational patterns at comparable fleet management scale. Anti-features list explicitly derived from what would make things worse. |
-| Architecture | HIGH | Based on direct codebase inspection of rc-agent/main.rs (474+ lines), rc-core/deploy.rs, rc-core/ws/mod.rs, rc-common/protocol.rs, rc-core/state.rs, remote_ops.rs, pod_monitor.rs, and all kiosk pages. All architectural claims are derived from reading actual source files. |
+| Architecture | HIGH | Based on direct codebase inspection of rc-agent/main.rs (474+ lines), racecontrol/deploy.rs, racecontrol/ws/mod.rs, rc-common/protocol.rs, racecontrol/state.rs, remote_ops.rs, pod_monitor.rs, and all kiosk pages. All architectural claims are derived from reading actual source files. |
 | Pitfalls | HIGH | All 11 pitfalls are either directly observed during Mar 15 (Pitfalls 1, 2, 3, 6, 10) or derived from production codebase analysis of code that nearly caused those failures (Pitfalls 4, 5, 7, 8, 9). Cross-referenced with official Microsoft documentation on Session 0 isolation, netsh profile behavior, and AV scanner behavior. |
 
 **Overall confidence:** HIGH
@@ -180,10 +180,10 @@ Phases with standard patterns (skip research-phase):
 
 - `crates/rc-agent/src/main.rs` (474+ lines) — startup sequence order, HKLM Run key, GUI processes, tokio runtime location
 - `crates/rc-agent/src/remote_ops.rs` — EXEC_SEMAPHORE (4 slots), try_acquire pattern, CREATE_NO_WINDOW flag, exec timeout (10s default, 120s for downloads)
-- `crates/rc-core/src/deploy.rs` — exec_on_pod(), self-swap do-swap.bat generation (inline echo-chain, CRLF-safe), VERIFY_DELAYS, canary Pod 8 pattern
-- `crates/rc-core/src/ws/mod.rs` — handle_agent(), agent_senders pattern, all AgentMessage handling
+- `crates/racecontrol/src/deploy.rs` — exec_on_pod(), self-swap do-swap.bat generation (inline echo-chain, CRLF-safe), VERIFY_DELAYS, canary Pod 8 pattern
+- `crates/racecontrol/src/ws/mod.rs` — handle_agent(), agent_senders pattern, all AgentMessage handling
 - `crates/rc-common/src/protocol.rs` — CoreToAgentMessage variants (26 listed), AgentMessage variants (18 listed), DashboardEvent
-- `crates/rc-core/src/state.rs` — AppState field map: agent_senders, pod_deploy_states, pod_watchdog_states, pending_deploys
+- `crates/racecontrol/src/state.rs` — AppState field map: agent_senders, pod_deploy_states, pod_watchdog_states, pending_deploys
 - `kiosk/src/hooks/useKioskSocket.ts` — confirmed WebSocket hook at `/ws/dashboard`, bidirectional, handles all pod events
 - `kiosk/package.json` — confirmed Next.js 16.1.6, React 19.2.3, Tailwind 4, zero charting libraries
 - `.planning/PROJECT.md` — v4.0 requirements, Mar 15 incident motivation

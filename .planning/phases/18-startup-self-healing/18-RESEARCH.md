@@ -6,11 +6,11 @@
 
 ## Summary
 
-Phase 18 adds three capabilities to rc-agent: (1) self-repair of missing config file, start script, and registry key on every startup, (2) a startup status report sent to rc-core immediately after WebSocket connection, and (3) a phased startup log that persists to disk even if rc-agent crashes mid-startup for post-mortem analysis.
+Phase 18 adds three capabilities to rc-agent: (1) self-repair of missing config file, start script, and registry key on every startup, (2) a startup status report sent to racecontrol immediately after WebSocket connection, and (3) a phased startup log that persists to disk even if rc-agent crashes mid-startup for post-mortem analysis.
 
 The self-repair work follows the exact pattern established by Phase 16 (firewall.rs): a new module with a synchronous public function called early in main(), using `std::process::Command` for registry operations, `std::fs` for file operations, and non-fatal error handling (log warning + continue on failure). The config repair is the most nuanced piece -- rc-agent currently calls `load_config()` which fails and exits if no config file exists. Phase 18 must intercept this failure: when config is missing, regenerate it from an embedded template using `include_str!()` with the pod number derived from the hostname (Pod PCs are named "Pod-1" through "Pod-8") or from a minimal fallback. The start script and registry key repairs are straightforward file writes and `reg add` commands using patterns already in the codebase (lock_screen.rs, install.bat).
 
-The startup report is a new `AgentMessage::StartupReport` variant sent once per WebSocket connection, immediately after `Register`. rc-core receives it, logs it, and stores it in the pod state. No new protocol complexity -- just a new enum variant with flat fields (version, uptime_secs, config_hash, crash_recovery flag). The crash recovery flag is set when rc-agent detects a prior unclean shutdown (e.g., stale PID file or startup log from a previous run that ended mid-phase).
+The startup report is a new `AgentMessage::StartupReport` variant sent once per WebSocket connection, immediately after `Register`. racecontrol receives it, logs it, and stores it in the pod state. No new protocol complexity -- just a new enum variant with flat fields (version, uptime_secs, config_hash, crash_recovery flag). The crash recovery flag is set when rc-agent detects a prior unclean shutdown (e.g., stale PID file or startup log from a previous run that ended mid-phase).
 
 The phased startup log writes to `C:\RacingPoint\rc-agent-startup.log` at each phase of startup (config loaded, firewall configured, HTTP server started, WebSocket connected). If rc-agent crashes, the log shows the last phase reached. This is a simple append-to-file pattern -- not the tracing system, but a dedicated text file written with `std::fs::write` / `std::fs::OpenOptions::append`.
 
@@ -22,7 +22,7 @@ The phased startup log writes to `C:\RacingPoint\rc-agent-startup.log` at each p
 | ID | Description | Research Support |
 |----|-------------|-----------------|
 | HEAL-01 | rc-agent verifies config file, start script, and registry key on every startup -- repairs if missing | `self_heal.rs` module with `repair_config()`, `repair_start_script()`, `repair_registry_key()` called before `load_config()` in main.rs. Config template embedded via `include_str!()`, start script content as const string, registry key via `reg add` command. |
-| HEAL-02 | rc-agent reports startup status to rc-core immediately after WebSocket connect (version, uptime, config hash, crash recovery flag) | New `AgentMessage::StartupReport` variant in protocol.rs. Sent once after `Register` message in the reconnection loop. Config hash computed via simple CRC/hash of config file contents. Crash recovery flag set when previous startup log shows incomplete startup. |
+| HEAL-02 | rc-agent reports startup status to racecontrol immediately after WebSocket connect (version, uptime, config hash, crash recovery flag) | New `AgentMessage::StartupReport` variant in protocol.rs. Sent once after `Register` message in the reconnection loop. Config hash computed via simple CRC/hash of config file contents. Crash recovery flag set when previous startup log shows incomplete startup. |
 | HEAL-03 | Startup errors are captured to a log file before rc-agent exits (for post-mortem) | Phased startup log at `C:\RacingPoint\rc-agent-startup.log` written with `std::fs::OpenOptions::append`. Each startup phase writes a timestamped line. On crash, last line shows where it stopped. |
 </phase_requirements>
 
@@ -51,7 +51,7 @@ The phased startup log writes to `C:\RacingPoint\rc-agent-startup.log` at each p
 | Instead of | Could Use | Tradeoff |
 |------------|-----------|----------|
 | `reg add` via Command | winreg crate (pure Rust registry API) | winreg adds a dependency; `reg` command matches existing lock_screen.rs pattern and is tested on all 8 pods. For 3 registry operations at startup, subprocess overhead is negligible. |
-| include_str!() for template | Download template from rc-core | Network-dependent defeats the purpose -- self-healing must work offline |
+| include_str!() for template | Download template from racecontrol | Network-dependent defeats the purpose -- self-healing must work offline |
 | DefaultHasher for config hash | sha256/md5 | Overkill -- hash is for change detection not security. DefaultHasher is zero-dep. |
 | Phased startup log file | tracing file appender (already exists) | The tracing appender writes structured logs. The startup log needs a simple, human-readable, append-only file that survives even if tracing init fails. They serve different purposes. |
 
@@ -68,7 +68,7 @@ crates/rc-agent/src/
   main.rs               # MODIFIED -- wire self-heal before load_config, startup log, startup report
 crates/rc-common/src/
   protocol.rs           # MODIFIED -- add AgentMessage::StartupReport variant
-crates/rc-core/src/
+crates/racecontrol/src/
   ws/mod.rs             # MODIFIED -- handle StartupReport message (log + store)
 ```
 
@@ -389,7 +389,7 @@ pub fn detect_crash_recovery() -> bool {
 ## Common Pitfalls
 
 ### Pitfall 1: Config Regeneration with Wrong Pod Number
-**What goes wrong:** If hostname detection fails or returns the wrong number, a regenerated config will cause the pod to register as the wrong pod in rc-core, creating ghost pods and session conflicts.
+**What goes wrong:** If hostname detection fails or returns the wrong number, a regenerated config will cause the pod to register as the wrong pod in racecontrol, creating ghost pods and session conflicts.
 **Why it happens:** Hostname format assumptions break if someone renames the PC.
 **How to avoid:** (1) Validate pod number is 1-8 after parsing. (2) If hostname doesn't match expected pattern, DO NOT regenerate config -- let load_config() fail with a clear error. (3) Log the hostname and detected number at WARN level so post-mortem is easy.
 **Warning signs:** Two pods registering with the same pod_id; core sees duplicate registrations.
@@ -422,7 +422,7 @@ pub fn detect_crash_recovery() -> bool {
 **What goes wrong:** StartupReport is sent after every WebSocket reconnect, not just on initial startup. This pollutes logs with repeated startup reports from brief disconnections.
 **Why it happens:** The reconnection loop in main.rs runs Register on every connect.
 **How to avoid:** Send StartupReport only on the FIRST successful WebSocket connection (when `reconnect_attempt == 0` is reset). Use a `startup_report_sent` bool flag that's set after the first successful send.
-**Warning signs:** rc-core logs show startup reports every few seconds during a flaky connection period.
+**Warning signs:** racecontrol logs show startup reports every few seconds during a flaky connection period.
 
 ## Code Examples
 
@@ -566,28 +566,28 @@ ollama_model = "qwen2.5-coder:14b"
 |----------|-------|
 | Framework | cargo test (built-in) |
 | Config file | Cargo.toml workspace |
-| Quick run command | `cargo test -p rc-agent -- self_heal` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p rc-agent-crate -- self_heal` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements -> Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| HEAL-01a | Config repair: generates valid TOML from template + pod number | unit | `cargo test -p rc-agent -- self_heal::tests::test_repair_config -x` | Wave 0 |
-| HEAL-01b | Config repair: detects pod number from hostname | unit | `cargo test -p rc-agent -- self_heal::tests::test_detect_pod_number -x` | Wave 0 |
-| HEAL-01c | Config repair: rejects invalid pod numbers (0, 9, non-numeric) | unit | `cargo test -p rc-agent -- self_heal::tests::test_detect_pod_number_invalid -x` | Wave 0 |
-| HEAL-01d | Start script repair: writes CRLF content | unit | `cargo test -p rc-agent -- self_heal::tests::test_repair_start_script_crlf -x` | Wave 0 |
-| HEAL-01e | Registry key check: reg query parsing | unit | `cargo test -p rc-agent -- self_heal::tests::test_registry_key -x` | Wave 0 |
-| HEAL-01f | Self-heal skips repair when files exist | unit | `cargo test -p rc-agent -- self_heal::tests::test_no_repair_when_exists -x` | Wave 0 |
+| HEAL-01a | Config repair: generates valid TOML from template + pod number | unit | `cargo test -p rc-agent-crate -- self_heal::tests::test_repair_config -x` | Wave 0 |
+| HEAL-01b | Config repair: detects pod number from hostname | unit | `cargo test -p rc-agent-crate -- self_heal::tests::test_detect_pod_number -x` | Wave 0 |
+| HEAL-01c | Config repair: rejects invalid pod numbers (0, 9, non-numeric) | unit | `cargo test -p rc-agent-crate -- self_heal::tests::test_detect_pod_number_invalid -x` | Wave 0 |
+| HEAL-01d | Start script repair: writes CRLF content | unit | `cargo test -p rc-agent-crate -- self_heal::tests::test_repair_start_script_crlf -x` | Wave 0 |
+| HEAL-01e | Registry key check: reg query parsing | unit | `cargo test -p rc-agent-crate -- self_heal::tests::test_registry_key -x` | Wave 0 |
+| HEAL-01f | Self-heal skips repair when files exist | unit | `cargo test -p rc-agent-crate -- self_heal::tests::test_no_repair_when_exists -x` | Wave 0 |
 | HEAL-02a | StartupReport serde roundtrip | unit | `cargo test -p rc-common -- protocol::tests::test_startup_report -x` | Wave 0 |
-| HEAL-02b | Config hash is deterministic | unit | `cargo test -p rc-agent -- self_heal::tests::test_config_hash -x` | Wave 0 |
-| HEAL-03a | Startup log write_phase creates file | unit | `cargo test -p rc-agent -- startup_log::tests::test_write_phase -x` | Wave 0 |
-| HEAL-03b | Crash recovery detection from incomplete log | unit | `cargo test -p rc-agent -- startup_log::tests::test_detect_crash -x` | Wave 0 |
-| HEAL-03c | No crash recovery from complete log | unit | `cargo test -p rc-agent -- startup_log::tests::test_no_crash -x` | Wave 0 |
+| HEAL-02b | Config hash is deterministic | unit | `cargo test -p rc-agent-crate -- self_heal::tests::test_config_hash -x` | Wave 0 |
+| HEAL-03a | Startup log write_phase creates file | unit | `cargo test -p rc-agent-crate -- startup_log::tests::test_write_phase -x` | Wave 0 |
+| HEAL-03b | Crash recovery detection from incomplete log | unit | `cargo test -p rc-agent-crate -- startup_log::tests::test_detect_crash -x` | Wave 0 |
+| HEAL-03c | No crash recovery from complete log | unit | `cargo test -p rc-agent-crate -- startup_log::tests::test_no_crash -x` | Wave 0 |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-agent -- self_heal && cargo test -p rc-common -- protocol::tests::test_startup_report`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p rc-agent-crate -- self_heal && cargo test -p rc-common -- protocol::tests::test_startup_report`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps

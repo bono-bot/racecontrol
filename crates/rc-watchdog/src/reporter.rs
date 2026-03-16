@@ -11,7 +11,7 @@ pub fn build_crash_report_url(core_url: &str, pod_id: &str) -> String {
     )
 }
 
-/// Send a crash report to rc-core. Fire-and-forget: logs errors but never
+/// Send a crash report to racecontrol. Fire-and-forget: logs errors but never
 /// panics or returns an error that would stop the restart loop.
 pub fn send_crash_report(core_url: &str, report: &WatchdogCrashReport) {
     let url = build_crash_report_url(core_url, &report.pod_id);

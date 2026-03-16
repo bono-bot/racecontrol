@@ -26,11 +26,11 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/auth/mod.rs
-    - crates/rc-core/src/multiplayer.rs
-    - crates/rc-core/src/ac_server.rs
-    - crates/rc-core/src/billing.rs
-    - crates/rc-core/src/api/routes.rs
+    - crates/racecontrol/src/auth/mod.rs
+    - crates/racecontrol/src/multiplayer.rs
+    - crates/racecontrol/src/ac_server.rs
+    - crates/racecontrol/src/billing.rs
+    - crates/racecontrol/src/api/routes.rs
     - crates/rc-common/src/types.rs
 
 key-decisions:
@@ -77,11 +77,11 @@ completed: 2026-03-16
 
 ## Files Created/Modified
 
-- `crates/rc-core/src/auth/mod.rs` — Replaced broken group_session_id query with find_group_session_for_token(); added on_member_validated() call; skips launch_or_assist() for group members
-- `crates/rc-core/src/multiplayer.rs` — Removed AC server start from book_multiplayer() and book_multiplayer_kiosk() (both MULTI-01 blocks); removed now-unused `use crate::ac_server` import
-- `crates/rc-core/src/ac_server.rs` — Added continuous_mode + group_session_id fields to AcServerInstance; set_continuous_mode(); monitor_continuous_session() with mutable session loop
-- `crates/rc-core/src/billing.rs` — Added continuous_mode guard in check_and_stop_multiplayer_server() to defer stop to monitor loop
-- `crates/rc-core/src/api/routes.rs` — Added POST /ac/session/{session_id}/continuous route and ac_server_set_continuous handler
+- `crates/racecontrol/src/auth/mod.rs` — Replaced broken group_session_id query with find_group_session_for_token(); added on_member_validated() call; skips launch_or_assist() for group members
+- `crates/racecontrol/src/multiplayer.rs` — Removed AC server start from book_multiplayer() and book_multiplayer_kiosk() (both MULTI-01 blocks); removed now-unused `use crate::ac_server` import
+- `crates/racecontrol/src/ac_server.rs` — Added continuous_mode + group_session_id fields to AcServerInstance; set_continuous_mode(); monitor_continuous_session() with mutable session loop
+- `crates/racecontrol/src/billing.rs` — Added continuous_mode guard in check_and_stop_multiplayer_server() to defer stop to monitor loop
+- `crates/racecontrol/src/api/routes.rs` — Added POST /ac/session/{session_id}/continuous route and ac_server_set_continuous handler
 - `crates/rc-common/src/types.rs` — Added continuous_mode: bool with serde(default) to AcServerInfo
 
 ## Decisions Made
@@ -99,7 +99,7 @@ completed: 2026-03-16
 - **Found during:** Task 1 (removing book_multiplayer AC server start block)
 - **Issue:** After removing both AC server start calls from booking functions, the direct `use crate::ac_server` import became unused (start_ac_lan_for_group still uses crate::ac_server:: fully qualified path)
 - **Fix:** Removed the unused `use crate::ac_server;` line to eliminate warning
-- **Files modified:** crates/rc-core/src/multiplayer.rs
+- **Files modified:** crates/racecontrol/src/multiplayer.rs
 - **Verification:** cargo build passes cleanly, no unused import warning
 - **Committed in:** 74b4c8a (Task 1 commit)
 
@@ -107,7 +107,7 @@ completed: 2026-03-16
 - **Found during:** Task 2 (implementing monitor loop)
 - **Issue:** Original design used `tokio::spawn(monitor_continuous_session(...))` inside the monitor for restart. Compiler rejected this: AcServerInstance contains std::process::Child which is !Send on Windows, making the future !Send, failing the tokio::spawn Send bound
 - **Fix:** Replaced recursive spawn with mutable `current_session_id` loop — same semantics, no nested spawn needed. The outer spawn in routes.rs (the initial spawn) still works because it only moves an Arc<AppState> + String into the closure
-- **Files modified:** crates/rc-core/src/ac_server.rs
+- **Files modified:** crates/racecontrol/src/ac_server.rs
 - **Verification:** cargo build passes, all 344 tests pass
 - **Committed in:** 2a27a96 (Task 2 commit)
 
@@ -125,7 +125,7 @@ completed: 2026-03-16
 - Coordinated launch path fully wired: booking → PIN validation → on_member_validated → start_ac_lan_for_group → LaunchGame all pods
 - Continuous mode operational: staff POST endpoint + monitor loop handles restart/stop lifecycle
 - Phase 5 Plan 02 (join failure recovery) can proceed — the coordinated launch path is now tested and working
-- 344 tests passing (238 rc-core + 106 rc-common)
+- 344 tests passing (238 racecontrol + 106 rc-common)
 
 ---
 *Phase: 05-synchronized-group-play*

@@ -8,7 +8,7 @@
 
 ## Summary
 
-Phase 20 hardens the existing deploy pipeline in `rc-core/src/deploy.rs`. The current self-swap
+Phase 20 hardens the existing deploy pipeline in `racecontrol/src/deploy.rs`. The current self-swap
 pattern (download `rc-agent-new.exe` alongside the live process, then run `do-swap.bat` detached)
 works correctly for the happy path but has four unaddressed failure modes: no previous binary is
 preserved for rollback, health-check failure at the 60s gate stops at `DeployState::Failed` without
@@ -21,9 +21,9 @@ are needed. The changes touch `do-swap.bat` generation (one Rust string constant
 `deploy_rolling()` (collect results and emit a summary log line). The `DeployState` enum needs one
 new variant (`RollingBack`) and one clarification to `deploy_step_label`.
 
-The rollback trigger location is rc-core (not the watchdog). The watchdog restarts any process that
+The rollback trigger location is racecontrol (not the watchdog). The watchdog restarts any process that
 disappears — it has no knowledge of whether the binary is good or bad. Rollback must be orchestrated
-by the entity that initiated the deploy: `deploy_pod()` in rc-core. The watchdog's role remains
+by the entity that initiated the deploy: `deploy_pod()` in racecontrol. The watchdog's role remains
 unchanged: if rc-agent disappears during rollback it will restart it from whatever `rc-agent.exe`
 is present at that moment.
 
@@ -52,7 +52,7 @@ second detached batch script (`do-rollback.bat`) that moves `rc-agent-prev.exe` 
 
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| tokio | 1.x | Async runtime for deploy_pod tasks | Already used throughout rc-core |
+| tokio | 1.x | Async runtime for deploy_pod tasks | Already used throughout racecontrol |
 | serde / serde_json | 1.x | DeployState serialization to dashboard | Already used — DeployState is serde-tagged |
 | tracing | 0.1 | Structured logging for fleet summary | Already used — all deploy steps log via `tracing::info!` |
 | chrono | 0.4 | Timestamps in failure alerts | Already used in `send_deploy_failure_alert` |
@@ -129,14 +129,14 @@ start "" /D C:\RacingPoint rc-agent.exe
 
 Note: The swap_cmd string in `deploy_pod()` at line 477 generates `do-swap.bat` using a long one-liner `echo` pipeline. The cleanest implementation replaces this with a multi-line constant (like `START_SCRIPT_CONTENT` in self_heal.rs) with explicit CRLF line endings.
 
-### Pattern 2: rc-core-triggered rollback (DEP-02)
+### Pattern 2: racecontrol-triggered rollback (DEP-02)
 
 **What:** After the VERIFY_DELAYS loop exhausts without health, generate and run a `do-rollback.bat`
 via `exec_on_pod`. This script moves `rc-agent-prev.exe` back to `rc-agent.exe` and starts it.
 
 **When to use:** Only when `rc-agent-prev.exe` is confirmed to exist AND health verification failed.
 
-**Design decision** (confirmed in STATE.md): Rollback is automatic, not manual. rc-core is the
+**Design decision** (confirmed in STATE.md): Rollback is automatic, not manual. racecontrol is the
 trigger. The watchdog is not involved in rollback decisions.
 
 ```rust
@@ -575,7 +575,7 @@ tracing::info!(
    - Recommendation: Add `RolledBack` variant that displays for 10s then resets to `Idle`. Dashboard can show it in amber. This keeps the audit trail visible.
 
 3. **FleetDeploySummary broadcast vs log-only**
-   - What we know: DEP-04 says "rc-core logs a per-pod summary" — logging is sufficient for the requirement
+   - What we know: DEP-04 says "racecontrol logs a per-pod summary" — logging is sufficient for the requirement
    - What's unclear: should `FleetDeploySummary` also be added as a `DashboardEvent` variant?
    - Recommendation: Add the `DashboardEvent::FleetDeploySummary` variant anyway — low cost, Uday can see it on the kiosk dashboard without needing SSH. The planner should scope this as optional (log is the requirement, event is a bonus).
 
@@ -589,34 +589,34 @@ tracing::info!(
 |----------|-------|
 | Framework | cargo test (Rust built-in) |
 | Config file | Cargo.toml workspace |
-| Quick run command | `cargo test -p rc-common && cargo test -p rc-core` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core && cargo test -p rc-watchdog` |
+| Quick run command | `cargo test -p rc-common && cargo test -p racecontrol-crate` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate && cargo test -p rc-watchdog` |
 
 ### Phase Requirements to Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| DEP-01 | SWAP_SCRIPT_CONTENT const contains `rc-agent-prev.exe` move command | unit | `cargo test -p rc-core deploy::tests::swap_script_preserves_prev` | Wave 0 |
-| DEP-01 | SWAP_SCRIPT_CONTENT has CRLF line endings | unit | `cargo test -p rc-core deploy::tests::swap_script_crlf` | Wave 0 |
+| DEP-01 | SWAP_SCRIPT_CONTENT const contains `rc-agent-prev.exe` move command | unit | `cargo test -p racecontrol-crate deploy::tests::swap_script_preserves_prev` | Wave 0 |
+| DEP-01 | SWAP_SCRIPT_CONTENT has CRLF line endings | unit | `cargo test -p racecontrol-crate deploy::tests::swap_script_crlf` | Wave 0 |
 | DEP-02 | `DeployState::RollingBack` serializes as `rolling_back` | unit | `cargo test -p rc-common types::tests::deploy_state_rolling_back_serde` | Wave 0 |
 | DEP-02 | `RollingBack` returns true from `is_active()` | unit | `cargo test -p rc-common types::tests::rolling_back_is_active` | Wave 0 |
-| DEP-02 | `deploy_step_label` returns correct string for `RollingBack` | unit | `cargo test -p rc-core deploy::tests::deploy_step_label_rolling_back` | Wave 0 |
+| DEP-02 | `deploy_step_label` returns correct string for `RollingBack` | unit | `cargo test -p racecontrol-crate deploy::tests::deploy_step_label_rolling_back` | Wave 0 |
 | DEP-03 | `SelfHealResult` has `defender_repaired` field | unit | compile check (no runtime test needed) | ✅ (add field) |
 | DEP-03 | Self-heal runs defender check (integration) | manual | Check log output on Pod 8 after deploy | N/A |
-| DEP-04 | ROLLBACK_SCRIPT_CONTENT contains `rc-agent-prev.exe` | unit | `cargo test -p rc-core deploy::tests::rollback_script_contains_prev` | Wave 0 |
-| DEP-04 | ROLLBACK_SCRIPT_CONTENT has CRLF | unit | `cargo test -p rc-core deploy::tests::rollback_script_crlf` | Wave 0 |
+| DEP-04 | ROLLBACK_SCRIPT_CONTENT contains `rc-agent-prev.exe` | unit | `cargo test -p racecontrol-crate deploy::tests::rollback_script_contains_prev` | Wave 0 |
+| DEP-04 | ROLLBACK_SCRIPT_CONTENT has CRLF | unit | `cargo test -p racecontrol-crate deploy::tests::rollback_script_crlf` | Wave 0 |
 
 ### Sampling Rate
 
-- **Per task commit:** `cargo test -p rc-common && cargo test -p rc-core`
-- **Per wave merge:** full suite (`cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core && cargo test -p rc-watchdog`)
+- **Per task commit:** `cargo test -p rc-common && cargo test -p racecontrol-crate`
+- **Per wave merge:** full suite (`cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate && cargo test -p rc-watchdog`)
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 
 New test functions needed in existing test modules (no new files):
 
-- [ ] `crates/rc-core/src/deploy.rs` tests — `swap_script_preserves_prev`, `swap_script_crlf`, `rollback_script_contains_prev`, `rollback_script_crlf`, `deploy_step_label_rolling_back`
+- [ ] `crates/racecontrol/src/deploy.rs` tests — `swap_script_preserves_prev`, `swap_script_crlf`, `rollback_script_contains_prev`, `rollback_script_crlf`, `deploy_step_label_rolling_back`
 - [ ] `crates/rc-common/src/types.rs` tests — `deploy_state_rolling_back_serde`, `rolling_back_is_active`
 
 Both test files already exist with existing passing tests. New tests are additive — no existing tests change.
@@ -627,11 +627,11 @@ Both test files already exist with existing passing tests. New tests are additiv
 
 ### Primary (HIGH confidence)
 
-- Direct codebase read: `crates/rc-core/src/deploy.rs` — complete deploy flow, 848 lines
+- Direct codebase read: `crates/racecontrol/src/deploy.rs` — complete deploy flow, 848 lines
 - Direct codebase read: `crates/rc-common/src/types.rs` — `DeployState` enum at line 674
 - Direct codebase read: `crates/rc-agent/src/self_heal.rs` — existing 4-check repair pattern
 - Direct codebase read: `crates/rc-watchdog/src/service.rs` — 15s grace window, tasklist polling
-- Direct codebase read: `crates/rc-core/src/state.rs` — `pod_deploy_states`, `pending_deploys` fields
+- Direct codebase read: `crates/racecontrol/src/state.rs` — `pod_deploy_states`, `pending_deploys` fields
 
 ### Secondary (MEDIUM confidence)
 
@@ -651,7 +651,7 @@ Both test files already exist with existing passing tests. New tests are additiv
 
 **Confidence breakdown:**
 - Standard stack: HIGH — no new dependencies, all patterns from existing code
-- Architecture: HIGH — rollback trigger location (rc-core not watchdog), bat generation pattern, and AV exclusion approach all locked in STATE.md decisions
+- Architecture: HIGH — rollback trigger location (racecontrol not watchdog), bat generation pattern, and AV exclusion approach all locked in STATE.md decisions
 - Pitfalls: HIGH — CRLF bat, AV hold, and watchdog race all documented from the Mar 15 live outage in PITFALLS.md; rollback-on-first-deploy is logical from code inspection
 - DEP-03 Defender check: MEDIUM — `Get-MpPreference` behavior as admin user confirmed by general Windows knowledge; not tested on actual pod environment yet
 

@@ -50,25 +50,25 @@
   {
     "instruction": "What is the network layout of Racing Point?",
     "input": "",
-    "output": "Racing Point has 8 sim racing pods on subnet 192.168.31.x:\n- Pod 1: .89, Pod 2: .33, Pod 3: .28, Pod 4: .88\n- Pod 5: .86, Pod 6: .87, Pod 7: .38, Pod 8: .91\n- Server (Racing-Point-Server): .51 (64GB RAM, runs rc-core on port 8080)\n- James (AI assistant): .27\n- Router: .1\n\nEach pod runs rc-agent + pod-agent (port 8090). Lock screen on port 18923, debug on 18924.",
+    "output": "Racing Point has 8 sim racing pods on subnet 192.168.31.x:\n- Pod 1: .89, Pod 2: .33, Pod 3: .28, Pod 4: .88\n- Pod 5: .86, Pod 6: .87, Pod 7: .38, Pod 8: .91\n- Server (Racing-Point-Server): .51 (64GB RAM, runs racecontrol on port 8080)\n- James (AI assistant): .27\n- Router: .1\n\nEach pod runs rc-agent + pod-agent (port 8090). Lock screen on port 18923, debug on 18924.",
     "source": "ops/network"
   },
   {
     "instruction": "How do I check if a pod is reachable?",
     "input": "",
-    "output": "Check pod connectivity:\n1. Ping: `ping 192.168.31.<pod_ip>`\n2. Pod-agent health: `curl -s http://192.168.31.<pod_ip>:8090/health`\n3. rc-core pod list: `curl -s http://localhost:8080/api/v1/pods`\n\nIf unreachable:\n- Pod may be powered off\n- DHCP IP may have changed — scan subnet: `nmap -p 8090 192.168.31.0/24`\n- Firewall may be blocking — check Windows Firewall on the pod\n- Network cable disconnected — check physical connection",
+    "output": "Check pod connectivity:\n1. Ping: `ping 192.168.31.<pod_ip>`\n2. Pod-agent health: `curl -s http://192.168.31.<pod_ip>:8090/health`\n3. racecontrol pod list: `curl -s http://localhost:8080/api/v1/pods`\n\nIf unreachable:\n- Pod may be powered off\n- DHCP IP may have changed — scan subnet: `nmap -p 8090 192.168.31.0/24`\n- Firewall may be blocking — check Windows Firewall on the pod\n- Network cable disconnected — check physical connection",
     "source": "ops/network"
   },
   {
     "instruction": "What ports does the RaceControl system use?",
     "input": "",
-    "output": "RaceControl port map:\n- 8080: rc-core REST API + WebSocket (server .51)\n- 8090: pod-agent REST API (each pod)\n- 9999: UDP heartbeat (rc-agent <-> rc-core)\n- 18923: Lock screen HTTP server (rc-agent, localhost only)\n- 18924: Debug HTTP server (rc-agent)\n- 18925: Overlay HTTP server (rc-agent)\n- 3300: Kiosk Next.js app (server .51)\n\nGame telemetry UDP ports:\n- 9996: Assetto Corsa\n- 20777: F1 25\n- 5300: Forza Motorsport\n- 6789: iRacing\n- 5555: Le Mans Ultimate",
+    "output": "RaceControl port map:\n- 8080: racecontrol REST API + WebSocket (server .51)\n- 8090: pod-agent REST API (each pod)\n- 9999: UDP heartbeat (rc-agent <-> racecontrol)\n- 18923: Lock screen HTTP server (rc-agent, localhost only)\n- 18924: Debug HTTP server (rc-agent)\n- 18925: Overlay HTTP server (rc-agent)\n- 3300: Kiosk Next.js app (server .51)\n\nGame telemetry UDP ports:\n- 9996: Assetto Corsa\n- 20777: F1 25\n- 5300: Forza Motorsport\n- 6789: iRacing\n- 5555: Le Mans Ultimate",
     "source": "ops/network"
   },
   {
     "instruction": "What is the server's role at Racing Point?",
     "input": "",
-    "output": "Racing-Point-Server at 192.168.31.23 (64GB RAM):\n- Runs rc-core (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n- Runs kiosk Next.js app on port 3300 — staff terminal\n- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n- rc-core is authoritative for billing and laps. Cloud is authoritative for drivers and pricing.",
+    "output": "Racing-Point-Server at 192.168.31.23 (64GB RAM):\n- Runs racecontrol (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n- Runs kiosk Next.js app on port 3300 — staff terminal\n- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n- racecontrol is authoritative for billing and laps. Cloud is authoritative for drivers and pricing.",
     "source": "ops/network"
   },
   {
@@ -86,19 +86,19 @@
   {
     "instruction": "How does billing work in RaceControl?",
     "input": "",
-    "output": "Billing flow:\n1. Customer authenticates at pod via PIN (4-digit) or QR scan + PWA confirmation\n2. Staff selects pricing tier on kiosk terminal\n3. rc-core creates billing_session in SQLite, starts timer\n4. rc-core sends BillingStarted to rc-agent via WebSocket\n5. rc-agent shows countdown overlay on pod screen\n6. BillingTick sent every second with remaining time\n7. On expiry or manual stop: SessionEnded sent, overlay dismissed\n\nDriving time tracked separately from billing time (idle_threshold = 10s). Sessions survive rc-core restart — recovered from DB.",
+    "output": "Billing flow:\n1. Customer authenticates at pod via PIN (4-digit) or QR scan + PWA confirmation\n2. Staff selects pricing tier on kiosk terminal\n3. racecontrol creates billing_session in SQLite, starts timer\n4. racecontrol sends BillingStarted to rc-agent via WebSocket\n5. rc-agent shows countdown overlay on pod screen\n6. BillingTick sent every second with remaining time\n7. On expiry or manual stop: SessionEnded sent, overlay dismissed\n\nDriving time tracked separately from billing time (idle_threshold = 10s). Sessions survive racecontrol restart — recovered from DB.",
     "source": "ops/billing"
   },
   {
     "instruction": "How do I manually end a billing session?",
     "input": "",
-    "output": "To manually end a billing session:\n\nVia API: `POST /api/v1/billing/{session-uuid}/stop`\n\nVia kiosk: Click the active session on the pod card, then 'End Session'.\n\nIf the in-memory timer is lost (rc-core restart), the API has a DB fallback (f74a5f9) — it queries for orphaned active sessions and force-ends them.\n\nTo find the session UUID:\n- `curl http://localhost:8080/api/v1/billing/active` — lists active in-memory timers\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — recent sessions from DB",
+    "output": "To manually end a billing session:\n\nVia API: `POST /api/v1/billing/{session-uuid}/stop`\n\nVia kiosk: Click the active session on the pod card, then 'End Session'.\n\nIf the in-memory timer is lost (racecontrol restart), the API has a DB fallback (f74a5f9) — it queries for orphaned active sessions and force-ends them.\n\nTo find the session UUID:\n- `curl http://localhost:8080/api/v1/billing/active` — lists active in-memory timers\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — recent sessions from DB",
     "source": "ops/billing"
   },
   {
     "instruction": "What happens when a game crashes during an active billing session?",
     "input": "",
-    "output": "When a game crashes during active billing:\n\n1. rc-agent detects game process exit (2s check interval)\n2. Sends GameStateUpdate(Error) to rc-core\n3. Arms 30s crash recovery timer\n4. If AI debugger enabled, spawns AI crash analysis\n5. Waits 30s for rc-core to send SessionEnded\n6. If no SessionEnded after 30s: force-resets pod (safe state enforcement)\n7. Safe state: kills all game processes, shows blank lock screen\n\nThe billing session continues — staff can restart the game or end the session. Driving seconds are paused when no game is running.",
+    "output": "When a game crashes during active billing:\n\n1. rc-agent detects game process exit (2s check interval)\n2. Sends GameStateUpdate(Error) to racecontrol\n3. Arms 30s crash recovery timer\n4. If AI debugger enabled, spawns AI crash analysis\n5. Waits 30s for racecontrol to send SessionEnded\n6. If no SessionEnded after 30s: force-resets pod (safe state enforcement)\n7. Safe state: kills all game processes, shows blank lock screen\n\nThe billing session continues — staff can restart the game or end the session. Driving seconds are paused when no game is running.",
     "source": "ops/billing"
   },
   {
@@ -128,7 +128,7 @@
   {
     "instruction": "How does the driving detector work?",
     "input": "",
-    "output": "The driving detector in rc-agent monitors driver activity from two sources:\n\n1. **HID USB** (hidapi): Reads OpenFFBoard HID reports from the wheelbase. Detects steering movement and pedal input. Reports hid_connected and hid_active.\n\n2. **UDP telemetry**: Game-specific telemetry on per-sim UDP ports. AC on 9996, F1 on 20777, Forza on 5300, iRacing on 6789, LMU on 5555.\n\nStates: Active (input detected), Idle (no input for 10s), NoDevice (wheelbase disconnected).\nIdle threshold: 10 seconds (configurable in rc-agent.toml).\nDrivingState is sent to rc-core via heartbeat and used for billing idle tracking.",
+    "output": "The driving detector in rc-agent monitors driver activity from two sources:\n\n1. **HID USB** (hidapi): Reads OpenFFBoard HID reports from the wheelbase. Detects steering movement and pedal input. Reports hid_connected and hid_active.\n\n2. **UDP telemetry**: Game-specific telemetry on per-sim UDP ports. AC on 9996, F1 on 20777, Forza on 5300, iRacing on 6789, LMU on 5555.\n\nStates: Active (input detected), Idle (no input for 10s), NoDevice (wheelbase disconnected).\nIdle threshold: 10 seconds (configurable in rc-agent.toml).\nDrivingState is sent to racecontrol via heartbeat and used for billing idle tracking.",
     "source": "ops/hardware"
   },
   {
@@ -140,31 +140,31 @@
   {
     "instruction": "How does Assetto Corsa work at Racing Point?",
     "input": "",
-    "output": "Assetto Corsa details:\n- Executable: acs.exe\n- Telemetry UDP port: 9996\n- Platform: Steam/direct\n- Launch method: Content Manager or direct acs.exe launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 9996\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered",
+    "output": "Assetto Corsa details:\n- Executable: acs.exe\n- Telemetry UDP port: 9996\n- Platform: Steam/direct\n- Launch method: Content Manager or direct acs.exe launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 9996\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered",
     "source": "ops/games"
   },
   {
     "instruction": "How does F1 25 work at Racing Point?",
     "input": "",
-    "output": "F1 25 details:\n- Executable: F1_25.exe\n- Telemetry UDP port: 20777\n- Platform: Steam\n- Launch method: Steam launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 20777\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered",
+    "output": "F1 25 details:\n- Executable: F1_25.exe\n- Telemetry UDP port: 20777\n- Platform: Steam\n- Launch method: Steam launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 20777\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered",
     "source": "ops/games"
   },
   {
     "instruction": "How does iRacing work at Racing Point?",
     "input": "",
-    "output": "iRacing details:\n- Executable: iRacingSim64DX11.exe\n- Telemetry UDP port: 6789\n- Platform: iRacing launcher\n- Launch method: iRacing UI launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 6789\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered",
+    "output": "iRacing details:\n- Executable: iRacingSim64DX11.exe\n- Telemetry UDP port: 6789\n- Platform: iRacing launcher\n- Launch method: iRacing UI launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 6789\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered",
     "source": "ops/games"
   },
   {
     "instruction": "How does Le Mans Ultimate work at Racing Point?",
     "input": "",
-    "output": "Le Mans Ultimate details:\n- Executable: LMU.exe\n- Telemetry UDP port: 5555\n- Platform: Steam\n- Launch method: Steam launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 5555\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered",
+    "output": "Le Mans Ultimate details:\n- Executable: LMU.exe\n- Telemetry UDP port: 5555\n- Platform: Steam\n- Launch method: Steam launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 5555\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered",
     "source": "ops/games"
   },
   {
     "instruction": "How does Forza Motorsport work at Racing Point?",
     "input": "",
-    "output": "Forza Motorsport details:\n- Executable: ForzaMotorsport.exe\n- Telemetry UDP port: 5300\n- Platform: Microsoft Store\n- Launch method: Xbox app launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 5300\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered",
+    "output": "Forza Motorsport details:\n- Executable: ForzaMotorsport.exe\n- Telemetry UDP port: 5300\n- Platform: Microsoft Store\n- Launch method: Xbox app launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 5300\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered",
     "source": "ops/games"
   },
   {
@@ -182,7 +182,7 @@
   {
     "instruction": "How does customer authentication work at Racing Point?",
     "input": "",
-    "output": "Two authentication methods:\n\n**PIN Auth** (primary):\n1. Staff enters customer phone at reception kiosk\n2. System generates 4-digit PIN, displays on kiosk\n3. Customer enters PIN on pod lock screen (numpad)\n4. rc-agent sends PIN to rc-core for validation\n5. On success: lock screen shows active session UI\n\n**QR + PWA** (alternative):\n1. Customer scans QR code displayed on pod\n2. Opens PWA in mobile browser\n3. Confirms session on mobile\n4. rc-core validates and sends BillingStarted to rc-agent\n\nEmployee debug PIN: Daily rotating 4-digit PIN, Content Manager access blocked for customers.",
+    "output": "Two authentication methods:\n\n**PIN Auth** (primary):\n1. Staff enters customer phone at reception kiosk\n2. System generates 4-digit PIN, displays on kiosk\n3. Customer enters PIN on pod lock screen (numpad)\n4. rc-agent sends PIN to racecontrol for validation\n5. On success: lock screen shows active session UI\n\n**QR + PWA** (alternative):\n1. Customer scans QR code displayed on pod\n2. Opens PWA in mobile browser\n3. Confirms session on mobile\n4. racecontrol validates and sends BillingStarted to rc-agent\n\nEmployee debug PIN: Daily rotating 4-digit PIN, Content Manager access blocked for customers.",
     "source": "ops/customer"
   },
   {
@@ -194,19 +194,19 @@
   {
     "instruction": "What happens after a customer's session ends?",
     "input": "",
-    "output": "Post-session flow:\n1. Timer expires or staff ends session via kiosk\n2. rc-core sends SessionEnded to rc-agent\n3. Lock screen shows SessionSummary: driver name, total laps, best lap, driving time\n4. 15-second auto-blank timer starts\n5. After 15s (if no new session started): screen goes blank (ScreenBlanked)\n6. enforce_safe_state() kills game processes, minimizes background windows\n7. Pod status set to Idle, ready for next customer\n\nIf customer has wallet balance, BetweenSessions state shows balance.",
+    "output": "Post-session flow:\n1. Timer expires or staff ends session via kiosk\n2. racecontrol sends SessionEnded to rc-agent\n3. Lock screen shows SessionSummary: driver name, total laps, best lap, driving time\n4. 15-second auto-blank timer starts\n5. After 15s (if no new session started): screen goes blank (ScreenBlanked)\n6. enforce_safe_state() kills game processes, minimizes background windows\n7. Pod status set to Idle, ready for next customer\n\nIf customer has wallet balance, BetweenSessions state shows balance.",
     "source": "ops/customer"
   },
   {
     "instruction": "How does the cloud sync work?",
     "input": "",
-    "output": "Cloud sync module in crates/rc-core/src/cloud_sync.rs:\n\n- Syncs every 30 seconds with app.racingpoint.cloud (72.60.101.58, Bono's VPS)\n- **Cloud authoritative**: drivers, pricing tiers\n- **Local authoritative**: billing sessions, laps, game state\n\nID mismatch handling:\n- Local and cloud have different UUIDs for drivers\n- sync_push resolves by matching phone number or email\n- Wallet balance sync resolves driver by phone when IDs differ (d99687c)\n\nPWA shows 'credits' not rupees.",
+    "output": "Cloud sync module in crates/racecontrol/src/cloud_sync.rs:\n\n- Syncs every 30 seconds with app.racingpoint.cloud (72.60.101.58, Bono's VPS)\n- **Cloud authoritative**: drivers, pricing tiers\n- **Local authoritative**: billing sessions, laps, game state\n\nID mismatch handling:\n- Local and cloud have different UUIDs for drivers\n- sync_push resolves by matching phone number or email\n- Wallet balance sync resolves driver by phone when IDs differ (d99687c)\n\nPWA shows 'credits' not rupees.",
     "source": "ops/customer"
   },
   {
     "instruction": "What is the RaceControl system architecture?",
     "input": "",
-    "output": "RaceControl is a Rust monorepo with 3 crates:\n\n1. **rc-common**: Shared types, protocol definitions, used by both core and agent\n2. **rc-core** (port 8080): Central server on Racing-Point-Server (.51)\n   - Axum REST API + WebSocket server\n   - Billing management, pod tracking, game launching\n   - AI service (Ollama → Claude CLI → Anthropic fallback)\n   - Cloud sync, SQLite database\n3. **rc-agent**: Runs on each gaming pod\n   - Lock screen, kiosk enforcement, driving detector\n   - Game process monitoring, AC launcher\n   - AI debugger for crash analysis\n   - UDP heartbeat to rc-core\n\nCommunication: WebSocket (commands) + UDP (heartbeat). Agent registers on connect, core sends billing commands. Heartbeat every 5s.",
+    "output": "RaceControl is a Rust monorepo with 3 crates:\n\n1. **rc-common**: Shared types, protocol definitions, used by both core and agent\n2. **racecontrol** (port 8080): Central server on Racing-Point-Server (.51)\n   - Axum REST API + WebSocket server\n   - Billing management, pod tracking, game launching\n   - AI service (Ollama → Claude CLI → Anthropic fallback)\n   - Cloud sync, SQLite database\n3. **rc-agent**: Runs on each gaming pod\n   - Lock screen, kiosk enforcement, driving detector\n   - Game process monitoring, AC launcher\n   - AI debugger for crash analysis\n   - UDP heartbeat to racecontrol\n\nCommunication: WebSocket (commands) + UDP (heartbeat). Agent registers on connect, core sends billing commands. Heartbeat every 5s.",
     "source": "ops/architecture"
   },
   {

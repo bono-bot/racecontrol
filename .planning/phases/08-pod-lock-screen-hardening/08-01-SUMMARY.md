@@ -101,7 +101,7 @@ _Note: Task 1 followed full TDD Red-Green cycle: tests written first (RED: compi
 - **Issue:** `debug_server.rs:80` had exhaustive match on `LockScreenState` without a `StartupConnecting` arm — adding the new variant broke compilation
 - **Fix:** Added `LockScreenState::StartupConnecting => "startup_connecting"` match arm
 - **Files modified:** `crates/rc-agent/src/debug_server.rs`
-- **Verification:** `cargo check -p rc-agent --tests` passes cleanly
+- **Verification:** `cargo check -p rc-agent-crate --tests` passes cleanly
 - **Committed in:** `9482e1b` (Task 1 commit)
 
 ---
@@ -111,7 +111,7 @@ _Note: Task 1 followed full TDD Red-Green cycle: tests written first (RED: compi
 
 ## Issues Encountered
 
-- `cargo test -p rc-core` fails with pre-existing non-exhaustive match error in `crates/rc-core/src/ws/mod.rs` for `AgentMessage` variants (`AssistChanged`, `FfbGainChanged`, `AssistState`) added in a prior phase. This is **out-of-scope** for Plan 08-01 — documented in `deferred-items.md`.
+- `cargo test -p racecontrol-crate` fails with pre-existing non-exhaustive match error in `crates/racecontrol/src/ws/mod.rs` for `AgentMessage` variants (`AssistChanged`, `FfbGainChanged`, `AssistState`) added in a prior phase. This is **out-of-scope** for Plan 08-01 — documented in `deferred-items.md`.
 - Bash tool background task output files had inconsistent naming — worked around by running tests with filter flags and using `--list` to confirm total test count.
 
 ## User Setup Required
@@ -122,7 +122,7 @@ None — no external service configuration required.
 
 - Plan 08-02 (show disconnected page on first reconnect attempt) can proceed: `StartupConnecting` state is in place, browser is open from boot
 - Binary needs to be built and deployed to pods to validate ERR_CONNECTION_REFUSED elimination in production — Plan 08-03 (deploy) handles this
-- Pre-existing rc-core compilation issue in `ws/mod.rs` does not affect rc-agent binary; tracked in deferred-items.md
+- Pre-existing racecontrol compilation issue in `ws/mod.rs` does not affect rc-agent binary; tracked in deferred-items.md
 
 ## Self-Check
 

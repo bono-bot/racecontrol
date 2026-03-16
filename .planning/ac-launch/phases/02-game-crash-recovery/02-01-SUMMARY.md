@@ -13,9 +13,9 @@ affects: [03-launch-resilience]
 
 key-files:
   modified:
-    - crates/rc-core/src/ws/mod.rs
-    - crates/rc-core/src/game_launcher.rs
-    - crates/rc-core/src/api/routes.rs
+    - crates/racecontrol/src/ws/mod.rs
+    - crates/racecontrol/src/game_launcher.rs
+    - crates/racecontrol/src/api/routes.rs
 
 requirements-completed: [CRASH-02, CRASH-04]
 
@@ -36,9 +36,9 @@ completed: 2026-03-15
 - `d9c2cb0` feat(02-01): billing auto-pause on crash + manual relaunch endpoint
 
 ## Files Modified
-- `crates/rc-core/src/ws/mod.rs` — BillingSessionStatus import + pause logic in GameCrashed handler
-- `crates/rc-core/src/game_launcher.rs` — relaunch_game() function
-- `crates/rc-core/src/api/routes.rs` — POST /games/relaunch/:pod_id handler + route
+- `crates/racecontrol/src/ws/mod.rs` — BillingSessionStatus import + pause logic in GameCrashed handler
+- `crates/racecontrol/src/game_launcher.rs` — relaunch_game() function
+- `crates/racecontrol/src/api/routes.rs` — POST /games/relaunch/:pod_id handler + route
 
 ---
 *Phase: 02-game-crash-recovery*

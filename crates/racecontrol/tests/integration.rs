@@ -11,7 +11,7 @@ use sqlx::SqlitePool;
 
 /// Create an in-memory SQLite database with all migrations applied.
 async fn create_test_db() -> SqlitePool {
-    // rc-core's db::init_pool needs a file path, so we build the pool manually
+    // racecontrol's db::init_pool needs a file path, so we build the pool manually
     // and call the migration function indirectly by running the same SQL.
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
@@ -579,9 +579,9 @@ async fn run_test_migrations(pool: &SqlitePool) {
 }
 
 /// Create a minimal AppState backed by the given pool.
-fn create_test_state(pool: SqlitePool) -> Arc<rc_core::state::AppState> {
-    let config = rc_core::config::Config::default_test();
-    Arc::new(rc_core::state::AppState::new(config, pool))
+fn create_test_state(pool: SqlitePool) -> Arc<racecontrol_crate::state::AppState> {
+    let config = racecontrol_crate::config::Config::default_test();
+    Arc::new(racecontrol_crate::state::AppState::new(config, pool))
 }
 
 /// Insert a test driver with a wallet.
@@ -712,13 +712,13 @@ async fn test_wallet_credit_debit_balance() {
     let state = create_test_state(pool);
 
     // Credit 100000 paise
-    let balance = rc_core::wallet::credit(
+    let balance = racecontrol_crate::wallet::credit(
         &state, "wallet-test-1", 100000, "topup_cash", None, None, None,
     ).await.unwrap();
     assert_eq!(balance, 100000, "balance after credit should be 100000");
 
     // Debit 70000 paise
-    let (balance, _txn_id) = rc_core::wallet::debit(
+    let (balance, _txn_id) = racecontrol_crate::wallet::debit(
         &state, "wallet-test-1", 70000, "debit_session", None, None,
     ).await.unwrap();
     assert_eq!(balance, 30000, "balance after debit should be 30000");
@@ -740,7 +740,7 @@ async fn test_wallet_transaction_recording() {
     let state = create_test_state(pool);
 
     // Credit 50000 paise with specific txn_type and notes
-    rc_core::wallet::credit(
+    racecontrol_crate::wallet::credit(
         &state, "wallet-test-2", 50000, "topup_cash", None, Some("Cash deposit"), None,
     ).await.unwrap();
 
@@ -766,7 +766,7 @@ async fn test_wallet_insufficient_balance() {
     let state = create_test_state(pool);
 
     // Attempt debit 20000 paise — should fail
-    let result = rc_core::wallet::debit(
+    let result = racecontrol_crate::wallet::debit(
         &state, "wallet-test-3", 20000, "debit_session", None, None,
     ).await;
 
@@ -779,7 +779,7 @@ async fn test_wallet_insufficient_balance() {
     );
 
     // Verify balance unchanged
-    let balance = rc_core::wallet::get_balance(&state, "wallet-test-3").await.unwrap();
+    let balance = racecontrol_crate::wallet::get_balance(&state, "wallet-test-3").await.unwrap();
     assert_eq!(balance, 10000, "balance should remain unchanged at 10000");
 }
 
@@ -789,7 +789,7 @@ async fn test_wallet_insufficient_balance() {
 
 #[tokio::test]
 async fn test_billing_timer_counting() {
-    use rc_core::billing::BillingTimer;
+    use racecontrol_crate::billing::BillingTimer;
 
     let mut timer = BillingTimer {
         session_id: "sess-1".to_string(),
@@ -828,7 +828,7 @@ async fn test_billing_timer_counting() {
 
 #[tokio::test]
 async fn test_billing_manual_pause() {
-    use rc_core::billing::BillingTimer;
+    use racecontrol_crate::billing::BillingTimer;
 
     let mut timer = BillingTimer {
         session_id: "sess-2".to_string(),
@@ -874,7 +874,7 @@ async fn test_billing_manual_pause() {
 
 #[tokio::test]
 async fn test_billing_disconnect_pause() {
-    use rc_core::billing::BillingTimer;
+    use racecontrol_crate::billing::BillingTimer;
 
     let mut timer = BillingTimer {
         session_id: "sess-3".to_string(),
@@ -932,7 +932,7 @@ async fn test_billing_max_pauses() {
     // Test that after 3 pauses, billing continues even while offline.
     // This is tested via the tick_all_timers logic which checks pause_count < 3.
     // Here we test the BillingTimer struct behavior directly.
-    use rc_core::billing::BillingTimer;
+    use racecontrol_crate::billing::BillingTimer;
 
     let mut timer = BillingTimer {
         session_id: "sess-4".to_string(),
@@ -1019,7 +1019,7 @@ async fn test_billing_pause_timeout_refund() {
     assert_eq!(calc_refund, 35000, "DB-based refund calculation should be 35000");
 
     // Actually issue the refund and verify wallet
-    let new_balance = rc_core::wallet::refund(
+    let new_balance = racecontrol_crate::wallet::refund(
         &state, "refund-drv", calc_refund, Some("bs-refund"), Some("Auto-refund: disconnect pause timeout"),
     ).await.unwrap();
 
@@ -1033,7 +1033,7 @@ async fn test_billing_pause_timeout_refund() {
 
 #[tokio::test]
 async fn test_port_allocator_unique_ports() {
-    use rc_core::port_allocator::PortAllocator;
+    use racecontrol_crate::port_allocator::PortAllocator;
 
     // Use high ports unlikely to conflict
     let alloc = PortAllocator::new(19600, 18081, 16);
@@ -1058,7 +1058,7 @@ async fn test_port_allocator_unique_ports() {
 
 #[tokio::test]
 async fn test_port_allocator_cooldown() {
-    use rc_core::port_allocator::PortAllocator;
+    use racecontrol_crate::port_allocator::PortAllocator;
 
     let alloc = PortAllocator::new(19900, 18381, 1);
 
@@ -1077,13 +1077,13 @@ async fn test_wallet_transaction_sync_payload() {
     let state = create_test_state(pool);
 
     // Insert 3 wallet transactions with known data
-    rc_core::wallet::credit(
+    racecontrol_crate::wallet::credit(
         &state, "sync-drv", 10000, "topup_cash", None, Some("txn1"), None,
     ).await.unwrap();
-    rc_core::wallet::credit(
+    racecontrol_crate::wallet::credit(
         &state, "sync-drv", 20000, "topup_upi", None, Some("txn2"), None,
     ).await.unwrap();
-    rc_core::wallet::credit(
+    racecontrol_crate::wallet::credit(
         &state, "sync-drv", 30000, "topup_card", None, Some("txn3"), None,
     ).await.unwrap();
 
@@ -1487,7 +1487,7 @@ async fn test_lap_suspect_sector_sum() {
         created_at: chrono::Utc::now(),
     };
 
-    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+    racecontrol_crate::lap_tracker::persist_lap(&state, &lap).await;
 
     // Verify suspect=1
     let result = sqlx::query_as::<_, (i64,)>(
@@ -1533,7 +1533,7 @@ async fn test_lap_suspect_sanity() {
         created_at: chrono::Utc::now(),
     };
 
-    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+    racecontrol_crate::lap_tracker::persist_lap(&state, &lap).await;
 
     let result = sqlx::query_as::<_, (i64,)>(
         "SELECT suspect FROM laps WHERE id = 'sus-lap-2'"
@@ -1578,7 +1578,7 @@ async fn test_lap_not_suspect_valid() {
         created_at: chrono::Utc::now(),
     };
 
-    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+    racecontrol_crate::lap_tracker::persist_lap(&state, &lap).await;
 
     let result = sqlx::query_as::<_, (i64,)>(
         "SELECT suspect FROM laps WHERE id = 'sus-lap-3'"
@@ -1623,7 +1623,7 @@ async fn test_lap_not_suspect_no_sectors() {
         created_at: chrono::Utc::now(),
     };
 
-    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+    racecontrol_crate::lap_tracker::persist_lap(&state, &lap).await;
 
     let result = sqlx::query_as::<_, (i64,)>(
         "SELECT suspect FROM laps WHERE id = 'sus-lap-4'"
@@ -1668,7 +1668,7 @@ async fn test_lap_suspect_zero_sectors_ignored() {
         created_at: chrono::Utc::now(),
     };
 
-    rc_core::lap_tracker::persist_lap(&state, &lap).await;
+    racecontrol_crate::lap_tracker::persist_lap(&state, &lap).await;
 
     let result = sqlx::query_as::<_, (i64,)>(
         "SELECT suspect FROM laps WHERE id = 'sus-lap-5'"
@@ -1986,7 +1986,7 @@ async fn test_notification_data_before_upsert() {
         valid: true,
         created_at: chrono::Utc::now(),
     };
-    let is_record_a = rc_core::lap_tracker::persist_lap(&state, &lap_a).await;
+    let is_record_a = racecontrol_crate::lap_tracker::persist_lap(&state, &lap_a).await;
     assert!(is_record_a, "Driver A's first lap should be a track record");
 
     // Verify driver A holds the record
@@ -1997,7 +1997,7 @@ async fn test_notification_data_before_upsert() {
     assert_eq!(holder.1, 90000);
 
     // Use get_previous_record_holder to verify the data is available before UPSERT
-    let prev = rc_core::lap_tracker::get_previous_record_holder(&state.db, "monza", "ks_ferrari_sf15t").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "monza", "ks_ferrari_sf15t").await;
     assert!(prev.is_some(), "Previous record holder should exist");
     let (prev_time, prev_name, prev_email) = prev.unwrap();
     assert_eq!(prev_time, 90000);
@@ -2029,7 +2029,7 @@ async fn test_notification_data_before_upsert() {
         valid: true,
         created_at: chrono::Utc::now(),
     };
-    let is_record_b = rc_core::lap_tracker::persist_lap(&state, &lap_b).await;
+    let is_record_b = racecontrol_crate::lap_tracker::persist_lap(&state, &lap_b).await;
     assert!(is_record_b, "Driver B's faster lap should be a new track record");
 
     // After UPSERT, track_records now shows driver B
@@ -2091,10 +2091,10 @@ async fn test_notification_skip_no_email() {
         valid: true,
         created_at: chrono::Utc::now(),
     };
-    rc_core::lap_tracker::persist_lap(&state, &lap_c).await;
+    racecontrol_crate::lap_tracker::persist_lap(&state, &lap_c).await;
 
     // Verify get_previous_record_holder returns None email
-    let prev = rc_core::lap_tracker::get_previous_record_holder(&state.db, "spa", "ks_bmw_m3_e30").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "spa", "ks_bmw_m3_e30").await;
     assert!(prev.is_some(), "Record exists for C");
     let (_, _, prev_email) = prev.unwrap();
     assert!(prev_email.is_none(), "Driver C has no email — should be None");
@@ -2124,7 +2124,7 @@ async fn test_notification_skip_no_email() {
         valid: true,
         created_at: chrono::Utc::now(),
     };
-    let is_record = rc_core::lap_tracker::persist_lap(&state, &lap_d).await;
+    let is_record = racecontrol_crate::lap_tracker::persist_lap(&state, &lap_d).await;
     assert!(is_record, "Driver D should break the record (no crash)");
 
     // Verify record updated to driver D
@@ -2160,7 +2160,7 @@ async fn test_notification_first_record_no_notify() {
     ).execute(&pool).await.unwrap();
 
     // No prior record exists — get_previous_record_holder should return None
-    let prev = rc_core::lap_tracker::get_previous_record_holder(&state.db, "nurburgring", "ks_porsche_911_gt3_r").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "nurburgring", "ks_porsche_911_gt3_r").await;
     assert!(prev.is_none(), "No previous record should exist on fresh track");
 
     // Driver E sets the first record
@@ -2180,7 +2180,7 @@ async fn test_notification_first_record_no_notify() {
         valid: true,
         created_at: chrono::Utc::now(),
     };
-    let is_record = rc_core::lap_tracker::persist_lap(&state, &lap_e).await;
+    let is_record = racecontrol_crate::lap_tracker::persist_lap(&state, &lap_e).await;
     assert!(is_record, "First lap should be a track record");
 
     // Verify record was set (no crash on first record)

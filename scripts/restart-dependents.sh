@@ -170,8 +170,8 @@ echo ""
 # Tier 0: Core services
 restart_tier 0 "${RESTART_T0[@]}"
 if [ ${#RESTART_T0[@]} -gt 0 ]; then
-  if ! check_health "http://localhost:8080/api/v1/health" "rc-core" 3 2; then
-    echo -e "${RED}FATAL: rc-core health check failed — aborting restart sequence${RESET}"
+  if ! check_health "http://localhost:8080/api/v1/health" "racecontrol" 3 2; then
+    echo -e "${RED}FATAL: racecontrol health check failed — aborting restart sequence${RESET}"
     exit 1
   fi
   echo ""

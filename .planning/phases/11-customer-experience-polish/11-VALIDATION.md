@@ -20,7 +20,7 @@ created: 2026-03-14
 | **Framework** | Rust built-in (`cargo test`) |
 | **Config file** | Cargo.toml per crate |
 | **Quick run command** | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common` |
-| **Full suite command** | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test --bin rc-agent && cargo test -p rc-core` |
+| **Full suite command** | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test --bin rc-agent && cargo test -p racecontrol-crate` |
 | **Estimated runtime** | ~15 seconds |
 
 ---

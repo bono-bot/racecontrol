@@ -386,7 +386,7 @@ The HUD would continue showing `LAP 4` (from `completed_laps = 1`, which equals 
 - Detect `completedLaps` decreasing: `if completed_laps < self.last_lap_count { self.handle_session_reset(); }`
 - `handle_session_reset()`: reset `last_lap_count`, `sector_times = [None; 3]`, `last_sector_index = -1`
 - In `overlay.rs`: clear `previous_lap`, `best_lap`, and all `live_sector*_ms` when a session reset is detected — expose a `reset_lap_state()` method on `OverlayManager`
-- Emit a `SessionReset` agent message to rc-core so billing logic can handle it (lap records from the restarted stint should not be merged with the old stint)
+- Emit a `SessionReset` agent message to racecontrol so billing logic can handle it (lap records from the restarted stint should not be merged with the old stint)
 
 **Phase:** Build
 
@@ -397,16 +397,16 @@ The HUD would continue showing `LAP 4` (from `completed_laps = 1`, which equals 
 ### P-18: FFB Cleanup Skipped When Process Is Killed Before Cleanup Runs
 **Observed in / Risk to:** FFB-01, FFB-02
 
-The current session end flow (`main.rs:751-782`) receives `SessionEnded` from rc-core via WebSocket, calls `overlay.deactivate()`, then `game.stop()`, then `enforce_safe_state()` via `spawn_blocking`. The FFB zero-force write (not yet implemented) would need to occur *before* `game.stop()` / `taskkill`.
+The current session end flow (`main.rs:751-782`) receives `SessionEnded` from racecontrol via WebSocket, calls `overlay.deactivate()`, then `game.stop()`, then `enforce_safe_state()` via `spawn_blocking`. The FFB zero-force write (not yet implemented) would need to occur *before* `game.stop()` / `taskkill`.
 
 Risk: if rc-agent is killed by the watchdog (e.g., pod-agent detects rc-agent crash and restarts it) at the moment between billing end and the FFB write, the FFB write never executes. The game keeps running with its last FFB state, and the next rc-agent instance starts fresh with no knowledge of the pending FFB write.
 
-Similarly: if rc-core loses the WebSocket connection to rc-agent (network blip) and force-ends the billing on the rc-core side, rc-agent may never receive `SessionEnded` — and thus never sends the FFB zero command.
+Similarly: if racecontrol loses the WebSocket connection to rc-agent (network blip) and force-ends the billing on the racecontrol side, rc-agent may never receive `SessionEnded` — and thus never sends the FFB zero command.
 
 **Warning signs:**
 - Wheelbase has force applied after session should have ended
 - rc-agent crash log shows no FFB write in the log before process exit
-- Session ends on rc-core side but pod still has game running with active FFB
+- Session ends on racecontrol side but pod still has game running with active FFB
 
 **Prevention:**
 - Implement FFB zero as a synchronous operation before any process kill — in `enforce_safe_state()` (ac_launcher.rs:956), add an FFB write step as the very first action, before taskkill

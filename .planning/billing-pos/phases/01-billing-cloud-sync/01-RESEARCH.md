@@ -29,7 +29,7 @@ The `SYNC_TABLES` constant (`"drivers,wallets,pricing_tiers,pricing_rules,kiosk_
 ### Core (already in use -- do NOT add new dependencies)
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| axum | 0.7.x | HTTP server + routes | Already powers rc-core API |
+| axum | 0.7.x | HTTP server + routes | Already powers racecontrol API |
 | sqlx | 0.7.x | SQLite async queries | Already used for all DB ops |
 | reqwest | 0.12.x | HTTP client for sync push | Already used in cloud_sync.rs |
 | serde_json | 1.x | JSON payload construction | Already used throughout |
@@ -44,7 +44,7 @@ This phase is purely additive to existing code. No new crates, no new infrastruc
 
 ### Existing Sync Architecture (DO NOT CHANGE)
 ```
-Venue rc-core (SQLite)
+Venue racecontrol (SQLite)
     |
     |-- collect_push_payload() -- gathers changed rows since _push timestamp
     |
@@ -52,7 +52,7 @@ Venue rc-core (SQLite)
     |       YES -> POST localhost:876X/relay/sync (2s cycle)
     |       NO  -> POST cloud:8080/sync/push (30s cycle)
     |
-    |-- Cloud rc-core receives via sync_push() handler
+    |-- Cloud racecontrol receives via sync_push() handler
     |       - Upserts billing_sessions (ON CONFLICT UPDATE status, driving_seconds, ended_at)
     |       - INSERT OR IGNORE wallet_transactions (immutable, UUID idempotent)
     |       - Upserts pods, wallets, drivers, laps, track_records, personal_bests
@@ -172,7 +172,7 @@ if let Some(events) = body.get("billing_events").and_then(|v| v.as_array()) {
 
 ### Current billing_sessions Push (already working -- cloud_sync.rs lines 277-304)
 ```rust
-// Source: crates/rc-core/src/cloud_sync.rs lines 277-304
+// Source: crates/racecontrol/src/cloud_sync.rs lines 277-304
 let sessions = sqlx::query_as::<_, (String,)>(
     "SELECT json_object(
         'id', id, 'driver_id', driver_id, 'pod_id', pod_id,
@@ -198,7 +198,7 @@ Note: billing_sessions uses `created_at > ? OR ended_at > ?` -- this catches bot
 
 ### Current wallet_transactions Push (already working -- cloud_sync.rs lines 384-403)
 ```rust
-// Source: crates/rc-core/src/cloud_sync.rs lines 384-403
+// Source: crates/racecontrol/src/cloud_sync.rs lines 384-403
 let wallet_txns = sqlx::query_as::<_, (String,)>(
     "SELECT json_object(
         'id', id, 'driver_id', driver_id, 'amount_paise', amount_paise,
@@ -285,38 +285,38 @@ refund_paise INTEGER DEFAULT 0
 |----------|-------|
 | Framework | Rust built-in test (#[cfg(test)]) with cargo test |
 | Config file | Cargo.toml per crate |
-| Quick run command | `cargo test -p rc-core -- cloud_sync` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-core` |
+| Quick run command | `cargo test -p racecontrol-crate -- cloud_sync` |
+| Full suite command | `cargo test -p rc-common && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements to Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| SYNC-01 | billing_sessions rows appear in push payload when status is completed/ended_early | unit | `cargo test -p rc-core -- cloud_sync::tests::test_billing_sessions_in_payload -x` | No -- Wave 0 |
-| SYNC-02 | wallet_transactions rows appear in push payload after creation | unit | `cargo test -p rc-core -- cloud_sync::tests::test_wallet_txns_in_payload -x` | No -- Wave 0 |
-| SYNC-03 | billing_events rows appear in push payload after session end | unit | `cargo test -p rc-core -- cloud_sync::tests::test_billing_events_in_payload -x` | No -- Wave 0 |
-| SYNC-04 | billing tables not in SYNC_TABLES (pull path) | unit | `cargo test -p rc-core -- cloud_sync::tests::test_billing_tables_not_in_pull -x` | No -- Wave 0 |
-| SYNC-05 | Rows created during simulated outage appear in next push cycle | unit | `cargo test -p rc-core -- cloud_sync::tests::test_outage_catchup -x` | No -- Wave 0 |
+| SYNC-01 | billing_sessions rows appear in push payload when status is completed/ended_early | unit | `cargo test -p racecontrol-crate -- cloud_sync::tests::test_billing_sessions_in_payload -x` | No -- Wave 0 |
+| SYNC-02 | wallet_transactions rows appear in push payload after creation | unit | `cargo test -p racecontrol-crate -- cloud_sync::tests::test_wallet_txns_in_payload -x` | No -- Wave 0 |
+| SYNC-03 | billing_events rows appear in push payload after session end | unit | `cargo test -p racecontrol-crate -- cloud_sync::tests::test_billing_events_in_payload -x` | No -- Wave 0 |
+| SYNC-04 | billing tables not in SYNC_TABLES (pull path) | unit | `cargo test -p racecontrol-crate -- cloud_sync::tests::test_billing_tables_not_in_pull -x` | No -- Wave 0 |
+| SYNC-05 | Rows created during simulated outage appear in next push cycle | unit | `cargo test -p racecontrol-crate -- cloud_sync::tests::test_outage_catchup -x` | No -- Wave 0 |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-core -- cloud_sync`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p racecontrol-crate -- cloud_sync`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
-- [ ] `crates/rc-core/src/cloud_sync.rs` -- add `#[cfg(test)] mod tests` section with unit tests for payload collection
+- [ ] `crates/racecontrol/src/cloud_sync.rs` -- add `#[cfg(test)] mod tests` section with unit tests for payload collection
 - [ ] Test helper: in-memory SQLite pool with billing schema for isolated testing
 - [ ] Note: `collect_push_payload` requires `Arc<AppState>` -- tests need mock state with SQLite pool
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- `crates/rc-core/src/cloud_sync.rs` -- read in full (1004 lines). Contains all sync logic: relay, HTTP fallback, push payload collection, anti-loop protection.
-- `crates/rc-core/src/db/mod.rs` -- read billing table schemas (billing_sessions, billing_events, wallet_transactions, wallets, sync_state).
-- `crates/rc-core/src/api/routes.rs` -- read sync_push handler (lines 6120-6529). Contains cloud-side upsert logic for all pushed tables.
-- `crates/rc-core/src/billing.rs` -- read session lifecycle: end_billing_session(), post_session_hooks(), billing tick loop. Confirmed billing_events written at every lifecycle event.
+- `crates/racecontrol/src/cloud_sync.rs` -- read in full (1004 lines). Contains all sync logic: relay, HTTP fallback, push payload collection, anti-loop protection.
+- `crates/racecontrol/src/db/mod.rs` -- read billing table schemas (billing_sessions, billing_events, wallet_transactions, wallets, sync_state).
+- `crates/racecontrol/src/api/routes.rs` -- read sync_push handler (lines 6120-6529). Contains cloud-side upsert logic for all pushed tables.
+- `crates/racecontrol/src/billing.rs` -- read session lifecycle: end_billing_session(), post_session_hooks(), billing tick loop. Confirmed billing_events written at every lifecycle event.
 
 ### Secondary (MEDIUM confidence)
-- `crates/rc-core/src/config.rs` -- CloudConfig struct with sync_interval_secs (default 30), comms_link_url, terminal_secret, api_url.
+- `crates/racecontrol/src/config.rs` -- CloudConfig struct with sync_interval_secs (default 30), comms_link_url, terminal_secret, api_url.
 
 ## Metadata
 

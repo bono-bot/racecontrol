@@ -1,12 +1,12 @@
 ---
 phase: 20-deploy-resilience
 plan: "01"
-subsystem: rc-core/deploy + rc-common/types
+subsystem: racecontrol/deploy + rc-common/types
 tags: [deploy, rollback, resilience, self-swap]
 dependency_graph:
   requires: []
   provides: [DeployState::RollingBack, SWAP_SCRIPT_CONTENT, ROLLBACK_SCRIPT_CONTENT, rollback_logic_in_deploy_pod]
-  affects: [rc-core/deploy.rs, rc-common/types.rs, dashboard-deploy-state-display]
+  affects: [racecontrol/deploy.rs, rc-common/types.rs, dashboard-deploy-state-display]
 tech_stack:
   added: []
   patterns: [TDD red-green, /write endpoint for script delivery, detached bat execution]
@@ -14,7 +14,7 @@ key_files:
   created: []
   modified:
     - crates/rc-common/src/types.rs
-    - crates/rc-core/src/deploy.rs
+    - crates/racecontrol/src/deploy.rs
 decisions:
   - "RollingBack is an active deploy phase (is_active() returns true) — prevents second deploy from starting during rollback"
   - "Rollback success sets Failed state with 'rolled back to previous binary' in reason — no separate RolledBack variant needed"
@@ -36,8 +36,8 @@ Binary preservation during self-swap and automatic rollback on health failure: r
 
 | Task | Name | Commit | Files |
 |------|------|--------|-------|
-| 1 | DeployState::RollingBack variant + SWAP/ROLLBACK constants | b2986f3, within RED commit | crates/rc-common/src/types.rs, crates/rc-core/src/deploy.rs |
-| 2 | Replace inline swap_cmd + add rollback logic | 7ed0e5d | crates/rc-core/src/deploy.rs |
+| 1 | DeployState::RollingBack variant + SWAP/ROLLBACK constants | b2986f3, within RED commit | crates/rc-common/src/types.rs, crates/racecontrol/src/deploy.rs |
+| 2 | Replace inline swap_cmd + add rollback logic | 7ed0e5d | crates/racecontrol/src/deploy.rs |
 
 ## What Was Built
 
@@ -48,7 +48,7 @@ Binary preservation during self-swap and automatic rollback on health failure: r
 - `is_active()` returns `true` for `RollingBack` by default (not in exclusion list)
 - Added 2 tests: `deploy_state_rolling_back_serde` and `rolling_back_is_active`
 
-**crates/rc-core/src/deploy.rs:**
+**crates/racecontrol/src/deploy.rs:**
 - Added `ROLLBACK_VERIFY_DELAYS: &[u64] = &[5, 15, 30]` (50s total, shorter than deploy's 110s)
 - Added `SWAP_SCRIPT_CONTENT` const: CRLF batch script that preserves `rc-agent.exe` as `rc-agent-prev.exe` before moving `rc-agent-new.exe` → `rc-agent.exe`, with 5-retry AV exclusion loop
 - Added `ROLLBACK_SCRIPT_CONTENT` const: CRLF batch script that kills bad binary, deletes it, restores `rc-agent-prev.exe` → `rc-agent.exe`, starts agent
@@ -80,9 +80,9 @@ Binary preservation during self-swap and automatic rollback on health failure: r
 
 ```
 cargo test -p rc-common  → 105 passed (incl. 2 new RollingBack tests)
-cargo test -p rc-core    → 225 passed (incl. 9 new deploy script/label tests)
+cargo test -p racecontrol-crate    → 225 passed (incl. 9 new deploy script/label tests)
 cargo test -p rc-watchdog → 13 passed
-cargo build -p rc-agent  → BUILD_OK (warnings only, no errors)
+cargo build -p rc-agent-crate  → BUILD_OK (warnings only, no errors)
 ```
 
 ## Deviations from Plan
@@ -94,7 +94,7 @@ The TDD RED phase included both test additions before any production code was wr
 ## Self-Check: PASSED
 
 - FOUND: crates/rc-common/src/types.rs
-- FOUND: crates/rc-core/src/deploy.rs
+- FOUND: crates/racecontrol/src/deploy.rs
 - FOUND: .planning/phases/20-deploy-resilience/20-01-SUMMARY.md
 - FOUND commit b2986f3 (TDD RED — tests + implementation)
 - FOUND commit 7ed0e5d (Task 2 — rollback logic)

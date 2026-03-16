@@ -536,7 +536,7 @@ async fn main() -> Result<()> {
     lock_screen.wait_for_self_ready().await;
 
     // LOCK-02: Show branded startup page immediately — customers see Racing Point
-    // branding while rc-agent connects to rc-core, not a blank screen or idle message.
+    // branding while rc-agent connects to racecontrol, not a blank screen or idle message.
     lock_screen.show_startup_connecting();
 
     // Racing HUD overlay for in-session display
@@ -732,7 +732,7 @@ async fn main() -> Result<()> {
             tokio::select! {
                 _ = heartbeat_interval.tick() => {
                     let hb = AgentMessage::Heartbeat(PodInfo {
-                        status: PodStatus::Idle, // billing state is managed by rc-core, not agent
+                        status: PodStatus::Idle, // billing state is managed by racecontrol, not agent
                         last_seen: Some(Utc::now()),
                         driving_state: Some(detector.state()),
                         game_state: game_process.as_ref().map(|g| g.state),

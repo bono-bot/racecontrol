@@ -2041,7 +2041,7 @@ async fn end_billing_session(
     }
 
     // ─── Fallback: orphaned session in DB but no in-memory timer ─────────
-    // This happens when rc-core restarts while a session was active.
+    // This happens when racecontrol restarts while a session was active.
     drop(timers);
     let orphan = match sqlx::query_as::<_, (String, String, String)>(
         "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status = 'active'",
@@ -2077,7 +2077,7 @@ async fn end_billing_session(
             tracing::error!("Failed to end orphaned billing session {}: {}", session_id, e);
         }
 
-        log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after rc-core restart", driver_name), "race_engineer");
+        log_pod_activity(state, &pod_id, "billing", "Orphaned Session Ended", &format!("{} — force-ended after racecontrol restart", driver_name), "race_engineer");
 
         // Clear pod billing reference and restore idle state
         {

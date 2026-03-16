@@ -56,10 +56,10 @@ billing_sessions and wallet_transactions were ALREADY synced in cloud_sync.rs. O
 - billing_sessions stays LOCAL-authoritative — cloud gets read-only copy via sync
 - Sync strategy: billing_sessions and wallet_transactions already in push payload; add billing_events to collect_push_payload() following wallet_transactions pattern
 - IMPORTANT: Do NOT add billing tables to SYNC_TABLES constant — that controls the PULL path (cloud -> venue). Billing data only flows venue -> cloud.
-- WhatsApp receipt delivered directly via Evolution API from rc-core (NOT via Bono webhook) — per user decision in Phase 4 planning
+- WhatsApp receipt delivered directly via Evolution API from racecontrol (NOT via Bono webhook) — per user decision in Phase 4 planning
 - racingpoint-admin (port 3200) is the target for cloud dashboard pages (already deployed at dashboard.racingpoint.cloud)
 - payment_method column needs to be added to billing_sessions table (currently missing)
-- POST /billing/{id}/refund already exists in rc-core — needs audit_log write wired in
+- POST /billing/{id}/refund already exists in racecontrol — needs audit_log write wired in
 - Phase execution order: 1 -> 4 -> 5 -> 2 -> 3 (cloud sync first, then PWA/kiosk work in parallel while cloud API builds)
 - Plan 01-01: INSERT OR IGNORE for billing_events (immutable lifecycle records)
 - Plan 01-01: COALESCE for 3 new billing_sessions columns in ON CONFLICT (backward-compat with old venue code)
@@ -71,7 +71,7 @@ billing_sessions and wallet_transactions were ALREADY synced in cloud_sync.rs. O
 
 ### Existing Infrastructure (do NOT rebuild)
 
-- BillingManager + BillingTimer: complete lifecycle management in rc-core/billing.rs
+- BillingManager + BillingTimer: complete lifecycle management in racecontrol/billing.rs
 - compute_session_cost(): **3-tier non-retroactive** pricing with DB-driven rates (BillingRateTier cache, refreshed every 60s)
 - billing_rates table: DB-driven per-minute rates with CRUD API at /billing/rates — admin-configurable, no code deploy needed
 - BillingManager.rate_tiers: RwLock<Vec<BillingRateTier>> in-memory cache — called every second per active pod

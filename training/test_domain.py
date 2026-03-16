@@ -41,7 +41,7 @@ TESTS = [
         "category": "debug",
     },
     {
-        "query": "What port does rc-core run on?",
+        "query": "What port does racecontrol run on?",
         "expected": ["8080", "server", ".51"],
         "category": "network",
     },

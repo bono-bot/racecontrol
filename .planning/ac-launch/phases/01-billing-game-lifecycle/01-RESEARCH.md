@@ -1,7 +1,7 @@
 # Phase 1: Billing-Game Lifecycle - Research
 
 **Researched:** 2026-03-15
-**Domain:** Rust — rc-core billing/game_launcher wiring, rc-agent CoreToAgentMessage handling, lock screen state machine
+**Domain:** Rust — racecontrol billing/game_launcher wiring, rc-agent CoreToAgentMessage handling, lock screen state machine
 **Confidence:** HIGH — all findings sourced directly from codebase inspection
 
 ---
@@ -33,7 +33,7 @@ This phase wires the billing lifecycle to the game process lifecycle. The infras
 
 4. **Double-launch guard only blocks `Launching` state** (game_launcher.rs:93-100). Once the game reaches `Running`, a second `LaunchGame` request will pass the guard and start a second acs.exe process.
 
-**Primary recommendation:** All four requirements are small targeted additions to existing code. No new modules, no new protocol messages. Plan 01-01 touches rc-core (billing gate + double-launch guard). Plan 01-02 touches rc-agent (15s idle timer after `SessionEnded`).
+**Primary recommendation:** All four requirements are small targeted additions to existing code. No new modules, no new protocol messages. Plan 01-01 touches racecontrol (billing gate + double-launch guard). Plan 01-02 touches rc-agent (15s idle timer after `SessionEnded`).
 
 ---
 
@@ -42,8 +42,8 @@ This phase wires the billing lifecycle to the game process lifecycle. The infras
 ### Core (already in place — do NOT add)
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| `BillingManager` + `BillingTimer` | rc-core/src/billing.rs | Full timer lifecycle, expiry detection |
-| `GameManager` + `GameTracker` | rc-core/src/game_launcher.rs | Launch FSM, state tracking |
+| `BillingManager` + `BillingTimer` | racecontrol/src/billing.rs | Full timer lifecycle, expiry detection |
+| `GameManager` + `GameTracker` | racecontrol/src/game_launcher.rs | Launch FSM, state tracking |
 | `CoreToAgentMessage::StopGame` | rc-common/src/protocol.rs:135 | Already exists, already sent on billing expiry |
 | `CoreToAgentMessage::SessionEnded` | rc-common/src/protocol.rs:120-126 | Already exists, rc-agent handles it (kills game, shows summary) |
 | `GameProcess::stop()` | rc-agent/src/game_process.rs:225-244 | `taskkill /PID /F` on Windows, clears PID file |
@@ -136,7 +136,7 @@ Manual stop DOES send `StopGame` + `SessionEnded`. The `SessionEnded` handler ki
 ## Common Pitfalls
 
 ### Pitfall 1: StopGame Is Not Handled Explicitly in rc-agent
-**What goes wrong:** `CoreToAgentMessage::StopGame` is sent by rc-core but there is no explicit `StopGame` arm in the rc-agent `CoreToAgentMessage` match block (based on code inspection of main.rs). If this is true, the agent silently ignores `StopGame` and only reacts to `SessionEnded`.
+**What goes wrong:** `CoreToAgentMessage::StopGame` is sent by racecontrol but there is no explicit `StopGame` arm in the rc-agent `CoreToAgentMessage` match block (based on code inspection of main.rs). If this is true, the agent silently ignores `StopGame` and only reacts to `SessionEnded`.
 **Why it happens:** `SessionEnded` was added later and does everything `StopGame` does plus more. `StopGame` may be treated as redundant.
 **How to avoid:** Verify whether a `StopGame` match arm exists in rc-agent. If not, the current behavior still works because `SessionEnded` always follows `StopGame`. Do NOT add a `StopGame` handler that partially duplicates `SessionEnded` cleanup.
 **Warning signs:** If `StopGame` is handled AND `SessionEnded` is also handled, game.stop() may be called twice — the second call will fail silently (no process to kill) but is harmless.
@@ -285,42 +285,42 @@ CoreToAgentMessage::SessionEnded { ... } => {
 |----------|-------|
 | Framework | Rust `cargo test` with `#[cfg(test)]` modules |
 | Config file | none (inline in source files) |
-| Quick run command | `cargo test -p rc-common && cargo test -p rc-core && cargo test -p rc-agent` |
+| Quick run command | `cargo test -p rc-common && cargo test -p racecontrol-crate && cargo test -p rc-agent-crate` |
 | Full suite command | `cargo test --workspace` |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| LIFE-01 | Billing expiry sends StopGame + SessionEnded to agent | unit | `cargo test -p rc-core billing::tests::test_session_expiry_sends_stop_game` | ❌ Wave 0 |
-| LIFE-02 | LaunchGame rejected when no active billing | unit | `cargo test -p rc-core game_launcher::tests::test_launch_rejected_no_billing` | ❌ Wave 0 |
-| LIFE-02 | LaunchGame succeeds when billing is active | unit | `cargo test -p rc-core game_launcher::tests::test_launch_allowed_with_billing` | ❌ Wave 0 |
+| LIFE-01 | Billing expiry sends StopGame + SessionEnded to agent | unit | `cargo test -p racecontrol-crate billing::tests::test_session_expiry_sends_stop_game` | ❌ Wave 0 |
+| LIFE-02 | LaunchGame rejected when no active billing | unit | `cargo test -p racecontrol-crate game_launcher::tests::test_launch_rejected_no_billing` | ❌ Wave 0 |
+| LIFE-02 | LaunchGame succeeds when billing is active | unit | `cargo test -p racecontrol-crate game_launcher::tests::test_launch_allowed_with_billing` | ❌ Wave 0 |
 | LIFE-03 | Protocol: SessionEnded deserializes correctly | unit | `cargo test -p rc-common` (existing serialization tests) | ✅ (partial) |
-| LIFE-04 | Double-launch blocked when game Running | unit | `cargo test -p rc-core game_launcher::tests::test_double_launch_blocked_running` | ❌ Wave 0 |
-| LIFE-04 | Double-launch blocked when game Launching | unit | `cargo test -p rc-core game_launcher::tests::test_double_launch_blocked_launching` | ❌ Wave 0 (extends existing) |
+| LIFE-04 | Double-launch blocked when game Running | unit | `cargo test -p racecontrol-crate game_launcher::tests::test_double_launch_blocked_running` | ❌ Wave 0 |
+| LIFE-04 | Double-launch blocked when game Launching | unit | `cargo test -p racecontrol-crate game_launcher::tests::test_double_launch_blocked_launching` | ❌ Wave 0 (extends existing) |
 | LIFE-01,02,03,04 | Full scenario: billing end → game killed → summary → idle | manual | Pod 8 end-to-end test | manual-only |
 
 **Note:** LIFE-01 in rc-agent (game actually killed within 10s) requires a running pod with a real game process — this cannot be unit tested. The unit test validates the message is sent; the 10s SLA is verified manually on Pod 8.
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-core game_launcher::tests && cargo test -p rc-common`
+- **Per task commit:** `cargo test -p racecontrol-crate game_launcher::tests && cargo test -p rc-common`
 - **Per wave merge:** `cargo test --workspace`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
-- [ ] `crates/rc-core/src/game_launcher.rs` — add `#[cfg(test)] mod tests` with billing gate and double-launch tests (3 test cases)
-- [ ] `crates/rc-core/src/billing.rs` — add test for `tick_all_sessions` sending StopGame on expiry (1 test case, requires mock sender)
+- [ ] `crates/racecontrol/src/game_launcher.rs` — add `#[cfg(test)] mod tests` with billing gate and double-launch tests (3 test cases)
+- [ ] `crates/racecontrol/src/billing.rs` — add test for `tick_all_sessions` sending StopGame on expiry (1 test case, requires mock sender)
 - [ ] No new test files needed — all tests inline in existing source files per project convention
 
-*(Existing test infrastructure: 47 tests across 3 crates, all inline `#[cfg(test)]` modules. rc-common has serialization tests. rc-agent has game_process tests. rc-core has billing timer tests.)*
+*(Existing test infrastructure: 47 tests across 3 crates, all inline `#[cfg(test)]` modules. rc-common has serialization tests. rc-agent has game_process tests. racecontrol has billing timer tests.)*
 
 ---
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- `crates/rc-core/src/billing.rs` — full file read (session expiry, StopGame dispatch, manual stop flow)
-- `crates/rc-core/src/game_launcher.rs` — full file read (launch_game, stop_game, handle_game_state_update, double-launch guard)
+- `crates/racecontrol/src/billing.rs` — full file read (session expiry, StopGame dispatch, manual stop flow)
+- `crates/racecontrol/src/game_launcher.rs` — full file read (launch_game, stop_game, handle_game_state_update, double-launch guard)
 - `crates/rc-common/src/protocol.rs` — CoreToAgentMessage enum (lines 96-256)
 - `crates/rc-agent/src/main.rs` — main event loop (lines 550-1113, CoreToAgentMessage handlers)
 - `crates/rc-agent/src/game_process.rs` — full file read (GameProcess::stop, cleanup_orphaned_games)
@@ -328,7 +328,7 @@ CoreToAgentMessage::SessionEnded { ... } => {
 
 ### Secondary (MEDIUM confidence)
 - `.planning/codebase/TESTING.md` — test conventions, existing test count
-- `.planning/ac-launch/STATE.md` — accumulated decisions (billing-authoritative rc-core, serde(default) requirement)
+- `.planning/ac-launch/STATE.md` — accumulated decisions (billing-authoritative racecontrol, serde(default) requirement)
 
 ### Tertiary (LOW confidence)
 - None — all findings directly verified in source.

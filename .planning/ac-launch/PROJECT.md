@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Fixes the billing-to-game lifecycle in RaceControl — ensuring games stop when billing ends, billing pauses when games crash, launches are validated against active sessions, and pods reset cleanly after every session. Also automates multiplayer server management — AC server starts/stops with billing, friends can book together from the kiosk without staff, and group events run continuously. Targets rc-core (billing.rs, game_launcher.rs, ac_server.rs, multiplayer.rs) and rc-agent (ac_launcher.rs, game_process.rs, lock_screen.rs, main.rs).
+Fixes the billing-to-game lifecycle in RaceControl — ensuring games stop when billing ends, billing pauses when games crash, launches are validated against active sessions, and pods reset cleanly after every session. Also automates multiplayer server management — AC server starts/stops with billing, friends can book together from the kiosk without staff, and group events run continuously. Targets racecontrol (billing.rs, game_launcher.rs, ac_server.rs, multiplayer.rs) and rc-agent (ac_launcher.rs, game_process.rs, lock_screen.rs, main.rs).
 
 ## Core Value
 
@@ -41,8 +41,8 @@ No customer ever plays for free and no customer ever pays for downtime — the b
 - **CM failures:** Content Manager hangs → 15s timeout → fallback to direct acs.exe, but failure not reported back.
 - **Pod stuck:** Session ends → lock screen shows "Session Complete!" forever → never returns to idle.
 - **Key files:**
-  - `crates/rc-core/src/billing.rs` — BillingManager, timer lifecycle
-  - `crates/rc-core/src/game_launcher.rs` — GameTracker, launch flow
+  - `crates/racecontrol/src/billing.rs` — BillingManager, timer lifecycle
+  - `crates/racecontrol/src/game_launcher.rs` — GameTracker, launch flow
   - `crates/rc-agent/src/ac_launcher.rs` — AC launch (1,400+ lines)
   - `crates/rc-agent/src/game_process.rs` — process monitoring, cleanup
   - `crates/rc-agent/src/lock_screen.rs` — lock screen states
@@ -51,10 +51,10 @@ No customer ever plays for free and no customer ever pays for downtime — the b
 
 ## Constraints
 
-- **Rust only:** rc-core and rc-agent stay Rust/Axum
+- **Rust only:** racecontrol and rc-agent stay Rust/Axum
 - **No new protocol messages without backward compat:** Use serde(default) for new fields
 - **10s max latency:** Game kill must happen within 10s of billing end
-- **Billing stays authoritative:** rc-core owns billing state, rc-agent is a client
+- **Billing stays authoritative:** racecontrol owns billing state, rc-agent is a client
 - **No breaking changes:** Existing billing, auth, and overlay must keep working
 
 ## Key Decisions

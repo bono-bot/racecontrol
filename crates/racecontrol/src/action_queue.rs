@@ -1,4 +1,4 @@
-//! Cloud -> rc-core Action Queue
+//! Cloud -> racecontrol Action Queue
 //!
 //! Supports dual-mode operation:
 //! - **Relay mode**: Actions are PUSHED to the venue via comms-link relay (sub-second delivery).

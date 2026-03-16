@@ -11,7 +11,7 @@ requires:
 provides:
   - AgentMessage::StartupReport variant in protocol.rs with pod_id, version, uptime_secs, config_hash, crash_recovery, repairs fields
   - rc-agent sends startup report once per process lifetime after first WS connection
-  - rc-core handles StartupReport by logging and recording pod activity
+  - racecontrol handles StartupReport by logging and recording pod activity
 affects: [21-fleet-dashboard, pod-monitoring, deploy-verification]
 
 # Tech tracking
@@ -24,7 +24,7 @@ key-files:
   modified:
     - crates/rc-common/src/protocol.rs
     - crates/rc-agent/src/main.rs
-    - crates/rc-core/src/ws/mod.rs
+    - crates/racecontrol/src/ws/mod.rs
 
 key-decisions:
   - "StartupReport sent once per process lifetime using startup_report_sent bool flag -- not on every reconnect"
@@ -44,7 +44,7 @@ completed: 2026-03-15
 
 # Phase 18 Plan 02: Startup Report Protocol Summary
 
-**AgentMessage::StartupReport with serde roundtrip tests, sent once per process lifetime from rc-agent to rc-core with version, uptime, config hash, crash recovery flag, and self-heal repairs**
+**AgentMessage::StartupReport with serde roundtrip tests, sent once per process lifetime from rc-agent to racecontrol with version, uptime, config hash, crash recovery flag, and self-heal repairs**
 
 ## Performance
 
@@ -57,20 +57,20 @@ completed: 2026-03-15
 ## Accomplishments
 - Added AgentMessage::StartupReport variant with 6 fields (pod_id, version, uptime_secs, config_hash, crash_recovery, repairs) and 2 serde roundtrip tests
 - rc-agent sends StartupReport once after first WS connection, using Plan 01's heal_result and crash_recovery data
-- rc-core handles StartupReport by logging version/uptime/config_hash and warning on crash recovery or self-heal repairs
-- Full test suite green: 100 rc-common + 199 rc-agent + 213 rc-core unit + 41 rc-core integration = 553 tests passing
+- racecontrol handles StartupReport by logging version/uptime/config_hash and warning on crash recovery or self-heal repairs
+- Full test suite green: 100 rc-common + 199 rc-agent + 213 racecontrol unit + 41 racecontrol integration = 553 tests passing
 
 ## Task Commits
 
 Each task was committed atomically:
 
 1. **Task 1: Add AgentMessage::StartupReport variant with serde tests** - `65e48e1` (test)
-2. **Task 2: Send StartupReport from rc-agent and handle in rc-core** - `bf46902` (feat)
+2. **Task 2: Send StartupReport from rc-agent and handle in racecontrol** - `bf46902` (feat)
 
 ## Files Created/Modified
 - `crates/rc-common/src/protocol.rs` - Added StartupReport variant to AgentMessage enum + 2 roundtrip tests
 - `crates/rc-agent/src/main.rs` - Added startup_report_sent flag + StartupReport send block after registration
-- `crates/rc-core/src/ws/mod.rs` - Added match arm for StartupReport with logging and pod activity recording
+- `crates/racecontrol/src/ws/mod.rs` - Added match arm for StartupReport with logging and pod activity recording
 
 ## Decisions Made
 - StartupReport sent once per process lifetime using `startup_report_sent` bool flag -- avoids log spam during flaky connections (Pitfall 6 from research)

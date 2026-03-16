@@ -10,7 +10,7 @@
 ### Locked Decisions
 
 **Post-restart verification**
-- rc-agent exposes a /health endpoint on a local port; rc-core verifies lock screen responsiveness by hitting it via pod-agent /exec curl
+- rc-agent exposes a /health endpoint on a local port; racecontrol verifies lock screen responsiveness by hitting it via pod-agent /exec curl
 - Verification polling uses escalating schedule: 5s, 15s, 30s, 60s after restart command sent (total 60s window)
 - All 3 checks must pass: process alive + WebSocket connected + lock screen health endpoint responsive. If any check fails at 60s, declare failure
 - Partial recovery (process + WS but no lock screen) is treated as FAILED — alert fires, backoff escalates. Customers can't use a pod without the lock screen
@@ -117,7 +117,7 @@ crates/rc-common/src/
 ├── watchdog.rs          # No changes needed (EscalatingBackoff is correct)
 └── types.rs             # Optional: add WatchdogState enum if shared between crates
 
-crates/rc-core/src/
+crates/racecontrol/src/
 ├── state.rs             # Add pod_watchdog_states: RwLock<HashMap<String, WatchdogState>>
 │                        # Add pod_needs_restart: RwLock<HashMap<String, bool>>
 ├── pod_monitor.rs       # Rewrite WS liveness, add broadcasts, fix partial-recovery
@@ -135,7 +135,7 @@ crates/rc-agent/src/
 **When to use:** Any time pod_monitor or pod_healer needs to know if a pod is currently in a recovery cycle.
 
 ```rust
-// In rc-core/src/state.rs (or rc-common/src/types.rs if shared)
+// In racecontrol/src/state.rs (or rc-common/src/types.rs if shared)
 #[derive(Debug, Clone, PartialEq)]
 pub enum WatchdogState {
     /// Pod is healthy — no active recovery
@@ -401,10 +401,10 @@ async fn is_ws_alive(state: &Arc<AppState>, pod_id: &str) -> bool {
 
 ## Open Questions
 
-1. **WatchdogState enum location: rc-common or rc-core?**
-   - What we know: rc-agent doesn't need to know about WatchdogState. DashboardEvent variants in rc-common need to carry watchdog info (attempt count, backoff label). State enum only used by rc-core internally.
-   - What's unclear: Should the enum live in rc-common/types.rs (for potential future agent awareness) or rc-core/state.rs (simpler, no cross-crate exposure)?
-   - Recommendation: Define in rc-core/state.rs. If it needs to go to rc-common later, it's a one-line move. Avoids polluting the shared protocol crate with internal machinery.
+1. **WatchdogState enum location: rc-common or racecontrol?**
+   - What we know: rc-agent doesn't need to know about WatchdogState. DashboardEvent variants in rc-common need to carry watchdog info (attempt count, backoff label). State enum only used by racecontrol internally.
+   - What's unclear: Should the enum live in rc-common/types.rs (for potential future agent awareness) or racecontrol/state.rs (simpler, no cross-crate exposure)?
+   - Recommendation: Define in racecontrol/state.rs. If it needs to go to rc-common later, it's a one-line move. Avoids polluting the shared protocol crate with internal machinery.
 
 2. **verify_restart task cleanup when monitor re-triggers**
    - What we know: If WatchdogState is Verifying, pod_monitor should NOT spawn a new verify task or issue a restart.
@@ -426,28 +426,28 @@ async fn is_ws_alive(state: &Arc<AppState>, pod_id: &str) -> bool {
 |----------|-------|
 | Framework | cargo test (built-in Rust test runner) |
 | Config file | none — `cargo test` discovers tests automatically |
-| Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-core` |
-| Full suite command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-core && cargo test -p rc-agent` |
+| Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p racecontrol-crate` |
+| Full suite command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p racecontrol-crate && cargo test -p rc-agent-crate` |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
 | WD-01 | Backoff advances through 30s→2m→10m→30m steps on repeated failures | unit | `cargo test -p rc-common watchdog` | ✅ (existing 11 tests in watchdog.rs) |
-| WD-01 | pod_monitor reads backoff.ready() before restarting | unit | `cargo test -p rc-core pod_monitor` | ❌ Wave 0 |
-| WD-03 | verify_restart: all 3 checks pass = reset + PodUpdate | unit | `cargo test -p rc-core verify_restart` | ❌ Wave 0 |
-| WD-03 | verify_restart: WS dead at 60s = RecoveryFailed event + alert | unit | `cargo test -p rc-core verify_restart_failure` | ❌ Wave 0 |
-| WD-03 | verify_restart: partial recovery (process+WS, no lock screen) = failure path | unit | `cargo test -p rc-core verify_restart_partial` | ❌ Wave 0 |
-| WD-04 | Full recovery resets backoff to attempt=0 | unit | `cargo test -p rc-core backoff_reset_on_recovery` | ❌ Wave 0 |
-| ALERT-01 | send_alert called on verification failure | unit | `cargo test -p rc-core alert_on_verify_fail` | ❌ Wave 0 |
-| ALERT-01 | send_alert called on max escalation (attempt >= 4) | unit | `cargo test -p rc-core alert_on_exhaustion` | ❌ Wave 0 |
-| ALERT-02 | should_send() blocks repeated alerts within 30min/pod | unit | `cargo test -p rc-core email_alerts` | ✅ (existing 8 tests in email_alerts.rs) |
-| WD-01 + WD-04 | WatchdogState transitions: Healthy → Restarting → Verifying → Healthy | unit | `cargo test -p rc-core watchdog_state_transitions` | ❌ Wave 0 |
-| WD-03 | Healer skips pod in Restarting/Verifying state | unit | `cargo test -p rc-core healer_skips_restarting` | ❌ Wave 0 |
-| WD-01 | needs_restart flag: healer sets, monitor reads and clears | unit | `cargo test -p rc-core needs_restart_flag` | ❌ Wave 0 |
+| WD-01 | pod_monitor reads backoff.ready() before restarting | unit | `cargo test -p racecontrol-crate pod_monitor` | ❌ Wave 0 |
+| WD-03 | verify_restart: all 3 checks pass = reset + PodUpdate | unit | `cargo test -p racecontrol-crate verify_restart` | ❌ Wave 0 |
+| WD-03 | verify_restart: WS dead at 60s = RecoveryFailed event + alert | unit | `cargo test -p racecontrol-crate verify_restart_failure` | ❌ Wave 0 |
+| WD-03 | verify_restart: partial recovery (process+WS, no lock screen) = failure path | unit | `cargo test -p racecontrol-crate verify_restart_partial` | ❌ Wave 0 |
+| WD-04 | Full recovery resets backoff to attempt=0 | unit | `cargo test -p racecontrol-crate backoff_reset_on_recovery` | ❌ Wave 0 |
+| ALERT-01 | send_alert called on verification failure | unit | `cargo test -p racecontrol-crate alert_on_verify_fail` | ❌ Wave 0 |
+| ALERT-01 | send_alert called on max escalation (attempt >= 4) | unit | `cargo test -p racecontrol-crate alert_on_exhaustion` | ❌ Wave 0 |
+| ALERT-02 | should_send() blocks repeated alerts within 30min/pod | unit | `cargo test -p racecontrol-crate email_alerts` | ✅ (existing 8 tests in email_alerts.rs) |
+| WD-01 + WD-04 | WatchdogState transitions: Healthy → Restarting → Verifying → Healthy | unit | `cargo test -p racecontrol-crate watchdog_state_transitions` | ❌ Wave 0 |
+| WD-03 | Healer skips pod in Restarting/Verifying state | unit | `cargo test -p racecontrol-crate healer_skips_restarting` | ❌ Wave 0 |
+| WD-01 | needs_restart flag: healer sets, monitor reads and clears | unit | `cargo test -p racecontrol-crate needs_restart_flag` | ❌ Wave 0 |
 
 ### Sampling Rate
-- **Per task commit:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-core`
+- **Per task commit:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p racecontrol-crate`
 - **Per wave merge:** Full suite (all 3 crates)
 - **Phase gate:** Full suite green before `/gsd:verify-work`, then deploy to Pod 8 and verify live watchdog behavior
 
@@ -455,8 +455,8 @@ async fn is_ws_alive(state: &Arc<AppState>, pod_id: &str) -> bool {
 
 The following test scaffolding is needed before implementation waves begin:
 
-- [ ] `crates/rc-core/src/pod_monitor.rs` — Add `#[cfg(test)] mod tests {}` block with helper to create mock AppState and test backoff/WatchdogState transitions
-- [ ] `crates/rc-core/src/pod_healer.rs` — Add `#[cfg(test)] mod tests {}` block with helper to verify healer skips Restarting pods
+- [ ] `crates/racecontrol/src/pod_monitor.rs` — Add `#[cfg(test)] mod tests {}` block with helper to create mock AppState and test backoff/WatchdogState transitions
+- [ ] `crates/racecontrol/src/pod_healer.rs` — Add `#[cfg(test)] mod tests {}` block with helper to verify healer skips Restarting pods
 - [ ] Shared test helper: `fn make_test_app_state() -> Arc<AppState>` using `Config::default_test()` and in-memory SQLite — currently only in integration.rs, needs to be a helper available to unit tests in each module
 
 Note: Integration test infra in `tests/integration.rs` already has `create_test_db()` and `run_test_migrations()`. The `make_test_app_state()` helper should use the same pattern.
@@ -467,13 +467,13 @@ Note: Integration test infra in `tests/integration.rs` already has `create_test_
 
 ### Primary (HIGH confidence)
 - Direct codebase read — `crates/rc-common/src/watchdog.rs` — EscalatingBackoff API, 11 test cases
-- Direct codebase read — `crates/rc-core/src/email_alerts.rs` — EmailAlerter API, send_alert signature, rate limit logic
-- Direct codebase read — `crates/rc-core/src/state.rs` — AppState fields, pod_backoffs/email_alerter placement
-- Direct codebase read — `crates/rc-core/src/pod_monitor.rs` — Current verify_restart(), WS liveness defect confirmed
-- Direct codebase read — `crates/rc-core/src/pod_healer.rs` — Current healer logic, "defer restart" comment
+- Direct codebase read — `crates/racecontrol/src/email_alerts.rs` — EmailAlerter API, send_alert signature, rate limit logic
+- Direct codebase read — `crates/racecontrol/src/state.rs` — AppState fields, pod_backoffs/email_alerter placement
+- Direct codebase read — `crates/racecontrol/src/pod_monitor.rs` — Current verify_restart(), WS liveness defect confirmed
+- Direct codebase read — `crates/racecontrol/src/pod_healer.rs` — Current healer logic, "defer restart" comment
 - Direct codebase read — `crates/rc-common/src/protocol.rs` — Existing DashboardEvent variants, serde attributes
 - Direct codebase read — `crates/rc-agent/src/lock_screen.rs` — Port 18923, existing HTTP server pattern
-- Direct codebase read — `crates/rc-core/src/config.rs` — WatchdogConfig fields, email defaults
+- Direct codebase read — `crates/racecontrol/src/config.rs` — WatchdogConfig fields, email defaults
 - Tokio 1.x documentation — `mpsc::Sender::is_closed()` exists and returns true when all receivers dropped
 
 ### Secondary (MEDIUM confidence)

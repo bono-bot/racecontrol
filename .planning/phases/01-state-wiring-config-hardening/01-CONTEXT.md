@@ -31,7 +31,7 @@ Wire EscalatingBackoff and EmailAlerter into AppState (already implemented, need
 - pod-agent binds to LAN only (192.168.31.x, not 0.0.0.0) — no auth needed, router NAT blocks external access. Note: pods DO have internet access for online games (iRacing, LMU).
 
 ### AppState wiring
-- Pre-populate pod_backoffs entries for all 8 pods at rc-core startup — pod_monitor never encounters a missing entry
+- Pre-populate pod_backoffs entries for all 8 pods at racecontrol startup — pod_monitor never encounters a missing entry
 - Send a test email on first boot only (flag file after first success) — verifies Gmail OAuth works without spamming Uday's inbox on every restart
 - Backoff step durations (30s→2m→10m→30m) hardcoded — no config file tuning for now
 - No network ping check at startup — pods check in via WebSocket when they come online, "offline" is the default state
@@ -58,8 +58,8 @@ Wire EscalatingBackoff and EmailAlerter into AppState (already implemented, need
 
 ### Reusable Assets
 - `EscalatingBackoff` (rc-common/src/watchdog.rs): Already implemented with tests, Vec<Duration> steps with clamping
-- `EmailAlerter` (rc-core/src/email_alerts.rs): Already implemented with dual rate limits (per-pod 30min, venue-wide 5min)
-- `AppState` (rc-core/src/state.rs): Already has `pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>` and `email_alerter: RwLock<EmailAlerter>` fields
+- `EmailAlerter` (racecontrol/src/email_alerts.rs): Already implemented with dual rate limits (per-pod 30min, venue-wide 5min)
+- `AppState` (racecontrol/src/state.rs): Already has `pod_backoffs: RwLock<HashMap<String, EscalatingBackoff>>` and `email_alerter: RwLock<EmailAlerter>` fields
 - `load_config()` (rc-agent/src/main.rs:1249): Currently loads from rc-agent.toml or /etc/racecontrol/rc-agent.toml — needs validation logic added
 
 ### Established Patterns
@@ -71,8 +71,8 @@ Wire EscalatingBackoff and EmailAlerter into AppState (already implemented, need
 ### Integration Points
 - rc-agent main.rs: load_config() → add validation step → fail with branded lock screen error
 - pod-agent /exec handler: change response format + HTTP status codes
-- rc-core state.rs AppState::new(): pre-populate pod_backoffs from pod list
-- rc-core startup: first-boot email test with flag file check
+- racecontrol state.rs AppState::new(): pre-populate pod_backoffs from pod list
+- racecontrol startup: first-boot email test with flag file check
 - deploy-staging scripts: update to delete old config before writing new
 
 </code_context>

@@ -121,7 +121,7 @@ fn default_session_ai_level() -> u32 { 87 } // Semi-Pro midpoint
 fn default_session_type() -> String { "practice".to_string() }
 fn default_starting_position() -> u32 { 1 }
 
-// AI driver names moved to rc-common::ai_names (shared between rc-agent and rc-core)
+// AI driver names moved to rc-common::ai_names (shared between rc-agent and racecontrol)
 use rc_common::ai_names::{AI_DRIVER_NAMES, pick_ai_names};
 
 /// AC launch parameters parsed from the `launch_args` JSON

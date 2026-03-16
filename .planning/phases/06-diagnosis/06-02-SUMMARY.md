@@ -7,7 +7,7 @@ tags: [server, network, port-audit, dhcp, mac-address, pod-agent]
 # Dependency graph
 requires: []
 provides:
-  - "DIAG-02: Server port audit — ports 3300 and 8080 NOT listening (kiosk not deployed, rc-core not running)"
+  - "DIAG-02: Server port audit — ports 3300 and 8080 NOT listening (kiosk not deployed, racecontrol not running)"
   - "DIAG-04: Server MAC BC-FC-E7-2C-F2-CE, DHCP enabled, IP drifted .51 → .23 → .4"
   - "Correction: Server HAS pod-agent on 8090 — MEMORY was wrong (said no pod-agent, requires RDP)"
   - "Discovery: .23 is NOT the server — it's an unknown device (phone/tablet)"
@@ -31,7 +31,7 @@ key-files:
     - ".planning/phases/06-diagnosis/06-FINDINGS.md"
 
 key-decisions:
-  - "DIAG-02: Port 3300 (kiosk) and 8080 (rc-core) both NOT listening — confirms both services need Phase 7 deployment"
+  - "DIAG-02: Port 3300 (kiosk) and 8080 (racecontrol) both NOT listening — confirms both services need Phase 7 deployment"
   - "DIAG-02: java.exe on port 45021 is unknown — investigate later, not blocking"
   - "DIAG-04: Server MAC = BC-FC-E7-2C-F2-CE (Marvell AQtion 10Gbit) — use for DHCP reservation in Phase 7"
   - "DIAG-04: DHCP lease expires nightly (~01:05) — IP drift is a daily risk until reservation is set"
@@ -54,7 +54,7 @@ completed: 2026-03-13
 
 # Phase 6 Plan 02: Server Diagnostics Summary
 
-**Server port audit + IP/MAC identification reveals server IP drifted to .4, both rc-core and kiosk not running, and server has pod-agent (no RDP needed)**
+**Server port audit + IP/MAC identification reveals server IP drifted to .4, both racecontrol and kiosk not running, and server has pod-agent (no RDP needed)**
 
 ## Performance
 
@@ -66,7 +66,7 @@ completed: 2026-03-13
 
 ## Accomplishments
 
-- Established DIAG-02: Server port audit shows ports 3300 (kiosk) and 8080 (rc-core) NOT listening — both services need Phase 7 deployment. Pod-agent running on 8090.
+- Established DIAG-02: Server port audit shows ports 3300 (kiosk) and 8080 (racecontrol) NOT listening — both services need Phase 7 deployment. Pod-agent running on 8090.
 - Established DIAG-04: Server MAC BC-FC-E7-2C-F2-CE, DHCP enabled with nightly lease expiry, IP drifted .51 → .23 → .4. Old IP .23 now belongs to unknown device.
 - Discovered server HAS pod-agent on port 8090 — eliminates RDP dependency for all future phases
 - Identified .23 is NOT the server — all 8 pods hardcoded to .23 are connecting to a random device
@@ -82,7 +82,7 @@ completed: 2026-03-13
 ## Decisions Made
 
 - Server pod-agent on 8090 makes RDP unnecessary — all server management can be remote
-- Phase 7 MUST set DHCP reservation first (before deploying kiosk/rc-core) since IP drifts nightly
+- Phase 7 MUST set DHCP reservation first (before deploying kiosk/racecontrol) since IP drifts nightly
 - Pod configs need server IP update: .23 → whatever the DHCP reservation pins to
 - java.exe on 45021 is unknown but not blocking — investigate if it causes port conflicts later
 

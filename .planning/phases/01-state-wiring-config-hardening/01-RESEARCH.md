@@ -29,7 +29,7 @@
 - pod-agent binds to LAN only (192.168.31.x, not 0.0.0.0) — no auth needed, router NAT blocks external access. Note: pods DO have internet access for online games (iRacing, LMU).
 
 **AppState wiring**
-- Pre-populate pod_backoffs entries for all 8 pods at rc-core startup — pod_monitor never encounters a missing entry
+- Pre-populate pod_backoffs entries for all 8 pods at racecontrol startup — pod_monitor never encounters a missing entry
 - Send a test email on first boot only (flag file after first success) — verifies Gmail OAuth works without spamming Uday's inbox on every restart
 - Backoff step durations (30s→2m→10m→30m) hardcoded — no config file tuning for now
 - No network ping check at startup — pods check in via WebSocket when they come online, "offline" is the default state
@@ -61,11 +61,11 @@
 
 ## Summary
 
-Phase 1 is pure integration and hardening — every component already exists, nothing needs to be designed from scratch. The work is four focused changes across three codebases (rc-agent, pod-agent, rc-core).
+Phase 1 is pure integration and hardening — every component already exists, nothing needs to be designed from scratch. The work is four focused changes across three codebases (rc-agent, pod-agent, racecontrol).
 
-The most impactful change is rc-agent config validation. Currently `load_config()` silently falls back to a default config when no config file is found — a pod with a missing or corrupt `rc-agent.toml` will start with pod_number=1, connecting as "Pod 01" regardless of which physical pod it's on. Billing rates are not present in rc-agent's config (billing lives in rc-core), so the "rate must be > 0" validation listed in CONTEXT.md applies to rc-core's `racecontrol.toml`, not rc-agent. The critical rc-agent fields are: server URL (must be a valid WebSocket URL), pod number (1-8), and pod name (non-empty).
+The most impactful change is rc-agent config validation. Currently `load_config()` silently falls back to a default config when no config file is found — a pod with a missing or corrupt `rc-agent.toml` will start with pod_number=1, connecting as "Pod 01" regardless of which physical pod it's on. Billing rates are not present in rc-agent's config (billing lives in racecontrol), so the "rate must be > 0" validation listed in CONTEXT.md applies to racecontrol's `racecontrol.toml`, not rc-agent. The critical rc-agent fields are: server URL (must be a valid WebSocket URL), pod number (1-8), and pod name (non-empty).
 
-The pod-agent /exec fix is straightforward but high-value: the current implementation returns HTTP 200 for spawn failures and timeouts with no `success` field, meaning rc-core's pod_monitor cannot distinguish a successful restart from a failed one. Adding a `success: bool` field and returning HTTP 500 on non-zero exit codes makes the existing pod_monitor log messages accurate.
+The pod-agent /exec fix is straightforward but high-value: the current implementation returns HTTP 200 for spawn failures and timeouts with no `success` field, meaning racecontrol's pod_monitor cannot distinguish a successful restart from a failed one. Adding a `success: bool` field and returning HTTP 500 on non-zero exit codes makes the existing pod_monitor log messages accurate.
 
 AppState.pod_backoffs pre-population is the smallest change — a single initialization loop in `AppState::new()` that inserts `EscalatingBackoff::new()` for all 8 pods by their pod_id string key ("pod_1" through "pod_8"). The structure and types already exist and are tested.
 
@@ -79,9 +79,9 @@ AppState.pod_backoffs pre-population is the smallest change — a single initial
 
 | Library | Version | Purpose | Notes |
 |---------|---------|---------|-------|
-| toml | 0.8 | TOML deserialization | Already in workspace, used by both rc-agent and rc-core |
+| toml | 0.8 | TOML deserialization | Already in workspace, used by both rc-agent and racecontrol |
 | anyhow | 1 | Error propagation in Rust | Already used in rc-agent main() return type |
-| axum | (via rc-core Cargo.toml) | HTTP routing in pod-agent | pod-agent is a separate Cargo workspace at /c/Users/bono/racingpoint/pod-agent/ |
+| axum | (via racecontrol Cargo.toml) | HTTP routing in pod-agent | pod-agent is a separate Cargo workspace at /c/Users/bono/racingpoint/pod-agent/ |
 | url | (not yet added) | URL validation in rc-agent | May need to add for server URL format check — or use a simple regex/prefix check |
 
 ### Validation approach for rc-agent
@@ -108,7 +108,7 @@ For server URL validation, the simplest approach is a prefix check (`starts_with
 - `core.url`: must start with `ws://` or `wss://`. Empty is also invalid.
 - No config file found at all: fail immediately, do NOT use defaults.
 
-**Billing rates note:** Billing rates (`rate_30min`, `rate_60min`) live in `racecontrol.toml` (rc-core's config), NOT in `rc-agent.toml`. rc-agent has no billing fields. The "must be > 0" rate validation belongs in rc-core's `Config::load()` path, not rc-agent's. CONTEXT.md says "billing rates" under rc-agent validation — this is likely referring to rc-core's startup validation. Confirmed: rc-core's `VenueConfig` has no billing rate fields either; billing rates live in the DB (kiosk_settings table). The Config validation in rc-core may not need rate validation at all, or it's out of scope for Phase 1.
+**Billing rates note:** Billing rates (`rate_30min`, `rate_60min`) live in `racecontrol.toml` (racecontrol's config), NOT in `rc-agent.toml`. rc-agent has no billing fields. The "must be > 0" rate validation belongs in racecontrol's `Config::load()` path, not rc-agent's. CONTEXT.md says "billing rates" under rc-agent validation — this is likely referring to racecontrol's startup validation. Confirmed: racecontrol's `VenueConfig` has no billing rate fields either; billing rates live in the DB (kiosk_settings table). The Config validation in racecontrol may not need rate validation at all, or it's out of scope for Phase 1.
 
 **Example pattern:**
 
@@ -172,7 +172,7 @@ The simplest approach that matches the CONTEXT.md requirement: Add a new `LockSc
 **Example:**
 
 ```rust
-// In rc-core/src/state.rs — AppState::new()
+// In racecontrol/src/state.rs — AppState::new()
 
 let mut initial_backoffs = HashMap::new();
 for pod_num in 1..=8u32 {
@@ -246,7 +246,7 @@ The deploy-staging area also needs a template TOML file with only `pod_number` v
 ### Anti-Patterns to Avoid
 
 - **Don't add serde validation attributes:** `#[serde(deserialize_with = "...")]` for validation gives opaque error messages. Use a separate `validate()` step.
-- **Don't panic on config error in rc-core:** rc-core's `Config::load_or_default()` already swallows errors and uses defaults. If rc-core gets stricter validation, use `warn!` not `error!` for non-critical fields, and only fail for database path (required to start).
+- **Don't panic on config error in racecontrol:** racecontrol's `Config::load_or_default()` already swallows errors and uses defaults. If racecontrol gets stricter validation, use `warn!` not `error!` for non-critical fields, and only fail for database path (required to start).
 - **Don't add `success` field to timeout response as `true`:** Current code returns `Ok(Json(...))` for timeouts — this is the bug. Timeout must be HTTP 500 + `success: false`.
 - **Don't bind pod-agent to 0.0.0.0 when LAN binding is requested:** But also don't fail startup if IP detection fails — graceful fallback.
 
@@ -261,7 +261,7 @@ The deploy-staging area also needs a template TOML file with only `pod_number` v
 | Backoff initialization | Complex dynamic discovery | Hardcoded range `1..=8` | Dynamic pod discovery happens via WebSocket registration, backoff init is just a safety net |
 | HTTP status selection | Complex mapping logic | Direct `StatusCode` variants | axum already has `StatusCode::INTERNAL_SERVER_ERROR`, `StatusCode::BAD_REQUEST`, etc. |
 
-**Key insight:** Every piece of infrastructure for this phase is already implemented and tested. The risk is in the integration points (startup order for lock screen, keying consistency between rc-agent and rc-core, backward compat in pod-agent response format).
+**Key insight:** Every piece of infrastructure for this phase is already implemented and tested. The risk is in the integration points (startup order for lock screen, keying consistency between rc-agent and racecontrol, backward compat in pod-agent response format).
 
 ---
 
@@ -279,9 +279,9 @@ The deploy-staging area also needs a template TOML file with only `pod_number` v
 
 **Warning signs:** If you see the lock screen test pass but config error test shows blank screen, the server isn't starting early enough.
 
-### Pitfall 2: pod_backoffs key mismatch between rc-agent and rc-core
+### Pitfall 2: pod_backoffs key mismatch between rc-agent and racecontrol
 
-**What goes wrong:** rc-agent generates `pod_id = format!("pod_{}", config.pod.number)` e.g. `"pod_3"`. rc-core pod_monitor generates the same key via `pod.id` from PodInfo. If pre-population uses a different format (e.g., `"pod-3"` or `"Pod 3"`), `entry().or_insert_with()` will still create a new entry but the pre-populated one is wasted — no bug, but a wasted initialization.
+**What goes wrong:** rc-agent generates `pod_id = format!("pod_{}", config.pod.number)` e.g. `"pod_3"`. racecontrol pod_monitor generates the same key via `pod.id` from PodInfo. If pre-population uses a different format (e.g., `"pod-3"` or `"Pod 3"`), `entry().or_insert_with()` will still create a new entry but the pre-populated one is wasted — no bug, but a wasted initialization.
 
 **Why it happens:** The key format is not enforced by a type system — it's just a String.
 
@@ -289,15 +289,15 @@ The deploy-staging area also needs a template TOML file with only `pod_number` v
 
 ### Pitfall 3: pod-agent response format breaking existing callers
 
-**What goes wrong:** rc-core's pod_monitor.rs checks `resp.status().is_success()` (line 226). If exec returns HTTP 500 for non-zero exit, the existing code path correctly falls into the `Ok(resp)` (non-success) arm and logs a warning. BUT — existing code does NOT parse the response body JSON, so adding `success: bool` does not break any callers.
+**What goes wrong:** racecontrol's pod_monitor.rs checks `resp.status().is_success()` (line 226). If exec returns HTTP 500 for non-zero exit, the existing code path correctly falls into the `Ok(resp)` (non-success) arm and logs a warning. BUT — existing code does NOT parse the response body JSON, so adding `success: bool` does not break any callers.
 
 **Why it happens:** pod_monitor.rs deserializes nothing from the exec response — it only checks the HTTP status code. So the response body change is safe.
 
-**How to avoid:** The change is backward safe for rc-core callers. Verify by checking ALL callers of pod-agent /exec before shipping.
+**How to avoid:** The change is backward safe for racecontrol callers. Verify by checking ALL callers of pod-agent /exec before shipping.
 
 **Callers of /exec:**
-- `rc-core/src/pod_monitor.rs` — checks `resp.status().is_success()` only (safe)
-- `rc-core/src/pod_healer.rs` — check if it also calls /exec (need to verify)
+- `racecontrol/src/pod_monitor.rs` — checks `resp.status().is_success()` only (safe)
+- `racecontrol/src/pod_healer.rs` — check if it also calls /exec (need to verify)
 - `deploy-cmd.json` on James's machine — manual deploy tool, doesn't parse response structure
 
 ### Pitfall 4: rc-agent exits zero when config is invalid (wrong exit code)
@@ -377,7 +377,7 @@ match result {
 ### AppState pod_backoffs pre-population
 
 ```rust
-// rc-core/src/state.rs — in AppState::new()
+// racecontrol/src/state.rs — in AppState::new()
 let mut initial_backoffs = HashMap::new();
 for pod_num in 1u32..=8 {
     initial_backoffs.insert(
@@ -427,7 +427,7 @@ fn validate_config(config: &AgentConfig) -> Result<()> {
 ### First-boot email test (flag file pattern)
 
 ```rust
-// rc-core/src/main.rs — after AppState initialization
+// racecontrol/src/main.rs — after AppState initialization
 
 const FIRST_BOOT_FLAG: &str = "./data/email_verified.flag";
 
@@ -437,7 +437,7 @@ async fn maybe_send_first_boot_email(state: &Arc<AppState>) {
     }
     let subject = "RaceControl Started — Email Alerts Active";
     let body = format!(
-        "RaceControl rc-core started successfully.\n\
+        "RaceControl racecontrol started successfully.\n\
          Email alerting is configured and working.\n\
          Venue: {}\n\
          Time: {}",
@@ -468,9 +468,9 @@ async fn maybe_send_first_boot_email(state: &Arc<AppState>) {
 ## Open Questions
 
 1. **Billing rates in rc-agent config**
-   - What we know: CONTEXT.md mentions "billing rates (must be > 0)" as a critical field. rc-agent's `AgentConfig` has NO billing rate fields — billing is rc-core's domain.
-   - What's unclear: Are billing rates supposed to be added to rc-agent.toml, or is this CONTEXT.md referring to rc-core validation? Or does it mean validating that the configured sim type is valid (not "0")?
-   - Recommendation: Treat as rc-core validation only (not rc-agent). If billing rates were meant for rc-agent, they don't exist in the current struct — adding them would be new design, not Phase 1 hardening. Confirm with Uday if needed.
+   - What we know: CONTEXT.md mentions "billing rates (must be > 0)" as a critical field. rc-agent's `AgentConfig` has NO billing rate fields — billing is racecontrol's domain.
+   - What's unclear: Are billing rates supposed to be added to rc-agent.toml, or is this CONTEXT.md referring to racecontrol validation? Or does it mean validating that the configured sim type is valid (not "0")?
+   - Recommendation: Treat as racecontrol validation only (not rc-agent). If billing rates were meant for rc-agent, they don't exist in the current struct — adding them would be new design, not Phase 1 hardening. Confirm with Uday if needed.
 
 2. **Lock screen state before config load**
    - What we know: The current startup sequence initializes LockScreenManager inside the main agent loop, after config is loaded.
@@ -497,21 +497,21 @@ async fn maybe_send_first_boot_email(state: &Arc<AppState>) {
 |----------|-------|
 | Framework | Rust built-in test runner (`cargo test`) |
 | Config file | `.cargo/config.toml` (workspace-level, for CRT static linking) |
-| Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 | Full suite command | Same as quick — no separate integration test profile needed |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| WD-02 | pod_backoffs pre-populated for pods 1-8 in AppState::new() | unit | `cargo test -p rc-core -- state::tests` | ❌ Wave 0 |
-| WD-02 | pod_monitor reads existing backoff entry (no `entry().or_insert_with()` needed for known pods) | unit | `cargo test -p rc-core -- pod_monitor::tests` | ❌ Wave 0 |
-| DEPLOY-01 | validate_config rejects pod.number = 0 | unit | `cargo test -p rc-agent -- validate_config` | ❌ Wave 0 |
-| DEPLOY-01 | validate_config rejects pod.number = 9 | unit | `cargo test -p rc-agent -- validate_config` | ❌ Wave 0 |
-| DEPLOY-01 | validate_config rejects empty pod.name | unit | `cargo test -p rc-agent -- validate_config` | ❌ Wave 0 |
-| DEPLOY-01 | validate_config rejects invalid URL (no ws:// prefix) | unit | `cargo test -p rc-agent -- validate_config` | ❌ Wave 0 |
-| DEPLOY-01 | validate_config accepts valid config | unit | `cargo test -p rc-agent -- validate_config` | ❌ Wave 0 |
-| DEPLOY-01 | load_config() returns Err when no file found (not Ok(default)) | unit | `cargo test -p rc-agent -- load_config_no_file` | ❌ Wave 0 |
+| WD-02 | pod_backoffs pre-populated for pods 1-8 in AppState::new() | unit | `cargo test -p racecontrol-crate -- state::tests` | ❌ Wave 0 |
+| WD-02 | pod_monitor reads existing backoff entry (no `entry().or_insert_with()` needed for known pods) | unit | `cargo test -p racecontrol-crate -- pod_monitor::tests` | ❌ Wave 0 |
+| DEPLOY-01 | validate_config rejects pod.number = 0 | unit | `cargo test -p rc-agent-crate -- validate_config` | ❌ Wave 0 |
+| DEPLOY-01 | validate_config rejects pod.number = 9 | unit | `cargo test -p rc-agent-crate -- validate_config` | ❌ Wave 0 |
+| DEPLOY-01 | validate_config rejects empty pod.name | unit | `cargo test -p rc-agent-crate -- validate_config` | ❌ Wave 0 |
+| DEPLOY-01 | validate_config rejects invalid URL (no ws:// prefix) | unit | `cargo test -p rc-agent-crate -- validate_config` | ❌ Wave 0 |
+| DEPLOY-01 | validate_config accepts valid config | unit | `cargo test -p rc-agent-crate -- validate_config` | ❌ Wave 0 |
+| DEPLOY-01 | load_config() returns Err when no file found (not Ok(default)) | unit | `cargo test -p rc-agent-crate -- load_config_no_file` | ❌ Wave 0 |
 | DEPLOY-03 | /exec returns HTTP 200 + success:true for exit code 0 | unit (pod-agent) | `cargo test -p pod-agent` (separate workspace) | ❌ Wave 0 |
 | DEPLOY-03 | /exec returns HTTP 500 + success:false for non-zero exit | unit (pod-agent) | `cargo test -p pod-agent` | ❌ Wave 0 |
 | DEPLOY-03 | /exec returns HTTP 500 + success:false for timeout | unit (pod-agent) | `cargo test -p pod-agent` | ❌ Wave 0 |
@@ -519,14 +519,14 @@ async fn maybe_send_first_boot_email(state: &Arc<AppState>) {
 
 ### Sampling Rate
 
-- **Per task commit:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
-- **Per wave merge:** Same as above + deploy to Pod 8 + verify pod reports correct pod_number via rc-core dashboard
+- **Per task commit:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
+- **Per wave merge:** Same as above + deploy to Pod 8 + verify pod reports correct pod_number via racecontrol dashboard
 - **Phase gate:** All unit tests green + Pod 8 smoke verify before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 
 - [ ] `crates/rc-agent/src/main.rs` — add `#[cfg(test)] mod tests { ... }` block with `validate_config_*` unit tests
-- [ ] `crates/rc-core/src/state.rs` — add `#[cfg(test)] mod tests { ... }` block for AppState::new() backoff pre-population
+- [ ] `crates/racecontrol/src/state.rs` — add `#[cfg(test)] mod tests { ... }` block for AppState::new() backoff pre-population
 - [ ] `pod-agent/src/main.rs` (separate repo at `/c/Users/bono/racingpoint/pod-agent/`) — add unit tests for exec_command response codes
 - [ ] No new framework installs needed — `cargo test` already works
 
@@ -540,9 +540,9 @@ async fn maybe_send_first_boot_email(state: &Arc<AppState>) {
 
 - Direct codebase inspection — all findings verified against actual source code
   - `crates/rc-agent/src/main.rs` — load_config(), validate_config gap, AgentConfig struct
-  - `crates/rc-core/src/state.rs` — AppState::new(), pod_backoffs initialization
-  - `crates/rc-core/src/pod_monitor.rs` — backoff usage, entry().or_insert_with() pattern
-  - `crates/rc-core/src/email_alerts.rs` — EmailAlerter API, rate limit behavior
+  - `crates/racecontrol/src/state.rs` — AppState::new(), pod_backoffs initialization
+  - `crates/racecontrol/src/pod_monitor.rs` — backoff usage, entry().or_insert_with() pattern
+  - `crates/racecontrol/src/email_alerts.rs` — EmailAlerter API, rate limit behavior
   - `crates/rc-common/src/watchdog.rs` — EscalatingBackoff API, tested
   - `pod-agent/src/main.rs` — /exec handler, current HTTP 200 for everything bug
   - `deploy-staging/install.bat` — existing config cleanup in pendrive deploy path
@@ -553,7 +553,7 @@ async fn maybe_send_first_boot_email(state: &Arc<AppState>) {
 
 ### Tertiary (LOW confidence)
 
-- "billing rates in rc-agent" interpretation — this may refer to rc-core validation, not rc-agent. Flagged as open question.
+- "billing rates in rc-agent" interpretation — this may refer to racecontrol validation, not rc-agent. Flagged as open question.
 
 ---
 

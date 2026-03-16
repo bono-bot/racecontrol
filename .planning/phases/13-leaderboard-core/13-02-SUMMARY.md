@@ -24,8 +24,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/api/routes.rs
-    - crates/rc-core/tests/integration.rs
+    - crates/racecontrol/src/api/routes.rs
+    - crates/racecontrol/tests/integration.rs
 
 key-decisions:
   - "sim_type defaults to assetto_corsa for backward compatibility with existing PWA consumers"
@@ -74,8 +74,8 @@ Each task was committed atomically:
 _TDD REFACTOR phase not needed -- handlers are clean and follow existing patterns._
 
 ## Files Created/Modified
-- `crates/rc-core/src/api/routes.rs` - Added LeaderboardQuery struct, modified public_track_leaderboard with sim_type+suspect+show_invalid, new public_circuit_records and public_vehicle_records handlers, registered 2 new routes
-- `crates/rc-core/tests/integration.rs` - Added insert_test_lap helper, 6 new tests (sim_type_filter, no_cross_sim, suspect_hidden, invalid_toggle, circuit_records, vehicle_records)
+- `crates/racecontrol/src/api/routes.rs` - Added LeaderboardQuery struct, modified public_track_leaderboard with sim_type+suspect+show_invalid, new public_circuit_records and public_vehicle_records handlers, registered 2 new routes
+- `crates/racecontrol/tests/integration.rs` - Added insert_test_lap helper, 6 new tests (sim_type_filter, no_cross_sim, suspect_hidden, invalid_toggle, circuit_records, vehicle_records)
 
 ## Decisions Made
 - sim_type defaults to "assetto_corsa" when absent, ensuring backward compatibility with existing PWA consumers that don't yet pass this parameter.

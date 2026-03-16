@@ -1,7 +1,7 @@
 # Project: RaceControl Billing & Point of Sale
 
 **Milestone:** v3.0 Billing & POS
-**Repo(s):** racecontrol (rc-core, kiosk, PWA), racingpoint-admin (dashboard.racingpoint.cloud)
+**Repo(s):** racecontrol (racecontrol, kiosk, PWA), racingpoint-admin (dashboard.racingpoint.cloud)
 **Owner:** James Vowles
 **Started:** 2026-03-14
 
@@ -11,7 +11,7 @@ Every rupee earned is tracked, every customer gets a receipt, and Uday can see v
 
 ## Problem Statement
 
-The billing engine (rc-core) is robust — timers, cost calculation, dynamic pricing, wallet, split sessions, journal entries — but it is invisible to everyone except the pods. Uday cannot see today's revenue from his phone. Customers get no receipt. Staff cannot issue refunds from the kiosk. The cloud dashboard shows cafe sales, not sim sessions.
+The billing engine (racecontrol) is robust — timers, cost calculation, dynamic pricing, wallet, split sessions, journal entries — but it is invisible to everyone except the pods. Uday cannot see today's revenue from his phone. Customers get no receipt. Staff cannot issue refunds from the kiosk. The cloud dashboard shows cafe sales, not sim sessions.
 
 ## What Success Looks Like
 
@@ -32,7 +32,7 @@ The billing engine (rc-core) is robust — timers, cost calculation, dynamic pri
 ## Architecture Context
 
 ```
-rc-core (port 8080) ─── billing_sessions (SQLite, local-authoritative)
+racecontrol (port 8080) ─── billing_sessions (SQLite, local-authoritative)
       │                       │
       │ cloud_sync.rs          │ Phase 1: ADD to sync tables
       ▼                       ▼

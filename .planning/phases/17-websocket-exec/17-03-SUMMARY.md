@@ -23,9 +23,9 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/state.rs
-    - crates/rc-core/src/ws/mod.rs
-    - crates/rc-core/src/deploy.rs
+    - crates/racecontrol/src/state.rs
+    - crates/racecontrol/src/ws/mod.rs
+    - crates/racecontrol/src/deploy.rs
 
 key-decisions:
   - "Pod-prefixed request_id format (pod_X:uuid) enables efficient disconnect cleanup via prefix matching"
@@ -62,7 +62,7 @@ completed: 2026-03-15
 - Disconnect cleanup sweeps all pending_ws_execs entries with the disconnected pod's prefix
 - ws_exec_on_pod() public function sends Exec commands via WebSocket with timeout+5s buffer
 - deploy.rs exec_on_pod now tries HTTP first, falls back to WS when HTTP is unreachable
-- All 536 tests pass across rc-common (98), rc-core (254), and rc-agent (184)
+- All 536 tests pass across rc-common (98), racecontrol (254), and rc-agent (184)
 
 ## Task Commits
 
@@ -73,9 +73,9 @@ Each task was committed atomically:
 3. **Task 3: Add deploy.rs fallback -- try HTTP first, fall back to WS** - `ecb87a4` (feat)
 
 ## Files Created/Modified
-- `crates/rc-core/src/state.rs` - WsExecResult struct + pending_ws_execs field on AppState
-- `crates/rc-core/src/ws/mod.rs` - ExecResult match arm, disconnect sweep, ws_exec_on_pod() function
-- `crates/rc-core/src/deploy.rs` - http_exec_on_pod rename, new exec_on_pod wrapper with WS fallback, updated helper signatures
+- `crates/racecontrol/src/state.rs` - WsExecResult struct + pending_ws_execs field on AppState
+- `crates/racecontrol/src/ws/mod.rs` - ExecResult match arm, disconnect sweep, ws_exec_on_pod() function
+- `crates/racecontrol/src/deploy.rs` - http_exec_on_pod rename, new exec_on_pod wrapper with WS fallback, updated helper signatures
 
 ## Decisions Made
 - Pod-prefixed request_id format (pod_X:uuid) for efficient disconnect cleanup via prefix matching

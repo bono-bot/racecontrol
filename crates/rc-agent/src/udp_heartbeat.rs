@@ -1,6 +1,6 @@
 //! UDP Heartbeat Sender — runs on rc-agent alongside WebSocket.
 //!
-//! Sends ping packets to rc-core every 2s, listens for pong responses.
+//! Sends ping packets to racecontrol every 2s, listens for pong responses.
 //! If 3 pongs are missed (6s), signals the main loop to force-reconnect WebSocket.
 //! Independent of TCP state — detects half-open connections faster.
 
@@ -50,7 +50,7 @@ impl HeartbeatStatus {
 /// Start the UDP heartbeat sender.
 ///
 /// # Arguments
-/// * `core_ip` - IP address of rc-core (parsed from WebSocket URL)
+/// * `core_ip` - IP address of racecontrol (parsed from WebSocket URL)
 /// * `pod_number` - This pod's number (1-8)
 /// * `status` - Shared atomic state updated by the main loop
 /// * `event_tx` - Channel to notify main loop of heartbeat events
@@ -117,7 +117,7 @@ async fn run_inner(
                 if last_pong.elapsed() > dead_timeout {
                     if !core_was_dead {
                         tracing::warn!(
-                            "UDP heartbeat: rc-core unreachable for {}s — signaling reconnect",
+                            "UDP heartbeat: racecontrol unreachable for {}s — signaling reconnect",
                             DEAD_TIMEOUT_SECS
                         );
                         let _ = event_tx.send(HeartbeatEvent::CoreDead).await;
@@ -135,7 +135,7 @@ async fn run_inner(
 
                             // If we thought core was dead, it's back
                             if core_was_dead {
-                                tracing::info!("UDP heartbeat: rc-core recovered");
+                                tracing::info!("UDP heartbeat: racecontrol recovered");
                                 let _ = event_tx.send(HeartbeatEvent::CoreAlive).await;
                                 core_was_dead = false;
                             }

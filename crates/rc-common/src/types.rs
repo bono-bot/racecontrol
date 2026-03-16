@@ -371,7 +371,7 @@ pub struct GameLaunchInfo {
 }
 
 /// Structured diagnostics from a game launch attempt.
-/// Populated by rc-agent, forwarded to rc-core for dashboard display.
+/// Populated by rc-agent, forwarded to racecontrol for dashboard display.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LaunchDiagnostics {
     /// Whether Content Manager was attempted (multiplayer only)
@@ -669,7 +669,7 @@ pub struct AiDebugSuggestion {
 
 /// Deploy lifecycle state for a single pod.
 /// Tracks progress through the kill->verify->download->start->verify sequence.
-/// Used by the deploy executor (rc-core) and displayed in the kiosk dashboard.
+/// Used by the deploy executor (racecontrol) and displayed in the kiosk dashboard.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", content = "detail")]
 #[serde(rename_all = "snake_case")]
@@ -782,7 +782,7 @@ pub struct GroupMemberInfo {
 
 // ─── Watchdog ──────────────────────────────────────────────────────────────
 
-/// Crash report sent by rc-watchdog to rc-core after restarting rc-agent.
+/// Crash report sent by rc-watchdog to racecontrol after restarting rc-agent.
 /// Fire-and-forget HTTP POST — delivery failure is non-fatal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WatchdogCrashReport {

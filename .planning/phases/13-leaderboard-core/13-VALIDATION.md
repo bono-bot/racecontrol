@@ -17,18 +17,18 @@ created: 2026-03-15
 
 | Property | Value |
 |----------|-------|
-| **Framework** | Rust `#[tokio::test]` (in-memory SQLite) in `crates/rc-core/tests/integration.rs` |
+| **Framework** | Rust `#[tokio::test]` (in-memory SQLite) in `crates/racecontrol/tests/integration.rs` |
 | **Config file** | Cargo.toml (auto-discovered `[[test]]`) |
-| **Quick run command** | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-core test_leaderboard 2>&1 \| tail -20` |
-| **Full suite command** | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| **Quick run command** | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p racecontrol-crate test_leaderboard 2>&1 \| tail -20` |
+| **Full suite command** | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 | **Estimated runtime** | ~20 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo test -p rc-core 2>&1 | tail -5`
-- **After every plan wave:** Run full suite (rc-common + rc-agent + rc-core)
+- **After every task commit:** Run `cargo test -p racecontrol-crate 2>&1 | tail -5`
+- **After every plan wave:** Run full suite (rc-common + rc-agent + racecontrol)
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 20 seconds
 
@@ -38,14 +38,14 @@ created: 2026-03-15
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 13-W0-01 | W0 | 0 | LB-01, LB-04 | unit | `cargo test -p rc-core test_leaderboard_sim_type_filter` | ❌ W0 | ⬜ pending |
-| 13-W0-02 | W0 | 0 | LB-05 | unit | `cargo test -p rc-core test_lap_suspect` | ❌ W0 | ⬜ pending |
-| 13-W0-03 | W0 | 0 | LB-06 | unit | `cargo test -p rc-core test_leaderboard_invalid_toggle` | ❌ W0 | ⬜ pending |
-| 13-W0-04 | W0 | 0 | LB-02 | unit | `cargo test -p rc-core test_circuit_records` | ❌ W0 | ⬜ pending |
-| 13-W0-05 | W0 | 0 | LB-03 | unit | `cargo test -p rc-core test_vehicle_records` | ❌ W0 | ⬜ pending |
-| 13-W0-06 | W0 | 0 | DRV-01 | unit | `cargo test -p rc-core test_driver_search` | ❌ W0 | ⬜ pending |
-| 13-W0-07 | W0 | 0 | DRV-02 | unit | `cargo test -p rc-core test_public_driver_no_pii` | ❌ W0 | ⬜ pending |
-| 13-W0-08 | W0 | 0 | NTF-02 | unit | `cargo test -p rc-core test_notification_data_before_upsert` | ❌ W0 | ⬜ pending |
+| 13-W0-01 | W0 | 0 | LB-01, LB-04 | unit | `cargo test -p racecontrol-crate test_leaderboard_sim_type_filter` | ❌ W0 | ⬜ pending |
+| 13-W0-02 | W0 | 0 | LB-05 | unit | `cargo test -p racecontrol-crate test_lap_suspect` | ❌ W0 | ⬜ pending |
+| 13-W0-03 | W0 | 0 | LB-06 | unit | `cargo test -p racecontrol-crate test_leaderboard_invalid_toggle` | ❌ W0 | ⬜ pending |
+| 13-W0-04 | W0 | 0 | LB-02 | unit | `cargo test -p racecontrol-crate test_circuit_records` | ❌ W0 | ⬜ pending |
+| 13-W0-05 | W0 | 0 | LB-03 | unit | `cargo test -p racecontrol-crate test_vehicle_records` | ❌ W0 | ⬜ pending |
+| 13-W0-06 | W0 | 0 | DRV-01 | unit | `cargo test -p racecontrol-crate test_driver_search` | ❌ W0 | ⬜ pending |
+| 13-W0-07 | W0 | 0 | DRV-02 | unit | `cargo test -p racecontrol-crate test_public_driver_no_pii` | ❌ W0 | ⬜ pending |
+| 13-W0-08 | W0 | 0 | NTF-02 | unit | `cargo test -p racecontrol-crate test_notification_data_before_upsert` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -53,15 +53,15 @@ created: 2026-03-15
 
 ## Wave 0 Requirements
 
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_leaderboard_sim_type_filter` covering LB-01, LB-04
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_lap_suspect_sector_sum` and `test_lap_suspect_sanity` covering LB-05
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_leaderboard_invalid_toggle` covering LB-06
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_circuit_records` covering LB-02
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_vehicle_records` covering LB-03
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_driver_search` covering DRV-01
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_public_driver_no_pii` covering DRV-02
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_notification_data_before_upsert` covering NTF-02
-- [ ] `crates/rc-core/src/db/mod.rs` — `suspect` column in `run_test_migrations()` mirroring production
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_leaderboard_sim_type_filter` covering LB-01, LB-04
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_lap_suspect_sector_sum` and `test_lap_suspect_sanity` covering LB-05
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_leaderboard_invalid_toggle` covering LB-06
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_circuit_records` covering LB-02
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_vehicle_records` covering LB-03
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_driver_search` covering DRV-01
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_public_driver_no_pii` covering DRV-02
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_notification_data_before_upsert` covering NTF-02
+- [ ] `crates/racecontrol/src/db/mod.rs` — `suspect` column in `run_test_migrations()` mirroring production
 
 ---
 

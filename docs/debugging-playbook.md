@@ -11,10 +11,10 @@ Lessons learned from live production debugging. Reference this before troublesho
 **Root Causes (in order of likelihood):**
 
 ### A. rc-agent restarted during active session
-- When rc-agent restarts (deploy, crash, watchdog restart), it connects fresh to rc-core
-- **Old behavior (pre-273db1c):** rc-core never re-sent billing state on reconnect
-- **Fix (273db1c):** rc-core now sends `BillingStarted` + `BillingTick` on agent `Register` if an active timer exists for that pod
-- **File:** `crates/rc-core/src/ws/mod.rs` — in the `AgentMessage::Register` handler, after storing the agent sender
+- When rc-agent restarts (deploy, crash, watchdog restart), it connects fresh to racecontrol
+- **Old behavior (pre-273db1c):** racecontrol never re-sent billing state on reconnect
+- **Fix (273db1c):** racecontrol now sends `BillingStarted` + `BillingTick` on agent `Register` if an active timer exists for that pod
+- **File:** `crates/racecontrol/src/ws/mod.rs` — in the `AgentMessage::Register` handler, after storing the agent sender
 
 ### B. Stale old rc-agent holding port 18923
 - Old rc-agent process (pre-mutex binary) still running, holding the lock screen HTTP port
@@ -30,9 +30,9 @@ Lessons learned from live production debugging. Reference this before troublesho
 - **File:** `crates/rc-agent/src/lock_screen.rs`
 
 ### D. WebSocket not connected
-- rc-agent started but hasn't connected to rc-core yet (network issue, rc-core down)
+- rc-agent started but hasn't connected to racecontrol yet (network issue, racecontrol down)
 - `BillingStarted` message can't reach the agent
-- **Diagnosis:** Check rc-core logs for "Pod X registered" or "Resynced billing session"
+- **Diagnosis:** Check racecontrol logs for "Pod X registered" or "Resynced billing session"
 - **Quick fix:** `POST /api/v1/pods/pod_X/screen` with `{"blank": false}` to clear manually
 
 **Debug Checklist:**
@@ -120,7 +120,7 @@ exec on pod: start "rc-agent" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe
 **Script:** `C:\Users\bono\racingpoint\deploy-rc-agent.py`
 
 **Pre-deploy checklist:**
-1. Build: `cargo build -p rc-agent --release`
+1. Build: `cargo build -p rc-agent-crate --release`
 2. Copy: `cp target/release/rc-agent.exe ../rc-agent.exe`
 3. Update `EXPECTED_SIZE` in deploy script: `wc -c rc-agent.exe`
 4. Start HTTP server: `python3 -m http.server 8888 --bind 0.0.0.0` (in racingpoint/ dir)
@@ -137,22 +137,22 @@ exec on pod: start "rc-agent" /D C:/RacingPoint C:/RacingPoint/rc-agent.exe
 
 ---
 
-## 6. rc-core Rebuild (Binary Locked)
+## 6. racecontrol Rebuild (Binary Locked)
 
-**Symptom:** `cargo build -p rc-core --release` fails with "Access is denied" on `racecontrol.exe`.
+**Symptom:** `cargo build -p racecontrol-crate --release` fails with "Access is denied" on `racecontrol.exe`.
 
-**Cause:** rc-core is still running.
+**Cause:** racecontrol is still running.
 
 **Fix:**
 ```bash
 powershell -Command "Stop-Process -Name racecontrol -Force"
 sleep 3
-cargo build -p rc-core --release
+cargo build -p racecontrol-crate --release
 # restart after build
 ./target/release/racecontrol.exe &
 ```
 
-**Warning:** Stopping rc-core drops all WebSocket connections. All rc-agents will disconnect and reconnect (showing "Disconnected" on lock screens briefly). Active billing sessions survive — they're recovered from DB on restart.
+**Warning:** Stopping racecontrol drops all WebSocket connections. All rc-agents will disconnect and reconnect (showing "Disconnected" on lock screens briefly). Active billing sessions survive — they're recovered from DB on restart.
 
 ---
 
@@ -162,9 +162,9 @@ cargo build -p rc-core --release
 |-----------|----------|------|
 | Lock screen HTTP server | rc-agent (localhost only) | 18923 |
 | Lock screen browser | Edge kiosk mode | — |
-| Billing commands | rc-core → rc-agent via WebSocket | 8080 |
+| Billing commands | racecontrol → rc-agent via WebSocket | 8080 |
 | Manual screen control | REST API | 8080 |
-| UDP heartbeat | rc-agent ↔ rc-core | 9999 |
+| UDP heartbeat | rc-agent ↔ racecontrol | 9999 |
 
 **Lock Screen States:**
 - `Hidden` — no browser, desktop visible
@@ -223,4 +223,4 @@ Get-MpThreat | Select ThreatName, IsActive, DidThreatExecute
 | `305638b` | Zombie prevention: Windows named mutex in rc-agent |
 | `417dd06` | Kiosk login persistence: sessionStorage |
 | `05ef1d6` | Blank screen clear: always relaunch browser on BillingStarted, 3s auto-reload |
-| `273db1c` | Billing resync: rc-core re-sends active session on agent reconnect |
+| `273db1c` | Billing resync: racecontrol re-sends active session on agent reconnect |

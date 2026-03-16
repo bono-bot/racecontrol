@@ -35,12 +35,12 @@ re_verification: false
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/rc-core/src/state.rs` | WatchdogState enum, pod_watchdog_states, pod_needs_restart fields | VERIFIED | WatchdogState enum with 4 variants (lines 24-34); pod_watchdog_states and pod_needs_restart in AppState (lines 81-83); create_initial_watchdog_states() and create_initial_needs_restart() helpers (lines 258-274); wired in AppState::new() (lines 121-122) |
+| `crates/racecontrol/src/state.rs` | WatchdogState enum, pod_watchdog_states, pod_needs_restart fields | VERIFIED | WatchdogState enum with 4 variants (lines 24-34); pod_watchdog_states and pod_needs_restart in AppState (lines 81-83); create_initial_watchdog_states() and create_initial_needs_restart() helpers (lines 258-274); wired in AppState::new() (lines 121-122) |
 | `crates/rc-common/src/protocol.rs` | PodRestarting, PodVerifying, PodRecoveryFailed dashboard events | VERIFIED | All 3 variants present (lines 325-344); serde roundtrip tests pass (33/33 rc-common tests) |
-| `crates/rc-core/src/email_alerts.rs` | format_alert_body with failure_type, last_heartbeat, next_action | VERIFIED | Signature includes all 7 params including failure_type, last_heartbeat: Option<DateTime<Utc>>, next_action (lines 170-178); 4 dedicated tests pass for heartbeat None/Some and failure_type/next_action |
+| `crates/racecontrol/src/email_alerts.rs` | format_alert_body with failure_type, last_heartbeat, next_action | VERIFIED | Signature includes all 7 params including failure_type, last_heartbeat: Option<DateTime<Utc>>, next_action (lines 170-178); 4 dedicated tests pass for heartbeat None/Some and failure_type/next_action |
 | `crates/rc-agent/src/lock_screen.rs` | /health endpoint returning HTTP 200 with JSON body | VERIFIED | GET /health handler at line 574 returns HTTP 200 always; delegates to `health_response_body()` pure function (line 576); health_response_body() at line 931; 6 unit tests pass covering ok/degraded states |
-| `crates/rc-core/src/pod_monitor.rs` | Rewritten restart lifecycle with WatchdogState management | VERIFIED | WatchdogState skip guard (lines 204-218); is_ws_alive() helper (lines 80-86); verify_restart with 3-check verification (lines 498-683); PodRestarting/PodVerifying/PodRecoveryFailed broadcasts present |
-| `crates/rc-core/src/pod_healer.rs` | WatchdogState-aware healer with needs_restart flag | VERIFIED | should_skip_for_watchdog_state() pure helper (lines 757-763); WatchdogState read in heal_pod() (lines 152-162); needs_restart flag set in Rule 2 no-WS path (lines 217-221); record_attempt() not called (line 312: comment only) |
+| `crates/racecontrol/src/pod_monitor.rs` | Rewritten restart lifecycle with WatchdogState management | VERIFIED | WatchdogState skip guard (lines 204-218); is_ws_alive() helper (lines 80-86); verify_restart with 3-check verification (lines 498-683); PodRestarting/PodVerifying/PodRecoveryFailed broadcasts present |
+| `crates/racecontrol/src/pod_healer.rs` | WatchdogState-aware healer with needs_restart flag | VERIFIED | should_skip_for_watchdog_state() pure helper (lines 757-763); WatchdogState read in heal_pod() (lines 152-162); needs_restart flag set in Rule 2 no-WS path (lines 217-221); record_attempt() not called (line 312: comment only) |
 
 ---
 
@@ -101,7 +101,7 @@ Items that would benefit from staging observation (not blocking):
 | Suite | Tests | Result |
 |-------|-------|--------|
 | rc-common (all) | 33 | 33 passed, 0 failed |
-| rc-core (all) | 83 unit + 13 integration | 96 passed, 0 failed |
+| racecontrol (all) | 83 unit + 13 integration | 96 passed, 0 failed |
 | rc-agent lock_screen | 6 | 6 passed, 0 failed |
 | **Total** | **122** | **122 passed, 0 failed** |
 

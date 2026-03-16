@@ -13,7 +13,7 @@ provides:
   - WatchdogCrashReport type in rc-common
   - Session 1 spawn via WTSQueryUserToken + CreateProcessAsUser
   - tasklist-based process polling with grace window
-  - Fire-and-forget HTTP crash reporting to rc-core
+  - Fire-and-forget HTTP crash reporting to racecontrol
 affects: [20-deploy-pipeline, 21-fleet-dashboard, install.bat, pod-deploy]
 
 # Tech tracking
@@ -85,7 +85,7 @@ Each task was committed atomically:
 - `crates/rc-watchdog/src/main.rs` - Service entry point with define_windows_service! macro, tracing to watchdog.log
 - `crates/rc-watchdog/src/service.rs` - SCM lifecycle, 5s poll loop, tasklist process detection, 15s grace window, config loading
 - `crates/rc-watchdog/src/session.rs` - Session 1 spawn: WTSGetActiveConsoleSessionId + WTSQueryUserToken + DuplicateTokenEx + CreateProcessAsUserW with proper handle cleanup
-- `crates/rc-watchdog/src/reporter.rs` - HTTP POST crash report to rc-core with 5s timeout, fire-and-forget semantics
+- `crates/rc-watchdog/src/reporter.rs` - HTTP POST crash report to racecontrol with 5s timeout, fire-and-forget semantics
 - `crates/rc-common/src/types.rs` - Added WatchdogCrashReport struct with pod_id, exit_code, crash_time, restart_count, watchdog_version
 
 ## Decisions Made
@@ -135,7 +135,7 @@ None - no external service configuration required. Service installation (sc crea
 ## Next Phase Readiness
 - rc-watchdog.exe compiles and is ready for deployment
 - Plan 02 (service installation + deployment) can proceed: update install.bat with sc create/failure commands
-- rc-core endpoint for WatchdogCrashReport (POST /api/v1/pods/:pod_id/watchdog-crash) not yet implemented — needed in a future plan
+- racecontrol endpoint for WatchdogCrashReport (POST /api/v1/pods/:pod_id/watchdog-crash) not yet implemented — needed in a future plan
 - Binary size: ~7.8 MB debug (release build will be smaller)
 
 ## Self-Check: PASSED
@@ -143,7 +143,7 @@ None - no external service configuration required. Service installation (sc crea
 - All 7 key files confirmed present on disk
 - Commit bd0f414 confirmed in git log
 - 16 new tests pass (13 rc-watchdog + 3 rc-common WatchdogCrashReport)
-- All 556 existing tests still pass (rc-common 103, rc-agent 199, rc-core 254)
+- All 556 existing tests still pass (rc-common 103, rc-agent 199, racecontrol 254)
 - rc-watchdog.exe binary confirmed at target/debug/rc-watchdog.exe (7.8 MB)
 
 ---

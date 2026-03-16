@@ -2,7 +2,7 @@
 //!
 //! Polls for rc-agent.exe every 5 seconds. On crash detection, spawns
 //! start-rcagent.bat in Session 1 via WTSQueryUserToken + CreateProcessAsUser,
-//! then sends a WatchdogCrashReport to rc-core via HTTP POST.
+//! then sends a WatchdogCrashReport to racecontrol via HTTP POST.
 
 mod reporter;
 mod service;

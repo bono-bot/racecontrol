@@ -29,7 +29,7 @@ The main work needed is: (1) adding the events timeline to the session detail pa
 ### Core (already in use -- do NOT add new dependencies)
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| axum | 0.7.x | HTTP server + routes | Already powers rc-core API |
+| axum | 0.7.x | HTTP server + routes | Already powers racecontrol API |
 | sqlx | 0.7.x | SQLite async queries | Already used for all DB ops |
 | reqwest | 0.12.x | HTTP client (for webhook to Bono) | Already used in cloud_sync.rs and auth OTP |
 | serde_json | 1.x | JSON payload construction | Already used throughout |
@@ -45,7 +45,7 @@ Both backend (Rust) and frontend (Next.js) have everything required. The WhatsAp
 
 ### Existing Session Detail Architecture
 ```
-Customer PWA                    rc-core (venue, port 8080)
+Customer PWA                    racecontrol (venue, port 8080)
     |                                    |
     |-- GET /customer/sessions/{id} ---> customer_session_detail()
     |   (auth: Bearer JWT)               |-- billing_sessions JOIN pricing_tiers
@@ -60,7 +60,7 @@ Customer PWA                    rc-core (venue, port 8080)
 
 ### Recommended Architecture for Phase 4
 ```
-Customer PWA                    rc-core (venue, port 8080)
+Customer PWA                    racecontrol (venue, port 8080)
     |                                    |
     |-- GET /customer/sessions/{id} ---> customer_session_detail()
     |   (auth: Bearer JWT)               |-- EXISTING session + laps
@@ -113,13 +113,13 @@ async fn public_session_summary(
 ```
 
 ### Pattern: WhatsApp Receipt via Bono Webhook
-The venue rc-core sends an HTTP POST to Bono's VPS, which then formats and sends via Evolution API. This avoids rc-core needing Evolution API credentials directly (Bono already has them) and follows the separation of concerns (James = venue ops, Bono = cloud/messaging).
+The venue racecontrol sends an HTTP POST to Bono's VPS, which then formats and sends via Evolution API. This avoids racecontrol needing Evolution API credentials directly (Bono already has them) and follows the separation of concerns (James = venue ops, Bono = cloud/messaging).
 
 **Webhook endpoint on Bono's side:** `POST https://app.racingpoint.cloud:8080/webhook/session-receipt` or similar. Bono would need to implement this receiver.
 
-**Alternative (simpler):** Use comms-link's `task_request` message type. James sends a task via WebSocket with receipt data, Bono processes it. But this requires Node.js on the venue side (comms-link) -- rc-core is Rust.
+**Alternative (simpler):** Use comms-link's `task_request` message type. James sends a task via WebSocket with receipt data, Bono processes it. But this requires Node.js on the venue side (comms-link) -- racecontrol is Rust.
 
-**Recommended approach:** HTTP POST from rc-core to Bono's VPS. rc-core already uses reqwest for cloud sync (cloud_sync.rs), so adding one more HTTP call is trivial. Configure the webhook URL in `racecontrol.toml` under `[integrations.whatsapp]`.
+**Recommended approach:** HTTP POST from racecontrol to Bono's VPS. racecontrol already uses reqwest for cloud sync (cloud_sync.rs), so adding one more HTTP call is trivial. Configure the webhook URL in `racecontrol.toml` under `[integrations.whatsapp]`.
 
 ```rust
 // In post_session_hooks(), after membership hours update:
@@ -140,8 +140,8 @@ if state.config.integrations.whatsapp.enabled {
 ```
 
 ### Anti-Patterns to Avoid
-- **Do NOT add Evolution API credentials to rc-core config.** Bono's VPS already has them. Duplicating credentials creates a security and maintenance burden. Use a webhook to Bono instead.
-- **Do NOT use comms-link WebSocket from Rust.** The comms-link is Node.js with a specific protocol. Adding a WebSocket client to rc-core for one message type is over-engineered. Use HTTP POST instead.
+- **Do NOT add Evolution API credentials to racecontrol config.** Bono's VPS already has them. Duplicating credentials creates a security and maintenance burden. Use a webhook to Bono instead.
+- **Do NOT use comms-link WebSocket from Rust.** The comms-link is Node.js with a specific protocol. Adding a WebSocket client to racecontrol for one message type is over-engineered. Use HTTP POST instead.
 - **Do NOT make a separate API call for events in the PWA.** Add events to the existing `customer_session_detail` response to avoid a waterfall of API calls.
 - **Do NOT try to persist top speed retroactively.** The laps table has no `top_speed_kmh` column, and rc-agent's in-memory tracking is ephemeral. For now, show "N/A" as the requirement permits. Add persistence in a future phase if needed.
 
@@ -149,7 +149,7 @@ if state.config.integrations.whatsapp.enabled {
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| WhatsApp sending | Direct Evolution API call from rc-core | HTTP webhook to Bono's VPS | Bono already has Evolution API credentials; avoids credential duplication |
+| WhatsApp sending | Direct Evolution API call from racecontrol | HTTP webhook to Bono's VPS | Bono already has Evolution API credentials; avoids credential duplication |
 | Session timeline | Custom timeline component from scratch | Simple ordered list with event type icons | Billing_events already has all data; just render it chronologically |
 | Public session page auth bypass | Custom middleware for public routes | Follow existing `/public/*` route pattern (no auth) | Pattern already proven with leaderboard, time-trial |
 | Receipt formatting | Rust HTML template | Let Bono format the WhatsApp message | Bono knows WhatsApp formatting rules (Evolution API quirks) |
@@ -160,7 +160,7 @@ if state.config.integrations.whatsapp.enabled {
 
 ### Pitfall 1: CORS for Public Endpoint
 **What goes wrong:** The public session page calls an API endpoint from a different origin (customer's phone browser), and CORS blocks the request.
-**Why it happens:** rc-core's CORS config may only allow the PWA's origin, not arbitrary origins needed for shared links.
+**Why it happens:** racecontrol's CORS config may only allow the PWA's origin, not arbitrary origins needed for shared links.
 **How to avoid:** Ensure the `/public/*` routes have permissive CORS (Access-Control-Allow-Origin: *). Check existing public endpoint CORS handling.
 **Warning signs:** "CORS error" in browser console when opening a shared link.
 
@@ -206,16 +206,16 @@ const eventLabels: Record<string, string> = {
 **Warning signs:** Technical jargon visible to customers.
 
 ### Pitfall 6: Bono Webhook Endpoint Does Not Exist Yet
-**What goes wrong:** rc-core sends HTTP POST to Bono's VPS but there is no endpoint to receive it.
+**What goes wrong:** racecontrol sends HTTP POST to Bono's VPS but there is no endpoint to receive it.
 **Why it happens:** Bono (partner AI on VPS) needs to implement the `/webhook/session-receipt` handler. This is a cross-system dependency.
-**How to avoid:** Plan 04-03 must coordinate with Bono. Either: (A) define the webhook spec and email Bono to implement it, or (B) use Evolution API directly from rc-core (rc-core already does this for OTP -- see auth/mod.rs lines 988-1022).
+**How to avoid:** Plan 04-03 must coordinate with Bono. Either: (A) define the webhook spec and email Bono to implement it, or (B) use Evolution API directly from racecontrol (racecontrol already does this for OTP -- see auth/mod.rs lines 988-1022).
 **Warning signs:** HTTP 404 responses from Bono's VPS.
 
 **IMPORTANT DECISION POINT:** The requirement says "via Bono (Evolution API)". Two viable approaches:
 1. **Webhook to Bono:** James sends receipt data, Bono sends WhatsApp. Requires Bono to implement an endpoint. Pro: separation of concerns. Con: dependency on Bono.
-2. **Direct Evolution API from rc-core:** rc-core already sends WhatsApp OTPs via Evolution API (auth/mod.rs). The same pattern works for receipts. Pro: no external dependency, already proven. Con: duplicates Evolution API config (but it's already there for OTP).
+2. **Direct Evolution API from racecontrol:** racecontrol already sends WhatsApp OTPs via Evolution API (auth/mod.rs). The same pattern works for receipts. Pro: no external dependency, already proven. Con: duplicates Evolution API config (but it's already there for OTP).
 
-**Recommendation:** Use direct Evolution API from rc-core (option 2). The pattern is already implemented for OTP sending. The config fields (`evolution_url`, `evolution_api_key`, `evolution_instance`) are already in AuthConfig. Move them to a shared config or reference them from IntegrationsConfig. This eliminates the Bono dependency entirely.
+**Recommendation:** Use direct Evolution API from racecontrol (option 2). The pattern is already implemented for OTP sending. The config fields (`evolution_url`, `evolution_api_key`, `evolution_instance`) are already in AuthConfig. Move them to a shared config or reference them from IntegrationsConfig. This eliminates the Bono dependency entirely.
 
 ## Code Examples
 
@@ -243,7 +243,7 @@ const eventLabels: Record<string, string> = {
 
 ### Existing Events Endpoint (Backend -- already working)
 ```rust
-// Source: crates/rc-core/src/api/routes.rs lines 2182-2210
+// Source: crates/racecontrol/src/api/routes.rs lines 2182-2210
 // GET /billing/sessions/{id}/events -- admin route, returns all events
 // Same query can be added to customer_session_detail
 async fn billing_session_events(
@@ -261,9 +261,9 @@ async fn billing_session_events(
 }
 ```
 
-### Existing WhatsApp OTP Sending Pattern (rc-core)
+### Existing WhatsApp OTP Sending Pattern (racecontrol)
 ```rust
-// Source: crates/rc-core/src/auth/mod.rs lines 988-1022
+// Source: crates/racecontrol/src/auth/mod.rs lines 988-1022
 // This pattern can be reused for WhatsApp receipts
 if let (Some(evo_url), Some(evo_key), Some(evo_instance)) = (
     &state.config.auth.evolution_url,
@@ -294,7 +294,7 @@ export const publicApi = {
 
 ### Existing Public Route Pattern (Backend)
 ```rust
-// Source: crates/rc-core/src/api/routes.rs lines 244-247
+// Source: crates/racecontrol/src/api/routes.rs lines 244-247
 // Public routes under /public/* -- no auth middleware
 .route("/public/leaderboard", get(public_leaderboard))
 .route("/public/leaderboard/{track}", get(public_track_leaderboard))
@@ -323,9 +323,9 @@ export const publicApi = {
 ## Open Questions
 
 1. **WhatsApp receipt: via Bono webhook or direct Evolution API?**
-   - What we know: The requirement says "via Bono (Evolution API)". rc-core ALREADY sends WhatsApp messages via Evolution API for OTP (auth/mod.rs). The config fields exist. Bono does NOT have a webhook endpoint to receive receipt data.
+   - What we know: The requirement says "via Bono (Evolution API)". racecontrol ALREADY sends WhatsApp messages via Evolution API for OTP (auth/mod.rs). The config fields exist. Bono does NOT have a webhook endpoint to receive receipt data.
    - What's unclear: Does Uday specifically want Bono involved, or is "via Evolution API" the key requirement?
-   - Recommendation: Use direct Evolution API from rc-core (already proven pattern). If Bono involvement is required, define webhook spec and email Bono to implement. The planner should choose option 2 (direct) unless Uday specifies otherwise -- it has zero external dependencies and the pattern is already coded.
+   - Recommendation: Use direct Evolution API from racecontrol (already proven pattern). If Bono involvement is required, define webhook spec and email Bono to implement. The planner should choose option 2 (direct) unless Uday specifies otherwise -- it has zero external dependencies and the pattern is already coded.
 
 2. **Top speed: persist or show N/A?**
    - What we know: rc-agent tracks `session_max_speed_kmh` in memory during gameplay. It is included in the `SessionEnded` message payload. But it is never written to the database. The laps table has no `top_speed_kmh` column.
@@ -347,21 +347,21 @@ export const publicApi = {
 |----------|-------|
 | Framework | Rust `#[test]` + cargo test (backend), no frontend tests |
 | Config file | Cargo.toml per crate |
-| Quick run command | `cargo test -p rc-core -- billing` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p racecontrol-crate -- billing` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements to Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| PWA-01 | customer_session_detail returns cost breakdown fields | unit | `cargo test -p rc-core -- customer_session_detail` | Implicit (handler already tested via existing tests) |
-| PWA-02 | customer_session_detail returns performance fields | unit | `cargo test -p rc-core -- customer_session_detail` | Implicit |
-| PWA-03 | customer_session_detail returns events timeline | unit | `cargo test -p rc-core -- customer_session_detail_events` | No -- Wave 0 |
-| PWA-04 | post_session_hooks sends WhatsApp receipt | unit | `cargo test -p rc-core -- whatsapp_receipt` | No -- Wave 0 |
-| PWA-05 | public_session_summary returns limited fields without auth | unit | `cargo test -p rc-core -- public_session_summary` | No -- Wave 0 |
+| PWA-01 | customer_session_detail returns cost breakdown fields | unit | `cargo test -p racecontrol-crate -- customer_session_detail` | Implicit (handler already tested via existing tests) |
+| PWA-02 | customer_session_detail returns performance fields | unit | `cargo test -p racecontrol-crate -- customer_session_detail` | Implicit |
+| PWA-03 | customer_session_detail returns events timeline | unit | `cargo test -p racecontrol-crate -- customer_session_detail_events` | No -- Wave 0 |
+| PWA-04 | post_session_hooks sends WhatsApp receipt | unit | `cargo test -p racecontrol-crate -- whatsapp_receipt` | No -- Wave 0 |
+| PWA-05 | public_session_summary returns limited fields without auth | unit | `cargo test -p racecontrol-crate -- public_session_summary` | No -- Wave 0 |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-core -- billing`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p racecontrol-crate -- billing`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
@@ -375,11 +375,11 @@ export const publicApi = {
 ### Primary (HIGH confidence)
 - `pwa/src/app/sessions/[id]/page.tsx` -- read in full (800 lines). Existing session detail page with receipt, stats, laps, share.
 - `pwa/src/lib/api.ts` -- read in full (931 lines). All API client types and calls, including SessionDetailSession interface.
-- `crates/rc-core/src/api/routes.rs` -- read relevant sections: customer_session_detail (3459-3588), billing_session_events (2182-2210), customer_session_share (7252-7467), public routes (244-247), api_routes (27-260).
-- `crates/rc-core/src/billing.rs` -- read end_billing_session (1748-1994), post_session_hooks (1997-2084).
-- `crates/rc-core/src/auth/mod.rs` -- read OTP WhatsApp sending (988-1022).
-- `crates/rc-core/src/config.rs` -- read IntegrationsConfig, WhatsAppConfig, AuthConfig (evolution fields).
-- `crates/rc-core/src/db/mod.rs` -- read laps schema (82-97), billing_events schema (252-261).
+- `crates/racecontrol/src/api/routes.rs` -- read relevant sections: customer_session_detail (3459-3588), billing_session_events (2182-2210), customer_session_share (7252-7467), public routes (244-247), api_routes (27-260).
+- `crates/racecontrol/src/billing.rs` -- read end_billing_session (1748-1994), post_session_hooks (1997-2084).
+- `crates/racecontrol/src/auth/mod.rs` -- read OTP WhatsApp sending (988-1022).
+- `crates/racecontrol/src/config.rs` -- read IntegrationsConfig, WhatsAppConfig, AuthConfig (evolution fields).
+- `crates/racecontrol/src/db/mod.rs` -- read laps schema (82-97), billing_events schema (252-261).
 - `pwa/src/app/globals.css` -- read Tailwind theme config (rp-red, rp-card, etc.).
 
 ### Secondary (MEDIUM confidence)

@@ -260,7 +260,7 @@ it exposes only current-lap time.
 ### 3.2 The timer drift problem
 
 The overlay's session countdown (`remaining_seconds`) is driven by `BillingTick`
-messages from rc-core arriving over WebSocket. rc-core counts down from the
+messages from racecontrol arriving over WebSocket. racecontrol counts down from the
 purchased allocation using wall-clock time. AC's `I_CURRENT_TIME` is the game's
 own lap timer — driven by the simulation engine, which can pause (during replays,
 loading screens, pit stops) independently of wall-clock time.
@@ -328,10 +328,10 @@ main.rs telemetry_interval tick
 │  ├── overlay.update_telemetry(&frame)   → writes OverlayData.{speed,gear,rpm,lap_time_ms,...}
 │  ├── adapter.poll_lap_completed()
 │  │     └── overlay.on_lap_completed(&lap) → updates previous_lap, best_lap in OverlayData
-│  └── AgentMessage::Telemetry(frame)    → WebSocket → rc-core
+│  └── AgentMessage::Telemetry(frame)    → WebSocket → racecontrol
 │
 ▼
-rc-core (billing loop, every 1s)
+racecontrol (billing loop, every 1s)
 │  └── CoreToAgentMessage::BillingTick { remaining_seconds }
 │
 ▼
@@ -428,7 +428,7 @@ for (component, rect) in COMPONENTS.iter().zip(rects.iter()) {
 }
 ```
 
-Run characterization tests. Run `cargo test -p rc-agent`. Deploy to Pod 8 only and
+Run characterization tests. Run `cargo test -p rc-agent-crate`. Deploy to Pod 8 only and
 verify HUD renders identically to before.
 
 **Phase 5 — FfbController module [F]**

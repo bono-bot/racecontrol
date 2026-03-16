@@ -19,16 +19,16 @@ created: 2026-03-15
 |----------|-------|
 | **Framework** | cargo test (Rust built-in) |
 | **Config file** | crates/rc-agent/Cargo.toml |
-| **Quick run command** | `cargo test -p rc-agent firewall` |
-| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| **Quick run command** | `cargo test -p rc-agent-crate firewall` |
+| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 | **Estimated runtime** | ~15 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo test -p rc-agent firewall`
-- **After every plan wave:** Run `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **After every task commit:** Run `cargo test -p rc-agent-crate firewall`
+- **After every plan wave:** Run `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 15 seconds
 
@@ -38,9 +38,9 @@ created: 2026-03-15
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 16-01-01 | 01 | 1 | FW-01 | unit | `cargo test -p rc-agent firewall::tests` | ❌ W0 | ⬜ pending |
-| 16-01-02 | 01 | 1 | FW-02 | unit | `cargo test -p rc-agent firewall::tests::test_idempotent` | ❌ W0 | ⬜ pending |
-| 16-01-03 | 01 | 1 | FW-03 | integration | `cargo test -p rc-agent` | ❌ W0 | ⬜ pending |
+| 16-01-01 | 01 | 1 | FW-01 | unit | `cargo test -p rc-agent-crate firewall::tests` | ❌ W0 | ⬜ pending |
+| 16-01-02 | 01 | 1 | FW-02 | unit | `cargo test -p rc-agent-crate firewall::tests::test_idempotent` | ❌ W0 | ⬜ pending |
+| 16-01-03 | 01 | 1 | FW-03 | integration | `cargo test -p rc-agent-crate` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

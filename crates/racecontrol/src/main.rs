@@ -9,9 +9,9 @@ use tower_http::cors::{CorsLayer, AllowOrigin};
 use axum::http::{HeaderValue, Method, StatusCode};
 use tower_http::trace::TraceLayer;
 
-use rc_core::config::Config;
-use rc_core::state::AppState;
-use rc_core::{
+use racecontrol_crate::config::Config;
+use racecontrol_crate::state::AppState;
+use racecontrol_crate::{
     ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
     billing, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
     game_launcher, multiplayer, port_allocator, lap_tracker, pod_healer,
@@ -161,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "rc_core=info,tower_http=info".into()),
+                .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info".into()),
         )
         .init();
 
@@ -289,7 +289,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn proactive error pattern detection
     error_aggregator::spawn(state.clone());
 
-    // Spawn cloud sync (pulls customer data from cloud rc-core)
+    // Spawn cloud sync (pulls customer data from cloud racecontrol)
     cloud_sync::spawn(state.clone());
 
     // Spawn remote terminal (polls cloud for commands to execute locally)

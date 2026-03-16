@@ -12,20 +12,20 @@
 | `crates/rc-common/src/types.rs` | Shared types (PodInfo, PodStatus, SimType, etc.) | DeployState enum lives here (shared between core and kiosk) |
 | `crates/rc-common/src/watchdog.rs` | EscalatingBackoff | Reused by deploy for backoff on retry |
 
-### rc-core (server + deploy executor)
+### racecontrol (server + deploy executor)
 
 | File | What | Relevance |
 |------|------|-----------|
-| `crates/rc-core/src/state.rs` | AppState struct, WatchdogState enum | Add per-pod DeployState field, DeployState check for pod_monitor skip |
-| `crates/rc-core/src/pod_monitor.rs` | Watchdog, verify_restart(), is_ws_alive() | Reuse verify_restart pattern for post-deploy verification; add DeployState skip check |
-| `crates/rc-core/src/pod_healer.rs` | Self-healing daemon, WatchdogState skip logic | Add DeployState skip check parallel to WatchdogState skip |
-| `crates/rc-core/src/api/routes.rs` | HTTP API routes | Add POST /api/deploy/:pod_id, POST /api/deploy/rolling, GET /api/deploy/status |
-| `crates/rc-core/src/lib.rs` | Module declarations | Add `pub mod deploy;` |
-| `crates/rc-core/src/ws/mod.rs` | WebSocket handlers, agent registration, billing resync | Agent reconnection after deploy confirms WS health |
-| `crates/rc-core/src/billing.rs` | BillingTimer, active_timers | Check for active sessions before deploy |
-| `crates/rc-core/src/wol.rs` | WoL, shutdown_pod(), restart_pod() | NOT used for deploy (reboots entire machine); reference for pod-agent HTTP pattern |
-| `crates/rc-core/src/email_alerts.rs` | EmailAlerter, format_alert_body() | Send alert on deploy failure |
-| `crates/rc-core/src/main.rs` | Server startup, module spawning | May need to spawn rolling deploy listener |
+| `crates/racecontrol/src/state.rs` | AppState struct, WatchdogState enum | Add per-pod DeployState field, DeployState check for pod_monitor skip |
+| `crates/racecontrol/src/pod_monitor.rs` | Watchdog, verify_restart(), is_ws_alive() | Reuse verify_restart pattern for post-deploy verification; add DeployState skip check |
+| `crates/racecontrol/src/pod_healer.rs` | Self-healing daemon, WatchdogState skip logic | Add DeployState skip check parallel to WatchdogState skip |
+| `crates/racecontrol/src/api/routes.rs` | HTTP API routes | Add POST /api/deploy/:pod_id, POST /api/deploy/rolling, GET /api/deploy/status |
+| `crates/racecontrol/src/lib.rs` | Module declarations | Add `pub mod deploy;` |
+| `crates/racecontrol/src/ws/mod.rs` | WebSocket handlers, agent registration, billing resync | Agent reconnection after deploy confirms WS health |
+| `crates/racecontrol/src/billing.rs` | BillingTimer, active_timers | Check for active sessions before deploy |
+| `crates/racecontrol/src/wol.rs` | WoL, shutdown_pod(), restart_pod() | NOT used for deploy (reboots entire machine); reference for pod-agent HTTP pattern |
+| `crates/racecontrol/src/email_alerts.rs` | EmailAlerter, format_alert_body() | Send alert on deploy failure |
+| `crates/racecontrol/src/main.rs` | Server startup, module spawning | May need to spawn rolling deploy listener |
 
 ### rc-agent (pod-side)
 
@@ -37,7 +37,7 @@
 
 | File | What | Relevance |
 |------|------|-----------|
-| `kiosk/src/hooks/useKioskSocket.ts` | WebSocket connection to rc-core | Receives DashboardEvent::DeployProgress |
+| `kiosk/src/hooks/useKioskSocket.ts` | WebSocket connection to racecontrol | Receives DashboardEvent::DeployProgress |
 | `kiosk/src/lib/types.ts` | TypeScript types matching Rust protocol | Add DeployState, DeployProgress types |
 | `kiosk/src/app/page.tsx` | Main dashboard page | Deploy UI integration point |
 | `kiosk/src/components/KioskPodCard.tsx` | Per-pod card component | Show deploy state per pod |
@@ -80,7 +80,7 @@
 
 | Port | Service | On |
 |------|---------|----|
-| 8080 | rc-core (Axum) | Server (.23) / James (.27) |
+| 8080 | racecontrol (Axum) | Server (.23) / James (.27) |
 | 8090 | pod-agent (Node.js) | Each pod |
 | 9998 | HTTP file server (Python) | James (.27), manual start |
 | 18923 | rc-agent lock screen | Each pod (localhost only) |
@@ -92,7 +92,7 @@
 ### AppState fields relevant to deploy
 
 ```rust
-// crates/rc-core/src/state.rs
+// crates/racecontrol/src/state.rs
 pub struct AppState {
     pub pods: RwLock<HashMap<String, PodInfo>>,
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>,

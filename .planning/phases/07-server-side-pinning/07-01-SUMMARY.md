@@ -27,7 +27,7 @@ requirements_fulfilled: [HOST-03]
 |-------|--------|------------------------|
 | Node.js | **NOT installed** | Must install Node.js before kiosk can run |
 | Session type | ADMIN on console, Session 2, Active | Auto-login enabled. HKLM Run keys will execute at boot — good for auto-start |
-| C:\RacingPoint contents | nginx-1.27.4/, nginx.zip, pod-agent.exe (×2), test.txt | No rc-core, no kiosk files. nginx likely unused. Clean deployment target. |
+| C:\RacingPoint contents | nginx-1.27.4/, nginx.zip, pod-agent.exe (×2), test.txt | No racecontrol, no kiosk files. nginx likely unused. Clean deployment target. |
 | racecontrol.toml | **NOT found** | Must create config file during Plan 02 deployment |
 
 ## Verification
@@ -57,7 +57,7 @@ $ curl -s -X POST http://192.168.31.23:8090/exec -H "Content-Type: application/j
 
 1. **Install Node.js** on server (required for `next start`)
 2. **Create racecontrol.toml** in C:\RacingPoint
-3. **Deploy rc-core binary** to C:\RacingPoint
+3. **Deploy racecontrol binary** to C:\RacingPoint
 4. **Deploy kiosk standalone build** to C:\RacingPoint
 5. **Create HKLM Run keys** for auto-start (ADMIN session confirmed active)
 6. Server has 1.5TB free disk — no space concerns

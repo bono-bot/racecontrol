@@ -42,7 +42,7 @@ def generate_network_pairs() -> list[dict]:
                 "Racing Point has 8 sim racing pods on subnet 192.168.31.x:\n"
                 "- Pod 1: .89, Pod 2: .33, Pod 3: .28, Pod 4: .88\n"
                 "- Pod 5: .86, Pod 6: .87, Pod 7: .38, Pod 8: .91\n"
-                "- Server (Racing-Point-Server): .51 (64GB RAM, runs rc-core on port 8080)\n"
+                "- Server (Racing-Point-Server): .51 (64GB RAM, runs racecontrol on port 8080)\n"
                 "- James (AI assistant): .27\n"
                 "- Router: .1\n\n"
                 "Each pod runs rc-agent + pod-agent (port 8090). "
@@ -57,7 +57,7 @@ def generate_network_pairs() -> list[dict]:
                 "Check pod connectivity:\n"
                 "1. Ping: `ping 192.168.31.<pod_ip>`\n"
                 "2. Pod-agent health: `curl -s http://192.168.31.<pod_ip>:8090/health`\n"
-                "3. rc-core pod list: `curl -s http://localhost:8080/api/v1/pods`\n\n"
+                "3. racecontrol pod list: `curl -s http://localhost:8080/api/v1/pods`\n\n"
                 "If unreachable:\n"
                 "- Pod may be powered off\n"
                 "- DHCP IP may have changed — scan subnet: `nmap -p 8090 192.168.31.0/24`\n"
@@ -71,9 +71,9 @@ def generate_network_pairs() -> list[dict]:
             "input": "",
             "output": (
                 "RaceControl port map:\n"
-                "- 8080: rc-core REST API + WebSocket (server .51)\n"
+                "- 8080: racecontrol REST API + WebSocket (server .51)\n"
                 "- 8090: pod-agent REST API (each pod)\n"
-                "- 9999: UDP heartbeat (rc-agent <-> rc-core)\n"
+                "- 9999: UDP heartbeat (rc-agent <-> racecontrol)\n"
                 "- 18923: Lock screen HTTP server (rc-agent, localhost only)\n"
                 "- 18924: Debug HTTP server (rc-agent)\n"
                 "- 18925: Overlay HTTP server (rc-agent)\n"
@@ -92,12 +92,12 @@ def generate_network_pairs() -> list[dict]:
             "input": "",
             "output": (
                 "Racing-Point-Server at 192.168.31.23 (64GB RAM):\n"
-                "- Runs rc-core (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n"
+                "- Runs racecontrol (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n"
                 "- Runs kiosk Next.js app on port 3300 — staff terminal\n"
                 "- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n"
                 "- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n"
                 "- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n"
-                "- rc-core is authoritative for billing and laps. Cloud is authoritative for drivers and pricing."
+                "- racecontrol is authoritative for billing and laps. Cloud is authoritative for drivers and pricing."
             ),
             "source": "ops/network",
         },
@@ -145,13 +145,13 @@ def generate_billing_pairs() -> list[dict]:
                 "Billing flow:\n"
                 "1. Customer authenticates at pod via PIN (4-digit) or QR scan + PWA confirmation\n"
                 "2. Staff selects pricing tier on kiosk terminal\n"
-                "3. rc-core creates billing_session in SQLite, starts timer\n"
-                "4. rc-core sends BillingStarted to rc-agent via WebSocket\n"
+                "3. racecontrol creates billing_session in SQLite, starts timer\n"
+                "4. racecontrol sends BillingStarted to rc-agent via WebSocket\n"
                 "5. rc-agent shows countdown overlay on pod screen\n"
                 "6. BillingTick sent every second with remaining time\n"
                 "7. On expiry or manual stop: SessionEnded sent, overlay dismissed\n\n"
                 "Driving time tracked separately from billing time (idle_threshold = 10s). "
-                "Sessions survive rc-core restart — recovered from DB."
+                "Sessions survive racecontrol restart — recovered from DB."
             ),
             "source": "ops/billing",
         },
@@ -162,7 +162,7 @@ def generate_billing_pairs() -> list[dict]:
                 "To manually end a billing session:\n\n"
                 "Via API: `POST /api/v1/billing/{session-uuid}/stop`\n\n"
                 "Via kiosk: Click the active session on the pod card, then 'End Session'.\n\n"
-                "If the in-memory timer is lost (rc-core restart), the API has a DB fallback (f74a5f9) — "
+                "If the in-memory timer is lost (racecontrol restart), the API has a DB fallback (f74a5f9) — "
                 "it queries for orphaned active sessions and force-ends them.\n\n"
                 "To find the session UUID:\n"
                 "- `curl http://localhost:8080/api/v1/billing/active` — lists active in-memory timers\n"
@@ -176,10 +176,10 @@ def generate_billing_pairs() -> list[dict]:
             "output": (
                 "When a game crashes during active billing:\n\n"
                 "1. rc-agent detects game process exit (2s check interval)\n"
-                "2. Sends GameStateUpdate(Error) to rc-core\n"
+                "2. Sends GameStateUpdate(Error) to racecontrol\n"
                 "3. Arms 30s crash recovery timer\n"
                 "4. If AI debugger enabled, spawns AI crash analysis\n"
-                "5. Waits 30s for rc-core to send SessionEnded\n"
+                "5. Waits 30s for racecontrol to send SessionEnded\n"
                 "6. If no SessionEnded after 30s: force-resets pod (safe state enforcement)\n"
                 "7. Safe state: kills all game processes, shows blank lock screen\n\n"
                 "The billing session continues — staff can restart the game or end the session. "
@@ -262,7 +262,7 @@ def generate_hardware_pairs() -> list[dict]:
                 "AC on 9996, F1 on 20777, Forza on 5300, iRacing on 6789, LMU on 5555.\n\n"
                 "States: Active (input detected), Idle (no input for 10s), NoDevice (wheelbase disconnected).\n"
                 "Idle threshold: 10 seconds (configurable in rc-agent.toml).\n"
-                "DrivingState is sent to rc-core via heartbeat and used for billing idle tracking."
+                "DrivingState is sent to racecontrol via heartbeat and used for billing idle tracking."
             ),
             "source": "ops/hardware",
         },
@@ -306,7 +306,7 @@ def generate_game_pairs() -> list[dict]:
                 f"- Launch method: {launch}\n"
                 f"- rc-agent monitors process via game_process.rs (2s check interval)\n"
                 f"- Driving detector reads telemetry on UDP {port}\n"
-                f"- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered"
+                f"- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered"
             ),
             "source": "ops/games",
         })
@@ -362,13 +362,13 @@ def generate_customer_journey_pairs() -> list[dict]:
                 "1. Staff enters customer phone at reception kiosk\n"
                 "2. System generates 4-digit PIN, displays on kiosk\n"
                 "3. Customer enters PIN on pod lock screen (numpad)\n"
-                "4. rc-agent sends PIN to rc-core for validation\n"
+                "4. rc-agent sends PIN to racecontrol for validation\n"
                 "5. On success: lock screen shows active session UI\n\n"
                 "**QR + PWA** (alternative):\n"
                 "1. Customer scans QR code displayed on pod\n"
                 "2. Opens PWA in mobile browser\n"
                 "3. Confirms session on mobile\n"
-                "4. rc-core validates and sends BillingStarted to rc-agent\n\n"
+                "4. racecontrol validates and sends BillingStarted to rc-agent\n\n"
                 "Employee debug PIN: Daily rotating 4-digit PIN, Content Manager access blocked for customers."
             ),
             "source": "ops/customer",
@@ -395,7 +395,7 @@ def generate_customer_journey_pairs() -> list[dict]:
             "output": (
                 "Post-session flow:\n"
                 "1. Timer expires or staff ends session via kiosk\n"
-                "2. rc-core sends SessionEnded to rc-agent\n"
+                "2. racecontrol sends SessionEnded to rc-agent\n"
                 "3. Lock screen shows SessionSummary: driver name, total laps, best lap, driving time\n"
                 "4. 15-second auto-blank timer starts\n"
                 "5. After 15s (if no new session started): screen goes blank (ScreenBlanked)\n"
@@ -409,7 +409,7 @@ def generate_customer_journey_pairs() -> list[dict]:
             "instruction": "How does the cloud sync work?",
             "input": "",
             "output": (
-                "Cloud sync module in crates/rc-core/src/cloud_sync.rs:\n\n"
+                "Cloud sync module in crates/racecontrol/src/cloud_sync.rs:\n\n"
                 "- Syncs every 30 seconds with app.racingpoint.cloud (72.60.101.58, Bono's VPS)\n"
                 "- **Cloud authoritative**: drivers, pricing tiers\n"
                 "- **Local authoritative**: billing sessions, laps, game state\n\n"
@@ -434,7 +434,7 @@ def generate_architecture_pairs() -> list[dict]:
             "output": (
                 "RaceControl is a Rust monorepo with 3 crates:\n\n"
                 "1. **rc-common**: Shared types, protocol definitions, used by both core and agent\n"
-                "2. **rc-core** (port 8080): Central server on Racing-Point-Server (.51)\n"
+                "2. **racecontrol** (port 8080): Central server on Racing-Point-Server (.51)\n"
                 "   - Axum REST API + WebSocket server\n"
                 "   - Billing management, pod tracking, game launching\n"
                 "   - AI service (Ollama → Claude CLI → Anthropic fallback)\n"
@@ -443,7 +443,7 @@ def generate_architecture_pairs() -> list[dict]:
                 "   - Lock screen, kiosk enforcement, driving detector\n"
                 "   - Game process monitoring, AC launcher\n"
                 "   - AI debugger for crash analysis\n"
-                "   - UDP heartbeat to rc-core\n\n"
+                "   - UDP heartbeat to racecontrol\n\n"
                 "Communication: WebSocket (commands) + UDP (heartbeat). Agent registers on connect, "
                 "core sends billing commands. Heartbeat every 5s."
             ),

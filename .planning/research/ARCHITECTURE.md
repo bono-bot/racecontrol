@@ -2,7 +2,7 @@
 
 **Domain:** Pod fleet self-healing — Windows Service, WebSocket exec, firewall auto-config, fleet dashboard
 **Researched:** 2026-03-15
-**Confidence:** HIGH — based on direct codebase inspection of rc-agent/main.rs, rc-core/ws/mod.rs, rc-core/deploy.rs, rc-common/protocol.rs, rc-core/state.rs, remote_ops.rs, pod_monitor.rs, and all kiosk/web TSX pages
+**Confidence:** HIGH — based on direct codebase inspection of rc-agent/main.rs, racecontrol/ws/mod.rs, racecontrol/deploy.rs, rc-common/protocol.rs, racecontrol/state.rs, remote_ops.rs, pod_monitor.rs, and all kiosk/web TSX pages
 
 ---
 
@@ -13,7 +13,7 @@ Understanding what already exists is prerequisite to placing new code correctly.
 ### Current Communication Paths
 
 ```
-rc-core (:8080)
+racecontrol (:8080)
   |
   |-- /ws/agent   (WebSocket) <──────────────── rc-agent (pods, outbound connect)
   |                                              sends: AgentMessage enum
@@ -24,12 +24,12 @@ rc-core (:8080)
   |
   |-- HTTP REST   <──────────────── kiosk Next.js, web Next.js, PWA
   |
-rc-core also connects OUT to:
+racecontrol also connects OUT to:
   |-- :8090/exec  (HTTP POST) ──────────────── rc-agent remote_ops.rs (inbound)
   |-- :8090/write (HTTP POST) ──────────────── rc-agent remote_ops.rs
 ```
 
-### Key AppState Fields (rc-core/src/state.rs)
+### Key AppState Fields (racecontrol/src/state.rs)
 
 ```
 agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>
@@ -61,7 +61,7 @@ FfbZeroed, GameCrashed, ContentManifest, AssistChanged, FfbGainChanged, AssistSt
 
 ### Current deploy.rs exec path
 
-`exec_on_pod()` — HTTP POST to http://{pod_ip}:8090/exec — uses rc-core's reqwest client.
+`exec_on_pod()` — HTTP POST to http://{pod_ip}:8090/exec — uses racecontrol's reqwest client.
 Every deploy step (download, size-check, self-swap, health-verify) goes through this function.
 
 ---
@@ -169,13 +169,13 @@ Agent side (rc-agent/src/main.rs — the WS receive select arm that already hand
 - Add arm for `CoreToAgentMessage::Exec` — spawn a blocking task, run `cmd /C`, send `AgentMessage::ExecResult` back over `ws_tx`.
 - The existing `exec_command()` logic in remote_ops.rs is reusable as a pure function — extract the command execution core into a shared helper in rc-agent.
 
-Core side (rc-core/src/ws/mod.rs — the `handle_agent` function that receives `AgentMessage`):
+Core side (racecontrol/src/ws/mod.rs — the `handle_agent` function that receives `AgentMessage`):
 - Add arm for `AgentMessage::ExecResult` — forward result to a `pending_exec_requests` map (oneshot channel per request_id).
 
 **New AppState field needed:**
 
 ```rust
-// rc-core/src/state.rs
+// racecontrol/src/state.rs
 pub pending_ws_execs: RwLock<HashMap<String, tokio::sync::oneshot::Sender<ExecResult>>>
 ```
 
@@ -210,7 +210,7 @@ Firewall configuration must succeed before remote_ops starts listening on :8090,
 // rc-agent/src/firewall.rs
 /// Ensure Windows Firewall rules exist for RaceControl ports.
 /// Creates rules if missing. Safe to call repeatedly (idempotent).
-/// Returns a list of actions taken for reporting to rc-core.
+/// Returns a list of actions taken for reporting to racecontrol.
 pub fn ensure_firewall_rules() -> Vec<FirewallAction>
 
 pub enum FirewallAction {
@@ -245,7 +245,7 @@ for action in &firewall_actions {
         FirewallAction::Failed { rule, error } => tracing::warn!("Firewall rule failed: {} — {}", rule, error),
     }
 }
-// Optionally report to rc-core via startup AgentMessage (see startup error reporting feature)
+// Optionally report to racecontrol via startup AgentMessage (see startup error reporting feature)
 ```
 
 **Important: This runs in main() synchronously before the async runtime**
@@ -381,9 +381,9 @@ pub struct PodHealthSnapshot {
 }
 ```
 
-**Where rc-core publishes fleet health:**
+**Where racecontrol publishes fleet health:**
 
-New module `rc-core/src/fleet_health.rs` — background task that reads from AppState (watchdog states, deploy states, WS liveness) and broadcasts `DashboardEvent::FleetHealth` every 5 seconds. The kiosk WS handler (ws/mod.rs `handle_dashboard`) already broadcasts all `DashboardEvent` variants to dashboard subscribers.
+New module `racecontrol/src/fleet_health.rs` — background task that reads from AppState (watchdog states, deploy states, WS liveness) and broadcasts `DashboardEvent::FleetHealth` every 5 seconds. The kiosk WS handler (ws/mod.rs `handle_dashboard`) already broadcasts all `DashboardEvent` variants to dashboard subscribers.
 
 **Fleet page component structure:**
 
@@ -401,7 +401,7 @@ kiosk/src/components/PodHealthCard.tsx <- NEW per-pod health card (compact)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     rc-core :8080 (Racing-Point-Server .23)          │
+│                     racecontrol :8080 (Racing-Point-Server .23)          │
 │                                                                       │
 │  ws/mod.rs                state.rs                deploy.rs           │
 │  ┌──────────┐    ┌─────────────────────┐    ┌──────────────────┐    │
@@ -446,7 +446,7 @@ kiosk/src/components/PodHealthCard.tsx <- NEW per-pod health card (compact)
 | Component | Location | Purpose | Touches Existing? |
 |-----------|----------|---------|------------------|
 | `firewall.rs` | `rc-agent/src/firewall.rs` | Rust netsh firewall rules | No — called from main.rs |
-| `fleet_health.rs` | `rc-core/src/fleet_health.rs` | Fleet health broadcast task | No — spawned from main.rs |
+| `fleet_health.rs` | `racecontrol/src/fleet_health.rs` | Fleet health broadcast task | No — spawned from main.rs |
 | `FleetGrid.tsx` | `kiosk/src/components/` | 8-pod health grid | No |
 | `PodHealthCard.tsx` | `kiosk/src/components/` | Per-pod compact card | No |
 | `fleet/page.tsx` | `kiosk/src/app/fleet/` | Fleet route | No |
@@ -462,10 +462,10 @@ kiosk/src/components/PodHealthCard.tsx <- NEW per-pod health card (compact)
 | `AgentMessage` | `rc-common/src/protocol.rs` | Add `ExecResult` variant | LOW — additive |
 | `DashboardEvent` | `rc-common/src/protocol.rs` | Add `FleetHealth`, `PodHealthUpdate` | LOW — additive |
 | `DeployState` | `rc-common/src/types.rs` | Add `Rollback` variant | LOW — additive |
-| `AppState` | `rc-core/src/state.rs` | Add `pending_ws_execs` field | LOW — additive |
-| `deploy.rs` | `rc-core/src/deploy.rs` | Add pod_id param to exec_on_pod, WS fallback, rollback logic | MEDIUM — touches core deploy path |
+| `AppState` | `racecontrol/src/state.rs` | Add `pending_ws_execs` field | LOW — additive |
+| `deploy.rs` | `racecontrol/src/deploy.rs` | Add pod_id param to exec_on_pod, WS fallback, rollback logic | MEDIUM — touches core deploy path |
 | `main.rs` (agent) | `rc-agent/src/main.rs` | Add `Exec` handling in WS receive loop, call `firewall::ensure_rules()` | MEDIUM — touches main event loop |
-| `ws/mod.rs` | `rc-core/src/ws/mod.rs` | Handle `AgentMessage::ExecResult`, route to pending_ws_execs | LOW — additive arm |
+| `ws/mod.rs` | `racecontrol/src/ws/mod.rs` | Handle `AgentMessage::ExecResult`, route to pending_ws_execs | LOW — additive arm |
 
 ---
 
@@ -474,7 +474,7 @@ kiosk/src/components/PodHealthCard.tsx <- NEW per-pod health card (compact)
 ### WebSocket Exec Flow (NEW)
 
 ```
-rc-core deploy.rs
+racecontrol deploy.rs
   1. HTTP exec fails (connection refused on :8090)
   2. Look up agent_senders[pod_id] — is WS open?
   3. Generate request_id = UUID
@@ -487,7 +487,7 @@ rc-agent main.rs (WS receive loop)
   8. spawn_blocking: cmd /C <cmd>
   9. Send AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr }
 
-rc-core ws/mod.rs (handle_agent)
+racecontrol ws/mod.rs (handle_agent)
   10. Receive AgentMessage::ExecResult
   11. Look up pending_ws_execs[request_id]
   12. Send result over oneshot → deploy.rs await resolves
@@ -507,7 +507,7 @@ rc-agent main.rs startup (before remote_ops::start)
 ### Fleet Health Broadcast Flow (NEW)
 
 ```
-rc-core fleet_health.rs (every 5s)
+racecontrol fleet_health.rs (every 5s)
   1. Read agent_senders — determine ws_connected per pod
   2. Read pod_deploy_states — get DeployState per pod
   3. Read pod_watchdog_states — get WatchdogState per pod
@@ -520,7 +520,7 @@ rc-core fleet_health.rs (every 5s)
 
 ## Recommended Build Order
 
-Build order matters because protocol.rs is the contract between rc-agent and rc-core. Compile breaks propagate upward.
+Build order matters because protocol.rs is the contract between rc-agent and racecontrol. Compile breaks propagate upward.
 
 ### Phase 1: rc-common protocol additions (foundation)
 
@@ -533,19 +533,19 @@ Add to `rc-common/src/protocol.rs` and `rc-common/src/types.rs`:
 
 Write characterization tests first — verify existing enum variants still serialize/deserialize identically after additions. Run `cargo test -p rc-common` green before proceeding.
 
-**Why first:** All other crates depend on rc-common. Additions here break the build for rc-core and rc-agent until they handle new variants. Do it once, do it right.
+**Why first:** All other crates depend on rc-common. Additions here break the build for racecontrol and rc-agent until they handle new variants. Do it once, do it right.
 
 ### Phase 2: rc-agent firewall module
 
-Add `crates/rc-agent/src/firewall.rs`. Call from main.rs. Run `cargo test -p rc-agent`.
+Add `crates/rc-agent/src/firewall.rs`. Call from main.rs. Run `cargo test -p rc-agent-crate`.
 
-**Why second:** Isolated, no dependencies on rc-core changes. Low risk. Can be verified on Pod 8 immediately. Fixes the immediate post-Mar-15 pain.
+**Why second:** Isolated, no dependencies on racecontrol changes. Low risk. Can be verified on Pod 8 immediately. Fixes the immediate post-Mar-15 pain.
 
 ### Phase 3: rc-agent Exec handling in main.rs
 
-Add `CoreToAgentMessage::Exec` arm to the WS receive select loop. Extract exec logic from `remote_ops.rs` into a shared helper. Run `cargo test -p rc-agent`.
+Add `CoreToAgentMessage::Exec` arm to the WS receive select loop. Extract exec logic from `remote_ops.rs` into a shared helper. Run `cargo test -p rc-agent-crate`.
 
-**Why third:** Depends on Phase 1 (new protocol variant). rc-core's WS exec path is not needed yet — rc-agent just needs to handle the message and respond.
+**Why third:** Depends on Phase 1 (new protocol variant). racecontrol's WS exec path is not needed yet — rc-agent just needs to handle the message and respond.
 
 ### Phase 4: rc-agent self-healing config check
 
@@ -553,7 +553,7 @@ Add `crates/rc-agent/src/self_healing.rs`. Check toml, bat, registry keys on sta
 
 **Why fourth:** Standalone, no cross-crate dependencies. Adds important self-repair before service restarts amplify any damage.
 
-### Phase 5: rc-core WS exec path + deploy.rs changes
+### Phase 5: racecontrol WS exec path + deploy.rs changes
 
 Modify `ws/mod.rs` to handle `AgentMessage::ExecResult`. Add `pending_ws_execs` to `AppState`. Add WS fallback to `exec_on_pod()` in deploy.rs. Add rollback logic.
 
@@ -567,7 +567,7 @@ New bat scripts for NSSM installation. Add step to deploy.rs post-deploy flow. D
 
 ### Phase 7: Fleet health dashboard
 
-Add `fleet_health.rs` to rc-core. Add fleet route + components to kiosk Next.js. Wire `DashboardEvent::FleetHealth` through kiosk WS hook.
+Add `fleet_health.rs` to racecontrol. Add fleet route + components to kiosk Next.js. Wire `DashboardEvent::FleetHealth` through kiosk WS hook.
 
 **Why last:** Observability. Depends on all health data being available in AppState (populated by Phases 5-6). Can be built and deployed independently as it's read-only.
 
@@ -587,7 +587,7 @@ Add `fleet_health.rs` to rc-core. Add fleet route + components to kiosk Next.js.
 
 **What people do:** Route all deploy exec through WS to avoid HTTP firewall issues.
 
-**Why wrong:** A 15MB binary as base64-encoded JSON over WebSocket is ~20MB of text. The WS message buffer in axum defaults to 64MB but the encoding round-trip adds ~33% overhead. More importantly, the download cmd runs for 60-120 seconds — blocking the WS receive loop on both sides for that duration. The firewall issue only affects inbound connections to :8090; outbound from rc-agent to rc-core :8080 is never blocked.
+**Why wrong:** A 15MB binary as base64-encoded JSON over WebSocket is ~20MB of text. The WS message buffer in axum defaults to 64MB but the encoding round-trip adds ~33% overhead. More importantly, the download cmd runs for 60-120 seconds — blocking the WS receive loop on both sides for that duration. The firewall issue only affects inbound connections to :8090; outbound from rc-agent to racecontrol :8080 is never blocked.
 
 **Do instead:** Keep download via HTTP exec. Use WS exec only for short commands (self-swap trigger, health checks, registry edits) where :8090 may be temporarily blocked post-restart.
 
@@ -622,10 +622,10 @@ Add `fleet_health.rs` to rc-core. Add fleet route + components to kiosk Next.js.
 | Boundary | Communication | Contract |
 |----------|---------------|---------|
 | rc-agent WS receive → Exec handling | New match arm in main.rs select loop | `CoreToAgentMessage::Exec` → `AgentMessage::ExecResult` |
-| rc-core deploy.rs → WS exec | New `exec_on_pod_ws()` in deploy.rs | Uses `agent_senders` + `pending_ws_execs` |
-| rc-core ws/mod.rs → ExecResult | New arm in `handle_agent()` | Routes to `pending_ws_execs` oneshot |
+| racecontrol deploy.rs → WS exec | New `exec_on_pod_ws()` in deploy.rs | Uses `agent_senders` + `pending_ws_execs` |
+| racecontrol ws/mod.rs → ExecResult | New arm in `handle_agent()` | Routes to `pending_ws_execs` oneshot |
 | rc-agent startup → firewall | `firewall::ensure_firewall_rules()` in main.rs | Called before `remote_ops::start()` |
-| rc-core → kiosk fleet page | `DashboardEvent::FleetHealth` over `/ws/kiosk` | Existing broadcast channel |
+| racecontrol → kiosk fleet page | `DashboardEvent::FleetHealth` over `/ws/kiosk` | Existing broadcast channel |
 | NSSM service → start-rcagent.bat | NSSM wraps existing bat | No code change to rc-agent |
 
 ---
@@ -633,10 +633,10 @@ Add `fleet_health.rs` to rc-core. Add fleet route + components to kiosk Next.js.
 ## Sources
 
 - Direct codebase inspection: `crates/rc-agent/src/main.rs` (474+ lines startup sequence)
-- Direct codebase inspection: `crates/rc-core/src/deploy.rs` (exec_on_pod, deploy_pod, deploy_rolling)
-- Direct codebase inspection: `crates/rc-core/src/ws/mod.rs` (handle_agent, agent_senders pattern)
+- Direct codebase inspection: `crates/racecontrol/src/deploy.rs` (exec_on_pod, deploy_pod, deploy_rolling)
+- Direct codebase inspection: `crates/racecontrol/src/ws/mod.rs` (handle_agent, agent_senders pattern)
 - Direct codebase inspection: `crates/rc-common/src/protocol.rs` (CoreToAgentMessage, AgentMessage, DashboardEvent)
-- Direct codebase inspection: `crates/rc-core/src/state.rs` (AppState field map)
+- Direct codebase inspection: `crates/racecontrol/src/state.rs` (AppState field map)
 - Direct codebase inspection: `crates/rc-agent/src/remote_ops.rs` (exec implementation, semaphore pattern)
 - Direct codebase inspection: `kiosk/src/app/control/page.tsx` (useKioskSocket pattern)
 - Project context: `.planning/PROJECT.md` (v4.0 requirements, Mar 15 incident motivation)

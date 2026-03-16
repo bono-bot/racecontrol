@@ -8,7 +8,7 @@ tags: [watchdog, backoff, email-alerts, rate-limiting, state-machine]
 requires: []
 provides:
   - "EscalatingBackoff state machine in rc-common (30s/2m/10m/30m cooldown steps)"
-  - "EmailAlerter module in rc-core with per-pod (30min) and venue-wide (5min) rate limiting"
+  - "EmailAlerter module in racecontrol with per-pod (30min) and venue-wide (5min) rate limiting"
   - "Expanded WatchdogConfig with 6 new email/escalation fields"
   - "AppState pod_backoffs and email_alerter shared state fields"
 affects: [05-02-PLAN]
@@ -21,13 +21,13 @@ tech-stack:
 key-files:
   created:
     - crates/rc-common/src/watchdog.rs
-    - crates/rc-core/src/email_alerts.rs
+    - crates/racecontrol/src/email_alerts.rs
   modified:
     - crates/rc-common/src/lib.rs
-    - crates/rc-core/src/lib.rs
-    - crates/rc-core/src/config.rs
-    - crates/rc-core/src/state.rs
-    - crates/rc-core/src/api/routes.rs
+    - crates/racecontrol/src/lib.rs
+    - crates/racecontrol/src/config.rs
+    - crates/racecontrol/src/state.rs
+    - crates/racecontrol/src/api/routes.rs
 
 key-decisions:
   - "EscalatingBackoff uses Vec<Duration> steps with clamping to last element for cap behavior"
@@ -76,11 +76,11 @@ _Note: TDD tasks with implementation and tests written together._
 ## Files Created/Modified
 - `crates/rc-common/src/watchdog.rs` - EscalatingBackoff state machine with 14 unit tests
 - `crates/rc-common/src/lib.rs` - Added `pub mod watchdog` export
-- `crates/rc-core/src/email_alerts.rs` - EmailAlerter with rate limiting, send_alert(), format_alert_body()
-- `crates/rc-core/src/lib.rs` - Added `pub mod email_alerts` export
-- `crates/rc-core/src/config.rs` - WatchdogConfig expanded with 6 new fields + 2 config deserialization tests
-- `crates/rc-core/src/state.rs` - AppState gains pod_backoffs and email_alerter fields
-- `crates/rc-core/src/api/routes.rs` - Removed stale installed_games field references (pre-existing fix)
+- `crates/racecontrol/src/email_alerts.rs` - EmailAlerter with rate limiting, send_alert(), format_alert_body()
+- `crates/racecontrol/src/lib.rs` - Added `pub mod email_alerts` export
+- `crates/racecontrol/src/config.rs` - WatchdogConfig expanded with 6 new fields + 2 config deserialization tests
+- `crates/racecontrol/src/state.rs` - AppState gains pod_backoffs and email_alerter fields
+- `crates/racecontrol/src/api/routes.rs` - Removed stale installed_games field references (pre-existing fix)
 
 ## Decisions Made
 - EscalatingBackoff uses Vec<Duration> steps with index clamping (not modular arithmetic) so the cap is always the last configured step
@@ -93,11 +93,11 @@ _Note: TDD tasks with implementation and tests written together._
 ### Auto-fixed Issues
 
 **1. [Rule 3 - Blocking] Fixed pre-existing installed_games field removal in routes.rs**
-- **Found during:** Task 2 (building rc-core)
-- **Issue:** PodInfo struct had `installed_games` field removed but 3 references in routes.rs still used it, blocking all rc-core compilation
+- **Found during:** Task 2 (building racecontrol)
+- **Issue:** PodInfo struct had `installed_games` field removed but 3 references in routes.rs still used it, blocking all racecontrol compilation
 - **Fix:** Removed the 3 stale `installed_games: Vec::new()` lines from routes.rs
-- **Files modified:** crates/rc-core/src/api/routes.rs
-- **Verification:** cargo build -p rc-core compiles successfully
+- **Files modified:** crates/racecontrol/src/api/routes.rs
+- **Verification:** cargo build -p racecontrol-crate compiles successfully
 - **Committed in:** c50e67a (Task 2 commit)
 
 ---

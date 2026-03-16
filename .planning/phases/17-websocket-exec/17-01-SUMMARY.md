@@ -11,7 +11,7 @@ provides:
   - AgentMessage::ExecResult variant with request_id, success, exit_code, stdout, stderr
   - default_exec_timeout_ms() free function for serde default
   - 5 serde roundtrip and wire format tests proving correct JSON shape
-affects: [17-02-PLAN, 17-03-PLAN, rc-agent, rc-core]
+affects: [17-02-PLAN, 17-03-PLAN, rc-agent, racecontrol]
 
 # Tech tracking
 tech-stack:
@@ -80,7 +80,7 @@ None
 None - no external service configuration required.
 
 ## Next Phase Readiness
-- Protocol variants ready for Plan 17-02 (rc-agent exec handler) and Plan 17-03 (rc-core dispatch)
+- Protocol variants ready for Plan 17-02 (rc-agent exec handler) and Plan 17-03 (racecontrol dispatch)
 - Wire format confirmed: `{"type":"exec","data":{"request_id":"...","cmd":"...","timeout_ms":10000}}`
 - ExecResult wire format: `{"type":"exec_result","data":{"request_id":"...","success":true,...}}`
 

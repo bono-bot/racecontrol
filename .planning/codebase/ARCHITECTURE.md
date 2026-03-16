@@ -25,7 +25,7 @@ RaceControl is a Rust-based sim racing venue management system with a 3-crate wo
 [workspace]
 members = [
     "crates/rc-common",      # Shared types and protocol
-    "crates/rc-core",        # Central server (port 8080)
+    "crates/racecontrol",        # Central server (port 8080)
     "crates/rc-agent",       # Pod/gaming PC agent
 ]
 ```
@@ -45,7 +45,7 @@ members = [
 
 **Location**: `crates/rc-common/src/`
 
-**Purpose**: Single source of truth for data structures and protocol messages shared between rc-core (server) and rc-agent (gaming PC).
+**Purpose**: Single source of truth for data structures and protocol messages shared between racecontrol (server) and rc-agent (gaming PC).
 
 ### Key Files
 
@@ -76,7 +76,7 @@ Core domain types used throughout the system:
 - **GameState**: Loading, Menu, Paused, Racing, Finished (from telemetry)
 
 #### `protocol.rs` - WebSocket Messages
-Serializable messages exchanged between rc-core and rc-agent over WebSocket:
+Serializable messages exchanged between racecontrol and rc-agent over WebSocket:
 
 **CoreMessage** (server → agent):
 - `LaunchGame { pod_id, sim_type, experience_id }`: Start a game
@@ -102,9 +102,9 @@ Binary protocol for game telemetry via UDP (F1 25 on port 20777, AC on 9996, iRa
 
 ---
 
-## rc-core: Central Server (Port 8080)
+## racecontrol: Central Server (Port 8080)
 
-**Location**: `crates/rc-core/src/`
+**Location**: `crates/racecontrol/src/`
 
 **Purpose**: RESTful API server + WebSocket hub. Single point of truth for pod state, customer data, billing, cloud sync, and real-time control.
 
@@ -337,7 +337,7 @@ pub struct BillingSession {
 
 **Location**: `crates/rc-agent/src/`
 
-**Purpose**: Runs on each gaming PC (pod). Listens for commands from rc-core, launches/kills games, captures telemetry, manages UI overlays, handles lock screen.
+**Purpose**: Runs on each gaming PC (pod). Listens for commands from racecontrol, launches/kills games, captures telemetry, manages UI overlays, handles lock screen.
 
 **Entry Point**: `main.rs`
 - Loads `AgentConfig` from TOML (pod ID, core server URL, game paths, wheelbase vendor ID/PID).
@@ -349,7 +349,7 @@ pub struct BillingSession {
   - UDP telemetry listeners (6 ports in parallel)
   - Driving detector (HID wheelbase input)
   - WebSocket sender/receiver
-- Connects to rc-core WebSocket: `ws://core:8080/ws?pod_id={id}`
+- Connects to racecontrol WebSocket: `ws://core:8080/ws?pod_id={id}`
 
 ### Core Modules
 
@@ -372,7 +372,7 @@ pub struct BillingSession {
 #### `game_process.rs` - Telemetry Parsing
 - Listens on UDP port for game telemetry (F1 25, AC, iRacing, Forza, LMU).
 - Parses binary frames (frame_id, position, velocity, fuel, tire temps, etc.).
-- Emits `TelemetryFrame` and `Lap` events to rc-core.
+- Emits `TelemetryFrame` and `Lap` events to racecontrol.
 
 #### `sims/mod.rs` - Sim Adapter Pattern
 **SimAdapter** (trait):
@@ -398,7 +398,7 @@ pub struct BillingSession {
 
 #### `lock_screen.rs` - Lock Screen Manager
 - Displays full-screen overlay (customer name, track, timer, fuel gauge).
-- Receives `SetLockScreen` messages from rc-core.
+- Receives `SetLockScreen` messages from racecontrol.
 - Renders using Windows API (DirectX or GDI on Windows, Xlib on Linux).
 
 #### `overlay.rs` - Overlay Renderer
@@ -411,17 +411,17 @@ pub struct BillingSession {
 - Displays staff interface (pod status, active session, quick buttons).
 - Staff PIN login (4-digit, computed daily).
 - Quick launch buttons for games.
-- Sends commands to rc-core: `LaunchGame`, `StopGame`.
+- Sends commands to racecontrol: `LaunchGame`, `StopGame`.
 - Shows customer name, timer, current fuel, seat position.
 
 #### `ai_debugger.rs` - AI Coaching Integration
 - Optionally hooks into lap data.
-- Sends coaching queries to rc-core `/ai/coaching` endpoint.
+- Sends coaching queries to racecontrol `/ai/coaching` endpoint.
 - Displays coaching tips in overlay.
 
-#### `udp_heartbeat.rs` - Heartbeat to rc-core
+#### `udp_heartbeat.rs` - Heartbeat to racecontrol
 - Sends `Pong` every 2 minutes to `ws://core:8080/ws`.
-- rc-core detects offline pods if no heartbeat for 6 minutes.
+- racecontrol detects offline pods if no heartbeat for 6 minutes.
 
 #### `debug_server.rs` - Local Debug HTTP
 - `http://pod_ip:3000/status` returns PodInfo JSON.
@@ -431,69 +431,69 @@ pub struct BillingSession {
 
 ## Data Flow: Customer Session
 
-### 1. Booking (PWA → rc-core)
+### 1. Booking (PWA → racecontrol)
 ```
 Customer on PWA /book
   → SELECT game, track, car, duration
   → POST /customer/book { game, track, car, duration, friends: [...] }
-  → rc-core: pod_reservation::validate_booking()
+  → racecontrol: pod_reservation::validate_booking()
     → Check pod availability
     → Check customer wallet balance
     → Reserve pod + session slot in DB
   ← Returns { booking_id, pod_id, cost_estimate, reserved_until }
 ```
 
-### 2. Game Launch (rc-core → rc-agent → Game)
+### 2. Game Launch (racecontrol → rc-agent → Game)
 ```
 Customer confirms booking, enters pod
   → POST /pods/{pod_id}/launch { booking_id, game, track, car }
-  → rc-core validates JWT, calls billing::start_session()
+  → racecontrol validates JWT, calls billing::start_session()
     → Debits wallet immediately
     → Creates billing_sessions row
-  → rc-core queues CoreMessage::LaunchGame
-  → rc-core sends over WebSocket to rc-agent
+  → racecontrol queues CoreMessage::LaunchGame
+  → racecontrol sends over WebSocket to rc-agent
 
   ← rc-agent receives CoreMessage::LaunchGame
     → game_process.rs looks up game EXE path
     → Spawns: C:\AC\assettocorsa.exe --track Monza --car Ferrari
     → Polls UDP 9996 for telemetry frames
-    → Emits TelemetryFrame events to rc-core
+    → Emits TelemetryFrame events to racecontrol
 ```
 
-### 3. Live Telemetry (rc-agent → rc-core → Dashboard)
+### 3. Live Telemetry (rc-agent → racecontrol → Dashboard)
 ```
 Game sends UDP frame (F1 25 on 20777, AC on 9996, etc.)
   ← rc-agent::sims::f1_25::parse_frame()
     → Normalized { speed, position, throttle, fuel, tire_temp, ... }
     → AgentMessage::TelemetryFrame
-  → Sent to rc-core over WebSocket
+  → Sent to racecontrol over WebSocket
 
-  ← rc-core receives TelemetryFrame
+  ← racecontrol receives TelemetryFrame
     → Broadcasts to all dashboard clients over WebSocket
     → Updates in-memory pod.driving_state (Active/Idle)
     → Accumulates drive_time_ms (if Active)
 ```
 
-### 4. Lap Completion (rc-agent → rc-core → Leaderboard)
+### 4. Lap Completion (rc-agent → racecontrol → Leaderboard)
 ```
 Game detects lap completion (session_id changed, lap_id incremented)
   ← rc-agent::lap_tracker::detect_lap()
     → Extracts lap_time, sector_splits, fuel_used
     → AgentMessage::Lap { pod_id, lap_data }
-  → Sent to rc-core
+  → Sent to racecontrol
 
-  ← rc-core::lap_tracker.rs
+  ← racecontrol::lap_tracker.rs
     → Computes percentile rank
     → Stores in personal_bests, track_records
     → Updates leaderboard
 ```
 
-### 5. Session End (Customer Exits → rc-core)
+### 5. Session End (Customer Exits → racecontrol)
 ```
 Customer exits game (or timeout)
   ← rc-agent detects game process exit
     → Sends AgentMessage::SessionEvent { event: SessionEnded }
-  → rc-core receives
+  → racecontrol receives
     → Calls billing::end_session(session_id)
     → Computes final paise charged
     → Writes to wallet.balance
@@ -563,7 +563,7 @@ Customer exits game (or timeout)
 ```
 Client (rc-agent or Dashboard)
   ↓ (send CoreMessage)
-  rc-core WebSocket handler
+  racecontrol WebSocket handler
   ↓ (broadcast AgentMessage)
   All connected clients receive update
 ```
@@ -582,7 +582,7 @@ Client (rc-agent or Dashboard)
 Example: One customer's session affects multiple dashboards.
 ```
 Pod 5 spawns lap message
-  → rc-core receives from rc-agent
+  → racecontrol receives from rc-agent
   → Broadcasts PodStateUpdate to all clients subscribed to pod_5
   → Dashboard 1 updates live timer
   → Dashboard 2 updates leaderboard
@@ -633,7 +633,7 @@ pin = hash(jwt_secret + today_date) % 10000
 4. Customer refunded if crash occurred.
 
 ### Network Disconnection
-- rc-agent WebSocket drops: rc-core flags pod as Offline.
+- rc-agent WebSocket drops: racecontrol flags pod as Offline.
 - Dashboard reconnect auto: PWA WebSocket reconnect logic.
 - Retry queue: Action commands (LaunchGame, StopGame) queued if pod unreachable, retried on reconnect.
 
@@ -670,7 +670,7 @@ pin = hash(jwt_secret + today_date) % 10000
 ## Key Design Principles
 
 1. **Single Source of Truth**: Database is persistent, memory is cache. Always read from DB on restart.
-2. **Loose Coupling**: rc-agent and rc-core communicate via WebSocket + protocol types (rc-common), not shared code.
+2. **Loose Coupling**: rc-agent and racecontrol communicate via WebSocket + protocol types (rc-common), not shared code.
 3. **Async-First**: Tokio for all I/O (database, network, WebSocket). No blocking calls in hot paths.
 4. **Protocol Versioning**: protocol.rs enums versioned for backward-compat when agents/servers diverge.
 5. **Cloud-Aware**: All writes replicate to cloud. Venue is always degraded-mode capable (works offline).

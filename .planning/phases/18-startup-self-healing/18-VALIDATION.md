@@ -19,8 +19,8 @@ created: 2026-03-15
 |----------|-------|
 | **Framework** | cargo test (Rust built-in) |
 | **Config file** | Cargo.toml workspace |
-| **Quick run command** | `cargo test -p rc-common protocol::tests && cargo test -p rc-agent self_heal` |
-| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| **Quick run command** | `cargo test -p rc-common protocol::tests && cargo test -p rc-agent-crate self_heal` |
+| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 | **Estimated runtime** | ~20 seconds |
 
 ---
@@ -38,10 +38,10 @@ created: 2026-03-15
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 18-01-01 | 01 | 1 | HEAL-01 | unit | `cargo test -p rc-agent self_heal` | ❌ W0 | ⬜ pending |
-| 18-01-02 | 01 | 1 | HEAL-03 | unit | `cargo test -p rc-agent startup_log` | ❌ W0 | ⬜ pending |
+| 18-01-01 | 01 | 1 | HEAL-01 | unit | `cargo test -p rc-agent-crate self_heal` | ❌ W0 | ⬜ pending |
+| 18-01-02 | 01 | 1 | HEAL-03 | unit | `cargo test -p rc-agent-crate startup_log` | ❌ W0 | ⬜ pending |
 | 18-02-01 | 02 | 1 | HEAL-02 | unit | `cargo test -p rc-common protocol::tests::test_startup_report` | ❌ W0 | ⬜ pending |
-| 18-02-02 | 02 | 1 | HEAL-02 | integration | `cargo test -p rc-core` | ❌ W0 | ⬜ pending |
+| 18-02-02 | 02 | 1 | HEAL-02 | integration | `cargo test -p racecontrol-crate` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -67,7 +67,7 @@ created: 2026-03-15
 | Config regenerated from hostname | HEAL-01 | Requires actual pod hostname | Delete rc-agent.toml on Pod 8, restart rc-agent, verify new config has pod_number=8 |
 | Registry key recreated after deletion | HEAL-01 | Requires admin + HKLM access | Delete RCAgent Run key on Pod 8, restart rc-agent, verify key restored via `reg query` |
 | Start script survives CRLF check | HEAL-01 | Requires actual batch execution | Delete start-rcagent.bat on Pod 8, restart rc-agent, verify new script runs correctly |
-| Startup report received by rc-core | HEAL-02 | Requires live WS connection | Check rc-core logs for StartupReport from Pod 8 after restart |
+| Startup report received by racecontrol | HEAL-02 | Requires live WS connection | Check racecontrol logs for StartupReport from Pod 8 after restart |
 | Crash recovery flag set after kill | HEAL-02 | Requires force-killing rc-agent | Kill rc-agent on Pod 8, restart, verify crash_recovery=true in startup report |
 | Startup log shows last phase on crash | HEAL-03 | Requires crash simulation | Kill rc-agent mid-startup on Pod 8, read rc-agent-startup.log for last phase |
 

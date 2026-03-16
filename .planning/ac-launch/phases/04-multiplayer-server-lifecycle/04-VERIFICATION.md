@@ -36,9 +36,9 @@ score: 10/10 must-haves verified
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/rc-core/src/multiplayer.rs` | book_multiplayer() calls start_ac_server, book_multiplayer_kiosk() with PINs | VERIFIED | start_ac_server at lines 336 and 1728; KioskMultiplayerResult struct at 1505; KioskMultiplayerAssignment at 1515; book_multiplayer_kiosk at 1527 |
-| `crates/rc-core/src/billing.rs` | check_and_stop_multiplayer_server() at all billing-end paths | VERIFIED | Function defined at 2467; called at 1018 (tick-expired), 1928 (manual stop), 2094 (orphan cleanup) |
-| `crates/rc-core/src/api/routes.rs` | POST /kiosk/book-multiplayer endpoint | VERIFIED | Route at line 173; handler kiosk_book_multiplayer at 5913-5967 with Bearer auth, calls book_multiplayer_kiosk |
+| `crates/racecontrol/src/multiplayer.rs` | book_multiplayer() calls start_ac_server, book_multiplayer_kiosk() with PINs | VERIFIED | start_ac_server at lines 336 and 1728; KioskMultiplayerResult struct at 1505; KioskMultiplayerAssignment at 1515; book_multiplayer_kiosk at 1527 |
+| `crates/racecontrol/src/billing.rs` | check_and_stop_multiplayer_server() at all billing-end paths | VERIFIED | Function defined at 2467; called at 1018 (tick-expired), 1928 (manual stop), 2094 (orphan cleanup) |
+| `crates/racecontrol/src/api/routes.rs` | POST /kiosk/book-multiplayer endpoint | VERIFIED | Route at line 173; handler kiosk_book_multiplayer at 5913-5967 with Bearer auth, calls book_multiplayer_kiosk |
 | `kiosk/src/lib/types.ts` | KioskMultiplayerAssignment + KioskMultiplayerResult interfaces | VERIFIED | Lines 163-176; fields match Rust structs exactly |
 | `kiosk/src/lib/api.ts` | kioskBookMultiplayer() API client | VERIFIED | Lines 277-295; POST to /kiosk/book-multiplayer with Bearer auth, typed return |
 | `kiosk/src/app/book/page.tsx` | Multiplayer flow + multi-success screen | VERIFIED | Pod count state (90-92), handleBookMultiplayer (317-354), pod count selector (905-937), conditional review button (1195), multi success screen (558-615) |
@@ -90,7 +90,7 @@ No `.unwrap()` calls in multiplayer.rs. No TODO/FIXME in any modified files. No 
 
 **Test:** On kiosk touchscreen, tap "Play with Friends", select 3 rigs, pick an experience, confirm booking.
 **Expected:** Booking succeeds. Screen shows 3 cards, each with a Rig number (e.g., 3, 4, 5) and a unique 4-digit PIN. acServer.exe visible in Task Manager on Racing-Point-Server (.23).
-**Why human:** Requires venue hardware (kiosk touchscreen, running rc-core, connected pods, AC server on .23).
+**Why human:** Requires venue hardware (kiosk touchscreen, running racecontrol, connected pods, AC server on .23).
 
 ### 2. AC Server Auto-Stop on Billing End
 

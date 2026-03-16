@@ -1,7 +1,7 @@
 //! Filesystem scanner for Assetto Corsa content (cars and tracks).
 //!
 //! Produces a [`ContentManifest`] describing all installed cars and tracks on a pod.
-//! Called at startup and on WebSocket reconnect to rc-core.
+//! Called at startup and on WebSocket reconnect to racecontrol.
 
 use std::path::Path;
 

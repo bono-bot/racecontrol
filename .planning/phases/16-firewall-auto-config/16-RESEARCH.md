@@ -458,15 +458,15 @@ netsh advfirewall firewall show rule name=all | findstr /C:"RacingPoint-"
 |----------|-------|
 | Framework | Rust built-in test harness (cargo test) |
 | Config file | Cargo.toml (workspace) |
-| Quick run command | `cargo test -p rc-agent firewall` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p rc-agent-crate firewall` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements -> Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| FW-01 | configure() calls netsh for ICMP + TCP 8090 | unit | `cargo test -p rc-agent firewall` | Wave 0 (new file) |
-| FW-02 | Rule names are distinct, namespaced; delete before add pattern | unit | `cargo test -p rc-agent firewall` | Wave 0 (new file) |
+| FW-01 | configure() calls netsh for ICMP + TCP 8090 | unit | `cargo test -p rc-agent-crate firewall` | Wave 0 (new file) |
+| FW-02 | Rule names are distinct, namespaced; delete before add pattern | unit | `cargo test -p rc-agent-crate firewall` | Wave 0 (new file) |
 | FW-02 | Idempotency — no duplicate accumulation | manual-only | `netsh advfirewall show rule name=all \| findstr RacingPoint-` run 10x | N/A |
 | FW-03 | configure() result logged before remote_ops bind | manual-only | Check rc-agent.log line ordering after reboot | N/A |
 
@@ -476,8 +476,8 @@ the Pod 8 canary deploy step.
 
 ### Sampling Rate
 
-- **Per task commit:** `cargo test -p rc-agent firewall`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p rc-agent-crate firewall`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green + Pod 8 canary verification before `/gsd:verify-work`
 
 ### Wave 0 Gaps

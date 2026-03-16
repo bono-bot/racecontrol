@@ -67,7 +67,7 @@ fn all_game_process_names() -> &'static [&'static str] {
 }
 
 /// Startup orphan scan: kill any game processes left over from a previous
-/// rc-agent instance.  Called once at agent startup before connecting to rc-core.
+/// rc-agent instance.  Called once at agent startup before connecting to racecontrol.
 ///
 /// 1. Check persisted PID file — if alive, kill it.
 /// 2. Scan for all known game process names and kill any that are running.

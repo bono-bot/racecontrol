@@ -14,7 +14,7 @@ The pod management stack is reliable: self-healing, branded screens, stable URLs
 - rc-agent as Windows Service with auto-restart on crash (NSSM or native Service API)
 - WebSocket-based remote exec (`CoreToAgentMessage::Exec`) — manage pods even when firewall blocks HTTP
 - Firewall auto-configuration in Rust on startup (ICMP + TCP 8090) — no dependency on batch files
-- Startup error capture and reporting to rc-core before crash
+- Startup error capture and reporting to racecontrol before crash
 - Self-healing config: detect and repair missing toml, bat, registry keys on every startup
 - Deploy resilience: verify after deploy, rollback on failure, handle partial fleet failures
 - Fleet health dashboard: real-time pod status visible to Uday from phone
@@ -25,7 +25,7 @@ The pod management stack is reliable: self-healing, branded screens, stable URLs
 
 ## What This Is
 
-The RaceControl platform for Racing Point eSports — 8 sim racing pods managed from a central server (rc-core, rc-agent, pod-agent), staff kiosk for pod management, and a cloud PWA for customer engagement. Captures lap times, sector splits, and telemetry from Assetto Corsa and F1 25, with leaderboards, competitive events, and driver profiles accessible publicly.
+The RaceControl platform for Racing Point eSports — 8 sim racing pods managed from a central server (racecontrol, rc-agent, pod-agent), staff kiosk for pod management, and a cloud PWA for customer engagement. Captures lap times, sector splits, and telemetry from Assetto Corsa and F1 25, with leaderboards, competitive events, and driver profiles accessible publicly.
 
 ## Core Value
 
@@ -35,7 +35,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 
 ### Validated (v1.0 + v2.0 — Shipped)
 
-- ✓ WebSocket connection between rc-core and rc-agent — existing
+- ✓ WebSocket connection between racecontrol and rc-agent — existing
 - ✓ Pod-agent HTTP exec endpoint for remote commands — existing
 - ✓ Game launch from staff kiosk — existing
 - ✓ UDP heartbeat for pod liveness detection (6s timeout) — existing
@@ -71,7 +71,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - [ ] rc-agent as Windows Service with auto-restart on crash
 - [ ] WebSocket-based remote exec for pod management when HTTP blocked
 - [ ] Firewall auto-configuration in Rust on startup
-- [ ] Startup error capture and reporting to rc-core
+- [ ] Startup error capture and reporting to racecontrol
 - [ ] Self-healing config (detect and repair missing toml/bat/registry)
 - [ ] Deploy resilience (verify, rollback, handle partial failures)
 - [ ] Fleet health dashboard for Uday (real-time pod status)
@@ -99,8 +99,8 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 ## Context
 
 - **Venue:** 8 gaming pods (192.168.31.x subnet), 1 server (.23), 1 James workstation (.27)
-- **Stack:** Rust/Axum (rc-core port 8080, rc-agent per-pod), Node.js (pod-agent port 8090), Next.js (kiosk + PWA)
-- **Crates:** rc-common (shared types/protocol), rc-core (server), rc-agent (pod client)
+- **Stack:** Rust/Axum (racecontrol port 8080, rc-agent per-pod), Node.js (pod-agent port 8090), Next.js (kiosk + PWA)
+- **Crates:** rc-common (shared types/protocol), racecontrol (server), rc-agent (pod client)
 - **Cloud:** app.racingpoint.cloud (72.60.101.58, Bono's VPS) — existing cloud_sync pushes laps, track records, driver stats
 - **Existing data foundations:** laps table (sector1/2/3_ms, valid flag), personal_bests, track_records, telemetry_samples, group_sessions, friendships, drivers (total_laps, total_time_ms)
 - **Existing API endpoints:** /leaderboard/{track}, /public/leaderboard, /public/laps/{id}/telemetry, /sessions, /laps
@@ -109,7 +109,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 
 ## Constraints
 
-- **Rust/Axum:** rc-core and rc-agent must stay Rust — no language change
+- **Rust/Axum:** racecontrol and rc-agent must stay Rust — no language change
 - **Pod-agent:** MERGED into rc-agent (v3.0 Phase 13.1) — remote_ops.rs module on port 8090
 - **No new dependencies:** Use existing crate deps where possible (tokio, reqwest, serde, chrono, tracing)
 - **Email via send_email.js:** Reuse existing Gmail auth, don't add SMTP crate

@@ -20,7 +20,7 @@ The codebase already has all the scaffolding needed: `PodRecoveryState` in `pod_
 | tokio | 1.x | Async runtime for timers, spawning verification tasks | Already used everywhere |
 | chrono | 0.4 | Timestamps for cooldown tracking | Already in workspace deps |
 | tracing | 0.1 | Structured logging for watchdog events | Already used |
-| reqwest | 0.12 | HTTP client for pod-agent calls + Gmail API | Already in rc-core deps |
+| reqwest | 0.12 | HTTP client for pod-agent calls + Gmail API | Already in racecontrol deps |
 | serde/serde_json | 1.x | Serialization for health check responses | Already in workspace |
 
 ### Supporting (new or modified)
@@ -45,7 +45,7 @@ No new crate dependencies needed. All functionality uses existing deps + the `se
 crates/rc-common/src/
   watchdog.rs            # NEW: EscalatingBackoff struct (shared between core and agent)
 
-crates/rc-core/src/
+crates/racecontrol/src/
   pod_monitor.rs         # MODIFIED: Use EscalatingBackoff, add post-restart verification
   pod_healer.rs          # MODIFIED: Use EscalatingBackoff instead of fixed HEAL_COOLDOWN_SECS
   email_alerts.rs        # NEW: Email notification module (shell-out to send_email.js)
@@ -175,7 +175,7 @@ async fn verify_restart(
 **When to use:** When a pod hits max escalation (30m cooldown) or when post-restart verification fails.
 **Example:**
 ```rust
-// In crates/rc-core/src/email_alerts.rs
+// In crates/racecontrol/src/email_alerts.rs
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use tokio::process::Command;
@@ -282,7 +282,7 @@ impl EmailAlerter {
 **Warning signs:** Pod logs show "restart cooldown not elapsed" even for a fresh failure after a recovery.
 
 ### Pitfall 5: Node.js Not Available on Server
-**What goes wrong:** The `send_email.js` script works on James's machine but fails on the Racing-Point-Server where rc-core runs.
+**What goes wrong:** The `send_email.js` script works on James's machine but fails on the Racing-Point-Server where racecontrol runs.
 **Why it happens:** Node.js may not be installed on the server, or the `send_email.js` path / credential path differs.
 **How to avoid:** (a) Verify Node.js is installed on the server. (b) Use an absolute path to the script and credentials. (c) Add a config option `[watchdog] email_script_path = "..."`. (d) Graceful fallback: if the script fails, log a warning and continue -- never let email failure block the watchdog.
 **Warning signs:** "Failed to run email script" in logs.
@@ -311,13 +311,13 @@ Tier 1b: rc-agent watchdog (in rc-agent main.rs, 30s interval)
   - watchdog_ensure_running("pod-agent.exe")
   - Cross-watches pod-agent from rc-agent
 
-Tier 2: pod_monitor.rs (in rc-core, 10s check interval)
+Tier 2: pod_monitor.rs (in racecontrol, 10s check interval)
   - Detects heartbeat staleness (30s timeout)
   - Marks pods Offline, attempts restart via pod-agent HTTP
   - Fixed 120s cooldown, tracks consecutive_failures
   - Sends WoL if pod-agent unreachable
 
-Tier 3: pod_healer.rs (in rc-core, 120s interval)
+Tier 3: pod_healer.rs (in racecontrol, 120s interval)
   - Deep diagnostics: stale sockets, disk, memory, processes
   - Rule-based auto-fix: kill zombies, clear temp, restart rc-agent
   - Fixed 600s cooldown per pod
@@ -384,9 +384,9 @@ Requires: `C:/Users/bono/.claude/james-google-credentials.json` with Google OAut
 ## Open Questions
 
 1. **Node.js on the server**
-   - What we know: `send_email.js` works on James's machine (.27). rc-core runs on Racing-Point-Server (.23).
+   - What we know: `send_email.js` works on James's machine (.27). racecontrol runs on Racing-Point-Server (.23).
    - What's unclear: Is Node.js installed on .23? Are Google credentials available there?
-   - Recommendation: Verify Node.js on server. If not available, two alternatives: (a) install Node.js on server, or (b) have rc-core call a simple HTTP endpoint on James's machine that triggers the email. Option (a) is preferred.
+   - Recommendation: Verify Node.js on server. If not available, two alternatives: (a) install Node.js on server, or (b) have racecontrol call a simple HTTP endpoint on James's machine that triggers the email. Option (a) is preferred.
 
 2. **Healer restart vs monitor restart scope**
    - What we know: pod_healer.rs also restarts rc-agent (action: "restart_rc_agent"). pod_monitor.rs restarts rc-agent. Both act independently.
@@ -412,20 +412,20 @@ Requires: `C:/Users/bono/.claude/james-google-credentials.json` with Google OAut
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
 | WD-01 | Escalating cooldown steps and reset | unit | `cargo test -p rc-common -- watchdog::tests -x` | Wave 0 |
-| WD-02 | Post-restart verification logic | unit | `cargo test -p rc-core -- pod_monitor::tests -x` | Wave 0 |
-| WD-03 | Email alert trigger conditions | unit | `cargo test -p rc-core -- email_alerts::tests -x` | Wave 0 |
-| WD-04 | Rate limiting (per-pod + venue-wide) | unit | `cargo test -p rc-core -- email_alerts::tests -x` | Wave 0 |
-| WD-05 | Shared backoff prevents dual restart | unit | `cargo test -p rc-core -- pod_monitor::tests -x` | Wave 0 |
-| WD-06 | Config parsing with defaults | unit | `cargo test -p rc-core -- config::tests -x` | Wave 0 |
+| WD-02 | Post-restart verification logic | unit | `cargo test -p racecontrol-crate -- pod_monitor::tests -x` | Wave 0 |
+| WD-03 | Email alert trigger conditions | unit | `cargo test -p racecontrol-crate -- email_alerts::tests -x` | Wave 0 |
+| WD-04 | Rate limiting (per-pod + venue-wide) | unit | `cargo test -p racecontrol-crate -- email_alerts::tests -x` | Wave 0 |
+| WD-05 | Shared backoff prevents dual restart | unit | `cargo test -p racecontrol-crate -- pod_monitor::tests -x` | Wave 0 |
+| WD-06 | Config parsing with defaults | unit | `cargo test -p racecontrol-crate -- config::tests -x` | Wave 0 |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-common && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p rc-common && cargo test -p racecontrol-crate`
 - **Per wave merge:** `cargo test --workspace`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 - [ ] `crates/rc-common/src/watchdog.rs` -- EscalatingBackoff struct + tests (covers WD-01)
-- [ ] `crates/rc-core/src/email_alerts.rs` -- EmailAlerter struct + tests (covers WD-03, WD-04)
+- [ ] `crates/racecontrol/src/email_alerts.rs` -- EmailAlerter struct + tests (covers WD-03, WD-04)
 - [ ] Test module in `pod_monitor.rs` -- verification logic tests (covers WD-02, WD-05)
 - [ ] Test module in `config.rs` -- WatchdogConfig with new email fields (covers WD-06)
 

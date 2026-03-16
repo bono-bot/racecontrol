@@ -55,7 +55,7 @@ completed: 2026-03-14
 - Section contains a labeled text input (type=url) for `lock_screen_wallpaper_url` with placeholder and helper text explaining 10-second propagation delay
 - onChange calls `handleSettingChange("lock_screen_wallpaper_url", e.target.value)` — identical pattern to all other settings inputs
 - No changes needed to `api.ts`, `types.ts`, or any Rust backend — existing generic key-value infrastructure handles it all
-- Completes BRAND-02 end-to-end: staff enters URL in settings -> `PUT /kiosk/settings` -> rc-core saves + broadcasts `SettingsUpdated` -> rc-agent sets `wallpaper_url` -> `page_shell_with_bg()` renders CSS `background-image` on pod lock screens
+- Completes BRAND-02 end-to-end: staff enters URL in settings -> `PUT /kiosk/settings` -> racecontrol saves + broadcasts `SettingsUpdated` -> rc-agent sets `wallpaper_url` -> `page_shell_with_bg()` renders CSS `background-image` on pod lock screens
 
 ## Task Commits
 

@@ -43,7 +43,7 @@ Phases paused: Events and Championships (Phase 14), Telemetry and Driver Rating 
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 16: Firewall Auto-Config** - rc-agent configures ICMP + TCP 8090 rules in Rust on every startup — eliminates CRLF-damaged batch file failures permanently (completed 2026-03-15)
-- [x] **Phase 17: WebSocket Exec** - rc-core can send shell commands to any pod over the existing WebSocket — pods remain manageable even when HTTP port 8090 is firewall-blocked (completed 2026-03-15)
+- [x] **Phase 17: WebSocket Exec** - racecontrol can send shell commands to any pod over the existing WebSocket — pods remain manageable even when HTTP port 8090 is firewall-blocked (completed 2026-03-15)
 - [x] **Phase 18: Startup Self-Healing** - rc-agent verifies and repairs its own config, start script, and registry key on every boot — pods recover from corrupted config without physical intervention (completed 2026-03-15)
 - [x] **Phase 19: Watchdog Service** - rc-watchdog.exe runs as a Windows SYSTEM service and auto-restarts rc-agent in Session 1 after any crash — no more permanent agent death on unhandled panic (completed 2026-03-15)
 - [x] **Phase 20: Deploy Resilience** - Deploys verify pod health post-swap, auto-rollback on failure, and fleet summary reports per-pod outcomes — bad deploys can never leave pods permanently offline (completed 2026-03-15)
@@ -65,11 +65,11 @@ Plans:
 - [x] 16-01-PLAN.md — Create firewall.rs module and wire into rc-agent startup
 
 ### Phase 17: WebSocket Exec
-**Goal**: rc-core can send any shell command to any connected pod over the existing WebSocket connection and receive stdout, stderr, and exit code — so pods remain manageable even when HTTP port 8090 is firewall-blocked
+**Goal**: racecontrol can send any shell command to any connected pod over the existing WebSocket connection and receive stdout, stderr, and exit code — so pods remain manageable even when HTTP port 8090 is firewall-blocked
 **Depends on**: Phase 16
 **Requirements**: WSEX-01, WSEX-02, WSEX-03, WSEX-04
 **Success Criteria** (what must be TRUE):
-  1. From rc-core (or a test harness), a shell command sent via WebSocket to a pod returns the correct stdout/stderr/exit code within 30 seconds — verified with a simple `whoami` or `dir` command
+  1. From racecontrol (or a test harness), a shell command sent via WebSocket to a pod returns the correct stdout/stderr/exit code within 30 seconds — verified with a simple `whoami` or `dir` command
   2. WebSocket exec works correctly even when a simultaneous HTTP exec request fills all 4 HTTP exec slots — the two paths do not compete for the same semaphore
   3. When HTTP port 8090 is blocked on a pod (firewall rule manually deleted), deploy.rs falls back to WebSocket exec and the deploy completes successfully
   4. Each WebSocket exec response includes the same request_id that was sent — confirmed by sending two concurrent commands and verifying responses are correctly correlated
@@ -86,7 +86,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. If the rc-agent.toml config file is deleted from a pod, the next rc-agent startup recreates it from an embedded template and continues running — no manual file copy needed
   2. If the HKLM Run key for rc-agent is deleted, the next rc-agent startup recreates it — verified by checking the registry after a run with the key manually removed
-  3. rc-core logs a startup report from each pod within 10 seconds of the pod's WebSocket connecting — the report includes agent version, uptime, config hash, and a crash recovery flag
+  3. racecontrol logs a startup report from each pod within 10 seconds of the pod's WebSocket connecting — the report includes agent version, uptime, config hash, and a crash recovery flag
   4. If rc-agent crashes before writing its startup log, a partial log file exists at `C:\RacingPoint\rc-agent-startup.log` with the last phase name reached before exit
 **Plans:** 2/2 plans complete
 Plans:
@@ -98,14 +98,14 @@ Plans:
 **Depends on**: Phase 18
 **Requirements**: SVC-01, SVC-02, SVC-03, SVC-04
 **Success Criteria** (what must be TRUE):
-  1. After rc-agent is forcibly killed (TaskKill) on any pod, rc-watchdog detects the absence and restarts it in Session 1 within 10 seconds — verified by watching `tasklist` and the pod reconnecting to rc-core
+  1. After rc-agent is forcibly killed (TaskKill) on any pod, rc-watchdog detects the absence and restarts it in Session 1 within 10 seconds — verified by watching `tasklist` and the pod reconnecting to racecontrol
   2. After a pod reboots with no one logged in, rc-watchdog starts automatically and then starts rc-agent in Session 1 without any manual login — the kiosk lock screen appears within 60 seconds of Windows boot
-  3. rc-core receives a crash report from the watchdog within 30 seconds of rc-agent dying — the report includes exit code, crash time, and restart count
+  3. racecontrol receives a crash report from the watchdog within 30 seconds of rc-agent dying — the report includes exit code, crash time, and restart count
   4. rc-agent running under the watchdog shows Session# = 1 in `tasklist /v` output — confirmed on Pod 8 canary before fleet rollout
 **Plans:** 2/2 plans complete
 Plans:
 - [x] 19-01-PLAN.md — Create rc-watchdog crate with service entry, poll loop, Session 1 spawn, and crash reporting (SVC-01, SVC-02, SVC-03)
-- [x] 19-02-PLAN.md — rc-core crash report endpoint + install script + Pod 8 canary verification (SVC-03, SVC-04)
+- [x] 19-02-PLAN.md — racecontrol crash report endpoint + install script + Pod 8 canary verification (SVC-03, SVC-04)
 
 ### Phase 20: Deploy Resilience
 **Goal**: Deploying a new rc-agent binary is safe — the previous binary is preserved for rollback, health is verified after swap, and if health fails the pod automatically reverts — so a bad deploy can never leave all 8 pods permanently offline
@@ -115,7 +115,7 @@ Plans:
   1. After a successful deploy to any pod, `rc-agent-prev.exe` exists at `C:\RacingPoint\` — confirmed by checking the file listing via pod-agent exec after deploy
   2. If a deployed binary crashes immediately on startup, the pod automatically rolls back to the previous binary within 60 seconds — verified by deploying a known-bad binary and watching the pod recover
   3. Staging `rc-agent-new.exe` on a pod does not trigger a Windows Defender quarantine — Defender exclusion for the staging filename is present and verified via registry check at startup
-  4. After a fleet deploy across all 8 pods, rc-core logs a per-pod summary showing which pods succeeded, which failed, and which were retried — Uday can see the outcome without SSHing into each pod
+  4. After a fleet deploy across all 8 pods, racecontrol logs a per-pod summary showing which pods succeeded, which failed, and which were retried — Uday can see the outcome without SSHing into each pod
 **Plans:** 2/2 plans complete
 Plans:
 - [x] 20-01-PLAN.md — Self-swap binary preservation + DeployState::RollingBack + automatic rollback on health failure (DEP-01, DEP-02)
@@ -139,7 +139,7 @@ Plans:
 **Execution Order:**
 Phases execute in numeric order: 16 → 17 → 18 → 19 → 20 → 21
 
-Note: Phase 16 (Firewall) is independent and ships first for immediate pain relief. Phase 17 (WebSocket Exec) requires rc-common protocol additions as its first implementation step — both rc-agent and rc-core are built together in this phase. Phase 18 (Self-Healing) can be developed in parallel with 17 but deploys after 16 is live. Phase 19 (Watchdog) must come after 18 because crash-restarts bring up a fresh agent — that agent needs firewall and self-healing to work on first restart. Phase 20 (Deploy Resilience) needs WebSocket exec as its fallback path (Phase 17). Phase 21 (Fleet Dashboard) is read-only and depends on health data from all preceding phases.
+Note: Phase 16 (Firewall) is independent and ships first for immediate pain relief. Phase 17 (WebSocket Exec) requires rc-common protocol additions as its first implementation step — both rc-agent and racecontrol are built together in this phase. Phase 18 (Self-Healing) can be developed in parallel with 17 but deploys after 16 is live. Phase 19 (Watchdog) must come after 18 because crash-restarts bring up a fresh agent — that agent needs firewall and self-healing to work on first restart. Phase 20 (Deploy Resilience) needs WebSocket exec as its fallback path (Phase 17). Phase 21 (Fleet Dashboard) is read-only and depends on health data from all preceding phases.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|

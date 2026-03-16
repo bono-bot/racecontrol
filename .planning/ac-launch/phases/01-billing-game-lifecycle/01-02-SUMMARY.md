@@ -53,7 +53,7 @@ completed: 2026-03-15
 - After 15s, pod auto-transitions from session summary to blank/idle screen
 - BillingStopped handler now resets billing_active to false (LIFE-01 defensive cleanup)
 - Prevents stale billing_active flag from blocking auto-blank if SessionEnded never fires
-- All 483 tests pass (93 rc-common + 213 rc-core + 177 rc-agent)
+- All 483 tests pass (93 rc-common + 213 racecontrol + 177 rc-agent)
 
 ## Task Commits
 

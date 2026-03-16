@@ -22,9 +22,9 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/db/mod.rs
-    - crates/rc-core/src/lap_tracker.rs
-    - crates/rc-core/tests/integration.rs
+    - crates/racecontrol/src/db/mod.rs
+    - crates/racecontrol/src/lap_tracker.rs
+    - crates/racecontrol/tests/integration.rs
 
 key-decisions:
   - "Suspect flag is orthogonal to valid: a lap can be valid=1 (game says ok) AND suspect=1 (sector mismatch or impossible time)"
@@ -59,7 +59,7 @@ completed: 2026-03-15
 - Added suspect INTEGER DEFAULT 0 column to laps table via idempotent ALTER TABLE migration
 - Implemented suspect computation in persist_lap(): sanity check (lap_time_ms >= 20000) and sector sum check (|s1+s2+s3 - lap_time_ms| <= 500ms when all sectors present and > 0)
 - 5 integration tests covering: sector sum mismatch, impossibly fast time, valid lap, null sectors, zero sectors
-- Full test suite green: rc-common (93), rc-agent (167), rc-core (25) -- 285 total tests pass
+- Full test suite green: rc-common (93), rc-agent (167), racecontrol (25) -- 285 total tests pass
 
 ## Task Commits
 
@@ -71,9 +71,9 @@ Each task was committed atomically:
 _TDD REFACTOR phase not needed -- implementation is minimal and clean._
 
 ## Files Created/Modified
-- `crates/rc-core/src/db/mod.rs` - Added ALTER TABLE laps ADD COLUMN suspect INTEGER NOT NULL DEFAULT 0 migration
-- `crates/rc-core/src/lap_tracker.rs` - Added suspect computation (sanity_ok + sector_sum_ok) before INSERT, added suspect bind
-- `crates/rc-core/tests/integration.rs` - Added suspect column to test CREATE TABLE, added 5 test functions
+- `crates/racecontrol/src/db/mod.rs` - Added ALTER TABLE laps ADD COLUMN suspect INTEGER NOT NULL DEFAULT 0 migration
+- `crates/racecontrol/src/lap_tracker.rs` - Added suspect computation (sanity_ok + sector_sum_ok) before INSERT, added suspect bind
+- `crates/racecontrol/tests/integration.rs` - Added suspect column to test CREATE TABLE, added 5 test functions
 
 ## Decisions Made
 - Suspect flag is orthogonal to the valid flag: a lap can be valid=1 (game considers it clean) AND suspect=1 (impossible time or sector mismatch). This allows leaderboard filtering without losing data.
@@ -89,7 +89,7 @@ _TDD REFACTOR phase not needed -- implementation is minimal and clean._
 - **Found during:** TDD RED (writing tests)
 - **Issue:** Plan's interface section listed SimType::AssettoCorsaSHM (does not exist) and omitted the required created_at field on LapData
 - **Fix:** Used SimType::AssettoCorsa and added created_at: chrono::Utc::now() to all test LapData constructors
-- **Files modified:** crates/rc-core/tests/integration.rs
+- **Files modified:** crates/racecontrol/tests/integration.rs
 - **Verification:** Tests compile and run (fail on missing suspect column as expected)
 - **Committed in:** 514f67c (TDD RED commit)
 
@@ -113,7 +113,7 @@ None - no external service configuration required.
 
 - All 3 modified files exist on disk
 - Both commit hashes (514f67c, d0f6e17) verified in git log
-- All 285 tests pass across 3 crates (rc-common: 93, rc-agent: 167, rc-core: 25)
+- All 285 tests pass across 3 crates (rc-common: 93, rc-agent: 167, racecontrol: 25)
 
 ---
 *Phase: 13-leaderboard-core*

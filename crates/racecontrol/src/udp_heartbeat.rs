@@ -1,4 +1,4 @@
-//! UDP Heartbeat Listener — runs on rc-core alongside WebSocket.
+//! UDP Heartbeat Listener — runs on racecontrol alongside WebSocket.
 //!
 //! Receives ping packets from rc-agents every 2s, responds with pong.
 //! Provides instant disconnect detection (6s) independent of TCP/WebSocket state.

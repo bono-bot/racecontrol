@@ -22,8 +22,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/api/routes.rs
-    - crates/rc-core/src/billing.rs
+    - crates/racecontrol/src/api/routes.rs
+    - crates/racecontrol/src/billing.rs
 
 key-decisions:
   - "WhatsApp receipt sent directly via Evolution API (not via Bono webhook) per user decision"
@@ -60,7 +60,7 @@ completed: 2026-03-14
 - customer_session_detail now returns { session, laps, events } with billing events timeline ordered by created_at ASC
 - GET /public/sessions/{id} returns privacy-safe session summary (first name only, no billing amounts, no auth required)
 - post_session_hooks sends WhatsApp receipt via Evolution API with duration, cost, best lap, and wallet balance
-- 10 new tests added (2 events, 2 public session, 6 WhatsApp receipt) -- all 207 rc-core tests pass
+- 10 new tests added (2 events, 2 public session, 6 WhatsApp receipt) -- all 207 racecontrol tests pass
 
 ## Task Commits
 
@@ -73,8 +73,8 @@ Each task was committed atomically:
 _TDD: tests written alongside implementation for each task (query logic + helpers tested in isolation)_
 
 ## Files Created/Modified
-- `crates/rc-core/src/api/routes.rs` - Added events query in customer_session_detail, public_session_summary handler, 4 tests
-- `crates/rc-core/src/billing.rs` - Added format_wa_phone, format_receipt_message, send_whatsapp_receipt, hook call in post_session_hooks, 6 tests
+- `crates/racecontrol/src/api/routes.rs` - Added events query in customer_session_detail, public_session_summary handler, 4 tests
+- `crates/racecontrol/src/billing.rs` - Added format_wa_phone, format_receipt_message, send_whatsapp_receipt, hook call in post_session_hooks, 6 tests
 
 ## Decisions Made
 - WhatsApp receipt delivered directly via Evolution API (same pattern as OTP in auth/mod.rs) -- not via Bono webhook. Per user decision from planning phase.
@@ -96,7 +96,7 @@ None - no external service configuration required. Evolution API config is alrea
 - Backend APIs ready for PWA Plan 04-02 (session detail page with timeline, public share page)
 - customer_session_detail returns events array for timeline rendering
 - public_session_summary provides data for shareable link page
-- WhatsApp receipt will fire automatically on next session end (no deployment needed on venue yet -- rc-core rebuild required)
+- WhatsApp receipt will fire automatically on next session end (no deployment needed on venue yet -- racecontrol rebuild required)
 
 ---
 *Phase: 04-pwa-session-results*

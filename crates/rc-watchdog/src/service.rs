@@ -20,7 +20,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// Grace window after a restart: skip polling during this period to avoid double-restart.
 const RESTART_GRACE_SECS: u64 = 15;
 
-/// Default rc-core URL if not found in config.
+/// Default racecontrol URL if not found in config.
 const DEFAULT_CORE_URL: &str = "http://192.168.31.23:8080";
 
 /// Watchdog version reported in crash reports.

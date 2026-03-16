@@ -77,7 +77,7 @@ Edge is NEVER launched until the first successful WebSocket connect brings
 a CoreToAgent command that triggers show_pin_screen / show_blank_screen etc.
 ```
 
-**Root cause:** `show_disconnected()` intentionally does NOT call `launch_browser()` (it only sets state). Edge is only launched by explicit state transitions like `show_pin_screen()`, `show_blank_screen()`, `show_session_summary()` etc. On a fresh reboot, if rc-core is also starting up, all WebSocket attempts fail for 5-60+ seconds and the pod screen shows... nothing (Edge was never opened).
+**Root cause:** `show_disconnected()` intentionally does NOT call `launch_browser()` (it only sets state). Edge is only launched by explicit state transitions like `show_pin_screen()`, `show_blank_screen()`, `show_session_summary()` etc. On a fresh reboot, if racecontrol is also starting up, all WebSocket attempts fail for 5-60+ seconds and the pod screen shows... nothing (Edge was never opened).
 
 Additionally: when `launch_browser()` IS eventually called, there is a small race where `tokio::spawn(serve_lock_screen(...))` may not have completed its `TcpSocket::bind()` yet and Edge hits `ERR_CONNECTION_REFUSED`.
 
@@ -162,7 +162,7 @@ impl LockScreenManager {
 
 ```rust
 // In lock_screen.rs — add variant to LockScreenState enum
-/// Startup connecting state — shown before first WebSocket connection to rc-core.
+/// Startup connecting state — shown before first WebSocket connection to racecontrol.
 /// Rendered as a branded "Connecting..." page with auto-retry.
 StartupConnecting,
 ```
@@ -217,7 +217,7 @@ tracing::info!("Lock screen server started on port 18923");
 lock_screen.wait_for_self_ready().await;
 
 // LOCK-02: Show branded startup page immediately — customer sees Racing Point
-// branding while rc-agent connects to rc-core, not a blank screen.
+// branding while rc-agent connects to racecontrol, not a blank screen.
 lock_screen.show_startup_connecting();
 ```
 
@@ -380,7 +380,7 @@ schtasks /create /TN "RCAgentWatchdog"
 
 | Old Approach | Current Approach | Phase 8 Change | Impact |
 |--------------|------------------|----------------|--------|
-| No startup browser launch | Edge never opened until first WS command from rc-core | `show_startup_connecting()` called at startup | Pod shows branded page from first boot, not blank screen |
+| No startup browser launch | Edge never opened until first WS command from racecontrol | `show_startup_connecting()` called at startup | Pod shows branded page from first boot, not blank screen |
 | Race: port bind vs browser launch | `launch_browser()` fires immediately after `start_server()` spawn | `wait_for_self_ready()` probes port before browser launch | Eliminates `ERR_CONNECTION_REFUSED` on first load |
 | No startup state | `LockScreenState::Hidden` is initial state (shows "session not active") | New `StartupConnecting` state | Correct branded message during startup, not idle message |
 | No auto-restart on crash | Watchdog deleted Mar 11, 2026; no auto-recovery | Re-introduce minimal watchdog for rc-agent only | Enables LOCK-03 30-second recovery without staff intervention |
@@ -418,8 +418,8 @@ schtasks /create /TN "RCAgentWatchdog"
 |----------|-------|
 | Framework | Rust built-in `#[cfg(test)]` modules |
 | Config file | None — colocated with source modules |
-| Quick run command | `cargo test -p rc-agent && cargo test -p rc-common` |
-| Full suite command | `cargo test -p rc-agent && cargo test -p rc-common && cargo test -p rc-core` |
+| Quick run command | `cargo test -p rc-agent-crate && cargo test -p rc-common` |
+| Full suite command | `cargo test -p rc-agent-crate && cargo test -p rc-common && cargo test -p racecontrol-crate` |
 
 **Current test count:** 140 tests in rc-agent (all passing as of 2026-03-14).
 
@@ -427,12 +427,12 @@ schtasks /create /TN "RCAgentWatchdog"
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| LOCK-01 | `wait_for_self_ready()` returns when port is open | unit (bind loopback in test) | `cargo test -p rc-agent lock_screen::tests::wait_for_self_ready_succeeds_when_port_open` | ❌ Wave 0 |
-| LOCK-01 | `wait_for_self_ready()` times out gracefully when port never opens | unit (no bind) | `cargo test -p rc-agent lock_screen::tests::wait_for_self_ready_timeout` | ❌ Wave 0 |
-| LOCK-02 | `StartupConnecting` state renders branded HTML (no error text, no blank) | unit | `cargo test -p rc-agent lock_screen::tests::startup_connecting_renders_branded_html` | ❌ Wave 0 |
-| LOCK-02 | `StartupConnecting` state has 3s JS reload in HTML | unit | `cargo test -p rc-agent lock_screen::tests::startup_connecting_has_reload_script` | ❌ Wave 0 |
-| LOCK-02 | `is_idle_or_blanked()` returns true for `StartupConnecting` | unit | `cargo test -p rc-agent lock_screen::tests::startup_connecting_is_idle_or_blanked` | ❌ Wave 0 |
-| LOCK-03 | `health_*` endpoint returns degraded for `StartupConnecting` | unit | `cargo test -p rc-agent lock_screen::tests::health_degraded_for_startup_connecting` | ❌ Wave 0 |
+| LOCK-01 | `wait_for_self_ready()` returns when port is open | unit (bind loopback in test) | `cargo test -p rc-agent-crate lock_screen::tests::wait_for_self_ready_succeeds_when_port_open` | ❌ Wave 0 |
+| LOCK-01 | `wait_for_self_ready()` times out gracefully when port never opens | unit (no bind) | `cargo test -p rc-agent-crate lock_screen::tests::wait_for_self_ready_timeout` | ❌ Wave 0 |
+| LOCK-02 | `StartupConnecting` state renders branded HTML (no error text, no blank) | unit | `cargo test -p rc-agent-crate lock_screen::tests::startup_connecting_renders_branded_html` | ❌ Wave 0 |
+| LOCK-02 | `StartupConnecting` state has 3s JS reload in HTML | unit | `cargo test -p rc-agent-crate lock_screen::tests::startup_connecting_has_reload_script` | ❌ Wave 0 |
+| LOCK-02 | `is_idle_or_blanked()` returns true for `StartupConnecting` | unit | `cargo test -p rc-agent-crate lock_screen::tests::startup_connecting_is_idle_or_blanked` | ❌ Wave 0 |
+| LOCK-03 | `health_*` endpoint returns degraded for `StartupConnecting` | unit | `cargo test -p rc-agent-crate lock_screen::tests::health_degraded_for_startup_connecting` | ❌ Wave 0 |
 | LOCK-03 | Watchdog task creation command is correct (idempotent) | manual | pod-agent exec `schtasks /query /TN RCAgentWatchdog` on Pod 8 | N/A |
 
 **Manual verification (no automated path):**
@@ -442,8 +442,8 @@ schtasks /create /TN "RCAgentWatchdog"
 
 ### Sampling Rate
 
-- **Per task commit:** `cargo test -p rc-agent && cargo test -p rc-common`
-- **Per wave merge:** `cargo test -p rc-agent && cargo test -p rc-common && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p rc-agent-crate && cargo test -p rc-common`
+- **Per wave merge:** `cargo test -p rc-agent-crate && cargo test -p rc-common && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
@@ -465,7 +465,7 @@ schtasks /create /TN "RCAgentWatchdog"
 - `crates/rc-agent/src/main.rs` — Startup sequence (lines 186-400), `start_server()` call, reconnect loop (lines 458-490), `show_disconnected()` call sites
 - `deploy-staging/start-rcagent.bat` — Pod startup script (4 lines: kill + start)
 - `deploy-staging/install.bat` — Pod install script; confirms HKLM Run key setup and watchdog pattern
-- `cargo test -p rc-agent -- --list` — 140 tests, all passing; confirmed test module structure
+- `cargo test -p rc-agent-crate -- --list` — 140 tests, all passing; confirmed test module structure
 - `.planning/STATE.md` — confirmed watchdog deleted Mar 11, 2026; HKLM Run key is the restart mechanism
 
 ### Secondary (MEDIUM confidence)

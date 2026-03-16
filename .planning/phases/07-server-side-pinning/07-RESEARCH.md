@@ -21,11 +21,11 @@
 
 ## Summary
 
-Phase 7 has four distinct sub-problems: (1) pin the server IP to .23 via DHCP reservation at the Xiaomi router, (2) build the Next.js kiosk as a production standalone bundle, (3) auto-start both rc-core (Rust binary) and the kiosk (Node.js process) on server boot, and (4) add a `kiosk.rp` hosts file entry on James's machine so the named URL resolves.
+Phase 7 has four distinct sub-problems: (1) pin the server IP to .23 via DHCP reservation at the Xiaomi router, (2) build the Next.js kiosk as a production standalone bundle, (3) auto-start both racecontrol (Rust binary) and the kiosk (Node.js process) on server boot, and (4) add a `kiosk.rp` hosts file entry on James's machine so the named URL resolves.
 
-The kiosk app already has `output: "standalone"` in `next.config.ts` and the `next start` script sets port 3300 — so the build machinery is already wired. The key build artifact is `.next/standalone/server.js`, which needs `public/` and `.next/static/` copied alongside it (standalone build does NOT include these automatically). For autostart, rc-core (a Rust binary with no GUI) is a perfect fit for `sc.exe create ... start= auto` (a true Windows Service). The Node.js kiosk process is also headless, so it can use sc.exe too — but a simpler HKLM Run + `start-kiosk.bat` approach mirrors the existing rc-agent pattern and avoids needing a service wrapper.
+The kiosk app already has `output: "standalone"` in `next.config.ts` and the `next start` script sets port 3300 — so the build machinery is already wired. The key build artifact is `.next/standalone/server.js`, which needs `public/` and `.next/static/` copied alongside it (standalone build does NOT include these automatically). For autostart, racecontrol (a Rust binary with no GUI) is a perfect fit for `sc.exe create ... start= auto` (a true Windows Service). The Node.js kiosk process is also headless, so it can use sc.exe too — but a simpler HKLM Run + `start-kiosk.bat` approach mirrors the existing rc-agent pattern and avoids needing a service wrapper.
 
-**Primary recommendation:** Pin server to .23 at router first (highest risk, lease expires tonight). Then build kiosk, deploy binaries via pod-agent, configure sc.exe for rc-core, configure HKLM Run for kiosk, add hosts entry on James's machine. All remote via pod-agent — no RDP needed.
+**Primary recommendation:** Pin server to .23 at router first (highest risk, lease expires tonight). Then build kiosk, deploy binaries via pod-agent, configure sc.exe for racecontrol, configure HKLM Run for kiosk, add hosts entry on James's machine. All remote via pod-agent — no RDP needed.
 
 ---
 
@@ -37,7 +37,7 @@ The kiosk app already has `output: "standalone"` in `next.config.ts` and the `ne
 | Lease expires 14 March 2026 01:05 — TONIGHT | IP pinning is time-critical |
 | .23 is currently an unknown phone/tablet | After reservation, router reassigns .23 to the server; the phone gets a new IP |
 | All 8 pod configs hardcoded to `.23:8080` | Pin to .23 (not .4 or new IP) — zero pod changes needed |
-| rc-core not running on server | Must deploy rc-core binary AND auto-start it |
+| racecontrol not running on server | Must deploy racecontrol binary AND auto-start it |
 | Port 3300 free on server | Kiosk can bind there |
 | Pod-agent on server at 8090 | All deploy steps remote via pod-agent — no RDP |
 
@@ -65,7 +65,7 @@ All 8 pod `rc-agent.toml` configs contain `url = "ws://192.168.31.23:8080/ws/age
 | Component | Version | Purpose | Why Standard |
 |-----------|---------|---------|--------------|
 | Next.js `output: "standalone"` | 16.1.6 (already set) | Self-contained production bundle | No `node_modules` needed on server; already configured |
-| `sc.exe` | Windows built-in | Create/manage Windows services | Mandated pattern for headless services (rc-core); no third-party tools |
+| `sc.exe` | Windows built-in | Create/manage Windows services | Mandated pattern for headless services (racecontrol); no third-party tools |
 | HKLM Run key | Windows built-in | Auto-start processes in Session 1 | Mandated pattern (NSSM banned); matches rc-agent pattern already on pods |
 | Windows hosts file | OS built-in | LAN hostname resolution | Offline-safe, no DNS server needed; listed as the chosen approach in REQUIREMENTS.md |
 | pod-agent `/exec` | 8090 on server | Remote command execution | Server already has pod-agent running — confirmed in Phase 6 |
@@ -95,11 +95,11 @@ All 8 pod `rc-agent.toml` configs contain `url = "ws://192.168.31.23:8080/ws/age
 Step 1: Create DHCP reservation at router (192.168.31.1)
 Step 2: Force server IP renewal via pod-agent
 Step 3: Verify server is now at .23
-Step 4: Build rc-core binary (cargo build --release -p rc-core) on James's machine
+Step 4: Build racecontrol binary (cargo build --release -p racecontrol-crate) on James's machine
 Step 5: Build Next.js kiosk (cd kiosk && npm run build)
 Step 6: Stage binaries on James's HTTP server
-Step 7: Deploy rc-core to server via pod-agent
-Step 8: Install rc-core as Windows Service (sc.exe) via pod-agent
+Step 7: Deploy racecontrol to server via pod-agent
+Step 8: Install racecontrol as Windows Service (sc.exe) via pod-agent
 Step 9: Deploy kiosk build to server via pod-agent
 Step 10: Create start-kiosk.bat + HKLM Run key on server via pod-agent
 Step 11: Add kiosk.rp to hosts file on James's machine
@@ -128,25 +128,25 @@ Step 12: Verify end-to-end
 {"cmd": "ipconfig | findstr /i \"IPv4\""}
 ```
 
-### Pattern 2: rc-core as a Windows Service (sc.exe)
+### Pattern 2: racecontrol as a Windows Service (sc.exe)
 
-**What:** Register rc-core.exe as an auto-start Windows Service
-**Why sc.exe, not HKLM Run:** rc-core is a headless Axum server (no GUI, no user session dependency). Windows Services start before user login and survive logoff — ideal for a server process. This is the `sc.exe` pattern from STATE.md decisions.
-**The binary MUST have its working directory set to C:\RacingPoint** — rc-core reads `racecontrol.toml` with a relative path. Use `binPath` with the full path, and ensure the working directory is set.
+**What:** Register racecontrol.exe as an auto-start Windows Service
+**Why sc.exe, not HKLM Run:** racecontrol is a headless Axum server (no GUI, no user session dependency). Windows Services start before user login and survive logoff — ideal for a server process. This is the `sc.exe` pattern from STATE.md decisions.
+**The binary MUST have its working directory set to C:\RacingPoint** — racecontrol reads `racecontrol.toml` with a relative path. Use `binPath` with the full path, and ensure the working directory is set.
 
 **sc.exe does NOT natively support setting working directory.** The solution: a wrapper batch file.
 
 ```bat
 @echo off
 cd /d C:\RacingPoint
-rc-core.exe
+racecontrol.exe
 ```
 
 Register the batch file via a wrapper. However, `sc create` cannot run a .bat file directly (Windows services must be native executables).
 
 **Correct approach — use `cmd.exe` as the service binary:**
 ```
-sc create RCCore binpath= "cmd.exe /c C:\RacingPoint\start-rc-core.bat" start= auto obj= LocalSystem DisplayName= "RaceControl Core"
+sc create RCCore binpath= "cmd.exe /c C:\RacingPoint\start-racecontrol.bat" start= auto obj= LocalSystem DisplayName= "RaceControl Core"
 sc description RCCore "RaceControl venue management backend"
 sc start RCCore
 ```
@@ -154,16 +154,16 @@ sc start RCCore
 **Known limitation:** `cmd.exe /c` services may not restart cleanly. A more reliable approach:
 
 ```
-sc create RCCore binpath= "C:\RacingPoint\rc-core.exe" start= auto obj= LocalSystem DisplayName= "RaceControl Core"
+sc create RCCore binpath= "C:\RacingPoint\racecontrol.exe" start= auto obj= LocalSystem DisplayName= "RaceControl Core"
 ```
 
 Then set the working directory via registry:
 ```
-reg add "HKLM\SYSTEM\CurrentControlSet\Services\RCCore" /v ImagePath /t REG_EXPAND_SZ /d "C:\RacingPoint\rc-core.exe" /f
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\RCCore" /v ImagePath /t REG_EXPAND_SZ /d "C:\RacingPoint\racecontrol.exe" /f
 reg add "HKLM\SYSTEM\CurrentControlSet\Services\RCCore" /v ObjectName /t REG_SZ /d "LocalSystem" /f
 ```
 
-**Simplest reliable approach (matched to existing pattern):** Use a wrapper .bat file + sc.exe with `cmd /c`. This is what the existing `start-rcagent.bat` pattern does. If rc-core needs to restart reliably, configure sc.exe failure actions:
+**Simplest reliable approach (matched to existing pattern):** Use a wrapper .bat file + sc.exe with `cmd /c`. This is what the existing `start-rcagent.bat` pattern does. If racecontrol needs to restart reliably, configure sc.exe failure actions:
 ```
 sc failure RCCore reset= 86400 actions= restart/5000/restart/10000/restart/30000
 ```
@@ -302,14 +302,14 @@ POST to `http://192.168.31.4:8090/exec` (current IP) or `http://192.168.31.23:80
 ```bat
 @echo off
 cd /d C:\RacingPoint
-rc-core.exe
+racecontrol.exe
 ```
-Called as: `sc create RCCore binpath= "C:\RacingPoint\start-rc-core.bat"` — but this still exits because .bat isn't a Windows service executable. **Correct fix:** Use `cmd.exe /c` but wrap the actual service in a `cmd.exe /k` that keeps open:
+Called as: `sc create RCCore binpath= "C:\RacingPoint\start-racecontrol.bat"` — but this still exits because .bat isn't a Windows service executable. **Correct fix:** Use `cmd.exe /c` but wrap the actual service in a `cmd.exe /k` that keeps open:
 ```
-binpath= "cmd.exe /k \"cd /d C:\RacingPoint && rc-core.exe\""
+binpath= "cmd.exe /k \"cd /d C:\RacingPoint && racecontrol.exe\""
 ```
 
-**SIMPLEST correct approach:** Register rc-core.exe directly (it stays running — Rust binary, blocking). For Node.js kiosk which also blocks: register it via a .bat + HKLM Run since the server has an interactive session.
+**SIMPLEST correct approach:** Register racecontrol.exe directly (it stays running — Rust binary, blocking). For Node.js kiosk which also blocks: register it via a .bat + HKLM Run since the server has an interactive session.
 
 ### Pitfall 2: Standalone Build Missing Static Files
 **What goes wrong:** Pages load but have no CSS/JS/images (404 on `/_next/static/...` and `/kiosk/...` assets)
@@ -321,11 +321,11 @@ cp -r .next/static .next/standalone/.next/static
 ```
 **Warning signs:** Kiosk loads but looks unstyled; browser console shows 404 on static assets
 
-### Pitfall 3: Wrong Working Directory for rc-core
-**What goes wrong:** rc-core starts but immediately crashes: "Error: No such file or directory: ./data/racecontrol.db" or similar
+### Pitfall 3: Wrong Working Directory for racecontrol
+**What goes wrong:** racecontrol starts but immediately crashes: "Error: No such file or directory: ./data/racecontrol.db" or similar
 **Why it happens:** `racecontrol.toml` uses relative paths (`"./data/racecontrol.db"`, `"./data/..."`) — requires CWD to be `C:\RacingPoint` (or wherever the config lives)
-**How to avoid:** `start-rc-core.bat` must `cd /d C:\RacingPoint` before launching
-**Warning signs:** rc-core exits within 1 second of starting; event log shows file-not-found error
+**How to avoid:** `start-racecontrol.bat` must `cd /d C:\RacingPoint` before launching
+**Warning signs:** racecontrol exits within 1 second of starting; event log shows file-not-found error
 
 ### Pitfall 4: kiosk.rp Resolves Too Early (Before IP Pinning)
 **What goes wrong:** Add hosts entry pointing to .23, then open kiosk — but server is still at .4, so browser gets "Connection refused"
@@ -352,9 +352,9 @@ cp -r .next/static .next/standalone/.next/static
 **Warning signs:** Service shows "FAILED" in sc query; Event ID 7053 in Windows Event Log
 
 ### Pitfall 8: CORS Rejection of kiosk.rp Origin
-**What goes wrong:** Kiosk loads at `http://kiosk.rp:3300/kiosk` but API calls to rc-core fail (403/CORS)
-**Why it happens:** rc-core CORS predicate allows `http://192.168.31.*` but NOT `http://kiosk.rp`
-**Current rc-core CORS predicate** (from `main.rs`):
+**What goes wrong:** Kiosk loads at `http://kiosk.rp:3300/kiosk` but API calls to racecontrol fail (403/CORS)
+**Why it happens:** racecontrol CORS predicate allows `http://192.168.31.*` but NOT `http://kiosk.rp`
+**Current racecontrol CORS predicate** (from `main.rs`):
 ```rust
 origin.starts_with("http://localhost:")
     || origin.starts_with("http://127.0.0.1:")
@@ -366,8 +366,8 @@ origin.starts_with("http://localhost:")
 **Note:** This is listed as a future requirement (MON-02) — may be acceptable to defer, but the planner should include it if the kiosk page makes API calls from the `kiosk.rp` origin
 
 ### Pitfall 9: api.ts Uses window.location.hostname for API Base URL
-**What goes wrong:** When accessed via `kiosk.rp`, the api.ts sets `API_BASE = "http://kiosk.rp:8080"` — which resolves correctly because the hosts entry maps kiosk.rp to .23 where rc-core also lives
-**Actually fine in this case:** `window.location.hostname` returns `kiosk.rp`, and the hosts file entry maps `kiosk.rp` to `192.168.31.23`, where rc-core is listening on 8080. So API calls will work — BUT only if rc-core CORS allows the `kiosk.rp` origin.
+**What goes wrong:** When accessed via `kiosk.rp`, the api.ts sets `API_BASE = "http://kiosk.rp:8080"` — which resolves correctly because the hosts entry maps kiosk.rp to .23 where racecontrol also lives
+**Actually fine in this case:** `window.location.hostname` returns `kiosk.rp`, and the hosts file entry maps `kiosk.rp` to `192.168.31.23`, where racecontrol is listening on 8080. So API calls will work — BUT only if racecontrol CORS allows the `kiosk.rp` origin.
 
 ---
 
@@ -395,23 +395,23 @@ PORT=3300 HOSTNAME=0.0.0.0 node server.js
 {"cmd": "powershell -Command \"Invoke-WebRequest -Uri 'http://192.168.31.27:9998/kiosk-standalone.zip' -OutFile 'C:\\RacingPoint\\kiosk-standalone.zip' -UseBasicParsing\""}
 ```
 
-### Create rc-core Windows Service
+### Create racecontrol Windows Service
 ```bat
 rem On server via pod-agent exec
-sc create RCCore binpath= "C:\RacingPoint\rc-core.exe" start= auto obj= LocalSystem DisplayName= "RaceControl Core"
+sc create RCCore binpath= "C:\RacingPoint\racecontrol.exe" start= auto obj= LocalSystem DisplayName= "RaceControl Core"
 sc description RCCore "RaceControl venue management backend (Axum/WebSocket)"
 sc failure RCCore reset= 86400 actions= restart/5000/restart/10000/restart/30000
 sc start RCCore
 ```
 
-Note: rc-core.exe must be started with CWD = `C:\RacingPoint`. Use a wrapper:
+Note: racecontrol.exe must be started with CWD = `C:\RacingPoint`. Use a wrapper:
 ```bat
-rem C:\RacingPoint\start-rc-core.bat
+rem C:\RacingPoint\start-racecontrol.bat
 @echo off
 cd /d C:\RacingPoint
-rc-core.exe
+racecontrol.exe
 ```
-And register: `sc create RCCore binpath= "cmd.exe /k C:\RacingPoint\start-rc-core.bat" start= auto obj= LocalSystem`
+And register: `sc create RCCore binpath= "cmd.exe /k C:\RacingPoint\start-racecontrol.bat" start= auto obj= LocalSystem`
 
 ### HKLM Run for Kiosk (Session 1 startup)
 ```bat
@@ -450,7 +450,7 @@ echo 192.168.31.23  kiosk.rp >> C:\Windows\System32\drivers\etc\hosts
 {"cmd": "netstat -ano | findstr :3300"}
 ```
 
-### Verify rc-core is running on port 8080
+### Verify racecontrol is running on port 8080
 ```json
 {"cmd": "netstat -ano | findstr :8080"}
 ```
@@ -486,18 +486,18 @@ echo 192.168.31.23  kiosk.rp >> C:\Windows\System32\drivers\etc\hosts
 
 3. **What is the server's current directory structure at C:\RacingPoint?**
    - What we know: pod-agent is at `C:\RacingPoint\pod-agent.exe` (likely)
-   - What's unclear: Whether rc-core binaries, configs, and data directories already exist
+   - What's unclear: Whether racecontrol binaries, configs, and data directories already exist
    - Recommendation: First plan task should inventory `dir C:\RacingPoint` on server
 
 4. **CORS for kiosk.rp — block or defer?**
-   - What we know: rc-core CORS allows `192.168.31.*` origins but not `kiosk.rp`
+   - What we know: racecontrol CORS allows `192.168.31.*` origins but not `kiosk.rp`
    - What's unclear: Whether Phase 7 should fix this or defer to MON-02
-   - Recommendation: Include the CORS fix in Phase 7 since the kiosk won't function correctly without it. It's a 1-line change in `crates/rc-core/src/main.rs` and a cargo build.
+   - Recommendation: Include the CORS fix in Phase 7 since the kiosk won't function correctly without it. It's a 1-line change in `crates/racecontrol/src/main.rs` and a cargo build.
 
 5. **Does racecontrol.toml need updating on the server?**
-   - What we know: The server has `racecontrol.toml` (rc-core config) somewhere on it
+   - What we know: The server has `racecontrol.toml` (racecontrol config) somewhere on it
    - What's unclear: Whether the current config on the server is current or stale
-   - Recommendation: Deploy a fresh `racecontrol.toml` from the repo as part of the rc-core deployment
+   - Recommendation: Deploy a fresh `racecontrol.toml` from the repo as part of the racecontrol deployment
 
 ---
 
@@ -508,10 +508,10 @@ echo 192.168.31.23  kiosk.rp >> C:\Windows\System32\drivers\etc\hosts
 ### Test Framework
 | Property | Value |
 |----------|-------|
-| Framework | Rust `cargo test` (rc-common, rc-agent, rc-core) — 47 tests |
+| Framework | Rust `cargo test` (rc-common, rc-agent, racecontrol) — 47 tests |
 | Config file | `Cargo.toml` (workspace) |
-| Quick run command | `cargo test -p rc-common && cargo test -p rc-agent` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p rc-common && cargo test -p rc-agent-crate` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 No JavaScript test framework exists for the kiosk. Tests for Phase 7 are primarily operational (smoke tests via curl/http), not unit tests.
 
@@ -524,13 +524,13 @@ No JavaScript test framework exists for the kiosk. Tests for Phase 7 are primari
 | HOST-04 | kiosk.rp resolves on James's machine | smoke | `curl -s http://kiosk.rp:3300/kiosk` from James's machine | ❌ Wave 0 (after hosts entry) |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-common && cargo test -p rc-agent` (if rc-core CORS change is made, add `-p rc-core`)
+- **Per task commit:** `cargo test -p rc-common && cargo test -p rc-agent-crate` (if racecontrol CORS change is made, add `-p racecontrol-crate`)
 - **Per wave merge:** Full cargo test suite
 - **Phase gate:** All smoke tests pass + manual reboot verification before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 - [ ] No kiosk JavaScript test framework — operational smoke tests via curl are sufficient for this phase
-- [ ] CORS patch to `crates/rc-core/src/main.rs` requires `cargo test -p rc-core` — existing tests cover compilation
+- [ ] CORS patch to `crates/racecontrol/src/main.rs` requires `cargo test -p racecontrol-crate` — existing tests cover compilation
 
 ---
 
@@ -541,7 +541,7 @@ No JavaScript test framework exists for the kiosk. Tests for Phase 7 are primari
 - Codebase inspection: `kiosk/next.config.ts` — confirms `output: "standalone"`, `basePath: "/kiosk"`
 - Codebase inspection: `kiosk/package.json` — confirms `next start -p 3300`, `next build`
 - Codebase inspection: `kiosk/src/lib/api.ts` — confirms `window.location.hostname:8080` API base URL pattern
-- Codebase inspection: `crates/rc-core/src/main.rs` — confirms CORS predicate, does NOT allow `kiosk.rp` origin
+- Codebase inspection: `crates/racecontrol/src/main.rs` — confirms CORS predicate, does NOT allow `kiosk.rp` origin
 - Codebase inspection: `racecontrol.toml` — confirms relative paths (`./data/racecontrol.db`)
 - Phase 6 FINDINGS.md — server MAC, IP, ports, pod-agent availability, pod config URLs
 - STATE.md decisions — NSSM banned, two-layer IP pinning, HKLM Run pattern

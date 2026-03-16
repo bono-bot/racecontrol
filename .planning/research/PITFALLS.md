@@ -92,17 +92,17 @@ Firewall auto-config phase and any startup self-healing that generates .bat file
 ### Pitfall 3: Exec Slot Exhaustion Leaves the Pod Unmanageable
 
 **What goes wrong:**
-The `/exec` endpoint in remote_ops.rs uses a 4-slot semaphore with a default 10-second timeout. Deploy operations consume slots sequentially: download (up to 120s), size check, self-swap trigger. If rc-core sends concurrent requests to the same pod — which happens when a rolling deploy overlaps with scheduled health checks — all 4 slots can be consumed simultaneously. The semaphore uses `try_acquire()` (non-blocking), so the 5th request immediately returns HTTP 429. The pod becomes unmanageable via HTTP for the duration of the hung operations.
+The `/exec` endpoint in remote_ops.rs uses a 4-slot semaphore with a default 10-second timeout. Deploy operations consume slots sequentially: download (up to 120s), size check, self-swap trigger. If racecontrol sends concurrent requests to the same pod — which happens when a rolling deploy overlaps with scheduled health checks — all 4 slots can be consumed simultaneously. The semaphore uses `try_acquire()` (non-blocking), so the 5th request immediately returns HTTP 429. The pod becomes unmanageable via HTTP for the duration of the hung operations.
 
-The Mar 15 incident (pre-fix): rc-agent processes without `CREATE_NO_WINDOW` opened cmd.exe console windows that waited for user input — never exiting. Slots were permanently consumed. The timeout was too short for downloads. Multiple overlapping deploy-retry attempts from rc-core exhausted all 4 slots within minutes.
+The Mar 15 incident (pre-fix): rc-agent processes without `CREATE_NO_WINDOW` opened cmd.exe console windows that waited for user input — never exiting. Slots were permanently consumed. The timeout was too short for downloads. Multiple overlapping deploy-retry attempts from racecontrol exhausted all 4 slots within minutes.
 
 **Why it happens:**
-The acute bug (`CREATE_NO_WINDOW` missing) is already fixed in the current codebase. The remaining risk is simultaneous requests from rc-core to the same pod: rolling deploy download + concurrent health check + concurrent session status poll = 3 slots consumed in parallel, leaving only 1 for any further management.
+The acute bug (`CREATE_NO_WINDOW` missing) is already fixed in the current codebase. The remaining risk is simultaneous requests from racecontrol to the same pod: rolling deploy download + concurrent health check + concurrent session status poll = 3 slots consumed in parallel, leaving only 1 for any further management.
 
 **How to avoid:**
 Three mitigations, all needed:
-1. rc-core must **serialize exec requests per pod** — never send concurrent HTTP exec calls to the same pod. Use a per-pod `Mutex<()>` in rc-core's deploy coordinator.
-2. Before sending any management exec, rc-core should check `exec_slots_available` in the `/health` response and back off if `< 2`.
+1. racecontrol must **serialize exec requests per pod** — never send concurrent HTTP exec calls to the same pod. Use a per-pod `Mutex<()>` in racecontrol's deploy coordinator.
+2. Before sending any management exec, racecontrol should check `exec_slots_available` in the `/health` response and back off if `< 2`.
 3. The planned WebSocket exec path must use a **separate semaphore** (or no semaphore limit) since it is the recovery path when HTTP exec is exhausted. If WebSocket exec shares the HTTP semaphore, both management paths fail together.
 
 **Warning signs:**
@@ -175,10 +175,10 @@ When implementing firewall management in Rust, always:
 3. Verify after applying by re-running the show command AND by checking the active profile: `netsh advfirewall show currentprofile`.
 
 **Warning signs:**
-- `netsh advfirewall firewall show rule name="RCAgent_8090"` shows the rule exists, but port 8090 is unreachable inbound from rc-core.
+- `netsh advfirewall firewall show rule name="RCAgent_8090"` shows the rule exists, but port 8090 is unreachable inbound from racecontrol.
 - `netsh advfirewall show currentprofile` shows "Public" or "Domain" while the rule was added to "Private" or vice versa.
 - After a Windows Update reboot, one or more pods become unreachable despite firewall rules nominally present.
-- rc-core marks pod offline after successful deploy because post-deploy HTTP health check to port 8090 times out.
+- racecontrol marks pod offline after successful deploy because post-deploy HTTP health check to port 8090 times out.
 
 **Phase to address:**
 Firewall auto-config phase. The Rust startup code must use `profile=any`, verify rule application by testing actual connectivity (not just exit code), and log the current active profile name for diagnostics.
@@ -220,7 +220,7 @@ schtasks /query /tn "RCAgent" >nul 2>&1 || (
 
 **Warning signs:**
 - rc-agent process absent from `tasklist` on a pod that last rebooted hours ago.
-- Pod has no WebSocket connection to rc-core, and port 8090 is also unreachable (both are in the same binary after the pod-agent merge).
+- Pod has no WebSocket connection to racecontrol, and port 8090 is also unreachable (both are in the same binary after the pod-agent merge).
 - rc-agent.log (if it exists at `C:\RacingPoint\rc-agent.log`) has no entries since the crash time.
 - `schtasks /query /tn "RCAgent"` returns "ERROR: The system cannot find the path specified."
 
@@ -233,8 +233,8 @@ Windows Service / auto-restart phase. Replace HKLM Run key with Task Scheduler t
 
 **What goes wrong:**
 When adding `CoreToAgentMessage::Exec` over the existing WebSocket channel, the natural implementation sends a command and waits for a single reply message. Long-running commands (curl downloads up to 120s, game installs, taskkill with process wait) block the response. If the WebSocket drops mid-command, two problems occur simultaneously:
-1. rc-core never receives the result and does not know if the command succeeded.
-2. The child process continues running on the pod (zombie from rc-core's perspective) — the pod's exec semaphore slot may remain held, and the subsequent retry command causes a second instance of the same operation.
+1. racecontrol never receives the result and does not know if the command succeeded.
+2. The child process continues running on the pod (zombie from racecontrol's perspective) — the pod's exec semaphore slot may remain held, and the subsequent retry command causes a second instance of the same operation.
 
 A secondary issue: very large stdout/stderr from commands like `dir /s C:\` can produce multi-MB output. A single WebSocket frame containing multi-MB data may hit tungstenite's default 64MB limit — but more practically, it causes multi-second pauses while the frame is assembled, during which no other WebSocket messages are processed.
 
@@ -251,7 +251,7 @@ For initial WebSocket exec implementation:
 
 **Warning signs:**
 - WebSocket exec for a curl download has no response for 60+ seconds — expected and normal, not a hang.
-- After WebSocket reconnect, rc-core retries a command that already ran — verify with a follow-up `tasklist` or `dir` check before retrying destructive commands.
+- After WebSocket reconnect, racecontrol retries a command that already ran — verify with a follow-up `tasklist` or `dir` check before retrying destructive commands.
 - `exec_slots_available` on HTTP `/health` drops and does not recover after a WS exec — semaphore shared between paths.
 - Truncation: stdout in exec result ends mid-line followed by `[truncated]` marker.
 
@@ -357,21 +357,21 @@ Deploy resilience phase. Upgrade do-swap.bat generation in deploy.rs to use the 
 ### Pitfall 10: One-Way Connectivity — WebSocket Up, HTTP Blocked, Falsely Healthy
 
 **What goes wrong:**
-After a Windows Update, a firewall group policy push, or a profile change, the inbound TCP 8090 rule is silently removed. rc-core's HTTP management calls to the pod all fail. However, the pod's outbound WebSocket connection to rc-core port 8080 continues to work — outbound connections are allowed by default. rc-core continues to receive heartbeats, marks the pod as "connected," and the dashboard shows all pods green. But every deploy attempt, health check, and exec command to port 8090 fails silently or with a timeout.
+After a Windows Update, a firewall group policy push, or a profile change, the inbound TCP 8090 rule is silently removed. racecontrol's HTTP management calls to the pod all fail. However, the pod's outbound WebSocket connection to racecontrol port 8080 continues to work — outbound connections are allowed by default. racecontrol continues to receive heartbeats, marks the pod as "connected," and the dashboard shows all pods green. But every deploy attempt, health check, and exec command to port 8090 fails silently or with a timeout.
 
 This is a false-healthy state: the system reports no problem, but the pod is unmanageable.
 
 **Why it happens:**
-The WebSocket connection is outbound from the pod. The HTTP management port (8090) requires an inbound allow rule. These are independent. rc-core's pod health assessment currently treats WebSocket heartbeat as the primary liveness signal. The HTTP reachability is only tested when a management operation is attempted.
+The WebSocket connection is outbound from the pod. The HTTP management port (8090) requires an inbound allow rule. These are independent. racecontrol's pod health assessment currently treats WebSocket heartbeat as the primary liveness signal. The HTTP reachability is only tested when a management operation is attempted.
 
 **How to avoid:**
 Two changes needed:
 1. rc-agent startup self-healing must verify and re-apply its own firewall rule on every boot (idempotent, see Pitfall 8). This prevents the state from occurring.
-2. rc-core's pod monitor should distinguish `ws_connected` from `http_reachable` and surface both states on the fleet dashboard. A pod that is WS-connected but HTTP-unreachable should show a distinct "managed-offline" status — not the same green dot as a fully healthy pod.
-3. The WebSocket exec path (new feature) provides a recovery mechanism: rc-core can send `CoreToAgentMessage::Exec` carrying a `netsh` command to re-add the inbound rule from inside the pod, without needing inbound HTTP.
+2. racecontrol's pod monitor should distinguish `ws_connected` from `http_reachable` and surface both states on the fleet dashboard. A pod that is WS-connected but HTTP-unreachable should show a distinct "managed-offline" status — not the same green dot as a fully healthy pod.
+3. The WebSocket exec path (new feature) provides a recovery mechanism: racecontrol can send `CoreToAgentMessage::Exec` carrying a `netsh` command to re-add the inbound rule from inside the pod, without needing inbound HTTP.
 
 **Warning signs:**
-- Pod shows WebSocket connected in rc-core logs (heartbeats arriving) but all HTTP calls to port 8090 timeout.
+- Pod shows WebSocket connected in racecontrol logs (heartbeats arriving) but all HTTP calls to port 8090 timeout.
 - Deploy fails at step 0 (binary URL validation) or step 2 (download exec): "Failed to reach pod-agent."
 - After a Windows Update, one or more pods lose HTTP reachability but remain WS-connected.
 - The 30-second rolling deploy health check shows process alive but WebSocket-only — lock screen check fails because it uses HTTP exec.
@@ -385,9 +385,9 @@ Firewall auto-config phase (self-apply on startup as prevention). WebSocket exec
 
 **What goes wrong:**
 With only 8 pods, over-engineered monitoring creates more problems than it solves. Common over-engineering patterns that fail specifically at this scale:
-- **Per-pod telemetry polling every 5 seconds** from rc-core: 8 pods × 12 polls/min = 96 HTTP calls/min to the management port. This consumes exec slots that should be reserved for actual management commands.
+- **Per-pod telemetry polling every 5 seconds** from racecontrol: 8 pods × 12 polls/min = 96 HTTP calls/min to the management port. This consumes exec slots that should be reserved for actual management commands.
 - **Centralised log aggregation** (ELK, Grafana Loki): operational overhead to maintain the aggregator exceeds the value of having it. At 8 pods, the existing `tracing` logs written to disk and surfaced via the dashboard are sufficient.
-- **Health check cascade**: rc-core checks pod health, pod reports to rc-core, rc-core checks the report, and schedules a secondary verify. This creates circular state updates that produce false-positive "recovery" events.
+- **Health check cascade**: racecontrol checks pod health, pod reports to racecontrol, racecontrol checks the report, and schedules a secondary verify. This creates circular state updates that produce false-positive "recovery" events.
 - **Prometheus/metrics endpoint**: Adds a server-side scrape target. At 8 pods, the existing `/health` JSON endpoint is sufficient. A full metrics endpoint adds code complexity without actionable benefit until scale increases by 10x.
 
 **Why it happens:**
@@ -404,7 +404,7 @@ For 8 pods, the correct monitoring strategy is:
 The fleet health dashboard for Uday should be a read-only view of AppState, not a separate polling system.
 
 **Warning signs:**
-- rc-core's pod_monitor.rs spawns more than 2 background tasks per pod.
+- racecontrol's pod_monitor.rs spawns more than 2 background tasks per pod.
 - The monitoring loop makes HTTP calls to pods more than once per 30 seconds during idle operation.
 - A pod that is playing a game session shows degraded WebSocket response times due to management traffic competing with game telemetry traffic on the same port.
 
@@ -448,7 +448,7 @@ Fleet health dashboard phase. Design the dashboard as a view of existing AppStat
 | Scheduled HTTP health polling to all 8 pods | 96+ HTTP calls/min, exec slots consumed by monitoring | Use WebSocket heartbeat for liveness; HTTP health only on-demand before management ops | As soon as any management operation runs concurrently |
 | Centralised log aggregation | Aggregator becomes single point of failure; maintenance overhead exceeds value | Serve logs on-demand via `/file` endpoint | Unnecessary complexity at 8 pods; reconsider at 50+ pods |
 | WebSocket exec collecting unlimited stdout | 2-second pauses assembling large frames; risk of OOM | Cap stdout/stderr at 1MB; add truncation marker | Any command producing >1MB output (e.g., `dir /s C:\`) |
-| Rolling deploy without per-pod serialisation | Concurrent exec calls exhaust semaphore slots on target pod | deploy.rs already has 5s delay between pods — keep it; add per-pod Mutex in rc-core | Any concurrent deploy + health scenario on same pod |
+| Rolling deploy without per-pod serialisation | Concurrent exec calls exhaust semaphore slots on target pod | deploy.rs already has 5s delay between pods — keep it; add per-pod Mutex in racecontrol | Any concurrent deploy + health scenario on same pod |
 | Firewall rule check on every heartbeat | ~360 netsh invocations/hour per pod, each spawning a child process | Check only on startup and on WebSocket reconnect (implies reboot/restart) | Fine at 8 pods; avoid entirely with rc-agent startup self-healing |
 | Dashboard polling AppState faster than 1s | Spurious updates, dashboard flicker, websocket message storm | Dashboard event bus already exists; push events only on state change | Any refresh rate faster than the actual state change rate |
 
@@ -459,7 +459,7 @@ Fleet health dashboard phase. Design the dashboard as a view of existing AppStat
 | Mistake | Risk | Prevention |
 |---------|------|------------|
 | `/exec` endpoint with no authentication | Any LAN device (customer laptop on pod network) can execute arbitrary commands on any pod | Shared secret header `X-RC-Token` in all pod management requests; validate in remote_ops.rs before processing |
-| WebSocket exec without message authentication | A rogue WebSocket client sending `CoreToAgentMessage::Exec` could execute commands on pods | rc-core must validate that Exec messages originate from its own internal coordinator, not from external WebSocket connections |
+| WebSocket exec without message authentication | A rogue WebSocket client sending `CoreToAgentMessage::Exec` could execute commands on pods | racecontrol must validate that Exec messages originate from its own internal coordinator, not from external WebSocket connections |
 | Firewall rule allows `remoteip=any` | Port 8090 accessible from any device, including customer machines and internet if port-forwarded | Always add `remoteip=192.168.31.0/24` to restrict management port to server subnet only |
 | do-swap.bat left on disk after deploy | Script can be re-triggered by any user who finds it; contains hardcoded paths and timing logic | rc-agent startup self-healing must delete any stale `do-swap.bat` files as first action |
 | AV exclusions applied globally | Unnecessarily broad; `C:\RacingPoint\` exclusion also covers customer-writable subpaths if any are created | Scope exclusions to specific file names (`rc-agent.exe`, `rc-agent-new.exe`) rather than the full directory if possible |
@@ -470,7 +470,7 @@ Fleet health dashboard phase. Design the dashboard as a view of existing AppStat
 
 - [ ] **Session 0 test:** After installing watchdog service, verify with `tasklist /v /fi "IMAGENAME eq rc-agent.exe"` that Session# = 1 (not 0). Lock screen must be visible on physical pod display.
 - [ ] **Crash-restart test:** On Pod 8, kill rc-agent with Task Manager. Verify it restarts within 90 seconds without a reboot. Verify lock screen reappears.
-- [ ] **Firewall rule applied:** `netsh advfirewall firewall show rule name="RCAgent_8090"` shows exactly 1 rule. Test actual connectivity from rc-core: `curl http://192.168.31.X:8090/ping` returns "pong".
+- [ ] **Firewall rule applied:** `netsh advfirewall firewall show rule name="RCAgent_8090"` shows exactly 1 rule. Test actual connectivity from racecontrol: `curl http://192.168.31.X:8090/ping` returns "pong".
 - [ ] **Firewall profile verified:** `netsh advfirewall show currentprofile` on pod — confirm the rule was applied with `profile=any` and not to a mismatched profile.
 - [ ] **CRLF in bat files:** Any bat file written by Rust: `certutil -dump path\to\file.bat | findstr "0d 0a"` must show `0d 0a` sequences. LF-only files show `0a` without preceding `0d`.
 - [ ] **Idempotent firewall:** Restart rc-agent 5 times on a test pod. Run `netsh advfirewall firewall show rule name="RCAgent_8090" | find /c "Rule Name:"` — must return 1, not 5.
@@ -518,7 +518,7 @@ Fleet health dashboard phase. Design the dashboard as a view of existing AppStat
 ## Sources
 
 - **Direct observation — HIGH:** 4-hour debugging session, Racing Point pods, Mar 15 2026. Pods 1/3/4 offline. Root causes confirmed: CRLF in do-swap.bat, exec slot exhaustion (missing CREATE_NO_WINDOW pre-fix), missing firewall rules (CRLF cascade), rc-agent crash with no restart (HKLM Run key limitation), Pod 3 one-way connectivity.
-- **Codebase — HIGH:** `crates/rc-agent/src/remote_ops.rs` (semaphore, CREATE_NO_WINDOW, EXEC_SEMAPHORE, try_acquire), `crates/rc-core/src/deploy.rs` (self-swap pattern, do-swap.bat generation, VERIFY_DELAYS), `crates/rc-agent/src/lock_screen.rs` (port 18923 HTTP server, Session 1 requirement), `crates/rc-agent/src/main.rs` (startup flow).
+- **Codebase — HIGH:** `crates/rc-agent/src/remote_ops.rs` (semaphore, CREATE_NO_WINDOW, EXEC_SEMAPHORE, try_acquire), `crates/racecontrol/src/deploy.rs` (self-swap pattern, do-swap.bat generation, VERIFY_DELAYS), `crates/rc-agent/src/lock_screen.rs` (port 18923 HTTP server, Session 1 requirement), `crates/rc-agent/src/main.rs` (startup flow).
 - **Microsoft — HIGH:** [Application Compatibility - Session 0 Isolation](https://techcommunity.microsoft.com/blog/askperf/application-compatibility---session-0-isolation/372361) — confirms Session 0 non-interactive since Vista; UI0Detect removed Windows 10 1803+.
 - **Microsoft — HIGH:** [Launching an interactive process from Windows Service in Windows Vista and later](https://learn.microsoft.com/en-us/archive/blogs/winsdk/launching-an-interactive-process-from-windows-service-in-windows-vista-and-later) — WTSGetActiveConsoleSessionId + WTSQueryUserToken + CreateProcessAsUser pattern.
 - **Microsoft — HIGH:** [Use netsh advfirewall firewall context](https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/netsh-advfirewall-firewall-control-firewall-behavior) — profile parameter behaviour, `profile=any` requirement.

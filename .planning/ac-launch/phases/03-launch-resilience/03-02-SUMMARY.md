@@ -26,7 +26,7 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/game_launcher.rs
+    - crates/racecontrol/src/game_launcher.rs
     - kiosk/src/lib/types.ts
     - kiosk/src/components/LiveSessionPanel.tsx
     - kiosk/src/components/KioskPodCard.tsx
@@ -70,7 +70,7 @@ Each task was committed atomically:
 1. **Task 1: Auto-pause billing on relaunch exhaustion + kiosk diagnostics** - `48f59ad` (feat)
 
 ## Files Created/Modified
-- `crates/rc-core/src/game_launcher.rs` - Added billing pause (PausedGamePause) in Race Engineer relaunch-limit-reached branch
+- `crates/racecontrol/src/game_launcher.rs` - Added billing pause (PausedGamePause) in Race Engineer relaunch-limit-reached branch
 - `kiosk/src/lib/types.ts` - Added LaunchDiagnostics TypeScript interface + diagnostics field on GameLaunchInfo
 - `kiosk/src/components/LiveSessionPanel.tsx` - Structured diagnostics display in error banner (CM status, log errors, fallback info)
 - `kiosk/src/components/KioskPodCard.tsx` - Context-aware "Launch Failed" vs "Crashed" in StateLabel + structured diagnostics in card error banner

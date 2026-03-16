@@ -49,7 +49,7 @@ echo ""
 # --- Direct service checks ---
 echo -e "${BOLD}Direct Services:${RESET}"
 
-check_service "rc-core" "http://localhost:8080/api/v1/health"
+check_service "racecontrol" "http://localhost:8080/api/v1/health"
 check_service "api-gateway" "http://localhost:3100/api/health"
 check_service "pwa" "http://localhost:3500" "false"
 check_service "admin" "http://localhost:3200" "false"
@@ -60,11 +60,11 @@ echo ""
 # --- Cross-service proxy chain checks ---
 echo -e "${BOLD}Proxy Chains:${RESET}"
 
-# Admin -> rc-core proxy
-check_service "admin -> rc-core" "http://localhost:3200/api/rc/health" "false"
+# Admin -> racecontrol proxy
+check_service "admin -> racecontrol" "http://localhost:3200/api/rc/health" "false"
 
-# Dashboard -> rc-core proxy
-check_service "dashboard -> rc-core" "http://localhost:3400/api/rc/health" "false"
+# Dashboard -> racecontrol proxy
+check_service "dashboard -> racecontrol" "http://localhost:3400/api/rc/health" "false"
 
 echo ""
 

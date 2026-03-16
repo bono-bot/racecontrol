@@ -1,7 +1,7 @@
 ---
 phase: 04-multiplayer-server-lifecycle
 plan: 01
-subsystem: rc-core
+subsystem: racecontrol
 tags: [multiplayer, ac-server, billing, kiosk, lifecycle]
 dependency_graph:
   requires: [ac_server::start_ac_server, ac_server::stop_ac_server, multiplayer::book_multiplayer, billing::end_billing_session, billing::tick_billing]
@@ -13,9 +13,9 @@ tech_stack:
 key_files:
   created: []
   modified:
-    - crates/rc-core/src/multiplayer.rs
-    - crates/rc-core/src/billing.rs
-    - crates/rc-core/src/api/routes.rs
+    - crates/racecontrol/src/multiplayer.rs
+    - crates/racecontrol/src/billing.rs
+    - crates/racecontrol/src/api/routes.rs
 decisions:
   - AC server start is fire-and-forget — booking succeeds even if server fails to start
   - ac_session_id column added via idempotent ALTER TABLE (safe for rolling deploy)
@@ -74,15 +74,15 @@ Multiplayer booking auto-starts AC server, billing end auto-stops it, kiosk self
 
 **1. [Rule 2 - Critical] Added multiplayer check to orphaned session path**
 - **Found during:** Task 2
-- **Issue:** The plan specified wiring check_and_stop_multiplayer_server at two paths (tick-expired and manual stop), but end_billing_session has a third path for orphaned sessions (sessions in DB but no in-memory timer, after rc-core restart).
+- **Issue:** The plan specified wiring check_and_stop_multiplayer_server at two paths (tick-expired and manual stop), but end_billing_session has a third path for orphaned sessions (sessions in DB but no in-memory timer, after racecontrol restart).
 - **Fix:** Added check_and_stop_multiplayer_server call in the orphan cleanup path too.
 - **Files modified:** billing.rs
 - **Commit:** 06587f7
 
 ## Verification
 
-- `cargo build -p rc-core` -- compiles clean (no new warnings)
-- `cargo test -p rc-core --lib` -- 238 tests pass
+- `cargo build -p racecontrol-crate` -- compiles clean (no new warnings)
+- `cargo test -p racecontrol-crate --lib` -- 238 tests pass
 - `cargo test -p rc-common` -- 106 tests pass
 - `grep start_ac_server multiplayer.rs` -- confirms wiring exists (line 336, 1728)
 - `grep check_and_stop_multiplayer_server billing.rs` -- confirmed at 3 call sites + definition

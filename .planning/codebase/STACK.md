@@ -11,15 +11,15 @@ RaceControl is a distributed sim racing venue management system built on Rust ba
 - **Cross-platform**: Compiles for Windows (x86_64) and Linux
 
 ### Workspace & Build System
-- **Cargo workspaces** with 3 crates: `rc-common`, `rc-core`, `rc-agent`
+- **Cargo workspaces** with 3 crates: `rc-common`, `racecontrol`, `rc-agent`
 - **Workspace dependencies** centralized in root `/root/racecontrol/Cargo.toml`
 - **Build output**: Target binaries:
-  - `racecontrol` (rc-core server, port 8080)
+  - `racecontrol` (racecontrol server, port 8080)
   - `rc-agent` (gaming PC agent, port 18923 lock screen)
 
 #### Workspace Configuration
 - Location: `/root/racecontrol/Cargo.toml`
-- Members: `crates/rc-common`, `crates/rc-core`, `crates/rc-agent`
+- Members: `crates/rc-common`, `crates/racecontrol`, `crates/rc-agent`
 - Common version: 0.1.0
 - License: MIT
 - Repository: https://github.com/racingpoint/racecontrol
@@ -52,9 +52,9 @@ Shared library with common types and protocols:
 **Dependencies**:
 - `serde`, `serde_json`, `chrono`, `uuid` (workspace)
 
-### rc-core Crate (Main Server)
-**Location**: `/root/racecontrol/crates/rc-core/Cargo.toml`
-**Binary**: `racecontrol` → `/root/racecontrol/crates/rc-core/src/main.rs`
+### racecontrol Crate (Main Server)
+**Location**: `/root/racecontrol/crates/racecontrol/Cargo.toml`
+**Binary**: `racecontrol` → `/root/racecontrol/crates/racecontrol/src/main.rs`
 **Port**: 8080 (configurable via racecontrol.toml)
 
 #### Web Framework
@@ -87,31 +87,31 @@ Shared library with common types and protocols:
 - **urlencoding 2.x**: URL encoding (Evolution API instance names)
 
 #### Key Source Files
-- `/root/racecontrol/crates/rc-core/src/main.rs` → Server entry point
-- `/root/racecontrol/crates/rc-core/src/api/` → REST API routes
-- `/root/racecontrol/crates/rc-core/src/ws/` → WebSocket handlers
-- `/root/racecontrol/crates/rc-core/src/db/` → Database layer
-- `/root/racecontrol/crates/rc-core/src/auth/` → JWT & terminal auth
-- `/root/racecontrol/crates/rc-core/src/billing.rs` → Billing engine
-- `/root/racecontrol/crates/rc-core/src/cloud_sync.rs` → Venue ↔ Cloud sync
-- `/root/racecontrol/crates/rc-core/src/udp_heartbeat.rs` → UDP telemetry listener
-- `/root/racecontrol/crates/rc-core/src/pod_monitor.rs` → Pod health/status
-- `/root/racecontrol/crates/rc-core/src/game_launcher.rs` → Game launch orchestration
-- `/root/racecontrol/crates/rc-core/src/catalog.rs` → AC cars/tracks (36 featured cars, 41 featured)
-- `/root/racecontrol/crates/rc-core/src/lap_tracker.rs` → Lap/telemetry aggregation
-- `/root/racecontrol/crates/rc-core/src/ac_server.rs` → AC dedicated server config
-- `/root/racecontrol/crates/rc-core/src/accounting.rs` → Double-entry bookkeeping
-- `/root/racecontrol/crates/rc-core/src/ai.rs` → Claude/Ollama AI integration
-- `/root/racecontrol/crates/rc-core/src/friends.rs` → Multiplayer presence
-- `/root/racecontrol/crates/rc-core/src/multiplayer.rs` → Group booking
-- `/root/racecontrol/crates/rc-core/src/pod_healer.rs` → Pod recovery (Steam, Conspit cleanup)
-- `/root/racecontrol/crates/rc-core/src/remote_terminal.rs` → PIN-protected terminal
-- `/root/racecontrol/crates/rc-core/src/wallet.rs` → Credit system
-- `/root/racecontrol/crates/rc-core/src/scheduler.rs` → Cron jobs (review nudges, tournaments)
-- `/root/racecontrol/crates/rc-core/src/action_queue.rs` → Async action processing
-- `/root/racecontrol/crates/rc-core/src/error_aggregator.rs` → Pod error tracking
-- `/root/racecontrol/crates/rc-core/src/activity_log.rs` → Activity audit trail
-- `/root/racecontrol/crates/rc-core/src/wol.rs` → Wake-on-LAN for pods
+- `/root/racecontrol/crates/racecontrol/src/main.rs` → Server entry point
+- `/root/racecontrol/crates/racecontrol/src/api/` → REST API routes
+- `/root/racecontrol/crates/racecontrol/src/ws/` → WebSocket handlers
+- `/root/racecontrol/crates/racecontrol/src/db/` → Database layer
+- `/root/racecontrol/crates/racecontrol/src/auth/` → JWT & terminal auth
+- `/root/racecontrol/crates/racecontrol/src/billing.rs` → Billing engine
+- `/root/racecontrol/crates/racecontrol/src/cloud_sync.rs` → Venue ↔ Cloud sync
+- `/root/racecontrol/crates/racecontrol/src/udp_heartbeat.rs` → UDP telemetry listener
+- `/root/racecontrol/crates/racecontrol/src/pod_monitor.rs` → Pod health/status
+- `/root/racecontrol/crates/racecontrol/src/game_launcher.rs` → Game launch orchestration
+- `/root/racecontrol/crates/racecontrol/src/catalog.rs` → AC cars/tracks (36 featured cars, 41 featured)
+- `/root/racecontrol/crates/racecontrol/src/lap_tracker.rs` → Lap/telemetry aggregation
+- `/root/racecontrol/crates/racecontrol/src/ac_server.rs` → AC dedicated server config
+- `/root/racecontrol/crates/racecontrol/src/accounting.rs` → Double-entry bookkeeping
+- `/root/racecontrol/crates/racecontrol/src/ai.rs` → Claude/Ollama AI integration
+- `/root/racecontrol/crates/racecontrol/src/friends.rs` → Multiplayer presence
+- `/root/racecontrol/crates/racecontrol/src/multiplayer.rs` → Group booking
+- `/root/racecontrol/crates/racecontrol/src/pod_healer.rs` → Pod recovery (Steam, Conspit cleanup)
+- `/root/racecontrol/crates/racecontrol/src/remote_terminal.rs` → PIN-protected terminal
+- `/root/racecontrol/crates/racecontrol/src/wallet.rs` → Credit system
+- `/root/racecontrol/crates/racecontrol/src/scheduler.rs` → Cron jobs (review nudges, tournaments)
+- `/root/racecontrol/crates/racecontrol/src/action_queue.rs` → Async action processing
+- `/root/racecontrol/crates/racecontrol/src/error_aggregator.rs` → Pod error tracking
+- `/root/racecontrol/crates/racecontrol/src/activity_log.rs` → Activity audit trail
+- `/root/racecontrol/crates/racecontrol/src/wol.rs` → Wake-on-LAN for pods
 
 ### rc-agent Crate (Gaming PC Agent)
 **Location**: `/root/racecontrol/crates/rc-agent/Cargo.toml`
@@ -120,7 +120,7 @@ Shared library with common types and protocols:
 **Deployment**: One instance per gaming pod (Pod 1-8 at 192.168.31.x)
 
 #### Core Dependencies
-**Workspace shared**: tokio, serde, chrono, uuid, etc. (same as rc-core)
+**Workspace shared**: tokio, serde, chrono, uuid, etc. (same as racecontrol)
 
 #### Networking & Game Control
 - **Tokio-Tungstenite 0.26**: WebSocket client (with native-tls)
@@ -233,7 +233,7 @@ Shared library with common types and protocols:
 
 ## Configuration Management
 
-### rc-core Configuration
+### racecontrol Configuration
 **File**: `/root/racecontrol/racecontrol.toml`
 
 **Sections**:
@@ -301,7 +301,7 @@ cargo build --release
 ```
 
 **Binaries**:
-- `target/release/racecontrol` (rc-core, ~10-15MB)
+- `target/release/racecontrol` (racecontrol, ~10-15MB)
 - `target/release/rc-agent` (rc-agent, ~8-12MB)
 
 ### Next.js Build
@@ -314,11 +314,11 @@ npm run start -p 3100
 ### Docker
 **Dockerfile**: `/root/racecontrol/Dockerfile`
 - Multi-stage build (Rust + Node)
-- Runs rc-core on port 8080
+- Runs racecontrol on port 8080
 - Configured via environment variables
 
 ### PM2 Deployment (Cloud)
-- `racecontrol` → rc-core on port 8080
+- `racecontrol` → racecontrol on port 8080
 - `racingpoint-dashboard` → Next.js dashboard on port 3400
 - `racingpoint-admin` → Admin UI on port 3200
 
@@ -334,7 +334,7 @@ npm run start -p 3100
 
 ## Third-Party Integrations
 
-- **Claude AI**: Via Anthropic SDK (rc-core `ai.rs`) or Claude CLI (rc-agent `ai_debugger.rs`)
+- **Claude AI**: Via Anthropic SDK (racecontrol `ai.rs`) or Claude CLI (rc-agent `ai_debugger.rs`)
 - **Ollama**: Local LLM on venue James machine (llama3.1:8b or qwen2.5-coder:14b)
 - **Evolution API**: WhatsApp gateway (http://localhost:53622)
 - **Steam**: Game launch via steam app IDs + DirectX 11

@@ -26,7 +26,7 @@ re_verification: false
 | 5 | Rollback completes within 60 seconds of health failure detection | VERIFIED | ROLLBACK_VERIFY_DELAYS = [5, 15, 30] sums to 50s, confirmed by test at deploy.rs:1188-1195 |
 | 6 | Defender exclusion for C:\RacingPoint\ is checked and repaired at every rc-agent startup | VERIFIED | self_heal.rs:111 calls defender_exclusion_exists(), self_heal.rs:113 calls repair_defender_exclusion() on failure. Uses PowerShell Get-MpPreference at line 263 and Add-MpPreference at line 285 |
 | 7 | rc-agent-new.exe staging binary is not quarantined by Defender during deploy | VERIFIED | Defender exclusion covers entire C:\RacingPoint\ directory (self_heal.rs:263 checks for `'C:\RacingPoint'`), which is where rc-agent-new.exe is staged |
-| 8 | After a fleet deploy, rc-core logs a structured per-pod summary | VERIFIED | deploy.rs:942-947 logs `"Rolling deploy COMPLETE: succeeded={:?} failed={:?} waiting_session={:?}"` |
+| 8 | After a fleet deploy, racecontrol logs a structured per-pod summary | VERIFIED | deploy.rs:942-947 logs `"Rolling deploy COMPLETE: succeeded={:?} failed={:?} waiting_session={:?}"` |
 | 9 | Failed pods are retried once automatically during fleet deploy | VERIFIED | deploy.rs:907-938 -- if failed list non-empty, drains and retries each pod via deploy_pod(), then rechecks results |
 | 10 | Dashboard receives FleetDeploySummary event after rolling deploy completes | VERIFIED | protocol.rs:470-475 defines DashboardEvent::FleetDeploySummary with succeeded/failed/waiting/timestamp fields. deploy.rs:950-955 broadcasts it via state.dashboard_tx.send() |
 
@@ -37,7 +37,7 @@ re_verification: false
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
 | `crates/rc-common/src/types.rs` | DeployState::RollingBack variant | VERIFIED | Line 700: `RollingBack` variant with doc comment. is_active() returns true (not in exclusion list at lines 712-718). Serde serializes as "rolling_back". |
-| `crates/rc-core/src/deploy.rs` | SWAP_SCRIPT_CONTENT, ROLLBACK_SCRIPT_CONTENT, rollback logic, fleet summary | VERIFIED | SWAP_SCRIPT_CONTENT (lines 43-60): CRLF batch with binary preservation + AV retry loop. ROLLBACK_SCRIPT_CONTENT (lines 67-72): CRLF batch that restores prev binary. Rollback logic (lines 601-758): full prev-check + write + exec + verify cycle. Fleet summary (lines 879-957): collect + retry + log + broadcast. |
+| `crates/racecontrol/src/deploy.rs` | SWAP_SCRIPT_CONTENT, ROLLBACK_SCRIPT_CONTENT, rollback logic, fleet summary | VERIFIED | SWAP_SCRIPT_CONTENT (lines 43-60): CRLF batch with binary preservation + AV retry loop. ROLLBACK_SCRIPT_CONTENT (lines 67-72): CRLF batch that restores prev binary. Rollback logic (lines 601-758): full prev-check + write + exec + verify cycle. Fleet summary (lines 879-957): collect + retry + log + broadcast. |
 | `crates/rc-agent/src/self_heal.rs` | Defender exclusion check + defender_repaired field | VERIFIED | defender_repaired field (line 42), defender_exclusion_exists() (lines 257-274), repair_defender_exclusion() (lines 279-296), wired as check #4 in run() (lines 110-123). |
 | `crates/rc-common/src/protocol.rs` | DashboardEvent::FleetDeploySummary variant | VERIFIED | Lines 470-475: FleetDeploySummary { succeeded, failed, waiting, timestamp } with serde roundtrip test at lines 1109-1127. |
 
@@ -87,15 +87,15 @@ re_verification: false
 **Expected:** `(Get-MpPreference).ExclusionPath` contains `C:\RacingPoint` after restart
 **Why human:** Requires admin PowerShell on a live pod to remove and verify Defender settings
 
-### 4. Fleet Deploy Summary in rc-core Logs
+### 4. Fleet Deploy Summary in racecontrol Logs
 
-**Test:** Trigger a rolling deploy across all pods, check rc-core stdout/logs for the summary line
+**Test:** Trigger a rolling deploy across all pods, check racecontrol stdout/logs for the summary line
 **Expected:** Log contains `"Rolling deploy COMPLETE: succeeded=[...] failed=[...] waiting_session=[...]"`
 **Why human:** Requires multi-pod fleet deploy and log observation
 
 ### Gaps Summary
 
-No gaps found. All observable truths are verified at all three levels (exists, substantive, wired). All four requirements (DEP-01 through DEP-04) are satisfied. All 497 tests pass across the three crates (106 rc-common + 266 rc-core + 200 rc-agent, minus 75 unrelated = 572 total; Phase 20 specifically added 13 new tests). No anti-patterns detected.
+No gaps found. All observable truths are verified at all three levels (exists, substantive, wired). All four requirements (DEP-01 through DEP-04) are satisfied. All 497 tests pass across the three crates (106 rc-common + 266 racecontrol + 200 rc-agent, minus 75 unrelated = 572 total; Phase 20 specifically added 13 new tests). No anti-patterns detected.
 
 The only remaining verification is the human checkpoint (Plan 02, Task 3) which requires live pod testing on Pod 8. This is documented in the Human Verification section above.
 

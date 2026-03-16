@@ -331,25 +331,25 @@ draw_text_at(hdc, res.font_unit, col_dim, speed_x + (speed_str.len() as i32 * 13
 |----------|-------|
 | Framework | Rust built-in `#[test]` with `#[cfg(test)]` |
 | Config file | None (built-in, no config needed) |
-| Quick run command | `cargo test -p rc-agent -- overlay::tests` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p rc-agent-crate -- overlay::tests` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements -> Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| HUD-01 | compute_layout returns correct SectionRects for new widths | unit | `cargo test -p rc-agent -- overlay::tests::test_compute_layout -x` | Exists -- needs update for new widths |
-| HUD-02 | RPM color zones at correct thresholds | unit | `cargo test -p rc-agent -- overlay::tests::test_rpm_color_zones -x` | New -- Wave 0 |
-| HUD-03 | format_lap_time produces correct strings | unit | `cargo test -p rc-agent -- overlay::tests::test_format_lap_time -x` | Exists |
-| HUD-04 | sector_color returns correct F1 colors | unit | `cargo test -p rc-agent -- overlay::tests::test_sector_color -x` | Exists |
-| HUD-05 | Session timer format and display logic | unit | `cargo test -p rc-agent -- overlay::tests::test_format_timer -x` | Exists |
+| HUD-01 | compute_layout returns correct SectionRects for new widths | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_compute_layout -x` | Exists -- needs update for new widths |
+| HUD-02 | RPM color zones at correct thresholds | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_rpm_color_zones -x` | New -- Wave 0 |
+| HUD-03 | format_lap_time produces correct strings | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_format_lap_time -x` | Exists |
+| HUD-04 | sector_color returns correct F1 colors | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_sector_color -x` | Exists |
+| HUD-05 | Session timer format and display logic | unit | `cargo test -p rc-agent-crate -- overlay::tests::test_format_timer -x` | Exists |
 | HUD-06 | Lap counter rendering (lap number as string) | manual-only | Deploy to Pod 8, verify lap number displays | Justification: pure display, string formatting already tested |
 | HUD-07 | Invalid lap indicator visible | manual-only | Drive invalid lap on Pod 8, verify red bar + "INV" badge | Justification: GDI rendering, cannot unit test |
 | HUD-08 | Speed display repositioned | manual-only | Deploy to Pod 8, verify speed below gear | Justification: pixel positioning, visual verification |
 | HUD-09 | Consolas font used for numerics | manual-only | Deploy to Pod 8, verify no jitter on changing digits | Justification: font rendering, visual verification |
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-agent -- overlay::tests`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p rc-agent-crate -- overlay::tests`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green + Pod 8 visual verification before `/gsd:verify-work`
 
 ### Wave 0 Gaps

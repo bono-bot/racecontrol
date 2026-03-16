@@ -27,7 +27,7 @@ Phase 11 is pure enhancement to existing infrastructure — no new architecture 
 
 **The key constraint for SESS-03:** The current `blank_timer` arms after `SessionEnded` and fires after 15 seconds, blanking the screen. To keep results on screen indefinitely, the blank_timer must be disarmed on `SessionEnded` (or its countdown made much larger). The screen naturally transitions when core sends `ShowPinLockScreen`, `BlankScreen`, or `ClearLockScreen` — which happens when staff starts a new session.
 
-**The key constraint for SESS-01/SESS-02:** `SessionEnded` in the protocol carries `total_laps`, `best_lap_ms`, and `driving_seconds` but NOT `top_speed_kmh` or `race_position`. These must be (a) tracked locally in rc-agent during the session from telemetry, and (b) added as optional fields to the `SessionEnded` message in `rc-common/protocol.rs` so rc-core can include them when it fires the message.
+**The key constraint for SESS-01/SESS-02:** `SessionEnded` in the protocol carries `total_laps`, `best_lap_ms`, and `driving_seconds` but NOT `top_speed_kmh` or `race_position`. These must be (a) tracked locally in rc-agent during the session from telemetry, and (b) added as optional fields to the `SessionEnded` message in `rc-common/protocol.rs` so racecontrol can include them when it fires the message.
 
 **Primary recommendation:** Work in three layers — protocol extension (rc-common), rc-agent tracking + rendering, kiosk settings UI. Keep each layer independently testable.
 
@@ -41,9 +41,9 @@ Phase 11 is pure enhancement to existing infrastructure — no new architecture 
 |-----------|----------|-------------|---------|
 | `lock_screen.rs` | `crates/rc-agent/src/` | Rust/Tokio | HTTP server on :18923, HTML rendering, state machine |
 | `protocol.rs` | `crates/rc-common/src/` | Rust/Serde | `SessionEnded` message, `SettingsUpdated` message |
-| `kiosk_settings` table | SQLite via rc-core | key-value store | Persistent venue settings broadcast to all pods |
+| `kiosk_settings` table | SQLite via racecontrol | key-value store | Persistent venue settings broadcast to all pods |
 | `SettingsUpdated` message | WebSocket protocol | existing | Push settings from core to all connected rc-agents |
-| `api/routes.rs` | `crates/rc-core/src/` | Axum | `update_kiosk_settings` broadcasts to all agents |
+| `api/routes.rs` | `crates/racecontrol/src/` | Axum | `update_kiosk_settings` broadcasts to all agents |
 | `settings/page.tsx` | `kiosk/src/app/settings/` | Next.js | Existing kiosk settings page for staff |
 
 ### No New Dependencies
@@ -127,9 +127,9 @@ SessionEnded {
 },
 ```
 
-**Why optional:** rc-core constructs `SessionEnded` from its billing database, which does NOT currently store top speed or race position. Rather than plumbing these values through rc-core, the agent should track them locally and override the display with its own values. This is the simpler approach: rc-core sends `None` for both new fields; rc-agent substitutes its own tracked values.
+**Why optional:** racecontrol constructs `SessionEnded` from its billing database, which does NOT currently store top speed or race position. Rather than plumbing these values through racecontrol, the agent should track them locally and override the display with its own values. This is the simpler approach: racecontrol sends `None` for both new fields; rc-agent substitutes its own tracked values.
 
-**Alternative approach (simpler):** rc-agent ignores the protocol fields entirely for now and uses ONLY its locally tracked accumulators. This avoids any rc-core changes. The `show_session_summary()` function signature gets two new optional parameters. This is the recommended approach for Phase 11.
+**Alternative approach (simpler):** rc-agent ignores the protocol fields entirely for now and uses ONLY its locally tracked accumulators. This avoids any racecontrol changes. The `show_session_summary()` function signature gets two new optional parameters. This is the recommended approach for Phase 11.
 
 ### Pattern 4: SESS-03 — Persistent Results Screen
 
@@ -228,9 +228,9 @@ And `render_launch_splash_page()` renders a branded spinner with "PREPARING YOUR
 **How to avoid:** Apply wallpaper only to idle states (StartupConnecting, Disconnected, Hidden) — not to `ScreenBlanked`. Pass wallpaper as a parameter to `page_shell()` with a flag.
 
 ### Pitfall 6: Backward Compatibility on Protocol Extension
-**What goes wrong:** If `top_speed_kmh` is added to `SessionEnded` WITHOUT `#[serde(default)]`, rc-core binary (which doesn't know about it yet) will fail to deserialize incoming messages.
+**What goes wrong:** If `top_speed_kmh` is added to `SessionEnded` WITHOUT `#[serde(default)]`, racecontrol binary (which doesn't know about it yet) will fail to deserialize incoming messages.
 **Why it happens:** serde's default behavior for missing fields is an error.
-**How to avoid:** Always use `#[serde(default, skip_serializing_if = "Option::is_none")]` for new optional fields. Existing rc-core binary does not need to be redeployed for the protocol change to be safe.
+**How to avoid:** Always use `#[serde(default, skip_serializing_if = "Option::is_none")]` for new optional fields. Existing racecontrol binary does not need to be redeployed for the protocol change to be safe.
 
 ---
 
@@ -364,8 +364,8 @@ let position_card = if let Some(pos) = race_position {
 |----------|-------|
 | Framework | Rust built-in test harness (`#[test]`, `#[tokio::test]`) |
 | Config file | none — inline tests in source files |
-| Quick run command | `cargo test -p rc-common && cargo test -p rc-core` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p rc-common && cargo test -p racecontrol-crate` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 Note: rc-agent is a binary crate (no `lib.rs`). Tests are inline in `lock_screen.rs` via `#[cfg(test)] mod tests`. Run with `cargo test --bin rc-agent`.
 
@@ -407,7 +407,7 @@ All tests go in `crates/rc-agent/src/lock_screen.rs` under `#[cfg(test)] mod tes
 - `crates/rc-agent/src/lock_screen.rs` — full lock screen state machine, HTTP server, HTML templates (read in full)
 - `crates/rc-agent/src/main.rs` — SessionEnded handler, blank_timer, BillingStarted, SettingsUpdated (read lines 450–1500)
 - `crates/rc-common/src/protocol.rs` — SessionEnded, SettingsUpdated, CoreToAgentMessage definitions (read in full)
-- `crates/rc-core/src/api/routes.rs` — set_pod_screen, get/update_kiosk_settings, lockdown broadcast pattern (read in full)
+- `crates/racecontrol/src/api/routes.rs` — set_pod_screen, get/update_kiosk_settings, lockdown broadcast pattern (read in full)
 - `kiosk/src/app/settings/page.tsx` — existing settings UI pattern (read)
 - `kiosk/src/lib/api.ts` — API client patterns (read)
 

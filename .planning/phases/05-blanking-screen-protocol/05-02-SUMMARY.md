@@ -27,7 +27,7 @@ key-files:
   created:
     - deploy/pod-lockdown.ps1
   modified:
-    - crates/rc-core/src/auth/mod.rs
+    - crates/racecontrol/src/auth/mod.rs
 
 key-decisions:
   - "INVALID_PIN_MESSAGE uses em dash (U+2014): 'Invalid PIN — please try again or see reception.' — same across all 3 entry points (pod WS, kiosk HTTP, PWA HTTP)"
@@ -64,7 +64,7 @@ completed: 2026-03-13
 - SCREEN-03 closed: deploy/pod-lockdown.ps1 covers taskbar hide (StuckRects3), Win key block (NoWinKeys), Windows Update restart suppression (NoAutoRebootWithLoggedOnUsers), with -Undo recovery for admin use
 - PERF-02 verified: SQLite PIN query timing tested via pin_validation_timing_proxy — well within 200ms threshold on local DB
 - Anti-cheat gate passed: iRacing, F1 25, and LMU all run without anti-cheat kicks or bans with Phase 5 rc-agent active
-- Full test suite green: 210 tests across 3 crates (55 rc-common, 52 rc-agent, 103 rc-core)
+- Full test suite green: 210 tests across 3 crates (55 rc-common, 52 rc-agent, 103 racecontrol)
 
 ## Task Commits
 
@@ -75,7 +75,7 @@ Each task was committed atomically:
 3. **Task 3: Anti-cheat compatibility gate** - (checkpoint:human-verify, no code commit — human approved)
 
 ## Files Created/Modified
-- `crates/rc-core/src/auth/mod.rs` - Added PinSource enum (Pod/Kiosk/Pwa), INVALID_PIN_MESSAGE const, standardized both error paths, added tracing with source, added 3 tests
+- `crates/racecontrol/src/auth/mod.rs` - Added PinSource enum (Pod/Kiosk/Pwa), INVALID_PIN_MESSAGE const, standardized both error paths, added tracing with source, added 3 tests
 - `deploy/pod-lockdown.ps1` - New idempotent kiosk lockdown script: taskbar auto-hide, Win key block, WU suppression, -Undo flag, Explorer restart
 
 ## Decisions Made

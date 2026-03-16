@@ -11,21 +11,21 @@
 |----|-------------|-----------------|
 | KIOSK-01 | Staff can toggle full pod lockdown (taskbar, Win key, Edge kiosk) on or off for a specific pod from the staff kiosk dashboard | `kiosk_lockdown_enabled` setting already propagated via `SettingsUpdated` → `KioskManager.activate()/deactivate()` — needs dedicated API route + UI |
 | KIOSK-02 | Staff can lock or unlock all 8 pods at once from the staff kiosk dashboard | Extend existing settings broadcast with `kiosk_lockdown_enabled=true/false` to all agents simultaneously |
-| PWR-01 | Staff can power off a specific pod remotely from the staff kiosk dashboard | `POST /pods/{id}/shutdown` already exists in rc-core; button exists in `/control` page |
+| PWR-01 | Staff can power off a specific pod remotely from the staff kiosk dashboard | `POST /pods/{id}/shutdown` already exists in racecontrol; button exists in `/control` page |
 | PWR-02 | Staff can restart a specific pod remotely from the staff kiosk dashboard | `POST /pods/{id}/restart` already exists; button exists in `/control` page |
 | PWR-03 | Staff can power on a specific pod remotely from the staff kiosk dashboard (Wake-on-LAN) | `POST /pods/{id}/wake` already exists; WoL button exists in `/control` page |
 | PWR-04 | Staff can power off all 8 pods at once from the staff kiosk dashboard | `POST /pods/shutdown-all` already exists; button in `/control` page; not yet in `/staff` page |
-| PWR-05 | Staff can restart all 8 pods at once from the staff kiosk dashboard | `POST /pods/restart-all` already exists in rc-core, but NOT wired to `api.ts` or `/control` UI yet |
+| PWR-05 | Staff can restart all 8 pods at once from the staff kiosk dashboard | `POST /pods/restart-all` already exists in racecontrol, but NOT wired to `api.ts` or `/control` UI yet |
 | PWR-06 | Staff can power on all 8 pods at once from the staff kiosk dashboard (Wake-on-LAN) | `POST /pods/wake-all` already exists; button in `/control` page |
 </phase_requirements>
 
 ## Summary
 
-Phase 10 requires adding pod power management and kiosk lockdown controls to the staff kiosk dashboard. The backend infrastructure for power commands (shutdown, restart, Wake-on-LAN) is **already fully implemented** in `crates/rc-core/src/wol.rs` and exposed as HTTP routes. The kiosk lockdown mechanism (`kiosk_lockdown_enabled` setting → `SettingsUpdated` → `KioskManager.activate()/deactivate()`) is **already wired end-to-end** through the existing settings broadcast path. What is missing is: (1) dedicated API routes for lockdown toggle (per-pod and all-pods), (2) `restartAllPods` missing from `api.ts`, and (3) the `/staff` page's 8-pod grid lacks per-pod power buttons and any lockdown controls.
+Phase 10 requires adding pod power management and kiosk lockdown controls to the staff kiosk dashboard. The backend infrastructure for power commands (shutdown, restart, Wake-on-LAN) is **already fully implemented** in `crates/racecontrol/src/wol.rs` and exposed as HTTP routes. The kiosk lockdown mechanism (`kiosk_lockdown_enabled` setting → `SettingsUpdated` → `KioskManager.activate()/deactivate()`) is **already wired end-to-end** through the existing settings broadcast path. What is missing is: (1) dedicated API routes for lockdown toggle (per-pod and all-pods), (2) `restartAllPods` missing from `api.ts`, and (3) the `/staff` page's 8-pod grid lacks per-pod power buttons and any lockdown controls.
 
 The `/control` page already has per-pod shutdown/restart/wake buttons and bulk wake/shutdown buttons. However, `/control` is a separate page from the main `/staff` terminal. The phase goal is to surface these controls in the staff dashboard (wherever staff actually operate from). The simplest path is to add a "Pod Controls" panel to the existing `/staff` page and/or link from `/staff` to the already-built `/control` page and complete the missing functionality there.
 
-**Primary recommendation:** Build a dedicated `PodControlPanel` component that works in both the `/staff` and `/control` pages. Add the two missing lockdown API routes (`POST /pods/{id}/lockdown` and `POST /pods/lockdown-all`) in rc-core, add `restartAllPods` to `api.ts`, and expose all 8 controls (wake, shutdown, restart per-pod; wake-all, shutdown-all, restart-all, lock-all, unlock-all) with confirmation dialogs and visible status feedback.
+**Primary recommendation:** Build a dedicated `PodControlPanel` component that works in both the `/staff` and `/control` pages. Add the two missing lockdown API routes (`POST /pods/{id}/lockdown` and `POST /pods/lockdown-all`) in racecontrol, add `restartAllPods` to `api.ts`, and expose all 8 controls (wake, shutdown, restart per-pod; wake-all, shutdown-all, restart-all, lock-all, unlock-all) with confirmation dialogs and visible status feedback.
 
 ---
 
@@ -35,7 +35,7 @@ The `/control` page already has per-pod shutdown/restart/wake buttons and bulk w
 
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| Rust/Axum | project standard | HTTP routes for pod commands | All rc-core API routes use Axum |
+| Rust/Axum | project standard | HTTP routes for pod commands | All racecontrol API routes use Axum |
 | reqwest | project standard | HTTP client for pod-agent calls | Used by `wol.rs` shutdown/restart |
 | tokio::net::UdpSocket | std | WoL magic packet broadcast | Used by `wol::send_wol` |
 | Next.js (App Router) | project standard | Kiosk frontend | `/staff` and `/control` pages |
@@ -51,14 +51,14 @@ The `/control` page already has per-pod shutdown/restart/wake buttons and bulk w
 
 | Capability | File | Status |
 |------------|------|--------|
-| WoL magic packet | `crates/rc-core/src/wol.rs:send_wol()` | COMPLETE |
+| WoL magic packet | `crates/racecontrol/src/wol.rs:send_wol()` | COMPLETE |
 | Pod shutdown via pod-agent | `wol.rs:shutdown_pod()` | COMPLETE |
 | Pod restart via pod-agent | `wol.rs:restart_pod()` | COMPLETE |
 | HTTP routes: per-pod wake/shutdown/restart | `api/routes.rs` lines 35-40 | COMPLETE |
 | HTTP routes: wake-all/shutdown-all/restart-all | `api/routes.rs` lines 41-43 | COMPLETE |
 | Kiosk lockdown: activate/deactivate | `rc-agent/src/kiosk.rs` | COMPLETE |
 | Lockdown toggle via settings key | `rc-agent/src/main.rs:1476-1483` | COMPLETE - reacts to `kiosk_lockdown_enabled=true/false` in `SettingsUpdated` |
-| Settings broadcast to all agents | `rc-core/src/state.rs:broadcast_settings()` | COMPLETE |
+| Settings broadcast to all agents | `racecontrol/src/state.rs:broadcast_settings()` | COMPLETE |
 | Settings persistence (SQLite `kiosk_settings`) | `api/routes.rs:update_kiosk_settings()` | COMPLETE |
 | Per-pod power buttons (wake/restart/shutdown) | `kiosk/src/app/control/page.tsx` | COMPLETE (in `/control` page) |
 | Bulk wake/shutdown buttons | `kiosk/src/app/control/page.tsx` | COMPLETE (in `/control` page) |
@@ -69,7 +69,7 @@ The `/control` page already has per-pod shutdown/restart/wake buttons and bulk w
 |------------|-----|
 | Per-pod lockdown toggle API route | No `POST /pods/{id}/lockdown` route exists |
 | Bulk lockdown-all / unlock-all API route | No `POST /pods/lockdown-all` route exists |
-| `restartAllPods` in `kiosk/src/lib/api.ts` | Missing — route `/pods/restart-all` exists in rc-core but not wired to frontend |
+| `restartAllPods` in `kiosk/src/lib/api.ts` | Missing — route `/pods/restart-all` exists in racecontrol but not wired to frontend |
 | Lockdown toggle buttons in UI | Not in `/control` or `/staff` page |
 | Restart-all button in `/control` page | Missing from bulk controls row |
 | Pod status confirmation after power commands | Pod goes Offline after shutdown — status visible via WebSocket but no explicit feedback toast |
@@ -83,7 +83,7 @@ The `/control` page already has per-pod shutdown/restart/wake buttons and bulk w
 ```
 Staff clicks "Lock Pod N"
     → frontend: PUT /api/kiosk/settings { "kiosk_lockdown_enabled": "true" }  ← current path (global)
-    → rc-core: update_kiosk_settings() writes to SQLite kiosk_settings
+    → racecontrol: update_kiosk_settings() writes to SQLite kiosk_settings
     → state.broadcast_settings() iterates agent_senders, sends CoreToAgentMessage::SettingsUpdated
     → rc-agent main.rs:1476 matches "kiosk_lockdown_enabled" == "true" → kiosk.activate()
 ```
@@ -95,7 +95,7 @@ The **current settings mechanism is global** — `broadcast_settings` sends to A
 Two viable approaches:
 
 **Option A: New dedicated route `POST /pods/{id}/lockdown`**
-- rc-core adds a Rust handler that looks up the pod's `agent_senders` entry and sends `CoreToAgentMessage::SettingsUpdated` with `kiosk_lockdown_enabled` to only that pod's sender channel
+- racecontrol adds a Rust handler that looks up the pod's `agent_senders` entry and sends `CoreToAgentMessage::SettingsUpdated` with `kiosk_lockdown_enabled` to only that pod's sender channel
 - Clean, explicit, does not touch `kiosk_settings` DB (ephemeral command, not persisted per-pod)
 - Recommended
 
@@ -122,7 +122,7 @@ This is equivalent to what `broadcast_settings` already does, but scoped to only
 ### Power Command Confirmation (success criteria #3)
 
 After sending shutdown/restart/wake, staff need to see the pod status change. The existing WebSocket `DashboardEvent::PodUpdate` flow already handles this:
-- Shutdown: pod-agent receives `shutdown /s /f /t 0`, pod goes offline, rc-core marks `PodStatus::Disabled`, broadcasts `PodUpdate`
+- Shutdown: pod-agent receives `shutdown /s /f /t 0`, pod goes offline, racecontrol marks `PodStatus::Disabled`, broadcasts `PodUpdate`
 - Restart: similar — pod goes offline briefly, returns as `Idle` when rc-agent reconnects
 - Wake: WoL packet sent, pod will appear as `Offline` until it boots and rc-agent connects
 
@@ -131,7 +131,7 @@ The `/staff` page already subscribes to `PodUpdate` via `useKioskSocket`. Pod ca
 ### Recommended Project Structure for New Files
 
 ```
-crates/rc-core/src/api/routes.rs     — add 2 new Axum route functions (lockdown_pod, lockdown_all_pods)
+crates/racecontrol/src/api/routes.rs     — add 2 new Axum route functions (lockdown_pod, lockdown_all_pods)
 kiosk/src/lib/api.ts                 — add lockdownPod(), lockdownAllPods(), restartAllPods()
 kiosk/src/app/control/page.tsx       — add lockdown buttons, restart-all button
 kiosk/src/app/staff/page.tsx         — add "Pod Controls" section or link to /control
@@ -185,7 +185,7 @@ kiosk/src/components/PodControlBar.tsx  — (optional) shared component for per-
 
 **Why it happens:** `KioskManager.activate()` installs the keyboard hook unconditionally.
 
-**How to avoid:** rc-core's lockdown route should check if pod has active billing (`state.billing.active_timers.read().await.contains_key(&pod_id)`) and return an error or warning. Do NOT activate kiosk on a pod with active billing. This mirrors the watchdog pattern in `pod_monitor.rs:274`.
+**How to avoid:** racecontrol's lockdown route should check if pod has active billing (`state.billing.active_timers.read().await.contains_key(&pod_id)`) and return an error or warning. Do NOT activate kiosk on a pod with active billing. This mirrors the watchdog pattern in `pod_monitor.rs:274`.
 
 ### Pitfall 5: Restart-All Without Guard
 
@@ -207,7 +207,7 @@ kiosk/src/components/PodControlBar.tsx  — (optional) shared component for per-
 
 ## Code Examples
 
-### New rc-core Axum route: lockdown_pod (per-pod)
+### New racecontrol Axum route: lockdown_pod (per-pod)
 
 ```rust
 // Source: patterns from routes.rs lines 413-450, state.rs broadcast_settings
@@ -246,7 +246,7 @@ async fn lockdown_pod(
 }
 ```
 
-### New rc-core Axum route: lockdown_all_pods
+### New racecontrol Axum route: lockdown_all_pods
 
 ```rust
 // Source: patterns from restart_all_pods (routes.rs:555-572)
@@ -377,30 +377,30 @@ restartAllPods: () =>
 | Framework | Rust built-in (`cargo test`) |
 | Config file | none — Cargo.toml per crate |
 | Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common` |
-| Full suite command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Full suite command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| KIOSK-01 | `lockdown_pod` route sends `SettingsUpdated` with correct key to single agent | unit | `cargo test -p rc-core -- lockdown` | ❌ Wave 0 |
-| KIOSK-02 | `lockdown_all_pods` route broadcasts to all connected agents, skips disconnected/billing | unit | `cargo test -p rc-core -- lockdown_all` | ❌ Wave 0 |
-| PWR-01 | `shutdown_pod` sends `shutdown /s /f /t 0` via pod-agent | unit (wol.rs) | `cargo test -p rc-core -- wol` | ❌ Wave 0 (no tests in wol.rs) |
-| PWR-02 | `restart_pod` sends `shutdown /r /f /t 0` via pod-agent | unit (wol.rs) | `cargo test -p rc-core -- wol` | ❌ Wave 0 |
-| PWR-03 | `send_wol` sends 102-byte magic packet with correct MAC | unit (wol.rs) | `cargo test -p rc-core -- wol` | ❌ Wave 0 |
-| PWR-04/05/06 | Bulk operations iterate pods, skip Offline/Disabled, send command | unit | `cargo test -p rc-core -- bulk` | ❌ Wave 0 |
+| KIOSK-01 | `lockdown_pod` route sends `SettingsUpdated` with correct key to single agent | unit | `cargo test -p racecontrol-crate -- lockdown` | ❌ Wave 0 |
+| KIOSK-02 | `lockdown_all_pods` route broadcasts to all connected agents, skips disconnected/billing | unit | `cargo test -p racecontrol-crate -- lockdown_all` | ❌ Wave 0 |
+| PWR-01 | `shutdown_pod` sends `shutdown /s /f /t 0` via pod-agent | unit (wol.rs) | `cargo test -p racecontrol-crate -- wol` | ❌ Wave 0 (no tests in wol.rs) |
+| PWR-02 | `restart_pod` sends `shutdown /r /f /t 0` via pod-agent | unit (wol.rs) | `cargo test -p racecontrol-crate -- wol` | ❌ Wave 0 |
+| PWR-03 | `send_wol` sends 102-byte magic packet with correct MAC | unit (wol.rs) | `cargo test -p racecontrol-crate -- wol` | ❌ Wave 0 |
+| PWR-04/05/06 | Bulk operations iterate pods, skip Offline/Disabled, send command | unit | `cargo test -p racecontrol-crate -- bulk` | ❌ Wave 0 |
 
 **Note:** The rc-common tests (85 tests) already cover protocol serialization. Protocol changes (if any new `CoreToAgentMessage` variants are needed) would require rc-common tests. For Phase 10, no new protocol messages are needed — `SettingsUpdated` is reused.
 
 ### Sampling Rate
 - **Per task commit:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common`
-- **Per wave merge:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-core`
+- **Per wave merge:** `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 
-- [ ] `crates/rc-core/src/wol.rs` — add unit tests for `parse_mac` (happy path, colon + dash separators, error cases)
-- [ ] `crates/rc-core/src/api/routes.rs` or a new `tests/lockdown_tests.rs` — unit tests for lockdown route logic (billing guard, disconnected sender guard)
+- [ ] `crates/racecontrol/src/wol.rs` — add unit tests for `parse_mac` (happy path, colon + dash separators, error cases)
+- [ ] `crates/racecontrol/src/api/routes.rs` or a new `tests/lockdown_tests.rs` — unit tests for lockdown route logic (billing guard, disconnected sender guard)
 - [ ] No framework install needed — `cargo test` already works (confirmed: 85 tests passing)
 
 ---
@@ -408,9 +408,9 @@ restartAllPods: () =>
 ## Sources
 
 ### Primary (HIGH confidence)
-- Direct codebase reading — `crates/rc-core/src/wol.rs`, `api/routes.rs`, `state.rs`, `crates/rc-agent/src/kiosk.rs`, `kiosk/src/app/control/page.tsx`, `kiosk/src/app/staff/page.tsx`, `kiosk/src/lib/api.ts`, `crates/rc-common/src/protocol.rs`
+- Direct codebase reading — `crates/racecontrol/src/wol.rs`, `api/routes.rs`, `state.rs`, `crates/rc-agent/src/kiosk.rs`, `kiosk/src/app/control/page.tsx`, `kiosk/src/app/staff/page.tsx`, `kiosk/src/lib/api.ts`, `crates/rc-common/src/protocol.rs`
 - Test run confirmation: `cargo test -p rc-common` — 85 tests passing (2026-03-14)
-- Project STATE.md — confirmed Phase 7 complete, server/rc-core running at :8080
+- Project STATE.md — confirmed Phase 7 complete, server/racecontrol running at :8080
 
 ### Secondary (MEDIUM confidence)
 - Axum route ordering behavior (static before dynamic segments) — well-documented Axum pattern, verified consistent with existing routes.rs registration order

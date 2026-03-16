@@ -7,17 +7,17 @@
 
 ## What Changed
 
-### crates/rc-core/src/cloud_sync.rs
+### crates/racecontrol/src/cloud_sync.rs
 - Added `pause_count`, `total_paused_seconds`, `refund_paise` to billing_sessions json_object in `collect_push_payload()`
 - Added billing_events collection block after wallet_transactions, using identical pattern: `SELECT json_object(...) FROM billing_events WHERE created_at >= ? ORDER BY created_at ASC LIMIT 500`
 - Added `#[cfg(test)] mod tests` with 2 tests:
   - `push_payload_includes_billing_session_extra_columns` — verifies 3 new columns in JSON output
   - `push_payload_includes_billing_events` — verifies billing_events JSON structure
 
-### crates/rc-core/src/db/mod.rs
+### crates/racecontrol/src/db/mod.rs
 - Added `idx_billing_events_created` index on `billing_events(created_at)` for efficient sync queries
 
-### crates/rc-core/src/api/routes.rs
+### crates/racecontrol/src/api/routes.rs
 - Updated billing_sessions INSERT in `sync_push()`: added `pause_count`, `total_paused_seconds`, `refund_paise` to INSERT columns (?24-?26), ON CONFLICT DO UPDATE SET (with COALESCE), and 3 new .bind() calls
 - Added billing_events INSERT OR IGNORE handler block before final response, following wallet_transactions pattern exactly
 

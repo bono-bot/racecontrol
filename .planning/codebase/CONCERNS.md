@@ -1,7 +1,7 @@
 # RaceControl Codebase Analysis: Technical Debt & Concerns
 
 **Analysis Date**: 2026-03-11
-**Codebase**: Rust workspace (rc-core, rc-agent, rc-common) + Next.js PWA
+**Codebase**: Rust workspace (racecontrol, rc-agent, rc-common) + Next.js PWA
 **Build Duration**: ~10 days (rapid development by 2 AI assistants)
 
 ---
@@ -25,7 +25,7 @@ RaceControl is a functional but **debt-laden** codebase with concerning architec
 ## Critical Issues (P0)
 
 ### 1. Default JWT Secret in Production Code
-**File**: `/root/racecontrol/crates/rc-core/src/config.rs:310`
+**File**: `/root/racecontrol/crates/racecontrol/src/config.rs:310`
 
 ```rust
 fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to_string() }
@@ -40,7 +40,7 @@ fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to
 ---
 
 ### 2. Cloud-Venue Sync Fragility
-**File**: `/root/racecontrol/crates/rc-core/src/cloud_sync.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/cloud_sync.rs`
 
 **Issues**:
 
@@ -65,7 +65,7 @@ fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to
 ---
 
 ### 3. Monolithic routes.rs (9,515 lines)
-**File**: `/root/racecontrol/crates/rc-core/src/api/routes.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/api/routes.rs`
 
 **Problems**:
 - Single file handles ~100+ endpoint definitions
@@ -88,13 +88,13 @@ fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to
 **Count**: 38 unwrap() calls
 
 **Critical examples**:
-- `/root/racecontrol/crates/rc-core/src/api/routes.rs:6786-6787`: Assumes `valid_laps` is non-empty and `best_lap_ms` exists
+- `/root/racecontrol/crates/racecontrol/src/api/routes.rs:6786-6787`: Assumes `valid_laps` is non-empty and `best_lap_ms` exists
   ```rust
   let first = valid_laps.first().unwrap().1;
   let best = best_lap_ms.unwrap();
   ```
 
-- `/root/racecontrol/crates/rc-core/src/scheduler.rs:30-31`: Hardcoded fallback times if parse fails, then unwrap on default
+- `/root/racecontrol/crates/racecontrol/src/scheduler.rs:30-31`: Hardcoded fallback times if parse fails, then unwrap on default
   ```rust
   let open_time = NaiveTime::parse_from_str(&open, "%H:%M")
     .unwrap_or(NaiveTime::from_hms_opt(10, 0, 0).unwrap());
@@ -105,7 +105,7 @@ fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to
   let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
   ```
 
-**Impact**: Any of these can crash rc-core or rc-agent without graceful degradation.
+**Impact**: Any of these can crash racecontrol or rc-agent without graceful degradation.
 
 ---
 
@@ -117,7 +117,7 @@ fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to
 - Game process failures silenced (game_launcher.rs)
 - Telemetry port monitoring failures discarded
 
-**Example**: `/root/racecontrol/crates/rc-core/src/pod_healer.rs:154`
+**Example**: `/root/racecontrol/crates/racecontrol/src/pod_healer.rs:154`
 ```rust
 if ping.is_err() || !ping.as_ref().unwrap().status().is_success() {
 ```
@@ -188,7 +188,7 @@ pub struct DetectorConfig {
 ---
 
 ### 10. Cloud Sync Race in Wallet Balance
-**File**: `/root/racecontrol/crates/rc-core/src/cloud_sync.rs` + `/root/racecontrol/crates/rc-core/src/wallet.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/cloud_sync.rs` + `/root/racecontrol/crates/racecontrol/src/wallet.rs`
 
 **Scenario**:
 1. Cloud has wallet balance = 5000 paise
@@ -204,7 +204,7 @@ pub struct DetectorConfig {
 ---
 
 ### 11. No Transaction Boundaries in Billing Start
-**File**: `/root/racecontrol/crates/rc-core/src/billing.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/billing.rs`
 
 **Issue**: When a session starts:
 1. Wallet is debited
@@ -245,7 +245,7 @@ let balance_rupees = wallet_balance_paise as f64 / 100.0;  // computed but never
 ---
 
 ### 14. Pod State Management Race Conditions
-**File**: `/root/racecontrol/crates/rc-core/src/pod_monitor.rs` + `state.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/pod_monitor.rs` + `state.rs`
 
 **Problem**: Multiple background tasks (pod monitor, cloud sync, action queue, UDP heartbeat) mutate pod state without clear synchronization:
 
@@ -265,16 +265,16 @@ queue_game_launch(state, pod_id).await;
 ---
 
 ### 15. Game Process Stale Reference Bug
-**File**: `/root/racecontrol/crates/rc-core/src/game_launcher.rs` + memory notes
+**File**: `/root/racecontrol/crates/racecontrol/src/game_launcher.rs` + memory notes
 
-**Known Issue**: `StopGame` doesn't kill AC when rc-core restarts. `game_process` reference becomes stale.
+**Known Issue**: `StopGame` doesn't kill AC when racecontrol restarts. `game_process` reference becomes stale.
 
 **Status**: Documented in MEMORY.md as known issue. Not fixed.
 
 ---
 
 ### 16. Error Aggregation Opaque
-**File**: `/root/racecontrol/crates/rc-core/src/error_aggregator.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/error_aggregator.rs`
 
 **Problem**: Collects errors but unclear how they're exported or monitored. No visible integration with alerting/observability.
 
@@ -283,14 +283,14 @@ queue_game_launch(state, pod_id).await;
 ---
 
 ### 17. Pod Reservation Overbooking Risk
-**File**: `/root/racecontrol/crates/rc-core/src/pod_reservation.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/pod_reservation.rs`
 
 **Risk**: No apparent distributed lock mechanism. If cloud and venue both accept a booking for the same pod at same time, double-booking could occur.
 
 ---
 
 ### 18. Telemetry Port Monitoring Incomplete
-**File**: `/root/racecontrol/crates/rc-core/src/main.rs` + config
+**File**: `/root/racecontrol/crates/racecontrol/src/main.rs` + config
 
 **Ports monitored**: 9996 (AC), 20777 (F1), 5300 (Forza), 6789 (iRacing), 5555 (LMU)
 
@@ -301,7 +301,7 @@ queue_game_launch(state, pod_id).await;
 ### 19. API Keys in Headers Not Rotated
 **Files**:
 - `/root/racecontrol/crates/rc-agent/src/ai_debugger.rs:350`
-- `/root/racecontrol/crates/rc-core/src/ai.rs:121`
+- `/root/racecontrol/crates/racecontrol/src/ai.rs:121`
 
 ```rust
 .header("x-api-key", api_key)
@@ -339,14 +339,14 @@ Some errors return bare strings, others use anyhow context. Mix of `.map_err()` 
 ---
 
 ### 23. Timezone Handling
-**File**: `/root/racecontrol/crates/rc-core/src/config.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/config.rs`
 
 Timezone stored in config but unclear if all timestamps respect it. Scheduler uses `chrono::Local` which depends on system time zone.
 
 ---
 
 ### 24. Catalog Seeding Static
-**File**: `/root/racecontrol/crates/rc-core/src/catalog.rs`
+**File**: `/root/racecontrol/crates/racecontrol/src/catalog.rs`
 
 AC tracks and cars are seeded at startup. Adding new vehicles requires code change + recompile.
 
@@ -440,17 +440,17 @@ Schema changes require manual SQL execution. No version tracking, no rollback ca
 ## File Manifest
 
 **RC-Core** (9 files with concerns):
-- `/root/racecontrol/crates/rc-core/src/config.rs` — default JWT secret
-- `/root/racecontrol/crates/rc-core/src/api/routes.rs` — 9515 lines, unwrap() calls, error silencing
-- `/root/racecontrol/crates/rc-core/src/cloud_sync.rs` — sync fragility, timestamp handling
-- `/root/racecontrol/crates/rc-core/src/billing.rs` — no transaction wrapping, no tests
-- `/root/racecontrol/crates/rc-core/src/wallet.rs` — no tests, CRDT merge untested
-- `/root/racecontrol/crates/rc-core/src/pod_healer.rs` — error silencing, race conditions
-- `/root/racecontrol/crates/rc-core/src/pod_reservation.rs` — overbooking risk
-- `/root/racecontrol/crates/rc-core/src/state.rs` — pod state race conditions
-- `/root/racecontrol/crates/rc-core/src/game_launcher.rs` — stale game process reference
-- `/root/racecontrol/crates/rc-core/src/ai.rs` — API key rotation, hardcoded prompt lengths
-- `/root/racecontrol/crates/rc-core/src/scheduler.rs` — unwrap() on time parsing, timezone handling
+- `/root/racecontrol/crates/racecontrol/src/config.rs` — default JWT secret
+- `/root/racecontrol/crates/racecontrol/src/api/routes.rs` — 9515 lines, unwrap() calls, error silencing
+- `/root/racecontrol/crates/racecontrol/src/cloud_sync.rs` — sync fragility, timestamp handling
+- `/root/racecontrol/crates/racecontrol/src/billing.rs` — no transaction wrapping, no tests
+- `/root/racecontrol/crates/racecontrol/src/wallet.rs` — no tests, CRDT merge untested
+- `/root/racecontrol/crates/racecontrol/src/pod_healer.rs` — error silencing, race conditions
+- `/root/racecontrol/crates/racecontrol/src/pod_reservation.rs` — overbooking risk
+- `/root/racecontrol/crates/racecontrol/src/state.rs` — pod state race conditions
+- `/root/racecontrol/crates/racecontrol/src/game_launcher.rs` — stale game process reference
+- `/root/racecontrol/crates/racecontrol/src/ai.rs` — API key rotation, hardcoded prompt lengths
+- `/root/racecontrol/crates/racecontrol/src/scheduler.rs` — unwrap() on time parsing, timezone handling
 
 **RC-Agent** (6 files with concerns):
 - `/root/racecontrol/crates/rc-agent/src/lock_screen.rs` — HTML hardcoded, unused variables, unwrap() on port parsing

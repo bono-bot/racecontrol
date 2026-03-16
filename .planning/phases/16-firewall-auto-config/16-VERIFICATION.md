@@ -89,7 +89,7 @@ main.rs: Two pre-existing `.unwrap()` calls found — one in the Windows mutex g
 
 ### Unit Test Results
 
-**cargo test -p rc-agent firewall** — 7/7 passing (verified by direct execution):
+**cargo test -p rc-agent-crate firewall** — 7/7 passing (verified by direct execution):
 
 - `test_rule_icmp_is_namespaced` — ok
 - `test_rule_tcp_is_namespaced` — ok
@@ -101,7 +101,7 @@ main.rs: Two pre-existing `.unwrap()` calls found — one in the Windows mutex g
 
 **Regression check:**
 - rc-common: 93 tests passed, 0 failed
-- rc-core: 213 unit + 41 integration = 254 tests passed, 0 failed
+- racecontrol: 213 unit + 41 integration = 254 tests passed, 0 failed
 - rc-agent firewall: 7 tests passed, 0 failed (full suite confirmed by SUMMARY: 184 tests)
 
 ---
@@ -156,7 +156,7 @@ No gaps. All automated checks pass:
 - Key link from firewall.rs to netsh: verified via `Command::new("netsh")` with correct Windows flags
 - All three requirements (FW-01, FW-02, FW-03) satisfied with implementation evidence
 - No anti-patterns introduced by this phase
-- 7/7 unit tests pass; no regressions in rc-common or rc-core
+- 7/7 unit tests pass; no regressions in rc-common or racecontrol
 
 The phase goal is achieved in code. Remaining items are post-deploy canary verification on Pod 8 (human steps), which are outside automated verification scope.
 

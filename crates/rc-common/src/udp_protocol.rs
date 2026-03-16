@@ -1,4 +1,4 @@
-//! UDP Heartbeat Protocol — shared packet format between rc-agent and rc-core.
+//! UDP Heartbeat Protocol — shared packet format between rc-agent and racecontrol.
 //!
 //! Runs alongside WebSocket for fast liveness detection (6s vs 30-60s).
 //! Fixed-size binary packets with zero allocations.

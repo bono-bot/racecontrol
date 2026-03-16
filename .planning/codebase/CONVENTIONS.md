@@ -3,7 +3,7 @@
 ## Rust Conventions
 
 ### Module Structure
-- **Flat module organization**: Modules are declared in `main.rs` and live in `src/` as individual files or subdirectories. Example from rc-core:
+- **Flat module organization**: Modules are declared in `main.rs` and live in `src/` as individual files or subdirectories. Example from racecontrol:
   ```rust
   mod ac_camera;
   mod ac_server;
@@ -39,7 +39,7 @@
 ### Workspace & Dependencies (from Cargo.toml)
 ```toml
 [workspace]
-members = ["crates/rc-common", "crates/rc-core", "crates/rc-agent"]
+members = ["crates/rc-common", "crates/racecontrol", "crates/rc-agent"]
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -49,7 +49,7 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 thiserror = "2"
 sqlx = (implied, from code)
-axum = (implied, for rc-core web framework)
+axum = (implied, for racecontrol web framework)
 ```
 
 ### Common Patterns
@@ -91,7 +91,7 @@ axum = (implied, for rc-core web framework)
   fn default_host() -> String { "0.0.0.0".to_string() }
   fn default_port() -> u16 { 8080 }
   ```
-- **Loading**: `Config::load_or_default()` (implementation in rc-core/src/config.rs)
+- **Loading**: `Config::load_or_default()` (implementation in racecontrol/src/config.rs)
 
 #### SQLx Patterns
 - **Query binding with method chaining**:
@@ -241,7 +241,7 @@ fn render_pin_screen(
   ```
 
 ### React Hooks & State Management
-- **`useKioskSocket`**: WebSocket connection to rc-core, manages pod state, billing timers, telemetry
+- **`useKioskSocket`**: WebSocket connection to racecontrol, manages pod state, billing timers, telemetry
   ```typescript
   const {
     connected,
@@ -333,7 +333,7 @@ fn render_pin_screen(
 
 ### Environment Variables
 - **JWT Secret** (auth.jwt_secret): Set in config or warn if default
-- **Tracing level** (RUST_LOG): Defaults to "rc_core=info,tower_http=info"
+- **Tracing level** (RUST_LOG): Defaults to "racecontrol=info,tower_http=info"
 
 ## Documentation Patterns
 

@@ -32,7 +32,7 @@ Pod 3 is the only pod with a responsive debug server:
 ```
 {"pod":"Pod 3","pod_number":3,"lock_screen_state":"disconnected","debug_server":"ok"}
 ```
-**Lock screen state: disconnected** — confirms the lock screen is showing the "disconnected" state, not connected to rc-core.
+**Lock screen state: disconnected** — confirms the lock screen is showing the "disconnected" state, not connected to racecontrol.
 
 ### Pod 8 Full Log Analysis (Critical Findings)
 
@@ -56,10 +56,10 @@ All 5 telemetry UDP ports failed with "Only one usage of each socket address" �
 
 **3. Debug server failed to bind port 18924** — same error 10048. Previous instance still holding the port.
 
-**4. rc-core unreachable:**
+**4. racecontrol unreachable:**
 - WebSocket target: ws://192.168.31.23:8080/ws/agent
 - Connection timed out on attempts 0-6+ with exponential backoff (1s, 1s, 1s, 2s, 4s, 8s, 16s)
-- UDP heartbeat also reported rc-core unreachable after 6s
+- UDP heartbeat also reported racecontrol unreachable after 6s
 
 **5. Watchdog crash loop:**
 - Watchdog detected pod-agent.exe not running and tried to restart
@@ -74,8 +74,8 @@ All 5 telemetry UDP ports failed with "Only one usage of each socket address" �
 | Pattern | Affected | Root Cause | Phase Fix |
 |---------|----------|------------|-----------|
 | No persistent log file | Pods 1-7 | start script doesn't redirect stdout | Deploy logging start script |
-| rc-core unreachable (WebSocket timeout) | Pod 8 (likely all) | rc-core on .23:8080 not running or unreachable | Phase 7 (ensure rc-core auto-starts) |
-| Lock screen state: disconnected | Pod 3 (confirmed), likely all | No WebSocket connection to rc-core | Phase 7 + Phase 8 |
+| racecontrol unreachable (WebSocket timeout) | Pod 8 (likely all) | racecontrol on .23:8080 not running or unreachable | Phase 7 (ensure racecontrol auto-starts) |
+| Lock screen state: disconnected | Pod 3 (confirmed), likely all | No WebSocket connection to racecontrol | Phase 7 + Phase 8 |
 | UDP port conflicts (10048) | Pod 8 | Multiple rc-agent instances or stale sockets | Existing auto-fix in ai_debugger.rs |
 | Debug server port conflict | Pod 8 | Same as above — dual instance | Same |
 | Watchdog crash loop (pod-agent) | Pod 8 | unwrap() on AddrInUse — pod-agent already running | Pod 8 has v0.4.0 (known bug, v0.5.0 fixes) |
@@ -158,11 +158,11 @@ All 8 pods need the following Phase 9 changes:
 | Port | Expected Service | Status |
 |------|-----------------|--------|
 | **3300** | Staff kiosk (Next.js) | **NOT LISTENING** — kiosk not deployed |
-| **8080** | rc-core (Rust/Axum) | **NOT LISTENING** — rc-core not running |
+| **8080** | racecontrol (Rust/Axum) | **NOT LISTENING** — racecontrol not running |
 | 3389 | RDP | Not listed (may use different protocol) |
 | 22 | SSH | Not listening |
 
-**Impact:** rc-core not running on the server confirms DIAG-01's root cause — all pods timeout connecting to ws://192.168.31.23:8080/ws/agent (which is doubly broken: wrong IP AND service down).
+**Impact:** racecontrol not running on the server confirms DIAG-01's root cause — all pods timeout connecting to ws://192.168.31.23:8080/ws/agent (which is doubly broken: wrong IP AND service down).
 
 ---
 
@@ -234,14 +234,14 @@ This means:
 | Server MAC address | **CONFIRMED** | BC-FC-E7-2C-F2-CE (Marvell AQtion 10Gbit) |
 | DHCP reservation needed? | **YES** | DHCP enabled, lease expires 14 Mar 01:05 — will drift again |
 | Port 3300 free on server? | **YES** | Not listening — safe to deploy kiosk |
-| Port 8080 free on server? | **YES** | Not listening — rc-core needs to be started |
-| rc-core running on 8080? | **NO** | Not running — universal root cause confirmed |
+| Port 8080 free on server? | **YES** | Not listening — racecontrol needs to be started |
+| racecontrol running on 8080? | **NO** | Not running — universal root cause confirmed |
 | Kiosk running on 3300? | **NO** | Not deployed yet |
 | Pod-agent on server? | **YES** | pod-agent.exe on 8090 — remote deploy possible |
 | Edge version consistent? | CONFIRMED | 145.0.3800.97 on all 8 pods |
 | StartupBoost needs disabling? | CONFIRMED | All 8 pods (not set = default enabled) |
 | BackgroundMode needs disabling? | CONFIRMED | All 8 pods (not set = default enabled) |
 | EdgeUpdate needs disabling? | CONFIRMED | All 8 pods (STOPPED but not disabled) |
-| rc-core reachable from pods? | **NO** | Pods hardcoded to .23, server is at .4, and rc-core isn't running anyway |
+| racecontrol reachable from pods? | **NO** | Pods hardcoded to .23, server is at .4, and racecontrol isn't running anyway |
 | Log files available? | **NO** | Only Pod 8 has logs; Pods 1-7 need logging script |
 | .23 identity | **UNKNOWN DEVICE** | Phone/tablet with locally administered MAC |

@@ -17,10 +17,10 @@ created: 2026-03-13
 
 | Property | Value |
 |----------|-------|
-| **Framework** | Rust `cargo test` (rc-common, rc-agent, rc-core) — 47 tests |
+| **Framework** | Rust `cargo test` (rc-common, rc-agent, racecontrol) — 47 tests |
 | **Config file** | `Cargo.toml` (workspace) |
-| **Quick run command** | `cargo test -p rc-common && cargo test -p rc-agent` |
-| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| **Quick run command** | `cargo test -p rc-common && cargo test -p rc-agent-crate` |
+| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 | **Estimated runtime** | ~30 seconds |
 
 No JavaScript test framework exists for the kiosk. Phase 7 tests are primarily operational smoke tests via curl.
@@ -29,7 +29,7 @@ No JavaScript test framework exists for the kiosk. Phase 7 tests are primarily o
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo test -p rc-common && cargo test -p rc-agent` (add `-p rc-core` if CORS patch applied)
+- **After every task commit:** Run `cargo test -p rc-common && cargo test -p rc-agent-crate` (add `-p racecontrol-crate` if CORS patch applied)
 - **After every plan wave:** Run full suite + smoke tests
 - **Before `/gsd:verify-work`:** Full suite + all smoke tests must be green
 - **Max feedback latency:** 30 seconds
@@ -52,7 +52,7 @@ No JavaScript test framework exists for the kiosk. Phase 7 tests are primarily o
 ## Wave 0 Requirements
 
 - [ ] No kiosk JavaScript test framework — operational smoke tests via curl sufficient
-- [ ] CORS patch to `crates/rc-core/src/main.rs` requires `cargo test -p rc-core`
+- [ ] CORS patch to `crates/racecontrol/src/main.rs` requires `cargo test -p racecontrol-crate`
 
 *Existing Rust test infrastructure covers compilation verification for CORS changes.*
 

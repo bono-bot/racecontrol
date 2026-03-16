@@ -19,16 +19,16 @@ created: 2026-03-13
 |----------|-------|
 | **Framework** | Rust built-in + `#[cfg(test)]` modules |
 | **Config file** | None — colocated with source modules |
-| **Quick run command** | `cargo test -p rc-agent && cargo test -p rc-common` |
-| **Full suite command** | `cargo test -p rc-agent && cargo test -p rc-common && cargo test -p rc-core` |
+| **Quick run command** | `cargo test -p rc-agent-crate && cargo test -p rc-common` |
+| **Full suite command** | `cargo test -p rc-agent-crate && cargo test -p rc-common && cargo test -p racecontrol-crate` |
 | **Estimated runtime** | ~15 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo test -p rc-agent && cargo test -p rc-common`
-- **After every plan wave:** Run `cargo test -p rc-agent && cargo test -p rc-common && cargo test -p rc-core`
+- **After every task commit:** Run `cargo test -p rc-agent-crate && cargo test -p rc-common`
+- **After every plan wave:** Run `cargo test -p rc-agent-crate && cargo test -p rc-common && cargo test -p racecontrol-crate`
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 15 seconds
 
@@ -38,13 +38,13 @@ created: 2026-03-13
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 5-01-01 | 01 | 1 | SCREEN-01 | unit | `cargo test -p rc-agent lock_screen` | ❌ W0 | ⬜ pending |
-| 5-01-02 | 01 | 1 | SCREEN-01 | unit | `cargo test -p rc-agent lock_screen` | ❌ W0 | ⬜ pending |
-| 5-02-01 | 02 | 1 | SCREEN-02 | unit | `cargo test -p rc-agent` | ❌ W0 | ⬜ pending |
-| 5-02-02 | 02 | 1 | SCREEN-03 | unit | `cargo test -p rc-agent lock_screen` | ✅ partial | ⬜ pending |
-| 5-03-01 | 03 | 1 | AUTH-01 | unit | `cargo test -p rc-core auth` | ❌ W0 | ⬜ pending |
-| 5-03-02 | 03 | 1 | AUTH-01 | unit | `cargo test -p rc-core auth` | ❌ W0 | ⬜ pending |
-| 5-03-03 | 03 | 1 | PERF-02 | unit timing | `cargo test -p rc-core auth -- --nocapture` | ❌ W0 | ⬜ pending |
+| 5-01-01 | 01 | 1 | SCREEN-01 | unit | `cargo test -p rc-agent-crate lock_screen` | ❌ W0 | ⬜ pending |
+| 5-01-02 | 01 | 1 | SCREEN-01 | unit | `cargo test -p rc-agent-crate lock_screen` | ❌ W0 | ⬜ pending |
+| 5-02-01 | 02 | 1 | SCREEN-02 | unit | `cargo test -p rc-agent-crate` | ❌ W0 | ⬜ pending |
+| 5-02-02 | 02 | 1 | SCREEN-03 | unit | `cargo test -p rc-agent-crate lock_screen` | ✅ partial | ⬜ pending |
+| 5-03-01 | 03 | 1 | AUTH-01 | unit | `cargo test -p racecontrol-crate auth` | ❌ W0 | ⬜ pending |
+| 5-03-02 | 03 | 1 | AUTH-01 | unit | `cargo test -p racecontrol-crate auth` | ❌ W0 | ⬜ pending |
+| 5-03-03 | 03 | 1 | PERF-02 | unit timing | `cargo test -p racecontrol-crate auth -- --nocapture` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -54,7 +54,7 @@ created: 2026-03-13
 
 - [ ] `crates/rc-agent/src/lock_screen.rs` — tests for LaunchSplash state HTML rendering (no system text), is_blanked() for LaunchSplash
 - [ ] `crates/rc-agent/src/lock_screen.rs` — test for transition: show_session_summary() before close_browser()
-- [ ] `crates/rc-core/src/auth/mod.rs` — `#[cfg(test)] mod tests` for validate_pin_inner(): wrong PIN, employee PIN, expired token
+- [ ] `crates/racecontrol/src/auth/mod.rs` — `#[cfg(test)] mod tests` for validate_pin_inner(): wrong PIN, employee PIN, expired token
 - [ ] `crates/rc-agent/src/ac_launcher.rs` — test for extended dialog process list in enforce_safe_state()
 
 *Existing infrastructure covers framework; Wave 0 adds test stubs for phase requirements.*

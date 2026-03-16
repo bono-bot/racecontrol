@@ -40,7 +40,7 @@ Phase 14 builds on a complete schema foundation. Every table this phase needs �
 
 The gap is entirely in three layers: (1) the staff-facing API endpoints to create events and championships, (2) the automatic lap-to-event matching logic inside `persist_lap()`, (3) the public read endpoints and PWA pages, and (4) cloud_sync.rs extension to push competitive tables. All four layers have clear implementation patterns established by Phases 12 and 13. The group session scoring (GRP-01 through GRP-04) is the most novel logic — it requires connecting the existing `group_sessions`/`group_session_members`/`multiplayer_results` data to the `hotlap_events` competitive framework, and applying F1 points arithmetic. The championship tiebreaker (CHP-04) requires tracking per-position finish counts that are not currently in `championship_standings`; this is the only schema gap — two ALTER TABLE statements to add `p2_count` and `p3_count` columns.
 
-**Primary recommendation:** Build in five layers — (1) staff event/championship CRUD endpoints, (2) auto-entry hook in `persist_lap()`, (3) group scoring logic on session completion, (4) public read endpoints + PWA pages, (5) cloud_sync extension. Each layer is independently testable with the existing `cargo test -p rc-core` infrastructure.
+**Primary recommendation:** Build in five layers — (1) staff event/championship CRUD endpoints, (2) auto-entry hook in `persist_lap()`, (3) group scoring logic on session completion, (4) public read endpoints + PWA pages, (5) cloud_sync extension. Each layer is independently testable with the existing `cargo test -p racecontrol-crate` infrastructure.
 
 ---
 
@@ -79,7 +79,7 @@ This is what the schema encodes via `scoring_system = 'f1_2010'`.
 ### Recommended Project Structure (Phase 14 additions)
 
 ```
-crates/rc-core/src/
+crates/racecontrol/src/
 ├── db/mod.rs              MODIFY: 2 ALTER TABLE for championship tiebreaker counts
 ├── lap_tracker.rs         MODIFY: add auto-event-entry after lap insert
 ├── api/routes.rs          MODIFY: staff endpoints + public endpoints + cloud sync push
@@ -102,7 +102,7 @@ pwa/src/
 Staff endpoints use the existing `check_terminal_auth()` function. This is the pattern for all staff-only write operations:
 
 ```rust
-// Source: crates/rc-core/src/api/routes.rs line 5968, 6911
+// Source: crates/racecontrol/src/api/routes.rs line 5968, 6911
 async fn create_hotlap_event(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -282,7 +282,7 @@ No auth middleware — follow the same no-auth setup as Phase 13's `/public/driv
 ### Pattern 6: Cloud Sync Extension (follow existing collect_push_payload pattern exactly)
 
 ```rust
-// Source: crates/rc-core/src/cloud_sync.rs lines 246-461 — add these sections
+// Source: crates/racecontrol/src/cloud_sync.rs lines 246-461 — add these sections
 // Add after billing_events section, before Ok((payload, has_data))
 
 // Competitive tables: always push all (small tables, venue-authoritative)
@@ -669,62 +669,62 @@ nyquist_validation is enabled (config.json).
 
 | Property | Value |
 |----------|-------|
-| Framework | Rust `#[tokio::test]` (in-memory SQLite) — existing `crates/rc-core/tests/integration.rs` |
+| Framework | Rust `#[tokio::test]` (in-memory SQLite) — existing `crates/racecontrol/tests/integration.rs` |
 | Config file | Cargo.toml (auto-discovered) |
-| Quick run command | `cargo test -p rc-core test_event` |
-| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| Quick run command | `cargo test -p racecontrol-crate test_event` |
+| Full suite command | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| EVT-01 | Staff create event inserts row with all columns | unit | `cargo test -p rc-core test_create_hotlap_event` | Wave 0 |
-| EVT-02 | Lap matching track+car_class+sim_type+date enters event automatically | unit | `cargo test -p rc-core test_auto_event_entry` | Wave 0 |
-| EVT-02 | Lap NOT matching (wrong car_class) does NOT enter event | unit | `cargo test -p rc-core test_auto_entry_no_match` | Wave 0 |
-| EVT-02 | Lap outside date range does NOT enter event | unit | `cargo test -p rc-core test_auto_entry_date_range` | Wave 0 |
-| EVT-02 | Second faster lap for same driver replaces existing entry | unit | `cargo test -p rc-core test_auto_entry_faster_lap` | Wave 0 |
-| EVT-02 | Slower second lap does NOT replace existing entry | unit | `cargo test -p rc-core test_auto_entry_no_replace_slower` | Wave 0 |
-| EVT-03 | Public event leaderboard returns position/driver/time/gap | unit | `cargo test -p rc-core test_public_event_leaderboard` | Wave 0 |
-| EVT-04 | Event leaderboard groups correctly by car class | unit | `cargo test -p rc-core test_event_per_class_tabs` | Wave 0 |
-| EVT-05 | 107% rule: entry at 108% of leader gets within_107_percent=0 | unit | `cargo test -p rc-core test_107_percent_rule` | Wave 0 |
-| EVT-05 | Entry at exactly 107% gets within_107_percent=1 (boundary) | unit | `cargo test -p rc-core test_107_boundary` | Wave 0 |
-| EVT-06 | Gold badge when lap_ms / ref_ms <= 1.02 | unit | `cargo test -p rc-core test_badge_gold` | Wave 0 |
-| EVT-06 | Silver badge when 1.02 < ratio <= 1.05 | unit | `cargo test -p rc-core test_badge_silver` | Wave 0 |
-| EVT-06 | Bronze badge when 1.05 < ratio <= 1.08 | unit | `cargo test -p rc-core test_badge_bronze` | Wave 0 |
-| EVT-06 | No badge when reference_time_ms IS NULL | unit | `cargo test -p rc-core test_badge_no_reference` | Wave 0 |
-| EVT-07 | Public events list returns active + completed events | unit | `cargo test -p rc-core test_public_events_list` | Wave 0 |
-| GRP-01 | F1 points: P1=25, P2=18, P3=15, DNF=0 | unit | `cargo test -p rc-core test_f1_points_scoring` | Wave 0 |
-| GRP-01 | DNS/DNF entries get 0 points regardless of position | unit | `cargo test -p rc-core test_dns_dnf_zero_points` | Wave 0 |
-| GRP-04 | gap_to_leader_ms = entry_ms - min(entry_ms) for all entries | unit | `cargo test -p rc-core test_gap_to_leader` | Wave 0 |
-| CHP-02 | Championship standings = SUM of F1 points across rounds | unit | `cargo test -p rc-core test_championship_standings_sum` | Wave 0 |
-| CHP-04 | Tiebreaker: driver with more wins ranks higher at equal points | unit | `cargo test -p rc-core test_championship_tiebreaker_wins` | Wave 0 |
-| CHP-04 | Tiebreaker: equal wins → more P2s ranks higher | unit | `cargo test -p rc-core test_championship_tiebreaker_p2` | Wave 0 |
-| CHP-05 | result_status CHECK: 'dns' inserts without error | unit | `cargo test -p rc-core test_result_status_dns` | ✅ (existing test_competitive_tables covers insert) |
-| SYNC-01 | collect_push_payload includes hotlap_events when updated_at > last_push | unit | `cargo test -p rc-core test_sync_competitive_tables` | Wave 0 |
-| SYNC-02 | Telemetry sync only includes laps referenced in hotlap_event_entries | unit | `cargo test -p rc-core test_sync_targeted_telemetry` | Wave 0 |
+| EVT-01 | Staff create event inserts row with all columns | unit | `cargo test -p racecontrol-crate test_create_hotlap_event` | Wave 0 |
+| EVT-02 | Lap matching track+car_class+sim_type+date enters event automatically | unit | `cargo test -p racecontrol-crate test_auto_event_entry` | Wave 0 |
+| EVT-02 | Lap NOT matching (wrong car_class) does NOT enter event | unit | `cargo test -p racecontrol-crate test_auto_entry_no_match` | Wave 0 |
+| EVT-02 | Lap outside date range does NOT enter event | unit | `cargo test -p racecontrol-crate test_auto_entry_date_range` | Wave 0 |
+| EVT-02 | Second faster lap for same driver replaces existing entry | unit | `cargo test -p racecontrol-crate test_auto_entry_faster_lap` | Wave 0 |
+| EVT-02 | Slower second lap does NOT replace existing entry | unit | `cargo test -p racecontrol-crate test_auto_entry_no_replace_slower` | Wave 0 |
+| EVT-03 | Public event leaderboard returns position/driver/time/gap | unit | `cargo test -p racecontrol-crate test_public_event_leaderboard` | Wave 0 |
+| EVT-04 | Event leaderboard groups correctly by car class | unit | `cargo test -p racecontrol-crate test_event_per_class_tabs` | Wave 0 |
+| EVT-05 | 107% rule: entry at 108% of leader gets within_107_percent=0 | unit | `cargo test -p racecontrol-crate test_107_percent_rule` | Wave 0 |
+| EVT-05 | Entry at exactly 107% gets within_107_percent=1 (boundary) | unit | `cargo test -p racecontrol-crate test_107_boundary` | Wave 0 |
+| EVT-06 | Gold badge when lap_ms / ref_ms <= 1.02 | unit | `cargo test -p racecontrol-crate test_badge_gold` | Wave 0 |
+| EVT-06 | Silver badge when 1.02 < ratio <= 1.05 | unit | `cargo test -p racecontrol-crate test_badge_silver` | Wave 0 |
+| EVT-06 | Bronze badge when 1.05 < ratio <= 1.08 | unit | `cargo test -p racecontrol-crate test_badge_bronze` | Wave 0 |
+| EVT-06 | No badge when reference_time_ms IS NULL | unit | `cargo test -p racecontrol-crate test_badge_no_reference` | Wave 0 |
+| EVT-07 | Public events list returns active + completed events | unit | `cargo test -p racecontrol-crate test_public_events_list` | Wave 0 |
+| GRP-01 | F1 points: P1=25, P2=18, P3=15, DNF=0 | unit | `cargo test -p racecontrol-crate test_f1_points_scoring` | Wave 0 |
+| GRP-01 | DNS/DNF entries get 0 points regardless of position | unit | `cargo test -p racecontrol-crate test_dns_dnf_zero_points` | Wave 0 |
+| GRP-04 | gap_to_leader_ms = entry_ms - min(entry_ms) for all entries | unit | `cargo test -p racecontrol-crate test_gap_to_leader` | Wave 0 |
+| CHP-02 | Championship standings = SUM of F1 points across rounds | unit | `cargo test -p racecontrol-crate test_championship_standings_sum` | Wave 0 |
+| CHP-04 | Tiebreaker: driver with more wins ranks higher at equal points | unit | `cargo test -p racecontrol-crate test_championship_tiebreaker_wins` | Wave 0 |
+| CHP-04 | Tiebreaker: equal wins → more P2s ranks higher | unit | `cargo test -p racecontrol-crate test_championship_tiebreaker_p2` | Wave 0 |
+| CHP-05 | result_status CHECK: 'dns' inserts without error | unit | `cargo test -p racecontrol-crate test_result_status_dns` | ✅ (existing test_competitive_tables covers insert) |
+| SYNC-01 | collect_push_payload includes hotlap_events when updated_at > last_push | unit | `cargo test -p racecontrol-crate test_sync_competitive_tables` | Wave 0 |
+| SYNC-02 | Telemetry sync only includes laps referenced in hotlap_event_entries | unit | `cargo test -p racecontrol-crate test_sync_targeted_telemetry` | Wave 0 |
 | SYNC-03 | /sync/push handler does NOT write to hotlap_events (venue only) | integration | manual curl test + code review | N/A |
 
 ### Sampling Rate
 
-- **Per task commit:** `cargo test -p rc-core 2>&1 | tail -5`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p racecontrol-crate 2>&1 | tail -5`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_auto_event_entry` (EVT-02 happy path)
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_auto_entry_no_match` (wrong car_class)
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_auto_entry_date_range` (expired event)
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_auto_entry_faster_lap` (replace on faster)
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_auto_entry_no_replace_slower`
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_107_percent_rule` + `test_107_boundary`
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_badge_gold/silver/bronze/no_reference`
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_f1_points_scoring` + `test_dns_dnf_zero_points`
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_championship_standings_sum`
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_championship_tiebreaker_wins/p2`
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_sync_competitive_tables`
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_sync_targeted_telemetry`
-- [ ] `crates/rc-core/tests/integration.rs` — verify `run_test_migrations()` includes Phase 14 `ALTER TABLE` additions for `group_sessions.hotlap_event_id` and `championship_standings.p2_count / p3_count`
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_auto_event_entry` (EVT-02 happy path)
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_auto_entry_no_match` (wrong car_class)
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_auto_entry_date_range` (expired event)
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_auto_entry_faster_lap` (replace on faster)
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_auto_entry_no_replace_slower`
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_107_percent_rule` + `test_107_boundary`
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_badge_gold/silver/bronze/no_reference`
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_f1_points_scoring` + `test_dns_dnf_zero_points`
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_championship_standings_sum`
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_championship_tiebreaker_wins/p2`
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_sync_competitive_tables`
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_sync_targeted_telemetry`
+- [ ] `crates/racecontrol/tests/integration.rs` — verify `run_test_migrations()` includes Phase 14 `ALTER TABLE` additions for `group_sessions.hotlap_event_id` and `championship_standings.p2_count / p3_count`
 - [ ] Confirm whether `multiplayer_results` table exists in production schema — check with `SELECT name FROM sqlite_master WHERE type='table'` on venue DB; add migration if absent
 
 ---
@@ -733,16 +733,16 @@ nyquist_validation is enabled (config.json).
 
 ### Primary (HIGH confidence — direct codebase inspection)
 
-- `crates/rc-core/src/db/mod.rs` lines 1816-1957 — confirmed all 6 competitive tables with exact column names, types, CHECK constraints, indexes, and FKs
-- `crates/rc-core/src/db/mod.rs` lines 1959-1968 — confirmed `car_class` on laps + `suspect` column both present
-- `crates/rc-core/src/lap_tracker.rs` lines 1-160 — full `persist_lap()` flow confirmed; car_class lookup, suspect flag, personal best, track record — insertion point for auto-entry is clear
-- `crates/rc-core/src/api/routes.rs` lines 247-255 — confirmed public route registration pattern for Phase 14 additions
-- `crates/rc-core/src/api/routes.rs` lines 6911-6937 — `check_terminal_auth()` confirmed for staff endpoints
-- `crates/rc-core/src/api/routes.rs` lines 10899-10942 — `customer_multiplayer_results` confirmed; reads from `multiplayer_results` table
-- `crates/rc-core/src/cloud_sync.rs` lines 246-461 — `collect_push_payload()` full structure confirmed; extension points identified for SYNC-01/02
-- `crates/rc-core/src/cloud_sync.rs` line 18 — `SYNC_TABLES` constant confirmed as not including competitive tables
+- `crates/racecontrol/src/db/mod.rs` lines 1816-1957 — confirmed all 6 competitive tables with exact column names, types, CHECK constraints, indexes, and FKs
+- `crates/racecontrol/src/db/mod.rs` lines 1959-1968 — confirmed `car_class` on laps + `suspect` column both present
+- `crates/racecontrol/src/lap_tracker.rs` lines 1-160 — full `persist_lap()` flow confirmed; car_class lookup, suspect flag, personal best, track record — insertion point for auto-entry is clear
+- `crates/racecontrol/src/api/routes.rs` lines 247-255 — confirmed public route registration pattern for Phase 14 additions
+- `crates/racecontrol/src/api/routes.rs` lines 6911-6937 — `check_terminal_auth()` confirmed for staff endpoints
+- `crates/racecontrol/src/api/routes.rs` lines 10899-10942 — `customer_multiplayer_results` confirmed; reads from `multiplayer_results` table
+- `crates/racecontrol/src/cloud_sync.rs` lines 246-461 — `collect_push_payload()` full structure confirmed; extension points identified for SYNC-01/02
+- `crates/racecontrol/src/cloud_sync.rs` line 18 — `SYNC_TABLES` constant confirmed as not including competitive tables
 - `pwa/src/lib/api.ts` lines 926-969 — `publicApi` object confirmed; 5 new methods needed for Phase 14 events/championships
-- `crates/rc-core/tests/integration.rs` lines 1280-1350 — competitive table insert tests confirmed; `run_test_migrations()` already includes all 6 tables
+- `crates/racecontrol/tests/integration.rs` lines 1280-1350 — competitive table insert tests confirmed; `run_test_migrations()` already includes all 6 tables
 - `.planning/STATE.md` — confirmed pre-phase decision: "Championship scoring edge cases (DNS/DNF, tiebreaker, round cancellation) need characterization tests before implementing scoring logic"
 - `.planning/phases/12-data-foundation/12-01-SUMMARY.md` — confirmed tables + indexes in production schema
 - `.planning/phases/13-leaderboard-core/13-05-SUMMARY.md` — confirmed PWA page pattern, publicApi pattern, formatting conventions for Phase 14 to follow

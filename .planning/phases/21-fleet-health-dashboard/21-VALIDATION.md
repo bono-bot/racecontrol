@@ -19,8 +19,8 @@ created: 2026-03-15
 |----------|-------|
 | **Framework** | cargo test (Rust) + Next.js build check |
 | **Config file** | Cargo.toml workspace + kiosk/package.json |
-| **Quick run command** | `cargo test -p rc-core` |
-| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-core && cd kiosk && npx next build` |
+| **Quick run command** | `cargo test -p racecontrol-crate` |
+| **Full suite command** | `cargo test -p rc-common && cargo test -p racecontrol-crate && cd kiosk && npx next build` |
 | **Estimated runtime** | ~30 seconds |
 
 ---
@@ -38,9 +38,9 @@ created: 2026-03-15
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 21-01-01 | 01 | 1 | FLEET-01 | unit | `cargo test -p rc-core fleet` | ✅ | ⬜ pending |
-| 21-01-02 | 01 | 1 | FLEET-02 | unit | `cargo test -p rc-core fleet` | ✅ | ⬜ pending |
-| 21-01-03 | 01 | 1 | FLEET-03 | unit | `cargo test -p rc-core fleet` | ✅ | ⬜ pending |
+| 21-01-01 | 01 | 1 | FLEET-01 | unit | `cargo test -p racecontrol-crate fleet` | ✅ | ⬜ pending |
+| 21-01-02 | 01 | 1 | FLEET-02 | unit | `cargo test -p racecontrol-crate fleet` | ✅ | ⬜ pending |
+| 21-01-03 | 01 | 1 | FLEET-03 | unit | `cargo test -p racecontrol-crate fleet` | ✅ | ⬜ pending |
 | 21-02-01 | 02 | 2 | FLEET-01 | build | `cd kiosk && npx next build` | ✅ | ⬜ pending |
 | 21-02-02 | 02 | 2 | FLEET-01 | manual | Phone browser check | N/A | ⬜ pending |
 
@@ -52,7 +52,7 @@ created: 2026-03-15
 
 Existing infrastructure covers all phase requirements. No new test frameworks needed.
 
-- [x] `crates/rc-core/src/` — existing test infrastructure with 225+ unit tests
+- [x] `crates/racecontrol/src/` — existing test infrastructure with 225+ unit tests
 - [x] `kiosk/` — existing Next.js app with build pipeline
 
 *All test infrastructure already exists.*

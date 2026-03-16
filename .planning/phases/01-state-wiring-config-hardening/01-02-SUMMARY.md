@@ -6,7 +6,7 @@ tags: [pod-agent, deploy, http-status, exec, config]
 dependency_graph:
   requires: []
   provides: [honest-exec-http-codes, deploy-pod-script, rc-agent-config-template]
-  affects: [rc-core/pod_monitor, deploy-staging/workflow]
+  affects: [racecontrol/pod_monitor, deploy-staging/workflow]
 tech_stack:
   added: [serial_test, http-body-util, tower (dev-deps)]
   patterns: [TDD-red-green, argparse-cli, template-substitution]
@@ -53,7 +53,7 @@ Added 5 unit tests (`#[cfg(test)] mod tests`):
 
 Added dev-deps: `tower`, `http-body-util`, `serial_test` (prevents semaphore contention in parallel test runs).
 
-**Why this matters:** `rc-core/pod_monitor.rs` checks `resp.status().is_success()` to decide if a restart command succeeded. Previously all responses were HTTP 200, so pod_monitor thought failed restarts succeeded and stopped retrying.
+**Why this matters:** `racecontrol/pod_monitor.rs` checks `resp.status().is_success()` to decide if a restart command succeeded. Previously all responses were HTTP 200, so pod_monitor thought failed restarts succeeded and stopped retrying.
 
 ### Task 2: Deploy helper script
 

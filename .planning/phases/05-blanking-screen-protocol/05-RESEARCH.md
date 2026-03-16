@@ -91,9 +91,9 @@ The three gaps are: (1) transition ordering — game must be killed AFTER lock s
 | LockScreenManager | `crates/rc-agent/src/lock_screen.rs` | Full lock screen lifecycle — state machine, HTTP server, Edge kiosk launch |
 | enforce_safe_state() | `crates/rc-agent/src/ac_launcher.rs:956` | Kills games + dialogs + minimizes windows + foregrounds kiosk |
 | cleanup_after_session() | `crates/rc-agent/src/ac_launcher.rs:903` | Post-session kill sequence |
-| validate_pin() | `crates/rc-core/src/auth/mod.rs:323` | Pod-scoped PIN validation |
-| validate_pin_kiosk() | `crates/rc-core/src/auth/mod.rs:1057` | Cross-pod PIN validation for kiosk/PWA |
-| handle_pin_entered() | `crates/rc-core/src/auth/mod.rs:1021` | WS handler that calls validate_pin() and sends PinFailed back |
+| validate_pin() | `crates/racecontrol/src/auth/mod.rs:323` | Pod-scoped PIN validation |
+| validate_pin_kiosk() | `crates/racecontrol/src/auth/mod.rs:1057` | Cross-pod PIN validation for kiosk/PWA |
+| handle_pin_entered() | `crates/racecontrol/src/auth/mod.rs:1021` | WS handler that calls validate_pin() and sends PinFailed back |
 | suppress_notifications() | `crates/rc-agent/src/lock_screen.rs:433` | Focus Assist registry toggle — already called from show_blank_screen() |
 
 ### Group Policy / Registry (one-time pod setup — no Rust changes needed)
@@ -377,7 +377,7 @@ Option 2 is simpler — agent already receives `BillingStarted { driver_name }` 
 ### Unified PIN Validation Inner Function
 
 ```rust
-// In rc-core/src/auth/mod.rs
+// In racecontrol/src/auth/mod.rs
 
 #[derive(Debug, Clone, Copy)]
 pub enum PinSource {
@@ -523,22 +523,22 @@ Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 |----------|-------|
 | Framework | Rust built-in + `#[cfg(test)]` modules |
 | Config file | None — colocated with source modules |
-| Quick run command | `cargo test -p rc-agent && cargo test -p rc-common` |
-| Full suite command | `cargo test -p rc-agent && cargo test -p rc-common && cargo test -p rc-core` |
+| Quick run command | `cargo test -p rc-agent-crate && cargo test -p rc-common` |
+| Full suite command | `cargo test -p rc-agent-crate && cargo test -p rc-common && cargo test -p racecontrol-crate` |
 
 **Current test count:** 47 tests in rc-agent (ai_debugger: 9, driving_detector: 7, ffb_controller: 2, lock_screen: 6, overlay: 5, sims: 5, main: 13)
 
 ### Phase Requirements → Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| SCREEN-01 | session_end shows lock screen before killing game | unit (pure fn, no IO) | `cargo test -p rc-agent lock_screen` | ❌ Wave 0 |
-| SCREEN-01 | launch_splash state renders branded HTML (no paths/system text) | unit | `cargo test -p rc-agent lock_screen` | ❌ Wave 0 |
-| SCREEN-02 | enforce_safe_state kills extended dialog process list | unit (mock Command) | `cargo test -p rc-agent` | ❌ Wave 0 |
-| SCREEN-03 | pin_error HTML contains no file path strings | unit | `cargo test -p rc-agent lock_screen` | ❌ Wave 0 |
-| SCREEN-03 | config_error page renders generic message only | unit | `cargo test -p rc-agent lock_screen::tests::health_degraded_for_config_error` | ✅ exists (partial) |
-| AUTH-01 | validate_pin_inner returns identical error string from pod path | unit (in-memory SQLite) | `cargo test -p rc-core auth` | ❌ Wave 0 |
-| AUTH-01 | validate_pin_inner returns identical error string from kiosk path | unit (in-memory SQLite) | `cargo test -p rc-core auth` | ❌ Wave 0 |
-| PERF-02 | validate_pin_inner completes within 200ms on local SQLite | unit timing test | `cargo test -p rc-core auth -- --nocapture` | ❌ Wave 0 |
+| SCREEN-01 | session_end shows lock screen before killing game | unit (pure fn, no IO) | `cargo test -p rc-agent-crate lock_screen` | ❌ Wave 0 |
+| SCREEN-01 | launch_splash state renders branded HTML (no paths/system text) | unit | `cargo test -p rc-agent-crate lock_screen` | ❌ Wave 0 |
+| SCREEN-02 | enforce_safe_state kills extended dialog process list | unit (mock Command) | `cargo test -p rc-agent-crate` | ❌ Wave 0 |
+| SCREEN-03 | pin_error HTML contains no file path strings | unit | `cargo test -p rc-agent-crate lock_screen` | ❌ Wave 0 |
+| SCREEN-03 | config_error page renders generic message only | unit | `cargo test -p rc-agent-crate lock_screen::tests::health_degraded_for_config_error` | ✅ exists (partial) |
+| AUTH-01 | validate_pin_inner returns identical error string from pod path | unit (in-memory SQLite) | `cargo test -p racecontrol-crate auth` | ❌ Wave 0 |
+| AUTH-01 | validate_pin_inner returns identical error string from kiosk path | unit (in-memory SQLite) | `cargo test -p racecontrol-crate auth` | ❌ Wave 0 |
+| PERF-02 | validate_pin_inner completes within 200ms on local SQLite | unit timing test | `cargo test -p racecontrol-crate auth -- --nocapture` | ❌ Wave 0 |
 
 **Manual verification (no automated path):**
 - Transition ordering: Deploy to Pod 8, end a session, visually confirm no desktop flash
@@ -546,14 +546,14 @@ Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 - Taskbar hiding: Apply registry change on Pod 8, reboot, confirm taskbar not visible
 
 ### Sampling Rate
-- **Per task commit:** `cargo test -p rc-agent && cargo test -p rc-common`
-- **Per wave merge:** `cargo test -p rc-agent && cargo test -p rc-common && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p rc-agent-crate && cargo test -p rc-common`
+- **Per wave merge:** `cargo test -p rc-agent-crate && cargo test -p rc-common && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 - [ ] `crates/rc-agent/src/lock_screen.rs` — add tests for `LaunchSplash` state HTML rendering (no system text), `is_blanked()` returns true for `LaunchSplash`
 - [ ] `crates/rc-agent/src/lock_screen.rs` — add test for transition: `show_session_summary()` called before `close_browser()` in mock scenario
-- [ ] `crates/rc-core/src/auth/mod.rs` — add `#[cfg(test)] mod tests` block with in-memory SQLite tests for `validate_pin_inner()`: wrong PIN returns standard message, employee PIN accepted, expired token rejected
+- [ ] `crates/racecontrol/src/auth/mod.rs` — add `#[cfg(test)] mod tests` block with in-memory SQLite tests for `validate_pin_inner()`: wrong PIN returns standard message, employee PIN accepted, expired token rejected
 - [ ] `crates/rc-agent/src/ac_launcher.rs` — add test for extended dialog process list in `enforce_safe_state()` — verify process names are in the kill list (pure constant inspection, no IO)
 
 ---
@@ -565,9 +565,9 @@ Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 - `crates/rc-agent/src/ac_launcher.rs` — cleanup_after_session, enforce_safe_state, minimize_background_windows, bring_game_to_foreground
 - `crates/rc-agent/src/ai_debugger.rs` — fix_kill_error_dialogs, PROTECTED_PROCESSES list
 - `crates/rc-agent/src/main.rs` — SessionEnded handler (lines 832-857), LaunchGame handler (lines 858+), PinEntered event handler (lines 767-779)
-- `crates/rc-core/src/auth/mod.rs` — validate_pin, validate_pin_kiosk, handle_pin_entered, KioskPinResult
-- `crates/rc-core/src/api/routes.rs` — route definitions: /auth/validate-pin, /auth/kiosk/validate-pin, /staff/validate-pin
-- `cargo test -p rc-agent -- --list` — confirmed 47 tests, all passing
+- `crates/racecontrol/src/auth/mod.rs` — validate_pin, validate_pin_kiosk, handle_pin_entered, KioskPinResult
+- `crates/racecontrol/src/api/routes.rs` — route definitions: /auth/validate-pin, /auth/kiosk/validate-pin, /staff/validate-pin
+- `cargo test -p rc-agent-crate -- --list` — confirmed 47 tests, all passing
 
 ### Secondary (MEDIUM confidence)
 - Windows Registry documentation (StuckRects3, NoWinKeys) — well-known kiosk configuration keys, widely documented for Windows 10/11

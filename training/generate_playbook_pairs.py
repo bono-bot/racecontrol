@@ -41,12 +41,12 @@ PLAYBOOK_TEMPLATES = [
         ],
         "answer": (
             "Blank screen during active session has several possible causes:\n\n"
-            "1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). "
-            "Check rc-core logs for 'Resynced billing session'.\n\n"
+            "1. **rc-agent restarted during session**: racecontrol now re-sends BillingStarted on agent reconnect (fix 273db1c). "
+            "Check racecontrol logs for 'Resynced billing session'.\n\n"
             "2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. "
             "Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n"
             "3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n"
-            "4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. "
+            "4. **WebSocket disconnected**: Check if rc-agent connected to racecontrol. "
             "Quick fix: `POST /api/v1/pods/pod_{num}/screen` with `{{\"blank\": false}}`.\n\n"
             "Debug checklist:\n"
             "- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n"
@@ -126,27 +126,27 @@ PLAYBOOK_TEMPLATES = [
             "wait 3s, then download.\n\n"
             "**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\n"
             "Deploy checklist:\n"
-            "1. Build: `cargo build -p rc-agent --release`\n"
+            "1. Build: `cargo build -p rc-agent-crate --release`\n"
             "2. Update EXPECTED_SIZE in deploy script\n"
             "3. Start HTTP server: `python3 -m http.server 8888`\n"
             "4. Run: `python3 deploy-rc-agent.py`"
         ),
     },
-    # Category 6: rc-core binary locked
+    # Category 6: racecontrol binary locked
     {
         "questions": [
-            "cargo build for rc-core fails with 'Access is denied'.",
+            "cargo build for racecontrol fails with 'Access is denied'.",
             "Can't rebuild racecontrol.exe, file is locked.",
             "Build error: Access denied on target/release/racecontrol.exe.",
         ],
         "answer": (
-            "rc-core (racecontrol.exe) is still running and Windows locks the file.\n\n"
+            "racecontrol (racecontrol.exe) is still running and Windows locks the file.\n\n"
             "Fix:\n"
-            "1. Stop rc-core: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n"
+            "1. Stop racecontrol: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n"
             "2. Wait 3 seconds\n"
-            "3. Rebuild: `cargo build -p rc-core --release`\n"
+            "3. Rebuild: `cargo build -p racecontrol-crate --release`\n"
             "4. Restart: `./target/release/racecontrol.exe &`\n\n"
-            "Warning: Stopping rc-core drops all WebSocket connections. All rc-agents disconnect briefly. "
+            "Warning: Stopping racecontrol drops all WebSocket connections. All rc-agents disconnect briefly. "
             "Active billing sessions survive — recovered from DB on restart."
         ),
     },
@@ -155,10 +155,10 @@ PLAYBOOK_TEMPLATES = [
         "questions": [
             "Pod {num} shows overlay timer from a previous session that ended.",
             "Overlay countdown on pod {num} keeps running but kiosk says pod is idle.",
-            "Stale billing overlay on pod {num} after rc-core restart.",
+            "Stale billing overlay on pod {num} after racecontrol restart.",
         ],
         "answer": (
-            "Stale overlay timer after rc-core restart — fixed in f74a5f9.\n\n"
+            "Stale overlay timer after racecontrol restart — fixed in f74a5f9.\n\n"
             "Root cause: Two bugs:\n"
             "1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n"
             "2. `end_billing_session()` only checked in-memory timers, not DB\n\n"
@@ -220,7 +220,7 @@ PLAYBOOK_TEMPLATES = [
             "2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n"
             "3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n"
             "4. **Register handler missing restore**: After billing resync, pod state is updated.\n\n"
-            "If running latest code and still seeing this, check rc-core logs for heartbeat merge behavior."
+            "If running latest code and still seeing this, check racecontrol logs for heartbeat merge behavior."
         ),
     },
     # Category 11: Windows Defender false positive

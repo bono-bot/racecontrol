@@ -32,7 +32,7 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/pod_healer.rs
+    - crates/racecontrol/src/pod_healer.rs
 
 key-decisions:
   - "Healer reads pod_watchdog_states but never writes it — FSM transitions are pod_monitor's exclusive job"
@@ -78,7 +78,7 @@ completed: 2026-03-13
 
 ## Files Created/Modified
 
-- `crates/rc-core/src/pod_healer.rs` - WatchdogState skip check at top of heal_pod(), is_closed() WS liveness, needs_restart flag in Rule 2, record_attempt removal, 9 unit tests
+- `crates/racecontrol/src/pod_healer.rs` - WatchdogState skip check at top of heal_pod(), is_closed() WS liveness, needs_restart flag in Rule 2, record_attempt removal, 9 unit tests
 
 ## Decisions Made
 
@@ -98,7 +98,7 @@ None.
 
 - Healer/monitor boundary is now clean: healer detects problems and flags them; monitor owns the restart lifecycle
 - pod_needs_restart flag is set correctly — pod_monitor (Plan 02-02) can consume it to trigger restarts
-- All 83 rc-core tests pass with no regressions
+- All 83 racecontrol tests pass with no regressions
 
 ---
 *Phase: 02-watchdog-hardening*
@@ -109,7 +109,7 @@ None.
 - [x] SUMMARY.md created: `.planning/phases/02-watchdog-hardening/02-03-SUMMARY.md`
 - [x] Commit 8d2afe9 exists: `feat(02-03): WatchdogState skip logic + WS liveness fix in pod_healer`
 - [x] Commit 8f206c6 exists: `feat(02-03): set needs_restart flag for genuine rc-agent failures`
-- [x] All 83 rc-core tests pass
-- [x] cargo build -p rc-core clean (only pre-existing warnings)
+- [x] All 83 racecontrol tests pass
+- [x] cargo build -p racecontrol-crate clean (only pre-existing warnings)
 - [x] Grep: contains_key not used for WS liveness in pod_healer.rs
 - [x] Grep: record_attempt not called in pod_healer.rs (comment only)

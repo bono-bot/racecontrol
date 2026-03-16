@@ -29,7 +29,7 @@ The current schema at the end of `db/mod.rs` (lines 1-1790, confirmed via direct
 
 Six new tables must be added as idempotent `CREATE TABLE IF NOT EXISTS` statements appended to the `migrate()` function. The `laps` table needs a `car_class` column via `ALTER TABLE ... ADD COLUMN` (the established pattern in this codebase). The `lap_tracker.rs` `persist_lap()` function must be extended to populate `car_class` by looking up the active billing session's `experience_id` in `kiosk_experiences`. All of these changes run at startup on both venue and cloud instances — the schema must be identical on both sides for the sync to work.
 
-**Primary recommendation:** Add all indexes, pragmas, new tables, and the cloud_driver_id column as one contiguous block at the end of `migrate()` in `db/mod.rs`, then extend `persist_lap()` in `lap_tracker.rs` for `car_class` population. Test with `cargo test -p rc-core` using the existing in-memory SQLite test pattern. Deploy to venue and verify with `EXPLAIN QUERY PLAN` before declaring done.
+**Primary recommendation:** Add all indexes, pragmas, new tables, and the cloud_driver_id column as one contiguous block at the end of `migrate()` in `db/mod.rs`, then extend `persist_lap()` in `lap_tracker.rs` for `car_class` population. Test with `cargo test -p racecontrol-crate` using the existing in-memory SQLite test pattern. Deploy to venue and verify with `EXPLAIN QUERY PLAN` before declaring done.
 
 ---
 
@@ -69,10 +69,10 @@ Six new tables must be added as idempotent `CREATE TABLE IF NOT EXISTS` statemen
 Phase 12 touches exactly three files:
 
 ```
-crates/rc-core/src/
+crates/racecontrol/src/
 ├── db/mod.rs          # All SQL changes: pragmas + indexes + new tables + ALTER TABLE
 └── lap_tracker.rs     # car_class population on lap persist
-crates/rc-core/tests/
+crates/racecontrol/tests/
 └── integration.rs     # Test migrations must be updated to include new columns/tables
 ```
 
@@ -86,7 +86,7 @@ No new files. No new modules. No new crates.
 
 **Example (from existing code at line 346):**
 ```rust
-// Source: crates/rc-core/src/db/mod.rs line 346
+// Source: crates/racecontrol/src/db/mod.rs line 346
 let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN has_used_trial BOOLEAN DEFAULT 0")
     .execute(pool)
     .await;
@@ -94,7 +94,7 @@ let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN has_used_trial BOOLEAN DEFAU
 
 **Pattern for new tables (from existing code at line 27):**
 ```rust
-// Source: crates/rc-core/src/db/mod.rs line 27
+// Source: crates/racecontrol/src/db/mod.rs line 27
 sqlx::query(
     "CREATE TABLE IF NOT EXISTS <name> (
         id TEXT PRIMARY KEY,
@@ -202,13 +202,13 @@ let car_class = sqlx::query_as::<_, (Option<String>,)>(
 
 ### Pitfall 2: Integration Test Schema Drift
 
-**What goes wrong:** `crates/rc-core/tests/integration.rs` contains `run_test_migrations()` which manually replicates the production schema for in-memory SQLite tests. When Phase 12 adds `car_class` to `laps`, the test migration will be out of sync — tests that insert into `laps` without `car_class` will fail FK errors or produce stale results.
+**What goes wrong:** `crates/racecontrol/tests/integration.rs` contains `run_test_migrations()` which manually replicates the production schema for in-memory SQLite tests. When Phase 12 adds `car_class` to `laps`, the test migration will be out of sync — tests that insert into `laps` without `car_class` will fail FK errors or produce stale results.
 
 **Why it happens:** `run_test_migrations()` is a manual copy of `db/mod.rs` schema, not a shared function. It drifts when new columns are added.
 
 **How to avoid:** After adding `car_class` to `laps` in `db/mod.rs`, also add `car_class TEXT` to the `CREATE TABLE laps` statement inside `run_test_migrations()` in `tests/integration.rs`. Same for the six new tables if any integration tests exercise them.
 
-**Warning signs:** `cargo test -p rc-core` fails with "table laps has no column named car_class" on `persist_lap` tests.
+**Warning signs:** `cargo test -p racecontrol-crate` fails with "table laps has no column named car_class" on `persist_lap` tests.
 
 ### Pitfall 3: cloud_driver_id column added but not used
 
@@ -496,38 +496,38 @@ nyquist_validation is enabled (config.json `workflow.nyquist_validation: true`).
 |----------|-------|
 | Framework | Rust built-in test framework + tokio-test (already in Cargo.toml) |
 | Config file | Cargo.toml (workspace) — no separate config file |
-| Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-core 2>&1 \| tail -20` |
-| Full suite command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core 2>&1 \| tail -30` |
+| Quick run command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p racecontrol-crate 2>&1 \| tail -20` |
+| Full suite command | `export PATH="$PATH:/c/Users/bono/.cargo/bin" && cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate 2>&1 \| tail -30` |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| DATA-01 | Leaderboard index exists and EXPLAIN shows index usage | unit | `cargo test -p rc-core -- test_leaderboard_index_exists -x` | ❌ Wave 0 |
-| DATA-02 | Telemetry index exists and EXPLAIN shows covering index | unit | `cargo test -p rc-core -- test_telemetry_index_exists -x` | ❌ Wave 0 |
-| DATA-03 | WAL autocheckpoint=400 and pool max_lifetime set | unit | `cargo test -p rc-core -- test_wal_tuning -x` | ❌ Wave 0 |
-| DATA-04 | drivers table has cloud_driver_id column | unit | `cargo test -p rc-core -- test_cloud_driver_id_column -x` | ❌ Wave 0 |
-| DATA-05 | All six competitive tables accept valid inserts | unit | `cargo test -p rc-core -- test_competitive_tables_exist -x` | ❌ Wave 0 |
-| DATA-06 | laps.car_class populated on lap persist | unit | `cargo test -p rc-core -- test_lap_car_class_populated -x` | ❌ Wave 0 |
+| DATA-01 | Leaderboard index exists and EXPLAIN shows index usage | unit | `cargo test -p racecontrol-crate -- test_leaderboard_index_exists -x` | ❌ Wave 0 |
+| DATA-02 | Telemetry index exists and EXPLAIN shows covering index | unit | `cargo test -p racecontrol-crate -- test_telemetry_index_exists -x` | ❌ Wave 0 |
+| DATA-03 | WAL autocheckpoint=400 and pool max_lifetime set | unit | `cargo test -p racecontrol-crate -- test_wal_tuning -x` | ❌ Wave 0 |
+| DATA-04 | drivers table has cloud_driver_id column | unit | `cargo test -p racecontrol-crate -- test_cloud_driver_id_column -x` | ❌ Wave 0 |
+| DATA-05 | All six competitive tables accept valid inserts | unit | `cargo test -p racecontrol-crate -- test_competitive_tables_exist -x` | ❌ Wave 0 |
+| DATA-06 | laps.car_class populated on lap persist | unit | `cargo test -p racecontrol-crate -- test_lap_car_class_populated -x` | ❌ Wave 0 |
 
 All DATA-01 through DATA-06 tests must be written in Wave 0 before implementation.
 
 ### Sampling Rate
 
-- **Per task commit:** `cargo test -p rc-core -- db 2>&1 | tail -20`
-- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **Per task commit:** `cargo test -p racecontrol-crate -- db 2>&1 | tail -20`
+- **Per wave merge:** `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
 
 The following test stubs must be written before implementation begins:
 
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_leaderboard_index_exists`: run migration on in-memory DB, then `EXPLAIN QUERY PLAN` the leaderboard query and assert the output contains "idx_laps_leaderboard"
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_telemetry_index_exists`: run migration, EXPLAIN the telemetry query, assert output contains "idx_telemetry_lap_offset"
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_wal_tuning`: run migration, query `PRAGMA wal_autocheckpoint`, assert value is 400
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_cloud_driver_id_column`: run migration, INSERT into drivers, assert SELECT of `cloud_driver_id` does not fail
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_competitive_tables_exist`: run migration, attempt INSERT into all six tables with minimal valid data, assert no error
-- [ ] `crates/rc-core/tests/integration.rs` — add `test_lap_car_class_populated`: call `persist_lap()` with a seeded billing_session and kiosk_experience, assert laps.car_class matches experience.car_class
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_leaderboard_index_exists`: run migration on in-memory DB, then `EXPLAIN QUERY PLAN` the leaderboard query and assert the output contains "idx_laps_leaderboard"
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_telemetry_index_exists`: run migration, EXPLAIN the telemetry query, assert output contains "idx_telemetry_lap_offset"
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_wal_tuning`: run migration, query `PRAGMA wal_autocheckpoint`, assert value is 400
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_cloud_driver_id_column`: run migration, INSERT into drivers, assert SELECT of `cloud_driver_id` does not fail
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_competitive_tables_exist`: run migration, attempt INSERT into all six tables with minimal valid data, assert no error
+- [ ] `crates/racecontrol/tests/integration.rs` — add `test_lap_car_class_populated`: call `persist_lap()` with a seeded billing_session and kiosk_experience, assert laps.car_class matches experience.car_class
 - [ ] `run_test_migrations()` in `tests/integration.rs` must be updated to include `car_class TEXT` in the laps table and all six new competitive tables, to prevent schema drift failures on existing tests
 
 Framework install: Not needed — tokio and sqlx are already in Cargo.toml.
@@ -538,10 +538,10 @@ Framework install: Not needed — tokio and sqlx are already in Cargo.toml.
 
 ### Primary (HIGH confidence — direct codebase inspection)
 
-- `crates/rc-core/src/db/mod.rs` (lines 1–1791, read in full) — confirmed: `idx_telemetry_lap` exists (single-column, no offset_ms); `idx_laps_track_car` exists (no valid/lap_time_ms); no wal_autocheckpoint pragma; no cloud_driver_id on drivers; no hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, driver_ratings tables; no car_class on laps
-- `crates/rc-core/src/lap_tracker.rs` (lines 1–151, read in full) — confirmed: `persist_lap()` has no car_class lookup or population; track_records update is a bare UPDATE not wrapped in BEGIN IMMEDIATE; no hotlap event hook exists
-- `crates/rc-core/src/cloud_sync.rs` (lines 1–461, partially read) — confirmed: `SYNC_TABLES` constant does not include competitive tables; `collect_push_payload()` pushes laps without cloud_driver_id check; no competitive table queries in payload
-- `crates/rc-core/tests/integration.rs` (lines 1–80+, partially read) — confirmed: `run_test_migrations()` is a manual copy of the schema; it will need updating for new columns/tables
+- `crates/racecontrol/src/db/mod.rs` (lines 1–1791, read in full) — confirmed: `idx_telemetry_lap` exists (single-column, no offset_ms); `idx_laps_track_car` exists (no valid/lap_time_ms); no wal_autocheckpoint pragma; no cloud_driver_id on drivers; no hotlap_events, hotlap_event_entries, championships, championship_rounds, championship_standings, driver_ratings tables; no car_class on laps
+- `crates/racecontrol/src/lap_tracker.rs` (lines 1–151, read in full) — confirmed: `persist_lap()` has no car_class lookup or population; track_records update is a bare UPDATE not wrapped in BEGIN IMMEDIATE; no hotlap event hook exists
+- `crates/racecontrol/src/cloud_sync.rs` (lines 1–461, partially read) — confirmed: `SYNC_TABLES` constant does not include competitive tables; `collect_push_payload()` pushes laps without cloud_driver_id check; no competitive table queries in payload
+- `crates/racecontrol/tests/integration.rs` (lines 1–80+, partially read) — confirmed: `run_test_migrations()` is a manual copy of the schema; it will need updating for new columns/tables
 - `.planning/config.json` — confirmed: `nyquist_validation: true`
 
 ### Secondary (HIGH confidence — prior research documents)

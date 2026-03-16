@@ -17,7 +17,7 @@
 **Phases completed:** 6 phases, 12 plans
 
 **Key accomplishments:**
-- Server IP pinned to .23 via DHCP reservation + rc-core reverse proxy for kiosk
+- Server IP pinned to .23 via DHCP reservation + racecontrol reverse proxy for kiosk
 - Pod lock screens show branded "Connecting..." state — never browser error pages
 - Edge auto-update, StartupBoost, BackgroundMode disabled on all 8 pods
 - Staff dashboard: one-click lockdown toggle, power management (restart/shutdown/wake) per-pod and bulk

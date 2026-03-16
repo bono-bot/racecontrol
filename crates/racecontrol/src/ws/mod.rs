@@ -240,7 +240,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         }
                         AgentMessage::Heartbeat(pod_info) => {
                             // Merge agent-reported fields with core-managed fields
-                            // (billing_session_id, current_driver, status are managed by rc-core billing)
+                            // (billing_session_id, current_driver, status are managed by racecontrol billing)
                             let mut pods = state.pods.write().await;
                             let updated = if let Some(existing) = pods.get_mut(&pod_info.id) {
                                 // Preserve core-managed billing state

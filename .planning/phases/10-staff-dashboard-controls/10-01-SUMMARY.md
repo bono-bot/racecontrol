@@ -7,13 +7,13 @@ tags: [rust, axum, wol, kiosk, lockdown, billing, unit-tests]
 # Dependency graph
 requires:
   - phase: 07-server-pinning
-    provides: rc-core running on server at :8080 with agent_senders + billing infrastructure
+    provides: racecontrol running on server at :8080 with agent_senders + billing infrastructure
 provides:
   - POST /pods/{id}/lockdown route with billing guard and disconnected sender guard
   - POST /pods/lockdown-all route that iterates all senders skipping billing-active and closed
   - 6 parse_mac unit tests (colon, dash, lowercase, too-few-parts, invalid-hex, empty)
   - 4 lockdown route unit tests (billing active, missing sender, closed sender, bulk skip)
-  - BillingTimer::dummy() test helper for rc-core unit tests
+  - BillingTimer::dummy() test helper for racecontrol unit tests
 affects: [10-staff-dashboard-controls plans 02+, frontend UI wiring for lockdown]
 
 # Tech tracking
@@ -28,9 +28,9 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/rc-core/src/wol.rs
-    - crates/rc-core/src/billing.rs
-    - crates/rc-core/src/api/routes.rs
+    - crates/racecontrol/src/wol.rs
+    - crates/racecontrol/src/billing.rs
+    - crates/racecontrol/src/api/routes.rs
 
 key-decisions:
   - "Lockdown toggle is ephemeral (no DB write) — resets to rc-agent config default on restart; correct behavior since default is locked"
@@ -71,15 +71,15 @@ completed: 2026-03-14
 
 ## Task Commits
 
-1. **Task 1: Add parse_mac unit tests, lockdown route handlers, and lockdown unit tests to rc-core** - `564b8ee` (feat)
+1. **Task 1: Add parse_mac unit tests, lockdown route handlers, and lockdown unit tests to racecontrol** - `564b8ee` (feat)
 
 **Plan metadata:** (committed in final docs commit)
 
 ## Files Created/Modified
 
-- `crates/rc-core/src/wol.rs` - Changed parse_mac to pub(crate), added 6 unit tests
-- `crates/rc-core/src/billing.rs` - Added BillingTimer::dummy() test helper (cfg(test))
-- `crates/rc-core/src/api/routes.rs` - Added lockdown_pod and lockdown_all_pods handlers + route registration + 4 unit tests
+- `crates/racecontrol/src/wol.rs` - Changed parse_mac to pub(crate), added 6 unit tests
+- `crates/racecontrol/src/billing.rs` - Added BillingTimer::dummy() test helper (cfg(test))
+- `crates/racecontrol/src/api/routes.rs` - Added lockdown_pod and lockdown_all_pods handlers + route registration + 4 unit tests
 
 ## Decisions Made
 

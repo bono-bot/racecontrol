@@ -19,16 +19,16 @@ created: 2026-03-12
 |----------|-------|
 | **Framework** | cargo test (Rust built-in) |
 | **Config file** | Cargo.toml (workspace) |
-| **Quick run command** | `cargo test -p rc-agent` |
-| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` |
+| **Quick run command** | `cargo test -p rc-agent-crate` |
+| **Full suite command** | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` |
 | **Estimated runtime** | ~15 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo test -p rc-agent`
-- **After every plan wave:** Run `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core`
+- **After every task commit:** Run `cargo test -p rc-agent-crate`
+- **After every plan wave:** Run `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate`
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 15 seconds
 
@@ -38,10 +38,10 @@ created: 2026-03-12
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 03-01-T1 | 01 | 1 | HUD-01, HUD-02, HUD-09 | unit | `cargo test -p rc-agent -- overlay::tests` | ✅ (test_compute_layout exists, test_rpm_color_zones created inline) | ⬜ pending |
-| 03-01-T2 | 01 | 1 | HUD-08 | build+unit | `cargo test -p rc-agent` | ✅ | ⬜ pending |
-| 03-02-T1 | 02 | 2 | HUD-03, HUD-04, HUD-05, HUD-07 | build+unit | `cargo test -p rc-agent` | ✅ | ⬜ pending |
-| 03-02-T2 | 02 | 2 | HUD-06 | full suite | `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p rc-core` | ✅ | ⬜ pending |
+| 03-01-T1 | 01 | 1 | HUD-01, HUD-02, HUD-09 | unit | `cargo test -p rc-agent-crate -- overlay::tests` | ✅ (test_compute_layout exists, test_rpm_color_zones created inline) | ⬜ pending |
+| 03-01-T2 | 01 | 1 | HUD-08 | build+unit | `cargo test -p rc-agent-crate` | ✅ | ⬜ pending |
+| 03-02-T1 | 02 | 2 | HUD-03, HUD-04, HUD-05, HUD-07 | build+unit | `cargo test -p rc-agent-crate` | ✅ | ⬜ pending |
+| 03-02-T2 | 02 | 2 | HUD-06 | full suite | `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` | ✅ | ⬜ pending |
 | 03-02-T3 | 02 | 2 | All HUD | checkpoint | Pod 8 visual verification | N/A | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*

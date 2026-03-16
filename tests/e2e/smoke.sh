@@ -3,7 +3,7 @@
 # RaceControl E2E Smoke Test
 #
 # Validates that all core API endpoints are reachable and returning expected
-# status codes. Run against a live rc-core instance.
+# status codes. Run against a live racecontrol instance.
 #
 # Usage:
 #   ./smoke.sh                          # defaults to localhost:8080/api/v1

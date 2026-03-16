@@ -144,9 +144,9 @@ echo "--- Section 4: API Endpoint Spot Checks ---"
 
 RC_BASE="http://localhost:8080/api/v1"
 
-# Check if rc-core is reachable at all
+# Check if racecontrol is reachable at all
 if ! curl -sf --max-time 5 "$RC_BASE/health" > /dev/null 2>&1; then
-  skip "rc-core not running at $RC_BASE (cannot perform API spot checks)"
+  skip "racecontrol not running at $RC_BASE (cannot perform API spot checks)"
 else
   # Health endpoint
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$RC_BASE/health" 2>/dev/null || echo "000")

@@ -19,8 +19,8 @@ affects:
 tech-stack:
   added: []
   patterns:
-    - "Static CRT release build: cargo build -p rc-agent --release with +crt-static via .cargo/config.toml"
-    - "Binary size for rc-agent: ~6.7MB (not 15-25MB — plan estimate was based on rc-core which is larger)"
+    - "Static CRT release build: cargo build -p rc-agent-crate --release with +crt-static via .cargo/config.toml"
+    - "Binary size for rc-agent: ~6.7MB (not 15-25MB — plan estimate was based on racecontrol which is larger)"
 
 key-files:
   created:
@@ -28,12 +28,12 @@ key-files:
   modified: []
 
 key-decisions:
-  - "Binary size is 6.7MB, not 15-25MB as plan estimated — plan estimate was based on rc-core (21MB); rc-agent is smaller"
-  - "rc-core test suite has pre-existing compilation failure (non-exhaustive match on AssistChanged/FfbGainChanged/AssistState in ws/mod.rs) — documented in deferred-items.md, does not affect rc-agent build"
+  - "Binary size is 6.7MB, not 15-25MB as plan estimated — plan estimate was based on racecontrol (21MB); rc-agent is smaller"
+  - "racecontrol test suite has pre-existing compilation failure (non-exhaustive match on AssistChanged/FfbGainChanged/AssistState in ws/mod.rs) — documented in deferred-items.md, does not affect rc-agent build"
   - "Both artifacts also copied to external deploy-staging at C:/Users/bono/racingpoint/deploy-staging/ for HTTP server serving"
 
 patterns-established:
-  - "Build and stage pattern: cargo test -p rc-agent + cargo test -p rc-common -> cargo build --release -> cp to deploy-staging"
+  - "Build and stage pattern: cargo test -p rc-agent-crate + cargo test -p rc-common -> cargo build --release -> cp to deploy-staging"
 
 requirements-completed: [LOCK-01, LOCK-02, LOCK-03]
 
@@ -75,9 +75,9 @@ Each task was committed atomically:
 
 ## Decisions Made
 
-**Binary size discrepancy:** Plan estimated 15-25MB based on prior builds. Actual rc-agent binary is 6.7MB. The 21MB reference in STATE.md was for rc-core (racecontrol.exe) not rc-agent. This size is consistent with the external deploy-staging binary (6.6MB from prior build).
+**Binary size discrepancy:** Plan estimated 15-25MB based on prior builds. Actual rc-agent binary is 6.7MB. The 21MB reference in STATE.md was for racecontrol (racecontrol.exe) not rc-agent. This size is consistent with the external deploy-staging binary (6.6MB from prior build).
 
-**rc-core test failure:** `cargo test -p rc-core` fails with pre-existing non-exhaustive match error on `AgentMessage::AssistChanged/FfbGainChanged/AssistState` variants in `ws/mod.rs`. This is documented in 08-01-SUMMARY.md "Issues Encountered" and tracked in deferred-items.md. It does NOT affect the rc-agent binary — rc-agent builds and tests pass cleanly.
+**racecontrol test failure:** `cargo test -p racecontrol-crate` fails with pre-existing non-exhaustive match error on `AgentMessage::AssistChanged/FfbGainChanged/AssistState` variants in `ws/mod.rs`. This is documented in 08-01-SUMMARY.md "Issues Encountered" and tracked in deferred-items.md. It does NOT affect the rc-agent binary — rc-agent builds and tests pass cleanly.
 
 **External deploy-staging sync:** Binary and watchdog also copied to `C:\Users\bono\racingpoint\deploy-staging\` which is the directory served by the HTTP server (`python3 -m http.server 9998`) for pod deployment.
 
@@ -87,7 +87,7 @@ None - plan executed exactly as written. The binary size discrepancy (6.7MB vs 1
 
 ## Issues Encountered
 
-- rc-core `cargo test -p rc-core` fails with pre-existing compilation error (non-exhaustive match on 3 AgentMessage variants in ws/mod.rs). This is a known pre-existing issue from Phase 8 Plan 01, tracked in deferred-items.md. Does not affect rc-agent binary.
+- racecontrol `cargo test -p racecontrol-crate` fails with pre-existing compilation error (non-exhaustive match on 3 AgentMessage variants in ws/mod.rs). This is a known pre-existing issue from Phase 8 Plan 01, tracked in deferred-items.md. Does not affect rc-agent binary.
 
 ## Checkpoint Details
 

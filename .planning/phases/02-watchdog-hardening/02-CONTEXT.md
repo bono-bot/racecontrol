@@ -14,7 +14,7 @@ pod_monitor uses escalating backoff (30s->2m->10m->30m) per pod with exclusive r
 ## Implementation Decisions
 
 ### Post-restart verification
-- rc-agent exposes a /health endpoint on a local port; rc-core verifies lock screen responsiveness by hitting it via pod-agent /exec curl
+- rc-agent exposes a /health endpoint on a local port; racecontrol verifies lock screen responsiveness by hitting it via pod-agent /exec curl
 - Verification polling uses escalating schedule: 5s, 15s, 30s, 60s after restart command sent (total 60s window)
 - All 3 checks must pass: process alive + WebSocket connected + lock screen health endpoint responsive. If any check fails at 60s, declare failure
 - Partial recovery (process + WS but no lock screen) is treated as FAILED — alert fires, backoff escalates. Customers can't use a pod without the lock screen
@@ -62,8 +62,8 @@ pod_monitor uses escalating backoff (30s->2m->10m->30m) per pod with exclusive r
 
 ### Reusable Assets
 - `EscalatingBackoff` (rc-common/src/watchdog.rs): `attempt()` advances step, `ready()` checks cooldown, `reset()` clears state. 5 tests passing.
-- `EmailAlerter` (rc-core/src/email_alerts.rs): `send_alert()` with dual rate limits. Uses Node.js send_email.js. Ready to wire.
-- `AppState.pod_backoffs` (rc-core/src/state.rs): Pre-populated for pod_1 through pod_8 (Phase 1). `RwLock<HashMap<String, EscalatingBackoff>>`.
+- `EmailAlerter` (racecontrol/src/email_alerts.rs): `send_alert()` with dual rate limits. Uses Node.js send_email.js. Ready to wire.
+- `AppState.pod_backoffs` (racecontrol/src/state.rs): Pre-populated for pod_1 through pod_8 (Phase 1). `RwLock<HashMap<String, EscalatingBackoff>>`.
 - `DashboardEvent` (rc-common/src/protocol.rs): Existing WebSocket event enum — needs new variants for watchdog states.
 - `activity_log::log_pod_activity()`: Already used by both pod_monitor and pod_healer for logging events.
 

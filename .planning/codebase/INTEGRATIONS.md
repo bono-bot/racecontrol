@@ -132,7 +132,7 @@ RaceControl integrates with multiple external systems for sim racing telemetry, 
 ### UDP Telemetry Protocol
 **Module**: `/root/racecontrol/crates/rc-agent/src/udp_heartbeat.rs`
 **Protocol**: Custom binary UDP packets
-**Listener**: Both rc-core and rc-agent
+**Listener**: Both racecontrol and rc-agent
 
 #### Monitored UDP Ports
 
@@ -162,11 +162,11 @@ RaceControl integrates with multiple external systems for sim racing telemetry, 
 ## WebSocket Communication
 
 ### Agent ↔ Core Bidirectional Protocol
-**Server port**: 8080 (rc-core)
+**Server port**: 8080 (racecontrol)
 **Client port**: 18923 (rc-agent lock screen)
 **Protocol**: `ws://[core_ip]:8080/ws/agent`
 **Modules**:
-- rc-core: `/root/racecontrol/crates/rc-core/src/ws/`
+- racecontrol: `/root/racecontrol/crates/racecontrol/src/ws/`
 - rc-agent: uses tokio-tungstenite client
 
 #### Message Types (Bidirectional)
@@ -196,7 +196,7 @@ RaceControl integrates with multiple external systems for sim racing telemetry, 
 ### Venue ↔ Cloud Sync System
 **Endpoint**: `https://app.racingpoint.cloud/api/v1`
 **Interval**: 30 seconds (configurable in racecontrol.toml `[cloud].sync_interval_secs`)
-**Module**: `/root/racecontrol/crates/rc-core/src/cloud_sync.rs`
+**Module**: `/root/racecontrol/crates/racecontrol/src/cloud_sync.rs`
 **Status**: LIVE (Mar 7, 2026)
 
 #### Pull Direction (Cloud → Venue)
@@ -253,7 +253,7 @@ terminal_pin = "261121"
 - `POST /webhook` - Incoming message webhook
 
 **Modules**:
-- `/root/racecontrol/crates/rc-core/src/api/evolution.rs` (integration layer)
+- `/root/racecontrol/crates/racecontrol/src/api/evolution.rs` (integration layer)
 
 **Use cases**:
 - OTP delivery (PIN for terminal access)
@@ -353,8 +353,8 @@ HID disconnected (USB unplugged)
 
 ## AI Integration
 
-### Claude Integration (rc-core)
-**Module**: `/root/racecontrol/crates/rc-core/src/ai.rs`
+### Claude Integration (racecontrol)
+**Module**: `/root/racecontrol/crates/racecontrol/src/ai.rs`
 **Method**: Anthropic SDK + Claude Haiku (for customers), Sonnet (for admin)
 **HTTP client**: `reqwest 0.12`
 
@@ -401,13 +401,13 @@ ollama_model = "qwen2.5-coder:14b"
 ## mDNS Service Discovery
 
 ### Pod Discovery
-**Library**: `mdns-sd 0.12` (both rc-core and rc-agent)
+**Library**: `mdns-sd 0.12` (both racecontrol and rc-agent)
 **Protocol**: Multicast DNS on port 5353
 **Service type**: `_racecontrol._tcp.local`
 
 **Discovery flow**:
 1. rc-agent announces `Pod-N._racecontrol._tcp.local` with IP + port 18923
-2. rc-core scans LAN, discovers all pods
+2. racecontrol scans LAN, discovers all pods
 3. Pods register in `pods` table with IP address
 4. WebSocket connection established on discovery
 
@@ -429,7 +429,7 @@ ollama_model = "qwen2.5-coder:14b"
 - WebSocket connections from agents
 
 **Terminal PIN Auth**
-**Module**: `/root/racecontrol/crates/rc-core/src/remote_terminal.rs`
+**Module**: `/root/racecontrol/crates/racecontrol/src/remote_terminal.rs`
 **Endpoint**: `POST /terminal/auth`
 - PIN sent via WhatsApp (Evolution API)
 - 5-minute validity window
@@ -444,7 +444,7 @@ ollama_model = "qwen2.5-coder:14b"
 ## Scheduling & Jobs
 
 ### Cron-like Scheduler
-**Module**: `/root/racecontrol/crates/rc-core/src/scheduler.rs`
+**Module**: `/root/racecontrol/crates/racecontrol/src/scheduler.rs`
 **Runtime**: Tokio interval tasks
 
 **Scheduled jobs**:
@@ -487,7 +487,7 @@ ollama_model = "qwen2.5-coder:14b"
 ## AC Dedicated Server Integration
 
 ### Assetto Corsa Server Control
-**Module**: `/root/racecontrol/crates/rc-core/src/ac_server.rs`
+**Module**: `/root/racecontrol/crates/racecontrol/src/ac_server.rs`
 **Configuration**:
 ```toml
 [ac_server]
@@ -508,7 +508,7 @@ data_dir = "./data/ac_servers"
 ## Payment & Wallet System
 
 ### Credit Wallet Integration
-**Module**: `/root/racecontrol/crates/rc-core/src/wallet.rs`
+**Module**: `/root/racecontrol/crates/racecontrol/src/wallet.rs`
 **Currency**: Paise (₹0.01), stored as integers
 **Pricing**:
 - 30 min session: ₹700 (70,000 paise)
@@ -531,7 +531,7 @@ data_dir = "./data/ac_servers"
 
 | File | Purpose | Location |
 |------|---------|----------|
-| **racecontrol.toml** | rc-core main config | `/root/racecontrol/` |
+| **racecontrol.toml** | racecontrol main config | `/root/racecontrol/` |
 | **racecontrol.docker.toml** | Docker variant | `/root/racecontrol/` |
 | **rc-agent.example.toml** | rc-agent template | `/root/racecontrol/` |
 | **.env** | PM2/environment | `/root/` (cloud) |
@@ -541,7 +541,7 @@ data_dir = "./data/ac_servers"
 ## Error Handling & Resilience
 
 ### Pod Error Aggregator
-**Module**: `/root/racecontrol/crates/rc-core/src/error_aggregator.rs`
+**Module**: `/root/racecontrol/crates/racecontrol/src/error_aggregator.rs`
 **Tracking**: Pod errors stored in `pods.error_log` (latest issue)
 **Retry logic**: Exponential backoff (1s → 30s) on connection failures
 **Recovery**: Pod healer auto-restarts game + cleans up processes

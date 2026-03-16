@@ -1,4 +1,4 @@
-//! Cloud sync: bidirectional data sync between cloud and venue rc-core instances.
+//! Cloud sync: bidirectional data sync between cloud and venue racecontrol instances.
 //!
 //! Supports dual-mode operation:
 //! - **Relay mode** (2s interval): Routes sync through localhost comms-link relay for real-time sync.

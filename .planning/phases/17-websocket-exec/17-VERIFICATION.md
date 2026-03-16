@@ -14,11 +14,11 @@ must_haves:
       provides: "Exec and ExecResult enum variants with serde roundtrip"
     - path: "crates/rc-agent/src/main.rs"
       provides: "WS_EXEC_SEMAPHORE, handle_ws_exec, event loop integration"
-    - path: "crates/rc-core/src/state.rs"
+    - path: "crates/racecontrol/src/state.rs"
       provides: "WsExecResult struct, pending_ws_execs HashMap in AppState"
-    - path: "crates/rc-core/src/ws/mod.rs"
+    - path: "crates/racecontrol/src/ws/mod.rs"
       provides: "ExecResult handler, ws_exec_on_pod function, disconnect cleanup"
-    - path: "crates/rc-core/src/deploy.rs"
+    - path: "crates/racecontrol/src/deploy.rs"
       provides: "HTTP-first WS-fallback exec_on_pod wrapper"
   key_links:
     - from: "deploy.rs exec_on_pod"
@@ -37,7 +37,7 @@ human_verification:
   - test: "Send shell command via WebSocket to live pod"
     expected: "stdout contains expected output (e.g. hostname from whoami)"
     why_human: "Requires live WebSocket connection to a real pod"
-  - test: "Block HTTP port 8090 on a pod, then deploy via rc-core"
+  - test: "Block HTTP port 8090 on a pod, then deploy via racecontrol"
     expected: "Deploy succeeds using WS fallback path"
     why_human: "Requires manual firewall rule manipulation on a live pod"
   - test: "Fill 4 HTTP exec slots, send WS exec concurrently"
@@ -50,7 +50,7 @@ human_verification:
 
 # Phase 17: WebSocket Exec Verification Report
 
-**Phase Goal:** rc-core can send any shell command to any connected pod over the existing WebSocket connection and receive stdout, stderr, and exit code -- so pods remain manageable even when HTTP port 8090 is firewall-blocked
+**Phase Goal:** racecontrol can send any shell command to any connected pod over the existing WebSocket connection and receive stdout, stderr, and exit code -- so pods remain manageable even when HTTP port 8090 is firewall-blocked
 **Verified:** 2026-03-15T14:30:00Z
 **Status:** passed
 **Re-verification:** No -- initial verification
@@ -74,9 +74,9 @@ human_verification:
 |----------|----------|--------|---------|
 | `crates/rc-common/src/protocol.rs` | Exec + ExecResult enum variants | VERIFIED | Exec at line 267 with request_id, cmd, timeout_ms (serde default 10000ms). ExecResult at line 92 with request_id, success, exit_code, stdout, stderr. 5 serde tests pass. |
 | `crates/rc-agent/src/main.rs` | WS_EXEC_SEMAPHORE, handle_ws_exec, event loop wiring | VERIFIED | WS_EXEC_SEMAPHORE(4) at line 190. handle_ws_exec at line 194 with semaphore, timeout, 64KB truncation. Exec match arm at line 1826, mpsc drain at line 1065. |
-| `crates/rc-core/src/state.rs` | WsExecResult struct, pending_ws_execs field | VERIFIED | WsExecResult struct at line 72 with success, exit_code, stdout, stderr. pending_ws_execs RwLock<HashMap> at line 129. Initialized empty in AppState::new at line 176. |
-| `crates/rc-core/src/ws/mod.rs` | ExecResult handler, ws_exec_on_pod, disconnect cleanup | VERIFIED | ExecResult match arm at line 467 resolves oneshot. Disconnect sweep at lines 541-555 uses pod prefix. ws_exec_on_pod at line 1025 with request_id generation, oneshot registration, timeout+5s. |
-| `crates/rc-core/src/deploy.rs` | HTTP-first WS-fallback exec_on_pod | VERIFIED | http_exec_on_pod at line 172 (renamed from old exec_on_pod). New exec_on_pod wrapper at line 211 tries HTTP, falls back to ws_exec_on_pod on Err. All deploy helpers (is_process_alive, is_lock_screen_healthy) route through it. |
+| `crates/racecontrol/src/state.rs` | WsExecResult struct, pending_ws_execs field | VERIFIED | WsExecResult struct at line 72 with success, exit_code, stdout, stderr. pending_ws_execs RwLock<HashMap> at line 129. Initialized empty in AppState::new at line 176. |
+| `crates/racecontrol/src/ws/mod.rs` | ExecResult handler, ws_exec_on_pod, disconnect cleanup | VERIFIED | ExecResult match arm at line 467 resolves oneshot. Disconnect sweep at lines 541-555 uses pod prefix. ws_exec_on_pod at line 1025 with request_id generation, oneshot registration, timeout+5s. |
+| `crates/racecontrol/src/deploy.rs` | HTTP-first WS-fallback exec_on_pod | VERIFIED | http_exec_on_pod at line 172 (renamed from old exec_on_pod). New exec_on_pod wrapper at line 211 tries HTTP, falls back to ws_exec_on_pod on Err. All deploy helpers (is_process_alive, is_lock_screen_healthy) route through it. |
 
 ### Key Link Verification
 
@@ -93,7 +93,7 @@ human_verification:
 
 | Requirement | Source Plan(s) | Description | Status | Evidence |
 |-------------|---------------|-------------|--------|----------|
-| WSEX-01 | 01, 02, 03 | rc-core can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec) | SATISFIED | Exec variant in protocol.rs, ws_exec_on_pod sends it via agent_senders, agent handles it in main.rs Exec match arm |
+| WSEX-01 | 01, 02, 03 | racecontrol can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec) | SATISFIED | Exec variant in protocol.rs, ws_exec_on_pod sends it via agent_senders, agent handles it in main.rs Exec match arm |
 | WSEX-02 | 02 | rc-agent executes WebSocket commands with independent semaphore | SATISFIED | WS_EXEC_SEMAPHORE static (4 slots) at main.rs:190, independent from HTTP EXEC_SEMAPHORE in remote_ops.rs |
 | WSEX-03 | 01, 02, 03 | Exec responses include stdout, stderr, exit code, and request_id correlation | SATISFIED | ExecResult variant in protocol.rs carries all fields. handle_ws_exec populates them from Command output. request_id echoed back for correlation. |
 | WSEX-04 | 03 | deploy.rs uses WebSocket exec as fallback when HTTP :8090 is unreachable | SATISFIED | exec_on_pod wrapper at deploy.rs:211-228 tries HTTP first, falls back to WS on error |
@@ -111,7 +111,7 @@ No orphaned requirements found. All 4 WSEX requirements mapped to Phase 17 in RE
 | Crate | Tests | Passed | Failed | Notes |
 |-------|-------|--------|--------|-------|
 | rc-common | 98 | 98 | 0 | All 5 exec-related tests pass (roundtrip, wire format, default timeout, ExecResult roundtrip, success/error) |
-| rc-core | 254 | 254 | 0 | 213 unit + 41 integration, all pass including deploy tests |
+| racecontrol | 254 | 254 | 0 | 213 unit + 41 integration, all pass including deploy tests |
 | rc-agent | 184 | 183 | 1 | Pre-existing failure: remote_ops::tests::test_exec_timeout_returns_500 (HTTP exec path, not WS exec). Flaky timing test unrelated to Phase 17 changes. |
 
 ### Human Verification Required
@@ -120,11 +120,11 @@ No orphaned requirements found. All 4 WSEX requirements mapped to Phase 17 in RE
 
 **Test:** Send a shell command (e.g. `whoami`) via WebSocket to Pod 8
 **Expected:** stdout contains the pod's hostname/username, exit_code is 0
-**Why human:** Requires a live WebSocket connection between rc-core and a real pod agent
+**Why human:** Requires a live WebSocket connection between racecontrol and a real pod agent
 
 ### 2. WS Fallback When HTTP Blocked
 
-**Test:** Delete the `RacingPoint-RemoteOps` firewall rule on Pod 8, then trigger a deploy from rc-core
+**Test:** Delete the `RacingPoint-RemoteOps` firewall rule on Pod 8, then trigger a deploy from racecontrol
 **Expected:** Deploy succeeds using the WS fallback path (warning log: "HTTP command failed... Trying WS fallback")
 **Why human:** Requires manual firewall rule manipulation on a live pod
 

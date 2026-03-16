@@ -7,7 +7,7 @@
   {
     "instruction": "How does Forza Motorsport work at Racing Point?",
     "input": "",
-    "output": "Forza Motorsport details:\n- Executable: ForzaMotorsport.exe\n- Telemetry UDP port: 5300\n- Platform: Microsoft Store\n- Launch method: Xbox app launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 5300\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered"
+    "output": "Forza Motorsport details:\n- Executable: ForzaMotorsport.exe\n- Telemetry UDP port: 5300\n- Platform: Microsoft Store\n- Launch method: Xbox app launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 5300\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered"
   },
   {
     "instruction": "Pod 4 (192.168.31.88): F1_25.exe exited unexpectedly. Context: failed to read game data: CRC mismatch",
@@ -22,22 +22,22 @@
   {
     "instruction": "Pod 3 status is 'idle' in dashboard, but billing is running.",
     "input": "",
-    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check rc-core logs for heartbeat merge behavior."
+    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check racecontrol logs for heartbeat merge behavior."
   },
   {
-    "instruction": "cargo build for rc-core fails with 'Access is denied'.",
+    "instruction": "cargo build for racecontrol fails with 'Access is denied'.",
     "input": "",
-    "output": "rc-core (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop rc-core: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p rc-core --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping rc-core drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart."
+    "output": "racecontrol (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop racecontrol: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p racecontrol-crate --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping racecontrol drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart."
   },
   {
     "instruction": "What is the server's role at Racing Point?",
     "input": "",
-    "output": "Racing-Point-Server at 192.168.31.23 (64GB RAM):\n- Runs rc-core (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n- Runs kiosk Next.js app on port 3300 — staff terminal\n- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n- rc-core is authoritative for billing and laps. Cloud is authoritative for drivers and pricing."
+    "output": "Racing-Point-Server at 192.168.31.23 (64GB RAM):\n- Runs racecontrol (Rust/Axum) on port 8080 — manages billing, pods, games, drivers\n- Runs kiosk Next.js app on port 3300 — staff terminal\n- Hosts AC multiplayer server — preset RP_OPTIMAL (100% grip)\n- SQLite database: racecontrol.db (billing, drivers, laps, AI training)\n- Cloud sync: pushes data to app.racingpoint.cloud every 30s\n- racecontrol is authoritative for billing and laps. Cloud is authoritative for drivers and pricing."
   },
   {
     "instruction": "Pod 6 shows overlay timer from a previous session that ended.",
     "input": "",
-    "output": "Stale overlay timer after rc-core restart — fixed in f74a5f9.\n\nRoot cause: Two bugs:\n1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n2. `end_billing_session()` only checked in-memory timers, not DB\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — in-memory timer exists?\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — is session 'active' in DB?\n- On pod: `curl http://127.0.0.1:18925/data` — overlay active=true/false?\n- If orphaned: `POST /api/v1/billing/{session-uuid}/stop` — force-end via DB fallback"
+    "output": "Stale overlay timer after racecontrol restart — fixed in f74a5f9.\n\nRoot cause: Two bugs:\n1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n2. `end_billing_session()` only checked in-memory timers, not DB\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — in-memory timer exists?\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — is session 'active' in DB?\n- On pod: `curl http://127.0.0.1:18925/data` — overlay active=true/false?\n- If orphaned: `POST /api/v1/billing/{session-uuid}/stop` — force-end via DB fallback"
   },
   {
     "instruction": "Pod 7 (192.168.31.38): iRacingSim64DX11.exe exited unexpectedly. Context: network error: DNS resolution failed",
@@ -72,7 +72,7 @@
   {
     "instruction": "Kiosk shows pod 8 as idle but customer is playing with active billing.",
     "input": "",
-    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check rc-core logs for heartbeat merge behavior."
+    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check racecontrol logs for heartbeat merge behavior."
   },
   {
     "instruction": "Le Mans Ultimate crashed on pod 2. Error: display driver nvlddmkm stopped responding and has successfully recovered",
@@ -82,12 +82,12 @@
   {
     "instruction": "What ports does the RaceControl system use?",
     "input": "",
-    "output": "RaceControl port map:\n- 8080: rc-core REST API + WebSocket (server .51)\n- 8090: pod-agent REST API (each pod)\n- 9999: UDP heartbeat (rc-agent <-> rc-core)\n- 18923: Lock screen HTTP server (rc-agent, localhost only)\n- 18924: Debug HTTP server (rc-agent)\n- 18925: Overlay HTTP server (rc-agent)\n- 3300: Kiosk Next.js app (server .51)\n\nGame telemetry UDP ports:\n- 9996: Assetto Corsa\n- 20777: F1 25\n- 5300: Forza Motorsport\n- 6789: iRacing\n- 5555: Le Mans Ultimate"
+    "output": "RaceControl port map:\n- 8080: racecontrol REST API + WebSocket (server .51)\n- 8090: pod-agent REST API (each pod)\n- 9999: UDP heartbeat (rc-agent <-> racecontrol)\n- 18923: Lock screen HTTP server (rc-agent, localhost only)\n- 18924: Debug HTTP server (rc-agent)\n- 18925: Overlay HTTP server (rc-agent)\n- 3300: Kiosk Next.js app (server .51)\n\nGame telemetry UDP ports:\n- 9996: Assetto Corsa\n- 20777: F1 25\n- 5300: Forza Motorsport\n- 6789: iRacing\n- 5555: Le Mans Ultimate"
   },
   {
     "instruction": "Pod state mismatch: 6 shows idle, billing is active.",
     "input": "",
-    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check rc-core logs for heartbeat merge behavior."
+    "output": "Pod status showing idle during active billing — fixed in a0edc5a. Multiple root causes:\n\n1. **Heartbeat overwrites billing state**: Heartbeat handler used insert() which replaced entire pod. Now uses merge — preserves core-managed fields (status, current_driver, billing_session_id).\n\n2. **start_billing_session missing fields**: Only set billing_session_id, now also sets status=InSession and current_driver.\n\n3. **End billing missing cleanup**: Now all end paths clear driver and set status=Idle.\n\n4. **Register handler missing restore**: After billing resync, pod state is updated.\n\nIf running latest code and still seeing this, check racecontrol logs for heartbeat merge behavior."
   },
   {
     "instruction": "Pod 8 (192.168.31.91): F1_25.exe exited unexpectedly. Context: exit code -1073741819 (access violation)",
@@ -97,7 +97,7 @@
   {
     "instruction": "How does the cloud sync work?",
     "input": "",
-    "output": "Cloud sync module in crates/rc-core/src/cloud_sync.rs:\n\n- Syncs every 30 seconds with app.racingpoint.cloud (72.60.101.58, Bono's VPS)\n- **Cloud authoritative**: drivers, pricing tiers\n- **Local authoritative**: billing sessions, laps, game state\n\nID mismatch handling:\n- Local and cloud have different UUIDs for drivers\n- sync_push resolves by matching phone number or email\n- Wallet balance sync resolves driver by phone when IDs differ (d99687c)\n\nPWA shows 'credits' not rupees."
+    "output": "Cloud sync module in crates/racecontrol/src/cloud_sync.rs:\n\n- Syncs every 30 seconds with app.racingpoint.cloud (72.60.101.58, Bono's VPS)\n- **Cloud authoritative**: drivers, pricing tiers\n- **Local authoritative**: billing sessions, laps, game state\n\nID mismatch handling:\n- Local and cloud have different UUIDs for drivers\n- sync_push resolves by matching phone number or email\n- Wallet balance sync resolves driver by phone when IDs differ (d99687c)\n\nPWA shows 'credits' not rupees."
   },
   {
     "instruction": "What are the security cameras at Racing Point?",
@@ -107,7 +107,7 @@
   {
     "instruction": "What happens when a game crashes during an active billing session?",
     "input": "",
-    "output": "When a game crashes during active billing:\n\n1. rc-agent detects game process exit (2s check interval)\n2. Sends GameStateUpdate(Error) to rc-core\n3. Arms 30s crash recovery timer\n4. If AI debugger enabled, spawns AI crash analysis\n5. Waits 30s for rc-core to send SessionEnded\n6. If no SessionEnded after 30s: force-resets pod (safe state enforcement)\n7. Safe state: kills all game processes, shows blank lock screen\n\nThe billing session continues — staff can restart the game or end the session. Driving seconds are paused when no game is running."
+    "output": "When a game crashes during active billing:\n\n1. rc-agent detects game process exit (2s check interval)\n2. Sends GameStateUpdate(Error) to racecontrol\n3. Arms 30s crash recovery timer\n4. If AI debugger enabled, spawns AI crash analysis\n5. Waits 30s for racecontrol to send SessionEnded\n6. If no SessionEnded after 30s: force-resets pod (safe state enforcement)\n7. Safe state: kills all game processes, shows blank lock screen\n\nThe billing session continues — staff can restart the game or end the session. Driving seconds are paused when no game is running."
   },
   {
     "instruction": "F1 25 crashed on pod 3. Error: Windows ran out of virtual memory",
@@ -127,12 +127,12 @@
   {
     "instruction": "Blank screen on pod 7 during active billing. How to fix?",
     "input": "",
-    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). Check rc-core logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. Quick fix: `POST /api/v1/pods/pod_7/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?"
+    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: racecontrol now re-sends BillingStarted on agent reconnect (fix 273db1c). Check racecontrol logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to racecontrol. Quick fix: `POST /api/v1/pods/pod_7/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?"
   },
   {
     "instruction": "How does the driving detector work?",
     "input": "",
-    "output": "The driving detector in rc-agent monitors driver activity from two sources:\n\n1. **HID USB** (hidapi): Reads OpenFFBoard HID reports from the wheelbase. Detects steering movement and pedal input. Reports hid_connected and hid_active.\n\n2. **UDP telemetry**: Game-specific telemetry on per-sim UDP ports. AC on 9996, F1 on 20777, Forza on 5300, iRacing on 6789, LMU on 5555.\n\nStates: Active (input detected), Idle (no input for 10s), NoDevice (wheelbase disconnected).\nIdle threshold: 10 seconds (configurable in rc-agent.toml).\nDrivingState is sent to rc-core via heartbeat and used for billing idle tracking."
+    "output": "The driving detector in rc-agent monitors driver activity from two sources:\n\n1. **HID USB** (hidapi): Reads OpenFFBoard HID reports from the wheelbase. Detects steering movement and pedal input. Reports hid_connected and hid_active.\n\n2. **UDP telemetry**: Game-specific telemetry on per-sim UDP ports. AC on 9996, F1 on 20777, Forza on 5300, iRacing on 6789, LMU on 5555.\n\nStates: Active (input detected), Idle (no input for 10s), NoDevice (wheelbase disconnected).\nIdle threshold: 10 seconds (configurable in rc-agent.toml).\nDrivingState is sent to racecontrol via heartbeat and used for billing idle tracking."
   },
   {
     "instruction": "Le Mans Ultimate crashed on pod 8. Error: EasyAntiCheat integrity check failed",
@@ -147,7 +147,7 @@
   {
     "instruction": "Deploy to pod 7 failed with SIZE MISMATCH.",
     "input": "",
-    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`"
+    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent-crate --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`"
   },
   {
     "instruction": "How is Assetto Corsa launched at Racing Point?",
@@ -187,7 +187,7 @@
   {
     "instruction": "How does Le Mans Ultimate work at Racing Point?",
     "input": "",
-    "output": "Le Mans Ultimate details:\n- Executable: LMU.exe\n- Telemetry UDP port: 5555\n- Platform: Steam\n- Launch method: Steam launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 5555\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered"
+    "output": "Le Mans Ultimate details:\n- Executable: LMU.exe\n- Telemetry UDP port: 5555\n- Platform: Steam\n- Launch method: Steam launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 5555\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered"
   },
   {
     "instruction": "Defender quarantined rc-agent.exe on pod 4.",
@@ -232,7 +232,7 @@
   {
     "instruction": "Deploy script says pod 2 at 192.168.31.33 is unreachable.",
     "input": "",
-    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`"
+    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent-crate --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`"
   },
   {
     "instruction": "What is the IP address of pod 4?",
@@ -252,7 +252,7 @@
   {
     "instruction": "What is the network layout of Racing Point?",
     "input": "",
-    "output": "Racing Point has 8 sim racing pods on subnet 192.168.31.x:\n- Pod 1: .89, Pod 2: .33, Pod 3: .28, Pod 4: .88\n- Pod 5: .86, Pod 6: .87, Pod 7: .38, Pod 8: .91\n- Server (Racing-Point-Server): .51 (64GB RAM, runs rc-core on port 8080)\n- James (AI assistant): .27\n- Router: .1\n\nEach pod runs rc-agent + pod-agent (port 8090). Lock screen on port 18923, debug on 18924."
+    "output": "Racing Point has 8 sim racing pods on subnet 192.168.31.x:\n- Pod 1: .89, Pod 2: .33, Pod 3: .28, Pod 4: .88\n- Pod 5: .86, Pod 6: .87, Pod 7: .38, Pod 8: .91\n- Server (Racing-Point-Server): .51 (64GB RAM, runs racecontrol on port 8080)\n- James (AI assistant): .27\n- Router: .1\n\nEach pod runs rc-agent + pod-agent (port 8090). Lock screen on port 18923, debug on 18924."
   },
   {
     "instruction": "Pod 8 (192.168.31.91): iRacingSim64DX11.exe exited unexpectedly. Context: exit code -1073741801 (insufficient memory)",
@@ -322,7 +322,7 @@
   {
     "instruction": "What is the RaceControl system architecture?",
     "input": "",
-    "output": "RaceControl is a Rust monorepo with 3 crates:\n\n1. **rc-common**: Shared types, protocol definitions, used by both core and agent\n2. **rc-core** (port 8080): Central server on Racing-Point-Server (.51)\n   - Axum REST API + WebSocket server\n   - Billing management, pod tracking, game launching\n   - AI service (Ollama → Claude CLI → Anthropic fallback)\n   - Cloud sync, SQLite database\n3. **rc-agent**: Runs on each gaming pod\n   - Lock screen, kiosk enforcement, driving detector\n   - Game process monitoring, AC launcher\n   - AI debugger for crash analysis\n   - UDP heartbeat to rc-core\n\nCommunication: WebSocket (commands) + UDP (heartbeat). Agent registers on connect, core sends billing commands. Heartbeat every 5s."
+    "output": "RaceControl is a Rust monorepo with 3 crates:\n\n1. **rc-common**: Shared types, protocol definitions, used by both core and agent\n2. **racecontrol** (port 8080): Central server on Racing-Point-Server (.51)\n   - Axum REST API + WebSocket server\n   - Billing management, pod tracking, game launching\n   - AI service (Ollama → Claude CLI → Anthropic fallback)\n   - Cloud sync, SQLite database\n3. **rc-agent**: Runs on each gaming pod\n   - Lock screen, kiosk enforcement, driving detector\n   - Game process monitoring, AC launcher\n   - AI debugger for crash analysis\n   - UDP heartbeat to racecontrol\n\nCommunication: WebSocket (commands) + UDP (heartbeat). Agent registers on connect, core sends billing commands. Heartbeat every 5s."
   },
   {
     "instruction": "What is the IP address of pod 8?",
@@ -352,7 +352,7 @@
   {
     "instruction": "rc-agent deploy to pod 1 shows curl exit=23.",
     "input": "",
-    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`"
+    "output": "Common deploy failures and fixes:\n\n**SIZE MISMATCH**: certutil was used instead of curl.exe. NEVER use certutil — it adds metadata. Use `curl.exe -o` for downloads.\n\n**curl exit=23 (write error)**: Disk full or permissions issue on the pod. Check disk space.\n\n**File locked**: Old rc-agent still running. Kill it first: `taskkill /F /IM rc-agent.exe`, wait 3s, then download.\n\n**Pod unreachable**: Pod may be powered off or DHCP IP changed. Scan subnet port 8090 to find new IP.\n\nDeploy checklist:\n1. Build: `cargo build -p rc-agent-crate --release`\n2. Update EXPECTED_SIZE in deploy script\n3. Start HTTP server: `python3 -m http.server 8888`\n4. Run: `python3 deploy-rc-agent.py`"
   },
   {
     "instruction": "What AC content is available? How many tracks and cars?",
@@ -397,7 +397,7 @@
   {
     "instruction": "How do I check if a pod is reachable?",
     "input": "",
-    "output": "Check pod connectivity:\n1. Ping: `ping 192.168.31.<pod_ip>`\n2. Pod-agent health: `curl -s http://192.168.31.<pod_ip>:8090/health`\n3. rc-core pod list: `curl -s http://localhost:8080/api/v1/pods`\n\nIf unreachable:\n- Pod may be powered off\n- DHCP IP may have changed — scan subnet: `nmap -p 8090 192.168.31.0/24`\n- Firewall may be blocking — check Windows Firewall on the pod\n- Network cable disconnected — check physical connection"
+    "output": "Check pod connectivity:\n1. Ping: `ping 192.168.31.<pod_ip>`\n2. Pod-agent health: `curl -s http://192.168.31.<pod_ip>:8090/health`\n3. racecontrol pod list: `curl -s http://localhost:8080/api/v1/pods`\n\nIf unreachable:\n- Pod may be powered off\n- DHCP IP may have changed — scan subnet: `nmap -p 8090 192.168.31.0/24`\n- Firewall may be blocking — check Windows Firewall on the pod\n- Network cable disconnected — check physical connection"
   },
   {
     "instruction": "Pod 4 (192.168.31.88): LMU.exe exited unexpectedly. Context: force feedback error: device not responding",
@@ -422,7 +422,7 @@
   {
     "instruction": "Can't rebuild racecontrol.exe, file is locked.",
     "input": "",
-    "output": "rc-core (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop rc-core: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p rc-core --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping rc-core drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart."
+    "output": "racecontrol (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop racecontrol: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p racecontrol-crate --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping racecontrol drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart."
   },
   {
     "instruction": "iRacing crashed on pod 7. Error: fatal error: configuration file corrupt or missing",
@@ -447,7 +447,7 @@
   {
     "instruction": "Build error: Access denied on target/release/racecontrol.exe.",
     "input": "",
-    "output": "rc-core (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop rc-core: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p rc-core --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping rc-core drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart."
+    "output": "racecontrol (racecontrol.exe) is still running and Windows locks the file.\n\nFix:\n1. Stop racecontrol: `powershell -Command \"Stop-Process -Name racecontrol -Force\"`\n2. Wait 3 seconds\n3. Rebuild: `cargo build -p racecontrol-crate --release`\n4. Restart: `./target/release/racecontrol.exe &`\n\nWarning: Stopping racecontrol drops all WebSocket connections. All rc-agents disconnect briefly. Active billing sessions survive — recovered from DB on restart."
   },
   {
     "instruction": "F1 25 crashed on pod 3. Error: OpenFFBoard HID device not found",
@@ -457,7 +457,7 @@
   {
     "instruction": "Pod 5 screen is blank but the customer has an active session. What's wrong?",
     "input": "",
-    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). Check rc-core logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. Quick fix: `POST /api/v1/pods/pod_5/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?"
+    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: racecontrol now re-sends BillingStarted on agent reconnect (fix 273db1c). Check racecontrol logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to racecontrol. Quick fix: `POST /api/v1/pods/pod_5/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?"
   },
   {
     "instruction": "Pod 7 (192.168.31.38): iRacingSim64DX11.exe exited unexpectedly. Context: mod loading error: incompatible CSP version",
@@ -487,12 +487,12 @@
   {
     "instruction": "How does billing work in RaceControl?",
     "input": "",
-    "output": "Billing flow:\n1. Customer authenticates at pod via PIN (4-digit) or QR scan + PWA confirmation\n2. Staff selects pricing tier on kiosk terminal\n3. rc-core creates billing_session in SQLite, starts timer\n4. rc-core sends BillingStarted to rc-agent via WebSocket\n5. rc-agent shows countdown overlay on pod screen\n6. BillingTick sent every second with remaining time\n7. On expiry or manual stop: SessionEnded sent, overlay dismissed\n\nDriving time tracked separately from billing time (idle_threshold = 10s). Sessions survive rc-core restart — recovered from DB."
+    "output": "Billing flow:\n1. Customer authenticates at pod via PIN (4-digit) or QR scan + PWA confirmation\n2. Staff selects pricing tier on kiosk terminal\n3. racecontrol creates billing_session in SQLite, starts timer\n4. racecontrol sends BillingStarted to rc-agent via WebSocket\n5. rc-agent shows countdown overlay on pod screen\n6. BillingTick sent every second with remaining time\n7. On expiry or manual stop: SessionEnded sent, overlay dismissed\n\nDriving time tracked separately from billing time (idle_threshold = 10s). Sessions survive racecontrol restart — recovered from DB."
   },
   {
     "instruction": "How does customer authentication work at Racing Point?",
     "input": "",
-    "output": "Two authentication methods:\n\n**PIN Auth** (primary):\n1. Staff enters customer phone at reception kiosk\n2. System generates 4-digit PIN, displays on kiosk\n3. Customer enters PIN on pod lock screen (numpad)\n4. rc-agent sends PIN to rc-core for validation\n5. On success: lock screen shows active session UI\n\n**QR + PWA** (alternative):\n1. Customer scans QR code displayed on pod\n2. Opens PWA in mobile browser\n3. Confirms session on mobile\n4. rc-core validates and sends BillingStarted to rc-agent\n\nEmployee debug PIN: Daily rotating 4-digit PIN, Content Manager access blocked for customers."
+    "output": "Two authentication methods:\n\n**PIN Auth** (primary):\n1. Staff enters customer phone at reception kiosk\n2. System generates 4-digit PIN, displays on kiosk\n3. Customer enters PIN on pod lock screen (numpad)\n4. rc-agent sends PIN to racecontrol for validation\n5. On success: lock screen shows active session UI\n\n**QR + PWA** (alternative):\n1. Customer scans QR code displayed on pod\n2. Opens PWA in mobile browser\n3. Confirms session on mobile\n4. racecontrol validates and sends BillingStarted to rc-agent\n\nEmployee debug PIN: Daily rotating 4-digit PIN, Content Manager access blocked for customers."
   },
   {
     "instruction": "Pod 1 (192.168.31.89): F1_25.exe exited unexpectedly. Context: exit code -1073741801 (insufficient memory)",
@@ -517,7 +517,7 @@
   {
     "instruction": "What happens after a customer's session ends?",
     "input": "",
-    "output": "Post-session flow:\n1. Timer expires or staff ends session via kiosk\n2. rc-core sends SessionEnded to rc-agent\n3. Lock screen shows SessionSummary: driver name, total laps, best lap, driving time\n4. 15-second auto-blank timer starts\n5. After 15s (if no new session started): screen goes blank (ScreenBlanked)\n6. enforce_safe_state() kills game processes, minimizes background windows\n7. Pod status set to Idle, ready for next customer\n\nIf customer has wallet balance, BetweenSessions state shows balance."
+    "output": "Post-session flow:\n1. Timer expires or staff ends session via kiosk\n2. racecontrol sends SessionEnded to rc-agent\n3. Lock screen shows SessionSummary: driver name, total laps, best lap, driving time\n4. 15-second auto-blank timer starts\n5. After 15s (if no new session started): screen goes blank (ScreenBlanked)\n6. enforce_safe_state() kills game processes, minimizes background windows\n7. Pod status set to Idle, ready for next customer\n\nIf customer has wallet balance, BetweenSessions state shows balance."
   },
   {
     "instruction": "Pod 5 (192.168.31.86): ForzaMotorsport.exe exited unexpectedly. Context: exit code -1073741819 (access violation)",
@@ -532,7 +532,7 @@
   {
     "instruction": "How does iRacing work at Racing Point?",
     "input": "",
-    "output": "iRacing details:\n- Executable: iRacingSim64DX11.exe\n- Telemetry UDP port: 6789\n- Platform: iRacing launcher\n- Launch method: iRacing UI launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 6789\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered"
+    "output": "iRacing details:\n- Executable: iRacingSim64DX11.exe\n- Telemetry UDP port: 6789\n- Platform: iRacing launcher\n- Launch method: iRacing UI launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 6789\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered"
   },
   {
     "instruction": "Conspit Ares wheel not working on pod 5.",
@@ -552,7 +552,7 @@
   {
     "instruction": "Pod 4 at 192.168.31.88 shows black screen even though billing is running.",
     "input": "",
-    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: rc-core now re-sends BillingStarted on agent reconnect (fix 273db1c). Check rc-core logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to rc-core. Quick fix: `POST /api/v1/pods/pod_4/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?"
+    "output": "Blank screen during active session has several possible causes:\n\n1. **rc-agent restarted during session**: racecontrol now re-sends BillingStarted on agent reconnect (fix 273db1c). Check racecontrol logs for 'Resynced billing session'.\n\n2. **Stale rc-agent holding port 18923**: Run `netstat -ano | findstr 18923` on the pod to check. Kill ALL rc-agent processes with `taskkill /F /IM rc-agent.exe`, wait 3s, restart.\n\n3. **Browser not relaunching**: Fixed in 05ef1d6 — browser now relaunches on every BillingStarted event.\n\n4. **WebSocket disconnected**: Check if rc-agent connected to racecontrol. Quick fix: `POST /api/v1/pods/pod_4/screen` with `{\"blank\": false}`.\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — is session active?\n- On pod: `tasklist | findstr rc-agent` — how many instances?\n- On pod: `curl.exe -s http://127.0.0.1:18923/` — what page is showing?"
   },
   {
     "instruction": "Pod 1 has multiple rc-agent processes running. How to clean up?",
@@ -562,7 +562,7 @@
   {
     "instruction": "How do I manually end a billing session?",
     "input": "",
-    "output": "To manually end a billing session:\n\nVia API: `POST /api/v1/billing/{session-uuid}/stop`\n\nVia kiosk: Click the active session on the pod card, then 'End Session'.\n\nIf the in-memory timer is lost (rc-core restart), the API has a DB fallback (f74a5f9) — it queries for orphaned active sessions and force-ends them.\n\nTo find the session UUID:\n- `curl http://localhost:8080/api/v1/billing/active` — lists active in-memory timers\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — recent sessions from DB"
+    "output": "To manually end a billing session:\n\nVia API: `POST /api/v1/billing/{session-uuid}/stop`\n\nVia kiosk: Click the active session on the pod card, then 'End Session'.\n\nIf the in-memory timer is lost (racecontrol restart), the API has a DB fallback (f74a5f9) — it queries for orphaned active sessions and force-ends them.\n\nTo find the session UUID:\n- `curl http://localhost:8080/api/v1/billing/active` — lists active in-memory timers\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — recent sessions from DB"
   },
   {
     "instruction": "Pod 4 (192.168.31.88): acs.exe exited unexpectedly. Context: exit code -1073741819 (access violation)",
@@ -572,7 +572,7 @@
   {
     "instruction": "Overlay countdown on pod 5 keeps running but kiosk says pod is idle.",
     "input": "",
-    "output": "Stale overlay timer after rc-core restart — fixed in f74a5f9.\n\nRoot cause: Two bugs:\n1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n2. `end_billing_session()` only checked in-memory timers, not DB\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — in-memory timer exists?\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — is session 'active' in DB?\n- On pod: `curl http://127.0.0.1:18925/data` — overlay active=true/false?\n- If orphaned: `POST /api/v1/billing/{session-uuid}/stop` — force-end via DB fallback"
+    "output": "Stale overlay timer after racecontrol restart — fixed in f74a5f9.\n\nRoot cause: Two bugs:\n1. `recover_active_sessions()` didn't update pod state (billing_session_id, current_driver, status)\n2. `end_billing_session()` only checked in-memory timers, not DB\n\nDebug checklist:\n- `curl http://localhost:8080/api/v1/billing/active` — in-memory timer exists?\n- `curl http://localhost:8080/api/v1/billing/sessions?limit=5` — is session 'active' in DB?\n- On pod: `curl http://127.0.0.1:18925/data` — overlay active=true/false?\n- If orphaned: `POST /api/v1/billing/{session-uuid}/stop` — force-end via DB fallback"
   },
   {
     "instruction": "Pod 1 keeps reconnecting every few seconds.",
@@ -592,7 +592,7 @@
   {
     "instruction": "How does Assetto Corsa work at Racing Point?",
     "input": "",
-    "output": "Assetto Corsa details:\n- Executable: acs.exe\n- Telemetry UDP port: 9996\n- Platform: Steam/direct\n- Launch method: Content Manager or direct acs.exe launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 9996\n- On crash: GameStateUpdate(Error) sent to rc-core, AI debugger triggered"
+    "output": "Assetto Corsa details:\n- Executable: acs.exe\n- Telemetry UDP port: 9996\n- Platform: Steam/direct\n- Launch method: Content Manager or direct acs.exe launch\n- rc-agent monitors process via game_process.rs (2s check interval)\n- Driving detector reads telemetry on UDP 9996\n- On crash: GameStateUpdate(Error) sent to racecontrol, AI debugger triggered"
   },
   {
     "instruction": "What is the lock screen and how does it work?",

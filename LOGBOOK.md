@@ -228,7 +228,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 11 03:16 UTC | Bono | `085f217` | feat: balance shadow verification logging |
 | Mar 11 03:18 UTC | Bono | `fca8912` | feat: PWA wallet transaction history page |
 | Mar 11 03:21 UTC | Bono | `07c729f` | docs: update codebase map with wallet_transactions sync |
-| Mar 11 03:26 UTC | Bono | `755fa72` | feat: orphaned acServer process cleanup on rc-core startup |
+| Mar 11 03:26 UTC | Bono | `755fa72` | feat: orphaned acServer process cleanup on racecontrol startup |
 | Mar 11 03:27 UTC | Bono | `f7bc1b9` | feat: PID-based stop fallback for acServer |
 | Mar 11 03:30 UTC | Bono | `f55a209` | feat: PID persistence and orphan cleanup for rc-agent games |
 | Mar 11 03:37 UTC | Bono | `1b3bc94` | feat: PausedDisconnect billing status variant |
