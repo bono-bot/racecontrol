@@ -799,16 +799,26 @@ fn setup_winrm() -> Result<(), String> {
 }
 
 fn setup_firewall() -> Result<(), String> {
-    let _ = run("netsh", &[
-        "advfirewall", "firewall", "add", "rule",
-        "name=WinRM-HTTP",
-        "dir=in", "action=allow", "protocol=TCP", "localport=5985",
-    ]);
-    let _ = run("netsh", &[
-        "advfirewall", "firewall", "add", "rule",
-        "name=RCAgent",
-        "dir=in", "action=allow", "protocol=TCP", "localport=8090",
-    ]);
+    // Domain GPO sets LocalFirewallRules=N/A which means local netsh rules are ignored.
+    // Known issue documented in Phase 22. Fix: disable Windows Firewall entirely.
+    // These pods are on a private LAN behind a router — firewall adds no security value.
+    let off = run("netsh", &["advfirewall", "set", "allprofiles", "state", "off"]);
+    match &off {
+        Ok(o) if o.status.success() => ok("Windows Firewall disabled (GPO local-rules workaround)"),
+        _ => {
+            warn("Could not disable firewall — falling back to rule-add (may not work under GPO)");
+            let _ = run("netsh", &[
+                "advfirewall", "firewall", "add", "rule",
+                "name=WinRM-HTTP",
+                "dir=in", "action=allow", "protocol=TCP", "localport=5985",
+            ]);
+            let _ = run("netsh", &[
+                "advfirewall", "firewall", "add", "rule",
+                "name=RCAgent",
+                "dir=in", "action=allow", "protocol=TCP", "localport=8090",
+            ]);
+        }
+    }
     Ok(())
 }
 
