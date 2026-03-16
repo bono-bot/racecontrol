@@ -14,22 +14,6 @@ progress:
   percent: 91
 ---
 
----
-gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: RC Bot Expansion
-status: ready_to_plan
-stopped_at: Completed 24-04-PLAN.md — failure_monitor wired end-to-end with 13 state update sites + 3 new PodStateSnapshot fields, all tests green
-last_updated: "2026-03-16T11:37:00.401Z"
-last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
-progress:
-  [█████████░] 91%
-  completed_phases: 2
-  total_plans: 11
-  completed_plans: 7
-  percent: 88
----
-
 # Project State
 
 ## Project Reference
