@@ -1484,6 +1484,7 @@ async fn test_lap_suspect_sector_sum() {
         sector2_ms: Some(28000),
         sector3_ms: Some(30000), // sum=88000, diff from 90000 = 2000 > 500
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
 
@@ -1530,6 +1531,7 @@ async fn test_lap_suspect_sanity() {
         sector2_ms: Some(5000),
         sector3_ms: Some(5000), // sum=15000, matches lap_time perfectly
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
 
@@ -1575,6 +1577,7 @@ async fn test_lap_not_suspect_valid() {
         sector2_ms: Some(30000),
         sector3_ms: Some(29800), // sum=89800, diff=200 <= 500
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
 
@@ -1620,6 +1623,7 @@ async fn test_lap_not_suspect_no_sectors() {
         sector2_ms: None,
         sector3_ms: None, // no sectors
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
 
@@ -1665,6 +1669,7 @@ async fn test_lap_suspect_zero_sectors_ignored() {
         sector2_ms: Some(0),
         sector3_ms: Some(0), // all zero = treated as absent
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
 
@@ -1984,6 +1989,7 @@ async fn test_notification_data_before_upsert() {
         sector2_ms: Some(30000),
         sector3_ms: Some(30000),
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
     let is_record_a = racecontrol_crate::lap_tracker::persist_lap(&state, &lap_a).await;
@@ -2027,6 +2033,7 @@ async fn test_notification_data_before_upsert() {
         sector2_ms: Some(28500),
         sector3_ms: Some(28500),
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
     let is_record_b = racecontrol_crate::lap_tracker::persist_lap(&state, &lap_b).await;
@@ -2089,6 +2096,7 @@ async fn test_notification_skip_no_email() {
         sector2_ms: Some(47000),
         sector3_ms: Some(47000),
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
     racecontrol_crate::lap_tracker::persist_lap(&state, &lap_c).await;
@@ -2122,6 +2130,7 @@ async fn test_notification_skip_no_email() {
         sector2_ms: Some(45000),
         sector3_ms: Some(45000),
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
     let is_record = racecontrol_crate::lap_tracker::persist_lap(&state, &lap_d).await;
@@ -2178,6 +2187,7 @@ async fn test_notification_first_record_no_notify() {
         sector2_ms: Some(160000),
         sector3_ms: Some(160000),
         valid: true,
+        session_type: rc_common::types::SessionType::Practice,
         created_at: chrono::Utc::now(),
     };
     let is_record = racecontrol_crate::lap_tracker::persist_lap(&state, &lap_e).await;

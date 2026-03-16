@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: "Completed 26-01-PLAN.md — Wave 0 TDD gate: 11 RED stubs in lap_tracker/auth/bot_coordinator, 258 existing tests green"
-last_updated: "2026-03-16T13:25:02.581Z"
+stopped_at: "Completed 26-03-PLAN.md — PIN-01/02: separate customer/staff counters, 3 stubs GREEN, 261 tests pass"
+last_updated: "2026-03-16T13:32:49.513Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 19
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 ---
@@ -102,6 +102,8 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 25-billing-guard-server-bot-coordinator P02 | 4 | 1 tasks | 2 files |
 | Phase 25-billing-guard-server-bot-coordinator P04 | 12 | 2 tasks | 3 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P01 | 200 | 3 tasks | 3 files |
+| Phase 26-lap-filter-pin-security-telemetry-multiplayer P03 | 4 | 1 tasks | 2 files |
+| Phase 26-lap-filter-pin-security-telemetry-multiplayer P03 | 10 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -146,6 +148,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 25-billing-guard-server-bot-coordinator]: BILL-04 relay fence: 1s poll loop up to 5s for relay_available.load inside if ended block only — failed end_billing_session_public skips fence (no session to sync)
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: Wave 0 gate enforced: all 11 RED stubs committed across lap_tracker/auth/bot_coordinator before any production code change
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: All stubs use todo!() not #[should_panic] — panics automatically on run, compiles cleanly; lap_tracker.rs had no prior test block so new mod tests created
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: PIN counter check placed before DB lookup in validate_pin() — avoids wasted DB round-trip on locked pod; staff counter has no lockout ceiling per PIN-02 absolute requirement
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: PIN counters strict type separation: customer and staff counters never share state — structural invariant enforced by two separate HashMaps
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: Staff PIN path (validate_employee_pin) has no lockout ceiling — PIN-02 absolute: staff always unlocks regardless of failure count
 
 ### Roadmap Evolution
 
@@ -167,6 +172,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T13:25:02.579Z
-Stopped at: Completed 26-01-PLAN.md — Wave 0 TDD gate: 11 RED stubs in lap_tracker/auth/bot_coordinator, 258 existing tests green
+Last session: 2026-03-16T13:32:40.823Z
+Stopped at: Completed 26-03-PLAN.md — PIN-01/02: separate customer/staff counters, 3 stubs GREEN, 261 tests pass
 Resume file: None
