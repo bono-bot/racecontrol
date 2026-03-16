@@ -321,6 +321,22 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
         return Some(fix_kill_error_dialogs());
     }
 
+    // Pattern 3a: Frozen game — billing-gated relaunch via IsHungAppWindow detection
+    // MUST appear before Pattern 4 so "game frozen...relaunch" dispatches here, not kill_stale_game
+    if lower.contains("game frozen") || (lower.contains("frozen") && lower.contains("relaunch")) {
+        return Some(fix_frozen_game(snapshot));
+    }
+
+    // Pattern 3b: Launch timeout — Content Manager hang
+    if lower.contains("launch timeout") || (lower.contains("content manager") && lower.contains("hang")) {
+        return Some(fix_launch_timeout(snapshot));
+    }
+
+    // Pattern 3c: USB/HID reconnect for wheelbase
+    if (lower.contains("wheelbase") || lower.contains("hid")) && lower.contains("usb reset") {
+        return Some(fix_usb_reconnect(snapshot));
+    }
+
     // Pattern 4: Relaunch game — kill crashed game process
     if lower.contains("relaunch") && lower.contains("game")
         || lower.contains("restart") && (lower.contains("acs.exe") || lower.contains("game"))
@@ -345,6 +361,20 @@ fn hidden_cmd(program: &str) -> std::process::Command {
         cmd.creation_flags(0x08000000);
     }
     cmd
+}
+
+// ─── Phase 24 Stub Declarations (Wave 1 will implement) ──────────────────────
+
+pub(crate) fn fix_frozen_game(_snapshot: &PodStateSnapshot) -> AutoFixResult {
+    todo!("Phase 24 Wave 1")
+}
+
+pub(crate) fn fix_launch_timeout(_snapshot: &PodStateSnapshot) -> AutoFixResult {
+    todo!("Phase 24 Wave 1")
+}
+
+pub(crate) fn fix_usb_reconnect(_snapshot: &PodStateSnapshot) -> AutoFixResult {
+    todo!("Phase 24 Wave 1")
 }
 
 // ─── Auto-Fix Implementations ────────────────────────────────────────────────
@@ -775,5 +805,102 @@ mod tests {
         let i = incident.unwrap();
         i.success_count += 1;
         assert_eq!(i.success_count, 3);
+    }
+
+    // ─── Phase 24 Wave 0: RED test stubs ─────────────────────────────────────
+
+    fn billing_snapshot(billing_active: bool) -> PodStateSnapshot {
+        PodStateSnapshot {
+            pod_id: "pod_8".to_string(),
+            pod_number: 8,
+            billing_active,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_auto_fix_frozen_game_dispatches() {
+        let snap = billing_snapshot(true);
+        let result = try_auto_fix("Game frozen — IsHungAppWindow true + UDP silent 30s relaunch acs.exe", &snap);
+        assert!(result.is_some(), "freeze+relaunch keywords must dispatch");
+        assert_eq!(result.unwrap().fix_type, "fix_frozen_game");
+    }
+
+    #[test]
+    fn test_fix_frozen_game_billing_gate() {
+        let snap = billing_snapshot(false);
+        let result = try_auto_fix("Game frozen — IsHungAppWindow true + UDP silent 30s relaunch acs.exe", &snap);
+        // When billing is inactive, fix_frozen_game must return no-op result (success: false)
+        // The arm still dispatches, but fix_frozen_game gates internally
+        if let Some(r) = result {
+            assert!(!r.success, "fix_frozen_game must not succeed when billing is inactive");
+        }
+        // None is also acceptable — either way, no destructive action taken
+    }
+
+    #[test]
+    fn test_ffb_zero_before_kill_ordering() {
+        let snap = billing_snapshot(true);
+        let result = fix_frozen_game(&snap);  // direct call — function doesn't exist yet → RED
+        assert!(result.detail.contains("ffb_zeroed") || result.detail.contains("FFB"),
+            "fix_frozen_game detail must indicate FFB was zeroed: {}", result.detail);
+    }
+
+    #[test]
+    fn test_auto_fix_launch_timeout_dispatches() {
+        let snap = billing_snapshot(true);
+        let result = try_auto_fix("launch timeout — Content Manager hang kill cm process", &snap);
+        assert!(result.is_some(), "launch timeout keywords must dispatch");
+        assert_eq!(result.unwrap().fix_type, "fix_launch_timeout");
+    }
+
+    #[test]
+    fn test_fix_launch_timeout_kills_both_cm_names() {
+        let snap = billing_snapshot(true);
+        let result = fix_launch_timeout(&snap);  // function doesn't exist yet → RED
+        assert_eq!(result.fix_type, "fix_launch_timeout");
+        assert!(result.success);
+    }
+
+    #[test]
+    fn test_kill_error_dialogs_extended() {
+        let snap = billing_snapshot(false);
+        let result = try_auto_fix("werfault crash dialog error dialog suppress before kill", &snap);
+        assert!(result.is_some(), "werfault keyword must still dispatch");
+        assert_eq!(result.unwrap().fix_type, "kill_error_dialogs");
+    }
+
+    #[test]
+    fn test_auto_fix_usb_reconnect_dispatches() {
+        let snap = billing_snapshot(true);
+        let result = try_auto_fix("Wheelbase usb reset required — HID reconnected VID:0x1209 PID:0xFFB0", &snap);
+        assert!(result.is_some(), "wheelbase+usb reset keywords must dispatch");
+        assert_eq!(result.unwrap().fix_type, "fix_usb_reconnect");
+    }
+
+    #[test]
+    fn test_fix_usb_reconnect_ffb_zero() {
+        let snap = billing_snapshot(true);
+        let result = fix_usb_reconnect(&snap);  // function doesn't exist yet → RED
+        assert_eq!(result.fix_type, "fix_usb_reconnect");
+        assert!(result.success);
+    }
+
+    #[test]
+    fn test_fix_frozen_game_no_billing_no_fix() {
+        let snap = billing_snapshot(false);
+        let result = fix_frozen_game(&snap);  // function doesn't exist yet → RED
+        assert!(!result.success, "fix_frozen_game must not succeed without active billing");
+    }
+
+    #[test]
+    fn test_auto_fix_game_frozen_keyword_specific() {
+        let snap = billing_snapshot(true);
+        let result = try_auto_fix("game frozen relaunch acs.exe", &snap);
+        assert!(result.is_some());
+        // Must match "game frozen" arm first (fix_frozen_game), not old "relaunch" + "game" arm (kill_stale_game)
+        // This forces "game frozen" arm to appear BEFORE the generic "relaunch" arm in try_auto_fix
+        assert_eq!(result.unwrap().fix_type, "fix_frozen_game",
+            "game frozen must dispatch to fix_frozen_game, not kill_stale_game");
     }
 }
