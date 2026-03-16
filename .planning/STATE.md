@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
+stopped_at: Completed 27-01-PLAN.md — BonoConfig + bono_relay.rs skeleton, 247 tests green
+last_updated: "2026-03-16T11:35:56.836Z"
+last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
+progress:
+  total_phases: 5
+  completed_phases: 1
+  total_plans: 11
+  completed_plans: 6
+  percent: 88
+---
+
+---
+gsd_state_version: 1.0
+milestone: v5.0
+milestone_name: RC Bot Expansion
+status: ready_to_plan
 stopped_at: Completed 24-02-PLAN.md — 3 new fix functions + extended fix_kill_error_dialogs, all 10 Wave 0 tests GREEN
 last_updated: "2026-03-16T11:24:23.967Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
-  total_phases: 5
+  [█████████░] 88%
   completed_phases: 1
   total_plans: 11
   completed_plans: 5
@@ -61,6 +77,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 24-crash-hang-launch-usb-bot-patterns P01 | 6 | 2 tasks | 2 files |
 | Phase 24-crash-hang-launch-usb-bot-patterns P03 | 6 | 1 tasks | 2 files |
 | Phase 24-crash-hang-launch-usb-bot-patterns P02 | 6 | 2 tasks | 1 files |
+| Phase 27-tailscale-mesh-internet-fallback P01 | 15 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -86,6 +103,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: failure_monitor: prev_hid_connected and launch_timeout_fired are task-local (not in FailureMonitorState) — transition detection requires prev state which only the monitor task needs
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: fix_frozen_game billing gate inside function body — DebugMemory instant_fix() replays fix functions directly, bypassing call-site guards
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: fix_usb_reconnect has no billing gate — USB HID reconnect FFB safety reset is always appropriate regardless of billing state
+- [Phase 27-tailscale-mesh-internet-fallback]: relay_port=8099 not 8081 — PortAllocator reserves 8081-8096 for AC dedicated server sessions
+- [Phase 27-tailscale-mesh-internet-fallback]: BonoConfig uses manual Default impl — derived Default gives relay_port=0, serde default fn only fires during deserialization
 
 ### Roadmap Evolution
 
@@ -107,6 +126,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T11:24:23.964Z
-Stopped at: Completed 24-02-PLAN.md — 3 new fix functions + extended fix_kill_error_dialogs, all 10 Wave 0 tests GREEN
+Last session: 2026-03-16T11:35:56.833Z
+Stopped at: Completed 27-01-PLAN.md — BonoConfig + bono_relay.rs skeleton, 247 tests green
 Resume file: None
