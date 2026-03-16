@@ -47,7 +47,7 @@ Phases: Firewall Auto-Config → WebSocket Exec → Startup Self-Healing → Wat
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 23: Protocol Contract + Concurrency Safety** - Shared failure taxonomy and concurrency guard land in rc-common before any bot detection code exists — cross-crate compile dependency makes this non-negotiable first (completed 2026-03-16)
+- [x] **Phase 23: Protocol Contract + Concurrency Safety** - Shared failure taxonomy and concurrency guard land in rc-common before any bot detection code exists — cross-crate compile dependency makes this non-negotiable first (completed 2026-03-16)
 - [ ] **Phase 24: Crash, Hang, Launch + USB Bot Patterns** - failure_monitor.rs detects game freeze, launch timeout, and USB disconnect on the pod; ai_debugger.rs gains 6 new fix arms including FFB zero-force on crash
 - [ ] **Phase 25: Billing Guard + Server Bot Coordinator** - billing_guard.rs detects stuck sessions and idle drift on the pod; bot_coordinator.rs on racecontrol routes anomalies to recovery and fences the cloud sync wallet race
 - [ ] **Phase 26: Lap Filter, PIN Security, Telemetry + Multiplayer** - lap_filter.rs wires game-reported validity into persist_lap; PIN counters separate customer from staff; telemetry gap and multiplayer desync alert via bot_coordinator
@@ -79,7 +79,13 @@ Plans:
   3. When the Conspit Ares wheelbase is physically unplugged and replugged during a session, the bot detects the VID:0x1209 PID:0xFFB0 device reappearing within 10 seconds and restarts the FFB controller
   4. Any game kill triggered by the bot sends CMD_ESTOP (FFB zero-force) to the wheelbase before the process kill executes — confirmed by log ordering showing FFB zero before game kill in every test run
   5. Windows error dialogs (WerFault, crash reporters) are suppressed by the bot before any process kill — customers never see a system error dialog during recovery
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 24-01-PLAN.md — Wave 0: PodStateSnapshot Default derive + 3 new fields + 10 RED test stubs (all requirements)
+- [ ] 24-02-PLAN.md — Wave 1a: fix_frozen_game, fix_launch_timeout, fix_usb_reconnect + 2 new try_auto_fix arms (CRASH-01, CRASH-02, CRASH-03, UI-01)
+- [ ] 24-03-PLAN.md — Wave 1b: failure_monitor.rs new file with FailureMonitorState, spawn(), detection logic (CRASH-01, CRASH-02, USB-01)
+- [ ] 24-04-PLAN.md — Wave 2: main.rs wiring — mod declaration, watch channel, 8 state update sites, PodStateSnapshot new fields (all requirements)
 
 ### Phase 25: Billing Guard + Server Bot Coordinator
 **Goal**: The bot detects and recovers from stuck billing sessions and idle drift without risking wallet corruption — bot_coordinator.rs on racecontrol routes anomalies through the correct StopSession sequence and fences the cloud sync race
@@ -138,13 +144,13 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 22. Pod 6/7/8 Recovery + Remote Restart Reliability | 2/2 | Complete   | 2026-03-16 | - |
 | 23. Protocol Contract + Concurrency Safety | 2/2 | Complete    | 2026-03-16 | - |
-| 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/? | Not started | - |
+| 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/4 | Not started | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
 
-**Goal:** [To be planned]
+**Goal:** All 8 pods, server, and Bono's VPS join a Tailscale mesh network — installed as a Windows Service via WinRM, cloud_sync routes through Tailscale IP, and the server pushes telemetry/game state/pod health events to Bono in real time with a bidirectional command relay for PWA-triggered game launches
 **Requirements**: TBD
 **Depends on:** Phase 26
 **Plans:** 0 plans
