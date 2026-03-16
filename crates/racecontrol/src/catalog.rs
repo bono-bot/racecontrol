@@ -14,6 +14,10 @@ pub struct TrackEntry {
     pub name: &'static str,
     pub category: &'static str,
     pub country: &'static str,
+    /// Per-track minimum lap time floor in milliseconds.
+    /// Laps below this time are flagged review_required=1 in the DB.
+    /// None means no floor configured for this track.
+    pub min_lap_time_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,46 +31,57 @@ pub struct CarEntry {
 
 const FEATURED_TRACKS: &[TrackEntry] = &[
     // F1 Circuits
-    TrackEntry { id: "spa", name: "Spa-Francorchamps", category: "F1 Circuits", country: "Belgium" },
-    TrackEntry { id: "monza", name: "Monza", category: "F1 Circuits", country: "Italy" },
-    TrackEntry { id: "ks_silverstone", name: "Silverstone", category: "F1 Circuits", country: "UK" },
-    TrackEntry { id: "ks_red_bull_ring", name: "Red Bull Ring", category: "F1 Circuits", country: "Austria" },
-    TrackEntry { id: "spielberg", name: "Spielberg", category: "F1 Circuits", country: "Austria" },
-    TrackEntry { id: "ks_barcelona", name: "Barcelona", category: "F1 Circuits", country: "Spain" },
-    TrackEntry { id: "monaco", name: "Monaco", category: "F1 Circuits", country: "Monaco" },
-    TrackEntry { id: "interlagos", name: "Interlagos", category: "F1 Circuits", country: "Brazil" },
-    TrackEntry { id: "bahrain", name: "Bahrain", category: "F1 Circuits", country: "Bahrain" },
-    TrackEntry { id: "yas_marina_circuit-day", name: "Yas Marina (Day)", category: "F1 Circuits", country: "UAE" },
-    TrackEntry { id: "albert-park_acu", name: "Albert Park", category: "F1 Circuits", country: "Australia" },
-    TrackEntry { id: "china-gp", name: "Shanghai", category: "F1 Circuits", country: "China" },
-    TrackEntry { id: "cota", name: "Circuit of the Americas", category: "F1 Circuits", country: "USA" },
-    TrackEntry { id: "jeddah21", name: "Jeddah", category: "F1 Circuits", country: "Saudi Arabia" },
-    TrackEntry { id: "lasvegas23", name: "Las Vegas", category: "F1 Circuits", country: "USA" },
-    TrackEntry { id: "singapore", name: "Singapore", category: "F1 Circuits", country: "Singapore" },
-    TrackEntry { id: "fn_losail", name: "Losail", category: "F1 Circuits", country: "Qatar" },
-    TrackEntry { id: "baku_2022", name: "Baku", category: "F1 Circuits", country: "Azerbaijan" },
-    TrackEntry { id: "vrc_mexico", name: "Mexico City", category: "F1 Circuits", country: "Mexico" },
-    TrackEntry { id: "rt_suzuka", name: "Suzuka", category: "F1 Circuits", country: "Japan" },
-    TrackEntry { id: "imola", name: "Imola", category: "F1 Circuits", country: "Italy" },
-    TrackEntry { id: "ks_zandvoort", name: "Zandvoort", category: "F1 Circuits", country: "Netherlands" },
+    TrackEntry { id: "spa", name: "Spa-Francorchamps", category: "F1 Circuits", country: "Belgium", min_lap_time_ms: Some(120_000) },
+    TrackEntry { id: "monza", name: "Monza", category: "F1 Circuits", country: "Italy", min_lap_time_ms: Some(80_000) },
+    TrackEntry { id: "ks_silverstone", name: "Silverstone", category: "F1 Circuits", country: "UK", min_lap_time_ms: Some(90_000) },
+    TrackEntry { id: "ks_red_bull_ring", name: "Red Bull Ring", category: "F1 Circuits", country: "Austria", min_lap_time_ms: None },
+    TrackEntry { id: "spielberg", name: "Spielberg", category: "F1 Circuits", country: "Austria", min_lap_time_ms: None },
+    TrackEntry { id: "ks_barcelona", name: "Barcelona", category: "F1 Circuits", country: "Spain", min_lap_time_ms: None },
+    TrackEntry { id: "monaco", name: "Monaco", category: "F1 Circuits", country: "Monaco", min_lap_time_ms: None },
+    TrackEntry { id: "interlagos", name: "Interlagos", category: "F1 Circuits", country: "Brazil", min_lap_time_ms: None },
+    TrackEntry { id: "bahrain", name: "Bahrain", category: "F1 Circuits", country: "Bahrain", min_lap_time_ms: None },
+    TrackEntry { id: "yas_marina_circuit-day", name: "Yas Marina (Day)", category: "F1 Circuits", country: "UAE", min_lap_time_ms: None },
+    TrackEntry { id: "albert-park_acu", name: "Albert Park", category: "F1 Circuits", country: "Australia", min_lap_time_ms: None },
+    TrackEntry { id: "china-gp", name: "Shanghai", category: "F1 Circuits", country: "China", min_lap_time_ms: None },
+    TrackEntry { id: "cota", name: "Circuit of the Americas", category: "F1 Circuits", country: "USA", min_lap_time_ms: None },
+    TrackEntry { id: "jeddah21", name: "Jeddah", category: "F1 Circuits", country: "Saudi Arabia", min_lap_time_ms: None },
+    TrackEntry { id: "lasvegas23", name: "Las Vegas", category: "F1 Circuits", country: "USA", min_lap_time_ms: None },
+    TrackEntry { id: "singapore", name: "Singapore", category: "F1 Circuits", country: "Singapore", min_lap_time_ms: None },
+    TrackEntry { id: "fn_losail", name: "Losail", category: "F1 Circuits", country: "Qatar", min_lap_time_ms: None },
+    TrackEntry { id: "baku_2022", name: "Baku", category: "F1 Circuits", country: "Azerbaijan", min_lap_time_ms: None },
+    TrackEntry { id: "vrc_mexico", name: "Mexico City", category: "F1 Circuits", country: "Mexico", min_lap_time_ms: None },
+    TrackEntry { id: "rt_suzuka", name: "Suzuka", category: "F1 Circuits", country: "Japan", min_lap_time_ms: None },
+    TrackEntry { id: "imola", name: "Imola", category: "F1 Circuits", country: "Italy", min_lap_time_ms: None },
+    TrackEntry { id: "ks_zandvoort", name: "Zandvoort", category: "F1 Circuits", country: "Netherlands", min_lap_time_ms: None },
     // Real Circuits
-    TrackEntry { id: "ks_nordschleife", name: "Nordschleife", category: "Real Circuits", country: "Germany" },
-    TrackEntry { id: "ks_nurburgring", name: "Nurburgring GP", category: "Real Circuits", country: "Germany" },
-    TrackEntry { id: "ks_laguna_seca", name: "Laguna Seca", category: "Real Circuits", country: "USA" },
-    TrackEntry { id: "mugello", name: "Mugello", category: "Real Circuits", country: "Italy" },
-    TrackEntry { id: "ks_brands_hatch", name: "Brands Hatch", category: "Real Circuits", country: "UK" },
-    TrackEntry { id: "phillip_island_circuit", name: "Phillip Island", category: "Real Circuits", country: "Australia" },
-    TrackEntry { id: "daytona_2017", name: "Daytona", category: "Real Circuits", country: "USA" },
-    TrackEntry { id: "sx_lemans", name: "Le Mans", category: "Real Circuits", country: "France" },
+    TrackEntry { id: "ks_nordschleife", name: "Nordschleife", category: "Real Circuits", country: "Germany", min_lap_time_ms: None },
+    TrackEntry { id: "ks_nurburgring", name: "Nurburgring GP", category: "Real Circuits", country: "Germany", min_lap_time_ms: None },
+    TrackEntry { id: "ks_laguna_seca", name: "Laguna Seca", category: "Real Circuits", country: "USA", min_lap_time_ms: None },
+    TrackEntry { id: "mugello", name: "Mugello", category: "Real Circuits", country: "Italy", min_lap_time_ms: None },
+    TrackEntry { id: "ks_brands_hatch", name: "Brands Hatch", category: "Real Circuits", country: "UK", min_lap_time_ms: None },
+    TrackEntry { id: "phillip_island_circuit", name: "Phillip Island", category: "Real Circuits", country: "Australia", min_lap_time_ms: None },
+    TrackEntry { id: "daytona_2017", name: "Daytona", category: "Real Circuits", country: "USA", min_lap_time_ms: None },
+    TrackEntry { id: "sx_lemans", name: "Le Mans", category: "Real Circuits", country: "France", min_lap_time_ms: None },
     // Indian Circuits
-    TrackEntry { id: "kari_motor_speedway", name: "Kari Motor Speedway", category: "Indian Circuits", country: "India" },
-    TrackEntry { id: "madras_international_circuit", name: "Madras Motor Race Track", category: "Indian Circuits", country: "India" },
-    TrackEntry { id: "india", name: "Buddh International Circuit", category: "Indian Circuits", country: "India" },
+    TrackEntry { id: "kari_motor_speedway", name: "Kari Motor Speedway", category: "Indian Circuits", country: "India", min_lap_time_ms: None },
+    TrackEntry { id: "madras_international_circuit", name: "Madras Motor Race Track", category: "Indian Circuits", country: "India", min_lap_time_ms: None },
+    TrackEntry { id: "india", name: "Buddh International Circuit", category: "Indian Circuits", country: "India", min_lap_time_ms: None },
     // Street / Touge
-    TrackEntry { id: "shuto_revival_project_beta", name: "Shuto Expressway (SRP)", category: "Street / Touge", country: "Japan" },
-    TrackEntry { id: "haruna", name: "Mt. Haruna", category: "Street / Touge", country: "Japan" },
-    TrackEntry { id: "isle_of_man", name: "Isle of Man TT", category: "Street / Touge", country: "UK" },
+    TrackEntry { id: "shuto_revival_project_beta", name: "Shuto Expressway (SRP)", category: "Street / Touge", country: "Japan", min_lap_time_ms: None },
+    TrackEntry { id: "haruna", name: "Mt. Haruna", category: "Street / Touge", country: "Japan", min_lap_time_ms: None },
+    TrackEntry { id: "isle_of_man", name: "Isle of Man TT", category: "Street / Touge", country: "UK", min_lap_time_ms: None },
 ];
+
+/// Return the minimum lap time floor for a track ID, or None if unconfigured.
+///
+/// Laps below this threshold will have review_required=1 set in the DB by persist_lap().
+/// This is a pure static data lookup — not async.
+pub fn get_min_lap_time_ms_for_track(track_id: &str) -> Option<u32> {
+    FEATURED_TRACKS
+        .iter()
+        .find(|t| t.id == track_id)
+        .and_then(|t| t.min_lap_time_ms)
+}
 
 // ─── Featured Cars ───────────────────────────────────────────────────────────
 
