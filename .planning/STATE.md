@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 24-03-PLAN.md — failure_monitor.rs with 8/8 tests, CRASH-01/CRASH-02/USB-01 detection, spawn_blocking-wrapped try_auto_fix calls
-last_updated: "2026-03-16T11:23:29.787Z"
+stopped_at: Completed 24-02-PLAN.md — 3 new fix functions + extended fix_kill_error_dialogs, all 10 Wave 0 tests GREEN
+last_updated: "2026-03-16T11:24:23.967Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 11
-  completed_plans: 4
+  completed_plans: 5
   percent: 84
 ---
 
@@ -91,6 +91,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 23-protocol-contract-concurrency-safety P01 | 15 | 2 tasks | 3 files |
 | Phase 24-crash-hang-launch-usb-bot-patterns P01 | 6 | 2 tasks | 2 files |
 | Phase 24-crash-hang-launch-usb-bot-patterns P03 | 6 | 1 tasks | 2 files |
+| Phase 24-crash-hang-launch-usb-bot-patterns P02 | 6 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: fix_frozen_game arm placed before generic relaunch+game arm — keyword specificity ensures game frozen dispatches to correct fix function
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: failure_monitor: CPU pre-filter before IsHungAppWindow — sysinfo two-refresh avoids EnumWindows cost when game is active
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: failure_monitor: prev_hid_connected and launch_timeout_fired are task-local (not in FailureMonitorState) — transition detection requires prev state which only the monitor task needs
+- [Phase 24-crash-hang-launch-usb-bot-patterns]: fix_frozen_game billing gate inside function body — DebugMemory instant_fix() replays fix functions directly, bypassing call-site guards
+- [Phase 24-crash-hang-launch-usb-bot-patterns]: fix_usb_reconnect has no billing gate — USB HID reconnect FFB safety reset is always appropriate regardless of billing state
 
 ### Roadmap Evolution
 
@@ -135,6 +138,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T11:23:29.778Z
-Stopped at: Completed 24-03-PLAN.md — failure_monitor.rs with 8/8 tests, CRASH-01/CRASH-02/USB-01 detection, spawn_blocking-wrapped try_auto_fix calls
+Last session: 2026-03-16T11:24:23.964Z
+Stopped at: Completed 24-02-PLAN.md — 3 new fix functions + extended fix_kill_error_dialogs, all 10 Wave 0 tests GREEN
 Resume file: None
