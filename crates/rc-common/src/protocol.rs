@@ -1080,6 +1080,56 @@ mod tests {
     }
 
     #[test]
+    fn test_billing_tick_old_field_alias() {
+        // PROTOC-01: Old rc-agent versions send "minutes_to_value_tier" — the serde alias
+        // must accept this key and populate minutes_to_next_tier.
+        let json = r#"{"type":"billing_tick","data":{"remaining_seconds":1200,"allocated_seconds":1800,"driver_name":"AliasTest","minutes_to_value_tier":15,"tier_name":"Standard"}}"#;
+        let parsed: CoreToAgentMessage = serde_json::from_str(json).unwrap();
+        if let CoreToAgentMessage::BillingTick {
+            remaining_seconds,
+            minutes_to_next_tier,
+            tier_name,
+            ..
+        } = parsed
+        {
+            assert_eq!(remaining_seconds, 1200);
+            // KEY: "minutes_to_value_tier" in JSON maps to minutes_to_next_tier in struct via alias
+            assert_eq!(
+                minutes_to_next_tier,
+                Some(15),
+                "serde alias must map minutes_to_value_tier -> minutes_to_next_tier"
+            );
+            assert_eq!(tier_name, Some("Standard".to_string()));
+
+            // Verify re-serialization uses the canonical field name, not the alias
+            let reserialized = serde_json::to_string(&CoreToAgentMessage::BillingTick {
+                remaining_seconds: 1200,
+                allocated_seconds: 1800,
+                driver_name: "AliasTest".to_string(),
+                elapsed_seconds: None,
+                cost_paise: None,
+                rate_per_min_paise: None,
+                paused: None,
+                minutes_to_next_tier: Some(15),
+                tier_name: Some("Standard".to_string()),
+            })
+            .unwrap();
+            assert!(
+                reserialized.contains("\"minutes_to_next_tier\":15"),
+                "serialized output must use canonical field name, got: {}",
+                reserialized
+            );
+            assert!(
+                !reserialized.contains("minutes_to_value_tier"),
+                "serialized output must NOT contain old alias name, got: {}",
+                reserialized
+            );
+        } else {
+            panic!("Expected BillingTick variant after alias deserialization");
+        }
+    }
+
+    #[test]
     fn test_dashboard_event_deploy_progress_killing_roundtrip() {
         let event = DashboardEvent::DeployProgress {
             pod_id: "pod_8".to_string(),
