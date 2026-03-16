@@ -114,7 +114,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 34-01-PLAN.md — Wave 1: Fix POST/DELETE status codes (201/204) + 4 integration tests (ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04)
+- [ ] 35-01-PLAN.md — Wave 1: Add UIC-01 test assertions + grep verification (BILLC-01, UIC-01, UIC-02, UIC-03, UIC-04)
 
 ## Progress
 
