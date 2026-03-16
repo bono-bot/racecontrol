@@ -141,3 +141,13 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/? | Not started | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
+
+### Phase 27: Tailscale Mesh + Internet Fallback
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 26
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 27 to break down)

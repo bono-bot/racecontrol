@@ -97,6 +97,7 @@ Progress: [░░░░░░░░░░] 0%
 
 - Phase 22 added: Pod 6/7/8 Recovery and Remote Restart Reliability
 - Phases 23-26 added: v5.0 RC Bot Expansion roadmap (2026-03-16)
+- Phase 27 added: Tailscale Mesh + Internet Fallback (2026-03-16)
 
 ### Pending Todos
 
