@@ -1023,11 +1023,25 @@ async fn main() -> Result<()> {
                         None
                     }
                 };
-                if let Some(fix_result) = fix_result {
+                if let Some(ref fix_result) = fix_result {
                     tracing::info!(
                         "[auto-fix] Applied {} — {} (success: {})",
                         fix_result.fix_type, fix_result.detail, fix_result.success
                     );
+                    // Save successful fixes to pattern memory for instant replay next time
+                    if fix_result.success {
+                        let mut memory = ai_debugger::DebugMemory::load();
+                        memory.record_fix(
+                            &suggestion.sim_type,
+                            &suggestion.error_context,
+                            &fix_result.fix_type,
+                            &suggestion.suggestion,
+                        );
+                        tracing::info!(
+                            "[pattern-memory] Saved: {} for {:?}",
+                            fix_result.fix_type, suggestion.sim_type
+                        );
+                    }
                     suggestion.suggestion = format!(
                         "[AUTO-FIX APPLIED: {} — {}]\n\n{}",
                         fix_result.fix_type, fix_result.detail, suggestion.suggestion

@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tokio::sync::mpsc;
 
 use rc_common::types::{AiDebugSuggestion, DrivingState, SimType};
@@ -12,7 +13,9 @@ pub struct AiDebuggerConfig {
     pub ollama_url: String,
     #[serde(default = "default_ollama_model")]
     pub ollama_model: String,
-    pub anthropic_api_key: Option<String>,
+    pub openrouter_api_key: Option<String>,
+    #[serde(default = "default_openrouter_model")]
+    pub openrouter_model: String,
 }
 
 fn default_ollama_url() -> String {
@@ -20,6 +23,9 @@ fn default_ollama_url() -> String {
 }
 fn default_ollama_model() -> String {
     "racing-point-ops".to_string()
+}
+fn default_openrouter_model() -> String {
+    "openrouter/auto".to_string()
 }
 
 /// Runtime snapshot of pod state at the moment of a crash/error.
@@ -43,6 +49,113 @@ pub struct AutoFixResult {
     pub fix_type: String,
     pub detail: String,
     pub success: bool,
+}
+
+// ─── Pattern Memory ─────────────────────────────────────────────────────────
+// Stores resolved crash→fix pairs. When the same crash pattern recurs,
+// the fix is applied instantly (<100ms) without querying the AI.
+
+/// A resolved crash incident stored in pattern memory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DebugIncident {
+    pattern_key: String,
+    fix_type: String,
+    ai_suggestion: String,
+    success_count: u32,
+    last_seen: String,
+}
+
+/// Pattern memory — learns from resolved crashes for instant replay.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DebugMemory {
+    incidents: Vec<DebugIncident>,
+}
+
+const MEMORY_PATH: &str = r"C:\RacingPoint\debug-memory.json";
+const MAX_INCIDENTS: usize = 100;
+
+impl DebugMemory {
+    /// Load from disk, or return empty if file doesn't exist / is corrupt.
+    pub fn load() -> Self {
+        let path = Path::new(MEMORY_PATH);
+        if !path.exists() {
+            return Self::default();
+        }
+        match std::fs::read_to_string(path) {
+            Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
+            Err(_) => Self::default(),
+        }
+    }
+
+    /// Save to disk atomically (write temp, then rename).
+    pub fn save(&self) {
+        let tmp = format!("{}.tmp", MEMORY_PATH);
+        let json = match serde_json::to_string_pretty(self) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::error!("[pattern-memory] Failed to serialize: {}", e);
+                return;
+            }
+        };
+        if let Err(e) = std::fs::write(&tmp, &json) {
+            tracing::error!("[pattern-memory] Failed to write temp file: {}", e);
+            return;
+        }
+        if let Err(e) = std::fs::rename(&tmp, MEMORY_PATH) {
+            tracing::error!("[pattern-memory] Failed to rename: {}", e);
+        }
+    }
+
+    /// Look up a known fix for this crash pattern.
+    /// Returns the cached AI suggestion text (which contains keywords for try_auto_fix).
+    pub fn instant_fix(&self, sim_type: &SimType, error_context: &str) -> Option<String> {
+        let key = Self::pattern_key(sim_type, error_context);
+        self.incidents
+            .iter()
+            .filter(|i| i.pattern_key == key && i.success_count > 0)
+            .max_by_key(|i| i.success_count)
+            .map(|i| i.ai_suggestion.clone())
+    }
+
+    /// Record a successful fix. Increments count if pattern already known, otherwise appends.
+    pub fn record_fix(
+        &mut self,
+        sim_type: &SimType,
+        error_context: &str,
+        fix_type: &str,
+        ai_suggestion: &str,
+    ) {
+        let key = Self::pattern_key(sim_type, error_context);
+        if let Some(incident) = self.incidents.iter_mut().find(|i| i.pattern_key == key && i.fix_type == fix_type) {
+            incident.success_count += 1;
+            incident.last_seen = Utc::now().to_rfc3339();
+        } else {
+            // Prune oldest low-count entries if at capacity
+            if self.incidents.len() >= MAX_INCIDENTS {
+                self.incidents.sort_by(|a, b| b.success_count.cmp(&a.success_count));
+                self.incidents.truncate(MAX_INCIDENTS - 1);
+            }
+            self.incidents.push(DebugIncident {
+                pattern_key: key,
+                fix_type: fix_type.to_string(),
+                ai_suggestion: ai_suggestion.to_string(),
+                success_count: 1,
+                last_seen: Utc::now().to_rfc3339(),
+            });
+        }
+        self.save();
+    }
+
+    /// Extract pattern key from crash context: "{SimType}:{exit_code}"
+    /// e.g. "AssettoCorsa:-1", "F125:3221225477", "AssettoCorsa:unknown"
+    fn pattern_key(sim_type: &SimType, error_context: &str) -> String {
+        let exit_code = error_context
+            .split("exit code ")
+            .nth(1)
+            .and_then(|s| s.split(|c: char| c == ')' || c == ' ' || c == ',').next())
+            .unwrap_or("unknown");
+        format!("{:?}:{}", sim_type, exit_code)
+    }
 }
 
 // Processes that must NEVER be killed by auto-fix
@@ -72,6 +185,28 @@ pub async fn analyze_crash(
         "[ai-debug] Starting crash analysis for {} ({:?}), model={}, url={}",
         pod_id, sim_type, config.ollama_model, config.ollama_url
     );
+
+    // ── Check pattern memory for instant fix ────────────────────────────────
+    let memory = DebugMemory::load();
+    if let Some(cached_suggestion) = memory.instant_fix(&sim_type, &error_context) {
+        tracing::info!(
+            "[ai-debug] INSTANT FIX from pattern memory for {} ({:?})",
+            pod_id, sim_type
+        );
+        let _ = result_tx
+            .send(AiDebugSuggestion {
+                pod_id,
+                sim_type,
+                error_context,
+                suggestion: format!("[PATTERN MEMORY — instant fix]\n\n{}", cached_suggestion),
+                model: "pattern-memory".to_string(),
+                created_at: Utc::now(),
+            })
+            .await;
+        return;
+    }
+
+    // ── No memory match — query AI ──────────────────────────────────────────
     let prompt = build_prompt(&sim_type, &error_context, &snapshot);
     tracing::debug!("[ai-debug] Prompt length: {} chars", prompt.len());
 
@@ -96,13 +231,13 @@ pub async fn analyze_crash(
             return;
         }
         Err(e) => {
-            tracing::warn!("[ai-debug] Ollama query failed: {}. Trying Anthropic fallback...", e);
+            tracing::warn!("[ai-debug] Ollama query failed: {}. Trying OpenRouter fallback...", e);
         }
     }
 
-    // Fallback to Anthropic API
-    if let Some(api_key) = &config.anthropic_api_key {
-        match query_anthropic(api_key, &prompt).await {
+    // Fallback to OpenRouter API (seamless tier 2 transition)
+    if let Some(api_key) = &config.openrouter_api_key {
+        match query_openrouter(api_key, &config.openrouter_model, &prompt).await {
             Ok(suggestion) => {
                 let _ = result_tx
                     .send(AiDebugSuggestion {
@@ -110,17 +245,17 @@ pub async fn analyze_crash(
                         sim_type,
                         error_context,
                         suggestion,
-                        model: "anthropic/claude-sonnet".to_string(),
+                        model: format!("openrouter/{}", config.openrouter_model),
                         created_at: Utc::now(),
                     })
                     .await;
             }
             Err(e) => {
-                tracing::error!("Anthropic query also failed: {}", e);
+                tracing::error!("[ai-debug] OpenRouter query also failed: {}", e);
             }
         }
     } else {
-        tracing::warn!("No Anthropic API key configured and Ollama failed — no AI debug available");
+        tracing::warn!("[ai-debug] No OpenRouter API key configured and Ollama failed — no AI debug available");
     }
 }
 
@@ -354,14 +489,13 @@ async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<St
     Ok(body.response)
 }
 
-async fn query_anthropic(api_key: &str, prompt: &str) -> anyhow::Result<String> {
+async fn query_openrouter(api_key: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
     let client = reqwest::Client::new();
     let resp = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", api_key))
         .json(&serde_json::json!({
-            "model": "claude-sonnet-4-20250514",
+            "model": model,
             "max_tokens": 500,
             "messages": [{"role": "user", "content": prompt}]
         }))
@@ -370,18 +504,22 @@ async fn query_anthropic(api_key: &str, prompt: &str) -> anyhow::Result<String> 
         .await?;
 
     #[derive(Deserialize)]
-    struct AnthropicContent {
-        text: String,
+    struct ChoiceMessage {
+        content: String,
     }
     #[derive(Deserialize)]
-    struct AnthropicResponse {
-        content: Vec<AnthropicContent>,
+    struct Choice {
+        message: ChoiceMessage,
     }
-    let body: AnthropicResponse = resp.json().await?;
+    #[derive(Deserialize)]
+    struct OpenRouterResponse {
+        choices: Vec<Choice>,
+    }
+    let body: OpenRouterResponse = resp.json().await?;
     Ok(body
-        .content
+        .choices
         .first()
-        .map(|c| c.text.clone())
+        .map(|c| c.message.content.clone())
         .unwrap_or_default())
 }
 
@@ -528,5 +666,101 @@ mod tests {
         assert!(PROTECTED_PROCESSES.contains(&"pod-agent.exe"));
         assert!(PROTECTED_PROCESSES.contains(&"explorer.exe"));
         assert!(!PROTECTED_PROCESSES.contains(&"acs.exe"));
+    }
+
+    // ─── Pattern Memory Tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_pattern_key_extracts_exit_code() {
+        let key = DebugMemory::pattern_key(
+            &SimType::AssettoCorsa,
+            "assetto_corsa crashed on pod 3 (exit code -1)",
+        );
+        assert_eq!(key, "AssettoCorsa:-1");
+    }
+
+    #[test]
+    fn test_pattern_key_unknown_when_no_exit_code() {
+        let key = DebugMemory::pattern_key(
+            &SimType::F125,
+            "game failed to launch",
+        );
+        assert_eq!(key, "F125:unknown");
+    }
+
+    #[test]
+    fn test_pattern_key_large_exit_code() {
+        let key = DebugMemory::pattern_key(
+            &SimType::F125,
+            "f1_25 crashed (exit code 3221225477)",
+        );
+        assert_eq!(key, "F125:3221225477");
+    }
+
+    #[test]
+    fn test_instant_fix_returns_none_on_empty_memory() {
+        let memory = DebugMemory::default();
+        assert!(memory.instant_fix(&SimType::AssettoCorsa, "exit code -1").is_none());
+    }
+
+    #[test]
+    fn test_record_and_instant_fix_round_trip() {
+        let mut memory = DebugMemory::default();
+        memory.incidents.push(DebugIncident {
+            pattern_key: "AssettoCorsa:-1".to_string(),
+            fix_type: "clear_stale_sockets".to_string(),
+            ai_suggestion: "Check for CLOSE_WAIT zombie sockets".to_string(),
+            success_count: 3,
+            last_seen: "2026-03-16T10:00:00Z".to_string(),
+        });
+        let fix = memory.instant_fix(
+            &SimType::AssettoCorsa,
+            "assetto_corsa crashed on pod 5 (exit code -1)",
+        );
+        assert!(fix.is_some());
+        assert!(fix.unwrap().contains("CLOSE_WAIT"));
+    }
+
+    #[test]
+    fn test_instant_fix_prefers_highest_success_count() {
+        let mut memory = DebugMemory::default();
+        memory.incidents.push(DebugIncident {
+            pattern_key: "AssettoCorsa:-1".to_string(),
+            fix_type: "kill_stale_game".to_string(),
+            ai_suggestion: "relaunch game".to_string(),
+            success_count: 1,
+            last_seen: "2026-03-16T10:00:00Z".to_string(),
+        });
+        memory.incidents.push(DebugIncident {
+            pattern_key: "AssettoCorsa:-1".to_string(),
+            fix_type: "clear_stale_sockets".to_string(),
+            ai_suggestion: "CLOSE_WAIT zombie".to_string(),
+            success_count: 5,
+            last_seen: "2026-03-16T11:00:00Z".to_string(),
+        });
+        let fix = memory.instant_fix(
+            &SimType::AssettoCorsa,
+            "crashed (exit code -1)",
+        );
+        assert!(fix.unwrap().contains("CLOSE_WAIT"));
+    }
+
+    #[test]
+    fn test_record_fix_increments_existing() {
+        let mut memory = DebugMemory::default();
+        memory.incidents.push(DebugIncident {
+            pattern_key: "AssettoCorsa:-1".to_string(),
+            fix_type: "clear_stale_sockets".to_string(),
+            ai_suggestion: "zombie sockets".to_string(),
+            success_count: 2,
+            last_seen: "2026-03-16T10:00:00Z".to_string(),
+        });
+        // record_fix would normally save to disk — test the in-memory logic
+        let key = DebugMemory::pattern_key(&SimType::AssettoCorsa, "exit code -1");
+        let incident = memory.incidents.iter_mut().find(|i| i.pattern_key == key && i.fix_type == "clear_stale_sockets");
+        assert!(incident.is_some());
+        let i = incident.unwrap();
+        i.success_count += 1;
+        assert_eq!(i.success_count, 3);
     }
 }

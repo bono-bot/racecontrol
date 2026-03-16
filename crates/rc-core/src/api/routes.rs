@@ -47,6 +47,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/pods/shutdown-all", post(shutdown_all_pods))
         .route("/pods/restart-all", post(restart_all_pods))
         .route("/pods/lockdown-all", post(lockdown_all_pods))
+        .route("/pods/{id}/exec", post(ws_exec_pod))
         // Drivers
         .route("/drivers", get(list_drivers).post(create_driver))
         .route("/drivers/{id}", get(get_driver))
@@ -682,6 +683,29 @@ async fn lockdown_all_pods(
     }
 
     Json(json!({ "ok": true, "locked": locked, "results": results }))
+}
+
+/// POST /pods/{id}/exec — Execute a command on a pod via WebSocket proxy.
+/// Body: { "cmd": "...", "timeout_ms": 30000 }
+/// Returns: { "success": bool, "stdout": "...", "stderr": "..." }
+/// Works even when pod's HTTP :8090 is down — only requires WebSocket connection.
+async fn ws_exec_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let cmd = match body["cmd"].as_str() {
+        Some(c) => c,
+        None => return Json(json!({ "error": "missing 'cmd' field" })),
+    };
+    let timeout_ms = body["timeout_ms"].as_u64().unwrap_or(30_000);
+
+    match crate::ws::ws_exec_on_pod(&state, &id, cmd, timeout_ms).await {
+        Ok((success, stdout, stderr)) => {
+            Json(json!({ "success": success, "stdout": stdout, "stderr": stderr }))
+        }
+        Err(e) => Json(json!({ "error": e })),
+    }
 }
 
 #[cfg(test)]
