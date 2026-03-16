@@ -23,4 +23,15 @@
 - Staff dashboard: one-click lockdown toggle, power management (restart/shutdown/wake) per-pod and bulk
 - Customer experience: Racing Point branding on lock/blank screens, session results display, staff-configurable wallpaper
 
+## v5.0 AC Launch Reliability (Shipped: 2026-03-16)
+
+**Phases completed:** 5 phases, 10 plans, 19 requirements
+
+**Key accomplishments:**
+- Billing-game lifecycle wired: game killed on billing end, launch gate before billing, anti-double-launch guard, pod reset after session
+- Game crash recovery: auto-pause billing on crash, "Game Crashed" badge + "Relaunch" on kiosk dashboard
+- Launch resilience: structured `LaunchDiagnostics` (CM exit code, log errors, fallback flag), billing auto-pause on total launch failure
+- Multiplayer server lifecycle: `AcServerManager` wired to billing — server auto-starts on booking, auto-stops when all billing ends; kiosk self-serve "Play with Friends" booking with per-pod PINs
+- Synchronized group play: coordinated launch (all pods receive `LaunchGame` simultaneously when all PINs validated), continuous race mode with billing-active guard, "Join Failed" + retry on kiosk dashboard, mid-session track/car change for continuous mode
+
 ---
