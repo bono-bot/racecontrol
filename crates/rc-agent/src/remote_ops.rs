@@ -263,6 +263,21 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
         }
     };
 
+    // RCAGENT_SELF_RESTART sentinel: directly calls relaunch_self() in Rust.
+    // Bypasses cmd.exe, start-rcagent.bat, and PowerShell interpretation.
+    // relaunch_self() calls std::process::exit(0) on success — no response will be sent.
+    // If relaunch_self() returns (spawn failed), we return HTTP 500.
+    if req.cmd.trim() == "RCAGENT_SELF_RESTART" {
+        tracing::info!("[remote_ops] RCAGENT_SELF_RESTART received — calling relaunch_self()");
+        crate::self_monitor::relaunch_self();
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ExecResponse {
+            success: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: "relaunch_self() returned — spawn may have failed".to_string(),
+        })));
+    }
+
     // ── Detached fire-and-forget (used for self-update restarts) ────────────
     if req.detached {
         let mut cmd = Command::new("cmd");
@@ -787,6 +802,20 @@ mod tests {
         })).await;
 
         assert!(json.get("success").is_some(), "response must always include 'success' field");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_normal_exec_not_intercepted_by_sentinel() {
+        // Verifies the RCAGENT_SELF_RESTART sentinel does not break normal commands.
+        let app = test_router();
+        let (status, json) = exec_post(app, serde_json::json!({
+            "cmd": "echo hello",
+            "timeout_ms": 10000
+        })).await;
+        assert_eq!(status, 200, "Normal echo must still return 200 after sentinel added: {:?}", json);
+        assert!(json["stdout"].as_str().unwrap_or("").contains("hello"),
+            "stdout must still contain 'hello': {:?}", json["stdout"]);
     }
 
     fn test_router_full() -> Router {
