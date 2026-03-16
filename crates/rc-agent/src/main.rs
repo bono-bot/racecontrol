@@ -614,6 +614,15 @@ async fn main() -> Result<()> {
     );
     tracing::info!("Failure monitor started (poll interval: 5s)");
 
+    // ─── Billing Guard (stuck session + idle drift detection) ────────────────
+    // Site billing_guard: spawn billing anomaly detection task (shares watch receiver)
+    billing_guard::spawn(
+        failure_monitor_tx.subscribe(),
+        ws_exec_result_tx.clone(),
+        pod_id.clone(),
+    );
+    tracing::info!("Billing guard started");
+
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
     // (lock screen, kiosk, HID/UDP monitors, game process) persists across
@@ -889,6 +898,8 @@ async fn main() -> Result<()> {
                         pod_id: pod_id.clone(),
                         state: detector.state(),
                     };
+                    // Site 9a: update failure_monitor watch with current driving state (signal path)
+                    let _ = failure_monitor_tx.send_modify(|s| { s.driving_state = Some(detector.state()); });
                     let json = serde_json::to_string(&msg)?;
                     let _ = ws_tx.send(Message::Text(json.into())).await;
                     tracing::info!("Driving state changed: {:?}", detector.state());
@@ -902,6 +913,8 @@ async fn main() -> Result<()> {
                         pod_id: pod_id.clone(),
                         state: detector.state(),
                     };
+                    // Site 9b: update failure_monitor watch with current driving state (timeout path)
+                    let _ = failure_monitor_tx.send_modify(|s| { s.driving_state = Some(detector.state()); });
                     let json = serde_json::to_string(&msg)?;
                     let _ = ws_tx.send(Message::Text(json.into())).await;
                     tracing::info!("Driving state changed (timeout): {:?}", detector.state());
