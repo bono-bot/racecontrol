@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
+stopped_at: Completed 22-02-PLAN.md — Pod 2 deployed, pods 1/3-8 need manual rc-agent start
+last_updated: "2026-03-16T09:37:37.016Z"
+last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
+progress:
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 0
+  percent: 90
+---
+
+---
+gsd_state_version: 1.0
+milestone: v5.0
+milestone_name: RC Bot Expansion
+status: ready_to_plan
 stopped_at: ~
 last_updated: "2026-03-16T00:00:00.000Z"
 last_activity: 2026-03-16 — v5.0 roadmap created. Phases 23-26 defined, 19/19 requirements mapped.
 progress:
-  total_phases: 4
+  [█████████░] 90%
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -54,6 +70,7 @@ Progress: [░░░░░░░░░░] 0%
 | 21-fleet-health-dashboard P01 | 6 min | 2 tasks | 6 files |
 | 21-fleet-health-dashboard P02 | 5 min | 1 task | 3 files |
 | 22-pod-recovery P01 | 12 min | 3 tasks | 3 files |
+| Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability P02 | 95 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -67,6 +84,9 @@ Progress: [░░░░░░░░░░] 0%
 - Lap filter: game-reported isValidLap is authoritative; bot analysis sets review_required flag only, never hard-deletes
 - PIN counters: strict type separation — customer and staff counters never share state
 - [Phase 22]: RCAGENT_SELF_RESTART sentinel: direct Rust call to relaunch_self() bypasses cmd.exe/batch
+- [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: deploy_pod.py server-exec fallback: probe :8090 first, use racecontrol server WS proxy when blocked by GPO domain firewall policy
+- [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: PowerShell -EncodedCommand (UTF-16LE base64) for all WS-exec-proxied file writes: cmd.exe strips dollar-signs in -Command mode
+- [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: Rename-then-copy binary swap: Windows allows ren while running but not overwrite; rename old.exe, copy new.exe into vacated name, kill old PID, start new
 
 ### Roadmap Evolution
 
@@ -87,6 +107,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16
-Stopped at: v5.0 roadmap created (Phases 23-26). Phase 22 still has 22-02 pending.
+Last session: 2026-03-16T09:37:37.013Z
+Stopped at: Completed 22-02-PLAN.md — Pod 2 deployed, pods 1/3-8 need manual rc-agent start
 Resume file: None
