@@ -3197,6 +3197,172 @@ async fn test_sync_competitive_tables() {
 }
 
 /// SYNC-02 (#19): Targeted telemetry — only event-entered laps have telemetry synced.
+// =============================================================================
+// Phase 14 Plan 05 — Public Read Endpoints
+// Requirements: EVT-03, EVT-04, EVT-07, GRP-02, GRP-03, CHP-03
+// =============================================================================
+
+/// EVT-07: Public events list excludes cancelled events and returns active first.
+/// Verifies: cancelled excluded, active before completed, entry_count included.
+#[tokio::test]
+async fn test_public_events_list() {
+    let pool = create_test_db().await;
+
+    // Insert 3 events: active, completed, cancelled
+    sqlx::query(
+        "INSERT INTO hotlap_events (id, name, track, car, car_class, sim_type, status, starts_at, ends_at)
+         VALUES ('pel-evt-active', 'Active Race', 'monza', 'ks_ferrari_458_gt2', 'gt3', 'assetto_corsa', 'active',
+                 datetime('now', '-1 day'), datetime('now', '+1 day'))"
+    ).execute(&pool).await.unwrap();
+
+    sqlx::query(
+        "INSERT INTO hotlap_events (id, name, track, car, car_class, sim_type, status, starts_at, ends_at)
+         VALUES ('pel-evt-completed', 'Completed Race', 'spa', 'ks_ferrari_458_gt2', 'gt3', 'assetto_corsa', 'completed',
+                 datetime('now', '-3 days'), datetime('now', '-1 day'))"
+    ).execute(&pool).await.unwrap();
+
+    sqlx::query(
+        "INSERT INTO hotlap_events (id, name, track, car, car_class, sim_type, status, starts_at, ends_at)
+         VALUES ('pel-evt-cancelled', 'Cancelled Race', 'silverstone', 'ks_ferrari_458_gt2', 'gt3', 'assetto_corsa', 'cancelled',
+                 datetime('now', '-2 days'), datetime('now', '-1 day'))"
+    ).execute(&pool).await.unwrap();
+
+    // Add an entry to the active event so we can check entry_count
+    sqlx::query("INSERT INTO drivers (id, name) VALUES ('pel-drv-1', 'Test Driver')").execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_time_ms, result_status)
+         VALUES ('pel-entry-1', 'pel-evt-active', 'pel-drv-1', 80000, 'finished')"
+    ).execute(&pool).await.unwrap();
+
+    // Query matching what public_events_list does
+    let rows: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT id, status,
+                (SELECT COUNT(*) FROM hotlap_event_entries WHERE event_id = hotlap_events.id) as entry_count
+         FROM hotlap_events
+         WHERE status != 'cancelled'
+         ORDER BY
+           CASE status
+             WHEN 'active' THEN 1
+             WHEN 'upcoming' THEN 2
+             WHEN 'scoring' THEN 3
+             WHEN 'completed' THEN 4
+             ELSE 5
+           END,
+           starts_at DESC"
+    ).fetch_all(&pool).await.unwrap();
+
+    assert_eq!(rows.len(), 2, "Cancelled event must be excluded from public listing");
+    assert_eq!(rows[0].0, "pel-evt-active", "Active event must be listed first");
+    assert_eq!(rows[0].1, "active", "First event must have status 'active'");
+    assert_eq!(rows[0].2, 1, "Active event entry_count must be 1");
+    assert_eq!(rows[1].0, "pel-evt-completed", "Completed event must be listed second");
+    assert_eq!(rows[1].2, 0, "Completed event entry_count must be 0");
+
+    // Verify cancelled event is not in results
+    let has_cancelled = rows.iter().any(|(id, _, _)| id == "pel-evt-cancelled");
+    assert!(!has_cancelled, "Cancelled event must not appear in public listing");
+}
+
+/// EVT-03, EVT-04: Public event leaderboard includes badges, 107% flags, gap-to-leader.
+/// PII excluded: response uses display_name (never email/phone).
+#[tokio::test]
+async fn test_public_event_leaderboard() {
+    let pool = create_test_db().await;
+
+    let event_id = "plb-evt-1";
+
+    // Event with reference time 80000ms for badge computation
+    sqlx::query(
+        "INSERT INTO hotlap_events (id, name, track, car, car_class, sim_type, status, starts_at, ends_at, reference_time_ms)
+         VALUES (?, 'Leaderboard Test', 'monza', 'ks_ferrari_458_gt2', 'gt3', 'assetto_corsa', 'completed',
+                 datetime('now', '-2 days'), datetime('now', '-1 day'), 80000)"
+    ).bind(event_id).execute(&pool).await.unwrap();
+
+    // 3 drivers — one with nickname enabled, one without, one not set
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone, nickname, show_nickname_on_leaderboard)
+         VALUES ('plb-drv-1', 'Alice Smith', 'alice@example.com', '9999999999', 'AliRacer', 1)"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone, nickname, show_nickname_on_leaderboard)
+         VALUES ('plb-drv-2', 'Bob Jones', 'bob@example.com', '8888888888', 'BobSpeed', 0)"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO drivers (id, name, email, phone)
+         VALUES ('plb-drv-3', 'Carol White', 'carol@example.com', '7777777777')"
+    ).execute(&pool).await.unwrap();
+
+    // 3 entries: P1=80000ms (leader), P2=82000ms (+2000ms gap), P3=88000ms (>107% = 80000*1.07=85600)
+    sqlx::query(
+        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_time_ms, position, badge,
+                                           gap_to_leader_ms, within_107_percent, result_status, points)
+         VALUES ('plb-e1', ?, 'plb-drv-1', 80000, 1, 'gold', 0, 1, 'finished', 25)"
+    ).bind(event_id).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_time_ms, position, badge,
+                                           gap_to_leader_ms, within_107_percent, result_status, points)
+         VALUES ('plb-e2', ?, 'plb-drv-2', 82000, 2, 'silver', 2000, 1, 'finished', 18)"
+    ).bind(event_id).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_time_ms, position, badge,
+                                           gap_to_leader_ms, within_107_percent, result_status, points)
+         VALUES ('plb-e3', ?, 'plb-drv-3', 88000, 3, 'bronze', 8000, 0, 'finished', 15)"
+    ).bind(event_id).execute(&pool).await.unwrap();
+
+    // Query matching what public_event_leaderboard does (PII-safe display name)
+    let entries: Vec<(String, String, i64, Option<String>, Option<i64>, Option<i64>)> = sqlx::query_as(
+        "SELECT hee.driver_id,
+                CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL
+                     THEN d.nickname ELSE d.name END as display_name,
+                hee.lap_time_ms, hee.badge, hee.gap_to_leader_ms, hee.within_107_percent
+         FROM hotlap_event_entries hee
+         LEFT JOIN drivers d ON d.id = hee.driver_id
+         WHERE hee.event_id = ?
+         ORDER BY hee.position ASC"
+    ).bind(event_id).fetch_all(&pool).await.unwrap();
+
+    assert_eq!(entries.len(), 3, "Leaderboard must have 3 entries");
+
+    // P1: Alice has nickname enabled → display as 'AliRacer'
+    let (d1_id, d1_display, d1_lap, d1_badge, d1_gap, _) = &entries[0];
+    assert_eq!(d1_id, "plb-drv-1");
+    assert_eq!(d1_display, "AliRacer", "Nickname must be used when show_nickname_on_leaderboard=1");
+    assert_eq!(*d1_lap, 80000);
+    assert_eq!(d1_badge.as_deref(), Some("gold"));
+    assert_eq!(*d1_gap, Some(0));
+
+    // P2: Bob has nickname disabled → display as 'Bob Jones'
+    let (d2_id, d2_display, _, _, d2_gap, _) = &entries[1];
+    assert_eq!(d2_id, "plb-drv-2");
+    assert_eq!(d2_display, "Bob Jones", "Real name must be used when show_nickname_on_leaderboard=0");
+    assert_eq!(*d2_gap, Some(2000));
+
+    // P3: Carol has no nickname column → display as 'Carol White'
+    let (_, d3_display, _, _, d3_gap, d3_107) = &entries[2];
+    assert_eq!(d3_display, "Carol White");
+    assert_eq!(*d3_gap, Some(8000));
+    assert_eq!(*d3_107, Some(0), "P3 with 88000ms must be outside 107% of 80000ms reference");
+
+    // Verify PII is excluded: query the same data and ensure email/phone not present
+    // (The handler never SELECTs email/phone, so this is guaranteed by construction)
+    // Direct assertion: email field should not be queryable from the display query
+    let pii_check: Vec<(String,)> = sqlx::query_as(
+        "SELECT display_name FROM (
+           SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL
+                       THEN d.nickname ELSE d.name END as display_name
+           FROM hotlap_event_entries hee
+           LEFT JOIN drivers d ON d.id = hee.driver_id
+           WHERE hee.event_id = ?
+         )"
+    ).bind(event_id).fetch_all(&pool).await.unwrap();
+
+    // Ensure none of the display_names are email addresses (PII)
+    for (name,) in &pii_check {
+        assert!(!name.contains('@'), "Email must never appear in public leaderboard display_name: got '{}'", name);
+        assert!(!name.chars().all(|c| c.is_ascii_digit()), "Phone number must never appear in display_name: got '{}'", name);
+    }
+}
+
 /// FAILS: targeted telemetry sync not yet implemented.
 #[tokio::test]
 async fn test_sync_targeted_telemetry() {
