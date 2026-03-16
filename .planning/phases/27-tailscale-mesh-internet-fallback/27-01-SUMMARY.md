@@ -117,6 +117,16 @@ None - no external service configuration required. Tailscale setup and webhook_u
 - spawn() stub has a clear TODO marker for Wave 1 to fill in
 - 247 tests green, no regressions
 
+## Self-Check: PASSED
+
+- FOUND: crates/racecontrol/src/bono_relay.rs
+- FOUND: crates/racecontrol/src/config.rs (BonoConfig added)
+- FOUND: .planning/phases/27-tailscale-mesh-internet-fallback/27-01-SUMMARY.md
+- FOUND: commit f3b95ea (BonoConfig)
+- FOUND: commit 07c0501 (bono_relay.rs)
+- FOUND: commit 0990a05 (metadata)
+- All 247 tests green confirmed
+
 ---
 *Phase: 27-tailscale-mesh-internet-fallback*
 *Completed: 2026-03-16*
