@@ -39,6 +39,8 @@ use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(windows)]
+const DETACHED_PROCESS: u32 = 0x00000008;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_CONCURRENT_EXECS: usize = 4;
@@ -224,6 +226,10 @@ async fn read_file(Query(q): Query<PathQuery>) -> Result<impl IntoResponse, (Sta
 struct ExecRequest {
     cmd: String,
     timeout_ms: Option<u64>,
+    /// Fire-and-forget: spawn with DETACHED_PROCESS, return immediately.
+    /// Use for self-update restarts — the spawned process outlives rc-agent.
+    #[serde(default)]
+    detached: bool,
 }
 
 #[derive(Serialize)]
@@ -256,6 +262,28 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
             ));
         }
     };
+
+    // ── Detached fire-and-forget (used for self-update restarts) ────────────
+    if req.detached {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", &req.cmd]).kill_on_drop(false);
+        #[cfg(windows)]
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
+        return match cmd.spawn() {
+            Ok(_) => Ok(Json(ExecResponse {
+                success: true,
+                exit_code: Some(0),
+                stdout: "detached".to_string(),
+                stderr: String::new(),
+            })),
+            Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ExecResponse {
+                success: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: format!("Failed to spawn detached: {}", e),
+            }))),
+        };
+    }
 
     let timeout_ms = req.timeout_ms.unwrap_or(DEFAULT_EXEC_TIMEOUT_MS);
 
