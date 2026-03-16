@@ -506,13 +506,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             }
                         }
                         AgentMessage::HardwareFailure { pod_id, reason, detail } => {
-                            tracing::info!("[bot] HardwareFailure pod={} reason={:?}: {}", pod_id, reason, detail);
+                            crate::bot_coordinator::handle_hardware_failure(&state, &pod_id, &reason, &detail).await;
                         }
-                        AgentMessage::TelemetryGap { pod_id, sim_type, gap_seconds } => {
-                            tracing::info!("[bot] TelemetryGap pod={} sim={:?} gap={}s", pod_id, sim_type, gap_seconds);
+                        AgentMessage::TelemetryGap { pod_id, sim_type: _, gap_seconds } => {
+                            crate::bot_coordinator::handle_telemetry_gap(&state, &pod_id, *gap_seconds as u64).await;
                         }
                         AgentMessage::BillingAnomaly { pod_id, billing_session_id, reason, detail } => {
-                            tracing::info!("[bot] BillingAnomaly pod={} session={} reason={:?}: {}", pod_id, billing_session_id, reason, detail);
+                            crate::bot_coordinator::handle_billing_anomaly(&state, &pod_id, &billing_session_id, *reason, &detail).await;
                         }
                         AgentMessage::LapFlagged { pod_id, lap_id, reason, detail } => {
                             tracing::info!("[bot] LapFlagged pod={} lap={} reason={:?}: {}", pod_id, lap_id, reason, detail);

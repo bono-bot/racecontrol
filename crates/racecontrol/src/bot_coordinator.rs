@@ -10,6 +10,7 @@
 //!   TelemetryGap                               → log + alert (stub; TELEM-01 Phase 26)
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use rc_common::types::{BillingSessionStatus, PodFailureReason};
 
@@ -142,13 +143,32 @@ async fn recover_stuck_session(state: &Arc<AppState>, pod_id: &str) {
             session_id,
             pod_id
         );
+        // BILL-04: cloud sync fence — wait up to 5s for relay to cycle after session end.
+        // Ensures wallet debit is propagated before any further bot actions.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if state.relay_available.load(Ordering::Relaxed) {
+                tracing::info!(
+                    "[bot-coord] Sync fence complete — relay available, session={}",
+                    session_id
+                );
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                tracing::warn!(
+                    "[bot-coord] Sync fence timeout 5s for session={} — HTTP fallback scheduled",
+                    session_id
+                );
+                break;
+            }
+        }
     } else {
         tracing::warn!(
             "[bot-coord] end_billing_session_public returned false for session={}",
             session_id
         );
     }
-    // Cloud sync fence: Plan 04 adds the relay_available wait here.
 }
 
 /// Alert staff about idle billing drift.
