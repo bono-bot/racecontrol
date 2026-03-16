@@ -252,9 +252,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT OR IGNORE INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise)
          VALUES
-            ('rate_standard', 1, 'standard', 30, 2500),
-            ('rate_extended', 2, 'extended', 60, 2000),
-            ('rate_marathon', 3, 'marathon', 0, 1500)",
+            ('rate_standard', 1, 'Standard', 30, 2500),
+            ('rate_extended', 2, 'Extended', 60, 2000),
+            ('rate_marathon', 3, 'Marathon', 0, 1500)",
     )
     .execute(pool)
     .await?;

@@ -633,6 +633,28 @@ async fn run_test_migrations(pool: &SqlitePool) {
     let _ = sqlx::query("ALTER TABLE group_sessions ADD COLUMN hotlap_event_id TEXT").execute(pool).await;
     let _ = sqlx::query("ALTER TABLE championship_standings ADD COLUMN p2_count INTEGER DEFAULT 0").execute(pool).await;
     let _ = sqlx::query("ALTER TABLE championship_standings ADD COLUMN p3_count INTEGER DEFAULT 0").execute(pool).await;
+
+    // ─── Phase 33: Billing rates (per-minute tiered pricing) ────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS billing_rates (
+            id TEXT PRIMARY KEY,
+            tier_order INTEGER NOT NULL,
+            tier_name TEXT NOT NULL,
+            threshold_minutes INTEGER NOT NULL,
+            rate_per_min_paise INTEGER NOT NULL,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await.unwrap();
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise)
+         VALUES
+            ('rate_standard', 1, 'Standard', 30, 2500),
+            ('rate_extended', 2, 'Extended', 60, 2000),
+            ('rate_marathon', 3, 'Marathon', 0, 1500)"
+    ).execute(pool).await.unwrap();
 }
 
 /// Create a minimal AppState backed by the given pool.
@@ -732,6 +754,12 @@ async fn test_db_setup() {
         .await
         .unwrap();
     assert!(account_count.0 >= 5, "accounts should have seeded entries");
+
+    let billing_rate_count = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM billing_rates")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(billing_rate_count.0, 3, "billing_rates should have 3 seeded tiers (Standard, Extended, Marathon)");
 
     // Verify seeding helpers work
     seed_test_driver(&pool, "test-driver-1").await;
