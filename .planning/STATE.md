@@ -1,5 +1,21 @@
 ---
 gsd_state_version: 1.0
+milestone: v5.0
+milestone_name: RC Bot Expansion
+status: defining_requirements
+stopped_at: Completed 14-02-PLAN.md — 9 staff CRUD endpoints for hotlap events and championships, cargo build clean
+last_updated: "2026-03-16T19:29:30.779Z"
+last_activity: 2026-03-17 — Milestone v5.5 Billing Credits started
+progress:
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 19
+  completed_plans: 19
+  percent: 100
+---
+
+---
+gsd_state_version: 1.0
 milestone: v5.5
 milestone_name: Billing Credits
 status: defining_requirements
@@ -7,7 +23,7 @@ stopped_at: "Milestone v5.5 started — defining requirements"
 last_updated: "2026-03-17T00:00:00.000Z"
 last_activity: 2026-03-17 — Milestone v5.5 Billing Credits started
 progress:
-  total_phases: 0
+  [██████████] 100%
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -44,6 +60,8 @@ Last activity: 2026-03-17 — Milestone v5.5 Billing Credits started
 - Internal storage stays in paise for backward compat — display divides by 100
 - compute_session_cost() called every second per active pod — must stay fast (iterate 3 tiers, no DB)
 - PWA already shows "credits" — no PWA changes needed for this milestone
+- [Phase 14-events-and-championships]: COALESCE UPDATE pattern for update_hotlap_event: bind Option<T> per field, avoids dynamic SQL building which doesn't compile with sqlx query() type
+- [Phase 14-events-and-championships]: add_championship_round uses 3 cascading SQL statements for championship_rounds insert + hotlap_events.championship_id update + championships.total_rounds increment
 
 ### Roadmap Evolution
 
@@ -61,6 +79,6 @@ Last activity: 2026-03-17 — Milestone v5.5 Billing Credits started
 
 ## Session Continuity
 
-Last session: 2026-03-17T00:00:00.000Z
-Stopped at: Milestone v5.5 started — defining requirements
+Last session: 2026-03-16T19:29:30.776Z
+Stopped at: Completed 14-02-PLAN.md — 9 staff CRUD endpoints for hotlap events and championships, cargo build clean
 Resume file: None
