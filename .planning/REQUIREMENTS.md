@@ -1,109 +1,107 @@
-# Requirements: RaceControl v4.0
+# Requirements: RaceControl v5.0 RC Bot Expansion
 
-**Defined:** 2026-03-15
-**Core Value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
+**Defined:** 2026-03-16
+**Core Value:** The auto-fix bot handles every common failure class autonomously — staff only intervene for hardware replacement and physical reboots.
 
-## v4.0 Requirements
+## v5.0 Requirements
 
-### Service & Crash Recovery
+### Protocol Foundation
 
-- [x] **SVC-01**: rc-watchdog.exe runs as a Windows Service (SYSTEM) and auto-starts on boot
-- [x] **SVC-02**: Watchdog detects rc-agent crash within 10 seconds and restarts it in Session 1
-- [x] **SVC-03**: Watchdog reports crash events to racecontrol via HTTP (startup count, crash time, exit code)
-- [x] **SVC-04**: Install script registers watchdog service with SCM failure actions (restart on failure)
+- [ ] **PROTO-01**: rc-common `PodFailureReason` enum covers all 9 bot failure classes (crash, hang, launch, USB, billing, telemetry, multiplayer, PIN, lap)
+- [ ] **PROTO-02**: 5 new `AgentMessage` variants (HardwareFailure, TelemetryGap, BillingAnomaly, LapFlagged, MultiplayerFailure) for pod→server reporting
+- [ ] **PROTO-03**: `is_pod_in_recovery()` shared utility in rc-common prevents concurrent fix races across all bot tasks
 
-### Remote Exec via WebSocket
+### Crash, Hang & Launch Bot
 
-- [x] **WSEX-01**: racecontrol can send shell commands to any connected pod via WebSocket (CoreToAgentMessage::Exec)
-- [x] **WSEX-02**: rc-agent executes WebSocket commands with independent semaphore (separate from HTTP exec slots)
-- [x] **WSEX-03**: Exec responses include stdout, stderr, exit code, and request_id correlation
-- [x] **WSEX-04**: deploy.rs uses WebSocket exec as fallback when HTTP :8090 is unreachable
+- [ ] **CRASH-01**: Bot detects game freeze (UDP silent 30s + IsHungAppWindow) and kills/restarts game without staff intervention
+- [ ] **CRASH-02**: Bot detects launch timeout (game not running 90s after launch command) and kills Content Manager + retries launch
+- [ ] **CRASH-03**: Bot zeros FFB torque before any game kill in teardown sequence (safety ordering — FFB zero must precede game kill)
+- [ ] **UI-01**: Bot suppresses Windows error dialogs (WER, crash reporters) before any process kill — customer never sees system internals during recovery
 
-### Firewall Auto-Config
+### USB Hardware Bot
 
-- [x] **FW-01**: rc-agent configures firewall rules (ICMP + TCP 8090) in Rust on every startup
-- [x] **FW-02**: Firewall rules use profile=any and are idempotent (no duplicate accumulation)
-- [x] **FW-03**: Firewall configuration runs before HTTP server bind (ensures port 8090 is reachable immediately)
+- [ ] **USB-01**: Bot polls for wheelbase USB reconnect (hidapi 5s scan, VID:0x1209 PID:0xFFB0) and restarts FFB controller when device re-appears
 
-### Startup & Self-Healing
+### Billing Guard
 
-- [x] **HEAL-01**: rc-agent verifies config file, start script, and registry key on every startup — repairs if missing
-- [x] **HEAL-02**: rc-agent reports startup status to racecontrol immediately after WebSocket connect (version, uptime, config hash, crash recovery flag)
-- [x] **HEAL-03**: Startup errors are captured to a log file before rc-agent exits (for post-mortem)
+- [ ] **BILL-01**: `billing.rs` characterization test suite written before any billing bot code — covers start_session, end_session, idle detection, sync paths
+- [ ] **BILL-02**: Bot detects stuck session (billing active >60s after game process exits) and triggers safe `end_session()` via correct StopSession → SessionUpdate::Finished order
+- [ ] **BILL-03**: Bot detects idle billing drift (billing active + DrivingState inactive > 5 minutes) and alerts staff rather than auto-ending
+- [ ] **BILL-04**: Bot-triggered session end fences cloud sync — waits for sync acknowledgment before completing teardown to prevent wallet CRDT race
 
-### Deploy Resilience
+### Server Bot Coordinator
 
-- [x] **DEP-01**: Self-swap preserves previous binary as rc-agent-prev.exe for rollback
-- [x] **DEP-02**: deploy.rs verifies pod health (WS + HTTP + process) after deploy, triggers rollback on failure
-- [x] **DEP-03**: Defender exclusion covers rc-agent-new.exe staging filename (prevents AV interference)
-- [x] **DEP-04**: Fleet deploy reports per-pod success/failure summary with retry for failed pods
+- [ ] **BOT-01**: `bot_coordinator.rs` on racecontrol server handles billing recovery message routing and server-side bot responses
 
-### Fleet Health Dashboard
+### Lap Quality
 
-- [x] **FLEET-01**: Kiosk /fleet page shows all 8 pods with real-time status (WS connected, HTTP reachable, version, uptime)
-- [x] **FLEET-02**: Pod status distinguishes WS-connected vs HTTP-reachable (a pod can be WS-up but HTTP-blocked)
-- [x] **FLEET-03**: Dashboard accessible from Uday's phone (mobile-first layout)
+- [ ] **LAP-01**: `is_valid` flag wired from AC and F1 25 sim adapters into `persist_lap` (currently unwired in both adapters)
+- [ ] **LAP-02**: Per-track minimum lap time configurable in track catalog (Monza, Silverstone, Spa as initial set)
+- [ ] **LAP-03**: Laps classified as hotlap vs practice based on session type reported by sim adapter
 
-### Remote Restart Reliability (Phase 22)
+### PIN Security
 
-- [x] **RESTART-01**: rc-agent exec handler recognizes RCAGENT_SELF_RESTART sentinel and calls relaunch_self() directly, bypassing cmd.exe and start-rcagent.bat
-- [x] **RESTART-02**: deploy_pod.py uses RCAGENT_SELF_RESTART for the restart step and treats connection-close as success
-- [ ] **RESTART-03**: After fleet deploy with the new binary, RCAGENT_SELF_RESTART verified working on all 8 pods (each pod reconnects within 20s)
+- [ ] **PIN-01**: Customer and staff PIN failure counters tracked separately (not shared counter)
+- [ ] **PIN-02**: Staff PIN is never locked out by customer PIN failure accumulation
 
-## Future Requirements
+### Telemetry & Multiplayer
 
-### Advanced Fleet Ops (v5.0+)
+- [ ] **TELEM-01**: Bot detects UDP silence >60s during active billing session and alerts staff via email — game-state-aware (no alert during menu or idle state)
+- [ ] **MULTI-01**: Bot detects AC multiplayer server disconnect mid-race and triggers safe session teardown (lock screen → end billing → log event)
 
-- **ADVFLEET-01**: One-click deploy from dashboard (select pods, upload binary, deploy with progress)
-- **ADVFLEET-02**: Historical uptime and crash graphs per pod
-- **ADVFLEET-03**: Automated canary deploy (Pod 8 first, wait, then fleet)
-- **ADVFLEET-04**: Remote pod screenshot from dashboard
+## v6.0 Requirements (Deferred)
+
+### Advanced Bot Intelligence
+
+- **DBG-01**: `DebugMemory` pattern keys include billing context (billing_active, session_duration) — prevents destructive mid-session fix replay
+- **DBG-02**: Bot action log visible in staff dashboard (/kiosk/bot-log) — shows what was fixed, when, on which pod
+
+### Differentiators (Deferred)
+
+- **CRASH-D1**: Multi-crash threshold detection — 3 crashes in 30 min triggers "unhealthy pod" alert, suppresses auto-restart
+- **USB-D1**: USB hub power-cycle via Windows DevCon API when reconnect polling fails 3 times
+- **BILL-D1**: Auto-refund partial credit when bot terminates session due to hardware failure (with staff approval gate)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Lock screen move to kiosk | Deferred — watchdog service pattern avoids this refactor |
-| Native Windows Service API in rc-agent | Session 0 kills GUI; watchdog pattern chosen instead |
-| NSSM dependency | External binary; prefer Rust watchdog we control |
-| Cloud-based fleet monitoring | v4.0 is LAN-only; cloud dashboard is future milestone |
-| Automatic security patching | Out of scope — OS updates are manual |
+| LLM-based bot reasoning | Deterministic rules are faster, more reliable, and don't require Ollama active. Ollama use remains manual/diagnostic. |
+| Auto-refund on billing anomaly | Too risky without human review — BILL-03 alerts staff instead |
+| Multiplayer auto-rejoin | AC session token path does not exist in current architecture. Safe teardown only. |
+| Retroactive lap invalidation | Never hard-delete historical laps. `review_required` flag only — FEATURES.md anti-feature. |
+| Staff PIN lockout | Staff must always be able to unlock — PIN-02 makes this explicit. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FW-01 | Phase 16 | Complete |
-| FW-02 | Phase 16 | Complete |
-| FW-03 | Phase 16 | Complete |
-| WSEX-01 | Phase 17 | Complete |
-| WSEX-02 | Phase 17 | Complete |
-| WSEX-03 | Phase 17 | Complete |
-| WSEX-04 | Phase 17 | Complete |
-| HEAL-01 | Phase 18 | Complete |
-| HEAL-02 | Phase 18 | Complete |
-| HEAL-03 | Phase 18 | Complete |
-| SVC-01 | Phase 19 | Complete |
-| SVC-02 | Phase 19 | Complete |
-| SVC-03 | Phase 19 | Complete |
-| SVC-04 | Phase 19 | Complete |
-| DEP-01 | Phase 20 | Complete |
-| DEP-02 | Phase 20 | Complete |
-| DEP-03 | Phase 20 | Complete |
-| DEP-04 | Phase 20 | Complete |
-| FLEET-01 | Phase 21 | Complete |
-| FLEET-02 | Phase 21 | Complete |
-| FLEET-03 | Phase 21 | Complete |
-
-| RESTART-01 | Phase 22 | Planned |
-| RESTART-02 | Phase 22 | Planned |
-| RESTART-03 | Phase 22 | Planned |
+| PROTO-01 | Phase 23 | Pending |
+| PROTO-02 | Phase 23 | Pending |
+| PROTO-03 | Phase 23 | Pending |
+| CRASH-01 | Phase 24 | Pending |
+| CRASH-02 | Phase 24 | Pending |
+| CRASH-03 | Phase 24 | Pending |
+| UI-01 | Phase 24 | Pending |
+| USB-01 | Phase 24 | Pending |
+| BILL-01 | Phase 25 | Pending |
+| BILL-02 | Phase 25 | Pending |
+| BILL-03 | Phase 25 | Pending |
+| BILL-04 | Phase 25 | Pending |
+| BOT-01 | Phase 25 | Pending |
+| LAP-01 | Phase 26 | Pending |
+| LAP-02 | Phase 26 | Pending |
+| LAP-03 | Phase 26 | Pending |
+| PIN-01 | Phase 26 | Pending |
+| PIN-02 | Phase 26 | Pending |
+| TELEM-01 | Phase 26 | Pending |
+| MULTI-01 | Phase 26 | Pending |
 
 **Coverage:**
-- v4.0 requirements: 21 total, Phase 22 adds 3 (RESTART-01/02/03)
-- Mapped to phases: 24
-- Unmapped: 0
+- v5.0 requirements: 19 total
+- Mapped to phases: 19
+- Unmapped: 0 ✓
 
 ---
-*Requirements defined: 2026-03-15*
-*Last updated: 2026-03-15 — traceability populated after roadmap creation*
+*Requirements defined: 2026-03-16*
+*Last updated: 2026-03-16 after initial definition*
