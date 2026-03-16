@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 26-03-PLAN.md — PIN-01/02 customer and staff PIN failure counters implemented, 261 tests green, 3 Wave 0 PIN stubs GREEN
-last_updated: "2026-03-16T13:32:53.598Z"
+stopped_at: "Completed 26-02-PLAN.md — LAP-01/02/03 implemented: LapData.session_type, catalog min_lap_time_ms, persist_lap review_required, 265 tests green"
+last_updated: "2026-03-16T13:38:07.694Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 19
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 ---
@@ -104,6 +104,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P01 | 200 | 3 tasks | 3 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P03 | 4 | 1 tasks | 2 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P03 | 10 | 1 tasks | 2 files |
+| Phase 26-lap-filter-pin-security-telemetry-multiplayer P02 | 9 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: PIN counter check placed before DB lookup in validate_pin() — avoids wasted DB round-trip on locked pod; staff counter has no lockout ceiling per PIN-02 absolute requirement
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: PIN counters strict type separation: customer and staff counters never share state — structural invariant enforced by two separate HashMaps
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: Staff PIN path (validate_employee_pin) has no lockout ceiling — PIN-02 absolute: staff always unlocks regardless of failure count
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: session_type is non-optional on LapData — forces all construction sites to explicitly set it (no hidden defaults)
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: AC adapter hardcodes SessionType::Practice — AC shared memory has no session type field exposed
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: review_required is a post-INSERT UPDATE not a column flag — computed from catalog static data after lap is committed
 
 ### Roadmap Evolution
 
@@ -172,6 +176,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T13:32:53.594Z
-Stopped at: Completed 26-03-PLAN.md — PIN-01/02 customer and staff PIN failure counters implemented, 261 tests green, 3 Wave 0 PIN stubs GREEN
+Last session: 2026-03-16T13:37:49.243Z
+Stopped at: Completed 26-02-PLAN.md — LAP-01/02/03 implemented: LapData.session_type, catalog min_lap_time_ms, persist_lap review_required, 265 tests green
 Resume file: None
