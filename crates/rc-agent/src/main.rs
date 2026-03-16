@@ -863,6 +863,8 @@ async fn main() -> Result<()> {
                             }
                             game_process = None;
                             launch_state = LaunchState::Idle;
+                            // Site 3a: launch_started_at cleared when launch cancelled (2nd timeout)
+                            let _ = failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
 
                             // Notify core of launch failure so it can cancel the session (no billing)
                             let msg = AgentMessage::GameStatusUpdate {
@@ -903,6 +905,11 @@ async fn main() -> Result<()> {
                     let _ = ws_tx.send(Message::Text(json.into())).await;
                     tracing::info!("Driving state changed (timeout): {:?}", detector.state());
                 }
+                // Update failure monitor with current HID/UDP state (Site 1)
+                let _ = failure_monitor_tx.send_modify(|s| {
+                    s.hid_connected = detector.is_hid_connected();
+                    s.last_udp_secs_ago = detector.last_udp_packet_elapsed_secs();
+                });
             }
             // Game process health check (every 2s)
             _ = game_check_interval.tick() => {
@@ -924,6 +931,10 @@ async fn main() -> Result<()> {
                                 error_message: None,
                                 diagnostics: None,
                             };
+                            // Site 4c: Steam-launched game PID discovered via find_game_pid
+                            let _ = failure_monitor_tx.send_modify(|s| {
+                                s.game_pid = Some(pid);
+                            });
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json = serde_json::to_string(&msg)?;
                             let _ = ws_tx.send(Message::Text(json.into())).await;
@@ -985,6 +996,11 @@ async fn main() -> Result<()> {
                             last_ac_status = None;
                             ac_status_stable_since = None;
                             launch_state = LaunchState::Idle;
+                            // Site 3b: launch_started_at cleared on game crash/exit
+                            let _ = failure_monitor_tx.send_modify(|s| {
+                                s.launch_started_at = None;
+                                s.game_pid = None;
+                            });
 
                             // If billing is active and game crashed, zero FFB immediately then arm crash recovery timer.
                             // Gives core 30s to send SessionEnded; otherwise force-reset.
@@ -1027,6 +1043,13 @@ async fn main() -> Result<()> {
                     wheelbase_connected: detector.is_hid_connected(),
                     ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
                     uptime_seconds: agent_start_time.elapsed().as_secs(),
+                    // Site 9: 3 new fields added for failure_monitor context
+                    last_udp_secs_ago: detector.last_udp_packet_elapsed_secs(),
+                    game_launch_elapsed_secs: match &launch_state {
+                        LaunchState::WaitingForLive { launched_at, .. } => Some(launched_at.elapsed().as_secs()),
+                        _ => None,
+                    },
+                    hid_last_error: !detector.is_hid_connected(),
                     ..Default::default()
                 };
                 let suggestion_text = suggestion.suggestion.clone();
@@ -1121,6 +1144,12 @@ async fn main() -> Result<()> {
                 last_ac_status = None;
                 ac_status_stable_since = None;
                 launch_state = LaunchState::Idle;
+                // Site 3c: crash_recovery_timer cleared launch and billing state
+                let _ = failure_monitor_tx.send_modify(|s| {
+                    s.launch_started_at = None;
+                    s.billing_active = false;
+                    s.recovery_in_progress = false;
+                });
                 // SAFETY: Zero FFB FIRST (awaited), before any game cleanup
                 { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
                 tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1209,6 +1238,10 @@ async fn main() -> Result<()> {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
                                     heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
                                     blank_timer_armed = false; // cancel any pending auto-blank
+                                    // Site 6: BillingStarted — set billing_active in failure_monitor
+                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                        s.billing_active = true;
+                                    });
                                     // Cache driver_name for use in LaunchGame splash screen
                                     current_driver_name = Some(driver_name.clone());
                                     // Reset telemetry accumulators for new session (SESS-01, SESS-02)
@@ -1252,6 +1285,11 @@ async fn main() -> Result<()> {
                                     last_ac_status = None;
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
+                                    // Site 6+3d: BillingStopped — clear billing and launch state in failure_monitor
+                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                        s.billing_active = false;
+                                        s.launch_started_at = None;
+                                    });
                                     // SAFETY: Zero FFB BEFORE anything else (awaited)
                                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
                                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1284,6 +1322,12 @@ async fn main() -> Result<()> {
                                     last_ac_status = None;
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
+                                    // Site 7: SessionEnded — clear billing, launch, and recovery state in failure_monitor
+                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                        s.billing_active = false;
+                                        s.launch_started_at = None;
+                                        s.recovery_in_progress = false;
+                                    });
 
                                     // SAFETY: Zero FFB BEFORE anything else (awaited)
                                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
@@ -1410,6 +1454,10 @@ async fn main() -> Result<()> {
                                             launched_at: std::time::Instant::now(),
                                             attempt: 1,
                                         };
+                                        // Site 2: notify failure_monitor that launch started
+                                        let _ = failure_monitor_tx.send_modify(|s| {
+                                            s.launch_started_at = Some(std::time::Instant::now());
+                                        });
 
                                         // Run blocking launch sequence in spawn_blocking
                                         let pod_id_clone = pod_id.clone();
@@ -1454,6 +1502,10 @@ async fn main() -> Result<()> {
                                                     child: None,
                                                     pid: Some(result.pid),
                                                     last_exit_code: None,
+                                                });
+                                                // Site 4: game_process gained a PID after successful AC launch
+                                                let _ = failure_monitor_tx.send_modify(|s| {
+                                                    s.game_pid = Some(result.pid);
                                                 });
                                                 let msg = AgentMessage::GameStateUpdate(info);
                                                 let json_str = serde_json::to_string(&msg)?;
@@ -1576,7 +1628,12 @@ async fn main() -> Result<()> {
                                                     error_message: None,
                                                     diagnostics: None,
                                                 };
+                                                // Site 4b: game_process gained PID after generic sim launch
+                                                let gp_pid = gp.pid;
                                                 game_process = Some(gp);
+                                                let _ = failure_monitor_tx.send_modify(|s| {
+                                                    s.game_pid = gp_pid;
+                                                });
                                                 let msg = AgentMessage::GameStateUpdate(info);
                                                 let json_str = serde_json::to_string(&msg)?;
                                                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -1606,6 +1663,11 @@ async fn main() -> Result<()> {
                                     last_ac_status = None;
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
+                                    // Site 8: StopGame from server — set recovery_in_progress + clear launch state
+                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                        s.recovery_in_progress = true;
+                                        s.launch_started_at = None;
+                                    });
                                     // SAFETY: Zero FFB BEFORE killing the game (awaited)
                                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
                                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1681,6 +1743,11 @@ async fn main() -> Result<()> {
                                     last_ac_status = None;
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
+                                    // Site 3e: SubSessionEnded — clear launch state (billing stays active between splits)
+                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                        s.launch_started_at = None;
+                                        s.recovery_in_progress = false;
+                                    });
 
                                     // SAFETY: Zero FFB BEFORE anything else (awaited)
                                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
