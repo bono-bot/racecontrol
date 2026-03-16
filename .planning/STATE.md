@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 25-02-PLAN.md — billing_guard.rs with spawn() and 7 unit tests, BILL-02/BILL-03 detection, 15 tests green
-last_updated: "2026-03-16T12:29:32.908Z"
+stopped_at: "Completed 25-04-PLAN.md — wiring wave: billing_guard spawned, ws/mod.rs stubs replaced with bot_coordinator calls, BILL-04 sync fence added, 422 tests green"
+last_updated: "2026-03-16T12:38:54.463Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 14
+  completed_plans: 15
   percent: 94
 ---
 
@@ -85,6 +85,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 27-tailscale-mesh-internet-fallback P05 | 10 | 4 tasks | 2 files |
 | Phase 25-billing-guard-server-bot-coordinator P03 | 3 | 1 tasks | 2 files |
 | Phase 25-billing-guard-server-bot-coordinator P02 | 4 | 1 tasks | 2 files |
+| Phase 25-billing-guard-server-bot-coordinator P04 | 12 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase Phase 27-tailscale-mesh-internet-fallback]: [Phase 27-05]: racecontrol.toml [cloud].api_url kept at HTTPS until Tailscale IPs confirmed — TODO comment for switchover, avoids downtime
 - [Phase 25-billing-guard-server-bot-coordinator]: bot_coordinator.rs uses correct PodFailureReason variants (SessionStuckWaitingForGame/IdleBillingDrift) — plan had stale names from earlier design
 - [Phase 25-billing-guard-server-bot-coordinator]: Used existing PodFailureReason variants (SessionStuckWaitingForGame, IdleBillingDrift) instead of plan speculative names — rc-common enum was already defined with different names in Phase 23
+- [Phase 25-billing-guard-server-bot-coordinator]: ws_exec_result_tx is the mpsc::Sender<AgentMessage> passed to billing_guard::spawn — same channel failure_monitor uses; agent_msg_tx doesn't exist in rc-agent main.rs scope
+- [Phase 25-billing-guard-server-bot-coordinator]: BILL-04 relay fence: 1s poll loop up to 5s for relay_available.load inside if ended block only — failed end_billing_session_public skips fence (no session to sync)
 
 ### Roadmap Evolution
 
@@ -146,6 +149,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T12:29:32.906Z
-Stopped at: Completed 25-02-PLAN.md — billing_guard.rs with spawn() and 7 unit tests, BILL-02/BILL-03 detection, 15 tests green
+Last session: 2026-03-16T12:38:54.461Z
+Stopped at: Completed 25-04-PLAN.md — wiring wave: billing_guard spawned, ws/mod.rs stubs replaced with bot_coordinator calls, BILL-04 sync fence added, 422 tests green
 Resume file: None
