@@ -40,6 +40,7 @@ const DEST_DIR: &str = r"C:\RacingPoint";
 const CORE_URL: &str = "ws://192.168.31.23:8080/ws/agent";
 const TOTAL_STEPS: u8 = 14;
 const MIN_BINARY_SIZE: u64 = 1_000_000; // 1MB — anything less is truncated
+const BUILD_ID: &str = env!("GIT_HASH");
 
 // ANSI color codes (Windows 10+ with virtual terminal processing)
 const GREEN: &str = "\x1b[32m";
@@ -180,6 +181,9 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
             return 1;
         }
     };
+
+    // Write build ID marker (allows detecting stale binaries on next install)
+    write_build_id(dest);
 
     // ── Step 9: Verify config (CRITICAL) ─────────────────────
     step(9, "Verifying config");
@@ -335,6 +339,17 @@ fn verify_defender_exclusion(dest: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err("Could not verify or add Defender exclusion".into())
+    }
+}
+
+/// Write a .build-id marker file to the destination directory.
+/// This allows detecting stale binaries — any installation without a
+/// matching .build-id is from an older deploy and can be force-deleted.
+fn write_build_id(dest: &Path) {
+    let path = dest.join(".build-id");
+    match fs::write(&path, BUILD_ID) {
+        Ok(()) => ok(&format!("Build ID written: {}", BUILD_ID)),
+        Err(e) => warn(&format!("Could not write .build-id: {}", e)),
     }
 }
 

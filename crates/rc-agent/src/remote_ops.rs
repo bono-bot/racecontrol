@@ -43,6 +43,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 const DETACHED_PROCESS: u32 = 0x00000008;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_ID: &str = env!("GIT_HASH");
 const MAX_CONCURRENT_EXECS: usize = 4;
 const DEFAULT_EXEC_TIMEOUT_MS: u64 = 10_000;
 
@@ -80,6 +81,23 @@ pub fn start(port: u16) {
             }
         };
 
+        // Mark the listening socket non-inheritable so cmd.exe spawned by
+        // exec_command() cannot keep :8090 alive as a CLOSE_WAIT zombie after
+        // rc-agent exits (which would prevent the new instance from rebinding).
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawSocket;
+            use winapi::um::handleapi::SetHandleInformation;
+            const HANDLE_FLAG_INHERIT: u32 = 0x00000001;
+            let raw = listener.as_raw_socket() as usize;
+            let ok = unsafe { SetHandleInformation(raw as *mut _, HANDLE_FLAG_INHERIT, 0) };
+            if ok == 0 {
+                tracing::warn!("[remote_ops] SetHandleInformation failed — cmd.exe may inherit :8090 socket");
+            } else {
+                tracing::debug!("[remote_ops] Listening socket marked non-inheritable");
+            }
+        }
+
         if let Err(e) = axum::serve(listener, app).await {
             tracing::error!("Remote ops server error: {}", e);
         }
@@ -98,6 +116,7 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
         "version": VERSION,
+        "build_id": BUILD_ID,
         "uptime_secs": uptime,
         "exec_slots_available": available_exec_slots,
         "exec_slots_total": MAX_CONCURRENT_EXECS,
