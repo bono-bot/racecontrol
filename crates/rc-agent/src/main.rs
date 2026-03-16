@@ -515,6 +515,10 @@ async fn main() -> Result<()> {
     // WebSocket command result channel — spawned tasks send results here, select loop drains and sends via ws_tx
     let (ws_exec_result_tx, mut ws_exec_result_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(16);
 
+    // Failure monitor state watch channel — main.rs event loop writes, failure_monitor reads
+    let (failure_monitor_tx, failure_monitor_rx) =
+        tokio::sync::watch::channel(failure_monitor::FailureMonitorState::default());
+
     // Kiosk mode — prevent unauthorized desktop access on gaming PCs
     let kiosk_enabled = config.kiosk.enabled;
     let mut kiosk = KioskManager::new();
@@ -598,6 +602,16 @@ async fn main() -> Result<()> {
     // ─── Self-Monitor (CLOSE_WAIT detection + LLM-gated relaunch) ───────────
     self_monitor::spawn(config.ai_debugger.clone(), heartbeat_status.clone());
     tracing::info!("Self-monitor started (check interval: 5min)");
+
+    // ─── Failure Monitor (game freeze, launch timeout, USB reconnect) ────────
+    failure_monitor::spawn(
+        heartbeat_status.clone(),
+        failure_monitor_rx,
+        ws_exec_result_tx.clone(),
+        pod_id.clone(),
+        config.pod.number as u32,
+    );
+    tracing::info!("Failure monitor started (poll interval: 5s)");
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state

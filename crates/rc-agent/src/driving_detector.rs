@@ -146,6 +146,12 @@ impl DrivingDetector {
     pub fn is_hid_connected(&self) -> bool {
         self.hid_connected
     }
+
+    /// Returns seconds since last UDP telemetry packet was received.
+    /// Returns None if no packet has been received in this session.
+    pub fn last_udp_packet_elapsed_secs(&self) -> Option<u64> {
+        self.last_udp_packet.map(|t| t.elapsed().as_secs())
+    }
 }
 
 /// Parsed HID input report from a Conspit/OpenFFBoard wheelbase
@@ -277,5 +283,21 @@ mod tests {
     fn steering_movement_detection() {
         assert!(is_steering_moving(0.5, 0.0, 0.02));
         assert!(!is_steering_moving(0.01, 0.0, 0.02));
+    }
+
+    #[test]
+    fn last_udp_packet_elapsed_secs_none_before_first_packet() {
+        let d = make_detector();
+        assert!(d.last_udp_packet_elapsed_secs().is_none(),
+            "No UDP packet received yet — should return None");
+    }
+
+    #[test]
+    fn last_udp_packet_elapsed_secs_some_after_udp_active() {
+        let mut d = make_detector();
+        d.process_signal(DetectorSignal::UdpActive);
+        let elapsed = d.last_udp_packet_elapsed_secs();
+        assert!(elapsed.is_some(), "After UdpActive, elapsed secs should be Some");
+        assert!(elapsed.unwrap() <= 1, "Elapsed should be 0s immediately after signal");
     }
 }
