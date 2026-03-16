@@ -167,7 +167,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 **Goal:** All 8 pods, server, and Bono's VPS join a Tailscale mesh network — installed as a Windows Service via WinRM, cloud_sync routes through Tailscale IP, and the server pushes telemetry/game state/pod health events to Bono in real time with a bidirectional command relay for PWA-triggered game launches
 **Requirements**: TS-01, TS-02, TS-03, TS-04, TS-05, TS-06, TS-DEPLOY
 **Depends on:** Phase 26
-**Plans:** 4/4 plans complete
+**Plans:** 3/5 plans executed
 
 Plans:
 - [ ] 27-01-PLAN.md — Wave 1 (TDD): BonoConfig in config.rs + bono_relay.rs skeleton with 3 RED test stubs (TS-01, TS-02, TS-03, TS-04)
