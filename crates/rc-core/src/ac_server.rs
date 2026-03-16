@@ -740,6 +740,120 @@ pub async fn set_continuous_mode(
     Ok(())
 }
 
+/// GROUP-04: Update track/car config on an active continuous-mode session.
+/// Takes effect on the next race restart (monitor_continuous_session reads current config).
+pub async fn update_session_config(
+    state: &Arc<AppState>,
+    session_id: &str,
+    track: Option<String>,
+    track_config: Option<String>,
+    cars: Option<Vec<String>>,
+) -> anyhow::Result<()> {
+    let mut instances = state.ac_server.instances.write().await;
+    let inst = instances.get_mut(session_id)
+        .ok_or_else(|| anyhow::anyhow!("AC session {} not found", session_id))?;
+
+    if !inst.continuous_mode {
+        anyhow::bail!("Config update only allowed in continuous mode (session {})", session_id);
+    }
+
+    if let Some(t) = track {
+        tracing::info!("GROUP-04: Track changed from '{}' to '{}' on session {}", inst.config.track, t, session_id);
+        inst.config.track = t;
+    }
+    if let Some(tc) = track_config {
+        inst.config.track_config = tc;
+    }
+    if let Some(c) = cars {
+        tracing::info!("GROUP-04: Cars changed to {:?} on session {}", c, session_id);
+        inst.config.cars = c;
+    }
+
+    // Broadcast updated config
+    let info = inst.to_info();
+    let _ = state.dashboard_tx.send(DashboardEvent::AcServerUpdate(info));
+
+    Ok(())
+}
+
+/// GROUP-03: Re-send LaunchGame to a single pod that failed to join the AC server.
+/// The server is already running — this just tells the pod to try connecting again.
+pub async fn retry_pod_join(
+    state: &Arc<AppState>,
+    session_id: &str,
+    pod_id: &str,
+) -> anyhow::Result<()> {
+    let (config, lan_ip) = {
+        let instances = state.ac_server.instances.read().await;
+        let inst = instances.get(session_id)
+            .ok_or_else(|| anyhow::anyhow!("AC session {} not found", session_id))?;
+
+        if !matches!(inst.status, AcServerStatus::Running | AcServerStatus::Starting) {
+            anyhow::bail!("AC server {} is not running (status: {:?})", session_id, inst.status);
+        }
+
+        if !inst.assigned_pods.contains(&pod_id.to_string()) {
+            anyhow::bail!("Pod {} is not assigned to session {}", pod_id, session_id);
+        }
+
+        let lip = state.config.ac_server.lan_ip.clone().unwrap_or_else(detect_lan_ip);
+        (inst.config.clone(), lip)
+    };
+
+    // Build the same launch_args JSON as start_ac_server does
+    let launch_json = serde_json::json!({
+        "car": config.cars.first().unwrap_or(&"ks_ferrari_488_gt3".to_string()),
+        "track": &config.track,
+        "track_config": &config.track_config,
+        "game_mode": "multi",
+        "server_ip": &lan_ip,
+        "server_http_port": config.http_port,
+        "server_password": &config.password,
+        "session_type": "race",
+    });
+
+    // First send StopGame to kill any stuck process, then re-launch
+    {
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(pod_id) {
+            let _ = sender.send(CoreToAgentMessage::StopGame).await;
+        } else {
+            anyhow::bail!("Pod {} is not connected", pod_id);
+        }
+    }
+
+    // Brief delay to let the old process die
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    {
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(pod_id) {
+            let cmd = CoreToAgentMessage::LaunchGame {
+                sim_type: rc_common::types::SimType::AssettoCorsa,
+                launch_args: Some(launch_json.to_string()),
+            };
+            let _ = sender.send(cmd).await;
+            tracing::info!(
+                "GROUP-03: Re-sent LaunchGame to pod {} for session {} (retry join)",
+                pod_id, session_id
+            );
+        }
+    }
+
+    // Update game tracker to Launching (clears error state on dashboard)
+    {
+        let mut games = state.game_launcher.active_games.write().await;
+        if let Some(tracker) = games.get_mut(pod_id) {
+            tracker.game_state = rc_common::types::GameState::Launching;
+            tracker.error_message = None;
+            let info = tracker.to_info();
+            let _ = state.dashboard_tx.send(DashboardEvent::GameStateChanged(info));
+        }
+    }
+
+    Ok(())
+}
+
 /// GROUP-02: Monitor a continuous-mode AC server. When the process exits (race complete),
 /// check if any pod still has active billing and restart if so.
 /// Uses a mutable current_session_id to track restarts without recursive spawn.

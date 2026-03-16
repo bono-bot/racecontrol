@@ -104,6 +104,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/ac/session/active", get(active_ac_session))
         .route("/ac/sessions", get(list_ac_sessions))
         .route("/ac/session/{session_id}/continuous", post(ac_server_set_continuous))
+        .route("/ac/session/retry-pod", post(ac_session_retry_pod))
+        .route("/ac/session/update-config", post(ac_session_update_config))
         .route("/ac/content/tracks", get(list_ac_tracks))
         .route("/ac/content/cars", get(list_ac_cars))
         // Venue info
@@ -3408,6 +3410,54 @@ async fn ac_server_set_continuous(
             }
             Json(json!({ "status": "ok", "continuous_mode": enabled }))
         }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// GROUP-03: Retry a failed pod join — re-sends LaunchGame to the pod.
+async fn ac_session_retry_pod(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<Value>,
+) -> Json<Value> {
+    let session_id = match req.get("session_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return Json(json!({ "error": "Missing 'session_id'" })),
+    };
+    let pod_id = match req.get("pod_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return Json(json!({ "error": "Missing 'pod_id'" })),
+    };
+
+    match ac_server::retry_pod_join(&state, &session_id, &pod_id).await {
+        Ok(()) => Json(json!({ "status": "ok" })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// GROUP-04: Update track/car config on a continuous-mode session.
+/// Takes effect on the next race restart.
+async fn ac_session_update_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<Value>,
+) -> Json<Value> {
+    let session_id = match req.get("session_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return Json(json!({ "error": "Missing 'session_id'" })),
+    };
+    let track = req.get("track").and_then(|v| v.as_str()).map(String::from);
+    let track_config = req.get("track_config").and_then(|v| v.as_str()).map(String::from);
+    let cars: Option<Vec<String>> = req.get("cars").and_then(|v| {
+        v.as_array().map(|arr| {
+            arr.iter().filter_map(|c| c.as_str().map(String::from)).collect()
+        })
+    });
+
+    if track.is_none() && cars.is_none() {
+        return Json(json!({ "error": "Must provide 'track' or 'cars' to update" }));
+    }
+
+    match ac_server::update_session_config(&state, &session_id, track, track_config, cars).await {
+        Ok(()) => Json(json!({ "status": "ok", "message": "Config updated — takes effect on next race restart" })),
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
