@@ -94,7 +94,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — rc-core: coordinated launch trigger (wait for all PINs validated → send LaunchGame to all pods simultaneously), continuous mode flag on AcServerManager with auto-restart on session end
+- [x] 05-01-PLAN.md — rc-core: coordinated launch trigger (wait for all PINs validated → send LaunchGame to all pods simultaneously), continuous mode flag on AcServerManager with auto-restart on session end
 - [ ] 05-02-PLAN.md — rc-core + kiosk: per-pod join status tracking, failure display on dashboard with retry button, mid-session config change (track/car swap between races)
 
 ## Progress
@@ -108,9 +108,9 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 | 2. Game Crash Recovery | 2/2 | Complete | 2026-03-15 |
 | 3. Launch Resilience | 2/2 | Complete | 2026-03-15 |
 | 4. Multiplayer Server Lifecycle | 2/2 | Complete | 2026-03-15 |
-| 5. Synchronized Group Play | 0/2 | Not started | - |
+| 5. Synchronized Group Play | 1/2 | In progress | - |
 
-**Total: 8/10 plans complete**
+**Total: 9/10 plans complete**
 
 ## Dependency Graph
 

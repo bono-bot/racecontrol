@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: AC Launch Reliability
 status: active
-stopped_at: "Phase 4 complete — multiplayer server lifecycle done (backend + kiosk UI), ready for Phase 5"
-last_updated: "2026-03-15"
-last_activity: 2026-03-15 — Phase 4 Plan 02 complete (kiosk multiplayer booking wizard UI)
+stopped_at: "Phase 5 Plan 01 complete — coordinated launch wired + continuous mode added, ready for Phase 5 Plan 02"
+last_updated: "2026-03-16"
+last_activity: 2026-03-16 — Phase 5 Plan 01 complete (coordinated launch + continuous mode)
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 10
-  completed_plans: 8
-  percent: 80
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/ac-launch/PROJECT.md (created 2026-03-15)
 ## Current Position
 
 Phase: 5 of 5 — Synchronized Group Play
-Plan: 0 of 2
-Status: Phase 4 complete — ready for Phase 5
-Last activity: 2026-03-15 — Phase 4 Plan 02 complete
+Plan: 1 of 2
+Status: Phase 5 Plan 01 complete — coordinated launch + continuous mode done
+Last activity: 2026-03-16 — Phase 5 Plan 01 complete
 
-Progress: [########░░] 80%
+Progress: [#########░] 90%
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress: [########░░] 80%
 | 2. Game Crash Recovery | 2/2 | 8min | 4min |
 | 3. Launch Resilience | 2/2 | 20min | 10min |
 | 4. Multiplayer Server Lifecycle | 2/2 | 11min | 5.5min |
+| 5. Synchronized Group Play | 1/2 | 18min | 18min |
 
 ## Accumulated Context
 
@@ -68,6 +69,10 @@ Progress: [########░░] 80%
 - Replaced old multiplayer_lobby join/create UI with pod count selector for kiosk self-serve
 - Success screen uses multiAssignments.length > 0 as multiplayer discriminator
 - Review button text changes to "BOOK N RIGS" in multi mode
+- GROUP-01: Use find_group_session_for_token(token_id) not pod+status query — token_id unambiguously identifies group membership at status='accepted'
+- GROUP-01: AC server start removed from book_multiplayer/book_multiplayer_kiosk — deferred to on_member_validated()->start_ac_lan_for_group() when all PINs validated
+- GROUP-02: Continuous mode monitor uses mutable current_session_id loop (not recursive spawn) — std::process::Child is !Send on Windows, recursive tokio::spawn rejected by compiler
+- GROUP-02: Continuous mode guard in check_and_stop_multiplayer_server defers stop to monitor loop when flag active
 
 ### Existing Infrastructure (do NOT rebuild)
 
@@ -87,7 +92,7 @@ Progress: [########░░] 80%
 
 ### Pending Todos
 
-- Phase 5: Synchronized Group Play (coordinated launch, continuous mode, join failure recovery)
+- Phase 5 Plan 02: join failure recovery (per-pod join status tracking, failure display, retry button, mid-session config change)
 
 ### Blockers/Concerns
 
@@ -98,6 +103,6 @@ Progress: [########░░] 80%
 
 ## Session Continuity
 
-Last session: 2026-03-15
-Stopped at: Phase 4 complete — multiplayer server lifecycle done (backend + kiosk UI), ready for Phase 5
+Last session: 2026-03-16
+Stopped at: Phase 5 Plan 01 complete — coordinated launch wired + continuous mode added, ready for Phase 5 Plan 02
 Resume file: None
