@@ -254,4 +254,30 @@ mod tests {
             "IdleBillingDrift must NOT trigger session end"
         );
     }
+
+    #[test]
+    fn telemetry_gap_skipped_when_game_not_running() {
+        // TELEM-01: handle_telemetry_gap must be a no-op when game_state != Running
+        // Current stub at lines 92-103 does not check game state at all
+        todo!("TELEM-01: game-state guard not yet implemented in handle_telemetry_gap");
+    }
+
+    #[test]
+    fn telemetry_gap_alerts_when_game_running_and_billing_active() {
+        // TELEM-01: email must fire when game=Running + billing_active=true
+        todo!("TELEM-01: email alert logic not yet implemented in handle_telemetry_gap");
+    }
+
+    #[test]
+    fn multiplayer_failure_triggers_lock_end_billing_log_in_order() {
+        // MULTI-01: teardown order = lock screen -> end billing -> log event
+        // handle_multiplayer_failure() does not exist yet — Wave 2 adds it
+        todo!("MULTI-01: handle_multiplayer_failure not yet implemented");
+    }
+
+    #[test]
+    fn multiplayer_failure_noop_when_billing_inactive() {
+        // MULTI-01: no teardown if no active billing session
+        todo!("MULTI-01: handle_multiplayer_failure not yet implemented");
+    }
 }
