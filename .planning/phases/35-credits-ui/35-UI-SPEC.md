@@ -68,10 +68,13 @@ Inherits from existing design system. No new type styles introduced in Phase 35.
 
 | Role | Size | Weight | Line Height | Usage in Phase 35 |
 |------|------|--------|-------------|-------------------|
-| Body | 14px (`text-sm`) | 400 | 1.5 | Table cells, modal body copy |
-| Label | 12px (`text-xs`) | 500 (`font-medium`) | 1.4 | Table column headers (uppercase + tracking-wider) |
+| Body / Label | 14px (`text-sm`) / 12px (`text-xs`) | 400 | 1.5 / 1.4 | Table cells, modal body copy, column headers (uppercase + tracking-wider differentiate headers from body — no extra weight needed) |
 | Value/Display | 16px (`text-base`) | 700 (`font-bold`) | 1.3 | Credit amounts in tier cards, modal price display |
 | Monospace value | 14px (`text-sm font-mono`) | 700 (`font-bold`) | 1.5 | `"X cr/min"` in Per-Minute Rates table |
+
+**Focal points (non-blocking recommendation):**
+- Admin pricing page: Rate column in Per-Minute Rates table (`font-mono font-bold`) — draws the eye to the billable rate at a glance
+- Admin billing history: Cost column (`text-rp-red font-mono`) — accent color + mono weight make each session's charge the visual anchor
 
 ---
 
@@ -184,7 +187,7 @@ The table is already implemented. This section documents the final design contra
 - "Unlimited" shown when `threshold_minutes === 0`
 - Rate column: `font-mono font-bold text-neutral-300`
 - Active toggle: `rp-red` when active, `rp-card` when inactive — matches existing tier toggle pattern
-- Inline edit: clicking "Edit" replaces the row with text/number inputs, Save/Cancel actions inline
+- Inline edit: clicking "Edit" replaces the row with text/number inputs, "Save Rate" / "Discard Changes" actions inline
 - Save action: calls `PUT /billing/rates/{id}` with `{ tier_name, threshold_minutes, rate_per_min_paise: rateEditRate * 100 }`
 - No delete button on rates (rates are managed as a fixed 3-tier set, only deactivation via toggle)
 
@@ -237,7 +240,8 @@ Already implemented. Design contract for audit:
 | Element | Copy | Surface |
 |---------|------|---------|
 | Primary CTA (billing start) | "Start Session" / "Assign with PIN" / "Assign with QR" | BillingStartModal |
-| Primary CTA (rate inline edit) | "Save" | Per-Minute Rates table |
+| Primary CTA (rate inline edit) | "Save Rate" | Per-Minute Rates table |
+| Error state (rate inline edit — API failure) | "Couldn't save rate — check your connection and try again." | Per-Minute Rates table (inline, below input row) |
 | Empty state heading (billing history) | "No sessions for this date" | Billing history page |
 | Empty state body (billing history) | "Select a different date or start a billing session." | Billing history page |
 | Empty state heading (pricing tiers) | "No pricing tiers" | Pricing page |
@@ -248,7 +252,7 @@ Already implemented. Design contract for audit:
 | Wallet balance label | "credits" | Kiosk wallet components only |
 | Rate-unlock overlay | "LOWER RATE UNLOCKED!" | rc-agent overlay GDI |
 | Rate-upgrade overlay | "Drive X more min for lower rate!" | rc-agent overlay GDI |
-| Cancel edit | "Cancel" | Inline edit row |
+| Cancel edit | "Discard Changes" | Inline edit row |
 
 **Destructive actions in this phase:** Delete pricing tier. Confirmation approach: no modal confirmation — single "Delete" button click. Pattern inherited from existing tier delete (line 81 in pricing/page.tsx). Rate rows have no delete — toggle only.
 
