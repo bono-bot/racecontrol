@@ -102,6 +102,13 @@ pub struct AppState {
     pub otp_rate_limits: Mutex<HashMap<String, OtpRateLimit>>,
     /// OTP verification failed attempts: phone -> (count, locked_until)
     pub otp_failed_attempts: Mutex<HashMap<String, OtpFailedAttempts>>,
+    /// Per-pod customer PIN failure counter (PIN-01).
+    /// Keyed by pod_id. Incremented on wrong customer PIN; reset on success.
+    /// Counter is separate from staff_pin_failures — they NEVER share state (PIN-02).
+    pub customer_pin_failures: RwLock<HashMap<String, u32>>,
+    /// Per-pod staff/employee PIN failure counter (PIN-01).
+    /// Keyed by pod_id. Has NO lockout ceiling — staff can always unlock (PIN-02).
+    pub staff_pin_failures: RwLock<HashMap<String, u32>>,
     /// Sender for pushing messages to AI peer via WebSocket (None if not connected)
     pub ai_peer_tx: RwLock<Option<mpsc::Sender<AiChannelMessage>>>,
     /// Per-endpoint API error counts (endpoint -> count), reset every 5 min by error aggregator
@@ -167,6 +174,8 @@ impl AppState {
             terminal_sessions: RwLock::new(HashMap::new()),
             otp_rate_limits: Mutex::new(HashMap::new()),
             otp_failed_attempts: Mutex::new(HashMap::new()),
+            customer_pin_failures: RwLock::new(HashMap::new()),
+            staff_pin_failures: RwLock::new(HashMap::new()),
             ai_peer_tx: RwLock::new(None),
             api_error_counts: Mutex::new(HashMap::new()),
             api_error_counts_reset: Mutex::new(Instant::now()),
