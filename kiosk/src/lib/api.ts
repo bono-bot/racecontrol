@@ -96,6 +96,21 @@ export const api = {
     fetchApi<{ ok: boolean }>(`/games/relaunch/${pod_id}`, {
       method: "POST",
     }),
+  retryPodJoin: (session_id: string, pod_id: string) =>
+    fetchApi<{ status: string }>("/ac/session/retry-pod", {
+      method: "POST",
+      body: JSON.stringify({ session_id, pod_id }),
+    }),
+  updateAcSessionConfig: (session_id: string, config: { track?: string; track_config?: string; cars?: string[] }) =>
+    fetchApi<{ status: string }>("/ac/session/update-config", {
+      method: "POST",
+      body: JSON.stringify({ session_id, ...config }),
+    }),
+  setAcContinuousMode: (session_id: string, enabled: boolean) =>
+    fetchApi<{ status: string }>(`/ac/session/${session_id}/continuous`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
   stopGame: (pod_id: string) =>
     fetchApi<{ ok: boolean }>("/games/stop", {
       method: "POST",

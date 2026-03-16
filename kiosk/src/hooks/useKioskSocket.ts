@@ -13,6 +13,8 @@ import type {
   PendingSplitContinuation,
   DeployProgressEvent,
   DeployState,
+  AcServerInfo,
+  MultiplayerGroupStatus,
 } from "@/lib/types";
 
 const WS_URL =
@@ -52,6 +54,8 @@ export function useKioskSocket() {
   const [activityLog, setActivityLog] = useState<PodActivityEntry[]>([]);
   const [pendingSplitContinuation, setPendingSplitContinuation] = useState<PendingSplitContinuation | null>(null);
   const [deployStates, setDeployStates] = useState<Map<string, DeployState>>(new Map());
+  const [acServerInfo, setAcServerInfo] = useState<AcServerInfo | null>(null);
+  const [multiplayerGroup, setMultiplayerGroup] = useState<MultiplayerGroupStatus | null>(null);
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -281,6 +285,16 @@ export function useKioskSocket() {
             });
             break;
           }
+          case "ac_server_update": {
+            const info = msg.data as AcServerInfo;
+            setAcServerInfo(info.status === "stopped" ? null : info);
+            break;
+          }
+          case "group_session_all_validated": {
+            const data = msg.data as MultiplayerGroupStatus;
+            setMultiplayerGroup(data);
+            break;
+          }
         }
       } catch (e) {
         console.warn("[Kiosk] Parse error:", e);
@@ -351,5 +365,7 @@ export function useKioskSocket() {
     clearPendingSplitContinuation,
     deployStates,
     sendDeployRolling,
+    acServerInfo,
+    multiplayerGroup,
   };
 }

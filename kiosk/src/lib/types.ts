@@ -175,6 +175,33 @@ export interface KioskMultiplayerResult {
   assignments: KioskMultiplayerAssignment[];
 }
 
+// ─── AC Server (Dashboard) ──────────────────────────────────────────────────
+
+export interface AcServerInfo {
+  session_id: string;
+  config: {
+    name: string;
+    track: string;
+    track_config: string;
+    cars: string[];
+    max_clients: number;
+    password: string;
+  };
+  status: "starting" | "running" | "stopping" | "stopped" | "error";
+  pid?: number;
+  started_at?: string;
+  join_url: string;
+  connected_pods: string[];
+  error_message?: string;
+  continuous_mode: boolean;
+}
+
+export interface MultiplayerGroupStatus {
+  group_session_id: string;
+  ac_session_id: string;
+  pod_ids: string[];
+}
+
 // ─── Kiosk Experiences ────────────────────────────────────────────────────
 
 export interface KioskExperience {
@@ -319,6 +346,7 @@ export type KioskPodState =
   | "selecting"
   | "on_track"
   | "crashed"
+  | "join_failed"
   | "ending";
 
 // ─── Pod Activity Log ────────────────────────────────────────────────────

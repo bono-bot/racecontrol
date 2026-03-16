@@ -61,6 +61,8 @@ export default function StaffTerminal() {
     sendCommand,
     pendingSplitContinuation,
     clearPendingSplitContinuation,
+    acServerInfo,
+    multiplayerGroup,
   } = useKioskSocket();
 
   // ─── Panel State ──────────────────────────────────────────────────────
@@ -429,6 +431,22 @@ export default function StaffTerminal() {
                     onWakePod={handleWakePod}
                     onRestartPod={handleRestartPod}
                     onShutdownPod={handleShutdownPod}
+                    acSessionId={
+                      multiplayerGroup?.pod_ids.includes(pod.id)
+                        ? multiplayerGroup.ac_session_id
+                        : undefined
+                    }
+                    onRetryJoin={
+                      multiplayerGroup
+                        ? async (podId) => {
+                            try {
+                              await api.retryPodJoin(multiplayerGroup.ac_session_id, podId);
+                            } catch (err) {
+                              alert(`Retry join failed: ${err instanceof Error ? err.message : "Network error"}`);
+                            }
+                          }
+                        : undefined
+                    }
                   />
                 );
               })}
