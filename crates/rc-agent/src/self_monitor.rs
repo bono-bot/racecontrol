@@ -164,16 +164,20 @@ async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<St
     Ok(resp.response)
 }
 
-/// Spawn a detached cmd.exe that waits 3s then starts a fresh rc-agent,
+/// Spawn a detached PowerShell process that waits 3s then starts a fresh rc-agent,
 /// then exit the current process. The 3s gap ensures the port :8090 and
 /// :18923 are freed before the new instance binds them.
+///
+/// Uses Start-Process instead of cmd `start ""` — Start-Process works reliably
+/// even when the invoking process has no attached console or interactive desktop.
 fn relaunch_self() {
-    let cmd = concat!(
-        r#"timeout /t 3 /nobreak > nul "#,
-        r#"&& start "" /D "C:\RacingPoint" "C:\RacingPoint\rc-agent.exe""#
+    let ps_cmd = concat!(
+        "Start-Sleep 3; ",
+        "Start-Process 'C:\\RacingPoint\\rc-agent.exe' ",
+        "-WorkingDirectory 'C:\\RacingPoint'"
     );
-    match std::process::Command::new("cmd")
-        .args(["/c", cmd])
+    match std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd])
         .creation_flags(DETACHED_PROCESS)
         .spawn()
     {
@@ -182,7 +186,7 @@ fn relaunch_self() {
             std::process::exit(0);
         }
         Err(e) => {
-            tracing::error!("[rc-bot] Failed to spawn relaunch cmd: {}", e);
+            tracing::error!("[rc-bot] Failed to spawn relaunch: {}", e);
         }
     }
 }

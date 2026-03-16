@@ -763,9 +763,11 @@ mod tests {
     #[serial]
     async fn test_exec_timeout_returns_500() {
         let app = test_router();
+        // Use 1ms timeout — cmd.exe process startup alone exceeds this,
+        // guaranteeing the Tokio timeout fires regardless of what the command does.
         let (status, json) = exec_post(app, serde_json::json!({
-            "cmd": "ping -n 10 127.0.0.1",
-            "timeout_ms": 500
+            "cmd": "echo timeout_test",
+            "timeout_ms": 1
         })).await;
 
         assert_eq!(status, 500, "Timeout should return HTTP 500, got: {:?}", json);
