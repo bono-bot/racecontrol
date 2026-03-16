@@ -21,6 +21,8 @@ pub struct Config {
     pub auth: AuthConfig,
     #[serde(default)]
     pub watchdog: WatchdogConfig,
+    #[serde(default)]
+    pub bono: BonoConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -256,6 +258,39 @@ impl Default for WatchdogConfig {
     }
 }
 
+/// Configuration for the Bono relay: event push to Bono's VPS over Tailscale mesh,
+/// and inbound relay endpoint for commands from Bono's cloud.
+#[derive(Debug, Deserialize)]
+pub struct BonoConfig {
+    /// Set to true to enable Bono event push and relay endpoint.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Bono's VPS webhook URL on the Tailscale mesh (e.g. "http://100.x.x.x/webhooks/racecontrol").
+    /// Leave None until Bono's Tailscale IP is known.
+    pub webhook_url: Option<String>,
+    /// Server's own Tailscale IP to bind relay endpoint on (e.g. "100.y.y.y").
+    pub tailscale_bind_ip: Option<String>,
+    /// Port for Bono relay endpoint. Must NOT be in the AC server HTTP port range (8081-8096).
+    #[serde(default = "default_relay_port")]
+    pub relay_port: u16,
+    /// Shared secret Bono sends in X-Relay-Secret header for inbound command auth.
+    pub relay_secret: Option<String>,
+}
+
+fn default_relay_port() -> u16 { 8099 }
+
+impl Default for BonoConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            webhook_url: None,
+            tailscale_bind_ip: None,
+            relay_port: default_relay_port(),
+            relay_secret: None,
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -303,6 +338,7 @@ impl Config {
             ac_server: AcServerConfig::default(),
             auth: AuthConfig::default(),
             watchdog: WatchdogConfig::default(),
+            bono: BonoConfig::default(),
         }
     }
 
@@ -402,5 +438,48 @@ escalation_steps_secs = [10, 30, 60, 120]
         assert_eq!(config.watchdog.email_pod_cooldown_secs, 3600);
         assert_eq!(config.watchdog.email_venue_cooldown_secs, 600);
         assert_eq!(config.watchdog.escalation_steps_secs, vec![10, 30, 60, 120]);
+    }
+
+    #[test]
+    fn bono_config_defaults() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+
+[server]
+
+[database]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse with defaults");
+        assert!(!config.bono.enabled);
+        assert_eq!(config.bono.relay_port, 8099);
+        assert!(config.bono.webhook_url.is_none());
+        assert!(config.bono.tailscale_bind_ip.is_none());
+        assert!(config.bono.relay_secret.is_none());
+    }
+
+    #[test]
+    fn bono_config_explicit() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+
+[server]
+
+[database]
+
+[bono]
+enabled = true
+webhook_url = "http://100.64.0.1/webhooks/racecontrol"
+tailscale_bind_ip = "100.64.0.2"
+relay_port = 8099
+relay_secret = "super-secret"
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse explicit bono values");
+        assert!(config.bono.enabled);
+        assert_eq!(config.bono.webhook_url.as_deref(), Some("http://100.64.0.1/webhooks/racecontrol"));
+        assert_eq!(config.bono.tailscale_bind_ip.as_deref(), Some("100.64.0.2"));
+        assert_eq!(config.bono.relay_port, 8099);
+        assert_eq!(config.bono.relay_secret.as_deref(), Some("super-secret"));
     }
 }
