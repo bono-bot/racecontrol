@@ -3,9 +3,10 @@
 //! Runs every 5 minutes. Detects CLOSE_WAIT socket floods on :8090 (caused by
 //! racecontrol's pod_monitor hammering the pod) and prolonged WebSocket disconnects.
 //!
-//! If issues are detected, queries local Ollama for a RESTART/OK decision.
-//! On RESTART: spawns a detached cmd.exe that waits 3s then relaunches rc-agent,
-//! then exits the current process cleanly.
+//! Two recovery paths:
+//!   WS dead 10+ min → relaunch immediately (no AI needed — reconnect loop already failed)
+//!   CLOSE_WAIT flood → query local Ollama for RESTART/OK decision
+//! On relaunch: spawns a detached cmd.exe that waits 3s then restarts rc-agent.
 
 use std::os::windows::process::CommandExt;
 use std::sync::Arc;
@@ -60,8 +61,18 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
             tracing::warn!("[rc-bot] Issues: {}", issues.join("; "));
 
+            // WS dead too long — relaunch directly, no AI needed.
+            // The reconnect loop already retried for 10+ minutes without success;
+            // a full process restart is the right escalation regardless of Ollama.
+            if ws_dead_secs >= WS_DEAD_SECS {
+                tracing::warn!("[rc-bot] WebSocket dead {}s — relaunching to reestablish", ws_dead_secs);
+                relaunch_self();
+                continue;
+            }
+
+            // CLOSE_WAIT flood — consult Ollama for nuanced diagnosis.
             if !config.enabled {
-                tracing::info!("[rc-bot] AI disabled — skipping restart query");
+                tracing::info!("[rc-bot] AI disabled — skipping CLOSE_WAIT analysis");
                 continue;
             }
 
@@ -81,7 +92,7 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("[rc-bot] Ollama unavailable: {} — skipping restart", e);
+                    tracing::warn!("[rc-bot] Ollama unavailable: {} — skipping CLOSE_WAIT restart", e);
                 }
             }
         }
