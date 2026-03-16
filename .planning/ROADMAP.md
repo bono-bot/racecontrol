@@ -106,7 +106,13 @@ Plans:
   3. When billing is active and DrivingState is inactive for more than 5 minutes, the bot sends a staff alert rather than auto-ending the session — staff receive the alert and can choose to act
   4. A bot-triggered session end waits for cloud sync acknowledgment before completing teardown — verified by confirming no wallet balance discrepancy after an artificially induced stuck session recovery
   5. bot_coordinator.rs on racecontrol receives BillingAnomaly, TelemetryGap, and HardwareFailure messages and routes each to the correct handler — confirmed by integration test sending each variant and asserting the handler fires
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 25-01-PLAN.md — Wave 0 (TDD gate): 4 billing.rs characterization tests + FailureMonitorState.driving_state field (BILL-01)
+- [ ] 25-02-PLAN.md — Wave 1a (TDD): billing_guard.rs new file — stuck session + idle drift detection, AgentMessage::BillingAnomaly send (BILL-02, BILL-03)
+- [ ] 25-03-PLAN.md — Wave 1b (TDD): bot_coordinator.rs new file — handle_billing_anomaly routing, recover_stuck_session, alert_staff_idle_drift, handle_hardware_failure + handle_telemetry_gap stubs (BOT-01, BILL-02, BILL-03)
+- [ ] 25-04-PLAN.md — Wave 2: main.rs wiring (billing_guard::spawn + DrivingState send_modify) + ws/mod.rs stub replacement + BILL-04 cloud sync fence in recover_stuck_session (BILL-04, BILL-02, BILL-03)
 
 ### Phase 26: Lap Filter, PIN Security, Telemetry + Multiplayer
 **Goal**: Invalid laps are caught at capture time and never reach the leaderboard, PIN failures cannot lock out staff, and telemetry gaps and multiplayer disconnects trigger staff alerts through the coordinator
@@ -159,7 +165,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 32. Synchronized Group Play | v4.5 | 2/2 | Complete | 2026-03-16 |
 | 23. Protocol Contract + Concurrency Safety | v5.0 | 2/2 | Complete | 2026-03-16 |
 | 24. Crash, Hang, Launch + USB Bot Patterns | 4/4 | Complete    | 2026-03-16 | - |
-| 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
+| 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/4 | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
