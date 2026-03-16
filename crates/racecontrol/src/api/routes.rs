@@ -288,6 +288,14 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/deploy/{pod_id}", post(deploy_single_pod))
         // Watchdog
         .route("/pods/{pod_id}/watchdog-crash", post(watchdog_crash_report))
+        // Staff: Hotlap Events
+        .route("/staff/events", post(create_hotlap_event).get(list_staff_events))
+        .route("/staff/events/{id}", get(get_staff_event).put(update_hotlap_event))
+        // Staff: Championships
+        .route("/staff/championships", post(create_championship).get(list_staff_championships))
+        .route("/staff/championships/{id}", get(get_staff_championship))
+        .route("/staff/championships/{id}/rounds", post(add_championship_round))
+        .route("/staff/events/{id}/link-session", post(link_group_session_to_event))
 }
 
 async fn health() -> Json<Value> {
@@ -11301,6 +11309,511 @@ async fn watchdog_crash_report(
     );
 
     axum::http::StatusCode::OK
+}
+
+// ─── Staff: Hotlap Events ─────────────────────────────────────────────────────
+
+/// POST /staff/events — create a new hotlap event
+async fn create_hotlap_event(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let name = match body.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n.to_string(),
+        None => return Json(json!({ "error": "name is required" })),
+    };
+    let track = match body.get("track").and_then(|v| v.as_str()) {
+        Some(t) => t.to_string(),
+        None => return Json(json!({ "error": "track is required" })),
+    };
+    let car = match body.get("car").and_then(|v| v.as_str()) {
+        Some(c) => c.to_string(),
+        None => return Json(json!({ "error": "car is required" })),
+    };
+    let car_class = match body.get("car_class").and_then(|v| v.as_str()) {
+        Some(c) => c.to_string(),
+        None => return Json(json!({ "error": "car_class is required" })),
+    };
+    let sim_type = body
+        .get("sim_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("assetto_corsa")
+        .to_string();
+    let description: Option<String> = body
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let starts_at: Option<String> = body
+        .get("starts_at")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let ends_at: Option<String> = body
+        .get("ends_at")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let reference_time_ms: Option<i64> = body
+        .get("reference_time_ms")
+        .and_then(|v| v.as_i64());
+    let rule_107_percent: i64 = body
+        .get("rule_107_percent")
+        .and_then(|v| v.as_bool())
+        .map(|b| if b { 1 } else { 0 })
+        .unwrap_or(1);
+
+    let result = sqlx::query(
+        "INSERT INTO hotlap_events
+            (id, name, description, track, car, car_class, sim_type, status,
+             starts_at, ends_at, reference_time_ms, rule_107_percent, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?, ?, ?, datetime('now'), datetime('now'))",
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(&description)
+    .bind(&track)
+    .bind(&car)
+    .bind(&car_class)
+    .bind(&sim_type)
+    .bind(&starts_at)
+    .bind(&ends_at)
+    .bind(reference_time_ms)
+    .bind(rule_107_percent)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            tracing::info!("Hotlap event created: {} ({})", id, name);
+            Json(json!({ "id": id, "status": "created" }))
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to create event: {}", e) })),
+    }
+}
+
+/// GET /staff/events — list all hotlap events
+async fn list_staff_events(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let rows = sqlx::query(
+        "SELECT id, name, description, track, car, car_class, sim_type, status,
+                starts_at, ends_at, reference_time_ms, rule_107_percent,
+                championship_id, created_at, updated_at
+         FROM hotlap_events ORDER BY created_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let events: Vec<Value> = rows
+                .iter()
+                .map(|r| {
+                    use sqlx::Row;
+                    json!({
+                        "id": r.try_get::<String, _>("id").unwrap_or_default(),
+                        "name": r.try_get::<String, _>("name").unwrap_or_default(),
+                        "description": r.try_get::<Option<String>, _>("description").unwrap_or(None),
+                        "track": r.try_get::<String, _>("track").unwrap_or_default(),
+                        "car": r.try_get::<String, _>("car").unwrap_or_default(),
+                        "car_class": r.try_get::<String, _>("car_class").unwrap_or_default(),
+                        "sim_type": r.try_get::<String, _>("sim_type").unwrap_or_default(),
+                        "status": r.try_get::<String, _>("status").unwrap_or_default(),
+                        "starts_at": r.try_get::<Option<String>, _>("starts_at").unwrap_or(None),
+                        "ends_at": r.try_get::<Option<String>, _>("ends_at").unwrap_or(None),
+                        "reference_time_ms": r.try_get::<Option<i64>, _>("reference_time_ms").unwrap_or(None),
+                        "rule_107_percent": r.try_get::<i64, _>("rule_107_percent").unwrap_or(1),
+                        "championship_id": r.try_get::<Option<String>, _>("championship_id").unwrap_or(None),
+                        "created_at": r.try_get::<String, _>("created_at").unwrap_or_default(),
+                        "updated_at": r.try_get::<String, _>("updated_at").unwrap_or_default(),
+                    })
+                })
+                .collect();
+            Json(json!({ "events": events }))
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to list events: {}", e) })),
+    }
+}
+
+/// GET /staff/events/{id} — get a single hotlap event
+async fn get_staff_event(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let row = sqlx::query(
+        "SELECT id, name, description, track, car, car_class, sim_type, status,
+                starts_at, ends_at, reference_time_ms, rule_107_percent,
+                championship_id, created_at, updated_at
+         FROM hotlap_events WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match row {
+        Ok(Some(r)) => {
+            use sqlx::Row;
+            Json(json!({
+                "id": r.try_get::<String, _>("id").unwrap_or_default(),
+                "name": r.try_get::<String, _>("name").unwrap_or_default(),
+                "description": r.try_get::<Option<String>, _>("description").unwrap_or(None),
+                "track": r.try_get::<String, _>("track").unwrap_or_default(),
+                "car": r.try_get::<String, _>("car").unwrap_or_default(),
+                "car_class": r.try_get::<String, _>("car_class").unwrap_or_default(),
+                "sim_type": r.try_get::<String, _>("sim_type").unwrap_or_default(),
+                "status": r.try_get::<String, _>("status").unwrap_or_default(),
+                "starts_at": r.try_get::<Option<String>, _>("starts_at").unwrap_or(None),
+                "ends_at": r.try_get::<Option<String>, _>("ends_at").unwrap_or(None),
+                "reference_time_ms": r.try_get::<Option<i64>, _>("reference_time_ms").unwrap_or(None),
+                "rule_107_percent": r.try_get::<i64, _>("rule_107_percent").unwrap_or(1),
+                "championship_id": r.try_get::<Option<String>, _>("championship_id").unwrap_or(None),
+                "created_at": r.try_get::<String, _>("created_at").unwrap_or_default(),
+                "updated_at": r.try_get::<String, _>("updated_at").unwrap_or_default(),
+            }))
+        }
+        Ok(None) => Json(json!({ "error": "Event not found" })),
+        Err(e) => Json(json!({ "error": format!("Database error: {}", e) })),
+    }
+}
+
+/// PUT /staff/events/{id} — update a hotlap event
+/// Uses COALESCE so only provided fields are changed; omitted fields keep existing values.
+async fn update_hotlap_event(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let status: Option<String> = body.get("status").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let name: Option<String> = body.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let description: Option<String> = body.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let starts_at: Option<String> = body.get("starts_at").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let ends_at: Option<String> = body.get("ends_at").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let reference_time_ms: Option<i64> = body.get("reference_time_ms").and_then(|v| v.as_i64());
+
+    if status.is_none() && name.is_none() && description.is_none()
+        && starts_at.is_none() && ends_at.is_none() && reference_time_ms.is_none()
+    {
+        return Json(json!({ "error": "No updatable fields provided" }));
+    }
+
+    let result = sqlx::query(
+        "UPDATE hotlap_events SET
+            status = COALESCE(?, status),
+            name = COALESCE(?, name),
+            description = COALESCE(?, description),
+            starts_at = COALESCE(?, starts_at),
+            ends_at = COALESCE(?, ends_at),
+            reference_time_ms = COALESCE(?, reference_time_ms),
+            updated_at = datetime('now')
+         WHERE id = ?",
+    )
+    .bind(status)
+    .bind(name)
+    .bind(description)
+    .bind(starts_at)
+    .bind(ends_at)
+    .bind(reference_time_ms)
+    .bind(&id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() == 0 => Json(json!({ "error": "Event not found" })),
+        Ok(_) => Json(json!({ "status": "updated" })),
+        Err(e) => Json(json!({ "error": format!("Failed to update event: {}", e) })),
+    }
+}
+
+// ─── Staff: Championships ─────────────────────────────────────────────────────
+
+/// POST /staff/championships — create a new championship
+async fn create_championship(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let name = match body.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n.to_string(),
+        None => return Json(json!({ "error": "name is required" })),
+    };
+    let car_class = match body.get("car_class").and_then(|v| v.as_str()) {
+        Some(c) => c.to_string(),
+        None => return Json(json!({ "error": "car_class is required" })),
+    };
+    let description: Option<String> = body
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let sim_type = body
+        .get("sim_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("assetto_corsa")
+        .to_string();
+    let season: Option<String> = body
+        .get("season")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let result = sqlx::query(
+        "INSERT INTO championships
+            (id, name, description, car_class, sim_type, season,
+             status, scoring_system, total_rounds, completed_rounds,
+             created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'upcoming', 'f1_2010', 0, 0, datetime('now'), datetime('now'))",
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(&description)
+    .bind(&car_class)
+    .bind(&sim_type)
+    .bind(&season)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            tracing::info!("Championship created: {} ({})", id, name);
+            Json(json!({ "id": id, "status": "created" }))
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to create championship: {}", e) })),
+    }
+}
+
+/// GET /staff/championships — list all championships
+async fn list_staff_championships(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let rows = sqlx::query(
+        "SELECT id, name, description, car_class, sim_type, season,
+                status, scoring_system, total_rounds, completed_rounds,
+                created_at, updated_at
+         FROM championships ORDER BY created_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let championships: Vec<Value> = rows
+                .iter()
+                .map(|r| {
+                    use sqlx::Row;
+                    json!({
+                        "id": r.try_get::<String, _>("id").unwrap_or_default(),
+                        "name": r.try_get::<String, _>("name").unwrap_or_default(),
+                        "description": r.try_get::<Option<String>, _>("description").unwrap_or(None),
+                        "car_class": r.try_get::<String, _>("car_class").unwrap_or_default(),
+                        "sim_type": r.try_get::<String, _>("sim_type").unwrap_or_default(),
+                        "season": r.try_get::<Option<String>, _>("season").unwrap_or(None),
+                        "status": r.try_get::<String, _>("status").unwrap_or_default(),
+                        "scoring_system": r.try_get::<String, _>("scoring_system").unwrap_or_default(),
+                        "total_rounds": r.try_get::<i64, _>("total_rounds").unwrap_or(0),
+                        "completed_rounds": r.try_get::<i64, _>("completed_rounds").unwrap_or(0),
+                        "created_at": r.try_get::<String, _>("created_at").unwrap_or_default(),
+                        "updated_at": r.try_get::<String, _>("updated_at").unwrap_or_default(),
+                    })
+                })
+                .collect();
+            Json(json!({ "championships": championships }))
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to list championships: {}", e) })),
+    }
+}
+
+/// GET /staff/championships/{id} — get a championship with its rounds
+async fn get_staff_championship(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let champ_row = sqlx::query(
+        "SELECT id, name, description, car_class, sim_type, season,
+                status, scoring_system, total_rounds, completed_rounds,
+                created_at, updated_at
+         FROM championships WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let championship = match champ_row {
+        Ok(Some(r)) => {
+            use sqlx::Row;
+            json!({
+                "id": r.try_get::<String, _>("id").unwrap_or_default(),
+                "name": r.try_get::<String, _>("name").unwrap_or_default(),
+                "description": r.try_get::<Option<String>, _>("description").unwrap_or(None),
+                "car_class": r.try_get::<String, _>("car_class").unwrap_or_default(),
+                "sim_type": r.try_get::<String, _>("sim_type").unwrap_or_default(),
+                "season": r.try_get::<Option<String>, _>("season").unwrap_or(None),
+                "status": r.try_get::<String, _>("status").unwrap_or_default(),
+                "scoring_system": r.try_get::<String, _>("scoring_system").unwrap_or_default(),
+                "total_rounds": r.try_get::<i64, _>("total_rounds").unwrap_or(0),
+                "completed_rounds": r.try_get::<i64, _>("completed_rounds").unwrap_or(0),
+                "created_at": r.try_get::<String, _>("created_at").unwrap_or_default(),
+                "updated_at": r.try_get::<String, _>("updated_at").unwrap_or_default(),
+            })
+        }
+        Ok(None) => return Json(json!({ "error": "Championship not found" })),
+        Err(e) => return Json(json!({ "error": format!("Database error: {}", e) })),
+    };
+
+    let rounds_rows = sqlx::query(
+        "SELECT cr.round_number, cr.event_id,
+                he.name AS event_name, he.track, he.car_class, he.status AS event_status,
+                he.starts_at, he.ends_at
+         FROM championship_rounds cr
+         JOIN hotlap_events he ON he.id = cr.event_id
+         WHERE cr.championship_id = ?
+         ORDER BY cr.round_number ASC",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await;
+
+    let rounds: Vec<Value> = match rounds_rows {
+        Ok(rows) => rows
+            .iter()
+            .map(|r| {
+                use sqlx::Row;
+                json!({
+                    "round_number": r.try_get::<i64, _>("round_number").unwrap_or(0),
+                    "event_id": r.try_get::<String, _>("event_id").unwrap_or_default(),
+                    "event_name": r.try_get::<String, _>("event_name").unwrap_or_default(),
+                    "track": r.try_get::<String, _>("track").unwrap_or_default(),
+                    "car_class": r.try_get::<String, _>("car_class").unwrap_or_default(),
+                    "event_status": r.try_get::<String, _>("event_status").unwrap_or_default(),
+                    "starts_at": r.try_get::<Option<String>, _>("starts_at").unwrap_or(None),
+                    "ends_at": r.try_get::<Option<String>, _>("ends_at").unwrap_or(None),
+                })
+            })
+            .collect(),
+        Err(_) => vec![],
+    };
+
+    Json(json!({ "championship": championship, "rounds": rounds }))
+}
+
+/// POST /staff/championships/{id}/rounds — add a round to a championship
+async fn add_championship_round(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(championship_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let event_id = match body.get("event_id").and_then(|v| v.as_str()) {
+        Some(e) => e.to_string(),
+        None => return Json(json!({ "error": "event_id is required" })),
+    };
+    let round_number = match body.get("round_number").and_then(|v| v.as_i64()) {
+        Some(n) => n,
+        None => return Json(json!({ "error": "round_number is required" })),
+    };
+
+    let result = sqlx::query(
+        "INSERT INTO championship_rounds (championship_id, event_id, round_number)
+         VALUES (?, ?, ?)",
+    )
+    .bind(&championship_id)
+    .bind(&event_id)
+    .bind(round_number)
+    .execute(&state.db)
+    .await;
+
+    if let Err(e) = result {
+        return Json(json!({ "error": format!("Failed to add round: {}", e) }));
+    }
+
+    // Link event back to championship
+    let _ = sqlx::query(
+        "UPDATE hotlap_events SET championship_id = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&championship_id)
+    .bind(&event_id)
+    .execute(&state.db)
+    .await;
+
+    // Increment total_rounds on championship
+    let _ = sqlx::query(
+        "UPDATE championships SET total_rounds = total_rounds + 1, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&championship_id)
+    .execute(&state.db)
+    .await;
+
+    tracing::info!(
+        "Championship round added: {} round {} = event {}",
+        championship_id, round_number, event_id
+    );
+    Json(json!({ "status": "round_added" }))
+}
+
+/// POST /staff/events/{id}/link-session — link a group session to a hotlap event
+async fn link_group_session_to_event(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(event_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let group_session_id = match body.get("group_session_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return Json(json!({ "error": "group_session_id is required" })),
+    };
+
+    let result = sqlx::query(
+        "UPDATE group_sessions SET hotlap_event_id = ? WHERE id = ?",
+    )
+    .bind(&event_id)
+    .bind(&group_session_id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() == 0 => Json(json!({ "error": "Group session not found" })),
+        Ok(_) => Json(json!({ "status": "linked" })),
+        Err(e) => Json(json!({ "error": format!("Failed to link session: {}", e) })),
+    }
 }
 
 #[cfg(test)]
