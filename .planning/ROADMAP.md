@@ -144,16 +144,20 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 22. Pod 6/7/8 Recovery + Remote Restart Reliability | 2/2 | Complete   | 2026-03-16 | - |
 | 23. Protocol Contract + Concurrency Safety | 2/2 | Complete    | 2026-03-16 | - |
-| 24. Crash, Hang, Launch + USB Bot Patterns | 1/4 | In Progress|  | - |
+| 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/4 | Not started | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
 
 **Goal:** All 8 pods, server, and Bono's VPS join a Tailscale mesh network — installed as a Windows Service via WinRM, cloud_sync routes through Tailscale IP, and the server pushes telemetry/game state/pod health events to Bono in real time with a bidirectional command relay for PWA-triggered game launches
-**Requirements**: TBD
+**Requirements**: TS-01, TS-02, TS-03, TS-04, TS-05, TS-06, TS-DEPLOY
 **Depends on:** Phase 26
-**Plans:** 1/4 plans executed
+**Plans:** 5 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 27 to break down)
+- [ ] 27-01-PLAN.md — Wave 1 (TDD): BonoConfig in config.rs + bono_relay.rs skeleton with 3 RED test stubs (TS-01, TS-02, TS-03, TS-04)
+- [ ] 27-02-PLAN.md — Wave 2: Full bono_relay.rs implementation — spawn loop, push_event, handle_command, build_relay_router; AppState bono_event_tx channel (TS-02, TS-03, TS-04)
+- [ ] 27-03-PLAN.md — Wave 3: main.rs wiring — bono_relay::spawn() + second Axum listener on Tailscale IP:8099 (TS-02, TS-03, TS-06)
+- [ ] 27-04-PLAN.md — Wave 2 (parallel): scripts/deploy-tailscale.ps1 — WinRM fleet deploy script, canary Pod 8 first (TS-DEPLOY)
+- [ ] 27-05-PLAN.md — Wave 4: racecontrol.toml [bono] section + build + deploy + human verify Pod 8 Tailscale IP + relay 401 auth (TS-05, TS-06, TS-DEPLOY)
