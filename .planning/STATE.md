@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Pod Fleet Self-Healing
-status: complete
-stopped_at: "v4.0 milestone complete — all 6 phases (16-21) done, 12 plans executed"
-last_updated: "2026-03-15T18:55:00Z"
-last_activity: 2026-03-15 — Phase 21 Fleet Health Dashboard complete. v4.0 milestone finished.
+status: in_progress
+stopped_at: Completed 22-01-PLAN.md
+last_updated: "2026-03-16T08:31:28.181Z"
+last_activity: 2026-03-16 — Phase 22 Plan 01 RCAGENT_SELF_RESTART sentinel complete.
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 6
-  total_plans: 12
-  completed_plans: 12
-  percent: 100
+  total_plans: 14
+  completed_plans: 13
 ---
 
 # Project State
@@ -25,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-03-15)
 
 ## Current Position
 
-Phase: 21 of 21 (Fleet Health Dashboard) — COMPLETE
-Plan: All 12 plans complete
-Status: v4.0 milestone complete. Ready for /gsd:complete-milestone.
-Last activity: 2026-03-15 — Phase 21 Fleet Health Dashboard UI approved.
+Phase: 22 of 22 (Pod 6/7/8 Recovery and Remote Restart Reliability) — In Progress (1/2 plans done)
+Plan: 22-01 complete. 22-02 pending.
+Status: Phase 22 in progress. RCAGENT_SELF_RESTART sentinel shipped. Deploy binary to pods.
+Last activity: 2026-03-16 — Phase 22 Plan 01 RCAGENT_SELF_RESTART sentinel complete.
 
-Progress: [██████████] 100%
+Progress: [█████████░] 93% (13/14 plans)
 
 ## Performance Metrics
 
@@ -54,6 +53,7 @@ Progress: [██████████] 100%
 | 20-deploy-resilience P02 | 4 min | 2 tasks | 3 files |
 | 21-fleet-health-dashboard P01 | 6 min | 2 tasks | 6 files |
 | 21-fleet-health-dashboard P02 | 5 min | 1 task | 3 files |
+| Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability P01 | 12 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -78,6 +78,8 @@ Progress: [██████████] 100%
 - [Phase 21 P01]: Used futures_util::join_all (existing dep) for parallel probes; dedicated 3s timeout client; uptime_secs computed live from agent_started_at
 - [Phase 21 P01]: fleet_health route is public (no auth) for Uday's LAN phone access; clear_on_disconnect preserves http_reachable
 - [Phase 21 P02]: No auth on /fleet page; keep last known pod data on poll error; error shown as yellow banner, cards never blank
+- [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: RCAGENT_SELF_RESTART sentinel: direct Rust call to relaunch_self() bypasses cmd.exe/batch, eliminating PowerShell interpretation issues on pods 6/7/8
+- [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: deploy_pod.py connection-close-as-success: treats eof/reset/timeout as success since rc-agent exits before HTTP response completes
 
 ### Roadmap Evolution
 
@@ -95,6 +97,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-15T18:55:00Z
-Stopped at: v4.0 milestone complete — all phases done, ready for /gsd:complete-milestone
+Last session: 2026-03-16T08:31:15.165Z
+Stopped at: Completed 22-01-PLAN.md
 Resume file: None

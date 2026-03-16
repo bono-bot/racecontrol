@@ -46,8 +46,8 @@
 
 ### Remote Restart Reliability (Phase 22)
 
-- [ ] **RESTART-01**: rc-agent exec handler recognizes RCAGENT_SELF_RESTART sentinel and calls relaunch_self() directly, bypassing cmd.exe and start-rcagent.bat
-- [ ] **RESTART-02**: deploy_pod.py uses RCAGENT_SELF_RESTART for the restart step and treats connection-close as success
+- [x] **RESTART-01**: rc-agent exec handler recognizes RCAGENT_SELF_RESTART sentinel and calls relaunch_self() directly, bypassing cmd.exe and start-rcagent.bat
+- [x] **RESTART-02**: deploy_pod.py uses RCAGENT_SELF_RESTART for the restart step and treats connection-close as success
 - [ ] **RESTART-03**: After fleet deploy with the new binary, RCAGENT_SELF_RESTART verified working on all 8 pods (each pod reconnects within 20s)
 
 ## Future Requirements

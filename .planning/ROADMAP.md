@@ -171,7 +171,7 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 **Goal:** Pods 6, 7, 8 are back online and all 8 pods can be reliably restarted remotely via the RCAGENT_SELF_RESTART sentinel, which calls relaunch_self() directly in Rust and bypasses cmd.exe, start-rcagent.bat, and PowerShell interpretation entirely.
 **Requirements**: RESTART-01, RESTART-02, RESTART-03
 **Depends on:** Phase 21
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 22-01-PLAN.md — Add RCAGENT_SELF_RESTART sentinel to rc-agent exec handler + update deploy_pod.py
