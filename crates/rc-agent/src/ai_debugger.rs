@@ -30,7 +30,7 @@ fn default_openrouter_model() -> String {
 
 /// Runtime snapshot of pod state at the moment of a crash/error.
 /// Passed to the AI debugger for richer context.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct PodStateSnapshot {
     pub pod_id: String,
     pub pod_number: u32,
@@ -41,6 +41,12 @@ pub struct PodStateSnapshot {
     pub wheelbase_connected: bool,
     pub ws_connected: bool,
     pub uptime_seconds: u64,
+    #[serde(default)]
+    pub last_udp_secs_ago: Option<u64>,        // seconds since last UDP frame; None = never received
+    #[serde(default)]
+    pub game_launch_elapsed_secs: Option<u64>, // seconds since LaunchGame command; None = not launching
+    #[serde(default)]
+    pub hid_last_error: bool,                  // true if driving_detector last saw HidDisconnected
 }
 
 /// Result of an auto-fix attempt.
@@ -539,6 +545,7 @@ mod tests {
             wheelbase_connected: true,
             ws_connected: true,
             uptime_seconds: 3600,
+            ..Default::default()
         };
         let prompt = build_prompt(&SimType::AssettoCorsa, "exit code -1", &snapshot);
         assert!(prompt.contains("Pod #3"));
@@ -560,6 +567,7 @@ mod tests {
             wheelbase_connected: false,
             ws_connected: true,
             uptime_seconds: 100,
+            ..Default::default()
         };
         let result = try_auto_fix("Check for CLOSE_WAIT zombie sockets on the lock screen port", &snapshot);
         assert!(result.is_some());
@@ -579,6 +587,7 @@ mod tests {
             wheelbase_connected: false,
             ws_connected: true,
             uptime_seconds: 100,
+            ..Default::default()
         };
         let result = try_auto_fix("Try restarting ConspitLink2.0 to restore the wheelbase connection", &snapshot);
         assert!(result.is_none(), "ConspitLink should not be handled by auto-fix");
@@ -596,6 +605,7 @@ mod tests {
             wheelbase_connected: true,
             ws_connected: true,
             uptime_seconds: 200,
+            ..Default::default()
         };
         let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
         assert!(result.is_some());
@@ -614,6 +624,7 @@ mod tests {
             wheelbase_connected: false,
             ws_connected: true,
             uptime_seconds: 100,
+            ..Default::default()
         };
         let result = try_auto_fix("The issue seems to be with the GPU driver version being outdated", &snapshot);
         assert!(result.is_none(), "Should not match any auto-fix pattern");
@@ -631,6 +642,7 @@ mod tests {
             wheelbase_connected: true,
             ws_connected: true,
             uptime_seconds: 500,
+            ..Default::default()
         };
         let result = try_auto_fix("Low disk space detected — clean temp files and free up space", &snapshot);
         assert!(result.is_some());
@@ -649,6 +661,7 @@ mod tests {
             wheelbase_connected: true,
             ws_connected: true,
             uptime_seconds: 300,
+            ..Default::default()
         };
         let result = try_auto_fix("Dismiss the WerFault error dialog and restart the game", &snapshot);
         assert!(result.is_some());

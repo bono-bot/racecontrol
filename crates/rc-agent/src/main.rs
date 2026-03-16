@@ -952,6 +952,7 @@ async fn main() -> Result<()> {
                                     wheelbase_connected: detector.is_hid_connected(),
                                     ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
                                     uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                    ..Default::default()
                                 };
                                 tokio::spawn(ai_debugger::analyze_crash(
                                     config.ai_debugger.clone(),
@@ -1011,6 +1012,7 @@ async fn main() -> Result<()> {
                     wheelbase_connected: detector.is_hid_connected(),
                     ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
                     uptime_seconds: agent_start_time.elapsed().as_secs(),
+                    ..Default::default()
                 };
                 let suggestion_text = suggestion.suggestion.clone();
                 let fix_handle = tokio::task::spawn_blocking(move || {
@@ -1464,6 +1466,7 @@ async fn main() -> Result<()> {
                                                             wheelbase_connected: detector.is_hid_connected(),
                                                             ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
                                                             uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                                            ..Default::default()
                                                         };
                                                         tokio::spawn(ai_debugger::analyze_crash(
                                                             config.ai_debugger.clone(),
@@ -1518,6 +1521,7 @@ async fn main() -> Result<()> {
                                                         wheelbase_connected: detector.is_hid_connected(),
                                                         ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
                                                         uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                                        ..Default::default()
                                                     };
                                                     tokio::spawn(ai_debugger::analyze_crash(
                                                         config.ai_debugger.clone(),
