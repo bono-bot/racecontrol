@@ -13,7 +13,7 @@ use racecontrol_crate::config::Config;
 use racecontrol_crate::state::AppState;
 use racecontrol_crate::{
     ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
-    billing, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
+    billing, bono_relay, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
     game_launcher, multiplayer, port_allocator, lap_tracker, pod_healer,
     pod_monitor, pod_reservation, remote_terminal, scheduler, wallet,
     udp_heartbeat, wol, ws,
@@ -292,6 +292,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn cloud sync (pulls customer data from cloud racecontrol)
     cloud_sync::spawn(state.clone());
 
+    // Spawn Bono relay (pushes events to Bono's VPS over Tailscale mesh)
+    bono_relay::spawn(state.clone());
+
     // Spawn remote terminal (polls cloud for commands to execute locally)
     remote_terminal::spawn(state.clone());
 
@@ -312,6 +315,32 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn fleet health probe loop (15s interval, HTTP :8090/health on each registered pod)
     fleet_health::start_probe_loop(state.clone());
+
+    // Bind Bono relay endpoint on Tailscale IP (optional — only if configured)
+    // IMPORTANT: state.clone() is called here before state is moved into the main router below.
+    if let Some(ts_ip) = state.config.bono.tailscale_bind_ip.clone() {
+        if state.config.bono.enabled {
+            let relay_port = state.config.bono.relay_port;
+            let ts_addr = format!("{}:{}", ts_ip, relay_port);
+            let relay_router = bono_relay::build_relay_router(state.clone());
+            tokio::spawn(async move {
+                match tokio::net::TcpListener::bind(&ts_addr).await {
+                    Ok(ts_listener) => {
+                        tracing::info!("Bono relay endpoint on http://{} (Tailscale interface)", ts_addr);
+                        axum::serve(ts_listener, relay_router).await.unwrap();
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to bind Bono relay endpoint on {} — check Tailscale is connected: {}",
+                            ts_addr, e
+                        );
+                        // Non-fatal: main server continues even if relay bind fails.
+                        // This happens when Tailscale isn't yet connected at startup.
+                    }
+                }
+            });
+        }
+    }
 
     // Build router
     let app = Router::new()
