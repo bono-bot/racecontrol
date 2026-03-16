@@ -4,7 +4,7 @@ use crate::types::{
     AcLanSessionConfig, AcPresetSummary, AcServerInfo, AcStatus,
     AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, ContentManifest, DeployState, DrivingState,
     GameLaunchInfo, GroupSessionInfo, Leaderboard, LapData, PodActivityEntry, PodInfo, SessionInfo,
-    SimType, TelemetryFrame,
+    SimType, TelemetryFrame, PodFailureReason,
 };
 
 /// Summary of deploy state for a single pod — used in DeployStatusList
@@ -105,6 +105,43 @@ pub enum AgentMessage {
         config_hash: String,
         crash_recovery: bool,
         repairs: Vec<String>,
+    },
+
+    /// Agent detected a hardware failure (USB disconnect, FFB fault)
+    HardwareFailure {
+        pod_id: String,
+        reason: PodFailureReason,
+        detail: String,
+    },
+
+    /// Agent detected telemetry gap (no UDP data for N seconds while billing active)
+    TelemetryGap {
+        pod_id: String,
+        sim_type: SimType,
+        gap_seconds: u32,
+    },
+
+    /// Agent detected billing anomaly (stuck session, idle drift, game dead + billing alive)
+    BillingAnomaly {
+        pod_id: String,
+        billing_session_id: String,
+        reason: PodFailureReason,
+        detail: String,
+    },
+
+    /// Agent flagged an invalid lap at capture time
+    LapFlagged {
+        pod_id: String,
+        lap_id: String,
+        reason: PodFailureReason,
+        detail: String,
+    },
+
+    /// Agent detected multiplayer session failure (desync or server disconnect)
+    MultiplayerFailure {
+        pod_id: String,
+        reason: PodFailureReason,
+        session_id: Option<String>,
     },
 }
 
@@ -1687,6 +1724,122 @@ mod tests {
             assert!(repairs.is_empty());
         } else {
             panic!("Wrong variant");
+        }
+    }
+
+    // ── Phase 23 Plan 01: New bot failure AgentMessage variant tests ──────
+
+    #[test]
+    fn test_hardware_failure_roundtrip() {
+        let msg = AgentMessage::HardwareFailure {
+            pod_id: "pod_3".to_string(),
+            reason: crate::types::PodFailureReason::WheelbaseDisconnected,
+            detail: "USB disconnect detected".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("hardware_failure"), "Expected 'hardware_failure' in JSON, got: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::HardwareFailure { pod_id, reason, detail } = parsed {
+            assert_eq!(pod_id, "pod_3");
+            assert_eq!(reason, crate::types::PodFailureReason::WheelbaseDisconnected);
+            assert_eq!(detail, "USB disconnect detected");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_telemetry_gap_roundtrip() {
+        let msg = AgentMessage::TelemetryGap {
+            pod_id: "pod_5".to_string(),
+            sim_type: crate::types::SimType::AssettoCorsa,
+            gap_seconds: 42u32,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("telemetry_gap"), "Expected 'telemetry_gap' in JSON, got: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::TelemetryGap { pod_id, sim_type, gap_seconds } = parsed {
+            assert_eq!(pod_id, "pod_5");
+            assert_eq!(sim_type, crate::types::SimType::AssettoCorsa);
+            assert_eq!(gap_seconds, 42u32);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_billing_anomaly_roundtrip() {
+        let msg = AgentMessage::BillingAnomaly {
+            pod_id: "pod_2".to_string(),
+            billing_session_id: "bsess-abc123".to_string(),
+            reason: crate::types::PodFailureReason::SessionStuckWaitingForGame,
+            detail: "game never launched".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("billing_anomaly"), "Expected 'billing_anomaly' in JSON, got: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::BillingAnomaly { pod_id, billing_session_id, reason, detail } = parsed {
+            assert_eq!(pod_id, "pod_2");
+            assert_eq!(billing_session_id, "bsess-abc123");
+            assert_eq!(reason, crate::types::PodFailureReason::SessionStuckWaitingForGame);
+            assert_eq!(detail, "game never launched");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_lap_flagged_roundtrip() {
+        let msg = AgentMessage::LapFlagged {
+            pod_id: "pod_7".to_string(),
+            lap_id: "lap-xyz-789".to_string(),
+            reason: crate::types::PodFailureReason::LapCut,
+            detail: "sector 2 shortcut".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("lap_flagged"), "Expected 'lap_flagged' in JSON, got: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::LapFlagged { pod_id, lap_id, reason, detail } = parsed {
+            assert_eq!(pod_id, "pod_7");
+            assert_eq!(lap_id, "lap-xyz-789");
+            assert_eq!(reason, crate::types::PodFailureReason::LapCut);
+            assert_eq!(detail, "sector 2 shortcut");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_multiplayer_failure_roundtrip() {
+        // session_id = None
+        let msg_none = AgentMessage::MultiplayerFailure {
+            pod_id: "pod_1".to_string(),
+            reason: crate::types::PodFailureReason::MultiplayerDesync,
+            session_id: None,
+        };
+        let json_none = serde_json::to_string(&msg_none).unwrap();
+        assert!(json_none.contains("multiplayer_failure"), "Expected 'multiplayer_failure' in JSON, got: {}", json_none);
+        let parsed_none: AgentMessage = serde_json::from_str(&json_none).unwrap();
+        if let AgentMessage::MultiplayerFailure { pod_id, reason, session_id } = parsed_none {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(reason, crate::types::PodFailureReason::MultiplayerDesync);
+            assert_eq!(session_id, None);
+        } else {
+            panic!("Wrong variant for session_id=None");
+        }
+
+        // session_id = Some(...)
+        let msg_some = AgentMessage::MultiplayerFailure {
+            pod_id: "pod_1".to_string(),
+            reason: crate::types::PodFailureReason::MultiplayerServerDisconnect,
+            session_id: Some("sess-mp-456".to_string()),
+        };
+        let json_some = serde_json::to_string(&msg_some).unwrap();
+        let parsed_some: AgentMessage = serde_json::from_str(&json_some).unwrap();
+        if let AgentMessage::MultiplayerFailure { session_id, .. } = parsed_some {
+            assert_eq!(session_id, Some("sess-mp-456".to_string()));
+        } else {
+            panic!("Wrong variant for session_id=Some");
         }
     }
 }

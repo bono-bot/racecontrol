@@ -505,6 +505,21 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 crate::fleet_health::store_startup_report(store, version, *uptime_secs, *crash_recovery);
                             }
                         }
+                        AgentMessage::HardwareFailure { pod_id, reason, detail } => {
+                            tracing::info!("[bot] HardwareFailure pod={} reason={:?}: {}", pod_id, reason, detail);
+                        }
+                        AgentMessage::TelemetryGap { pod_id, sim_type, gap_seconds } => {
+                            tracing::info!("[bot] TelemetryGap pod={} sim={:?} gap={}s", pod_id, sim_type, gap_seconds);
+                        }
+                        AgentMessage::BillingAnomaly { pod_id, billing_session_id, reason, detail } => {
+                            tracing::info!("[bot] BillingAnomaly pod={} session={} reason={:?}: {}", pod_id, billing_session_id, reason, detail);
+                        }
+                        AgentMessage::LapFlagged { pod_id, lap_id, reason, detail } => {
+                            tracing::info!("[bot] LapFlagged pod={} lap={} reason={:?}: {}", pod_id, lap_id, reason, detail);
+                        }
+                        AgentMessage::MultiplayerFailure { pod_id, reason, session_id } => {
+                            tracing::info!("[bot] MultiplayerFailure pod={} reason={:?} session={:?}", pod_id, reason, session_id);
+                        }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);
                             log_pod_activity(&state, pod_id, "system", "Pod Offline", "Agent sent disconnect", "agent");
