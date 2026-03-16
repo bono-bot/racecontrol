@@ -13,7 +13,7 @@ Steps performed:
   2. Delete old rc-agent.toml (ignore failure — may not exist)
   3. Write new per-pod config via /write endpoint
   4. If --binary-url or not --config-only: download new rc-agent.exe via /exec curl
-  5. Start rc-agent.exe (timeout expected — runs indefinitely)
+  5. Send RCAGENT_SELF_RESTART sentinel — rc-agent relaunches itself via Rust (connection close = success)
 
 The /write endpoint overwrites atomically, but we still delete first to ensure
 no stale content remains if the write fails partway through (defense in depth).
@@ -158,16 +158,28 @@ def deploy_pod(pod_number, config_only=False, binary_url=None):
     else:
         print("\n[4/5] Skipping binary download (--config-only).")
 
-    # Step 5: Start rc-agent (timeout expected — it runs indefinitely)
-    print("\n[5/5] Starting rc-agent.exe...")
-    start_cmd = "cd /d C:\\RacingPoint && start /b rc-agent.exe"
-    result = pod_exec(pod_ip, start_cmd, timeout_ms=5000)
-    stderr = result.get("stderr", "")
-    if result.get("success", False) or "timed out" in stderr.lower():
-        print("      rc-agent started (or start initiated).")
+    # Step 5: Restart rc-agent via RCAGENT_SELF_RESTART sentinel.
+    # This bypasses start-rcagent.bat entirely. The Rust exec handler calls
+    # relaunch_self() directly — which spawns a detached PowerShell then exits.
+    # rc-agent process exits, so the HTTP connection will close/timeout. That is expected success.
+    print("\n[5/5] Sending RCAGENT_SELF_RESTART to rc-agent...")
+    restart_result = pod_exec(pod_ip, "RCAGENT_SELF_RESTART", timeout_ms=5000)
+    stderr = restart_result.get("stderr", "")
+    error = restart_result.get("error", "")
+    # Success = any of: explicit success, timeout (rc-agent exited mid-response),
+    # or connection reset/closed/eof (rc-agent exited before HTTP response sent).
+    relaunch_ok = (
+        restart_result.get("success", False)
+        or "timed out" in stderr.lower()
+        or "timed out" in error.lower()
+        or "connection" in error.lower()
+        or "reset" in error.lower()
+        or "eof" in error.lower()
+    )
+    if relaunch_ok:
+        print("      rc-agent relaunch initiated (connection closed = expected).")
     else:
-        exit_code = result.get("exit_code")
-        print("      Note: exit_code={}, stderr={}".format(exit_code, stderr[:100]))
+        print("      Note: unexpected restart response: {}".format(restart_result))
 
     print("\nPod {} deployment complete.".format(pod_number))
     return True
