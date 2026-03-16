@@ -122,6 +122,24 @@ completed: 2026-03-16
 - 238 tests passing (all rc-core unit tests)
 - TypeScript compiles cleanly
 
+## Self-Check: PASSED
+
+- SUMMARY.md: FOUND at .planning/ac-launch/phases/05-synchronized-group-play/05-02-SUMMARY.md
+- Commit 0213ddd: FOUND (feat(05-02): add retry-pod and update-config endpoints)
+- Commit 93f8582: FOUND (feat(05-02): kiosk join status tracking and retry button)
+- Commit e4ea573: FOUND (docs(05-02): complete join failure recovery plan)
+- retry_pod_join in ac_server.rs: FOUND (3 occurrences)
+- update_session_config in ac_server.rs: FOUND
+- retry-pod route in routes.rs: FOUND
+- update-config route in routes.rs: FOUND
+- join_failed in KioskPodCard.tsx: FOUND (6 occurrences)
+- retryPodJoin in api.ts: FOUND
+- ac_server_update in useKioskSocket.ts: FOUND
+- onRetryJoin in staff/page.tsx: FOUND
+- acSessionId in staff/page.tsx: FOUND
+- TypeScript: compiles with no errors
+- Rust tests: 238/238 passing
+
 ---
 *Phase: 05-synchronized-group-play*
 *Completed: 2026-03-16*
