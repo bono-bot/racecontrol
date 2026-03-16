@@ -24,6 +24,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 
 use crate::activity_log::log_pod_activity;
+use crate::bono_relay::BonoEvent;
 use crate::email_alerts::EmailAlerter;
 use crate::state::{AppState, WatchdogState};
 use rc_common::protocol::DashboardEvent;
@@ -142,6 +143,12 @@ async fn check_all_pods(
                         &format!("Recovered after {} restart attempt(s)", attempt_count),
                         "race_engineer",
                     );
+                    // Emit PodOnline event to Bono relay (pod transitioned offline -> online)
+                    let _ = state.bono_event_tx.send(BonoEvent::PodOnline {
+                        pod_number: pod.number,
+                        ip: pod.ip_address.clone(),
+                        tailscale_ip: None,
+                    });
                 }
             }
             drop(backoffs);
@@ -199,6 +206,14 @@ async fn check_all_pods(
                 p.current_game = None;
                 let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(p.clone()));
             }
+            drop(pods_lock);
+
+            // Emit PodOffline event to Bono relay (pod transitioned online -> offline)
+            let _ = state.bono_event_tx.send(BonoEvent::PodOffline {
+                pod_number: pod.number,
+                ip: pod.ip_address.clone(),
+                last_seen_secs_ago: 0,
+            });
         }
 
         // Skip if WatchdogState is already Restarting or Verifying (avoids double-restart)
