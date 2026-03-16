@@ -1969,6 +1969,18 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // Phase 14: Link group sessions to hotlap events for F1 scoring (GRP-01)
+    let _ = sqlx::query("ALTER TABLE group_sessions ADD COLUMN hotlap_event_id TEXT REFERENCES hotlap_events(id)")
+        .execute(pool)
+        .await;
+    // Phase 14: Championship tiebreaker counts (CHP-04)
+    let _ = sqlx::query("ALTER TABLE championship_standings ADD COLUMN p2_count INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE championship_standings ADD COLUMN p3_count INTEGER DEFAULT 0")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
