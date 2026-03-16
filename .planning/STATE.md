@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 25-03-PLAN.md — bot_coordinator.rs server-side bot router, 5 new tests, 299 total passing
-last_updated: "2026-03-16T12:29:22.877Z"
+stopped_at: Completed 25-02-PLAN.md — billing_guard.rs with spawn() and 7 unit tests, BILL-02/BILL-03 detection, 15 tests green
+last_updated: "2026-03-16T12:29:32.908Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
@@ -124,6 +124,7 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 25-billing-guard-server-bot-coordinator]: Wave 0 gate: 5 characterization tests in billing.rs required before billing bot code; driving_state field on FailureMonitorState enables billing_guard.rs compilation
 - [Phase Phase 27-tailscale-mesh-internet-fallback]: [Phase 27-05]: racecontrol.toml [cloud].api_url kept at HTTPS until Tailscale IPs confirmed — TODO comment for switchover, avoids downtime
 - [Phase 25-billing-guard-server-bot-coordinator]: bot_coordinator.rs uses correct PodFailureReason variants (SessionStuckWaitingForGame/IdleBillingDrift) — plan had stale names from earlier design
+- [Phase 25-billing-guard-server-bot-coordinator]: Used existing PodFailureReason variants (SessionStuckWaitingForGame, IdleBillingDrift) instead of plan speculative names — rc-common enum was already defined with different names in Phase 23
 
 ### Roadmap Evolution
 
@@ -145,6 +146,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T12:29:06.101Z
-Stopped at: Completed 25-03-PLAN.md — bot_coordinator.rs server-side bot router, 5 new tests, 299 total passing
+Last session: 2026-03-16T12:29:32.906Z
+Stopped at: Completed 25-02-PLAN.md — billing_guard.rs with spawn() and 7 unit tests, BILL-02/BILL-03 detection, 15 tests green
 Resume file: None
