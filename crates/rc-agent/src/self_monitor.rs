@@ -170,7 +170,7 @@ async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<St
 ///
 /// Uses Start-Process instead of cmd `start ""` — Start-Process works reliably
 /// even when the invoking process has no attached console or interactive desktop.
-fn relaunch_self() {
+pub fn relaunch_self() {
     let ps_cmd = concat!(
         "Start-Sleep 3; ",
         "Start-Process 'C:\\RacingPoint\\rc-agent.exe' ",
