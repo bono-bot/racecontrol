@@ -44,6 +44,12 @@
 - [x] **FLEET-02**: Pod status distinguishes WS-connected vs HTTP-reachable (a pod can be WS-up but HTTP-blocked)
 - [x] **FLEET-03**: Dashboard accessible from Uday's phone (mobile-first layout)
 
+### Remote Restart Reliability (Phase 22)
+
+- [ ] **RESTART-01**: rc-agent exec handler recognizes RCAGENT_SELF_RESTART sentinel and calls relaunch_self() directly, bypassing cmd.exe and start-rcagent.bat
+- [ ] **RESTART-02**: deploy_pod.py uses RCAGENT_SELF_RESTART for the restart step and treats connection-close as success
+- [ ] **RESTART-03**: After fleet deploy with the new binary, RCAGENT_SELF_RESTART verified working on all 8 pods (each pod reconnects within 20s)
+
 ## Future Requirements
 
 ### Advanced Fleet Ops (v5.0+)
@@ -89,9 +95,13 @@
 | FLEET-02 | Phase 21 | Complete |
 | FLEET-03 | Phase 21 | Complete |
 
+| RESTART-01 | Phase 22 | Planned |
+| RESTART-02 | Phase 22 | Planned |
+| RESTART-03 | Phase 22 | Planned |
+
 **Coverage:**
-- v4.0 requirements: 21 total
-- Mapped to phases: 21
+- v4.0 requirements: 21 total, Phase 22 adds 3 (RESTART-01/02/03)
+- Mapped to phases: 24
 - Unmapped: 0
 
 ---

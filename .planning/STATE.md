@@ -79,6 +79,10 @@ Progress: [██████████] 100%
 - [Phase 21 P01]: fleet_health route is public (no auth) for Uday's LAN phone access; clear_on_disconnect preserves http_reachable
 - [Phase 21 P02]: No auth on /fleet page; keep last known pod data on poll error; error shown as yellow banner, cards never blank
 
+### Roadmap Evolution
+
+- Phase 22 added: Pod 6/7/8 Recovery and Remote Restart Reliability
+
 ### Pending Todos
 
 - Pod 3 still not verified running after fix-pod.bat — needs physical reboot + verification

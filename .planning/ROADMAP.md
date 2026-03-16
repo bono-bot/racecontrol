@@ -165,3 +165,14 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 19. Watchdog Service | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
+
+### Phase 22: Pod 6/7/8 Recovery and Remote Restart Reliability
+
+**Goal:** Pods 6, 7, 8 are back online and all 8 pods can be reliably restarted remotely via the RCAGENT_SELF_RESTART sentinel, which calls relaunch_self() directly in Rust and bypasses cmd.exe, start-rcagent.bat, and PowerShell interpretation entirely.
+**Requirements**: RESTART-01, RESTART-02, RESTART-03
+**Depends on:** Phase 21
+**Plans:** 2 plans
+
+Plans:
+- [ ] 22-01-PLAN.md — Add RCAGENT_SELF_RESTART sentinel to rc-agent exec handler + update deploy_pod.py
+- [ ] 22-02-PLAN.md — Build release binary, deploy to all 8 pods, verify RCAGENT_SELF_RESTART works
