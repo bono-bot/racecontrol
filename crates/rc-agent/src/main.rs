@@ -1,5 +1,6 @@
 mod ac_launcher;
 mod ai_debugger;
+mod billing_guard;
 mod content_scanner;
 mod debug_server;
 mod driving_detector;

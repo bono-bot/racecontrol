@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 25-01-PLAN.md — BILL-01 characterization tests + FailureMonitorState.driving_state field, 294 tests green
-last_updated: "2026-03-16T12:22:59.450Z"
+stopped_at: Completed 27-05-PLAN.md — racecontrol.toml [bono] section deployed to server, 273 tests green, human verify approved
+last_updated: "2026-03-16T12:26:18.304Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 15
-  completed_plans: 11
+  completed_plans: 12
   percent: 94
 ---
 
@@ -82,6 +82,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 27-tailscale-mesh-internet-fallback P02 | 466 | 2 tasks | 2 files |
 | Phase 27-tailscale-mesh-internet-fallback P03 | 5 | 2 tasks | 2 files |
 | Phase 25-billing-guard-server-bot-coordinator P01 | 3 | 2 tasks | 2 files |
+| Phase 27-tailscale-mesh-internet-fallback P05 | 10 | 4 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,7 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 27-tailscale-mesh-internet-fallback]: Second Axum listener placed BEFORE .with_state(state): state.clone() must precede Arc move into main router — Rust compile-time enforcement
 - [Phase 27-tailscale-mesh-internet-fallback]: PodOnline emitted at backoff reset site (backoff.attempt() > 0 + fresh heartbeat) — this is the canonical offline->online transition in pod_monitor.rs
 - [Phase 25-billing-guard-server-bot-coordinator]: Wave 0 gate: 5 characterization tests in billing.rs required before billing bot code; driving_state field on FailureMonitorState enables billing_guard.rs compilation
+- [Phase Phase 27-tailscale-mesh-internet-fallback]: [Phase 27-05]: racecontrol.toml [cloud].api_url kept at HTTPS until Tailscale IPs confirmed — TODO comment for switchover, avoids downtime
 
 ### Roadmap Evolution
 
@@ -140,6 +142,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T12:22:59.447Z
-Stopped at: Completed 25-01-PLAN.md — BILL-01 characterization tests + FailureMonitorState.driving_state field, 294 tests green
+Last session: 2026-03-16T12:26:18.302Z
+Stopped at: Completed 27-05-PLAN.md — racecontrol.toml [bono] section deployed to server, 273 tests green, human verify approved
 Resume file: None
