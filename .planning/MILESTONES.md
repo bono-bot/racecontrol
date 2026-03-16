@@ -23,6 +23,28 @@
 - Staff dashboard: one-click lockdown toggle, power management (restart/shutdown/wake) per-pod and bulk
 - Customer experience: Racing Point branding on lock/blank screens, session results display, staff-configurable wallpaper
 
+## v3.0 Leaderboards & Competitive (Shipped: 2026-03-15)
+
+**Phases completed:** 3 phases (12, 13, 13.1), 10 plans
+
+**Key accomplishments:**
+- SQLite lap times DB with full migration stack — persistent leaderboards across server restarts
+- Live leaderboard with top-10 per track/car, personal bests, percentile ranks, gap-to-leader — served via REST API
+- Pod fleet reliability: ConspitLink USB watchdog, process cleanup on session end, telemetry UDP failover
+
+## v4.0 Pod Fleet Self-Healing (Shipped: 2026-03-16)
+
+**Phases completed:** 7 phases (16–22), 15 plans
+
+**Key accomplishments:**
+- Firewall auto-config: racecontrol opens its own Windows Firewall rule at startup — no manual setup on new server
+- WebSocket exec relay: staff can run shell commands on any pod from kiosk (WS proxy through rc-agent)
+- Startup self-healing: rc-agent detects and clears stale CLOSE_WAIT sockets, restarts on crash detection
+- Watchdog service: server monitors all pods, alerts on missed heartbeats, auto-requeues stuck recovery tasks
+- Deploy resilience: deploy_pod.py with canary-first (Pod 8), binary size verification, pod-agent /write endpoint
+- Fleet health dashboard: live pod grid with status badges, per-pod metrics, bulk restart/lockdown actions
+- Pod 6/7/8 recovery: WinRM-free remote deploy via pod-agent, PowerShell EncodedCommand for firewall/binary fixes
+
 ## v4.5 AC Launch Reliability (Shipped: 2026-03-16)
 
 **Phases completed:** 5 phases, 10 plans, 19 requirements
@@ -33,5 +55,16 @@
 - Launch resilience: structured `LaunchDiagnostics` (CM exit code, log errors, fallback flag), billing auto-pause on total launch failure
 - Multiplayer server lifecycle: `AcServerManager` wired to billing — server auto-starts on booking, auto-stops when all billing ends; kiosk self-serve "Play with Friends" booking with per-pod PINs
 - Synchronized group play: coordinated launch (all pods receive `LaunchGame` simultaneously when all PINs validated), continuous race mode with billing-active guard, "Join Failed" + retry on kiosk dashboard, mid-session track/car change for continuous mode
+
+## v5.0 RC Bot Expansion (Shipped: 2026-03-16)
+
+**Phases completed:** 5 phases (23–27), 19 plans, 19 requirements
+
+**Key accomplishments:**
+- `PodFailureReason` enum (9 classes) + 5 `AgentMessage` bot variants + `is_pod_in_recovery()` guard — deterministic failure taxonomy shared across all bot tasks (Phase 23)
+- Game freeze, launch timeout, USB wheelbase disconnect auto-fix bots with FFB zero-force safety ordering before every process kill (Phase 24)
+- `billing_guard.rs` detects stuck sessions (60s) and idle drift (5min); `bot_coordinator.rs` routes to safe `end_session()` with CRDT cloud sync fence (Phase 25)
+- Lap validity filter + per-track floor (Monza/Silverstone/Spa) + `review_required` flag; customer/staff PIN counters structurally separated; TELEM-01 email alert + MULTI-01 ordered teardown (Phase 26)
+- Tailscale mesh installed on all pods + `bono_relay.rs` bidirectional event/command relay to Bono's VPS on port 8099 (Phase 27)
 
 ---
