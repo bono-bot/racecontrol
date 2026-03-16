@@ -219,6 +219,7 @@ pub struct LapData {
     pub sector2_ms: Option<u32>,
     pub sector3_ms: Option<u32>,
     pub valid: bool,
+    pub session_type: SessionType,
     pub created_at: DateTime<Utc>,
 }
 

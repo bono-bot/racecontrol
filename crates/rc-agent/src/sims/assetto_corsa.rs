@@ -306,6 +306,7 @@ impl SimAdapter for AssettoCorsaAdapter {
                     sector2_ms: self.sector_times[1],
                     sector3_ms: self.sector_times[2],
                     valid: is_valid != 0,
+                    session_type: rc_common::types::SessionType::Practice, // AC always returns Practice
                     created_at: Utc::now(),
                 };
 

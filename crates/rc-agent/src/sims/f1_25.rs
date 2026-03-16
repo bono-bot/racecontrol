@@ -289,6 +289,14 @@ impl F125Adapter {
                 _ => None,
             };
 
+            let lap_session_type = match self.session_type {
+                1 | 2 | 3 | 4 => SessionType::Practice,
+                5 | 6 | 7 | 8 => SessionType::Qualifying,
+                9 | 10 | 11 => SessionType::Race,
+                12 => SessionType::Hotlap,
+                _ => SessionType::Practice,
+            };
+
             let lap = LapData {
                 id: uuid::Uuid::new_v4().to_string(),
                 session_id: String::new(),
@@ -303,6 +311,7 @@ impl F125Adapter {
                 sector2_ms: self.sector2_ms,
                 sector3_ms: s3_ms,
                 valid: !self.current_lap_invalid,
+                session_type: lap_session_type,
                 created_at: Utc::now(),
             };
 
