@@ -6,22 +6,17 @@
 
 The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls. v2.0 delivered server IP pinning, lock screen hardening, Edge hardening, pod lockdown UI, and session results display.
 
-## Current Milestone: v5.0 RC Bot Expansion
+## Current Milestone: v5.5 Billing Credits
 
-**Goal:** Expand the AI auto-fix bot (ai_debugger.rs) with deterministic pattern-match rules for every failure class — pod crashes, billing edges, network drops, USB hardware, game launch failures, telemetry gaps, multiplayer issues, kiosk PIN problems, and lap time filtering.
+**Goal:** Replace hardcoded paise billing tiers with DB-driven credits (1 credit = ₹1 = 100 paise), non-retroactive 3-tier per-minute rates configurable from the admin panel without a code deploy.
 
 **Target features:**
-- Expanded crash/hang detection: game freeze, rc-agent stuck, process hung — bot kills/restarts without staff
-- Billing edge case recovery: stuck sessions, idle billing drift, credit sync failures
-- Network/connection auto-repair: WS loss, server unreachable, IP drift diagnostics
-- Hardware self-healing: wheelbase USB disconnect detection + reconnect/reset, FFB fault recovery
-- Game launch failure recovery: Content Manager hang, AC not starting, launch timeout auto-retry
-- Telemetry bot: detect missing/invalid UDP data, alert staff when telemetry drops
-- Multiplayer session guard: detect desync or server disconnect, auto-rejoin or safe teardown
-- Kiosk PIN bot: detect PIN validation failures, staff unlock flows, session recovery
-- Lap filter bot: auto-flag invalid laps (cuts, spins, invalid speed), separate hotlap vs practice
-
-**Research-first:** Codebase failure patterns mapped before phases committed.
+- Credits as currency: all UI shows "X cr" instead of "Rs. X" (overlay, kiosk, admin, history)
+- DB-driven billing rates: `billing_rates` table with tier_order, tier_name, threshold_minutes, rate_per_min_paise
+- Non-retroactive tier calculation: 45 min = (30 × 25) + (15 × 20) = 1050 cr, not 45 × 20
+- In-memory rate cache on BillingManager — refreshed at startup and every 60s
+- Admin panel rate editor: staff update rates via UI, cache invalidated immediately
+- Rates synced to cloud via cloud_sync.rs SYNC_TABLES
 
 ## What This Is
 
@@ -76,17 +71,26 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Deploy resilience (verify, rollback, handle partial failures) (DEPL-01 through DEPL-05)
 - ✓ Fleet health dashboard for Uday (real-time pod status) (FLEET-01 through FLEET-03)
 
-### Active (v5.0)
+### Completed (v5.0 — shipped 2026-03-17)
 
-- [ ] Bot handles pod crash/hang — detect + auto-kill/restart game or rc-agent without staff
-- [ ] Bot handles billing edge cases — stuck sessions, idle drift, cloud sync failures
-- [ ] Bot handles network/connection drops — WS loss, server unreachable, IP drift
-- [ ] Bot handles USB hardware failures — wheelbase disconnect/reconnect, FFB fault
-- [ ] Bot handles game launch failures — CM hang, AC timeout, launch auto-retry
-- [ ] Bot handles telemetry gaps — detect missing UDP data, alert on persistent drop
-- [ ] Bot handles multiplayer issues — desync detection, safe teardown or auto-rejoin
-- [ ] Bot handles kiosk PIN failures — validation errors, staff unlock, session recovery
-- [ ] Bot handles lap filtering — auto-flag invalid laps, separate hotlap vs practice
+- ✓ Bot handles pod crash/hang — detect + auto-kill/restart game or rc-agent without staff (Phase 24)
+- ✓ Bot handles billing edge cases — stuck sessions, idle drift, cloud sync failures (Phase 25)
+- ✓ Bot handles network/connection drops — WS loss, server unreachable, IP drift (Phase 23)
+- ✓ Bot handles USB hardware failures — wheelbase disconnect/reconnect, FFB fault (Phase 24)
+- ✓ Bot handles game launch failures — CM hang, AC timeout, launch auto-retry (Phase 24)
+- ✓ Bot handles telemetry gaps — detect missing UDP data, alert on persistent drop (Phase 26)
+- ✓ Bot handles multiplayer issues — desync detection, safe teardown or auto-rejoin (Phase 26)
+- ✓ Bot handles kiosk PIN failures — validation errors, staff unlock, session recovery (Phase 26)
+- ✓ Bot handles lap filtering — auto-flag invalid laps, separate hotlap vs practice (Phase 26)
+
+### Active (v5.5)
+
+- [ ] Credits replace INR in all user-facing UI — overlay, kiosk, billing history, admin
+- [ ] `billing_rates` DB table with 3 configurable tiers (non-retroactive)
+- [ ] BillingManager holds in-memory rate cache refreshed at startup and every 60s
+- [ ] `compute_session_cost()` rewritten with non-retroactive additive algorithm, accepts tiers param
+- [ ] Admin panel Per-Minute Rates table with inline editing
+- [ ] billing_rates added to SYNC_TABLES for cloud replication
 
 ### Paused (v3.0 — resume after v5.0)
 
@@ -105,7 +109,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - New game integrations — current sims only (AC, F1 25)
 - Real-time chat or messaging between drivers
 - Mobile native app — PWA only
-- Payment/wallet changes — existing wallet system is stable
+- External payment/wallet top-up changes — only billing rate calculation changes, not payment provider integration
 - Venue kiosk changes — v3.0 targets cloud PWA only
 
 ## Context
@@ -153,4 +157,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-16 after milestone v5.0 RC Bot Expansion started*
+*Last updated: 2026-03-17 after milestone v5.5 Billing Credits started*
