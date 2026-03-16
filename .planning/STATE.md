@@ -1,35 +1,35 @@
 ---
 gsd_state_version: 1.0
-milestone: v4.0
-milestone_name: Pod Fleet Self-Healing
-status: in_progress
-stopped_at: Completed 22-01-PLAN.md
-last_updated: "2026-03-16T08:31:28.181Z"
-last_activity: 2026-03-16 — Phase 22 Plan 01 RCAGENT_SELF_RESTART sentinel complete.
+milestone: v5.0
+milestone_name: RC Bot Expansion
+status: defining_requirements
+stopped_at: ~
+last_updated: "2026-03-16T00:00:00.000Z"
+last_activity: 2026-03-16 — Milestone v5.0 started. Researching failure patterns.
 progress:
-  total_phases: 7
-  completed_phases: 6
-  total_plans: 14
-  completed_plans: 13
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-15)
+See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
-**Current focus:** v4.0 COMPLETE. All 6 phases shipped. Ready for milestone completion.
+**Current focus:** v5.0 RC Bot Expansion — defining requirements after research.
 
 ## Current Position
 
-Phase: 22 of 22 (Pod 6/7/8 Recovery and Remote Restart Reliability) — In Progress (1/2 plans done)
-Plan: 22-01 complete. 22-02 pending.
-Status: Phase 22 in progress. RCAGENT_SELF_RESTART sentinel shipped. Deploy binary to pods.
-Last activity: 2026-03-16 — Phase 22 Plan 01 RCAGENT_SELF_RESTART sentinel complete.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Researching codebase failure patterns for v5.0 RC Bot Expansion
+Last activity: 2026-03-16 — Milestone v5.0 started
 
-Progress: [█████████░] 93% (13/14 plans)
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 

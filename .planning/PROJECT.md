@@ -6,22 +6,22 @@
 
 The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls. v2.0 delivered server IP pinning, lock screen hardening, Edge hardening, pod lockdown UI, and session results display.
 
-## Current Milestone: v4.0 Pod Fleet Self-Healing
+## Current Milestone: v5.0 RC Bot Expansion
 
-**Goal:** Every pod survives any failure — crashes, reboots, firewall resets, missing files — without physical intervention. Pods self-heal and remain remotely manageable at all times.
+**Goal:** Expand the AI auto-fix bot (ai_debugger.rs) with deterministic pattern-match rules for every failure class — pod crashes, billing edges, network drops, USB hardware, game launch failures, telemetry gaps, multiplayer issues, kiosk PIN problems, and lap time filtering.
 
 **Target features:**
-- rc-agent as Windows Service with auto-restart on crash (NSSM or native Service API)
-- WebSocket-based remote exec (`CoreToAgentMessage::Exec`) — manage pods even when firewall blocks HTTP
-- Firewall auto-configuration in Rust on startup (ICMP + TCP 8090) — no dependency on batch files
-- Startup error capture and reporting to racecontrol before crash
-- Self-healing config: detect and repair missing toml, bat, registry keys on every startup
-- Deploy resilience: verify after deploy, rollback on failure, handle partial fleet failures
-- Fleet health dashboard: real-time pod status visible to Uday from phone
+- Expanded crash/hang detection: game freeze, rc-agent stuck, process hung — bot kills/restarts without staff
+- Billing edge case recovery: stuck sessions, idle billing drift, credit sync failures
+- Network/connection auto-repair: WS loss, server unreachable, IP drift diagnostics
+- Hardware self-healing: wheelbase USB disconnect detection + reconnect/reset, FFB fault recovery
+- Game launch failure recovery: Content Manager hang, AC not starting, launch timeout auto-retry
+- Telemetry bot: detect missing/invalid UDP data, alert staff when telemetry drops
+- Multiplayer session guard: detect desync or server disconnect, auto-rejoin or safe teardown
+- Kiosk PIN bot: detect PIN validation failures, staff unlock flows, session recovery
+- Lap filter bot: auto-flag invalid laps (cuts, spins, invalid speed), separate hotlap vs practice
 
-**Motivated by:** 4-hour debugging session on Mar 15, 2026 — Pods 1/3/4 offline due to exec exhaustion, missing firewall rules, CRLF-damaged batch files, rc-agent crash with no restart, no remote diagnostics when HTTP blocked
-
-**Paused:** v3.0 Phases 14 (Events) and 15 (Telemetry) deferred until fleet is bulletproof
+**Research-first:** Codebase failure patterns mapped before phases committed.
 
 ## What This Is
 
@@ -66,17 +66,29 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Staff dashboard lockdown and power controls (KIOSK-01, KIOSK-02, PWR-01 through PWR-06) — v2.0
 - ✓ Customer experience branding and session results (BRAND-01 through BRAND-03, SESS-01 through SESS-03) — v2.0
 
-### Active (v4.0)
+### Completed (v4.0 — shipped 2026-03-16)
 
-- [ ] rc-agent as Windows Service with auto-restart on crash
-- [ ] WebSocket-based remote exec for pod management when HTTP blocked
-- [ ] Firewall auto-configuration in Rust on startup
-- [ ] Startup error capture and reporting to racecontrol
-- [ ] Self-healing config (detect and repair missing toml/bat/registry)
-- [ ] Deploy resilience (verify, rollback, handle partial failures)
-- [ ] Fleet health dashboard for Uday (real-time pod status)
+- ✓ rc-agent as Windows Service with auto-restart on crash (SVC-01 through SVC-04)
+- ✓ WebSocket-based remote exec for pod management when HTTP blocked (WSEX-01 through WSEX-04)
+- ✓ Firewall auto-configuration in Rust on startup (FW-01 through FW-03)
+- ✓ Startup error capture and reporting to racecontrol (HEAL-01 through HEAL-04)
+- ✓ Self-healing config (detect and repair missing toml/bat/registry) (HEAL-01 through HEAL-04)
+- ✓ Deploy resilience (verify, rollback, handle partial failures) (DEPL-01 through DEPL-05)
+- ✓ Fleet health dashboard for Uday (real-time pod status) (FLEET-01 through FLEET-03)
 
-### Paused (v3.0 — resume after v4.0)
+### Active (v5.0)
+
+- [ ] Bot handles pod crash/hang — detect + auto-kill/restart game or rc-agent without staff
+- [ ] Bot handles billing edge cases — stuck sessions, idle drift, cloud sync failures
+- [ ] Bot handles network/connection drops — WS loss, server unreachable, IP drift
+- [ ] Bot handles USB hardware failures — wheelbase disconnect/reconnect, FFB fault
+- [ ] Bot handles game launch failures — CM hang, AC timeout, launch auto-retry
+- [ ] Bot handles telemetry gaps — detect missing UDP data, alert on persistent drop
+- [ ] Bot handles multiplayer issues — desync detection, safe teardown or auto-rejoin
+- [ ] Bot handles kiosk PIN failures — validation errors, staff unlock, session recovery
+- [ ] Bot handles lap filtering — auto-flag invalid laps, separate hotlap vs practice
+
+### Paused (v3.0 — resume after v5.0)
 
 - [ ] Hotlap events with staff creation and car class rankings
 - [ ] Group event results with F1-style auto-scoring
@@ -141,4 +153,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-15 after milestone v4.0 started*
+*Last updated: 2026-03-16 after milestone v5.0 RC Bot Expansion started*
