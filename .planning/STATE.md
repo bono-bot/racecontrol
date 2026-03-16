@@ -4,7 +4,7 @@ milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
 stopped_at: "Completed 25-04-PLAN.md — wiring wave: billing_guard spawned, ws/mod.rs stubs replaced with bot_coordinator calls, BILL-04 sync fence added, 422 tests green"
-last_updated: "2026-03-16T12:42:41.938Z"
+last_updated: "2026-03-16T12:46:37.680Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
