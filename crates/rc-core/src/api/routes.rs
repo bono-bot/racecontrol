@@ -103,6 +103,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/ac/session/stop", post(stop_ac_session))
         .route("/ac/session/active", get(active_ac_session))
         .route("/ac/sessions", get(list_ac_sessions))
+        .route("/ac/session/{session_id}/continuous", post(ac_server_set_continuous))
         .route("/ac/content/tracks", get(list_ac_tracks))
         .route("/ac/content/cars", get(list_ac_cars))
         // Venue info
@@ -3372,6 +3373,40 @@ async fn list_ac_sessions(
                 })
                 .collect();
             Json(json!({ "sessions": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// GROUP-02: Enable/disable continuous mode on an AC server session.
+async fn ac_server_set_continuous(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(session_id): axum::extract::Path<String>,
+    Json(req): Json<Value>,
+) -> Json<Value> {
+    let enabled = req.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    // Look up the group_session_id for this AC session
+    let group_session_id: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM group_sessions WHERE ac_session_id = ?",
+    )
+    .bind(&session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    match ac_server::set_continuous_mode(&state, &session_id, enabled, group_session_id).await {
+        Ok(()) => {
+            if enabled {
+                // Spawn the continuous monitor
+                let state_clone = state.clone();
+                let sid = session_id.clone();
+                tokio::spawn(async move {
+                    ac_server::monitor_continuous_session(state_clone, sid).await;
+                });
+            }
+            Json(json!({ "status": "ok", "continuous_mode": enabled }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }

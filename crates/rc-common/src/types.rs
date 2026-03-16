@@ -566,6 +566,8 @@ pub struct AcServerInfo {
     pub join_url: String,
     pub connected_pods: Vec<String>,
     pub error_message: Option<String>,
+    #[serde(default)]
+    pub continuous_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

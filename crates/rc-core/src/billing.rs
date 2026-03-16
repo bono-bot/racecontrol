@@ -2511,6 +2511,20 @@ pub async fn check_and_stop_multiplayer_server(state: &Arc<AppState>, pod_id: &s
         return;
     }
 
+    // GROUP-02: If continuous mode is enabled, defer stop to monitor_continuous_session loop.
+    {
+        let instances = state.ac_server.instances.read().await;
+        if let Some(inst) = instances.get(&ac_session_id) {
+            if inst.continuous_mode {
+                tracing::info!(
+                    "Continuous mode active for group {} — deferring stop to monitor loop",
+                    group_session_id
+                );
+                return;
+            }
+        }
+    }
+
     // All pods done — stop the AC server
     tracing::info!(
         "MULTI-02: All billing ended for multiplayer group {} — stopping AC server {}",

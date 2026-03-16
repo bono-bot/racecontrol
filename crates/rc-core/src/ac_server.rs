@@ -22,6 +22,9 @@ pub struct AcServerInstance {
     pub connected_pods: Vec<String>,
     pub error_message: Option<String>,
     pub server_dir: PathBuf,
+    pub continuous_mode: bool,
+    /// group_session_id for looking up billing state
+    pub group_session_id: Option<String>,
 }
 
 impl AcServerInstance {
@@ -35,6 +38,7 @@ impl AcServerInstance {
             join_url: self.join_url.clone(),
             connected_pods: self.connected_pods.clone(),
             error_message: self.error_message.clone(),
+            continuous_mode: self.continuous_mode,
         }
     }
 }
@@ -505,6 +509,8 @@ pub async fn start_ac_server(
                 connected_pods: Vec::new(),
                 error_message: None,
                 server_dir,
+                continuous_mode: false,
+                group_session_id: None,
             },
         );
     }
@@ -705,6 +711,156 @@ pub async fn stop_ac_server(state: &Arc<AppState>, session_id: &str) -> anyhow::
 
     tracing::info!("AC LAN session stopped: {}", session_id);
     Ok(())
+}
+
+/// GROUP-02: Enable or disable continuous mode on a running AC server session.
+/// When enabled, the server auto-restarts a new race when the current one ends.
+pub async fn set_continuous_mode(
+    state: &Arc<AppState>,
+    session_id: &str,
+    enabled: bool,
+    group_session_id: Option<String>,
+) -> anyhow::Result<()> {
+    let mut instances = state.ac_server.instances.write().await;
+    let inst = instances.get_mut(session_id)
+        .ok_or_else(|| anyhow::anyhow!("AC session {} not found", session_id))?;
+    inst.continuous_mode = enabled;
+    if group_session_id.is_some() {
+        inst.group_session_id = group_session_id;
+    }
+    tracing::info!(
+        "Continuous mode {} for AC session {} (group: {:?})",
+        if enabled { "ENABLED" } else { "DISABLED" },
+        session_id, inst.group_session_id
+    );
+
+    // Broadcast status update
+    let info = inst.to_info();
+    let _ = state.dashboard_tx.send(DashboardEvent::AcServerUpdate(info));
+    Ok(())
+}
+
+/// GROUP-02: Monitor a continuous-mode AC server. When the process exits (race complete),
+/// check if any pod still has active billing and restart if so.
+/// Uses a mutable current_session_id to track restarts without recursive spawn.
+pub async fn monitor_continuous_session(state: Arc<AppState>, initial_session_id: String) {
+    let mut current_session_id = initial_session_id;
+
+    'monitor: loop {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let (pid, pod_ids, group_session_id) = {
+            let instances = state.ac_server.instances.read().await;
+            let inst = match instances.get(&current_session_id) {
+                Some(i) => i,
+                None => {
+                    tracing::debug!("Continuous monitor: session {} removed, exiting", current_session_id);
+                    return;
+                }
+            };
+
+            if !inst.continuous_mode {
+                tracing::debug!("Continuous monitor: session {} no longer continuous, exiting", current_session_id);
+                return;
+            }
+
+            if matches!(inst.status, AcServerStatus::Stopped | AcServerStatus::Error) {
+                tracing::debug!("Continuous monitor: session {} stopped/error, exiting", current_session_id);
+                return;
+            }
+
+            (
+                inst.pid,
+                inst.assigned_pods.clone(),
+                inst.group_session_id.clone(),
+            )
+        };
+
+        // Check if the process is still alive
+        if let Some(pid_val) = pid {
+            if is_process_alive(pid_val) {
+                continue 'monitor; // Still running, check again later
+            }
+        } else {
+            continue 'monitor; // No PID (dry-run mode), keep checking
+        }
+
+        // Process exited — check if any pod still has active billing
+        let any_billing_active = {
+            let timers = state.billing.active_timers.read().await;
+            pod_ids.iter().any(|p| timers.contains_key(p))
+        };
+
+        if !any_billing_active {
+            tracing::info!(
+                "Continuous mode: AC session {} race ended, no active billing — stopping",
+                current_session_id
+            );
+            let _ = stop_ac_server(&state, &current_session_id).await;
+            return;
+        }
+
+        // Billing still active — restart the race
+        tracing::info!(
+            "GROUP-02: Continuous mode restart — AC session {} race ended, billing active, restarting within 15s",
+            current_session_id
+        );
+
+        // Brief pause before restart (let results collect, clients disconnect)
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // Re-read config in case track/car was changed mid-session (GROUP-04)
+        let (current_config, current_pods) = {
+            let instances = state.ac_server.instances.read().await;
+            match instances.get(&current_session_id) {
+                Some(inst) => {
+                    if !inst.continuous_mode {
+                        tracing::info!("Continuous mode disabled during restart delay for {}", current_session_id);
+                        return;
+                    }
+                    (inst.config.clone(), inst.assigned_pods.clone())
+                }
+                None => return,
+            }
+        };
+
+        // Stop the old session cleanly (removes from instances map)
+        let _ = stop_ac_server(&state, &current_session_id).await;
+
+        // Start a new session with the same (or updated) config
+        match start_ac_server(&state, current_config, current_pods.clone(), None).await {
+            Ok(new_session_id) => {
+                // Enable continuous mode on the new session
+                let _ = set_continuous_mode(&state, &new_session_id, true, group_session_id.clone()).await;
+
+                // Update group_sessions.ac_session_id to point to new session
+                if let Some(ref gsid) = group_session_id {
+                    let _ = sqlx::query("UPDATE group_sessions SET ac_session_id = ? WHERE id = ?")
+                        .bind(&new_session_id)
+                        .bind(gsid)
+                        .execute(&state.db)
+                        .await;
+                }
+
+                tracing::info!(
+                    "GROUP-02: Continuous restart complete — new session {} (was {})",
+                    new_session_id, current_session_id
+                );
+
+                // Update the session_id for the next loop iteration
+                current_session_id = new_session_id;
+                // Continue the outer loop to monitor the new session
+                continue 'monitor;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "GROUP-02: Continuous restart failed for session {}: {}",
+                    current_session_id, e
+                );
+                return;
+            }
+        }
+    }
 }
 
 pub async fn check_ac_server_health(state: &Arc<AppState>) {
