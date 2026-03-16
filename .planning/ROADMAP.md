@@ -82,6 +82,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 1 plan
 
 Plans:
+- [ ] 34-01-PLAN.md — Wave 1: Fix POST/DELETE status codes (201/204) + 4 integration tests (ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04)
+
+Plans:
 - [ ] 33-01-PLAN.md — Wave 1: Fix seed capitalization, add serde alias round-trip test, add billing_rates seed count assertion (RATE-01, RATE-02, RATE-03, BILLC-02, BILLC-03, BILLC-04, BILLC-05, PROTOC-01, PROTOC-02)
 
 ### Phase 34: Admin Rates API
@@ -93,7 +96,10 @@ Plans:
   2. `POST /billing/rates` with a valid payload inserts a new tier and returns 201 — a subsequent GET includes the new row
   3. `PUT /billing/rates/{id}` with an updated rate_per_min_paise value persists the change and the BillingManager rate cache reflects the new value within one billing tick (under 1 second) — no server restart required
   4. `DELETE /billing/rates/{id}` removes the tier and returns 204 — a subsequent compute_session_cost() call does not include the deleted tier's contribution, confirmed by unit test
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 34-01-PLAN.md — Wave 1: Fix POST/DELETE status codes (201/204) + 4 integration tests (ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04)
 
 ### Phase 35: Credits UI
 **Goal**: Every customer-facing and staff-facing screen that previously displayed a rupee amount now shows a credit value — the string "Rs." or formatINR no longer appears anywhere in the overlay, kiosk, or admin billing pages
@@ -105,7 +111,10 @@ Plans:
   3. The admin pricing page displays a Per-Minute Rates table with the 3 seed tiers and allows inline editing of rate_per_min_paise — a staff member can change a rate and save it without leaving the page
   4. BillingStartModal shows the estimated cost in credits ("~25 cr/min for first 30 min") — no rupee formatting in the modal, confirmed by UI component test
   5. A full booking flow from kiosk start to session end shows credits at every cost display point — overlay during play, summary screen at end, admin history after session — no rupee strings anywhere in the user journey
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 34-01-PLAN.md — Wave 1: Fix POST/DELETE status codes (201/204) + 4 integration tests (ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04)
 
 ## Progress
 
@@ -150,7 +159,7 @@ Note: Phase 33 (DB + Engine) is non-negotiable first — billing_rates table and
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 4/4 | Complete | 2026-03-16 |
 | 27. Tailscale Mesh + Internet Fallback | v5.0 | 5/5 | Complete | 2026-03-16 |
 | 33. DB Schema + Billing Engine | 1/1 | Complete    | 2026-03-16 | - |
-| 34. Admin Rates API | v5.5 | 0/? | Not started | - |
+| 34. Admin Rates API | v5.5 | 0/1 | In progress | - |
 | 35. Credits UI | v5.5 | 0/? | Not started | - |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
