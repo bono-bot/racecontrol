@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.5
 milestone_name: Billing Credits
 status: completed
-stopped_at: Phase 35 UI-SPEC approved — credits display, pricing table inline edit, 2-weight typography
-last_updated: "2026-03-16T21:48:13.412Z"
+stopped_at: Completed 35-01-PLAN.md — UIC-01 test assertions + grep verification, 245 tests green
+last_updated: "2026-03-16T22:31:25.332Z"
 last_activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
+  completed_phases: 4
+  total_plans: 8
+  completed_plans: 8
   percent: 100
 ---
 
@@ -95,6 +95,7 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 - [Phase 33-db-schema-billing-engine]: assert_eq!(3) used for billing_rates seed count (deterministic INSERT OR IGNORE) vs assert!(>= N) for non-deterministic tables
 - [Phase 34-admin-rates-api]: delete_billing_rate DB error arm returns 204 (not 500) — soft-deletes on SQLite rarely fail, tracing::error! logged, response stays 204
 - [Phase 34-admin-rates-api]: Axum pattern: POST handlers use (StatusCode, Json<Value>) tuple for 201; DELETE handlers with no body use bare StatusCode for 204
+- [Phase 35-credits-ui]: Phase 35 required zero production code changes — format_cost() was already correct; only 3 test assertions needed to make UIC-01 machine-checkable
 
 ### Roadmap Evolution
 
@@ -113,7 +114,7 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 
 ## Session Continuity
 
-Last session: 2026-03-16T21:48:13.409Z
-Stopped at: Phase 35 UI-SPEC approved — credits display, pricing table inline edit, 2-weight typography
-Resume file: .planning/phases/35-credits-ui/35-UI-SPEC.md
+Last session: 2026-03-16T22:31:25.330Z
+Stopped at: Completed 35-01-PLAN.md — UIC-01 test assertions + grep verification, 245 tests green
+Resume file: None
 Next action: `/gsd:plan-phase 33`

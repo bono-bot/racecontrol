@@ -65,7 +65,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 33: DB Schema + Billing Engine** - billing_rates table, seed data, cloud sync registration, non-retroactive cost algorithm, in-memory rate cache, and rc-common protocol field rename land together — consuming crates compile against the new schema and types before any UI or API is written (completed 2026-03-16)
 - [x] **Phase 34: Admin Rates API** - four CRUD endpoints for billing_rates are wired into racecontrol routes — staff can read, create, update, and delete rate tiers via HTTP, and every write immediately invalidates the in-memory cache (completed 2026-03-16)
-- [ ] **Phase 35: Credits UI** - every user-facing surface that previously showed rupees now shows credits — overlay, kiosk billing modal, admin billing history, and admin pricing page are all updated in a single frontend pass
+- [x] **Phase 35: Credits UI** - every user-facing surface that previously showed rupees now shows credits — overlay, kiosk billing modal, admin billing history, and admin pricing page are all updated in a single frontend pass (completed 2026-03-16)
 
 ## Phase Details
 
@@ -160,7 +160,7 @@ Note: Phase 33 (DB + Engine) is non-negotiable first — billing_rates table and
 | 27. Tailscale Mesh + Internet Fallback | v5.0 | 5/5 | Complete | 2026-03-16 |
 | 33. DB Schema + Billing Engine | 1/1 | Complete    | 2026-03-16 | - |
 | 34. Admin Rates API | 1/1 | Complete    | 2026-03-16 | - |
-| 35. Credits UI | v5.5 | 0/? | Not started | - |
+| 35. Credits UI | 1/1 | Complete   | 2026-03-16 | - |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
 

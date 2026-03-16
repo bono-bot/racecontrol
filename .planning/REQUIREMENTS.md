@@ -100,7 +100,7 @@
 
 ### Billing Engine (BILL)
 
-- [ ] **BILLC-01**: User session cost displays in credits (1 cr = ₹1 = 100 paise) in overlay, kiosk, and admin — not rupees
+- [x] **BILLC-01**: User session cost displays in credits (1 cr = ₹1 = 100 paise) in overlay, kiosk, and admin — not rupees
 - [x] **BILLC-02**: `compute_session_cost()` uses non-retroactive additive algorithm: 45 min = (30 × 25) + (15 × 20) = 1050 cr, not 45 × 20
 - [x] **BILLC-03**: BillingManager holds in-memory rate cache (`RwLock<Vec<BillingRateTier>>`) with hardcoded defaults matching seed data
 - [x] **BILLC-04**: Rate cache refreshes from DB at startup and every 60s — never blocks the per-second billing tick
@@ -121,10 +121,10 @@
 
 ### UI — Credits Display (UIC)
 
-- [ ] **UIC-01**: Overlay `format_cost()` shows "X cr" instead of "Rs. X" (rc-agent overlay.rs)
-- [ ] **UIC-02**: Admin billing history page shows credits (replaces formatINR)
-- [ ] **UIC-03**: Admin pricing page includes Per-Minute Rates section with inline editing (replaces formatINR)
-- [ ] **UIC-04**: BillingStartModal shows credits (replaces formatINR)
+- [x] **UIC-01**: Overlay `format_cost()` shows "X cr" instead of "Rs. X" (rc-agent overlay.rs)
+- [x] **UIC-02**: Admin billing history page shows credits (replaces formatINR)
+- [x] **UIC-03**: Admin pricing page includes Per-Minute Rates section with inline editing (replaces formatINR)
+- [x] **UIC-04**: BillingStartModal shows credits (replaces formatINR)
 
 ### Protocol (PROTOC)
 
@@ -198,7 +198,7 @@
 | TELEM-01 | Phase 26 | Complete |
 | MULTI-01 | Phase 26 | Complete |
 
-| BILLC-01 | Phase 35 | Pending |
+| BILLC-01 | Phase 35 | Complete |
 | BILLC-02 | Phase 33 | Complete |
 | BILLC-03 | Phase 33 | Complete |
 | BILLC-04 | Phase 33 | Complete |
@@ -210,10 +210,10 @@
 | ADMIN-02 | Phase 34 | Complete |
 | ADMIN-03 | Phase 34 | Complete |
 | ADMIN-04 | Phase 34 | Complete |
-| UIC-01 | Phase 35 | Pending |
-| UIC-02 | Phase 35 | Pending |
-| UIC-03 | Phase 35 | Pending |
-| UIC-04 | Phase 35 | Pending |
+| UIC-01 | Phase 35 | Complete |
+| UIC-02 | Phase 35 | Complete |
+| UIC-03 | Phase 35 | Complete |
+| UIC-04 | Phase 35 | Complete |
 | PROTOC-01 | Phase 33 | Complete |
 | PROTOC-02 | Phase 33 | Complete |
 
