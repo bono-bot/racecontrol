@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 24-01-PLAN.md — PodStateSnapshot Default derive + 3 fields, 10 RED test stubs for Wave 0 Nyquist compliance
-last_updated: "2026-03-16T11:14:27.976Z"
+stopped_at: Completed 24-03-PLAN.md — failure_monitor.rs with 8/8 tests, CRASH-01/CRASH-02/USB-01 detection, spawn_blocking-wrapped try_auto_fix calls
+last_updated: "2026-03-16T11:23:29.787Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 10
-  completed_plans: 3
+  total_plans: 11
+  completed_plans: 4
   percent: 84
 ---
 
@@ -90,6 +90,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 23-protocol-contract-concurrency-safety P02 | 10 | 1 tasks | 1 files |
 | Phase 23-protocol-contract-concurrency-safety P01 | 15 | 2 tasks | 3 files |
 | Phase 24-crash-hang-launch-usb-bot-patterns P01 | 6 | 2 tasks | 2 files |
+| Phase 24-crash-hang-launch-usb-bot-patterns P03 | 6 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 23-protocol-contract-concurrency-safety]: AgentMessage bot variants committed atomically with ws/mod.rs stub arms — adding variants to enum immediately breaks match exhaustiveness; both files must change together
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: try_auto_fix dispatch arms added in Wave 0 so frozen-game/launch-timeout/usb-reconnect tests compile and fail at todo! boundary rather than returning None
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: fix_frozen_game arm placed before generic relaunch+game arm — keyword specificity ensures game frozen dispatches to correct fix function
+- [Phase 24-crash-hang-launch-usb-bot-patterns]: failure_monitor: CPU pre-filter before IsHungAppWindow — sysinfo two-refresh avoids EnumWindows cost when game is active
+- [Phase 24-crash-hang-launch-usb-bot-patterns]: failure_monitor: prev_hid_connected and launch_timeout_fired are task-local (not in FailureMonitorState) — transition detection requires prev state which only the monitor task needs
 
 ### Roadmap Evolution
 
@@ -132,6 +135,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T11:14:27.974Z
-Stopped at: Completed 24-01-PLAN.md — PodStateSnapshot Default derive + 3 fields, 10 RED test stubs for Wave 0 Nyquist compliance
+Last session: 2026-03-16T11:23:29.778Z
+Stopped at: Completed 24-03-PLAN.md — failure_monitor.rs with 8/8 tests, CRASH-01/CRASH-02/USB-01 detection, spawn_blocking-wrapped try_auto_fix calls
 Resume file: None
