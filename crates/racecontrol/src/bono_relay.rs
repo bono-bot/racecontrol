@@ -1,9 +1,26 @@
 //! Bono relay: push real-time events to Bono's VPS over Tailscale mesh,
 //! and receive inbound commands from Bono's cloud at the relay endpoint.
+//!
+//! Two responsibilities:
+//! 1. EVENT PUSH — subscribes to AppState.bono_event_tx broadcast channel and
+//!    POSTs each event to Bono's webhook URL (reqwest 0.12, same as cloud_sync).
+//! 2. COMMAND RELAY — Axum endpoint bound to Tailscale IP (plan 03) accepts
+//!    commands from Bono and forwards to pods via existing WebSocket channel.
 
 use std::sync::Arc;
-use serde::{Serialize, Deserialize};
+use std::time::Duration;
+
+use axum::Router;
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
+use axum::Json;
+use serde::{Deserialize, Serialize};
+
 use crate::state::AppState;
+
+// ─── Event Types ─────────────────────────────────────────────────────────────
 
 /// Events pushed from racecontrol server to Bono's VPS webhook.
 /// Tagged enum following the AgentMessage pattern in rc-common.
@@ -18,6 +35,8 @@ pub enum BonoEvent {
     BillingEnd { pod_number: u32, session_id: String, driver_id: String },
 }
 
+// ─── Command Types ────────────────────────────────────────────────────────────
+
 /// Commands Bono's VPS can send to the relay endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
@@ -27,25 +46,154 @@ pub enum RelayCommand {
     GetStatus { pod_number: u32 },
 }
 
-/// Spawn the Bono relay background task.
-/// No-ops if bono.enabled = false or webhook_url is not set.
+// ─── Spawn ────────────────────────────────────────────────────────────────────
+
+/// Spawn the Bono relay event-push background task.
+///
+/// No-ops if bono.enabled = false or webhook_url is not configured.
+/// When running, subscribes to AppState.bono_event_tx and POSTs each event
+/// to the configured webhook URL using the shared reqwest client.
 pub fn spawn(state: Arc<AppState>) {
     let bono = &state.config.bono;
+
     if !bono.enabled {
         tracing::info!("Bono relay disabled");
         return;
     }
-    match &bono.webhook_url {
+
+    let webhook_url = match &bono.webhook_url {
+        Some(url) => url.clone(),
         None => {
-            tracing::warn!("Bono relay enabled but no webhook_url configured — skipping");
+            tracing::warn!("Bono relay enabled but no webhook_url configured — event push skipped");
             return;
         }
-        Some(_url) => {
-            // TODO Wave 1: spawn tokio task for event push loop
-            tracing::info!("Bono relay: webhook_url configured — event push not yet implemented");
+    };
+
+    tracing::info!("Bono relay spawned — pushing events to {}", webhook_url);
+
+    tokio::spawn(async move {
+        let mut rx = state.bono_event_tx.subscribe();
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if let Err(e) = push_event(&state, &webhook_url, &event).await {
+                        // Non-fatal: log and continue. Missing one event is acceptable.
+                        // Next event will retry the connection naturally.
+                        tracing::warn!("Bono webhook push failed: {}", e);
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!("Bono relay: dropped {} events (channel lagged)", n);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    tracing::error!("Bono relay: event channel closed — relay task exiting");
+                    break;
+                }
+            }
+        }
+    });
+}
+
+/// POST a single event to Bono's webhook URL.
+async fn push_event(
+    state: &Arc<AppState>,
+    webhook_url: &str,
+    event: &BonoEvent,
+) -> anyhow::Result<()> {
+    state
+        .http_client
+        .post(webhook_url)
+        .json(event)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Webhook POST failed: {}", e))?;
+    Ok(())
+}
+
+// ─── Relay Endpoint ───────────────────────────────────────────────────────────
+
+/// Build the relay Axum router.
+/// Bound to the Tailscale IP in main.rs (Plan 03).
+/// Machine-to-machine only — no CORS, no JWT, auth via X-Relay-Secret header.
+pub fn build_relay_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/relay/command", post(handle_command))
+        .route("/relay/health", get(relay_health))
+        .with_state(state)
+}
+
+/// Health endpoint on the relay router (Tailscale interface only).
+async fn relay_health() -> impl IntoResponse {
+    axum::Json(serde_json::json!({"status": "ok", "service": "bono-relay"}))
+}
+
+/// Inbound command handler: accepts commands from Bono's VPS.
+/// Auth: X-Relay-Secret header must match config.bono.relay_secret.
+pub async fn handle_command(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(cmd): Json<RelayCommand>,
+) -> impl IntoResponse {
+    // Validate relay secret
+    let expected_secret = state
+        .config
+        .bono
+        .relay_secret
+        .as_deref()
+        .unwrap_or("");
+
+    let provided_secret = headers
+        .get("X-Relay-Secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if expected_secret.is_empty() || provided_secret != expected_secret {
+        tracing::warn!("Bono relay: rejected command with bad or missing X-Relay-Secret");
+        return (StatusCode::UNAUTHORIZED, "invalid relay secret").into_response();
+    }
+
+    tracing::info!("Bono relay: received command {:?}", cmd);
+
+    // Route command to pod via existing WebSocket channel
+    match cmd {
+        RelayCommand::LaunchGame { pod_number, game, track, car } => {
+            tracing::info!(
+                pod_number,
+                game = %game,
+                track = ?track,
+                car = ?car,
+                "Bono relay: LaunchGame — forwarding to pod via game_launcher"
+            );
+            // TODO Phase 28: wire to game_launcher::launch_game_on_pod()
+            // For Phase 27, log and acknowledge — the relay channel is established
+            (StatusCode::OK, axum::Json(serde_json::json!({
+                "status": "queued",
+                "pod_number": pod_number,
+                "note": "game_launcher integration in Phase 28"
+            }))).into_response()
+        }
+        RelayCommand::StopGame { pod_number } => {
+            tracing::info!(pod_number, "Bono relay: StopGame");
+            (StatusCode::OK, axum::Json(serde_json::json!({
+                "status": "queued",
+                "pod_number": pod_number
+            }))).into_response()
+        }
+        RelayCommand::GetStatus { pod_number } => {
+            let pods = state.pods.read().await;
+            let pod_info = pods.values()
+                .find(|p| p.number == pod_number)
+                .map(|p| serde_json::to_value(p).unwrap_or_default());
+            (StatusCode::OK, axum::Json(serde_json::json!({
+                "pod_number": pod_number,
+                "info": pod_info
+            }))).into_response()
         }
     }
 }
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -94,5 +242,20 @@ mod tests {
         assert_eq!(v["data"]["driver_name"], "Uday");
         assert_eq!(v["data"]["game"], "assetto_corsa");
         assert_eq!(v["data"]["session_id"], "sess-001");
+    }
+
+    #[test]
+    fn relay_command_serialization() {
+        let cmd = RelayCommand::LaunchGame {
+            pod_number: 5,
+            game: "assetto_corsa".to_string(),
+            track: Some("monza".to_string()),
+            car: Some("ferrari_458_gt2".to_string()),
+        };
+        let json = serde_json::to_string(&cmd).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        assert_eq!(v["type"], "launch_game");
+        assert_eq!(v["data"]["pod_number"], 5);
+        assert_eq!(v["data"]["track"], "monza");
     }
 }
