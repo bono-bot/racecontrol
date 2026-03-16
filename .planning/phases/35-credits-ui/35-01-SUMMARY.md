@@ -92,6 +92,13 @@ None - no external service configuration required.
 - Milestone v5.5 Billing Credits: all 3 phases (33, 34, 35) done
 - Ready for `/gsd:verify-work` or next milestone planning
 
+## Self-Check: PASSED
+
+- FOUND: .planning/phases/35-credits-ui/35-01-SUMMARY.md
+- FOUND: commit ecccea5 (test: add UIC-01 assertions)
+- FOUND: commit 0d55e45 (chore: grep verification)
+- FOUND: commit fbe073f (docs: metadata)
+
 ---
 *Phase: 35-credits-ui*
 *Completed: 2026-03-17*
