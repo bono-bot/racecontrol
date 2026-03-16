@@ -1,415 +1,261 @@
 # Pitfalls Research
 
-**Domain:** Pod Fleet Self-Healing — Windows Service, WebSocket Exec, Firewall Auto-Config, Self-Update, Small-Scale Fleet Management (8 pods, Rust/Axum/Windows)
-**Researched:** 2026-03-15
-**Confidence:** HIGH — all critical pitfalls directly observed during the Mar 15, 2026 4-hour outage (Pods 1/3/4 offline), verified against the actual codebase (remote_ops.rs, deploy.rs, lock_screen.rs), and cross-referenced with official Microsoft documentation, tokio process docs, and Windows Defender/AV reports.
+**Domain:** Sim racing venue management — expanding a deterministic auto-fix bot (RC Bot Expansion v5.0)
+**Researched:** 2026-03-16
+**Confidence:** HIGH (derived from direct codebase reading: ai_debugger.rs, billing.rs, pod_healer.rs, CONCERNS.md, PROJECT.md, plus observed production bugs documented in MEMORY.md)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Windows Service Runs in Session 0 — GUI Is Invisible
+### Pitfall 1: Fix Pattern Fires During Active Billing Session Without a Guard
 
 **What goes wrong:**
-Installing rc-agent as a Windows Service (via NSSM or the native Service API) causes the process to run in Session 0 — the isolated, non-interactive session reserved for services since Windows Vista. Session 0 has no user desktop. Edge.exe launched from Session 0 renders into an invisible WinStation. The lock screen (fullscreen Edge kiosk + local HTTP on port 18923) simply does not appear on the pod monitor. The process is running and healthy by every metric, but the customer sees a black screen.
+A new bot pattern (e.g., "kill stale game process", "USB reset", "WebSocket reconnect force") fires while a customer is mid-session. The fix interrupts the game or clears state that the billing timer depends on. The session ends prematurely but the customer was already charged, or the billing timer loses its reference and continues ticking against a dead session.
 
 **Why it happens:**
-The instinct when adding crash-restart is "install as a Windows Service." Services give SCM recovery actions (restart on failure) and run before login. The trap: rc-agent is not a pure background daemon — it owns the user-facing lock screen. "Allow service to interact with desktop" was a historical workaround that was permanently disabled in Windows 10 version 1803. The UI0Detect service (Interactive Services Detection, the bridge that used to surface Session 0 UI) was removed in Windows 10 1803 / Server 2019. Enabling the checkbox in Services.msc on Windows 11 has zero effect.
+New fix patterns are wired into `try_auto_fix()` or `heal_pod()` via keyword matching against AI suggestion text. `PodStateSnapshot.billing_active` exists but there is no enforcement that callers check it before executing. The `fix_kill_stale_game()` implementation today does not consult `snapshot.billing_active`. Pattern memory replay (`DebugMemory::instant_fix()`) bypasses any call-site guards entirely.
 
 **How to avoid:**
-Use a two-layer architecture:
-1. A **minimal watchdog service** (NSSM, native SC, or built-in service) runs in Session 0. Its sole job: detect rc-agent death and restart it in the user session.
-2. rc-agent itself **always runs in Session 1** (the logged-in user's session).
-
-The simplest Session-1-restart mechanism for this codebase is Task Scheduler:
-```bat
-schtasks /create /tn "RCAgent" /tr "C:\RacingPoint\rc-agent.exe" /sc ONLOGON /ru %USERNAME% /rl HIGHEST /f
-```
-The watchdog service, on detecting rc-agent absent, runs:
-```bat
-schtasks /run /tn "RCAgent"
-```
-This avoids all Win32 session token API complexity (`WTSGetActiveConsoleSessionId`, `WTSQueryUserToken`, `CreateProcessAsUser`) and correctly targets Session 1. If no user is logged in, the task refuses to start — which is correct behaviour (no GUI needed when no user is present).
+Every new fix function that can terminate a process, reset a device, or close a socket MUST gate on `!snapshot.billing_active` before executing. The guard must be inside the fix function itself, not only at the call site — because pattern memory replay returns a suggestion string and calls `try_auto_fix()` directly. Add a required test for every new fix: assert that `billing_active: true` causes the fix to return `None` (no-op).
 
 **Warning signs:**
-- rc-agent.exe is visible in Task Manager, uptime increasing, but lock screen never appears on pod display.
-- `tasklist /v /fi "IMAGENAME eq rc-agent.exe"` shows Session# = 0.
-- Port 18923 `/health` returns connection refused despite process running.
-- `tasklist /v` shows `Console` in the Session Name column — this is Session 0, not the user's session.
+- New fix function added to `try_auto_fix()` without a matching test with `billing_active: true`.
+- Pattern memory test covers round-trip but not context gate.
+- Fix function signature does not receive `&PodStateSnapshot` (cannot inspect billing state).
 
 **Phase to address:**
-Phase implementing Windows Service / auto-restart. The watchdog-service + Task-Scheduler-restart pattern must be explicitly designed and tested before any pods are migrated. Simulate a crash on Pod 8 (canary) and verify rc-agent restarts in Session 1 with the lock screen visible.
+Every phase that adds a new bot pattern. Billing active guard must be in the acceptance criteria for each fix.
 
 ---
 
-### Pitfall 2: CRLF Line Endings Silently Break All Batch File Commands
+### Pitfall 2: Pattern Memory Replays a Fix That Was Safe in One Context but Dangerous in Another
 
 **What goes wrong:**
-Batch files (.bat) created with LF-only line endings (written by the Claude Write tool, Linux editors, or git with `core.autocrlf=false`) fail silently on Windows cmd.exe. Commands like `set`, `netsh`, `taskkill`, and `start` appear to execute but either do nothing or produce garbage output. No error is raised — the shell tokenises the entire file as a single line because cmd.exe splits on `\r\n`, not `\n`.
-
-This was the root cause of the Mar 15 outage: `do-swap.bat`, firewall scripts, and startup scripts all contained LF-only endings. `netsh` received a single line of text with embedded `\n` characters instead of a sequence of commands. Firewall rules were never applied. Ports were never opened. Pod 3 became unreachable.
+`DebugMemory::instant_fix()` keys on `"{SimType}:{exit_code}"` only. It ignores billing state at the time of recording. A fix recorded between sessions (billing_active: false, safe to kill game) replays instantly during an active session (billing_active: true, dangerous to kill game). The replay happens before any billing guard logic because `analyze_crash()` returns early with the cached suggestion and `try_auto_fix()` is called with the replayed text.
 
 **Why it happens:**
-All modern editors and developer tools default to LF. The Write tool writes LF. Git on cross-platform repos may strip CRLFs. The failure is entirely silent — cmd.exe does not error on LF-only files; it simply misparses them.
+`pattern_key()` strips all context except simulator type and exit code. This was correct when the fix set was small and all safe. As the fix set expands to include destructive operations (game kill, USB reset, session end), context must become part of the key.
 
 **How to avoid:**
-Any Rust code that writes a .bat file must join lines with `\r\n`, not `\n`:
-```rust
-let bat_lines = vec![
-    "@echo off",
-    "timeout /t 3 /nobreak",
-    "taskkill /F /IM rc-agent.exe",
-    // ...
-];
-let bat_content = bat_lines.join("\r\n") + "\r\n";
-fs::write("C:\\RacingPoint\\do-swap.bat", bat_content)?;
-```
-
-The current `do-swap.bat` generation in deploy.rs uses a single inline `echo ... > do-swap.bat` chain — cmd.exe generates this file with correct CRLF endings because cmd.exe is writing it. This pattern is safe. The danger is **any path where Rust writes bytes directly to a .bat file** via `fs::write()`, the `/write` HTTP endpoint, or the planned firewall auto-config Rust code.
-
-Add a unit test in the firewall module:
-```rust
-#[test]
-fn bat_file_uses_crlf() {
-    let content = generate_firewall_bat();
-    assert!(content.contains("\r\n"), "bat file must use CRLF line endings");
-    assert!(!content.contains("\r\n\r\n"), "no double CRLF");
-}
-```
+Extend `pattern_key` to encode billing context: `"{SimType}:{exit_code}:billing={true/false}"`. This splits the memory pool so fixes recorded during idle never replay during active sessions. Alternatively, store `billing_active_when_recorded: bool` in `DebugIncident` and skip replay when the current context does not match.
 
 **Warning signs:**
-- `netsh advfirewall firewall show rule name="RCAgent_8090"` returns "No rules match" immediately after a "successful" install.
-- `set VARNAME=value` in a bat file results in an env var named `VARNAME=value\n` (literal newline in name).
-- Batch script produces no output and exits with code 0 (appears to succeed).
-- Firewall rules missing after reboot even though the install bat reported no errors.
-- `certutil -dump C:\RacingPoint\do-swap.bat | findstr "0a"` shows `0a` without preceding `0d` — confirming LF-only.
+- `DebugIncident` struct has no billing context field.
+- Test `test_record_and_instant_fix_round_trip` does not assert that a fix recorded with `billing_active: false` is suppressed when replayed with `billing_active: true`.
+- `debug-memory.json` contains `fix_type: kill_stale_game` entries with no billing context stored.
 
 **Phase to address:**
-Firewall auto-config phase and any startup self-healing that generates .bat files. Must include a unit test that asserts CRLF in all generated bat content.
+Phase adding new fix patterns to pattern memory. Must update `DebugIncident` schema before adding any destructive fix type.
 
 ---
 
-### Pitfall 3: Exec Slot Exhaustion Leaves the Pod Unmanageable
+### Pitfall 3: Billing Timer Orphans After Auto-Fix Kills the Game
 
 **What goes wrong:**
-The `/exec` endpoint in remote_ops.rs uses a 4-slot semaphore with a default 10-second timeout. Deploy operations consume slots sequentially: download (up to 120s), size check, self-swap trigger. If racecontrol sends concurrent requests to the same pod — which happens when a rolling deploy overlaps with scheduled health checks — all 4 slots can be consumed simultaneously. The semaphore uses `try_acquire()` (non-blocking), so the 5th request immediately returns HTTP 429. The pod becomes unmanageable via HTTP for the duration of the hung operations.
-
-The Mar 15 incident (pre-fix): rc-agent processes without `CREATE_NO_WINDOW` opened cmd.exe console windows that waited for user input — never exiting. Slots were permanently consumed. The timeout was too short for downloads. Multiple overlapping deploy-retry attempts from racecontrol exhausted all 4 slots within minutes.
+Bot kills the game process (`fix_kill_stale_game`). The game normally sends `AcStatus::Off` via UDP/WebSocket to `handle_game_status_update()`, which calls `end_billing_session()`. But if the WebSocket is also degraded (which is why the crash happened), `AcStatus::Off` is delayed or dropped. The billing timer in `BillingManager::active_timers` keeps ticking via its background loop. The customer is charged for time after the game was already killed by the bot.
 
 **Why it happens:**
-The acute bug (`CREATE_NO_WINDOW` missing) is already fixed in the current codebase. The remaining risk is simultaneous requests from racecontrol to the same pod: rolling deploy download + concurrent health check + concurrent session status poll = 3 slots consumed in parallel, leaving only 1 for any further management.
+`billing.rs` `BillingTimer::tick()` runs in a background task independent of game state. It has no awareness that the game was killed by an automated fix vs. a user-initiated quit. There is no "BotKill" session end path that explicitly calls `end_billing_session()` before the kill.
 
 **How to avoid:**
-Three mitigations, all needed:
-1. racecontrol must **serialize exec requests per pod** — never send concurrent HTTP exec calls to the same pod. Use a per-pod `Mutex<()>` in racecontrol's deploy coordinator.
-2. Before sending any management exec, racecontrol should check `exec_slots_available` in the `/health` response and back off if `< 2`.
-3. The planned WebSocket exec path must use a **separate semaphore** (or no semaphore limit) since it is the recovery path when HTTP exec is exhausted. If WebSocket exec shares the HTTP semaphore, both management paths fail together.
+Any fix that kills a game process must: (1) check if there is an active billing timer for this pod via `state.billing.active_timers`, (2) if yes, call `end_billing_session()` with an explicit reason before killing the process — do not rely on `AcStatus::Off` propagation as the end signal when the kill was initiated by the bot.
 
 **Warning signs:**
-- `/health` on port 8090 returns `exec_slots_available: 0`.
-- Deploy log shows HTTP 429 "Too many concurrent commands" for a single pod.
-- Pod continues normal game session operation (rc-agent is alive) but all management commands fail.
-- `exec_slots_available` does not recover to 4 after 10+ seconds — indicates a slot has leaked (process that did not die within the timeout still holding a reference).
+- `fix_kill_stale_game()` does not call any billing end function.
+- The billing end is expected to come from `handle_game_status_update(AcStatus::Off)` which depends on game process emitting an exit event — unreliable in a crash scenario.
+- No test verifies: "if billing is active and game kill fix fires, billing session is ended atomically."
 
 **Phase to address:**
-WebSocket exec phase. The HTTP semaphore monitoring should be added to the fleet health dashboard. WebSocket exec semaphore must be independent.
+Phase implementing crash/hang detection and game kill fixes.
 
 ---
 
-### Pitfall 4: Antivirus Holds File Handle During Self-Swap — Rename Fails
+### Pitfall 4: USB Reset Causes Windows to Re-Enumerate the Wheelbase at a Different Device Path
 
 **What goes wrong:**
-The self-swap deploy sequence: download `rc-agent-new.exe` → wait 3s → `taskkill /F /IM rc-agent.exe` → `move rc-agent-new.exe rc-agent.exe` → start. The `move` step fails with `ERROR_SHARING_VIOLATION` when Windows Defender holds a file handle on `rc-agent-new.exe` while scanning the newly downloaded binary. The scanner opens the file the moment it appears on disk.
-
-The result is catastrophic: `rc-agent.exe` has been killed and deleted, `rc-agent-new.exe` cannot be renamed, and the pod is left with no running rc-agent and no way to recover remotely (port 8090 is down because rc-agent is gone).
+The bot detects a disconnected wheelbase (OpenFFBoard VID:0x1209 PID:0xFFB0) and issues a USB reset. Windows re-enumerates the device but the new device instance path includes a serial suffix that may differ from before. ConspitLink2.0 (which holds the wheelbase handle) silently reconnects to the stale handle and reports "connected" while FFB is actually dead. The fix is marked `success: true` but the customer is driving with no force feedback.
 
 **Why it happens:**
-Windows Defender exclusions are configured for `C:\RacingPoint\rc-agent.exe` by path and name. The temporary staging file `rc-agent-new.exe` is a different name — it is not covered by the exclusion. Freshly compiled Rust binaries frequently trigger heuristic (ML-based) AV detection because they are unsigned, novel executables that match behavioural patterns (network connections, process spawning, registry access) common in malware.
+Windows HID enumeration is not stable across device resets. Device instance paths include enumeration-order or serial-number suffixes that can shift when a USB port is reset. There is no API guarantee that the new path matches the old path after reset.
 
 **How to avoid:**
-Three layers of protection:
-1. Add `C:\RacingPoint\rc-agent-new.exe` explicitly to Windows Defender exclusions (in addition to `rc-agent.exe` and the whole `C:\RacingPoint\` directory path).
-2. Extend `do-swap.bat` to retry the rename up to 5 times with a 2-second sleep between attempts:
-```bat
-:RETRY
-move rc-agent-new.exe rc-agent.exe
-if %ERRORLEVEL% NEQ 0 (
-    timeout /t 2 /nobreak >nul
-    set /a RETRIES+=1
-    if %RETRIES% LSS 5 goto RETRY
-    echo SWAP FAILED after 5 retries >> C:\RacingPoint\deploy-error.log
-    exit /b 1
-)
-```
-3. Startup self-healing must verify AV exclusions on every boot: check `HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths` and re-apply via `powershell Add-MpPreference -ExclusionPath "C:\RacingPoint"` if missing.
+After any USB reset action, re-enumerate HID devices fresh using VID/PID filter and confirm the wheelbase responds to FFB commands before marking the fix successful. Treat the fix as "pending verification" until a follow-up enumeration confirms. Never mark `success: true` immediately on `DeviceIoControl` returning `Ok`.
 
 **Warning signs:**
-- Self-swap bat exits 1 specifically on the `move` command (not `taskkill`).
-- `dir C:\RacingPoint\rc-agent*.exe` shows `rc-agent-new.exe` present with correct size, `rc-agent.exe` absent.
-- Event Viewer → Windows Logs → Application shows Windows Defender quarantine event timestamp matching deploy time.
-- Port 8090 unreachable after a deploy that appeared to reach the "Starting" step.
+- USB fix returns `AutoFixResult { success: true }` without a re-enumeration step.
+- `wheelbase_connected: true` in `PodStateSnapshot` after a USB reset but ConspitLink telemetry shows zero FFB output.
+- No post-reset verification logic exists in the fix function.
 
 **Phase to address:**
-Deploy resilience phase (self-swap hardening). The retry loop is required before any production deployment of the new binary. AV exclusion verification belongs in startup self-healing phase.
+Phase implementing USB hardware self-healing.
 
 ---
 
-### Pitfall 5: Firewall Rules Applied to Wrong Profile — Blocked Inbound Despite Rule Existing
+### Pitfall 5: WerFault Kill Fires During a Legitimate AC Save Dialog
 
 **What goes wrong:**
-`netsh advfirewall firewall add rule` without an explicit `profile=` parameter applies the rule to the **current active profile** of the NIC at the time the command runs. On pod PCs where the NIC is categorised as "Unidentified network" or "Public network" (common when DHCP lease is still being negotiated or when the domain controller is unreachable), the active profile is Public, not Private. Later, when Windows reclassifies the NIC to Private, the inbound allow rule is absent from the Private profile — traffic is blocked.
+New bot pattern kills `WerFault.exe` whenever a crash keyword appears in the AI suggestion. In some AC scenarios (end of race, replay save), Windows briefly presents a dialog that the pattern incorrectly identifies as a crash dialog. The bot kills it, corrupting the AC replay save state. Customer's best lap is not recorded because the replay could not be saved.
 
-The Mar 15 outage: Pod 3's firewall rule was never applied (CRLF bug, Pitfall 2). When the rule was subsequently added by a manual bat file, it was applied to the wrong profile because the NIC was temporarily in Public profile during the command execution.
+**Why it happens:**
+`fix_kill_error_dialogs()` issues `taskkill /IM WerFault.exe /F` unconditionally. WerFault is the Windows Error Reporting process, but it can appear briefly for non-crash dialogs. The fix has no verification that the dialog is an actual crash report vs. a save or exit prompt. The existing implementation does not check `billing_active` or `driving_state`.
 
 **How to avoid:**
-Always specify `profile=any` when adding firewall rules programmatically:
-```
-netsh advfirewall firewall add rule name="RCAgent_8090" dir=in action=allow protocol=TCP localport=8090 remoteip=192.168.31.0/24 profile=any
-```
-
-Note the `remoteip=192.168.31.0/24` scope — restrict to the LAN subnet for security (Pitfall 10 covers this).
-
-When implementing firewall management in Rust, always:
-1. Check for rule existence first (idempotent — see Pitfall 8).
-2. Apply with `profile=any`.
-3. Verify after applying by re-running the show command AND by checking the active profile: `netsh advfirewall show currentprofile`.
+Before killing WerFault, verify: (a) the parent process PID is one of the known game executables (`acs.exe`, `F1_25.exe`), AND (b) the game process is non-responsive (check via `WaitForSingleObject` with zero timeout or check if the game has produced telemetry recently). Only kill WerFault if both conditions hold. When `billing_active: true AND driving_state: Active`, add extra confirmation delay.
 
 **Warning signs:**
-- `netsh advfirewall firewall show rule name="RCAgent_8090"` shows the rule exists, but port 8090 is unreachable inbound from racecontrol.
-- `netsh advfirewall show currentprofile` shows "Public" or "Domain" while the rule was added to "Private" or vice versa.
-- After a Windows Update reboot, one or more pods become unreachable despite firewall rules nominally present.
-- racecontrol marks pod offline after successful deploy because post-deploy HTTP health check to port 8090 times out.
+- `fix_kill_error_dialogs()` does not consult `snapshot.billing_active` or `snapshot.driving_state`.
+- Existing test `test_auto_fix_error_dialogs` uses `billing_active: false, driving_state: None` — no coverage of mid-drive state.
 
 **Phase to address:**
-Firewall auto-config phase. The Rust startup code must use `profile=any`, verify rule application by testing actual connectivity (not just exit code), and log the current active profile name for diagnostics.
+Phase implementing crash/hang detection. Add driving-state guard to the WerFault kill.
 
 ---
 
-### Pitfall 6: HKLM Run Key Provides No Crash Restart
+### Pitfall 6: Telemetry Gap Bot Spams False Alerts When Pods Are Between Sessions
 
 **What goes wrong:**
-The current mechanism — HKLM `Run` key triggers `start-rcagent.bat` at Windows login — correctly starts rc-agent in Session 1. But it is a one-shot logon trigger. If rc-agent crashes between logins, it stays dead until the next reboot. The Run key has no "restart on failure" semantics. This is exactly what happened with Pod 3 on Mar 15: rc-agent crashed at an unknown time, nobody knew, the pod appeared online on the network (remote_ops HTTP server was part of rc-agent, so even port 8090 was down), and there was no way to restart remotely.
+The telemetry gap bot watches UDP ports (9996 AC, 20777 F1) and alerts when no data arrives for N seconds. Between sessions the pod is on the lock screen — no game is running, no telemetry is expected. The bot alerts "telemetry dropped on Pod 3" during off-peak hours. Staff get flooded with false alerts, learn to ignore them, and miss a real telemetry failure during a session.
 
 **Why it happens:**
-The HKLM Run key is the simplest one-shot startup mechanism. It was chosen as a quick fix for the Session 0 isolation problem. It solves "start in Session 1 at boot" but not "restart on crash."
+A telemetry monitoring task spawned independently of the billing system has no visibility into whether a session is currently active. `billing_active` is only in `PodStateSnapshot` (agent-side) but a server-side monitoring task must query `AppState.billing.active_timers` to know whether telemetry silence is expected.
 
 **How to avoid:**
-Replace the HKLM Run key with a Task Scheduler task that has restart-on-failure configured:
-```bat
-schtasks /create /tn "RCAgent" ^
-  /tr "C:\RacingPoint\rc-agent.exe" ^
-  /sc ONLOGON ^
-  /ru %USERNAME% ^
-  /rl HIGHEST ^
-  /f
-```
-Then set retry policy via XML or PowerShell:
-```powershell
-$task = Get-ScheduledTask -TaskName "RCAgent"
-$task.Settings.RestartCount = 10
-$task.Settings.RestartInterval = "PT1M"  # 1-minute retry
-$task | Set-ScheduledTask
-```
-
-Startup self-healing must verify the Task Scheduler task exists and has the correct restart policy on every boot, re-creating it if absent:
-```bat
-schtasks /query /tn "RCAgent" >nul 2>&1 || (
-    schtasks /create /tn "RCAgent" /tr "C:\RacingPoint\rc-agent.exe" /sc ONLOGON /ru %USERNAME% /rl HIGHEST /f
-)
-```
+The telemetry gap check must consult `state.billing.active_timers` before alerting. If no active timer exists for the pod, telemetry silence is expected — suppress the alert. Only alert when `billing_active: true AND elapsed_seconds > threshold AND no UDP data received for N seconds`.
 
 **Warning signs:**
-- rc-agent process absent from `tasklist` on a pod that last rebooted hours ago.
-- Pod has no WebSocket connection to racecontrol, and port 8090 is also unreachable (both are in the same binary after the pod-agent merge).
-- rc-agent.log (if it exists at `C:\RacingPoint\rc-agent.log`) has no entries since the crash time.
-- `schtasks /query /tn "RCAgent"` returns "ERROR: The system cannot find the path specified."
+- Telemetry monitoring task spawned in `main.rs` without a reference to `billing.active_timers`.
+- Alert log shows telemetry warnings at times when `billing_sessions` table has no active sessions.
+- No test for "no alert when pod has no active timer."
 
 **Phase to address:**
-Windows Service / auto-restart phase. Replace HKLM Run key with Task Scheduler task on all 8 pods. Test crash-restart by killing rc-agent manually on Pod 8 (canary) and verifying it restarts within 2 minutes.
+Phase implementing telemetry gap detection.
 
 ---
 
-### Pitfall 7: WebSocket Exec Output Buffering and Zombie Processes
+### Pitfall 7: Cloud Sync Overwrites Billing Write During Auto-Fix Window
 
 **What goes wrong:**
-When adding `CoreToAgentMessage::Exec` over the existing WebSocket channel, the natural implementation sends a command and waits for a single reply message. Long-running commands (curl downloads up to 120s, game installs, taskkill with process wait) block the response. If the WebSocket drops mid-command, two problems occur simultaneously:
-1. racecontrol never receives the result and does not know if the command succeeded.
-2. The child process continues running on the pod (zombie from racecontrol's perspective) — the pod's exec semaphore slot may remain held, and the subsequent retry command causes a second instance of the same operation.
-
-A secondary issue: very large stdout/stderr from commands like `dir /s C:\` can produce multi-MB output. A single WebSocket frame containing multi-MB data may hit tungstenite's default 64MB limit — but more practically, it causes multi-second pauses while the frame is assembled, during which no other WebSocket messages are processed.
+Bot triggers session end early (`EndedEarly`). `end_billing_session()` debits the wallet and writes the session record. Within the next 30-second cloud sync window, `cloud_sync.rs` pulls wallet data from cloud where the wallet balance is still at the pre-session value (stale). The `upsert_wallet` CRDT merge uses `MAX(updated_at)`. If the cloud record has a newer `updated_at` (clock skew of even 1 second), the cloud's stale balance wins — effectively reversing the deduction. The customer was charged locally but the cloud wallet now shows the full pre-session credit.
 
 **Why it happens:**
-The existing HTTP `/exec` endpoint collects full stdout/stderr via `cmd.output()` and returns them at once — safe for short commands. Replicating this pattern over WebSocket is correct for typical management commands but creates the issues above for deploy-class operations. The `kill_on_drop(true)` flag on `tokio::process::Command` handles the zombie issue when the Rust process holding the child drops — but if the child outlives the timeout (returns an error) and the WebSocket reconnects, the orphaned child is not tracked.
+CONCERNS.md documents this as P1: "Wallet sync CRDT merge untested. updated_at can be clock-skewed between cloud and venue." Bot-triggered `EndedEarly` makes this worse because it happens asynchronously and unpredictably within the 30-second sync window. The billing write and the cloud sync poll race.
 
 **How to avoid:**
-For initial WebSocket exec implementation:
-- Assign a `correlation_id: Uuid` to each exec request in `CoreToAgentMessage::Exec`. Include the same ID in `AgentMessage::ExecResult`.
-- Cap stdout/stderr at 1MB in the response; include a `truncated: bool` flag.
-- Set a generous per-command timeout (180 seconds for download-class commands).
-- Maintain a per-pod in-flight exec map on the agent side: `HashMap<Uuid, AbortHandle>`. On WebSocket reconnect, abort all in-flight execs and report them as cancelled (not zombie).
-- Exec semaphore for WebSocket exec path must be independent from the HTTP exec semaphore (separate static or per-connection state).
+After any bot-triggered session end, ensure the wallet write timestamp is guaranteed to beat the cloud record. One approach: write `updated_at = MAX(current_cloud_updated_at + 1s, Utc::now())` — requires knowing the cloud timestamp. Safer: add a "venue authoritative" flag or a minimum hold-off before the next cloud pull after a billing write. Long-term: migrate wallet sync from balance snapshots to transaction logs (additive, not overwriting).
 
 **Warning signs:**
-- WebSocket exec for a curl download has no response for 60+ seconds — expected and normal, not a hang.
-- After WebSocket reconnect, racecontrol retries a command that already ran — verify with a follow-up `tasklist` or `dir` check before retrying destructive commands.
-- `exec_slots_available` on HTTP `/health` drops and does not recover after a WS exec — semaphore shared between paths.
-- Truncation: stdout in exec result ends mid-line followed by `[truncated]` marker.
+- After a bot-triggered EndedEarly, compare wallet balance on cloud vs. `billing_sessions` table — mismatch indicates a sync race was lost.
+- Cloud sync interval is 30s; bot fixes can occur at any point in that window with no fence.
+- `end_billing_session()` does not set any "hold off cloud sync" flag.
 
 **Phase to address:**
-WebSocket exec implementation phase. Correlation IDs and abort-on-reconnect must be in the initial implementation, not added later.
+Phase implementing billing edge case recovery. Must address wallet write fence before shipping bot-triggered session end.
 
 ---
 
-### Pitfall 8: Duplicate Firewall Rules Accumulate on Every Startup
+### Pitfall 8: Multiple Bot Tasks Race to Fix the Same Pod Simultaneously
 
 **What goes wrong:**
-`netsh advfirewall firewall add rule` does not check for existing rules with the same name. Running firewall setup on every rc-agent startup (for self-healing purposes) without checking first creates a new duplicate rule each time. Windows Firewall allows multiple inbound rules with the same name. After a week of daily reboots, each pod has 7+ identical `RCAgent_8090` rules. This is cosmetically confusing, creates noise in security audits, and in edge cases could interfere with more restrictive rules added later (the "most permissive wins" evaluation means the duplicates are harmless but invisible complexity accumulates).
+`pod_healer.rs` runs on its own interval. `pod_monitor.rs` runs independently. New crash bot tasks run on their own intervals. All three see the same degraded pod state simultaneously. `pod_healer` flags the pod for restart; `pod_monitor` triggers the restart; the crash bot kills the game. Three concurrent modifications result in: game killed by crash bot, rc-agent restarted by pod_monitor, healer tries to execute a heal action on an rc-agent that just restarted and whose port 8090 is temporarily unreachable. The pod ends up in a worse state than before, requiring staff intervention.
 
 **Why it happens:**
-The natural self-healing pattern is "always apply on startup." Without an existence check, each startup adds another rule. The fact that the firewall continues to work masks the accumulation — there is no visible error.
+`pod_healer.rs` already has partial coordination with `pod_monitor.rs` via `pod_watchdog_states` — it skips pods in recovery cycles (lines 151-176). But new bot tasks added to the system are not automatically wired into this coordination. CONCERNS.md identifies pod state race conditions as P1. Adding more concurrent tasks multiplies the risk.
 
 **How to avoid:**
-Implement an idempotent `ensure_firewall_rule()` function in the planned Rust firewall module:
-```rust
-pub async fn ensure_firewall_rule(name: &str, port: u16) -> Result<()> {
-    let check = Command::new("netsh")
-        .args(["advfirewall","firewall","show","rule",
-               &format!("name={}", name)])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output().await?;
-    let out = String::from_utf8_lossy(&check.stdout);
-    if out.contains("No rules match") {
-        Command::new("netsh")
-            .args(["advfirewall","firewall","add","rule",
-                   &format!("name={}", name),
-                   "dir=in","action=allow","protocol=TCP",
-                   &format!("localport={}", port),
-                   "remoteip=192.168.31.0/24",
-                   "profile=any"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output().await?;
-    }
-    Ok(())
-}
-```
-All firewall functions in the module must be idempotent from day one.
+All new bot tasks MUST check `pod_watchdog_states` and `pod_deploy_states` before acting — the same pattern used in `heal_pod()`. Extract this check into a shared `is_pod_in_recovery(state, pod_id) -> bool` utility in `AppState` and require all bot tasks to call it. Make this a code review requirement for every new fix task.
 
 **Warning signs:**
-- `netsh advfirewall firewall show rule name="RCAgent_8090"` returns the same rule listed 3, 5, or 10 times.
-- Windows Firewall → Inbound Rules in the GUI shows multiple identically-named entries.
-- `netsh advfirewall firewall show rule name="RCAgent_8090" | find /c "Rule Name:"` returns > 1.
+- A new bot fix function calls `execute_on_pod()` or sends a WebSocket command without first calling `is_pod_in_recovery()`.
+- Two fix actions appear in the activity log for the same pod within a 5-second window from different subsystems.
+- New bot task is spawned in `main.rs` without consulting `pod_watchdog_states`.
 
 **Phase to address:**
-Firewall auto-config phase. The idempotency check must be in the initial implementation.
+Phase 1 — establish `is_pod_in_recovery()` utility before any new bot tasks are added. Enforce as a code review gate for all subsequent phases.
 
 ---
 
-### Pitfall 9: Self-Swap Process Death Race — Old Binary Locked at Rename Time
+### Pitfall 9: Idle Detection Fires During AC Menu Navigation at Session Start
 
 **What goes wrong:**
-The current `do-swap.bat` uses:
-```bat
-taskkill /F /IM rc-agent.exe
-timeout /t 2 /nobreak
-del /Q rc-agent.exe
-move rc-agent-new.exe rc-agent.exe
-```
-`taskkill /F` sends a terminate signal but **does not wait for the process to fully exit**. On a loaded system (game running, CPU busy), the OS may still be cleaning up the process's memory and file handles when the `del` or `move` command runs 2 seconds later. The rename fails with `ERROR_ACCESS_DENIED`. The new binary is stranded as `rc-agent-new.exe` with the correct name occupied by a dead-but-not-released file handle. Both files may end up in an indeterminate state.
+A new idle billing drift fix uses UDP silence or driving state absence as its idle signal. At session start, the customer spends 15-30 seconds in the AC car selection menu — no telemetry, no driving state. The bot flags this as "idle billing" and ends the session. Customer loses their session having never driven. Or billing is prematurely ended just before the customer enters the track.
 
 **Why it happens:**
-The 2-second `timeout` is a timing assumption that holds on idle systems but not under load. Windows process cleanup, especially for processes that held network sockets and USB device handles (rc-agent holds the wheelbase HID connection), can take longer than 2 seconds to complete.
+`BillingSessionStatus::WaitingForGame` was designed for the gap before `AcStatus::Live`. Once billing starts (Live received), there is another gap before the customer finishes menu navigation and UDP telemetry begins. A naive idle detector that measures "time since last UDP packet" or "time since last DrivingState::Active" will misfire during this gap.
 
 **How to avoid:**
-Extend do-swap.bat generation in deploy.rs to poll for process death before renaming:
-```bat
-@echo off
-timeout /t 3 /nobreak >nul
-taskkill /F /IM rc-agent.exe >nul 2>&1
-:WAIT_DEAD
-tasklist /NH /FI "IMAGENAME eq rc-agent.exe" 2>nul | findstr rc-agent.exe >nul
-if %ERRORLEVEL%==0 (
-    timeout /t 1 /nobreak >nul
-    goto WAIT_DEAD
-)
-del /Q rc-agent.exe >nul 2>&1
-move rc-agent-new.exe rc-agent.exe
-if %ERRORLEVEL% NEQ 0 (
-    echo SWAP FAILED: rename error >> C:\RacingPoint\deploy-error.log
-    exit /b 1
-)
-start "" /D C:\RacingPoint rc-agent.exe
-```
-Add a cap: if the `WAIT_DEAD` loop runs for more than 15 iterations (15 seconds), abort the swap and leave `rc-agent-new.exe` in place for manual recovery.
-
-This bat content must be generated with `\r\n` line endings (see Pitfall 2).
+Idle detection must use `DrivingState` (from the sim protocol), not UDP packet presence alone. `DrivingState::Idle` means confirmed idle in-car. No driving state at all means menu — which must not trigger idle action. Only act when `DrivingState::Idle` has been confirmed for longer than the threshold AND billing status is `Active` (not `WaitingForGame`). Minimum threshold must exceed the longest expected menu navigation time (suggest 60 seconds minimum).
 
 **Warning signs:**
-- deploy.rs log shows "Starting" state but rc-agent never reconnects via WebSocket.
-- `dir C:\RacingPoint\rc-agent*.exe` shows `rc-agent-new.exe` present, `rc-agent.exe` absent.
-- Port 8090 unreachable after deploy.
-- `deploy-error.log` in `C:\RacingPoint\` contains "SWAP FAILED: rename error".
+- Idle detection logic uses `last_telemetry_received` timestamp as the primary idle signal.
+- No test for the `WaitingForGame -> Active -> (menu navigation) -> no-UDP period` sequence.
+- Threshold is set to the same 10-second idle value used for hardware detection (too short for menu navigation).
 
 **Phase to address:**
-Deploy resilience phase. Upgrade do-swap.bat generation in deploy.rs to use the poll-until-dead pattern.
+Phase implementing billing edge case recovery.
 
 ---
 
-### Pitfall 10: One-Way Connectivity — WebSocket Up, HTTP Blocked, Falsely Healthy
+### Pitfall 10: CRLF-Damaged Commands Sent via Remote Exec Look Successful but Do Nothing
 
 **What goes wrong:**
-After a Windows Update, a firewall group policy push, or a profile change, the inbound TCP 8090 rule is silently removed. racecontrol's HTTP management calls to the pod all fail. However, the pod's outbound WebSocket connection to racecontrol port 8080 continues to work — outbound connections are allowed by default. racecontrol continues to receive heartbeats, marks the pod as "connected," and the dashboard shows all pods green. But every deploy attempt, health check, and exec command to port 8090 fails silently or with a timeout.
-
-This is a false-healthy state: the system reports no problem, but the pod is unmanageable.
+A new bot fix constructs a multi-line batch command string in Rust (Unix `\n` endings) and posts it to the pod-agent `/exec` endpoint or WebSocket remote exec. `cmd.exe` misparses the multi-line string as one long invalid command. The command silently does nothing. `fix_result.success` is `true` because pod-agent returned HTTP 200 on dispatch — but the fix never executed. This is the same class of bug that caused the March 15 outage (CRLF-damaged bat files, MEMORY.md).
 
 **Why it happens:**
-The WebSocket connection is outbound from the pod. The HTTP management port (8090) requires an inbound allow rule. These are independent. racecontrol's pod health assessment currently treats WebSocket heartbeat as the primary liveness signal. The HTTP reachability is only tested when a management operation is attempted.
+Rust string literals use Unix line endings. When a fix constructs a multi-line command for remote execution, the developer naturally uses `\n`. `cmd.exe` splits on `\r\n`, so the multi-line command is treated as a single (invalid) line. The fix function returns success because success is measured at the HTTP layer, not at the command execution layer.
 
 **How to avoid:**
-Two changes needed:
-1. rc-agent startup self-healing must verify and re-apply its own firewall rule on every boot (idempotent, see Pitfall 8). This prevents the state from occurring.
-2. racecontrol's pod monitor should distinguish `ws_connected` from `http_reachable` and surface both states on the fleet dashboard. A pod that is WS-connected but HTTP-unreachable should show a distinct "managed-offline" status — not the same green dot as a fully healthy pod.
-3. The WebSocket exec path (new feature) provides a recovery mechanism: racecontrol can send `CoreToAgentMessage::Exec` carrying a `netsh` command to re-add the inbound rule from inside the pod, without needing inbound HTTP.
+All bot fix functions that construct remote command strings for `cmd.exe` execution MUST use `\r\n` separators, not `\n`. Single-line commands (e.g., `taskkill /IM acs.exe /F`) are safe. Multi-line scripts are the danger zone. Add a unit test for each remote command that asserts `\r\n` presence in the final command string.
 
 **Warning signs:**
-- Pod shows WebSocket connected in racecontrol logs (heartbeats arriving) but all HTTP calls to port 8090 timeout.
-- Deploy fails at step 0 (binary URL validation) or step 2 (download exec): "Failed to reach pod-agent."
-- After a Windows Update, one or more pods lose HTTP reachability but remain WS-connected.
-- The 30-second rolling deploy health check shows process alive but WebSocket-only — lock screen check fails because it uses HTTP exec.
+- Fix function builds a `String` with `\n` separators and passes it to `execute_on_pod()`.
+- Fix returns `success: true` but the targeted process is still running (verified by follow-up query).
+- No test validates line endings of remote command payloads.
 
 **Phase to address:**
-Firewall auto-config phase (self-apply on startup as prevention). WebSocket exec phase (recovery path). Fleet health dashboard should show WS and HTTP status as separate indicators.
+All phases. CRLF is cross-cutting. Every remote execution path needs a linting check.
 
 ---
 
-### Pitfall 11: Fleet Monitoring Overhead Exceeds Management Benefit at 8 Pods
+### Pitfall 11: Lap Filter Bot Rejects Valid Laps Due to LAN Packet Loss Mid-Lap
 
 **What goes wrong:**
-With only 8 pods, over-engineered monitoring creates more problems than it solves. Common over-engineering patterns that fail specifically at this scale:
-- **Per-pod telemetry polling every 5 seconds** from racecontrol: 8 pods × 12 polls/min = 96 HTTP calls/min to the management port. This consumes exec slots that should be reserved for actual management commands.
-- **Centralised log aggregation** (ELK, Grafana Loki): operational overhead to maintain the aggregator exceeds the value of having it. At 8 pods, the existing `tracing` logs written to disk and surfaced via the dashboard are sufficient.
-- **Health check cascade**: racecontrol checks pod health, pod reports to racecontrol, racecontrol checks the report, and schedules a secondary verify. This creates circular state updates that produce false-positive "recovery" events.
-- **Prometheus/metrics endpoint**: Adds a server-side scrape target. At 8 pods, the existing `/health` JSON endpoint is sufficient. A full metrics endpoint adds code complexity without actionable benefit until scale increases by 10x.
+The lap filter bot flags laps as invalid when it detects speed discontinuities (track cuts) or missing sector splits. But on this venue's LAN, UDP packets are dropped mid-lap (slow internet noted in PROJECT.md context). A missing telemetry packet looks identical to a speed discontinuity caused by a track cut. Valid hotlaps are rejected. Customers complain their best lap was not recorded. This undermines the leaderboard — the venue's core value proposition.
 
 **Why it happens:**
-Fleet management tooling at larger scale (100+ nodes) justifies dedicated monitoring infrastructure. Developers apply the same patterns to small fleets by analogy. The existing WebSocket heartbeat already provides the liveness signal needed for 8 pods.
+AC UDP telemetry is fire-and-forget — no retransmission, no gap filling. A missing packet is indistinguishable from a game state discontinuity at the packet analysis layer. Naive validity computation from raw telemetry samples always produces false positives on a lossy network.
 
 **How to avoid:**
-For 8 pods, the correct monitoring strategy is:
-1. **Liveness**: WebSocket heartbeat (already implemented). If heartbeat stops, pod is offline.
-2. **Manageability**: HTTP `/health` endpoint polled on-demand (not scheduled), called before any management operation.
-3. **Status**: Dashboard shows the last-known pod state from AppState — no additional polling loop needed.
-4. **Alerts**: Email on state changes (already implemented in email_alerts.rs). Do not add alert channels for a fleet of 8.
-5. **Logs**: Each pod writes its own `rc-agent.log`. Centralised log review is done by fetching the log file via `/file` endpoint when debugging — not streamed continuously.
-
-The fleet health dashboard for Uday should be a read-only view of AppState, not a separate polling system.
+Lap validity MUST use the game-reported `isValidLap` field (AC physics packet) as the primary signal — not bot analysis. Bot analysis is secondary: flag for staff review only, never auto-reject. Auto-reject only when the game itself reported the lap invalid, OR the lap time is physically impossible (e.g., <10% of track record). Preserve the lap row with a `review_required` flag rather than deleting it.
 
 **Warning signs:**
-- racecontrol's pod_monitor.rs spawns more than 2 background tasks per pod.
-- The monitoring loop makes HTTP calls to pods more than once per 30 seconds during idle operation.
-- A pod that is playing a game session shows degraded WebSocket response times due to management traffic competing with game telemetry traffic on the same port.
+- Lap filter implementation recomputes validity from raw `telemetry_samples` rather than reading the game's own validity flag.
+- Invalid lap rate is higher on pods with weaker LAN signal (correlation indicates false positives).
+- Lap filter deletes rows rather than flagging them with `review_required`.
 
 **Phase to address:**
-Fleet health dashboard phase. Design the dashboard as a view of existing AppState, not a new polling system.
+Phase implementing lap filter bot.
+
+---
+
+### Pitfall 12: Kiosk PIN Bot Locks Out Staff by Sharing a Failure Counter with Customer PINs
+
+**What goes wrong:**
+The PIN bot detects repeated PIN validation failures and increments a lockout counter. During a busy Saturday, multiple customers mistype PINs simultaneously across several pods. The bot's lockout counter fires for all pods simultaneously. If the lockout logic does not distinguish customer PINs from staff/debug PINs, staff cannot unlock pods manually. The employee daily rotating debug PIN is also blocked.
+
+**Why it happens:**
+`AUTH-01` (PROJECT.md) unified PIN auth infrastructure. A lockout mechanism that counts failures without separating customer vs. staff PIN type will penalize staff attempting to debug. The failure counter is keyed on pod or IP, not on PIN type.
+
+**How to avoid:**
+PIN failure counting MUST be scoped by PIN type: customer PINs and staff/debug PINs must have separate failure counters and separate lockout policies. The bot's lockout action must never apply to the employee debug PIN. Add `pin_type: customer | staff | debug` to all PIN validation attempts and filter bot lockout actions to `customer` type only.
+
+**Warning signs:**
+- PIN validation failure handler does not extract PIN type before incrementing failure counter.
+- No test for "staff PIN succeeds after 5 consecutive customer PIN failures on the same pod."
+- Lockout counter is keyed on pod_id only (not pod_id + pin_type).
+
+**Phase to address:**
+Phase implementing kiosk PIN bot.
 
 ---
 
@@ -417,117 +263,99 @@ Fleet health dashboard phase. Design the dashboard as a view of existing AppStat
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| HKLM Run key for startup | Simple, works at login | No crash-restart; pod stays dead after any crash until reboot | Never — replace with Task Scheduler before v4.0 ships |
-| Inline echo-chain bat generation in deploy.rs | No file write, no CRLF risk (cmd.exe generates CRLF) | Hard to read, fragile quoting, cannot add retry loops | Acceptable only for 1-2 line scripts; use Rust file write for multi-step scripts |
-| Single 4-slot semaphore for all exec | Simple code | Deploy blocks health checks, health blocks deploy | Replace with two semaphores: deploy-class (4) and monitoring-class (2) |
-| Hardcoded 2s sleep in do-swap.bat | Simple timing | Races on loaded systems; partial swap leaves pod dead | Replace with poll-until-dead loop in Pitfall 9 |
-| HTTP-only management transport | Simple request-response | Single point of failure when firewall blocks inbound | Add WebSocket exec as secondary path — required for v4.0 |
-| No firewall verification after apply | Faster startup | Silent failures cascade (CRLF bug pattern) | Never — always verify rules after applying |
-| `netsh` in bat files for firewall | Works without Rust dependencies | CRLF-sensitive, hard to test in unit tests | Replace with Rust `Command::new("netsh")` with CRLF-safe argument passing |
-
----
+| Keyword matching on AI suggestion text for fix dispatch | Simple to add new patterns | Ambiguous; two patterns can fire on the same text; brittle against AI phrasing changes | MVP only — replace with structured fix type codes from AI |
+| `success: true` based on `taskkill` exit code 0 | Simple result reporting | taskkill exits 0 even if the process was not found; fix appears successful when it did nothing | Never — verify process absence after kill |
+| Single `PROTECTED_PROCESSES` list shared between agent and healer | DRY | Agent and healer have different contexts; healer correctly protects `acs.exe` (never kill game from server), agent should not kill `acs.exe` either but for different reasons | Extract to rc-common with context enum |
+| `pattern_key = "{SimType}:{exit_code}"` (no billing context) | Smaller memory footprint | Fix replayed in wrong billing context — Pitfall 2 | Never — extend key to include billing state before adding destructive fix types |
+| Remote exec success = HTTP 200 from pod-agent | Simple status check | Pod-agent returns 200 on command dispatch, not on command success; fix may have silently failed | Never for destructive fixes — add post-fix verification step |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| netsh in Rust | Trust exit code 0 = success | Parse stdout for "No rules match" / "1 rule(s) found" — exit codes are unreliable for show commands |
-| Task Scheduler from Rust | `schtasks /create` and assume success | Use `/f` flag (force overwrite), verify with `schtasks /query /tn RCAgent`, check "Status: Ready" |
-| do-swap.bat content from Rust | `lines.join("\n")` | `lines.join("\r\n") + "\r\n"` — unit test asserts `\r\n` present |
-| WebSocket exec correlation | Ignore message ordering, use sequence numbers | Assign `Uuid` correlation ID per request; match by ID not position |
-| Windows Defender exclusions | Add `rc-agent.exe` path only | Add full directory `C:\RacingPoint\`, `rc-agent-new.exe`, and `do-swap.bat`; verify at startup via `Get-MpPreference` |
-| Session detection for Task Scheduler restart | Assume user is always logged in | `WTSGetActiveConsoleSessionId()` returns `0xFFFFFFFF` (-1) when no user is logged in; Task Scheduler `/sc ONLOGON` handles this correctly |
-| exec timeout for download | Use default 10s timeout | Deploy download uses 120_000ms timeout — already correct in deploy.rs; ensure WebSocket exec also supports per-command timeout override |
-
----
+| Windows HID USB reset | Issue reset, mark connected immediately | Re-enumerate after reset, confirm VID/PID present, confirm FFB response before marking success |
+| AC UDP telemetry gap | Treat packet absence as game absence | Distinguish "game running, no UDP" from "game not running"; use `game_pid` presence from snapshot |
+| pod-agent `/exec` endpoint | Check HTTP 200 as confirmation of fix success | HTTP 200 = command dispatched; add follow-up `/exec` to verify the expected outcome |
+| Cloud sync (billing write) | Assume billing DB write beats cloud pull | Cloud pulls every 30s regardless; bot-triggered billing writes need a fence or tombstone timestamp |
+| WerFault.exe | Kill unconditionally when crash keyword seen | Verify parent process is a known game EXE and game is non-responsive before killing |
+| WebSocket remote exec | Send multi-line batch with `\n` separators | Always use `\r\n` for cmd.exe compatibility in remote commands |
+| AC `isValidLap` field | Recompute validity from raw telemetry | Trust game-reported validity as primary signal; bot analysis is secondary review flag only |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Scheduled HTTP health polling to all 8 pods | 96+ HTTP calls/min, exec slots consumed by monitoring | Use WebSocket heartbeat for liveness; HTTP health only on-demand before management ops | As soon as any management operation runs concurrently |
-| Centralised log aggregation | Aggregator becomes single point of failure; maintenance overhead exceeds value | Serve logs on-demand via `/file` endpoint | Unnecessary complexity at 8 pods; reconsider at 50+ pods |
-| WebSocket exec collecting unlimited stdout | 2-second pauses assembling large frames; risk of OOM | Cap stdout/stderr at 1MB; add truncation marker | Any command producing >1MB output (e.g., `dir /s C:\`) |
-| Rolling deploy without per-pod serialisation | Concurrent exec calls exhaust semaphore slots on target pod | deploy.rs already has 5s delay between pods — keep it; add per-pod Mutex in racecontrol | Any concurrent deploy + health scenario on same pod |
-| Firewall rule check on every heartbeat | ~360 netsh invocations/hour per pod, each spawning a child process | Check only on startup and on WebSocket reconnect (implies reboot/restart) | Fine at 8 pods; avoid entirely with rc-agent startup self-healing |
-| Dashboard polling AppState faster than 1s | Spurious updates, dashboard flicker, websocket message storm | Dashboard event bus already exists; push events only on state change | Any refresh rate faster than the actual state change rate |
-
----
+| Healer scans all 8 pods every 2 minutes with 3+ remote commands per pod | Acceptable at 8 pods, low traffic | If healer interval shrinks or command count grows, 24+ remote calls per cycle accumulates latency | When healer interval drops below 60s or command count exceeds 5 per pod |
+| Pattern memory file write on every `record_fix()` | Instant persistence | JSON serialization + file write on every successful fix; under rapid failure/fix cycles this hammers disk | Any incident that triggers the same fix 10+ times rapidly |
+| AI escalation on every healer cycle when issue persists | Catches issues quickly | OpenRouter has rate limits; repeated escalation of same persistent issue burns API quota | Any persistent issue that does not resolve between healer cycles |
+| New bot task spawned per pod (not shared) | Simple isolation | 8 tasks × 5 bot types = 40 background tasks competing for tokio executor | At 8 pods this is manageable; design shared tasks with per-pod dispatch from day one |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| `/exec` endpoint with no authentication | Any LAN device (customer laptop on pod network) can execute arbitrary commands on any pod | Shared secret header `X-RC-Token` in all pod management requests; validate in remote_ops.rs before processing |
-| WebSocket exec without message authentication | A rogue WebSocket client sending `CoreToAgentMessage::Exec` could execute commands on pods | racecontrol must validate that Exec messages originate from its own internal coordinator, not from external WebSocket connections |
-| Firewall rule allows `remoteip=any` | Port 8090 accessible from any device, including customer machines and internet if port-forwarded | Always add `remoteip=192.168.31.0/24` to restrict management port to server subnet only |
-| do-swap.bat left on disk after deploy | Script can be re-triggered by any user who finds it; contains hardcoded paths and timing logic | rc-agent startup self-healing must delete any stale `do-swap.bat` files as first action |
-| AV exclusions applied globally | Unnecessarily broad; `C:\RacingPoint\` exclusion also covers customer-writable subpaths if any are created | Scope exclusions to specific file names (`rc-agent.exe`, `rc-agent-new.exe`) rather than the full directory if possible |
+| Bot fix commands constructed from AI suggestion text (untrusted input) | Prompt injection: adversarial AI response crafts a suggestion that triggers a dangerous fix keyword | Validate fix type against a fixed enum before executing; never execute free-form AI text as a command |
+| `debug-memory.json` writable by any process on the pod | Attacker modifies file to inject a cached "fix" that triggers arbitrary commands on next replay | Lock file to rc-agent user only; validate JSON schema on load; reject entries with unknown fix_type values |
+| `fix_kill_stale_game()` kills by executable name, not PID | Could theoretically kill a legitimate process with the same name that is not the game | Use `game_pid` from snapshot (specific PID) rather than name matching when a PID is available |
 
----
+## UX Pitfalls
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| Bot silently ends session (EndedEarly) with no customer notification | Customer sees lock screen mid-drive with no explanation; perceives a crash | Bot-triggered session end must display a reason on the lock screen before terminating |
+| Telemetry gap alerts fire during off-peak (no sessions) | Staff alert fatigue; real alerts ignored | Gate all bot alerts on session-active state |
+| Lap flagged invalid by bot is permanently deleted | Customer's best lap irretrievably lost | Invalid flags must be soft — preserve lap with `review_required: true` for staff review |
+| Idle detection ends session during menu navigation | Customer charged for session they never drove | Idle threshold must exceed longest expected menu navigation; use DrivingState not UDP silence |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Session 0 test:** After installing watchdog service, verify with `tasklist /v /fi "IMAGENAME eq rc-agent.exe"` that Session# = 1 (not 0). Lock screen must be visible on physical pod display.
-- [ ] **Crash-restart test:** On Pod 8, kill rc-agent with Task Manager. Verify it restarts within 90 seconds without a reboot. Verify lock screen reappears.
-- [ ] **Firewall rule applied:** `netsh advfirewall firewall show rule name="RCAgent_8090"` shows exactly 1 rule. Test actual connectivity from racecontrol: `curl http://192.168.31.X:8090/ping` returns "pong".
-- [ ] **Firewall profile verified:** `netsh advfirewall show currentprofile` on pod — confirm the rule was applied with `profile=any` and not to a mismatched profile.
-- [ ] **CRLF in bat files:** Any bat file written by Rust: `certutil -dump path\to\file.bat | findstr "0d 0a"` must show `0d 0a` sequences. LF-only files show `0a` without preceding `0d`.
-- [ ] **Idempotent firewall:** Restart rc-agent 5 times on a test pod. Run `netsh advfirewall firewall show rule name="RCAgent_8090" | find /c "Rule Name:"` — must return 1, not 5.
-- [ ] **AV exclusions:** `powershell -c "Get-MpPreference | Select-Object -ExpandProperty ExclusionPath"` on pod — must include `C:\RacingPoint\` or both `rc-agent.exe` and `rc-agent-new.exe`.
-- [ ] **Self-swap under load:** Trigger a deploy while a game session is running on the pod. Verify the swap completes (new binary starts) or aborts cleanly (old binary preserved, `deploy-error.log` written). Never a state where both binaries are absent.
-- [ ] **WebSocket exec independence:** Block inbound TCP 8090 via firewall. Verify HTTP exec returns connection refused. Verify WebSocket exec (`CoreToAgentMessage::Exec`) still executes commands. These must be independent.
-- [ ] **Exec slot recovery:** Send 4 concurrent exec requests with 5-second timeouts. After 15 seconds, verify `/health` shows `exec_slots_available: 4` (all slots recovered). Confirm no leak.
-- [ ] **Task Scheduler task persists:** Delete `start-rcagent.bat` (simulate corrupted startup). Verify rc-agent startup self-healing recreates the Task Scheduler task and bat file.
-
----
+- [ ] **Billing guard:** Every new fix function has a test with `billing_active: true` confirming it returns `None` (no-op) — grep tests for `billing_active: true`
+- [ ] **Post-fix verification:** Fix functions confirm the targeted condition is resolved before returning `success: true` — not just that the command ran
+- [ ] **CRLF in remote commands:** Multi-line command strings use `\r\n` — assert `cmd_string.contains("\r\n")` in tests
+- [ ] **Pattern memory context:** `DebugIncident` includes billing state at recording time — verify schema field present
+- [ ] **USB reconnect verified:** USB fix includes re-enumeration step before marking success — verify in fix implementation
+- [ ] **Lap validity primary signal:** Lap filter uses game-reported `isValidLap` as primary signal — verify in filter logic
+- [ ] **PIN type separation:** PIN failure counter is scoped to `customer` pin_type — verify lockout does not affect staff PINs
+- [ ] **Concurrent fix coordination:** Every new bot task calls `is_pod_in_recovery()` before acting — verify in code review
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Session 0 lock screen invisible | HIGH — physical access or RDP | RDP to pod, kill service-installed rc-agent, run `schtasks /run /tn "RCAgent"` to start in Session 1; then replace service with Task Scheduler pattern |
-| CRLF-broken firewall bat | MEDIUM — WebSocket exec available | Use WebSocket exec (`CoreToAgentMessage::Exec`) to run `netsh advfirewall firewall add rule name=RCAgent_8090 dir=in action=allow protocol=TCP localport=8090 profile=any` directly; no bat file needed |
-| Exec slot exhaustion | LOW — self-resolves | Wait for timeout (10s default for standard commands, 120s for downloads); or restart pod via WoL + power cycle; slots release on process restart |
-| AV quarantined rc-agent-new.exe | HIGH | Via pod-agent `/exec` (if old binary still alive): `powershell Add-MpPreference -ExclusionPath C:\RacingPoint`; then retry deploy. If port 8090 is down, physical USB deploy from pod-deploy kit |
-| Self-swap left pod dead (both binaries absent) | HIGH | If do-swap.bat retry log shows partial swap: rename `rc-agent-new.exe` to `rc-agent.exe` via pod-agent `/exec`. If port 8090 is also down (impossible since binary is rc-agent itself): physical USB deploy |
-| Firewall reset after Windows Update | LOW — WebSocket exec available | WebSocket exec: `netsh advfirewall firewall add rule name=RCAgent_8090 dir=in action=allow protocol=TCP localport=8090 profile=any`; startup self-healing prevents recurrence |
-| Task Scheduler task deleted | MEDIUM — requires working rc-agent | Via pod-agent `/exec`: run `schtasks /create /tn "RCAgent" ...` to recreate; then verify with `schtasks /query /tn "RCAgent"` |
-| HKLM Run key deleted (pre-migration) | MEDIUM — pod stays dead until reboot | Via pod-agent `/exec`: `reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v "RCAgent" /t REG_SZ /d "C:\RacingPoint\start-rcagent.bat" /f`; then trigger reboot via WoL |
-
----
+| Fix fired during active session, session ended prematurely | HIGH — customer trust damage | Staff manually issue credit refund; insert compensating row in billing_sessions |
+| Pattern memory replayed wrong fix in billing context | MEDIUM | Delete or correct the entry in `C:\RacingPoint\debug-memory.json` on the pod; re-run correct fix manually |
+| USB reset left wheelbase at wrong device path | MEDIUM | Physical replug; ConspitLink2.0 watchdog detects and reconnects; verify FFB before next session |
+| Cloud sync overwrote wallet balance | HIGH — financial data integrity | Compare `billing_sessions` table (source of truth) with `wallets` table; compute correct balance; apply manual correction SQL |
+| Multiple tasks put pod in inconsistent state | MEDIUM | Staff dashboard "force pod reset"; rc-agent restart via deploy infrastructure |
+| Lap wrongly flagged invalid | LOW if soft-flagged | Staff review queue; unset `review_required`; validate lap |
+| Kiosk PIN bot locked out staff PIN | HIGH — operational blocker | Direct console access to racecontrol; manually clear lockout counter for staff PIN type |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Session 0 GUI invisible | Windows Service / auto-restart phase | `tasklist /v` shows Session# = 1; lock screen visible on pod display after simulated crash |
-| CRLF-broken bat files | Firewall auto-config phase (Rust bat writer) | Unit test: generated bat content contains `\r\n`; hex-verify any written bat file |
-| Exec slot exhaustion | WebSocket exec phase | 5 concurrent exec requests: 5th returns 429; slots recover after timeout; WS exec unaffected |
-| AV quarantine of new binary | Deploy resilience phase | Deploy with AV active; binary not quarantined; retry loop in do-swap.bat handles handle hold |
-| Firewall profile mismatch | Firewall auto-config phase | Block inbound 8090, restart rc-agent; port accessible again within 10s; correct profile in netsh show |
-| HKLM Run key no crash restart | Windows Service / auto-restart phase | Kill rc-agent; restarts within 90s without reboot; verified on Pod 8 canary first |
-| WebSocket exec output truncation | WebSocket exec phase | Command producing >1MB output: `truncated: true` in response; no crash; slot recovered |
-| Duplicate firewall rules | Firewall auto-config phase | 5 consecutive restarts; exactly 1 rule named `RCAgent_8090` exists |
-| Self-swap process death race | Deploy resilience phase | Deploy while game running (loaded CPU); swap completes or aborts cleanly; no both-absent state |
-| One-way connectivity | Firewall auto-config + WS exec phases | Remove inbound rule; pod shows "managed-offline" in dashboard; WS exec re-adds rule; HTTP recovers |
-| Fleet monitoring overhead | Fleet health dashboard phase | Dashboard shows correct status using AppState view only; no new polling loops added to pod_monitor.rs |
-
----
+| Fix fires without billing guard | Every phase adding a fix pattern | Each fix has a `billing_active: true` test confirming no-op |
+| Pattern memory replays fix in wrong context | Phase adding new destructive fix types | Test: fix recorded with `billing=false` is suppressed when replayed with `billing=true` |
+| Billing timer orphans after game kill | Phase: crash/hang bot | Test: bot-triggered game kill also triggers billing end before kill |
+| USB reset causes device path shift | Phase: USB hardware self-healing | Test: post-reset enumeration confirms device by VID/PID before marking success |
+| WerFault false positive during save | Phase: crash/hang bot | Test: `driving_state=Active` suppresses WerFault kill |
+| Telemetry gap false alert when idle | Phase: telemetry gap bot | Test: no alert when `billing_active: false` |
+| Cloud sync overwrites billing write | Phase: billing edge cases | Test: wallet balance correct after bot-triggered EndedEarly + simulated cloud pull within 30s |
+| Multiple tasks race on same pod | Every phase | Code review: every new bot task calls `is_pod_in_recovery()` |
+| Idle detection fires during menu | Phase: billing edge cases | Test: WaitingForGame -> UDP silence -> no idle alert |
+| CRLF in remote commands | All phases | Unit test: assert `\r\n` in multi-line command strings |
+| Lap filter rejects valid laps | Phase: lap filter bot | Test: laps with UDP gaps but game-reported `isValidLap=true` are accepted |
+| PIN bot locks out staff | Phase: kiosk PIN bot | Test: 5 customer PIN failures do not affect staff PIN success on same pod |
 
 ## Sources
 
-- **Direct observation — HIGH:** 4-hour debugging session, Racing Point pods, Mar 15 2026. Pods 1/3/4 offline. Root causes confirmed: CRLF in do-swap.bat, exec slot exhaustion (missing CREATE_NO_WINDOW pre-fix), missing firewall rules (CRLF cascade), rc-agent crash with no restart (HKLM Run key limitation), Pod 3 one-way connectivity.
-- **Codebase — HIGH:** `crates/rc-agent/src/remote_ops.rs` (semaphore, CREATE_NO_WINDOW, EXEC_SEMAPHORE, try_acquire), `crates/racecontrol/src/deploy.rs` (self-swap pattern, do-swap.bat generation, VERIFY_DELAYS), `crates/rc-agent/src/lock_screen.rs` (port 18923 HTTP server, Session 1 requirement), `crates/rc-agent/src/main.rs` (startup flow).
-- **Microsoft — HIGH:** [Application Compatibility - Session 0 Isolation](https://techcommunity.microsoft.com/blog/askperf/application-compatibility---session-0-isolation/372361) — confirms Session 0 non-interactive since Vista; UI0Detect removed Windows 10 1803+.
-- **Microsoft — HIGH:** [Launching an interactive process from Windows Service in Windows Vista and later](https://learn.microsoft.com/en-us/archive/blogs/winsdk/launching-an-interactive-process-from-windows-service-in-windows-vista-and-later) — WTSGetActiveConsoleSessionId + WTSQueryUserToken + CreateProcessAsUser pattern.
-- **Microsoft — HIGH:** [Use netsh advfirewall firewall context](https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/netsh-advfirewall-firewall-control-firewall-behavior) — profile parameter behaviour, `profile=any` requirement.
-- **CoreTechnologies — HIGH:** [Why doesn't "Allow service to interact with desktop" work?](https://www.coretechnologies.com/blog/windows-services/interact-with-desktop/) — confirms checkbox is permanently non-functional on Windows 10 1803+ / Windows 11.
-- **Rust community — HIGH:** [Anti-virus deleting my executables](https://users.rust-lang.org/t/anti-virus-deleting-my-executables/80776), [rustup Windows rename issues](https://github.com/rust-lang/rustup/issues/3636) — AV scanner file handle hold on newly downloaded Rust binaries; false-positive detection of unsigned binaries.
-- **tokio docs — HIGH:** [tokio::process::Command](https://docs.rs/tokio/latest/tokio/process/struct.Command.html) — `kill_on_drop(true)` semantics; zombie process behaviour on Windows; `CREATE_NO_WINDOW` flag necessity.
-- **NSSM — MEDIUM:** [nssm.cc/usage](https://nssm.cc/usage) — GUI applications do not respond to WM_CLOSE from Session 0; console window creation limitations.
-- **Windows forum — MEDIUM:** [Task Scheduler "at logon" for GUI apps](https://windowsforum.com/threads/show-app-ui-at-logon-with-windows-11-task-scheduler.392418/) — confirms "Run only when user is logged on" is the correct Session 1 trigger; restart-on-failure settings available.
+- `crates/rc-agent/src/ai_debugger.rs` — `try_auto_fix()`, `fix_kill_stale_game()`, `fix_kill_error_dialogs()`, `DebugMemory::instant_fix()`, `PodStateSnapshot`, `PROTECTED_PROCESSES`
+- `crates/racecontrol/src/pod_healer.rs` — `heal_pod()` coordination logic, billing active check (lines 223-230), watchdog state skip (lines 151-176), `PROTECTED_PROCESSES` (healer context)
+- `crates/racecontrol/src/billing.rs` — `BillingTimer::tick()`, `handle_game_status_update()`, `WaitingForGameEntry`, multiplayer billing coordination, `end_billing_session()` flow
+- `.planning/codebase/CONCERNS.md` — P0/P1 issues: no billing transaction wrapping, cloud sync CRDT untested, pod state races, 154 `.ok()` error silences, `billing.rs` zero test coverage
+- `.planning/PROJECT.md` — v5.0 requirements, constraint list, known past bugs (CRLF, Session 0 GUI, Edge stacking, stale sockets)
+- MEMORY.md — CRLF bug root cause (March 15 outage), ConspitLink watchdog pattern, billing rules, 10-second idle threshold
 
 ---
-*Pitfalls research for: v4.0 Pod Fleet Self-Healing (Windows Service, WebSocket Exec, Firewall Auto-Config, Self-Update)*
-*Researched: 2026-03-15*
+*Pitfalls research for: RC Bot Expansion (v5.0) — sim racing venue auto-fix bot expansion*
+*Researched: 2026-03-16*

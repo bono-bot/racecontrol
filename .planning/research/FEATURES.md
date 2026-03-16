@@ -1,351 +1,462 @@
-# Feature Research
+# Feature Research — RC Bot Expansion (v5.0)
 
-**Domain:** Pod Fleet Self-Healing — Windows gaming PC fleet management (8-pod venue)
-**Researched:** 2026-03-15
-**Confidence:** HIGH (official Windows docs + existing codebase cross-referenced + incident post-mortem from Mar 15)
-
----
-
-## Context: What Already Exists (Do Not Re-Plan)
-
-The following capabilities are ALREADY BUILT and must not be re-researched or re-planned:
-
-- WebSocket connection with keepalive ping/pong — CONN-01 through CONN-03
-- HTTP remote ops on port 8090: exec, file read/write, health, screenshot — `remote_ops.rs`
-- Pod monitoring with escalating backoff 30s→2m→10m→30m — `pod_monitor.rs`
-- Post-restart verification at 5s/15s/30s/60s intervals — `deploy.rs`
-- Deploy via self-swap pattern: download as `rc-agent-new.exe`, bat script kills→renames→restarts
-- HKLM Run key for auto-start at Windows login (`start-rcagent.bat` per pod)
-- Email alerts with rate limiting — `email_alerts.rs`
-- Config validation at startup — DEPLOY-01, DEPLOY-04
-- `CoreToAgentMessage` enum: rich typed protocol, Ping/Pong, all lifecycle messages
-- Rolling deploy with Pod 8 canary-first established pattern
-
-The milestone adds NEW self-healing on top of this foundation. Every feature below is additive.
-
-**Incident motivation (Mar 15, 2026):** 4-hour debugging session. Pods 1/3/4 offline due to:
-1. exec slot exhaustion (no visibility into which commands held slots)
-2. Missing firewall rules (CRLF-damaged batch file silently failed to apply them)
-3. CRLF-damaged batch files from Windows-style line endings in the write endpoint
-4. rc-agent crash with no auto-restart (HKLM Run key does not restart on crash)
-5. No remote diagnostics once HTTP port 8090 was blocked by the broken firewall
-
-Every P1 feature below eliminates one or more of these five root causes.
+**Domain:** Deterministic auto-fix bot for sim racing venue pod management
+**Researched:** 2026-03-16
+**Confidence:** HIGH (based on direct codebase analysis of ai_debugger.rs, game_process.rs, driving_detector.rs, lap_tracker.rs, billing types, protocol.rs, and UDP heartbeat)
 
 ---
 
-## Feature Landscape
+## How to Read This Document
 
-### Table Stakes (Ops Teams Expect These)
+Each failure class has three sections:
 
-Features any ops team managing a Windows device fleet takes for granted. Missing these means
-the system is not operationally viable — any fleet manager who sees these absent would
-say the product is not production-ready.
+- **Table Stakes** — fix patterns the bot must have to be useful. Without these, staff still need to intervene constantly.
+- **Differentiators** — fix patterns that make the bot smarter than a simple watchdog. Not required on day one.
+- **Anti-Features** — approaches that look useful but create more problems than they solve.
 
-| Feature | Why Expected | Complexity | Dependency on Existing | Notes |
-|---------|--------------|------------|----------------------|-------|
-| **Service auto-restart on crash** | Windows service failure actions have existed since Win2000. Any fleet agent that dies and stays dead is not a fleet agent. The SCM restart action is the first thing any ops engineer checks when setting up a Windows service. | LOW | Replaces HKLM Run key which has no crash restart capability. Requires Windows Service registration. Does not change rc-agent code. | Use a service wrapper (shawl, WinSW, or NSSM). NSSM is abandoned (last release 2017). shawl (Rust, MIT, mtkennerly/shawl) is the best fit for a Rust shop — wraps any exe as a service, handles ctrl-C. Configure failure actions via `sc.exe failure RCAgent reset=3600 actions=restart/5000/restart/30000/restart/60000`. |
-| **Startup self-check before connecting to racecontrol** | Before announcing presence, verify own prerequisites. This is the "health check before accepting traffic" pattern from AWS Builders Library. Any distributed system that connects to a coordinator without verifying its own state causes cascading confusion. | LOW | Extends existing `config.rs` startup validation. New checks: registry key present, firewall rule present, bat file not CRLF-corrupted. | Pattern: startup phase returns `StartupHealth { ok: bool, anomalies: Vec<String> }`. If anomalies found, attempt repair. If repair fails, report to racecontrol before proceeding. This prevents a pod from appearing "registered" while actually broken. |
-| **Remote exec over existing WebSocket** | When firewall blocks HTTP port 8090, management fails. WebSocket connection is already established and authenticated — routing commands over it is the universal pattern (Kubernetes kubectl exec, AWS Systems Manager, Ansible over SSH). No ops team expects management to stop working because a firewall rule is missing. | MEDIUM | Uses existing `CoreToAgentMessage` enum. Add `Exec { request_id: String, cmd: String, timeout_ms: u64 }` variant. Add `ExecResult { request_id: String, success: bool, exit_code: Option<i32>, stdout: String, stderr: String }` to `AgentMessage`. racecontrol routes by pod_id (already does this for all CoreToAgentMessage variants). | Both crates must be rebuilt and redeployed. Command execution logic copies existing `remote_ops.rs` exec handler — same semaphore-gated, `CREATE_NO_WINDOW`, timeout-wrapped pattern. Correlation by `request_id` UUID matches responses to requests without message ordering assumptions. |
-| **Deploy verification with automatic rollback gate** | The existing deploy sequence checks health at 5/15/30/60s. That is correct. What is missing is the response to failure: currently, failure sends an email and stops. Every deployment system (Kubernetes, CodeDeploy, Octopus Deploy) uses health check failure as an automatic rollback trigger on canary deployments. | MEDIUM | Extends existing `deploy.rs` VERIFY_DELAYS logic. Requires: keeping `rc-agent-prev.exe` alongside `rc-agent.exe` on the pod (modified `do-swap.bat`). If 60s check fails, send rollback Exec command over WebSocket (since HTTP may be blocked at this point). | Gate on Pod 8 canary: Pod 8 must pass 60s check before racecontrol proceeds to pods 1-7. If Pod 8 rolls back, fleet deploy aborts and email fires. This converts the existing canary pattern from convention into a safety mechanism. |
-| **Firewall rules applied in Rust, not batch files** | CRLF-damaged batch files silently failing to apply firewall rules was a direct root cause of the Mar 15 incident. Batch files are fragile: they can be CRLF-corrupted, they can fail silently, they depend on working netsh which can itself be blocked. Moving to Rust `Command::new("netsh")` at startup eliminates the entire failure mode. This is what any ops engineer would recommend after a CRLF-caused outage. | LOW | New module in rc-agent, runs at startup before WebSocket connect attempt. Uses `std::process::Command` to invoke `netsh advfirewall firewall add rule`. Does NOT depend on Windows Service (netsh can be called from any elevated context). | Two rules: ICMP echo (ping) + TCP 8090 (remote ops inbound). Idempotent: check with `netsh advfirewall firewall show rule name="..."` first, add only if missing. Running as SYSTEM (via service wrapper) satisfies the elevation requirement. |
-| **Startup error reporting before crash** | If rc-agent panics during init, the failure is invisible to racecontrol. The pod appears offline with no diagnostic information. Distributed systems fail loudly: report last known error before exiting. This is standard practice for any agent that manages critical infrastructure. | MEDIUM | New: structured startup phase with named stages. If a stage fails, POST to racecontrol `/api/agent/startup-error` (new endpoint) with `{ pod_id, phase, error, timestamp }` before exiting. Uses existing `reqwest` client. | If WebSocket not yet established (startup failure happens before connect), use HTTP POST directly to racecontrol. If racecontrol unreachable, write structured JSON to `C:\RacingPoint\startup-error.json` for manual retrieval via remote_ops `/file` endpoint. |
+The implementation table at the end maps every pattern to complexity and dependencies on existing code.
 
-### Differentiators (Competitive Advantage for Racing Point Operations)
+---
 
-Features that go beyond the minimum and match the specific operational reality: 8-pod venue,
-one ops person (Uday), mobile-first management, no on-site IT staff available at all times.
+## Failure Class 1: Pod Crash / Hang
 
-| Feature | Value Proposition | Complexity | Dependency on Existing | Notes |
-|---------|-------------------|------------|----------------------|-------|
-| **Config self-heal: detect and repair missing files** | Pods 1/3/4 went offline on Mar 15 partly due to missing/corrupted files and registry keys. Auto-repair means a freshly imaged pod returns to operational without physical intervention. This is desired-state enforcement (Chef/Puppet/Ansible philosophy) applied to Windows endpoints. | MEDIUM | Extends startup self-check. Check list: `rc-agent-podN.toml` (present, parses), `start-rcagent.bat` (present, LF not CRLF), HKLM Run key (exists with correct path), `C:\RacingPoint\` directory structure. Repair using embedded templates via `include_str!()`. | Embed default toml + bat templates as string literals in rc-agent binary. On startup, if file missing or CRLF-corrupted, write correct version from embedded template and log the anomaly. Report via `AgentMessage::StartupReport`. |
-| **Fleet health dashboard for Uday's phone** | Uday manages from his phone. Without a visual overview, every pod problem requires either checking racecontrol logs (not phone-friendly) or physical inspection. A mobile-friendly dashboard with pod status, uptime, and last crash time is the minimum viable ops view. Fleet management tools (Geotab, Verizon Connect, Lytx) all show this as their primary screen. | MEDIUM | Uses existing `DashboardEvent::PodUpdate` and `PodList`. Gap: no dedicated mobile-friendly view. Requires: add `agent_version`, `last_restart_time`, `last_crash_time` fields to `PodInfo`. Render as status cards in `/fleet` Next.js route. | Color coding: green = healthy WS + heartbeat within 6s, yellow = restarted in last 15 min or version mismatch, red = offline >5 min or RecoveryFailed state. 10s auto-refresh. No new backend protocol needed — just field additions to PodInfo. |
-| **Agent version visible in heartbeat and dashboard** | Without per-pod version display, deploying to 8 pods has no verification that all pods actually updated. Version drift (some pods on old binary, some on new) is silent. This is the "did it actually work on all 8 pods?" check. | LOW | Extend `PodInfo` struct in rc-common with `agent_version: Option<String>`. Populate in rc-agent Register and Heartbeat messages using `env!("CARGO_PKG_VERSION")`. Display in fleet dashboard pod card. | One field addition. Low risk. Required to make the fleet dashboard useful. If version after deploy does not match expected, show yellow alert on that pod. |
-| **Exec slot visibility in health endpoint** | The Mar 15 incident included exec slot exhaustion. The semaphore exists (4 slots) but there is no visibility into which commands are holding slots or for how long. Without this, diagnosing a frozen pod requires guessing. | LOW | Extends existing `/health` endpoint response in `remote_ops.rs`. Add `exec_queue: Vec<{ cmd_preview: String, elapsed_ms: u64 }>` to health JSON. Track start time per acquired permit. | A command held >30s (expected max for any command) is a diagnostic signal. Surface in dashboard. Adding per-command timing to semaphore acquisition is ~10 lines of Rust. |
-| **WebSocket exec with request_id correlation** | The HTTP exec endpoint blocks for the full command duration. Long-running commands (curl binary download) hold exec slots and have a hard 10s timeout. WebSocket exec with request_id decouples command dispatch from response handling — racecontrol can fire commands and process responses asynchronously without blocking. | MEDIUM | This is the async pattern for WS exec. `request_id` UUID generated by racecontrol. Agent matches response to pending request map. Timeout handled client-side: if no ExecResult within `timeout_ms + 5000ms`, racecontrol marks it timed out. | This is the preferred implementation of WS exec — not just adding exec to WS but using the correlation pattern that allows multiple outstanding commands to a single pod. More robust than fire-and-forget. |
+**What goes wrong:** Game process freezes with no UDP output (telemetry stops), rc-agent becomes unresponsive, or acs.exe exits unexpectedly with a non-zero exit code.
 
-### Anti-Features (Commonly Requested, Often Problematic)
+### Table Stakes
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| **Automatic reboot on any crash** | "If nothing else works, reboot." Maximum self-healing. | On a gaming PC mid-session, a reboot destroys a customer's game and billing. Windows Service failure action "Restart Computer" (the third action) is the nuclear option. It should never fire automatically in a customer-facing system. | Use service restart (process-level) for up to 3 attempts. Only human-triggered reboot via kiosk power controls or WoL. Existing power controls in kiosk already cover this. |
-| **Continuous config file monitoring (inotify-style)** | "Watch all config files and repair on any change." | Creates a feedback loop: repair writes trigger change events, which trigger more repairs. Also, polling file system every second wastes I/O on a gaming PC running a sim at 60fps. | Startup-time check only. Config is only missing after OS reinstall or human error — both require a restart to manifest. Startup check is sufficient. |
-| **Full Windows Service implementation in rc-agent** | "Native service is cleaner — write the SCM dispatcher in rc-agent itself." | rc-agent is a GUI process with a lock screen window. Windows Services run in Session 0 and cannot show UI. Writing a full service dispatcher in rc-agent forces a Session 0/Session 1 split that defeats the purpose of the HKLM Run key + service wrapper hybrid. | Use a lightweight service wrapper (shawl, ~2MB binary) that handles SCM communication while rc-agent stays as a normal Session 1 process. The wrapper and the agent are separate executables. |
-| **WebSocket exec output streaming (real-time stdout)** | "I want to see curl download progress live." Better DX. | Streaming output over WebSocket requires: partial line buffering, ordering guarantees, backpressure on slow dashboard connections, and cleanup when dashboard disconnects mid-stream. This is 3x the complexity of request/response exec. Not needed for the stability goal of v4.0. | Use request/response (non-streaming) WS exec for v4.0. For download progress, use a two-step: trigger download (returns immediately), then poll `/health` exec_queue field for slot occupancy. Streaming exec is a v5.0 feature. |
-| **Centralized push-config management** | "Push configuration updates to all pods from racecontrol." | The existing `CoreToAgentMessage::Configure { config_json }` already provides this protocol primitive. Building a separate config management system duplicates the protocol and adds a management layer that is not needed at 8-pod scale. | Extend the existing Configure message and config.rs validation. The gap is not the protocol — it is that the agent does not verify and repair config at startup. Fix the startup check, not the protocol. |
-| **Crash dump collection and minidump analysis** | "When rc-agent crashes, capture a minidump for diagnosis." | Windows minidump collection requires WER registration or DbgHelp API. Parsing minidumps requires a symbol server and a debugger. This is debugger tooling, not ops tooling. The setup overhead exceeds the diagnostic value for a 8-pod venue. | Use structured startup error reporting: name each startup phase, catch panics at the phase level, report last known phase + error to racecontrol before exiting. This delivers 90% of the diagnostic value at 5% of the complexity. |
-| **Agent self-update (pull new binary on version mismatch)** | "Agent should update itself when a new version is deployed." | The self-swap deploy pattern already does this from racecontrol side. An agent that spontaneously self-updates outside of the controlled deploy sequence creates race conditions with billing sessions and skips the Pod 8 canary gate. | Use the existing racecontrol-orchestrated deploy with self-swap. The deploy is initiated by staff from kiosk — this is intentional. Autonomous self-update skips the human review gate. |
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| UDP silence timeout | No UDP packet on any monitored port for N seconds while `game_state == Running` | Set `game_state = Error`, send `GameCrashed` to racecontrol | N = 30s for AC (active game), already tracks `last_udp_packet` in `DrivingDetector`. Distinguishes "in menu" from "frozen" by cross-checking `AcStatus`. |
+| Orphaned process kill + relaunch | Game PID alive but exit code captured (non-zero), OR game PID gone unexpectedly | Call `fix_kill_stale_game()` (already exists), then send `LaunchGame` command back to self | Already partially implemented. Need: condition check before auto-relaunch — only if billing is active and session is live. |
+| WerFault dismiss | `WerFault.exe` in tasklist within 10s of game exit | Call `fix_kill_error_dialogs()` (already exists) | Already implemented in `try_auto_fix`. Extend: check after every detected crash, not just AI suggestion path. |
+| rc-agent liveness self-check | Detect own event loop stalled (watchdog ping timeout on internal channel) | Log + trigger graceful restart via service manager | rc-watchdog already monitors rc-agent PID. Self-check = separate internal channel ping every 30s. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Crash pattern classification | Exit code from `game_process.last_exit_code` matched against known codes (0xC0000005 = access violation, 0xC0000409 = stack overflow, -1 = generic crash) | Annotate `GameCrashed` message with `crash_class` field for richer dashboard display | Exit code already captured in `GameProcess.last_exit_code`. Pattern table is small and static. |
+| Freeze vs crash discrimination | Process still alive (PID responds to `OpenProcess`) but zero UDP for >30s | Label as "freeze" not "crash" in `GameCrashed`. Apply taskkill instead of assuming self-exit. | `is_process_alive()` already exists. Combine with UDP silence check. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| Auto-relaunch game without billing check | If billing ended before crash, relaunching starts a new session the customer did not pay for | Always verify `billing_active` and session status before any auto-relaunch |
+| Killing rc-agent.exe on hang detection | rc-agent is on `PROTECTED_PROCESSES` list for good reason — killing it destroys the session | Let rc-watchdog handle rc-agent restart; bot handles only game processes |
+| Looping relaunch on repeated crash | If AC crashes on the same track/car 3x, infinite auto-relaunch wastes the customer session time | Apply max 2 auto-relaunch attempts per billing session; escalate to staff alert on 3rd |
+
+---
+
+## Failure Class 2: Billing Edges
+
+**What goes wrong:** Session stays `Active` after game process exits (stuck billing), `idle_time_ms` accumulates because DrivingState never fires (idle drift), or cloud sync failure leaves venue and cloud out of sync.
+
+### Table Stakes
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Stuck session cleanup | `billing_session.status == Active` but `game_state == Idle` for >60s and no `DrivingState::Active` | Send `StopSession` + `BillingStopped` to close the session at the last known active time | Billing FSM lives in racecontrol. Trigger from pod_monitor detecting game gone + billing still active. |
+| Idle drift guard | `driving_state == Idle` for entire session duration (no Active ever recorded) | Flag session as `suspect` in DB; do not charge for drive time; alert staff | DrivingState already tracked per-pod. If `drive_time_ms == 0` at session end, auto-refund or zero-charge. |
+| Cloud sync failure recovery | `cloud_sync` HTTP POST returns non-200 for >3 consecutive cycles (90s) | Log `CLOUD_SYNC_FAIL` with timestamp, continue venue operations, retry on next cycle | Cloud sync already runs every 30s. Missing: structured failure counting. Venue must never block on cloud. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Billing tick gap detection | `BillingTick` message from server stops arriving for >10s while session is `Active` | rc-agent locally pauses drive time accumulation, not cloud sync | BillingTick is sent every second. If gap detected, pause local drive time counter to avoid overcharging during WS outage. |
+| Orphaned session on rc-agent restart | On agent startup, check if `billing_session_id` is set in config/state but no matching active timer on server | Send `SessionEvent::SessionEnded` to close the dangling session | `StartupReport` already sent on reconnect. Extend it to carry `billing_session_id` if one was active at crash. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| Auto-refund on any sync failure | Cloud sync fails for network reasons unrelated to the session; auto-refunding creates false negatives | Only refund if session `drive_time_ms == 0` AND game never reached `AcStatus::Live` |
+| Extending sessions automatically on crash | If a customer session ends early due to crash, auto-extending without staff approval bypasses pricing rules | Alert staff + send `GameCrashed { billing_active: true }` to dashboard; staff initiates extension |
+
+---
+
+## Failure Class 3: Network Repair
+
+**What goes wrong:** WebSocket between rc-agent and racecontrol drops silently (half-open TCP), racecontrol HTTP endpoint unreachable due to DHCP drift on server IP, or server IP changes overnight.
+
+### Table Stakes
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| WS drop repair | UDP heartbeat `HeartbeatEvent::CoreDead` fires (no pong for `DEAD_TIMEOUT_SECS`) | Force WebSocket reconnect with escalating backoff | Already implemented via `HeartbeatEvent::CoreDead` to main loop reconnect. Verify this path is wired in main.rs. |
+| HTTP endpoint retry | `reqwest` POST to `/billing/session/end` or `/laps` returns `ConnectionRefused` or timeout | Retry with 3x exponential backoff (1s, 2s, 4s); queue the payload if all retries fail | `cloud_sync.rs` already has retry logic. rc-agent HTTP calls need same pattern. |
+| IP drift detection | DNS/static IP lookup fails; UDP heartbeat to configured IP gets no response for >60s | Log `SERVER_IP_DRIFT` warning; try fallback IPs (.51, .4, .23) from config if present | Server DHCP history shows drift: .51 to .23 to .4 to .23. Multi-IP fallback list in config is the pragmatic fix. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Heartbeat sequence gap alerting | UDP heartbeat `sequence` counter shows jumps >5 (packets lost) | Log sequence gap, escalate to email alert if gap >20 in 60s | Sequence already tracked in `HeartbeatPing`. Analysis is pure arithmetic — no extra state needed. |
+| WS reconnect storm prevention | Multiple pods reconnect simultaneously after server restart | Add jitter to reconnect delay: `base_delay + random(0..pod_number * 500ms)` | Without jitter, all 8 pods hammer the server WS endpoint simultaneously. Pod number is available from config. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| mDNS/Bonjour discovery for server IP | Adds dependency on network service that may not be running; DHCP drift is already solved by reservation | Fix the root cause: DHCP reservation for server MAC `BC:FC:E7:2C:F2:CE` on the router (HOST-01 done in v2.0) |
+| Automatic network stack reset (netsh int ip reset) | Resets ALL network interfaces including the pod own connection — drops all sessions on all pods | Clear only CLOSE_WAIT sockets on specific ports (already done in `fix_stale_sockets`) |
+
+---
+
+## Failure Class 4: USB Hardware (Wheelbase)
+
+**What goes wrong:** Conspit Ares wheelbase (VID:0x1209 PID:0xFFB0) disconnects mid-session, HID device disappears from Windows device tree, or FFB torque remains engaged after game exit (safety hazard).
+
+### Table Stakes
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| USB disconnect detection | `DrivingDetector` emits `DetectorSignal::HidDisconnected` (HID open fails or `hidapi` returns error) | Set `wheelbase_connected = false` in `PodStateSnapshot`, send staff alert via racecontrol | Already detected: `DrivingDetector.is_hid_connected()` tracks this. Missing: alert path when it flips false mid-session. |
+| FFB zero on session end | Session ends normally or game crashes | Call `FfbController::zero_force()` before or concurrent with game kill | `FfbController` already implemented with `CMD_ESTOP`. Protocol message `FfbZeroed` already exists. Needs wiring into session-end path. |
+| FFB zero on game crash | `GameCrashed` event fires | Call `FfbController::zero_force()` immediately, before any process cleanup | Safety requirement: high torque left engaged with no game feedback is physically dangerous. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| USB device re-enumeration probe | Disconnect detected, game still running, billing active | Wait 10s then re-scan HID bus; if device reappears, log recovery and continue without staff | HID rescan = `hidapi::HidApi::new()` re-enumerate. ~10s is typical Windows USB re-enum delay. |
+| Consecutive disconnect counting | Same wheelbase disconnects >2x in one billing session | Add `disconnect_count` to session telemetry; alert staff after 2nd disconnect | Repeated disconnects indicate physical USB issue (cable/port) that bot cannot fix — needs staff intervention. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| Sending USB power cycle command via software | Windows cannot reliably power-cycle USB from software without device-specific drivers; may corrupt USB hub state | Alert staff to physically reseat the USB cable; log the pod number and port |
+| Disabling FFB entirely after disconnect | Customer loses FFB for rest of session even if wheelbase reconnects | Zero torque on disconnect, restore to last `ffb_percent` value when reconnect detected |
+
+---
+
+## Failure Class 5: Game Launch Failures
+
+**What goes wrong:** Content Manager (CM) process hangs at launch, `acs.exe` launches but exits within 5s (bad track/car combo), or CM window appears but never triggers the game process.
+
+### Table Stakes
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Launch timeout detection | `game_state == Launching` for >90s with no UDP packet received | Kill launch process, set `game_state = Error`, send `GameStateUpdate` with `error_message` | `GameLaunchInfo` has `launched_at`. Delta from now > 90s = timeout. AC typically loads in 20-40s. |
+| CM hang kill | CM process (`Content Manager.exe` or `acmanager.exe`) alive >90s after launch command without spawning `acs.exe` | `taskkill /IM "Content Manager.exe" /F`, fall back to direct `acs.exe` launch | `LaunchDiagnostics.cm_attempted` already tracks this. `fallback_used` field exists for this scenario. |
+| Immediate exit detection | `acs.exe` exits within 5s of spawn (exit code != 0) | Log `direct_exit_code` in `LaunchDiagnostics`, retry once with 10s delay, escalate to staff on 2nd failure | `GameProcess.last_exit_code` captures this. Already tracked. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Pre-launch dialog clearance | Before launch attempt, scan for `DIALOG_PROCESSES` (WerFault, msiexec, SystemSettings) | Kill all dialog processes from `DIALOG_PROCESSES` list (already defined in `ac_launcher.rs`) | Dialogs from previous crash can block new game window. List already exists — needs proactive sweep before each launch. |
+| CM log error extraction | After CM hang/crash, read `%LOCALAPPDATA%\AcTools Content Manager\Logs\` for error lines | Include in `LaunchDiagnostics.cm_log_errors` field (already exists in type) | CM writes timestamped logs. Last 50 lines on failure gives diagnostic context without any AI. |
+| race.ini validation before launch | Before writing `race.ini` for AC, verify track and car paths exist on disk | Return error immediately if `ContentScanner` shows track/car missing; skip launch entirely | `content_scanner.rs` exists. Cross-reference before writing race.ini to avoid AC crashing on load. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| Relaunching game in infinite loop on immediate exit | If `acs.exe` exits immediately due to corrupted track/car, loop creates noisy logs and delays staff notice | Max 2 auto-retries per billing session; 3rd failure = staff alert with `cm_log_errors` payload |
+| Modifying CSP/CM config files to fix launch | Config file mutations can corrupt the entire AC installation if written mid-launch | Only write `race.ini` (already done correctly); never touch `gui.ini`, CSP settings, or `launcher.ini` at runtime |
+
+---
+
+## Failure Class 6: Telemetry Gaps
+
+**What goes wrong:** UDP port silent because game is in menu (not a bug), or game UDP silent because port is wrong, game crashed, or network config blocks the port locally.
+
+### Table Stakes
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Game-state-aware silence categorization | No UDP on port 9996 for >30s while `AcStatus == Live` (not Off/Menu/Pause) | Mark telemetry as `dropped`, send staff alert via racecontrol | `AcStatus` already tracked via shared memory. Critical distinction: silence in menu is normal; silence while `AcStatus::Live` is a problem. |
+| Partial data flagging | UDP frame received but `sector1_ms == 0` AND `sector2_ms == 0` (both zero, not just one) while racing | Mark telemetry frame as `partial`, skip lap completion for that lap | Already have `suspect_flag` logic in `lap_tracker.rs`. Extend: partial frames should not trigger lap events. |
+| Corrupted packet rejection | UDP frame length != expected size for sim type, or checksum mismatch (for sims that include one) | Drop packet, log `CORRUPT_PACKET` counter, alert if >10% drop rate in 60s | Each sim adapter `parse_frame()` already returns `Option` — rejected frames are implicit. Add explicit counter. |
+| Port conflict detection | UDP bind on port 9996 fails at startup | Log `PORT_BIND_FAIL`, alert staff, suggest checking for other AC instances | rc-agent already spawns UDP listeners. Capture bind errors and surface them via `StartupReport`. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Persistent drop rate alerting | Corrupt or dropped packet rate exceeds 5% over 60s while game running | Email alert with pod_id, sim_type, drop rate; staff checks pod network cable | Useful signal for deteriorating hardware (bad USB-Ethernet adapter common in gaming rigs). |
+| Telemetry recovery confirmation | After gap, UDP resumes — log recovery time | Include gap duration in `TelemetryFrame` metadata or separate `TelemetryRecovered` event | Useful for diagnosing intermittent issues vs sustained failures. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| Inferring lap times from position data when UDP drops | Position-based lap detection is complex, sim-specific, and inaccurate without proper waypoints | Mark the lap as invalid during the gap; telemetry is either present and valid or absent |
+| Restarting UDP listener to fix silence | UDP listener restart flushes any buffered packets and risks missing the lap completion event | Telemetry silence is a signal problem, not a listener problem; fix port conflicts at startup |
+
+---
+
+## Failure Class 7: Multiplayer Issues
+
+**What goes wrong:** AC dedicated server (`RP_OPTIMAL` preset on .23) becomes unreachable mid-race, one pod desyncs from the server session, or pods launch at different times causing a mismatched lobby.
+
+### Table Stakes
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| AC server disconnect detection | `AcStatus` drops from `Live` to `Off` on all pods simultaneously (or majority) while billing active | Send staff alert with pod count, do NOT auto-end billing (customer deserves compensation decision by staff) | Simultaneous status change across pods = server-side issue. Single pod drop = pod-side issue. |
+| Server reachability pre-check | Before multiplayer session launch, HTTP GET to AC server stracker API or `ac_server.rs` endpoint | If unreachable, block launch and alert staff rather than launching pods into an empty lobby | `ac_server.rs` exists. Add a pre-launch reachability check. |
+| Single pod desync (pod-only drop) | `AcStatus` drops `Live` to `Off` on one pod while others remain `Live` | Send `StopGame` to the desynced pod, re-engage lock screen, alert staff to manually rejoin | Partial desync: one pod network or game crashed. Other pods continue; desynced pod needs manual re-entry. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Desync timeline logging | Record `AcStatus` transitions per pod with timestamps | On desync event, include timeline in staff alert (which pod dropped first, gap before others followed) | Pure timestamp comparison — no extra logic beyond what already flows through `GameStatusUpdate` messages. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| Auto-rejoin desynced pod to AC server | Content Manager join URL must be re-generated with current session token; bot has no access to AC server session state | Alert staff; they re-trigger the join URL from the kiosk in 30 seconds |
+| Restarting AC server process automatically | AC server manages active sessions for multiple pods; restart kills all other pods races | Alert Uday/staff via email; AC server restart is a manual, high-impact action |
+
+---
+
+## Failure Class 8: Kiosk PIN
+
+**What goes wrong:** Customer enters wrong PIN 3+ times (locks them out), staff PIN conflicts with customer PIN on same day (theoretically impossible but must be handled), session token expired before customer scans QR.
+
+### Table Stakes
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| PIN fail count tracking | `PinEntered` response from server returns invalid; track consecutive failures per pod | After 3 failures: show "Contact staff" message on lock screen, send staff alert | Lock screen already has `pin_error: Option<String>` field. Failure counter is new state in rc-agent main loop. |
+| Session token expiry detection | `ShowPinLockScreen` or `ShowQrLockScreen` contains `allocated_seconds` that has elapsed before PIN entry | Lock screen detects token age; send `SessionUpdate` to server requesting refresh | Token age = `Utc::now() - show_time`. If >5 min elapsed before customer scans, request new token. |
+| Staff vs customer PIN audit log | Server returns "invalid" for a PIN that matches staff PIN computation for the day | Log `PIN_CONFLICT` warning with date and pod_id for audit trail | Cannot happen by design (separate auth endpoints) but log it explicitly if it somehow occurs. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| PIN lockout auto-reset | PIN lockout (3 failures) clears after 5 minutes | Auto-clear lockout counter after 5 min; no staff PIN needed for this reset | Prevents customer frustration if they mistyped once and return 5 min later. |
+| QR scan soft alert | `ShowQrLockScreen` displayed for >120s with no `PinEntered` or session confirmation | Send soft alert to staff ("Customer on Pod X may need help with QR scan") | QR scanning fails on older phones or low-light conditions. Proactive staff nudge reduces wait time. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| Auto-unlocking pod after repeated PIN failures | Security bypass — someone could brute-force PIN by waiting for auto-unlock | After lockout, require staff physical presence or dashboard unlock only |
+| Displaying PIN hash or partial PIN in logs | Even partial hash exposure reduces PIN entropy significantly | Log only attempt count and pod_id; never log the PIN value itself |
+
+---
+
+## Failure Class 9: Lap Filtering
+
+**What goes wrong:** AC sends a lap with `lap_time_ms = 0` (warm-up lap or load artifact), sector sum does not match lap total (partial telemetry), speed unrealistically high or low, or a lap is completed with a sector cut flag set.
+
+### Table Stakes
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Zero-time lap rejection | `lap_time_ms == 0` | Drop silently; do not insert into DB | Already implemented: `if lap.lap_time_ms == 0 { return false }` in `persist_lap`. |
+| Sub-minimum time rejection | `lap_time_ms < 20_000` (20 seconds) — impossibly fast for any track in the catalog | Set `suspect = true`, store but exclude from leaderboard | Already implemented: `sanity_ok = lap.lap_time_ms >= 20_000` in `persist_lap`. Needs per-track floor added. |
+| Sector sum mismatch | `|sector1 + sector2 + sector3 - lap_time_ms| > 500ms` with all sectors present and non-zero | Set `suspect = true`, store but exclude from personal bests and track records | Already implemented: `sector_sum_ok` check in `persist_lap`. |
+| Invalid flag from game | `current_lap_invalid == true` in `TelemetryFrame` (F1 25 sets this on track cuts) | Set `valid = false` on the `LapData` before sending `LapCompleted` to server | `TelemetryFrame.current_lap_invalid` field already exists. Needs wiring in F1 and AC sim adapters. |
+
+### Differentiators
+
+| Fix Pattern | Detection Trigger | Action | Notes |
+|-------------|-------------------|--------|-------|
+| Per-track minimum lap time | Lookup minimum expected lap time from track catalog (e.g., Monza ~80s, Nordschleife ~6min) | Reject or flag any lap below track-specific minimum as `suspect` | Requires a `min_lap_ms: Option<u32>` field in the track catalog. More precise than global 20s minimum. |
+| Statistical outlier detection | Lap time > 3x the driver session average on the same track | Flag as `suspect` with reason `outlier` | Catches spun/off-track laps submitted without the invalid flag. Uses session lap history already collected. |
+| Hotlap vs Practice classification | `session_type` from `SessionInfo` determines the bucket | Store laps in correct bucket (`hotlap_bests` vs `practice_bests`) when session type is known | `SessionType` enum has `Hotlap` and `Practice` variants. `LapData.session_id` links back to `SessionInfo.session_type`. |
+
+### Anti-Features
+
+| Anti-Feature | Why Problematic | Do This Instead |
+|--------------|-----------------|-----------------|
+| Rejecting laps based on speed trace analysis (telemetry comparison) | Requires complete telemetry for every lap stored; telemetry gaps make this unreliable | Use time-based rules (sector sum, per-track minimum, outlier) which work from lap data alone |
+| Silently dropping suspect laps | Staff cannot review or override decisions they cannot see | Always store suspect laps with `suspect = true`; never hard-delete; expose `suspect` filter in admin dashboard |
+| Retroactively invalidating posted track records | If a record is found suspect later, retroactive change causes confusion and complaints | Mark suspect, alert staff, let staff make the call — bot is advisory on existing records, authoritative on new inserts only |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[Windows Service wrapper (SVC-01)]
-    └──enables──> [Auto-restart on crash (SVC-02)]
-    └──enables──> [Runs as SYSTEM → firewall rules apply without UAC (FWALL-01)]
-    └──enables──> [Registry writes succeed without UAC (CFGHEAL-01)]
+[Class 1: Pod Crash]
+    requires  game_process.is_running() + last_exit_code (EXISTS)
+    requires  DrivingDetector.last_udp_packet (EXISTS)
+    enhances  [Class 6: Telemetry Gaps] (UDP silence = shared signal)
 
-[Firewall auto-configuration in Rust (FWALL-01)]
-    └──unblocks──> [HTTP remote ops on port 8090 (existing)]
-    └──unblocks──> [WebSocket exec usable as fallback (WS-EXEC-01)]
-    └──requires──> [SYSTEM context or pre-existing elevation (satisfied by SVC-01)]
+[Class 2: Billing Edges]
+    requires  BillingSessionStatus FSM in racecontrol (EXISTS)
+    requires  GameState + DrivingState per pod (EXISTS)
+    depends-on [Class 1] crash detection (need to know game exited)
 
-[Startup self-check (STARTUP-01)]
-    └──enables──> [Config self-heal (CFGHEAL-01)]
-    └──enables──> [Startup error reporting (ERR-01)]
-    └──runs before──> [WebSocket connect to racecontrol]
+[Class 3: Network Repair]
+    requires  HeartbeatEvent::CoreDead from udp_heartbeat.rs (EXISTS)
+    requires  EscalatingBackoff from rc-common (EXISTS)
+    enhances  [Class 2] (WS drop causes billing tick gap)
 
-[Config self-heal (CFGHEAL-01)]
-    └──requires──> [Startup self-check (STARTUP-01)]
-    └──requires──> [SYSTEM context for registry writes (SVC-01)]
-    └──requires──> [Embedded templates in binary (include_str!)]
-    └──reports via──> [AgentMessage::StartupReport (PROTO-03)]
+[Class 4: USB Hardware]
+    requires  DrivingDetector.is_hid_connected() (EXISTS)
+    requires  FfbController::zero_force() (EXISTS)
+    must-precede [Class 1] game kill (zero FFB before killing game)
 
-[Startup error reporting (ERR-01)]
-    └──requires──> [HTTP POST to racecontrol OR local file fallback]
-    └──requires──> [New racecontrol endpoint: POST /api/agent/startup-error]
-    └──runs on──> [startup phase failure, before process exit]
+[Class 5: Game Launch]
+    requires  LaunchDiagnostics struct (EXISTS)
+    requires  DIALOG_PROCESSES list in ac_launcher.rs (EXISTS)
+    requires  content_scanner.rs for pre-launch validation (EXISTS)
 
-[WebSocket exec (WS-EXEC-01)]
-    └──requires──> [CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } (PROTO-01)]
-    └──requires──> [AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr } (PROTO-02)]
-    └──requires──> [racecontrol: pending-request map keyed by request_id]
-    └──enables──> [Deploy rollback when HTTP blocked (ROLL-01)]
-    └──enables──> [Management when firewall has not yet been repaired]
+[Class 6: Telemetry Gaps]
+    requires  AcStatus shared memory integration (EXISTS via GameStatusUpdate)
+    requires  sim adapter parse_frame() returning Option (EXISTS)
+    feeds     [Class 9: Lap Filtering] (gap during lap = suspect lap)
 
-[Deploy rollback (ROLL-01)]
-    └──requires──> [Modified do-swap.bat: rename current→prev before swap (ROLL-02)]
-    └──requires──> [WebSocket exec (WS-EXEC-01) — HTTP may be blocked during failed deploy]
-    └──requires──> [Existing VERIFY_DELAYS 60s gate in deploy.rs]
-    └──enhances──> [Pod 8 canary pattern — converts from convention to safety gate]
+[Class 7: Multiplayer]
+    requires  GameStatusUpdate per pod (EXISTS)
+    requires  ac_server.rs reachability check (PARTIAL — module exists, check not wired)
+    requires  [Class 3] network repair working first
 
-[Agent version in PodInfo (VER-01)]
-    └──requires──> [PodInfo struct field: agent_version: Option<String>]
-    └──enhances──> [Fleet health dashboard (DASH-01)]
+[Class 8: Kiosk PIN]
+    requires  PinEntered AgentMessage (EXISTS)
+    requires  LockScreenState with pin_error field (EXISTS)
+    requires  ShowPinLockScreen / ShowQrLockScreen messages (EXISTS)
 
-[Fleet health dashboard (DASH-01)]
-    └──requires──> [agent_version in PodInfo (VER-01)]
-    └──requires──> [last_restart_time, last_crash_time in PodInfo (new fields)]
-    └──uses──> [Existing DashboardEvent::PodUpdate push (no new protocol)]
-    └──renders in──> [New /fleet Next.js route in kiosk]
-
-[AgentMessage::StartupReport (PROTO-03)]
-    └──requires──> [New racecontrol handler: persist anomalies, surface in dashboard]
-    └──displayed in──> [Fleet health dashboard pod card (DASH-01)]
+[Class 9: Lap Filtering]
+    requires  LapData.valid + suspect fields (EXISTS)
+    requires  persist_lap() sanity checks (PARTIAL — 20s global minimum, sector sum done)
+    requires  TelemetryFrame.current_lap_invalid (EXISTS, needs wiring)
 ```
 
 ### Dependency Notes
 
-- **Windows Service is the prerequisite chain opener:** It enables SYSTEM context, which enables reliable firewall rules and registry writes. Everything in self-healing config depends on having SYSTEM-level privileges. The service wrapper is the first thing to implement.
-- **WebSocket exec requires protocol changes in rc-common:** Both racecontrol and rc-agent must be rebuilt and redeployed simultaneously. This is a two-crate atomic change — ship it as a single commit.
-- **Deploy rollback depends on prev-binary existing:** The modified `do-swap.bat` must be deployed to all pods BEFORE rollback can function. Rollback without a prev binary is a no-op. The bat file update must be part of the same deploy that enables rollback in racecontrol.
-- **Fleet dashboard needs two new PodInfo fields:** `last_restart_time` and `last_crash_time` are captured in pod_monitor.rs state transitions but not currently persisted in PodInfo. These must be added to rc-common types (PodInfo struct) and populated by pod_monitor.rs.
+- **Class 4 must precede Class 1 in session teardown:** Zero FFB before killing game process — safety requirement.
+- **Class 6 feeds Class 9:** A telemetry gap during a lap means sectors are incomplete; the lap should be flagged `suspect` automatically.
+- **Class 2 depends on Class 1:** Billing edge cleanup requires knowing the game has exited. Do not close billing until crash/exit is confirmed.
+- **Class 7 depends on Class 3:** Multiplayer session management assumes the WS connection to racecontrol is healthy. Fix network before adding multiplayer guards.
+
+---
+
+## Implementation Table
+
+| Failure Class | Fix Pattern | Complexity | Depends On (existing) | New State Needed |
+|---------------|-------------|------------|----------------------|-----------------|
+| 1 — Pod Crash | UDP silence timeout | LOW | `last_udp_packet`, `game_state`, `AcStatus` | Silence timer per pod |
+| 1 — Pod Crash | Orphaned process kill + relaunch | LOW | `fix_kill_stale_game()` (exists) | Retry counter per billing session |
+| 1 — Pod Crash | WerFault dismiss (deterministic path) | LOW | `fix_kill_error_dialogs()` (exists) | Wire into crash path, not just AI path |
+| 1 — Pod Crash | rc-agent liveness self-check | LOW | rc-watchdog PID monitoring (exists) | Internal channel ping every 30s |
+| 1 — Pod Crash | Crash pattern classification | LOW | `last_exit_code` (exists) | Static exit-code lookup table |
+| 1 — Pod Crash | Freeze vs crash discrimination | LOW | `is_process_alive()` + UDP silence (exists) | Combined condition check |
+| 2 — Billing | Stuck session cleanup | MEDIUM | `BillingSessionStatus`, `game_state` | Timer: game-gone + billing-active duration |
+| 2 — Billing | Idle drift guard | LOW | `DrivingState`, `drive_time_ms` | Flag at session-end: never-active check |
+| 2 — Billing | Cloud sync failure recovery | LOW | `cloud_sync.rs` retry loop (exists) | Failure counter (consecutive 30s cycles) |
+| 2 — Billing | Billing tick gap detection | LOW | `BillingTick` messages (exists) | Last-tick timestamp per pod |
+| 2 — Billing | Orphaned session on restart | MEDIUM | `StartupReport` (exists) | Carry `billing_session_id` in startup report |
+| 3 — Network | WS drop repair | LOW | `HeartbeatEvent::CoreDead` (exists) | Verify main.rs wiring is complete |
+| 3 — Network | HTTP endpoint retry | LOW | `reqwest`, `EscalatingBackoff` (exists) | Apply existing backoff to rc-agent HTTP calls |
+| 3 — Network | IP drift fallback | LOW | Config (exists) | Fallback IP list in toml config |
+| 3 — Network | WS reconnect jitter | LOW | Pod number from config (exists) | Jitter formula: `base + pod_num * 500ms` |
+| 4 — USB | USB disconnect alert | LOW | `DrivingDetector.is_hid_connected()` (exists) | Alert path on mid-session disconnect flip |
+| 4 — USB | FFB zero on session end | LOW | `FfbController::zero_force()` (exists) | Wire into session-end handler |
+| 4 — USB | FFB zero on game crash | LOW | `FfbController::zero_force()` (exists) | Wire into `GameCrashed` handler |
+| 4 — USB | USB re-enumeration probe | MEDIUM | `hidapi::HidApi` (exists) | Re-scan loop with 10s delay |
+| 4 — USB | Consecutive disconnect counting | LOW | USB disconnect alert (new above) | `disconnect_count` per billing session |
+| 5 — Launch | Launch timeout detection | LOW | `launched_at` in `GameLaunchInfo` (exists) | 90s timeout check in game monitor loop |
+| 5 — Launch | CM hang kill + fallback | LOW | `LaunchDiagnostics.cm_attempted` (exists) | CM process name scan + taskkill |
+| 5 — Launch | Immediate exit detection | LOW | `last_exit_code` (exists) | 5s post-spawn exit check |
+| 5 — Launch | Pre-launch dialog clearance | LOW | `DIALOG_PROCESSES` list in ac_launcher.rs (exists) | Move dialog kill before launch, not only after crash |
+| 5 — Launch | CM log extraction | LOW | `LaunchDiagnostics.cm_log_errors` field (exists) | File read from known CM log path |
+| 5 — Launch | race.ini pre-launch validation | MEDIUM | `content_scanner.rs` (exists) | Cross-reference track/car paths before write |
+| 6 — Telemetry | Game-state-aware silence | LOW | `AcStatus` (exists) | Silence timer gated on `AcStatus::Live` |
+| 6 — Telemetry | Partial data flagging | LOW | `persist_lap` suspect logic (exists) | Partial-frame detection in sim adapters |
+| 6 — Telemetry | Corrupted packet counter | LOW | `parse_frame()` returns `Option` (exists) | Drop counter + rate check per pod |
+| 6 — Telemetry | Port bind failure reporting | LOW | UDP socket bind (exists) | Capture error, surface via `StartupReport` |
+| 7 — Multiplayer | AC server disconnect (all-pods) | LOW | `GameStatusUpdate` per pod (exists) | Cross-pod status comparison on server side |
+| 7 — Multiplayer | Server reachability pre-check | LOW | `ac_server.rs` (exists) | HTTP GET before multiplayer launch |
+| 7 — Multiplayer | Single pod desync detection | LOW | `AcStatus` per pod (exists) | Divergence: one pod Off, others Live |
+| 7 — Multiplayer | Desync timeline logging | LOW | `GameStatusUpdate` timestamps (exists) | Timestamp comparison — no new state |
+| 8 — PIN | PIN fail count tracking | LOW | `PinEntered` (exists), `pin_error` field (exists) | Failure counter per pod in agent state |
+| 8 — PIN | Session token expiry detection | LOW | `ShowPinLockScreen.allocated_seconds` (exists) | Age check from display time |
+| 8 — PIN | PIN lockout auto-reset | LOW | Failure counter (above) | Timer reset after 5 min |
+| 8 — PIN | QR soft alert (120s) | LOW | `ShowQrLockScreen` timestamp | Duration check in lock screen state |
+| 9 — Laps | Zero-time rejection | LOW | `persist_lap` check (EXISTS, done) | None |
+| 9 — Laps | Sub-minimum rejection (global) | LOW | `sanity_ok` in `persist_lap` (EXISTS, done) | None |
+| 9 — Laps | Sector sum mismatch | LOW | `sector_sum_ok` in `persist_lap` (EXISTS, done) | None |
+| 9 — Laps | Invalid flag wiring (F1 + AC) | LOW | `TelemetryFrame.current_lap_invalid` (EXISTS) | Wire in sim adapters to set `valid = false` |
+| 9 — Laps | Per-track minimum lap time | MEDIUM | Track catalog (exists) | `min_lap_ms` field in catalog entries |
+| 9 — Laps | Statistical outlier detection | MEDIUM | Session lap history in DB | 3x session-average query + comparison |
+| 9 — Laps | Hotlap vs Practice classification | LOW | `SessionType` enum (EXISTS), `session_id` link (EXISTS) | Route `persist_lap` based on `session_type` |
 
 ---
 
 ## MVP Definition
 
-This is v4.0 on an already-shipped product. "MVP" means: minimum set that eliminates
-the five root causes of the Mar 15 4-hour outage.
+### Must Have for v5.0 Bot to Be Useful
 
-### Launch With (v4.0 Core — eliminates Mar 15 root causes)
+These are the patterns staff must perform manually today. The bot eliminates them.
 
-- [ ] **Windows Service wrapper** — Eliminates root cause #4 (no crash restart). HKLM Run key survives reboots, not crashes. Service failure actions restart the process. LOW complexity, HIGH urgency.
-- [ ] **Firewall auto-configuration in Rust** — Eliminates root cause #2 and #3 (CRLF-damaged batch file silently broke firewall rules). LOW complexity, HIGH urgency.
-- [ ] **Config self-heal at startup** — Eliminates root cause #3 broadly (missing/corrupted files). Detect and repair on every startup. MEDIUM complexity, HIGH urgency.
-- [ ] **Startup error reporting** — Eliminates root cause #5 partially (no remote diagnostics on crash). Report phase + error before exit. MEDIUM complexity.
-- [ ] **WebSocket exec (request/response with request_id)** — Eliminates root cause #5 fully (management fails when HTTP blocked). MEDIUM complexity. Requires protocol changes in rc-common.
+- [ ] **UDP silence timeout -> crash detection** — Without this, staff do not know a game froze until a customer complains.
+- [ ] **WerFault dismiss (deterministic path)** — Currently wired only through AI path; make it fire on every crash.
+- [ ] **FFB zero on session end / game crash** — Safety requirement. Physical hazard if skipped.
+- [ ] **Stuck session cleanup** — Billing staying active after game exit charges customers unfairly.
+- [ ] **Launch timeout + CM hang kill** — Staff currently walk to pod when launch hangs. Bot eliminates most of these.
+- [ ] **PIN fail count + lockout message** — Customers stranded at lock screen without this.
+- [ ] **Invalid flag from game wiring** (F1 + AC adapters) — Without this, invalid laps (cuts, crashes) enter the leaderboard.
+- [ ] **Game-state-aware telemetry silence alerting** — Must use `AcStatus::Live` gate to avoid noise alerts from in-menu silence.
 
-### Add After Core (v4.0 Phase 2 — operational visibility)
+### Add After Validation
 
-- [ ] **Deploy rollback on 60s health gate failure** — Prevents bad deploys from leaving pods offline. Requires prev-binary pattern + rollback trigger. MEDIUM complexity.
-- [ ] **Agent version in heartbeat and dashboard** — Verifies all 8 pods actually updated after deploy. LOW complexity. Required for next item to be useful.
-- [ ] **Fleet health dashboard for Uday's phone** — Single-screen ops view. Real-time pod status, uptime, last crash, version. MEDIUM complexity for new Next.js route.
+- [ ] **Per-track minimum lap time** — After catalog has `min_lap_ms` data populated for each track.
+- [ ] **Statistical outlier detection** — After enough lap history accumulated per track (needs data volume).
+- [ ] **WS reconnect jitter** — Add when pod count grows or reconnect storms observed in practice.
+- [ ] **CM log extraction** — After CM launch failures are logged and the log path confirmed on all pods.
+- [ ] **AC server reachability pre-check** — After multiplayer sessions become regular enough to justify the check overhead.
 
-### Future Consideration (v5.0)
+### Future Consideration
 
-- [ ] **WebSocket exec output streaming** — Improves DX for long-running commands. HIGH complexity. Defer until request/response exec is stable.
-- [ ] **Pod uptime trend (7-day heatmap)** — Nice to have history. New DB table + UI. Defer until fleet is stable.
-- [ ] **Exec slot visibility in dashboard** — Diagnostic tool for slot exhaustion debugging. LOW complexity but LOW urgency post-v4.0.
+- [ ] **USB re-enumeration auto-reconnect** — Needs field testing; USB re-enum behavior varies by Windows build.
+- [ ] **Multiplayer auto-rejoin** — Only buildable if AC server session token is accessible to rc-agent.
+- [ ] **Billing tick gap local pause** — Edge case; validate real impact before building.
 
 ---
 
 ## Feature Prioritization Matrix
 
-| Feature | Ops Value | Implementation Cost | Priority |
-|---------|-----------|---------------------|----------|
-| Windows Service wrapper | HIGH — eliminates no-crash-restart | LOW — shawl/sc.exe, no rc-agent code change | P1 |
-| Firewall auto-config in Rust | HIGH — eliminates CRLF failure mode | LOW — 20 lines Rust, idempotent netsh calls | P1 |
-| Config self-heal at startup | HIGH — eliminates silent missing-file failures | MEDIUM — file checks, template embedding, winreg | P1 |
-| Startup error reporting | HIGH — silent crash becomes visible alert | MEDIUM — pre-exit HTTP POST + file fallback | P1 |
-| WebSocket exec (request/response) | HIGH — management works when HTTP blocked | MEDIUM — protocol changes, handler in both crates | P1 |
-| Deploy rollback | HIGH — bad deploy auto-reverses on canary | MEDIUM — prev-binary + rollback trigger | P2 |
-| Agent version in heartbeat | MEDIUM — verifies deploy success fleet-wide | LOW — 1 field in PodInfo struct | P2 |
-| Fleet health dashboard | HIGH — Uday sees status from phone | MEDIUM — new Next.js route, 2 new PodInfo fields | P2 |
-| Exec slot visibility | MEDIUM — diagnose slot exhaustion | LOW — extend /health endpoint | P2 |
-| WebSocket exec streaming | LOW — DX improvement | HIGH — buffering, ordering, backpressure | P3 |
-| Pod uptime trend | LOW — historical ops data | MEDIUM — new DB table + chart | P3 |
-
-**Priority key:**
-- P1: Must have for v4.0 — directly eliminates Mar 15 root causes
-- P2: Should ship in v4.0 — adds operational visibility and resilience
-- P3: Defer to v5.0 — nice to have, not stability-critical
-
----
-
-## Capability Deep-Dive
-
-### 1. Service Crash Recovery on Windows
-
-**What ops teams expect:** Windows Service failure actions are standard. The SCM supports up to three failure actions: first failure, second failure, and subsequent failures. Each action can be: restart service (most common), run a program, or restart computer. The reset period determines how long before the failure count resets to 0.
-
-**Industry standard configuration for a critical service:**
-```
-sc.exe failure RCAgent reset=3600 actions=restart/5000/restart/30000/restart/60000
-```
-Translation: restart after 5s on first failure, 30s on second, 60s on third. Reset failure count after 3600s (1 hour of stability).
-
-**Options ranked by fit for this project:**
-1. **shawl** (Rust, MIT, mtkennerly/shawl, v1.7.0 Jan 2025) — wraps any exe as a Windows service, handles ctrl-C/SIGTERM. Best fit: no rc-agent code changes, actively maintained, Rust-native. ~2MB binary added to pod-deploy kit.
-2. **WinSW** (Java-based, XML config, v2.12 2023) — actively maintained but requires JRE on pods. Pods may not have Java. Worse fit.
-3. **NSSM** (C, last release 2017, abandoned) — stable but unmaintained. No future security patches. Worse fit.
-4. **windows-service crate in rc-agent** — write SCM dispatcher natively. Conflicts with Session 1 GUI requirement (services run Session 0). Highest complexity, worst fit.
-
-**Session 0/Session 1 note:** Windows Services run in Session 0 (no GUI). rc-agent has a lock screen window (GUI, Session 1). The hybrid works: shawl is the service (Session 0, handles SCM), the existing HKLM Run key starts rc-agent in Session 1 at first user login. On crash, shawl restarts rc-agent as... a console process in Session 0 (no window). This is a known limitation of the hybrid approach — the restart gets GUI only after the next user logout/login cycle. **Mitigation:** shawl can be configured to spawn the process into the active user session using `--pass-start-args`. This requires evaluation. Alternative: if the service wrapper cannot reliably restart in Session 1, a separate watchdog that monitors the Session 1 process is the fallback.
-
-**Complexity:** LOW for service install and failure actions. MEDIUM if Session 1 restart is required (needs testing with shawl's session flags).
-
-### 2. Remote Exec over WebSocket
-
-**What ops teams expect:** Management channels stay operational even when managed nodes have network issues. Kubernetes `kubectl exec`, AWS SSM Session Manager, and Ansible over SSH all route commands through existing authenticated channels rather than opening new ports.
-
-**Protocol design:**
-```rust
-// Add to CoreToAgentMessage:
-Exec {
-    request_id: String,   // UUID, generated by racecontrol
-    cmd: String,          // Command string (same as HTTP /exec)
-    timeout_ms: u64,      // Default 10000, overridable
-}
-
-// Add to AgentMessage:
-ExecResult {
-    request_id: String,   // Echoed back for correlation
-    success: bool,
-    exit_code: Option<i32>,
-    stdout: String,
-    stderr: String,
-}
-```
-
-**racecontrol side:** Maintain a `HashMap<String, oneshot::Sender<ExecResult>>` per pod in AppState. When Exec is sent, insert a pending entry. When ExecResult arrives from the agent, look up and resolve the sender. If timeout elapses without ExecResult, remove from map and return timeout error to caller.
-
-**rc-agent side:** Receive Exec in the CoreToAgentMessage handler. Execute using the same logic as `remote_ops.rs::exec_command` (same semaphore, same CREATE_NO_WINDOW, same timeout). Send ExecResult back via the WebSocket sender.
-
-**Timeout handling:** Agent-side timeout is `timeout_ms`. Client-side timeout in racecontrol is `timeout_ms + 5000ms` (buffer for network RTT). If client timeout fires, ExecResult may still arrive — discard it (no pending entry in map).
-
-**Streaming deferral rationale:** Streaming stdout line-by-line requires: partial line buffering in the agent, ordered delivery guarantees (WebSocket does NOT guarantee message ordering under reconnection), backpressure if the dashboard consumer is slow, and cleanup if the dashboard disconnects mid-stream. This is a separate feature with 3x the complexity of request/response. Start with request/response for v4.0.
-
-**Complexity:** MEDIUM. Protocol changes require both crates rebuilt. Execution logic is a copy of existing code. Main risk: reconnection during a pending Exec (the response arrives on a new WebSocket connection after reconnect). Mitigation: pending requests time out on the racecontrol side; the agent retries nothing (fire and forget on the agent's end).
-
-### 3. Self-Healing Configuration
-
-**What ops teams expect:** Configuration management tools (Chef, Puppet, Ansible) run on every startup and converge the system to desired state. The expectation is not "config is correct" but "if config is wrong, it will be corrected." This is idempotent desired-state enforcement.
-
-**What to check on every rc-agent startup (before WebSocket connect):**
-
-| Check | Method | Repair |
-|-------|--------|--------|
-| `C:\RacingPoint\rc-agent-podN.toml` exists | `fs::metadata()` | Write from embedded template, then exit with error (need pod number to generate correct config — this is a one-time setup) |
-| TOML parses without error | `toml::from_str()` | If parse fails, rename to `.bak`, write from embedded template, log anomaly |
-| `start-rcagent.bat` exists and is LF-terminated | `fs::read()` + scan for 0x0D 0x0A | If CRLF detected, rewrite with LF. This was the Mar 15 root cause. |
-| HKLM Run key `RCAgent` exists with correct path | `winreg::RegKey::open_subkey()` | Write via `RegKey::set_value()`. Requires SYSTEM context (satisfied by service wrapper). |
-| Firewall rule TCP 8090 exists | `netsh advfirewall firewall show rule name="RCAgent-RemoteOps"` | `netsh advfirewall firewall add rule ...` |
-| Firewall rule ICMP echo exists | Same pattern | Same repair |
-
-**Embedded templates:** Use `include_str!()` for bat file template. TOML template cannot embed pod number — if toml is missing, report anomaly and continue with defaults (do not exit). The bat file template is universal across all pods.
-
-**Anomaly reporting:** Send `AgentMessage::StartupReport { pod_id, anomalies: Vec<String>, repairs: Vec<String> }` once WebSocket connected. racecontrol persists this and displays in fleet dashboard as a warning badge on the pod card.
-
-**Complexity:** MEDIUM. Requires: `winreg` crate (check if already in dependency tree — it may be via registry-based pod lockdown code), embedded templates, structured startup phase enum. No new async complexity.
-
-### 4. Deployment Rollback
-
-**What ops teams expect:** Canary deployments are only meaningful if failure stops the rollout and reverses the canary. Kubernetes stops a rolling deployment when readiness probes fail. AWS CodeDeploy rolls back on alarm. The pattern is universal: health gate → pass/fail → proceed or revert.
-
-**Two-part implementation:**
-
-**Part A — Modified do-swap.bat** (runs on the pod):
-```batch
-:: Before killing current binary, preserve it as prev
-if exist C:\RacingPoint\rc-agent.exe (
-    copy /Y C:\RacingPoint\rc-agent.exe C:\RacingPoint\rc-agent-prev.exe
-)
-:: Existing swap logic follows...
-```
-
-**Part B — racecontrol rollback trigger** (in deploy.rs, at 60s health gate):
-If the 60s check fails:
-1. Log rollback trigger with reason
-2. Send `CoreToAgentMessage::Exec` with rollback command: `copy /Y C:\RacingPoint\rc-agent-prev.exe C:\RacingPoint\rc-agent.exe && taskkill /F /IM rc-agent.exe && start "" C:\RacingPoint\start-rcagent.bat`
-3. Wait 30s, re-run health check
-4. If rollback succeeds: update DeployState to `RolledBack`, send email alert
-5. If rollback fails: update DeployState to `RollbackFailed`, send critical alert
-
-**Fleet rollback gate:** If Pod 8 (canary) rolls back, abort the fleet deploy. Do not proceed to pods 1-7. This requires pod 8 to be explicitly tracked as canary in the deploy sequence (it already is by convention — make it explicit in code).
-
-**Complexity:** MEDIUM. Two independent pieces: bat file modification (simple, LOW) and racecontrol rollback branch (MEDIUM — depends on WebSocket exec being available when HTTP is down).
-
-### 5. Fleet Health Dashboard
-
-**What ops teams expect:** Any ops dashboard for a device fleet shows: device identifier, online/offline status, uptime, software version, last-seen timestamp, and recent error count. This is the minimum for an ops person to triage "what is broken and why" without SSH access. Fleet management tools (Geotab, Lytx, Verizon Connect) all show this as their primary view.
-
-**For Uday's phone specifically:**
-- Mobile-first card layout (not a table — tables scroll awkwardly on phones)
-- 8 pod cards in a 2-column grid
-- Per-card: pod number, status color, game state, uptime, agent version, last restart time
-- Summary row: "X/8 pods online" at top
-- 10-second auto-refresh (or WebSocket push via existing DashboardEvent)
-- Tap a pod card to see: recent anomalies, startup reports, exec slot status
-
-**Alert thresholds (based on fleet management norms):**
-| Threshold | Indicator | Rationale |
-|-----------|-----------|-----------|
-| Pod offline > 5 minutes | RED | A pod offline during business hours needs immediate attention |
-| Pod restarted in last 15 min | YELLOW | Recent crash is a warning signal even if now healthy |
-| Agent version mismatch after deploy | YELLOW | Deploy succeeded partially — some pods still on old version |
-| Exec slot held > 30s | YELLOW | A command is stuck; no new commands can run once all 4 slots fill |
-| Pod in RecoveryFailed state | RED | watchdog gave up trying to restart — needs human |
-| Startup anomalies reported | YELLOW | Config was corrupted and repaired — investigate root cause |
-
-**New fields needed in PodInfo (rc-common types.rs):**
-- `agent_version: Option<String>` — populated from `CARGO_PKG_VERSION` in rc-agent
-- `last_restart_time: Option<DateTime<Utc>>` — set by pod_monitor.rs when watchdog restarts
-- `last_crash_time: Option<DateTime<Utc>>` — set by pod_monitor.rs on crash detection
-- `startup_anomalies: Vec<String>` — last startup report
-
-**Complexity:** MEDIUM for the Next.js dashboard route. LOW for the PodInfo field additions. The main work is design: making 8 pod cards usable on a 390px wide phone screen.
+| Fix Pattern | Staff Relief Value | Implementation Cost | Priority |
+|-------------|-------------------|---------------------|----------|
+| UDP silence crash detection | HIGH | LOW | P1 |
+| WerFault dismiss (deterministic path) | HIGH | LOW | P1 |
+| FFB zero on session end and crash | HIGH (safety) | LOW | P1 |
+| Stuck session cleanup | HIGH | MEDIUM | P1 |
+| Launch timeout + CM hang kill | HIGH | LOW | P1 |
+| PIN fail count + lockout | HIGH | LOW | P1 |
+| Invalid flag wiring (F1 + AC) | HIGH | LOW | P1 |
+| Game-state-aware telemetry silence | HIGH | LOW | P1 |
+| USB disconnect alert | MEDIUM | LOW | P2 |
+| Cloud sync failure recovery | MEDIUM | LOW | P2 |
+| IP drift fallback config | MEDIUM | LOW | P2 |
+| Pre-launch dialog clearance | MEDIUM | LOW | P2 |
+| Crash pattern classification | LOW | LOW | P2 |
+| Freeze vs crash discrimination | MEDIUM | LOW | P2 |
+| Per-track minimum lap time | MEDIUM | MEDIUM | P2 |
+| CM log extraction | LOW | LOW | P2 |
+| race.ini pre-launch validation | MEDIUM | MEDIUM | P2 |
+| AC server reachability pre-check | MEDIUM | LOW | P2 |
+| Single pod desync detection | MEDIUM | LOW | P2 |
+| Hotlap vs Practice classification | MEDIUM | LOW | P2 |
+| Statistical outlier detection | LOW | MEDIUM | P3 |
+| USB re-enumeration auto-reconnect | LOW | MEDIUM | P3 |
+| WS reconnect storm prevention | LOW | LOW | P3 |
+| Billing tick gap local pause | LOW | LOW | P3 |
+| QR soft alert (120s) | LOW | LOW | P3 |
+| PIN lockout auto-reset (5min) | LOW | LOW | P3 |
 
 ---
 
 ## Sources
 
-- Windows Service failure actions: [sc failure — Microsoft Learn](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/cc742019(v=ws.11))
-- Windows Service recovery configuration: [Understanding Windows Services Recovery — ServerBrain](https://www.serverbrain.org/system-administration/understanding-windows-services-recovery-features.html)
-- shawl (Rust service wrapper, v1.7.0): [mtkennerly/shawl — GitHub](https://github.com/mtkennerly/shawl)
-- NSSM vs WinSW vs shawl comparison: [Servy vs NSSM vs WinSW — DEV Community](https://dev.to/aelassas/servy-vs-nssm-vs-winsw-2k46)
-- windows-service crate (mullvad): [docs.rs/windows-service](https://docs.rs/windows-service/latest/windows_service/)
-- WebSocket exec pattern (Kubernetes): [WebSocket exec in Kubernetes pods — Jason Stitt](https://jasonstitt.com/websocket-kubernetes-exec)
-- Health check implementation patterns: [Implementing health checks — AWS Builders Library](https://aws.amazon.com/builders-library/implementing-health-checks/)
-- Self-healing architecture: [Azure Well-Architected — Self-preservation strategies](https://learn.microsoft.com/en-us/azure/well-architected/reliability/self-preservation)
-- Automated rollback on health check failure: [Automated Rollback Procedures — OneUptime (2026)](https://oneuptime.com/blog/post/2026-02-09-automated-rollback-health-failures/view)
-- Canary deployment patterns: [Canary Deployments — Netdata](https://www.netdata.cloud/academy/canary-deployment/)
-- Fleet health dashboard table stakes: [Fleet Management Dashboard — PCS Software](https://pcssoft.com/blog/fleet-management-dashboard/)
-- Self-healing device fleet patterns: [Self-Healing Devices — Radix International](https://radix-int.com/self-healing-devices-future-intelligent-fleet-management/)
-- Existing codebase analyzed: `crates/rc-agent/src/remote_ops.rs`, `crates/racecontrol/src/deploy.rs`, `crates/racecontrol/src/pod_monitor.rs`, `crates/rc-common/src/protocol.rs`, `.planning/PROJECT.md`
+- Direct codebase analysis: `ai_debugger.rs` (try_auto_fix, PodStateSnapshot, DebugMemory), `game_process.rs` (orphan cleanup, PID tracking, is_process_alive), `driving_detector.rs` (DetectorSignal, HID/UDP state), `lap_tracker.rs` (persist_lap, suspect logic), `ac_launcher.rs` (DIALOG_PROCESSES, DifficultyTier), `ffb_controller.rs` (CMD_ESTOP, zero_force), `lock_screen.rs` (LockScreenState, pin_error), `udp_heartbeat.rs` (HeartbeatEvent, sequence tracking), `types.rs` (BillingSessionStatus, GameState, AcStatus, LapData), `protocol.rs` (GameCrashed, FfbZeroed, PinEntered, StartupReport)
+- PROJECT.md v5.0 requirements section (2026-03-16)
+- ARCHITECTURE.md codebase map
+- MEMORY.md: venue context (8 pods, Conspit Ares VID:0x1209/PID:0xFFB0, AC + F1 25, server DHCP history)
 
 ---
-
-*Feature research for: RaceControl v4.0 Pod Fleet Self-Healing*
-*Researched: 2026-03-15*
+*Feature research for: RC Bot Expansion (v5.0), deterministic auto-fix patterns per failure class*
+*Researched: 2026-03-16*

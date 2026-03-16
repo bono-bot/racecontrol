@@ -1,649 +1,571 @@
 # Architecture Research
 
-**Domain:** Pod fleet self-healing — Windows Service, WebSocket exec, firewall auto-config, fleet dashboard
-**Researched:** 2026-03-15
-**Confidence:** HIGH — based on direct codebase inspection of rc-agent/main.rs, racecontrol/ws/mod.rs, racecontrol/deploy.rs, rc-common/protocol.rs, racecontrol/state.rs, remote_ops.rs, pod_monitor.rs, and all kiosk/web TSX pages
+**Domain:** AI auto-fix bot expansion — RC Bot v5.0 (9 new failure classes)
+**Researched:** 2026-03-16
+**Confidence:** HIGH — based on direct inspection of ai_debugger.rs, self_monitor.rs, game_process.rs, udp_heartbeat.rs, protocol.rs, types.rs, pod_monitor.rs, and PROJECT.md
 
 ---
 
-## Existing System Map
+## System Overview
 
-Understanding what already exists is prerequisite to placing new code correctly.
-
-### Current Communication Paths
+### Current Bot Architecture (what exists)
 
 ```
-racecontrol (:8080)
+rc-agent (per pod, Windows 11)
   |
-  |-- /ws/agent   (WebSocket) <──────────────── rc-agent (pods, outbound connect)
-  |                                              sends: AgentMessage enum
-  |                                              receives: CoreToAgentMessage enum
+  |-- ai_debugger.rs
+  |     analyze_crash()         — Ollama/OpenRouter query, returns AiDebugSuggestion
+  |     try_auto_fix()          — keyword match on suggestion text -> fix handler
+  |     DebugMemory             — persisted pattern memory (C:\RacingPoint\debug-memory.json)
+  |     PodStateSnapshot        — pod context at crash time
   |
-  |-- /ws/kiosk   (WebSocket) <──────────────── kiosk Next.js (browser, outbound)
-  |-- /ws/dashboard (WebSocket) <──────────────── web Next.js (browser, outbound)
+  |-- self_monitor.rs           — background health check every 60s
+  |     count_close_wait_on_8090()  — netstat CLOSE_WAIT detection
+  |     ws_dead_secs check          — reconnect-loop exhaustion detection
+  |     relaunch_self()             — detached PowerShell process restart
   |
-  |-- HTTP REST   <──────────────── kiosk Next.js, web Next.js, PWA
+  |-- game_process.rs           — game PID lifecycle, orphan cleanup
+  |-- driving_detector.rs       — HID wheelbase input polling, DrivingState
+  |-- udp_heartbeat.rs          — UDP ping/pong, HeartbeatStatus atomics
   |
-racecontrol also connects OUT to:
-  |-- :8090/exec  (HTTP POST) ──────────────── rc-agent remote_ops.rs (inbound)
-  |-- :8090/write (HTTP POST) ──────────────── rc-agent remote_ops.rs
+  WebSocket (AgentMessage::AiDebugResult) --> racecontrol
 ```
 
-### Key AppState Fields (racecontrol/src/state.rs)
+**Existing fix handlers (all in ai_debugger.rs):**
 
-```
-agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreToAgentMessage>>>
-  — the WS send channel per pod. If pod disconnects, sender.is_closed() == true.
+| Fix Type | Trigger Keywords | What It Does |
+|----------|-----------------|-------------|
+| `clear_stale_sockets` | "close_wait" OR "zombie" OR "stale socket" | PowerShell kills PIDs with CLOSE_WAIT on ports 18923/18924/18925/8090 |
+| `kill_error_dialogs` | "werfault" OR "error dialog" OR "crash dialog" | `taskkill /IM WerFault.exe /F` |
+| `kill_stale_game` | "relaunch" + "game" OR "restart" + game exe | `taskkill /IM` for all known game EXEs |
+| `clean_temp` | "disk space" OR "temp files" OR "clean temp" | PowerShell removes `$env:TEMP\*` |
 
-pod_deploy_states: RwLock<HashMap<String, DeployState>>
-  — per-pod deploy lifecycle: Idle/Downloading/SizeCheck/Starting/VerifyingHealth/Complete/Failed/WaitingSession
-
-pending_deploys: RwLock<HashMap<String, String>>
-  — binary URL queued for pods with active billing sessions
-
-pod_watchdog_states: RwLock<HashMap<String, WatchdogState>>
-  — FSM: Healthy/Restarting/Verifying/RecoveryFailed
-```
-
-### Current CoreToAgentMessage Variants (rc-common/src/protocol.rs)
-
-Registered, StartSession, StopSession, Configure, BillingStarted, BillingStopped,
-SessionEnded, SubSessionEnded, LaunchGame, StopGame, ShowPinLockScreen,
-ShowQrLockScreen, ClearLockScreen, BlankScreen, BillingTick, ShowAssistanceScreen,
-EnterDebugMode, SetTransmission, SetFfb, PinFailed, SettingsUpdated,
-ShowPauseOverlay, HidePauseOverlay, Ping, SetAssist, SetFfbGain, QueryAssistState
-
-### Current AgentMessage Variants (rc-common/src/protocol.rs)
-
-Register, Heartbeat, Telemetry, LapCompleted, SessionUpdate, DrivingStateUpdate,
-Disconnect, GameStateUpdate, AiDebugResult, PinEntered, Pong, GameStatusUpdate,
-FfbZeroed, GameCrashed, ContentManifest, AssistChanged, FfbGainChanged, AssistState
-
-### Current deploy.rs exec path
-
-`exec_on_pod()` — HTTP POST to http://{pod_ip}:8090/exec — uses racecontrol's reqwest client.
-Every deploy step (download, size-check, self-swap, health-verify) goes through this function.
+**Pattern memory key:** `"{SimType}:{exit_code}"` — e.g. `"AssettoCorsa:-1"`. Instant re-apply on match.
 
 ---
 
-## Integration Architecture: 5 Specific Questions Answered
+## Recommended Architecture for v5.0
 
-### Q1: Windows Service Registration — NSSM wrapper vs ServiceMain in main.rs
-
-**Decision: NSSM wrapper. Do not touch main.rs for service registration.**
-
-**Rationale:**
-
-The `windows-service` crate requires restructuring `main()` into a `ServiceMain` callback and threading startup through `service_dispatcher::start()`. This is a substantial, high-risk rewrite of rc-agent's main.rs (470+ lines of carefully sequenced startup: single-instance mutex, logging, early lock screen, config load, FFB zero, etc.). Getting Session handling wrong corrupts the startup sequence.
-
-NSSM (Non-Sucking Service Manager) wraps the existing binary without any code change. rc-agent starts as-is, Session 0 isolation is handled by NSSM's `AppEnvironmentExtra` or the existing HKLM Run key hybrid approach.
-
-**Session 0 vs Session 1 implications:**
-
-This is the critical constraint. Windows Services run in Session 0 by default. Session 0 has no desktop — GUI calls (Edge browser for lock screen, game launch via Steam, overlay) all fail silently. The existing HKLM Run key approach solves this by starting rc-agent at user login (Session 1) but provides no crash restart.
-
-The correct hybrid for v4.0 is:
+### System Diagram After Expansion
 
 ```
-NSSM service (Session 0 aware):
-  - Installed as Windows Service with NSSM
-  - Configured with "Interact with Desktop" or type=own start=auto
-  - On pod login: HKLM Run key start-rcagent.bat already runs rc-agent in Session 1
-  - NSSM monitors the process started by start-rcagent.bat via process name matching
-  - NSSM restarts on exit code != 0 with backoff (3s, 10s, 30s)
+┌──────────────────────────────────────────────────────────────────┐
+│                  rc-agent (per pod, Windows 11)                   │
+│                                                                    │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │  failure_monitor.rs  (NEW — detection loop for 9 classes)   │  │
+│  │  Polls every 5-30s. Reads shared HeartbeatStatus + module   │  │
+│  │  state. Constructs synthetic suggestion strings, calls       │  │
+│  │  try_auto_fix(). Sends AgentMessage variants to server.      │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│          |                          |                              │
+│          v                          v                              │
+│  ┌────────────────┐    ┌────────────────────────────────────────┐ │
+│  │ ai_debugger.rs │    │ billing_guard.rs  (NEW)                │ │
+│  │ EXTEND:        │    │ Agent-side billing anomaly detection.  │ │
+│  │ - PodStateSnap │    │ Idle drift, stuck-WaitingForGame,      │ │
+│  │   shot fields  │    │ game-dead-billing-alive. Reports       │ │
+│  │ - try_auto_fix │    │ AgentMessage::BillingAnomaly.          │ │
+│  │   new arms     │    └────────────────────────────────────────┘ │
+│  │ - new fix fns  │                                               │
+│  └────────────────┘    ┌────────────────────────────────────────┐ │
+│                         │ lap_filter.rs  (NEW)                   │ │
+│  ┌─────────────────┐   │ Validates laps at capture time.        │ │
+│  │ self_monitor.rs │   │ Cuts, invalid speed, spin detection.   │ │
+│  │ EXISTING (keep) │   │ Emits valid=false + LapFlagged msg.    │ │
+│  └─────────────────┘   └────────────────────────────────────────┘ │
+│                                                                    │
+│  Shared state (HeartbeatStatus atomics):                           │
+│  ws_connected, game_running, billing_active, driving_active        │
+│  + NEW: udp_receiving, last_telemetry_ts, wheelbase_hid_error     │
+└─────────────────────────────┬────────────────────────────────────┘
+                               | WebSocket (AgentMessage enum)
+                               v
+┌──────────────────────────────────────────────────────────────────┐
+│                  racecontrol (server, port 8080)                   │
+│                                                                    │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │  bot_coordinator.rs  (NEW — fleet-level bot decisions)       │  │
+│  │  Receives: HardwareFailure, TelemetryGap, BillingAnomaly,   │  │
+│  │  LapFlagged, MultiplayerFailure, PinBotEvent                │  │
+│  │  Decides: StopSession vs email alert vs no-op               │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  pod_monitor.rs (EXISTING — unchanged)                             │
+│  billing.rs     (EXISTING — add stuck session recovery)           │
+│  multiplayer.rs (EXISTING — add desync detection hook)            │
+└──────────────────────────────────────────────────────────────────┘
+          |
+          v
+┌──────────────────────────────────────────────────────────────────┐
+│                rc-common (shared types + protocol)                 │
+│  EXTEND types.rs:     PodFailureReason enum (all 9 classes)       │
+│  EXTEND protocol.rs:  AgentMessage + 5 new variants               │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-However, NSSM monitoring a process started by another mechanism is unreliable. The cleaner v4.0 approach:
+### Component Responsibilities
 
-**Recommended: NSSM as crash-restart watchdog for start-rcagent.bat itself**
-
-```
-NSSM service wraps start-rcagent.bat (not rc-agent.exe directly)
-  - NSSM starts C:\RacingPoint\start-rcagent.bat as a service
-  - start-rcagent.bat uses `start /wait` to launch rc-agent in a new session
-  - NSSM detects bat exit and restarts it (restart window: 3s delay)
-  - GUI processes still run via the bat's session inheritance
-```
-
-This requires zero changes to rc-agent main.rs and is installable via pod-agent exec. New file: `crates/rc-agent/scripts/install-service.bat` — called by deploy.rs after binary deploy.
-
-**Where the code goes:**
-- New file: `deploy-staging/install-service.bat` — NSSM install commands
-- Modified: `deploy.rs` — add post-deploy service registration step
-- No changes to main.rs
+| Component | Responsibility | Crate | Status |
+|-----------|----------------|-------|--------|
+| `ai_debugger.rs` | Keyword-dispatch fix handlers, DebugMemory pattern learning, Ollama/OpenRouter queries | rc-agent | MODIFY |
+| `self_monitor.rs` | CLOSE_WAIT flood + WS dead -> relaunch | rc-agent | KEEP (no change) |
+| `failure_monitor.rs` | Detection loop for all 9 new failure classes. Single place for all timing-based checks. | rc-agent | NEW |
+| `billing_guard.rs` | Agent-side billing anomaly detection (idle drift, stuck WaitingForGame, game-dead-billing-alive) | rc-agent | NEW |
+| `lap_filter.rs` | Invalid lap detection at UDP capture time (cuts, speed, spin) | rc-agent | NEW |
+| `bot_coordinator.rs` | Server-side fleet decisions: billing recovery, multiplayer teardown, PIN unlock, sync failure alerts | racecontrol | NEW |
+| `pod_monitor.rs` | Heartbeat checker, WatchdogState FSM, escalating backoff | racecontrol | EXISTING (no change) |
+| `billing.rs` | BillingSession lifecycle — add `recover_stuck_session()` helper | racecontrol | MINOR MODIFY |
+| `protocol.rs` | Wire format — add 5 new AgentMessage variants + PodFailureReason | rc-common | MODIFY |
+| `types.rs` | Domain types — add PodFailureReason enum | rc-common | MODIFY |
 
 ---
 
-### Q2: Adding Exec Variant to CoreToAgentMessage — Backward Compatibility
+## Recommended Project Structure Changes
 
-**Decision: Add `Exec` and `ExecResult` as new enum variants with `#[serde(other)]` unknown-variant handling on the agent side.**
+```
+crates/rc-common/src/
+├── types.rs            MODIFY: add PodFailureReason enum
+├── protocol.rs         MODIFY: add AgentMessage variants (5 new)
+└── lib.rs              no change
 
-**Existing serde config:**
+crates/rc-agent/src/
+├── ai_debugger.rs      MODIFY: extend PodStateSnapshot + try_auto_fix() arms + fix fns
+├── self_monitor.rs     no change (existing WS/CLOSE_WAIT logic stays)
+├── game_process.rs     MINOR: expose launch_elapsed_secs to failure_monitor
+├── driving_detector.rs MINOR: expose last_hid_error: Option<String>
+├── failure_monitor.rs  NEW: detection loop (7 agent-side failure classes)
+├── billing_guard.rs    NEW: billing anomaly detection (3 billing classes)
+├── lap_filter.rs       NEW: invalid lap detection
+└── main.rs             MODIFY: spawn failure_monitor, billing_guard tasks
+
+crates/racecontrol/src/
+├── bot_coordinator.rs  NEW: handles new AgentMessage variants
+├── ws/mod.rs           MODIFY: route new AgentMessage variants to bot_coordinator
+├── billing.rs          MINOR: add recover_stuck_session()
+└── multiplayer.rs      MINOR: expose desync state to bot_coordinator
+```
+
+---
+
+## Architectural Patterns
+
+### Pattern 1: PodFailureReason in rc-common — the Central Taxonomy
+
+**What:** Add `PodFailureReason` enum to `rc-common/src/types.rs` as the shared vocabulary for all failure classes. Both detection code (agent) and handling code (server) reference the same variants.
+
+**When to use:** Every new failure class gets a variant here first, before any detection or fix code is written.
+
+**Trade-offs:** Forces deliberate naming before implementation. rc-common compiles first — any change here breaks both consuming crates until they handle new variants. Accept this: it's the right forcing function to keep the taxonomy stable.
+
+**Recommended enum:**
 
 ```rust
-#[serde(tag = "type", content = "data")]
+// rc-common/src/types.rs — ADD
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CoreToAgentMessage { ... }
+pub enum PodFailureReason {
+    // Crash/hang class (agent-side fix)
+    GameFrozen,
+    AgentStuck,
+    ProcessHung,
+    // Billing edge cases (server-side recovery)
+    SessionStuckWaitingForGame,
+    IdleBillingDrift,
+    CreditSyncFailed,
+    // Network/connection (self_monitor handles WS dead already)
+    WsLost,          // reserved — self_monitor.rs handles this already
+    IpDrifted,       // server-side diagnosis only
+    // Hardware (agent-side fix)
+    WheelbaseDisconnected,
+    FfbFault,
+    // Game launch (agent-side fix)
+    ContentManagerHang,
+    LaunchTimeout,
+    // Telemetry (agent reports, server alerts)
+    UdpDataMissing,
+    TelemetryInvalid,
+    // Multiplayer (server-side coordination)
+    MultiplayerDesync,
+    MultiplayerServerDisconnect,
+    // Kiosk/PIN (server routes to agent)
+    PinValidationFailed,
+    StaffUnlockNeeded,
+    // Lap filtering (agent flags, server stores)
+    LapCut,
+    LapInvalidSpeed,
+    LapSpin,
+}
 ```
 
-With `serde(tag = "type")`, unknown variants cause a deserialization error by default. Old agents (pre-v4.0) receiving an `Exec` message would crash the deserialization, causing the WebSocket loop to log an error and discard the message. This is acceptable since deploy happens before the exec path is used.
+### Pattern 2: New AgentMessage Variants (5 needed)
 
-However, for maximum safety during rolling deploy (when some pods are on old binary):
+**What:** Add variants to `AgentMessage` in `protocol.rs` for each agent-to-server signal that doesn't fit existing variants. Use existing `AiDebugResult` for crash/hang results. Only add what's new.
 
-**Pattern: Add `UnknownCommand` catch-all variant**
+**When to use:** When the agent needs to tell the server about a failure class that has no existing representation.
 
-```rust
-/// Catch-all for unknown commands — allows old agents to ignore new variants gracefully.
-#[serde(other)]
-UnknownCommand,
-```
+**Trade-offs:** Adding variants with `#[serde(tag = "type")]` is backward compatible — old server ignores unknown `type` values. New server + old agent just means the variant is never sent. This is safe for rolling deploy.
 
-`#[serde(other)]` on an enum variant requires the variant to be a unit variant (no data). With `serde(tag = "type", content = "data")`, this works for the type discriminant. The old agent receives `{"type": "exec", "data": {...}}`, maps to `UnknownCommand`, and the main.rs match arm ignores it.
-
-**New protocol additions (rc-common/src/protocol.rs):**
+**New variants to add:**
 
 ```rust
-// In CoreToAgentMessage:
-/// Remote shell exec via WebSocket — fallback when HTTP :8090 is blocked by firewall.
-/// Core sends this; agent runs cmd /C and sends back ExecResult.
-Exec {
-    request_id: String,  // UUID — matches response to request
-    cmd: String,
-    timeout_ms: u64,
+// rc-common/src/protocol.rs — ADD to AgentMessage
+
+/// Agent detected a hardware failure (USB disconnect, FFB fault)
+HardwareFailure {
+    pod_id: String,
+    reason: PodFailureReason,
+    detail: String,
 },
 
-// In AgentMessage:
-/// Response to CoreToAgentMessage::Exec
-ExecResult {
-    request_id: String,  // matches the Exec request_id
-    success: bool,
-    exit_code: Option<i32>,
-    stdout: String,
-    stderr: String,
+/// Agent detected telemetry gap (no UDP data for N seconds while game running)
+TelemetryGap {
+    pod_id: String,
+    sim_type: SimType,
+    gap_seconds: u32,
+},
+
+/// Agent detected billing anomaly (stuck session, idle drift, game dead + billing alive)
+BillingAnomaly {
+    pod_id: String,
+    billing_session_id: String,
+    reason: PodFailureReason,
+    detail: String,
+},
+
+/// Agent flagged an invalid lap at capture time
+LapFlagged {
+    pod_id: String,
+    lap_id: String,
+    reason: PodFailureReason,
+    detail: String,
+},
+
+/// Agent detected multiplayer session issue (desync or server disconnect)
+MultiplayerFailure {
+    pod_id: String,
+    reason: PodFailureReason,
+    session_id: Option<String>,
 },
 ```
 
-**Where the handling code goes:**
+### Pattern 3: try_auto_fix() Extension — Arms Only, No Restructure
 
-Agent side (rc-agent/src/main.rs — the WS receive select arm that already handles `CoreToAgentMessage`):
-- Add arm for `CoreToAgentMessage::Exec` — spawn a blocking task, run `cmd /C`, send `AgentMessage::ExecResult` back over `ws_tx`.
-- The existing `exec_command()` logic in remote_ops.rs is reusable as a pure function — extract the command execution core into a shared helper in rc-agent.
+**What:** The existing `try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot)` is a keyword-dispatch function. New failure classes add new match arms. The function signature does not change.
 
-Core side (racecontrol/src/ws/mod.rs — the `handle_agent` function that receives `AgentMessage`):
-- Add arm for `AgentMessage::ExecResult` — forward result to a `pending_exec_requests` map (oneshot channel per request_id).
+**When to use:** Every pod-side fix that can be triggered by a keyword in the AI suggestion OR a synthetic suggestion string from `failure_monitor.rs`.
 
-**New AppState field needed:**
+**Trade-offs:** The `suggestion: &str` indirection exists so that DebugMemory learning works for both AI-triggered and detection-triggered fixes. Keeping this consistent means pattern memory learns from both sources. Do not add a parallel dispatch path that bypasses suggestion text.
 
-```rust
-// racecontrol/src/state.rs
-pub pending_ws_execs: RwLock<HashMap<String, tokio::sync::oneshot::Sender<ExecResult>>>
-```
-
-**New helper function in deploy.rs:**
+**How to add new arms (order matters — put specific before general):**
 
 ```rust
-/// Execute command on pod via WebSocket (fallback when HTTP :8090 blocked).
-/// Falls back to HTTP exec if WS channel not available.
-async fn exec_on_pod_ws(
-    state: &Arc<AppState>,
-    pod_id: &str,
-    cmd: &str,
-    timeout_ms: u64,
-) -> Result<(bool, String, String), String>
-```
+// In try_auto_fix() — ADD before final None return
 
-Deploy.rs already has `exec_on_pod()` for HTTP. The WS variant sends `CoreToAgentMessage::Exec` to `agent_senders`, registers a oneshot receiver in `pending_ws_execs`, and awaits with timeout.
+// USB wheelbase reset
+if lower.contains("wheelbase") && lower.contains("usb reset") {
+    return Some(fix_usb_reset(snapshot));
+}
 
----
+// Content Manager hang
+if lower.contains("content manager") && (lower.contains("hang") || lower.contains("kill cm")) {
+    return Some(fix_kill_content_manager());
+}
 
-### Q3: Firewall Auto-Configuration — Startup in main.rs vs Separate Module
+// Launch timeout — kill and signal for relaunch
+if lower.contains("launch timeout") || (lower.contains("acs.exe") && lower.contains("timeout")) {
+    return Some(fix_launch_timeout(snapshot));
+}
 
-**Decision: New module `rc-agent/src/firewall.rs`, called from main.rs startup before the remote_ops server binds.**
+// FFB fault reset
+if lower.contains("ffb fault") || lower.contains("ffb reset") {
+    return Some(fix_ffb_reset(snapshot));
+}
 
-**Rationale:**
-
-Firewall configuration must succeed before remote_ops starts listening on :8090, or the port is usable but the firewall still blocks inbound. It's a distinct responsibility from main startup (which handles config, sim, billing). Separating it keeps main.rs readable.
-
-**Module placement and interface:**
-
-```rust
-// rc-agent/src/firewall.rs
-/// Ensure Windows Firewall rules exist for RaceControl ports.
-/// Creates rules if missing. Safe to call repeatedly (idempotent).
-/// Returns a list of actions taken for reporting to racecontrol.
-pub fn ensure_firewall_rules() -> Vec<FirewallAction>
-
-pub enum FirewallAction {
-    AlreadyPresent(String),  // rule name
-    Created(String),         // rule name
-    Failed { rule: String, error: String },
+// Telemetry gap — log only (no deterministic fix beyond what self_monitor does)
+if lower.contains("telemetry gap") || lower.contains("udp missing") {
+    return Some(fix_log_telemetry_gap(snapshot)); // non-destructive: log + alert
 }
 ```
 
-**Windows Firewall via Rust (no batch file dependency):**
+### Pattern 4: PodStateSnapshot Expansion
 
-Uses `std::process::Command` to run `netsh advfirewall firewall` with `add rule` and `show rule` subcommands. This eliminates the CRLF-damaged batch file failure mode. The existing `CREATE_NO_WINDOW` flag from remote_ops.rs applies here too.
+**What:** Add new fields to `PodStateSnapshot` in `ai_debugger.rs`. These are pod-local facts captured at detection time. Populate them in `failure_monitor.rs` before calling `try_auto_fix()`.
 
-```rust
-// Check if rule exists:
-netsh advfirewall firewall show rule name="RaceControl-RemoteOps"
-// If not found (exit code != 0 or "No rules match"):
-netsh advfirewall firewall add rule name="RaceControl-RemoteOps" protocol=TCP dir=in localport=8090 action=allow
-// Also add ICMP rule:
-netsh advfirewall firewall add rule name="RaceControl-ICMP" protocol=icmpv4 dir=in action=allow
-```
+**When to use:** When a new fix handler needs information not currently in the snapshot (e.g., whether wheelbase HID has errored, how long since the last UDP frame, whether a multiplayer session is active).
 
-**Call site in main.rs:**
+**Trade-offs:** The snapshot is never persisted to disk in this form — it's ephemeral context passed to the AI prompt builder and fix handlers. Growing it has no migration cost. Add `#[serde(default)]` on new fields so the struct can still be constructed from partial JSON in tests.
+
+**Fields to add:**
 
 ```rust
-// After logging init, before remote_ops::start()
-let firewall_actions = firewall::ensure_firewall_rules();
-for action in &firewall_actions {
-    match action {
-        FirewallAction::Created(rule) => tracing::info!("Firewall rule created: {}", rule),
-        FirewallAction::AlreadyPresent(rule) => tracing::debug!("Firewall rule OK: {}", rule),
-        FirewallAction::Failed { rule, error } => tracing::warn!("Firewall rule failed: {} — {}", rule, error),
-    }
-}
-// Optionally report to racecontrol via startup AgentMessage (see startup error reporting feature)
+// In ai_debugger.rs — ADD to PodStateSnapshot
+#[serde(default)]
+pub udp_receiving: bool,                        // any UDP frame in last 10s
+#[serde(default)]
+pub last_telemetry_secs_ago: u64,               // seconds since last UDP frame
+#[serde(default)]
+pub wheelbase_hid_error: Option<String>,        // HID error string if disconnected
+#[serde(default)]
+pub game_launch_elapsed_secs: u64,              // seconds since LaunchGame received
+#[serde(default)]
+pub billing_status: Option<String>,             // BillingSessionStatus as string
+#[serde(default)]
+pub multiplayer_active: bool,                   // AC LAN session in progress
+#[serde(default)]
+pub consecutive_pin_failures: u32,              // failed PIN attempts on lock screen
 ```
 
-**Important: This runs in main() synchronously before the async runtime**
+### Pattern 5: Detection in failure_monitor.rs, Fixes in ai_debugger.rs
 
-`ensure_firewall_rules()` is a synchronous function using `std::process::Command::output()` (blocking). It runs before `#[tokio::main]` enters the async executor — or in a `spawn_blocking` immediately after. Given the netsh calls are fast (< 1s), calling them synchronously in `main()` before `#[tokio::main]` is the simplest approach.
+**What:** `failure_monitor.rs` is a single polling task that checks all 9 failure conditions from shared atomic state. When it detects a problem, it constructs a synthetic suggestion string with canonical keywords and calls `try_auto_fix()`. Fix implementations stay in `ai_debugger.rs`.
 
-**No new dependencies required** — `std::process::Command` is in std. The `CREATE_NO_WINDOW` flag already exists in remote_ops.rs as a pattern to copy.
+**When to use:** Every detection loop belongs in `failure_monitor.rs`. No detection logic scattered in other modules.
+
+**Trade-offs:** The indirection through a synthetic suggestion string feels slightly redundant for deterministic detectors. The reason to keep it: `DebugMemory::record_fix()` and `instant_fix()` only fire when fixes go through `try_auto_fix()`. Keeping this path ensures the pattern learning loop captures detection-triggered fixes too.
+
+**Synthetic suggestion keyword conventions (canonical — must match try_auto_fix arms):**
+
+| Failure Class | Canonical Synthetic String |
+|--------------|---------------------------|
+| Game frozen | `"Game process frozen — relaunch game acs.exe"` |
+| Content Manager hang | `"Content Manager hang — kill CM process"` |
+| Launch timeout | `"launch timeout — acs.exe timeout exceeded"` |
+| USB wheelbase disconnect | `"Wheelbase usb reset required — HID disconnected"` |
+| FFB fault | `"ffb fault detected — ffb reset needed"` |
+| Telemetry gap | `"telemetry gap — udp missing from running game"` |
+| Disk space | `"disk space — clean temp files"` (existing) |
 
 ---
 
-### Q4: Deploy.rs Changes — WebSocket Exec Instead of HTTP
+## Data Flow
 
-**Decision: Make deploy.rs exec dual-path: try HTTP first (existing `exec_on_pod()`), fall back to WebSocket exec if HTTP returns connection refused.**
-
-**Rationale:**
-
-Full migration to WebSocket-only breaks the download step — `curl.exe` downloads a binary to pod disk, and that 100MB download over WebSocket (serialized as text/JSON) is impractical. HTTP exec for file download remains correct. WebSocket exec is the fallback for when firewall blocks :8090 post-deploy-restart.
-
-**Modified exec_on_pod() signature:**
-
-```rust
-// Current (HTTP only):
-async fn exec_on_pod(state, pod_ip, cmd, timeout_ms) -> Result<(bool, String, String), String>
-
-// New (dual-path):
-async fn exec_on_pod(state, pod_id, pod_ip, cmd, timeout_ms) -> Result<(bool, String, String), String>
-```
-
-The new signature adds `pod_id` (needed to look up WS sender). Implementation tries HTTP first (unchanged), and if HTTP fails with a connection error (not a command error), retries via `exec_on_pod_ws()`.
-
-**Deploy sequence changes for WS exec:**
-
-The self-swap trigger is the only step where WS fallback matters in practice. Download, size-check, and config-write all require HTTP (binary download, file read, file write). The swap trigger sends a detached batch that kills and replaces rc-agent — after the swap, :8090 may briefly be unreachable. Health verification already uses WS (`is_ws_connected()`) so deploy.rs handles this correctly.
-
-**New DeployState variant:**
-
-```rust
-// rc-common/src/types.rs
-pub enum DeployState {
-    // ... existing variants ...
-    Rollback { reason: String },  // NEW: rolling back to previous binary
-}
-```
-
-**Rollback logic in deploy_pod():**
-
-After `VERIFY_DELAYS` exhausted and no full health, if `rc-agent-prev.exe` exists on disk, deploy.rs sends a rollback exec via WS:
+### Agent-Side Fix Flow (pod-local)
 
 ```
-cmd: "move /Y C:\RacingPoint\rc-agent-prev.exe C:\RacingPoint\rc-agent.exe && start /D C:\RacingPoint rc-agent.exe"
+failure_monitor.rs detects condition (polling every 5-30s)
+    |
+    v
+Build PodStateSnapshot with current pod state
+    |
+    v
+Construct synthetic suggestion with canonical keywords
+    |
+    v
+ai_debugger::try_auto_fix(suggestion, &snapshot) -> Option<AutoFixResult>
+    |
+    +-- arm matched -> fix_handler() runs (e.g., taskkill, HID reset, etc.)
+    |       |
+    |       v
+    |   DebugMemory::record_fix() -- saves outcome to debug-memory.json
+    |   Send AgentMessage::AiDebugResult to racecontrol (for dashboard)
+    |   Send AgentMessage::HardwareFailure / TelemetryGap (for specific classes)
+    |
+    +-- no arm matched -> log_event("[rc-bot] No auto-fix for: ...")
 ```
 
-The self-swap script should be modified to save the old binary as `rc-agent-prev.exe` before overwriting. This is a one-line addition to the swap bat string in `deploy_pod()`.
-
-**Modified do-swap.bat contents:**
-
-```batch
-@echo off
-timeout /t 3 /nobreak
-taskkill /F /IM rc-agent.exe
-timeout /t 2 /nobreak
-copy /Y rc-agent.exe rc-agent-prev.exe   <- NEW: save old binary
-del /Q rc-agent.exe
-move rc-agent-new.exe rc-agent.exe
-start "" /D C:\RacingPoint rc-agent.exe
-```
-
-No structural changes to `deploy_rolling()` or `check_and_trigger_pending_deploy()`.
-
----
-
-### Q5: Fleet Dashboard — Extend Existing Kiosk vs New Page
-
-**Decision: Add a new `/fleet` page to the existing kiosk Next.js app (not a separate app).**
-
-**Rationale:**
-
-The kiosk already has real-time pod state via `useKioskSocket()` hook which consumes the `/ws/kiosk` WebSocket. All pod status, billing timers, deploy states, game states, and watchdog states are already available or can be added to `DashboardEvent`. The kiosk serves on :3300 which is accessible from Uday's phone (192.168.31.23:3300).
-
-The `web` Next.js app (staff admin) also has pod state via `/ws/dashboard`, but the kiosk is the mobile-optimized surface and has the simpler auth model (staff PIN, already implemented).
-
-**Existing kiosk pages for reference:**
-
-| Page | Route | Purpose |
-|------|-------|---------|
-| Control | `/control` | Per-pod billing/game controls — 8 pod cards |
-| Settings | `/settings` | Kiosk settings |
-| Spectator | `/spectator` | Customer-facing live display |
-| Debug | `/debug` | Diagnostic info |
-
-**New page: `/fleet`**
-
-Separate from `/control` because `/control` is interaction-heavy (billing, game launch). `/fleet` is monitoring-only — a read-only health grid optimized for phone viewing.
-
-**Fleet page data needs:**
-
-| Data | Current Source | Status |
-|------|---------------|--------|
-| Pod online/offline | `pods` map from `useKioskSocket` | Exists |
-| WS connected | `pods[].status` | Exists (inferred) |
-| Billing active | `billingTimers` from `useKioskSocket` | Exists |
-| Game state | `gameStates` from `useKioskSocket` | Exists |
-| Deploy state | Not in kiosk WS | MISSING |
-| Watchdog state | Not in kiosk WS | MISSING |
-| Service (NSSM) status | Not exposed | MISSING |
-| Firewall rule status | Not exposed | MISSING |
-| Last restart timestamp | Not exposed | MISSING |
-
-**New DashboardEvent variants needed (rc-common/src/protocol.rs):**
-
-```rust
-// In DashboardEvent:
-/// Fleet health snapshot for all 8 pods
-FleetHealth(Vec<PodHealthSnapshot>),
-
-/// Single pod health update
-PodHealthUpdate(PodHealthSnapshot),
-```
-
-```rust
-// In rc-common/src/types.rs:
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PodHealthSnapshot {
-    pub pod_id: String,
-    pub pod_number: u32,
-    pub ws_connected: bool,
-    pub deploy_state: DeployState,
-    pub watchdog_state_label: String,   // "Healthy" / "Restarting(2)" / "RecoveryFailed"
-    pub service_running: bool,           // NSSM service status (polled via HTTP or WS exec)
-    pub firewall_ok: Option<bool>,       // None until first startup report
-    pub last_restart_at: Option<String>, // ISO8601, None if never restarted by watchdog
-    pub last_error: Option<String>,      // Last known error string
-}
-```
-
-**Where racecontrol publishes fleet health:**
-
-New module `racecontrol/src/fleet_health.rs` — background task that reads from AppState (watchdog states, deploy states, WS liveness) and broadcasts `DashboardEvent::FleetHealth` every 5 seconds. The kiosk WS handler (ws/mod.rs `handle_dashboard`) already broadcasts all `DashboardEvent` variants to dashboard subscribers.
-
-**Fleet page component structure:**
+### Server-Side Coordination Flow
 
 ```
-kiosk/src/app/fleet/page.tsx           <- NEW route
-kiosk/src/components/FleetGrid.tsx     <- NEW 8-pod health grid
-kiosk/src/components/PodHealthCard.tsx <- NEW per-pod health card (compact)
+rc-agent sends AgentMessage::{HardwareFailure|TelemetryGap|BillingAnomaly|LapFlagged|MultiplayerFailure}
+    |
+    v
+racecontrol ws/mod.rs handle_agent() receives, routes to bot_coordinator::handle()
+    |
+    +-- BillingAnomaly -> billing::recover_stuck_session()
+    |       -> sends CoreToAgentMessage::StopSession to agent
+    |       -> agent kills game, shows lock screen, sends SessionUpdate::Finished
+    |       -> then billing::end_session() fires (existing session end flow preserved)
+    |
+    +-- TelemetryGap -> log + DashboardEvent::BotAction (alert staff kiosk)
+    |       -> no CoreToAgentMessage needed unless gap persists >10min (then StopGame)
+    |
+    +-- HardwareFailure -> log + email alert if billing active
+    |
+    +-- LapFlagged -> forward to lap_tracker.rs for valid=false storage
+    |       -> DashboardEvent::LapFlagged to kiosk
+    |
+    +-- MultiplayerFailure -> bot_coordinator checks other pods in same session
+            -> sends StopSession to affected pods if desync confirmed
 ```
 
-`PodHealthCard` shows: pod number, WS dot (green/red), deploy state badge, watchdog state, last error. No billing controls. Phone-optimized (single column on mobile, 2 columns on tablet).
-
----
-
-## System Overview After v4.0
+### Billing Edge Case Flow (billing_guard.rs)
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     racecontrol :8080 (Racing-Point-Server .23)          │
-│                                                                       │
-│  ws/mod.rs                state.rs                deploy.rs           │
-│  ┌──────────┐    ┌─────────────────────┐    ┌──────────────────┐    │
-│  │ agent_ws │    │  agent_senders      │    │ exec_on_pod()    │    │
-│  │ /ws/agent│    │  pod_deploy_states  │    │   ├── HTTP :8090  │    │
-│  └────┬─────┘    │  pod_watchdog_states│    │   └── WS fallback│    │
-│       │          │  pending_ws_execs   │←── └──────────────────┘    │
-│       │          │  (NEW)              │                             │
-│       │          └─────────────────────┘                             │
-│                                                                       │
-│  fleet_health.rs (NEW)    pod_monitor.rs     pod_healer.rs            │
-│  ┌───────────────┐   ┌───────────────┐   ┌───────────────┐          │
-│  │ FleetHealth   │   │ heartbeat     │   │ restart       │          │
-│  │ broadcast/5s  │   │ timeout check │   │ via :8090/exec│          │
-│  └───────────────┘   └───────────────┘   └───────────────┘          │
-└──────────────┬────────────────────────────────────────────┬──────────┘
-               │ WebSocket /ws/agent                         │ /ws/kiosk
-               │                                             │
-  ┌────────────▼─────────────────┐          ┌───────────────▼──────────┐
-  │  rc-agent (each pod, :8090)  │          │ kiosk Next.js :3300      │
-  │                              │          │                          │
-  │  main.rs                     │          │ /control  (existing)     │
-  │  ├── firewall.rs (NEW)       │          │ /fleet    (NEW)          │
-  │  ├── remote_ops.rs (:8090)   │          │  FleetGrid.tsx           │
-  │  ├── lock_screen.rs (:18923) │          │  PodHealthCard.tsx       │
-  │  ├── overlay.rs (:18925)     │          └──────────────────────────┘
-  │  └── ws_connect_loop         │
-  │      handles Exec variant    │
-  │      (NEW in main.rs)        │
-  │                              │
-  │  NSSM service (NEW install)  │
-  │  wraps start-rcagent.bat     │
-  └──────────────────────────────┘
+billing_guard.rs polls every 30s (separate from failure_monitor)
+    |
+    +-- BillingSessionStatus::WaitingForGame for >5min?
+    |       -> AgentMessage::BillingAnomaly { reason: SessionStuckWaitingForGame }
+    |
+    +-- billing_active=true AND game_running=false?
+    |       -> AgentMessage::BillingAnomaly { reason: SessionStuckWaitingForGame }
+    |
+    +-- billing_active=true AND driving_active=false for >10min?
+            -> AgentMessage::BillingAnomaly { reason: IdleBillingDrift }
+```
+
+### Lap Filter Flow
+
+```
+UDP frame arrives -> sims/assetto_corsa.rs or sims/f1_25.rs detects lap completion
+    |
+    v
+lap_filter::validate(lap: &LapData, recent_frames: &[TelemetryFrame]) -> LapValidity
+    |
+    +-- LapValidity::Valid
+    |       -> AgentMessage::LapCompleted (valid=true, existing path)
+    |
+    +-- LapValidity::Invalid { reason: PodFailureReason }
+            -> AgentMessage::LapCompleted (valid=false)
+            -> AgentMessage::LapFlagged { reason, detail }  (new)
 ```
 
 ---
 
-## Component Map: New vs Modified
+## Integration Points: Agent vs Server vs Common
 
-### New Components
+### What Lives Where
 
-| Component | Location | Purpose | Touches Existing? |
-|-----------|----------|---------|------------------|
-| `firewall.rs` | `rc-agent/src/firewall.rs` | Rust netsh firewall rules | No — called from main.rs |
-| `fleet_health.rs` | `racecontrol/src/fleet_health.rs` | Fleet health broadcast task | No — spawned from main.rs |
-| `FleetGrid.tsx` | `kiosk/src/components/` | 8-pod health grid | No |
-| `PodHealthCard.tsx` | `kiosk/src/components/` | Per-pod compact card | No |
-| `fleet/page.tsx` | `kiosk/src/app/fleet/` | Fleet route | No |
-| `PodHealthSnapshot` | `rc-common/src/types.rs` | Health data type | Additive |
-| NSSM install bat | `deploy-staging/` | Service registration | No |
-| `self_healing.rs` | `rc-agent/src/self_healing.rs` | Config/registry repair | No |
+| Failure Class | Detection | Fix/Action | Server Role | Protocol Change |
+|--------------|-----------|-----------|------------|----------------|
+| Game freeze / process hung | `failure_monitor.rs` polls game PID | `fix_kill_stale_game()` (existing) | Log AiDebugResult | None (existing AiDebugResult) |
+| rc-agent stuck | `self_monitor.rs` (existing) | `relaunch_self()` (existing) | None | None |
+| Content Manager hang | `failure_monitor.rs` polls launch_elapsed_secs + CM PID | NEW `fix_kill_content_manager()` | Receives GameStateUpdate::Error | None (existing GameStateUpdate) |
+| Launch timeout | `failure_monitor.rs` polls launch_elapsed_secs | NEW `fix_launch_timeout()` | Receives GameStateUpdate::Error | None |
+| USB wheelbase disconnect | `failure_monitor.rs` polls `driving_detector.last_hid_error` | NEW `fix_usb_reset()` | NEW: receives HardwareFailure | NEW: HardwareFailure variant |
+| FFB fault | `failure_monitor.rs` polls HID state | NEW `fix_ffb_reset()` | NEW: receives HardwareFailure | NEW: HardwareFailure variant |
+| Telemetry gap | `failure_monitor.rs` polls `last_telemetry_ts` | `fix_log_telemetry_gap()` (non-destructive) | NEW: receives TelemetryGap, alerts | NEW: TelemetryGap variant |
+| Billing stuck/idle drift | `billing_guard.rs` polls BillingSessionStatus + game state | Server-side: StopSession | NEW: receives BillingAnomaly | NEW: BillingAnomaly variant |
+| Cloud sync failure | `cloud_sync.rs` (server) retry exhaustion | Email alert (existing alerter) | bot_coordinator | None (server-internal) |
+| Multiplayer desync | `failure_monitor.rs` polls AC server state | NEW: reports to server | bot_coordinator: StopSession | NEW: MultiplayerFailure variant |
+| PIN validation failure | `lock_screen.rs` (existing PinFailed path) | Server sends CoreToAgentMessage::PinFailed (existing) | bot_coordinator: escalate after N failures | None (existing path reused) |
+| Lap cut / invalid speed / spin | `lap_filter.rs` on lap completion | valid=false on LapCompleted (existing field) | NEW: receives LapFlagged, stores + alerts | NEW: LapFlagged variant |
 
-### Modified Components
+### rc-common Changes Summary
 
-| Component | Location | What Changes | Risk |
-|-----------|----------|-------------|------|
-| `CoreToAgentMessage` | `rc-common/src/protocol.rs` | Add `Exec`, `UnknownCommand` variants | LOW — additive, backward safe |
-| `AgentMessage` | `rc-common/src/protocol.rs` | Add `ExecResult` variant | LOW — additive |
-| `DashboardEvent` | `rc-common/src/protocol.rs` | Add `FleetHealth`, `PodHealthUpdate` | LOW — additive |
-| `DeployState` | `rc-common/src/types.rs` | Add `Rollback` variant | LOW — additive |
-| `AppState` | `racecontrol/src/state.rs` | Add `pending_ws_execs` field | LOW — additive |
-| `deploy.rs` | `racecontrol/src/deploy.rs` | Add pod_id param to exec_on_pod, WS fallback, rollback logic | MEDIUM — touches core deploy path |
-| `main.rs` (agent) | `rc-agent/src/main.rs` | Add `Exec` handling in WS receive loop, call `firewall::ensure_rules()` | MEDIUM — touches main event loop |
-| `ws/mod.rs` | `racecontrol/src/ws/mod.rs` | Handle `AgentMessage::ExecResult`, route to pending_ws_execs | LOW — additive arm |
+**types.rs additions:**
+- `PodFailureReason` enum (21 variants)
 
----
+**protocol.rs additions (AgentMessage):**
+- `HardwareFailure { pod_id, reason, detail }`
+- `TelemetryGap { pod_id, sim_type, gap_seconds }`
+- `BillingAnomaly { pod_id, billing_session_id, reason, detail }`
+- `LapFlagged { pod_id, lap_id, reason, detail }`
+- `MultiplayerFailure { pod_id, reason, session_id }`
 
-## Data Flow Changes
-
-### WebSocket Exec Flow (NEW)
-
-```
-racecontrol deploy.rs
-  1. HTTP exec fails (connection refused on :8090)
-  2. Look up agent_senders[pod_id] — is WS open?
-  3. Generate request_id = UUID
-  4. Create oneshot channel, store in pending_ws_execs[request_id]
-  5. Send CoreToAgentMessage::Exec { request_id, cmd, timeout_ms }
-  6. Await oneshot receiver with timeout_ms + 5s buffer
-
-rc-agent main.rs (WS receive loop)
-  7. Receive CoreToAgentMessage::Exec
-  8. spawn_blocking: cmd /C <cmd>
-  9. Send AgentMessage::ExecResult { request_id, success, exit_code, stdout, stderr }
-
-racecontrol ws/mod.rs (handle_agent)
-  10. Receive AgentMessage::ExecResult
-  11. Look up pending_ws_execs[request_id]
-  12. Send result over oneshot → deploy.rs await resolves
-```
-
-### Firewall Auto-Config Flow (NEW)
-
-```
-rc-agent main.rs startup (before remote_ops::start)
-  1. firewall::ensure_firewall_rules() — synchronous
-  2. netsh show rule → check if exists
-  3. netsh add rule → create if missing
-  4. Returns Vec<FirewallAction>
-  5. Log results; after WS connected, optionally include in startup AgentMessage
-```
-
-### Fleet Health Broadcast Flow (NEW)
-
-```
-racecontrol fleet_health.rs (every 5s)
-  1. Read agent_senders — determine ws_connected per pod
-  2. Read pod_deploy_states — get DeployState per pod
-  3. Read pod_watchdog_states — get WatchdogState per pod
-  4. Build Vec<PodHealthSnapshot>
-  5. Broadcast DashboardEvent::FleetHealth to dashboard_tx
-  → kiosk /ws/kiosk subscribers receive and update FleetGrid
-```
+**No new CoreToAgentMessage variants needed** — existing `StopSession`, `StopGame`, `PinFailed` are sufficient for all server-to-agent bot responses.
 
 ---
 
-## Recommended Build Order
+## Build Order (Cross-Crate Dependency Sequence)
 
-Build order matters because protocol.rs is the contract between rc-agent and racecontrol. Compile breaks propagate upward.
+Violating this order causes compile errors. rc-common is the shared contract; both consuming crates break until new variants are handled.
 
-### Phase 1: rc-common protocol additions (foundation)
+```
+Phase 1 — rc-common (compile first, other crates depend on it)
+  1. Add PodFailureReason enum to types.rs
+  2. Add 5 new AgentMessage variants to protocol.rs
+  → cargo test -p rc-common
+  → Verify: all existing tests pass, serialization round-trips work
 
-Add to `rc-common/src/protocol.rs` and `rc-common/src/types.rs`:
-- `CoreToAgentMessage::Exec`, `UnknownCommand`
-- `AgentMessage::ExecResult`
-- `DashboardEvent::FleetHealth`, `DashboardEvent::PodHealthUpdate`
-- `DeployState::Rollback`
-- `PodHealthSnapshot` struct
+Phase 2 — rc-agent detection infrastructure (no server changes needed yet)
+  3. Extend PodStateSnapshot fields in ai_debugger.rs
+  4. Add new try_auto_fix() match arms + new fix handler functions
+  5. Create failure_monitor.rs (7 agent-side failure class detectors)
+  6. Create billing_guard.rs (3 billing edge class detectors)
+  7. Create lap_filter.rs (3 lap validity detectors)
+  8. Modify main.rs: spawn failure_monitor and billing_guard tasks
+  → cargo test -p rc-agent-crate
+  → Verify: all 47+ existing tests pass + new tests for each fix handler
 
-Write characterization tests first — verify existing enum variants still serialize/deserialize identically after additions. Run `cargo test -p rc-common` green before proceeding.
+Phase 3 — racecontrol bot logic (can be built after Phase 1 compiles)
+  9. Create bot_coordinator.rs with handlers for 5 new AgentMessage variants
+  10. Modify ws/mod.rs: route new AgentMessage variants to bot_coordinator
+  11. Add billing::recover_stuck_session() helper
+  12. Add multiplayer desync state to multiplayer.rs
+  → cargo test -p racecontrol-crate
+  → Verify: all existing tests pass + bot_coordinator unit tests
+```
 
-**Why first:** All other crates depend on rc-common. Additions here break the build for racecontrol and rc-agent until they handle new variants. Do it once, do it right.
-
-### Phase 2: rc-agent firewall module
-
-Add `crates/rc-agent/src/firewall.rs`. Call from main.rs. Run `cargo test -p rc-agent-crate`.
-
-**Why second:** Isolated, no dependencies on racecontrol changes. Low risk. Can be verified on Pod 8 immediately. Fixes the immediate post-Mar-15 pain.
-
-### Phase 3: rc-agent Exec handling in main.rs
-
-Add `CoreToAgentMessage::Exec` arm to the WS receive select loop. Extract exec logic from `remote_ops.rs` into a shared helper. Run `cargo test -p rc-agent-crate`.
-
-**Why third:** Depends on Phase 1 (new protocol variant). racecontrol's WS exec path is not needed yet — rc-agent just needs to handle the message and respond.
-
-### Phase 4: rc-agent self-healing config check
-
-Add `crates/rc-agent/src/self_healing.rs`. Check toml, bat, registry keys on startup. Add call from main.rs after config load.
-
-**Why fourth:** Standalone, no cross-crate dependencies. Adds important self-repair before service restarts amplify any damage.
-
-### Phase 5: racecontrol WS exec path + deploy.rs changes
-
-Modify `ws/mod.rs` to handle `AgentMessage::ExecResult`. Add `pending_ws_execs` to `AppState`. Add WS fallback to `exec_on_pod()` in deploy.rs. Add rollback logic.
-
-**Why fifth:** Depends on Phase 1 (ExecResult variant) and Phase 3 (agent actually responds). Can now be tested end-to-end.
-
-### Phase 6: NSSM service install
-
-New bat scripts for NSSM installation. Add step to deploy.rs post-deploy flow. Deploy via pod-agent HTTP to all 8 pods sequentially.
-
-**Why sixth:** Depends on all agent changes being live (Phase 2-4). Service restarts bring up a fresh agent — that agent needs firewall auto-config (Phase 2) and self-healing (Phase 4) to work correctly on first restart.
-
-### Phase 7: Fleet health dashboard
-
-Add `fleet_health.rs` to racecontrol. Add fleet route + components to kiosk Next.js. Wire `DashboardEvent::FleetHealth` through kiosk WS hook.
-
-**Why last:** Observability. Depends on all health data being available in AppState (populated by Phases 5-6). Can be built and deployed independently as it's read-only.
+**Why this order:**
+- Phase 1 locks the protocol contract. Without it, both Phase 2 and Phase 3 code won't compile.
+- Phase 2 and Phase 3 can be developed in parallel after Phase 1, but must both be deployed before Phase 3 bot logic activates.
+- Never modify protocol.rs and rc-agent in the same commit — keep protocol changes as a separate commit so the crate version history is clean.
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Implementing ServiceMain in main.rs
+### Anti-Pattern 1: Detection Logic Scattered Across Existing Modules
 
-**What people do:** Add `windows-service` crate, restructure main() into `ServiceMain` callback, handle `ServiceControl` events.
+**What people do:** Add telemetry gap detection inside `udp_heartbeat.rs`, USB polling inside `driving_detector.rs`, billing check inside the main WS loop.
 
-**Why wrong:** The existing startup sequence in main.rs has carefully ordered steps (single-instance mutex, early lock screen, config validation, FFB zero). The ServiceMain callback pattern requires moving all of this into an async context inside the service, handling `SERVICE_CONTROL_STOP` with a shutdown channel, and testing Session 0 GUI rendering. One wrong step makes the agent start in Session 0 and show a blank screen to customers.
+**Why it's wrong:** Detection logic scattered across 8 modules is impossible to test in isolation and invisible at a glance. When a detection threshold needs tuning, you have to find it among 8 files.
 
-**Do instead:** NSSM wrapper. Zero code change to main.rs. NSSM handles restart-on-crash. Session 1 startup preserved via existing HKLM Run key.
+**Do this instead:** All detection loops live in `failure_monitor.rs`. Existing modules expose state (atomics, Option<String> errors) via `HeartbeatStatus` or module-level fields. `failure_monitor.rs` reads state and decides. One file owns all detection policy.
 
-### Anti-Pattern 2: WebSocket-only exec for binary download
+### Anti-Pattern 2: Calling Fix Handlers Directly, Bypassing try_auto_fix()
 
-**What people do:** Route all deploy exec through WS to avoid HTTP firewall issues.
+**What people do:** `failure_monitor.rs` detects game freeze and calls `fix_kill_stale_game()` directly.
 
-**Why wrong:** A 15MB binary as base64-encoded JSON over WebSocket is ~20MB of text. The WS message buffer in axum defaults to 64MB but the encoding round-trip adds ~33% overhead. More importantly, the download cmd runs for 60-120 seconds — blocking the WS receive loop on both sides for that duration. The firewall issue only affects inbound connections to :8090; outbound from rc-agent to racecontrol :8080 is never blocked.
+**Why it's wrong:** Bypasses `DebugMemory::record_fix()`. The pattern memory learning loop — which enables sub-100ms instant fix replay on recurrence — only fires when fixes go through `try_auto_fix()`. Bypass it and the bot gets dumber over time.
 
-**Do instead:** Keep download via HTTP exec. Use WS exec only for short commands (self-swap trigger, health checks, registry edits) where :8090 may be temporarily blocked post-restart.
+**Do this instead:** Construct a synthetic suggestion string with canonical keywords and call `try_auto_fix(synthetic_suggestion, &snapshot)`. The keyword contract is the dispatch mechanism.
 
-### Anti-Pattern 3: Enum-matching in deploy.rs on WatchdogState
+### Anti-Pattern 3: Server-Side Billing End Without Agent Confirmation
 
-**What people do:** Add WatchdogState-aware logic directly to deploy.rs.
+**What people do:** `bot_coordinator` receives `BillingAnomaly` and calls `billing::end_session()` directly.
 
-**Why wrong:** deploy.rs and pod_monitor.rs both write watchdog states. Adding WatchdogState reads to deploy.rs creates a third writer/reader that can be out of sync. The watchdog FSM lives in pod_monitor.rs and pod_healer.rs.
+**Why it's wrong:** Ends the billing record while the game is still running. Customer session terminates unexpectedly. Violates the existing invariant: "lock screen before game kill, game kill before billing end."
 
-**Do instead:** deploy.rs checks `pod_deploy_states` (its own field) and `agent_senders` (WS liveness). When a deploy is active, `pod_monitor.rs` already skips watchdog restart for that pod (deploy guard). This separation is already correct in the codebase — keep it.
+**Do this instead:** `bot_coordinator` sends `CoreToAgentMessage::StopSession` to the agent. Agent stops the game, shows lock screen, sends `AgentMessage::SessionUpdate { status: Finished }`. Only on receiving `SessionUpdate::Finished` does `billing::end_session()` fire. Preserves the existing session end flow.
 
-### Anti-Pattern 4: Firewall rules from a batch file
+### Anti-Pattern 4: Modifying Existing AgentMessage Variants
 
-**What people do:** Ship `setup-firewall.bat` and call it from deploy.
+**What people do:** Add a `failure_reason: Option<PodFailureReason>` field to the existing `AgentMessage::GameCrashed` variant.
 
-**Why wrong:** This is exactly what caused the Mar 15 incident. CRLF corruption silently breaks batch files. The batch runs once at setup and is forgotten. Future Windows Updates reset firewall rules.
+**Why it's wrong:** `protocol.rs` uses `#[serde(tag = "type", content = "data")]`. Adding fields to existing variants is backward-incompatible for the server if it deserializes into the old struct definition. Pods on old binary + new server = silent data loss or panic on field missing.
 
-**Do instead:** `firewall::ensure_firewall_rules()` runs on every rc-agent startup. Idempotent. CRLF-safe (Rust strings). Self-healing: if firewall resets, next restart restores the rules.
+**Do this instead:** Add new variants. `GameCrashed` stays unchanged. The new `HardwareFailure`, `TelemetryGap` etc. are separate variants that old servers silently ignore.
 
-### Anti-Pattern 5: Fleet dashboard as a separate Next.js app
+### Anti-Pattern 5: PodFailureReason as a String Rather Than Enum
 
-**What people do:** Create a new `/fleet-monitor` Next.js project with its own port.
+**What people do:** Pass `reason: String` in the new AgentMessage variants (e.g., "wheelbase_disconnected") to avoid modifying rc-common.
 
-**Why wrong:** The kiosk already has the WS connection, pod state, deploy state, and auth model. A new app means duplicating the WS hook, auth, and API client. Uday needs to remember a new URL. The kiosk already runs on :3300 which is in his bookmarks.
+**Why it's wrong:** Strings are misspellable, non-exhaustive in match arms, and can't be doc-linked. The whole point of rc-common is typed shared contracts. A protocol fix that avoids touching rc-common is a protocol fix that will cause a bug.
 
-**Do instead:** Add `/fleet` route to the existing kiosk Next.js app. Reuse `useKioskSocket()`. Add new `DashboardEvent` variants for fleet-specific data. One codebase, one URL.
+**Do this instead:** Define `PodFailureReason` in rc-common types.rs first (Phase 1), then use it everywhere.
 
 ---
 
-## Integration Boundaries Summary
+## Scaling Considerations
 
-| Boundary | Communication | Contract |
-|----------|---------------|---------|
-| rc-agent WS receive → Exec handling | New match arm in main.rs select loop | `CoreToAgentMessage::Exec` → `AgentMessage::ExecResult` |
-| racecontrol deploy.rs → WS exec | New `exec_on_pod_ws()` in deploy.rs | Uses `agent_senders` + `pending_ws_execs` |
-| racecontrol ws/mod.rs → ExecResult | New arm in `handle_agent()` | Routes to `pending_ws_execs` oneshot |
-| rc-agent startup → firewall | `firewall::ensure_firewall_rules()` in main.rs | Called before `remote_ops::start()` |
-| racecontrol → kiosk fleet page | `DashboardEvent::FleetHealth` over `/ws/kiosk` | Existing broadcast channel |
-| NSSM service → start-rcagent.bat | NSSM wraps existing bat | No code change to rc-agent |
+This venue is 8 pods and will remain small. Architecture concerns are about reliability, not scale.
+
+| Concern | At 8 pods (now) | Notes |
+|---------|-----------------|-------|
+| failure_monitor polling overhead | 1 task per agent, ~100ms checks, negligible CPU | No concern |
+| DebugMemory JSON on pod disk | Per-pod, ~50KB, survives agent restart | Atomic write-rename prevents corruption |
+| bot_coordinator concurrency | Sequential message processing in one tokio task | Fine for 8 pods; scale only if message backlog occurs |
+| billing_guard poll interval | 30s — lag before anomaly detected is acceptable | Could reduce to 10s with no cost |
+| lap_filter per-lap overhead | In-memory validation on each lap completion, <1ms | No concern |
 
 ---
 
 ## Sources
 
-- Direct codebase inspection: `crates/rc-agent/src/main.rs` (474+ lines startup sequence)
-- Direct codebase inspection: `crates/racecontrol/src/deploy.rs` (exec_on_pod, deploy_pod, deploy_rolling)
-- Direct codebase inspection: `crates/racecontrol/src/ws/mod.rs` (handle_agent, agent_senders pattern)
-- Direct codebase inspection: `crates/rc-common/src/protocol.rs` (CoreToAgentMessage, AgentMessage, DashboardEvent)
-- Direct codebase inspection: `crates/racecontrol/src/state.rs` (AppState field map)
-- Direct codebase inspection: `crates/rc-agent/src/remote_ops.rs` (exec implementation, semaphore pattern)
-- Direct codebase inspection: `kiosk/src/app/control/page.tsx` (useKioskSocket pattern)
-- Project context: `.planning/PROJECT.md` (v4.0 requirements, Mar 15 incident motivation)
-- Memory: Session 0 vs Session 1 HKLM Run key history (deployed all 8 pods)
-- Confidence: HIGH — all architectural claims are derived from reading actual source files
+- Direct inspection: `crates/rc-agent/src/ai_debugger.rs` — full file, 767 lines (2026-03-16)
+- Direct inspection: `crates/rc-agent/src/self_monitor.rs` — full file, 219 lines (2026-03-16)
+- Direct inspection: `crates/rc-agent/src/game_process.rs` — partial, 80 lines (2026-03-16)
+- Direct inspection: `crates/rc-agent/src/udp_heartbeat.rs` — partial, 80 lines (2026-03-16)
+- Direct inspection: `crates/rc-common/src/protocol.rs` — full file including all AgentMessage variants (2026-03-16)
+- Direct inspection: `crates/rc-common/src/types.rs` — full file, DrivingState/GameState/BillingSessionStatus (2026-03-16)
+- Direct inspection: `crates/racecontrol/src/pod_monitor.rs` — partial, WatchdogState FSM (2026-03-16)
+- Direct inspection: `.planning/codebase/ARCHITECTURE.md` — full (2026-03-16)
+- Direct inspection: `.planning/PROJECT.md` — v5.0 requirements (2026-03-16)
+- Confidence: HIGH — all claims derived from reading actual source files, no training-data assumptions
 
 ---
 
-*Architecture research for: Pod Fleet Self-Healing (v4.0)*
-*Researched: 2026-03-15*
+*Architecture research for: RC Bot Expansion (v5.0) — ai_debugger.rs + 9 failure classes*
+*Researched: 2026-03-16*
