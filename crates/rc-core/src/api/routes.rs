@@ -87,7 +87,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/billing/continue-split", post(continue_split))
         // Game Launcher
         .route("/games/launch", post(launch_game))
-        .route("/games/relaunch/:pod_id", post(relaunch_game))
+        .route("/games/relaunch/{pod_id}", post(relaunch_game))
         .route("/games/stop", post(stop_game))
         .route("/games/active", get(active_games))
         .route("/games/history", get(game_launch_history))
