@@ -291,3 +291,34 @@ fn format_lap_time(ms: i64) -> String {
     let millis = ms % 1000;
     format!("{}:{:02}.{:03}", minutes, seconds, millis)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn lap_invalid_flag_prevents_persist() {
+        // LAP-01: valid=false must cause persist_lap to return false without DB write
+        // Production code already gates on !lap.valid at line 28
+        // This stub documents the contract — verify it passes GREEN in Wave 1a audit
+        // If a test already exists for this, skip adding a duplicate
+        todo!("LAP-01: verify invalid lap is not persisted — may already pass");
+    }
+
+    #[test]
+    fn lap_review_required_below_min_floor() {
+        // LAP-02: lap_time_ms=75_000 on Monza (min=80_000) must set review_required=true
+        todo!("LAP-02: review_required flag not yet implemented in persist_lap");
+    }
+
+    #[test]
+    fn lap_not_flagged_above_min_floor() {
+        // LAP-02: lap_time_ms=85_000 on Monza (min=80_000) must NOT set review_required
+        todo!("LAP-02: review_required check not yet implemented");
+    }
+
+    #[test]
+    fn lap_data_carries_session_type() {
+        // LAP-03: LapData must have a session_type field set from sim adapter
+        // Will not compile once LapData gains session_type — this stub documents intent
+        todo!("LAP-03: LapData.session_type field does not exist yet");
+    }
+}
