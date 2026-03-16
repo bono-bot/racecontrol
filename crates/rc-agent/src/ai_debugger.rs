@@ -22,7 +22,7 @@ fn default_ollama_url() -> String {
     "http://localhost:11434".to_string()
 }
 fn default_ollama_model() -> String {
-    "racing-point-ops".to_string()
+    "rc-bot".to_string()
 }
 fn default_openrouter_model() -> String {
     "openrouter/auto".to_string()
@@ -93,16 +93,16 @@ impl DebugMemory {
         let json = match serde_json::to_string_pretty(self) {
             Ok(j) => j,
             Err(e) => {
-                tracing::error!("[pattern-memory] Failed to serialize: {}", e);
+                tracing::error!("[rc-bot] Failed to serialize: {}", e);
                 return;
             }
         };
         if let Err(e) = std::fs::write(&tmp, &json) {
-            tracing::error!("[pattern-memory] Failed to write temp file: {}", e);
+            tracing::error!("[rc-bot] Failed to write temp file: {}", e);
             return;
         }
         if let Err(e) = std::fs::rename(&tmp, MEMORY_PATH) {
-            tracing::error!("[pattern-memory] Failed to rename: {}", e);
+            tracing::error!("[rc-bot] Failed to rename: {}", e);
         }
     }
 
@@ -182,7 +182,7 @@ pub async fn analyze_crash(
     result_tx: mpsc::Sender<AiDebugSuggestion>,
 ) {
     tracing::info!(
-        "[ai-debug] Starting crash analysis for {} ({:?}), model={}, url={}",
+        "[rc-bot] Starting crash analysis for {} ({:?}), model={}, url={}",
         pod_id, sim_type, config.ollama_model, config.ollama_url
     );
 
@@ -190,7 +190,7 @@ pub async fn analyze_crash(
     let memory = DebugMemory::load();
     if let Some(cached_suggestion) = memory.instant_fix(&sim_type, &error_context) {
         tracing::info!(
-            "[ai-debug] INSTANT FIX from pattern memory for {} ({:?})",
+            "[rc-bot] INSTANT FIX from pattern memory for {} ({:?})",
             pod_id, sim_type
         );
         let _ = result_tx
@@ -199,7 +199,7 @@ pub async fn analyze_crash(
                 sim_type,
                 error_context,
                 suggestion: format!("[PATTERN MEMORY — instant fix]\n\n{}", cached_suggestion),
-                model: "pattern-memory".to_string(),
+                model: "rc-bot/memory".to_string(),
                 created_at: Utc::now(),
             })
             .await;
@@ -208,12 +208,12 @@ pub async fn analyze_crash(
 
     // ── No memory match — query AI ──────────────────────────────────────────
     let prompt = build_prompt(&sim_type, &error_context, &snapshot);
-    tracing::debug!("[ai-debug] Prompt length: {} chars", prompt.len());
+    tracing::debug!("[rc-bot] Prompt length: {} chars", prompt.len());
 
     // Try Ollama first (local, fast, no internet needed)
     match query_ollama(&config.ollama_url, &config.ollama_model, &prompt).await {
         Ok(suggestion) => {
-            tracing::info!("[ai-debug] Ollama responded: {} chars", suggestion.len());
+            tracing::info!("[rc-bot] Ollama responded: {} chars", suggestion.len());
             match result_tx
                 .send(AiDebugSuggestion {
                     pod_id,
@@ -225,13 +225,13 @@ pub async fn analyze_crash(
                 })
                 .await
             {
-                Ok(()) => tracing::info!("[ai-debug] Suggestion sent to result channel"),
-                Err(e) => tracing::error!("[ai-debug] Failed to send suggestion: {}", e),
+                Ok(()) => tracing::info!("[rc-bot] Suggestion sent to result channel"),
+                Err(e) => tracing::error!("[rc-bot] Failed to send suggestion: {}", e),
             }
             return;
         }
         Err(e) => {
-            tracing::warn!("[ai-debug] Ollama query failed: {}. Trying OpenRouter fallback...", e);
+            tracing::warn!("[rc-bot] Ollama query failed: {}. Trying OpenRouter fallback...", e);
         }
     }
 
@@ -251,11 +251,11 @@ pub async fn analyze_crash(
                     .await;
             }
             Err(e) => {
-                tracing::error!("[ai-debug] OpenRouter query also failed: {}", e);
+                tracing::error!("[rc-bot] OpenRouter query also failed: {}", e);
             }
         }
     } else {
-        tracing::warn!("[ai-debug] No OpenRouter API key configured and Ollama failed — no AI debug available");
+        tracing::warn!("[rc-bot] No OpenRouter API key configured and Ollama failed — no AI debug available");
     }
 }
 
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn test_default_model_is_racing_point_ops() {
-        assert_eq!(default_ollama_model(), "racing-point-ops");
+        assert_eq!(default_ollama_model(), "rc-bot");
     }
 
     #[test]

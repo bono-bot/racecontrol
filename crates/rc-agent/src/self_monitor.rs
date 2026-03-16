@@ -52,16 +52,16 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
             if issues.is_empty() {
                 tracing::debug!(
-                    "[self-monitor] OK (close_wait={}, ws_dead={}s)",
+                    "[rc-bot] OK (close_wait={}, ws_dead={}s)",
                     close_wait, ws_dead_secs
                 );
                 continue;
             }
 
-            tracing::warn!("[self-monitor] Issues: {}", issues.join("; "));
+            tracing::warn!("[rc-bot] Issues: {}", issues.join("; "));
 
             if !config.enabled {
-                tracing::info!("[self-monitor] AI disabled — skipping restart query");
+                tracing::info!("[rc-bot] AI disabled — skipping restart query");
                 continue;
             }
 
@@ -74,14 +74,14 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
             match query_ollama(&config.ollama_url, &config.ollama_model, &prompt).await {
                 Ok(response) => {
-                    tracing::info!("[self-monitor] Ollama: {}", response.trim());
+                    tracing::info!("[rc-bot] Ollama: {}", response.trim());
                     if response.trim().to_uppercase().contains("RESTART") {
-                        tracing::warn!("[self-monitor] Ollama recommends restart — relaunching");
+                        tracing::warn!("[rc-bot] Ollama recommends restart — relaunching");
                         relaunch_self();
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("[self-monitor] Ollama unavailable: {} — skipping restart", e);
+                    tracing::warn!("[rc-bot] Ollama unavailable: {} — skipping restart", e);
                 }
             }
         }
@@ -135,11 +135,11 @@ fn relaunch_self() {
         .spawn()
     {
         Ok(_) => {
-            tracing::info!("[self-monitor] Relaunch scheduled. Exiting current process.");
+            tracing::info!("[rc-bot] Relaunch scheduled. Exiting current process.");
             std::process::exit(0);
         }
         Err(e) => {
-            tracing::error!("[self-monitor] Failed to spawn relaunch cmd: {}", e);
+            tracing::error!("[rc-bot] Failed to spawn relaunch cmd: {}", e);
         }
     }
 }
