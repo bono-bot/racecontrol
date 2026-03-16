@@ -419,18 +419,32 @@ pub async fn validate_pin(
     let experience_id = row.5;
     let custom_launch_args = row.6;
 
+    // Check if this token belongs to a multiplayer group session
+    let group_info = crate::multiplayer::find_group_session_for_token(state, &token_id).await;
+
+    let (group_session_id, is_group_member) = if let Some((gsid, _gdriver)) = &group_info {
+        // Call on_member_validated to track this PIN validation
+        // billing_session_id is a deferred placeholder at this point
+        let billing_session_id_placeholder = format!("deferred-{}", uuid::Uuid::new_v4());
+        match crate::multiplayer::on_member_validated(state, gsid, &driver_id, &billing_session_id_placeholder).await {
+            Ok(all_validated) => {
+                tracing::info!(
+                    "Group member {} validated on pod {} (all_validated={})",
+                    driver_id, pod_id, all_validated
+                );
+            }
+            Err(e) => {
+                tracing::error!("Failed to call on_member_validated for group {}: {}", gsid, e);
+            }
+        }
+        (Some(gsid.clone()), true)
+    } else {
+        (None, false)
+    };
+
     // Defer billing start until AC reaches STATUS=LIVE (GameStatusUpdate from agent)
     // Billing session will be created by billing::handle_game_status_update() when Live received
     let billing_session_id = format!("deferred-{}", uuid::Uuid::new_v4());
-    // Check if this pod is part of a multiplayer group session
-    let group_session_id: Option<String> = sqlx::query_scalar(
-        "SELECT group_session_id FROM group_session_members WHERE pod_id = ? AND status = 'validated' ORDER BY validated_at DESC LIMIT 1",
-    )
-    .bind(&pod_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
 
     if let Err(e) = billing::defer_billing_start(
         state,
@@ -486,8 +500,12 @@ pub async fn validate_pin(
     // Reservation linking deferred until actual billing session starts on Live
     // link_reservation_to_billing will be called inside start_billing_session()
 
-    // Auto-launch game or show assistance screen
-    launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
+    // GROUP-01: For group members, do NOT auto-launch individually.
+    // on_member_validated() handles coordinated launch via start_ac_lan_for_group()
+    // when all members are validated. For non-group, launch as before.
+    if !is_group_member {
+        launch_or_assist(state, &pod_id, &billing_session_id, &experience_id, &custom_launch_args, &driver_name).await;
+    }
 
     // Update pod state to WaitingForGame
     {

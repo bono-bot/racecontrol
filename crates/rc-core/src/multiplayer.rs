@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use rand::Rng;
 
-use crate::ac_server;
 use crate::auth;
 use crate::pod_reservation;
 use crate::state::AppState;
@@ -305,58 +304,9 @@ pub async fn book_multiplayer(
         // Build response
         let info = build_group_session_info(state, &group_session_id).await?;
 
-        // MULTI-01: Auto-start AC server for multiplayer booking
-        // Build AcLanSessionConfig from the experience/custom booking data
-        let (game, track, car) = if let Some(ref c) = custom {
-            (c.0.clone(), c.1.clone(), c.2.clone())
-        } else {
-            // Resolve from experience
-            let exp = sqlx::query_as::<_, (String, String, String)>(
-                "SELECT game, track, car FROM kiosk_experiences WHERE id = ?",
-            )
-            .bind(&experience_id_resolved)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| format!("DB error resolving experience: {}", e))?
-            .ok_or("Experience not found for AC server config")?;
-            exp
-        };
-
-        if game == "assetto_corsa" {
-            let ac_config = rc_common::types::AcLanSessionConfig {
-                name: format!("Multiplayer: {}", experience_name),
-                track: track.clone(),
-                track_config: String::new(),
-                cars: vec![car.clone()],
-                max_clients: total_members as u32 + 2, // players + margin
-                password: shared_pin_str.clone(),
-                ..Default::default()
-            };
-
-            match ac_server::start_ac_server(state, ac_config, pod_ids.clone(), None).await {
-                Ok(ac_session_id) => {
-                    // Store AC session ID on group_session for later stop
-                    let _ = sqlx::query(
-                        "UPDATE group_sessions SET ac_session_id = ? WHERE id = ?",
-                    )
-                    .bind(&ac_session_id)
-                    .bind(&group_session_id)
-                    .execute(&state.db)
-                    .await;
-                    tracing::info!(
-                        "MULTI-01: AC server {} started for multiplayer group {}",
-                        ac_session_id, group_session_id
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to start AC server for multiplayer group {}: {}",
-                        group_session_id, e
-                    );
-                    // Don't fail the booking — server can be started manually
-                }
-            }
-        }
+        // GROUP-01: AC server start deferred to on_member_validated() -> start_ac_lan_for_group()
+        // Server starts only when ALL members have validated their PINs (coordinated launch).
+        // The ac_session_id will be set on group_sessions by start_ac_lan_for_group().
 
         // Broadcast to dashboard
         let _ = state
@@ -1699,54 +1649,9 @@ pub async fn book_multiplayer_kiosk(
         });
     }
 
-    // MULTI-01: Auto-start AC server
-    let (game, track, car) = if let Some(ref c) = custom {
-        (c.0.clone(), c.1.clone(), c.2.clone())
-    } else {
-        let exp = sqlx::query_as::<_, (String, String, String)>(
-            "SELECT game, track, car FROM kiosk_experiences WHERE id = ?",
-        )
-        .bind(&experience_id_resolved)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| format!("DB error: {}", e))?
-        .ok_or("Experience not found")?;
-        exp
-    };
-
-    if game == "assetto_corsa" {
-        let ac_config = rc_common::types::AcLanSessionConfig {
-            name: format!("Kiosk Multiplayer: {}", experience_name),
-            track: track.clone(),
-            track_config: String::new(),
-            cars: vec![car.clone()],
-            max_clients: pod_count as u32 + 2,
-            password: String::new(), // Kiosk multiplayer uses unique PINs per pod, not server password
-            ..Default::default()
-        };
-
-        match ac_server::start_ac_server(state, ac_config, pod_ids.clone(), None).await {
-            Ok(ac_session_id) => {
-                let _ = sqlx::query(
-                    "UPDATE group_sessions SET ac_session_id = ? WHERE id = ?",
-                )
-                .bind(&ac_session_id)
-                .bind(&group_session_id)
-                .execute(&state.db)
-                .await;
-                tracing::info!(
-                    "MULTI-01: AC server {} started for kiosk multiplayer group {}",
-                    ac_session_id, group_session_id
-                );
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to start AC server for kiosk multiplayer {}: {}",
-                    group_session_id, e
-                );
-            }
-        }
-    }
+    // GROUP-01: AC server start deferred to on_member_validated() -> start_ac_lan_for_group()
+    // Server starts only when ALL members have validated their PINs (coordinated launch).
+    // The ac_session_id will be set on group_sessions by start_ac_lan_for_group().
 
     // Broadcast to dashboard
     if let Ok(info) = build_group_session_info(state, &group_session_id).await {
