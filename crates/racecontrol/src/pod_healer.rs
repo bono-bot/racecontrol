@@ -768,6 +768,17 @@ async fn has_active_billing(state: &Arc<AppState>, pod_id: &str) -> bool {
     timers.contains_key(pod_id)
 }
 
+/// Returns true if the pod is currently in a watchdog recovery cycle (Restarting or Verifying).
+/// A second bot task must not act on this pod while recovery is in progress.
+///
+/// Note: RecoveryFailed means the watchdog has given up — bots may still attempt fixes.
+pub fn is_pod_in_recovery(wd_state: &WatchdogState) -> bool {
+    matches!(
+        wd_state,
+        WatchdogState::Restarting { .. } | WatchdogState::Verifying { .. }
+    )
+}
+
 /// Pure helper: given a WatchdogState, return true if the healer should skip diagnostics.
 /// This is extracted for testability — heal_pod() calls this to decide whether to return early.
 fn should_skip_for_watchdog_state(wd_state: &WatchdogState) -> bool {
@@ -821,6 +832,37 @@ mod tests {
         assert!(
             !should_skip_for_watchdog_state(&state),
             "heal_pod should NOT skip for RecoveryFailed state (healer can still diagnose)"
+        );
+    }
+
+    // --- is_pod_in_recovery() predicate ---
+
+    #[test]
+    fn recovery_blocks_second_bot_task_when_restarting() {
+        let state = WatchdogState::Restarting { attempt: 1, started_at: Utc::now() };
+        assert!(
+            is_pod_in_recovery(&state),
+            "is_pod_in_recovery must return true for Restarting — blocks second bot task"
+        );
+    }
+
+    #[test]
+    fn recovery_blocks_second_bot_task_when_verifying() {
+        let state = WatchdogState::Verifying { attempt: 1, started_at: Utc::now() };
+        assert!(is_pod_in_recovery(&state));
+    }
+
+    #[test]
+    fn recovery_allows_bot_when_healthy() {
+        assert!(!is_pod_in_recovery(&WatchdogState::Healthy));
+    }
+
+    #[test]
+    fn recovery_allows_bot_when_recovery_failed() {
+        let state = WatchdogState::RecoveryFailed { attempt: 4, failed_at: Utc::now() };
+        assert!(
+            !is_pod_in_recovery(&state),
+            "RecoveryFailed means watchdog gave up — bot may still try"
         );
     }
 
