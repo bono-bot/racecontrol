@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
+stopped_at: "Completed 27-03-PLAN.md — bono_relay::spawn() + Tailscale second listener wired in main.rs + PodOnline/PodOffline events in pod_monitor.rs, 248 tests green"
+last_updated: "2026-03-16T11:55:13.724Z"
+last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
+progress:
+  total_phases: 5
+  completed_phases: 2
+  total_plans: 11
+  completed_plans: 10
+  percent: 94
+---
+
+---
+gsd_state_version: 1.0
+milestone: v5.0
+milestone_name: RC Bot Expansion
+status: ready_to_plan
 stopped_at: Completed 27-02-PLAN.md — bono_relay.rs full implementation with spawn() broadcast loop + handle_command() X-Relay-Secret auth, 248 tests green
 last_updated: "2026-03-16T11:46:08.600Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
-  total_phases: 5
+  [█████████░] 94%
   completed_phases: 2
   total_plans: 11
   completed_plans: 9
@@ -64,6 +80,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 24-crash-hang-launch-usb-bot-patterns P04 | 18 | 2 tasks | 2 files |
 | Phase 27-tailscale-mesh-internet-fallback P04 | 2 | 1 tasks | 1 files |
 | Phase 27-tailscale-mesh-internet-fallback P02 | 466 | 2 tasks | 2 files |
+| Phase 27-tailscale-mesh-internet-fallback P03 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -98,6 +115,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 27-tailscale-mesh-internet-fallback]: push_event timeout 5s not 30s: relay events are ephemeral, blocking receiver loop for 30s is unacceptable
 - [Phase 27-tailscale-mesh-internet-fallback]: bono_event_tx capacity 256: billing/session events are low-frequency (8 pods max), 256 is generous vs dashboard_tx 1024
 - [Phase 27-tailscale-mesh-internet-fallback]: handle_command rejects when relay_secret is empty: endpoint must never be accidentally open
+- [Phase 27-tailscale-mesh-internet-fallback]: Second Axum listener placed BEFORE .with_state(state): state.clone() must precede Arc move into main router — Rust compile-time enforcement
+- [Phase 27-tailscale-mesh-internet-fallback]: PodOnline emitted at backoff reset site (backoff.attempt() > 0 + fresh heartbeat) — this is the canonical offline->online transition in pod_monitor.rs
 
 ### Roadmap Evolution
 
@@ -119,6 +138,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T11:46:08.598Z
-Stopped at: Completed 27-02-PLAN.md — bono_relay.rs full implementation with spawn() broadcast loop + handle_command() X-Relay-Secret auth, 248 tests green
+Last session: 2026-03-16T11:55:13.722Z
+Stopped at: Completed 27-03-PLAN.md — bono_relay::spawn() + Tailscale second listener wired in main.rs + PodOnline/PodOffline events in pod_monitor.rs, 248 tests green
 Resume file: None
