@@ -3,6 +3,7 @@ mod ai_debugger;
 mod content_scanner;
 mod debug_server;
 mod driving_detector;
+mod failure_monitor;
 mod ffb_controller;
 mod firewall;
 mod game_process;
