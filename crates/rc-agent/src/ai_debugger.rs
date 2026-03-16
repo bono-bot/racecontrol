@@ -4,6 +4,7 @@ use std::path::Path;
 use tokio::sync::mpsc;
 
 use rc_common::types::{AiDebugSuggestion, DrivingState, SimType};
+use crate::ffb_controller::FfbController;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct AiDebuggerConfig {
@@ -327,8 +328,8 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
         return Some(fix_frozen_game(snapshot));
     }
 
-    // Pattern 3b: Launch timeout — Content Manager hang
-    if lower.contains("launch timeout") || (lower.contains("content manager") && lower.contains("hang")) {
+    // Pattern 3b: Launch timeout — Content Manager hang (CRASH-02)
+    if lower.contains("launch timeout") || (lower.contains("content manager") && lower.contains("kill cm")) {
         return Some(fix_launch_timeout(snapshot));
     }
 
@@ -363,18 +364,96 @@ fn hidden_cmd(program: &str) -> std::process::Command {
     cmd
 }
 
-// ─── Phase 24 Stub Declarations (Wave 1 will implement) ──────────────────────
+// ─── Phase 24 Wave 1: Fix Function Implementations ──────────────────────────
 
-pub(crate) fn fix_frozen_game(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    todo!("Phase 24 Wave 1")
+pub(crate) fn fix_frozen_game(snapshot: &PodStateSnapshot) -> AutoFixResult {
+    // BILLING GATE — required inside fix function (not just at call site).
+    // DebugMemory instant_fix() replays this function directly, bypassing call-site guards.
+    if !snapshot.billing_active {
+        tracing::debug!("[auto-fix] fix_frozen_game: billing not active — skipping destructive action");
+        return AutoFixResult {
+            fix_type: "fix_frozen_game".to_string(),
+            detail: "billing not active — skipping".to_string(),
+            success: false,
+        };
+    }
+
+    tracing::warn!("[auto-fix] fix_frozen_game: game frozen — zeroing FFB before kill");
+
+    // SAFETY: FFB ZERO MUST happen before any game process kill.
+    // An 8Nm Conspit Ares with a stale FFB command is a physical hazard.
+    // This ordering is non-negotiable — do NOT move the taskkill calls above this line.
+    let ffb = FfbController::new(0x1209, 0xFFB0);
+    let ffb_result = ffb.zero_force();
+    let ffb_detail = match ffb_result {
+        Ok(true) => "FFB zeroed".to_string(),
+        Ok(false) => "FFB not found (skipped)".to_string(),
+        Err(e) => format!("FFB zero error: {}", e),
+    };
+    tracing::info!("[auto-fix] fix_frozen_game: {}", ffb_detail);
+
+    // Kill error dialogs before game kill — customer must not see crash dialogs
+    let _ = hidden_cmd("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
+    let _ = hidden_cmd("taskkill").args(["/IM", "WerFaultSecure.exe", "/F"]).output();
+
+    // Now kill the frozen game processes
+    let game_exes = ["acs.exe", "AssettoCorsa.exe", "F1_25.exe", "iRacingSim64DX11.exe", "LMU.exe", "ForzaMotorsport.exe"];
+    let mut killed = Vec::new();
+    for exe in &game_exes {
+        if PROTECTED_PROCESSES.iter().any(|p| p.eq_ignore_ascii_case(exe)) { continue; }
+        if let Ok(o) = hidden_cmd("taskkill").args(["/IM", exe, "/F"]).output() {
+            if o.status.success() { killed.push(*exe); }
+        }
+    }
+
+    let detail = format!("{} | killed: {}", ffb_detail, killed.join(", "));
+    tracing::info!("[auto-fix] fix_frozen_game: {}", detail);
+    AutoFixResult {
+        fix_type: "fix_frozen_game".to_string(),
+        detail,
+        success: true,
+    }
 }
 
 pub(crate) fn fix_launch_timeout(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    todo!("Phase 24 Wave 1")
+    // No billing gate here — launch timeout can occur before billing activates.
+    // Detection in failure_monitor.rs gates on launch_started_at.is_some() instead.
+    tracing::warn!("[auto-fix] fix_launch_timeout: killing Content Manager — 90s timeout");
+
+    // Kill both possible Content Manager process names (varies by install method on pods)
+    let _ = hidden_cmd("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
+    let _ = hidden_cmd("taskkill").args(["/IM", "acmanager.exe", "/F"]).output();
+
+    // Also kill acs.exe in case it spawned but hung before reaching Live state
+    let _ = hidden_cmd("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+
+    tracing::info!("[auto-fix] fix_launch_timeout: Content Manager and acs.exe killed");
+    AutoFixResult {
+        fix_type: "fix_launch_timeout".to_string(),
+        detail: "Killed Content Manager.exe, acmanager.exe, acs.exe".to_string(),
+        success: true,
+    }
 }
 
 pub(crate) fn fix_usb_reconnect(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    todo!("Phase 24 Wave 1")
+    // USB-01: Conspit Ares wheelbase reconnected — zero FFB to clear stale state.
+    // driving_detector.rs will pick up the device on its next 100ms HID poll cycle.
+    // This fix only ensures the wheelbase starts from a clean (zero torque) state.
+    tracing::info!("[auto-fix] fix_usb_reconnect: wheelbase HID reconnected — resetting FFB state");
+
+    let ffb = FfbController::new(0x1209, 0xFFB0);
+    let ffb_detail = match ffb.zero_force() {
+        Ok(true) => "FFB zeroed on reconnect".to_string(),
+        Ok(false) => "Wheelbase not yet enumerable after reconnect (normal — retried next poll)".to_string(),
+        Err(e) => format!("FFB zero error on reconnect: {}", e),
+    };
+    tracing::info!("[auto-fix] fix_usb_reconnect: {}", ffb_detail);
+
+    AutoFixResult {
+        fix_type: "fix_usb_reconnect".to_string(),
+        detail: ffb_detail,
+        success: true,
+    }
 }
 
 // ─── Auto-Fix Implementations ────────────────────────────────────────────────
@@ -489,15 +568,18 @@ fn fix_clean_temp() -> AutoFixResult {
 }
 
 fn fix_kill_error_dialogs() -> AutoFixResult {
-    tracing::info!("[auto-fix] Killing error dialogs");
+    tracing::info!("[auto-fix] Suppressing error dialogs before process kill");
 
-    let _ = hidden_cmd("taskkill")
-        .args(["/IM", "WerFault.exe", "/F"])
-        .output();
+    let _ = hidden_cmd("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
+    let _ = hidden_cmd("taskkill").args(["/IM", "WerFaultSecure.exe", "/F"]).output();
+    // msedge.exe crash reporter dialogs that appear when Edge itself crashes (not AC game crash)
+    // Only kill if it's a crash reporter instance — process name is the same so we kill all msedge.
+    // This is acceptable because Edge is relaunched by the kiosk overlay manager on next session.
+    let _ = hidden_cmd("taskkill").args(["/IM", "msedge.exe", "/F"]).output();
 
     AutoFixResult {
         fix_type: "kill_error_dialogs".to_string(),
-        detail: "Killed WerFault.exe error dialogs".to_string(),
+        detail: "Suppressed WerFault.exe, WerFaultSecure.exe, msedge.exe".to_string(),
         success: true,
     }
 }
