@@ -1,6 +1,6 @@
 # Requirements: RaceControl
 
-**Last updated:** 2026-03-16
+**Last updated:** 2026-03-17
 **Core Value (v5.0):** The auto-fix bot handles every common failure class autonomously — staff only intervene for hardware replacement and physical reboots.
 
 ## v4.5 Requirements — AC Launch Reliability (Completed 2026-03-16)
@@ -198,33 +198,33 @@
 | TELEM-01 | Phase 26 | Complete |
 | MULTI-01 | Phase 26 | Complete |
 
-| BILLC-01 | Phase TBD | Pending |
-| BILLC-02 | Phase TBD | Pending |
-| BILLC-03 | Phase TBD | Pending |
-| BILLC-04 | Phase TBD | Pending |
-| BILLC-05 | Phase TBD | Pending |
-| RATE-01 | Phase TBD | Pending |
-| RATE-02 | Phase TBD | Pending |
-| RATE-03 | Phase TBD | Pending |
-| ADMIN-01 | Phase TBD | Pending |
-| ADMIN-02 | Phase TBD | Pending |
-| ADMIN-03 | Phase TBD | Pending |
-| ADMIN-04 | Phase TBD | Pending |
-| UIC-01 | Phase TBD | Pending |
-| UIC-02 | Phase TBD | Pending |
-| UIC-03 | Phase TBD | Pending |
-| UIC-04 | Phase TBD | Pending |
-| PROTOC-01 | Phase TBD | Pending |
-| PROTOC-02 | Phase TBD | Pending |
+| BILLC-01 | Phase 35 | Pending |
+| BILLC-02 | Phase 33 | Pending |
+| BILLC-03 | Phase 33 | Pending |
+| BILLC-04 | Phase 33 | Pending |
+| BILLC-05 | Phase 33 | Pending |
+| RATE-01 | Phase 33 | Pending |
+| RATE-02 | Phase 33 | Pending |
+| RATE-03 | Phase 33 | Pending |
+| ADMIN-01 | Phase 34 | Pending |
+| ADMIN-02 | Phase 34 | Pending |
+| ADMIN-03 | Phase 34 | Pending |
+| ADMIN-04 | Phase 34 | Pending |
+| UIC-01 | Phase 35 | Pending |
+| UIC-02 | Phase 35 | Pending |
+| UIC-03 | Phase 35 | Pending |
+| UIC-04 | Phase 35 | Pending |
+| PROTOC-01 | Phase 33 | Pending |
+| PROTOC-02 | Phase 33 | Pending |
 
 **Coverage:**
 - v5.0 requirements: 19 total
 - Mapped to phases: 19
 - Unmapped: 0
 - v5.5 requirements: 18 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-16*
-*Last updated: 2026-03-17 — v5.5 Billing Credits requirements added (18 requirements, phases TBD)*
+*Last updated: 2026-03-17 — v5.5 Billing Credits phases assigned (Phase 33: 9 reqs, Phase 34: 4 reqs, Phase 35: 5 reqs)*

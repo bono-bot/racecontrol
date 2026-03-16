@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
-status: defining_requirements
+status: complete
 stopped_at: Completed 14-02-PLAN.md — 9 staff CRUD endpoints for hotlap events and championships, cargo build clean
 last_updated: "2026-03-16T19:29:30.779Z"
 last_activity: 2026-03-17 — Milestone v5.5 Billing Credits started
@@ -18,13 +18,14 @@ progress:
 gsd_state_version: 1.0
 milestone: v5.5
 milestone_name: Billing Credits
-status: defining_requirements
-stopped_at: "Milestone v5.5 started — defining requirements"
+status: roadmap_ready
+stopped_at: "Roadmap created — 3 phases (33, 34, 35), 18 requirements mapped, ready for plan-phase 33"
 last_updated: "2026-03-17T00:00:00.000Z"
-last_activity: 2026-03-17 — Milestone v5.5 Billing Credits started
+last_activity: 2026-03-17 — Roadmap created for v5.5 Billing Credits
 progress:
-  [██████████] 100%
+  [__________] 0%
   completed_phases: 0
+  total_phases: 3
   total_plans: 0
   completed_plans: 0
 ---
@@ -36,14 +37,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-17)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry — driving repeat visits and social sharing from a publicly accessible cloud PWA.
-**Current focus:** v5.5 Billing Credits — defining requirements.
+**Current focus:** v5.5 Billing Credits — Phase 33: DB Schema + Billing Engine.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-17 — Milestone v5.5 Billing Credits started
+Phase: 33 — DB Schema + Billing Engine
+Plan: Not started
+Status: Roadmap ready, awaiting plan-phase 33
+Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 
 ## Accumulated Context
 
@@ -63,12 +64,19 @@ Last activity: 2026-03-17 — Milestone v5.5 Billing Credits started
 - [Phase 14-events-and-championships]: COALESCE UPDATE pattern for update_hotlap_event: bind Option<T> per field, avoids dynamic SQL building which doesn't compile with sqlx query() type
 - [Phase 14-events-and-championships]: add_championship_round uses 3 cascading SQL statements for championship_rounds insert + hotlap_events.championship_id update + championships.total_rounds increment
 
+(v5.5 Billing Credits — new decisions)
+- rc-common protocol.rs rename ships in Phase 33 alongside the schema, not as a separate pre-phase — both consuming crates are updated atomically in the same PR
+- Phase 33 is the non-negotiable foundation: billing_rates table + BillingRateTier type + cache + algorithm must exist before Phase 34 CRUD routes can reference them
+- Phase 34 cache invalidation is synchronous on write — PUT/DELETE handlers call cache.invalidate() before returning 200/204, so the next billing tick (1s) uses fresh rates
+- Phase 35 is a pure frontend pass — no Rust changes expected; all formatINR callsites in Next.js kiosk/admin replaced in one phase
+
 ### Roadmap Evolution
 
 - Phase 22 added: Pod 6/7/8 Recovery and Remote Restart Reliability
 - Phases 23-26 added: v5.0 RC Bot Expansion roadmap (2026-03-16)
 - Phase 27 added: Tailscale Mesh + Internet Fallback (2026-03-16)
-- v5.5 started: Billing Credits (2026-03-17) — phases TBD after roadmap creation
+- v5.5 started: Billing Credits (2026-03-17)
+- Phases 33-35 added: v5.5 Billing Credits roadmap (2026-03-17)
 
 ### Pending Todos
 
@@ -79,6 +87,7 @@ Last activity: 2026-03-17 — Milestone v5.5 Billing Credits started
 
 ## Session Continuity
 
-Last session: 2026-03-16T19:29:30.776Z
-Stopped at: Completed 14-02-PLAN.md — 9 staff CRUD endpoints for hotlap events and championships, cargo build clean
+Last session: 2026-03-17
+Stopped at: Roadmap created for v5.5 — 3 phases (33, 34, 35), 18/18 requirements mapped
 Resume file: None
+Next action: `/gsd:plan-phase 33`

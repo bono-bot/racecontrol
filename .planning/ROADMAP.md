@@ -42,11 +42,18 @@ Key: billing↔game lifecycle wired end-to-end; CM fallback diagnostics; acServe
 
 </details>
 
+<details>
+<summary>v5.0 RC Bot Expansion — Phases 23–26 (Shipped 2026-03-16)</summary>
+
+Phases: Protocol Contract + Concurrency Safety → Crash, Hang, Launch + USB Bot Patterns → Billing Guard + Server Bot Coordinator → Lap Filter, PIN Security, Telemetry + Multiplayer
+
+</details>
+
 ## Current Milestone
 
-### v5.0 RC Bot Expansion (Phases 23–26)
+### v5.5 Billing Credits (Phases 33–35)
 
-**Milestone Goal:** Expand the AI auto-fix bot with deterministic pattern-match rules for every failure class — pod crashes, billing edges, USB hardware, game launch failures, telemetry gaps, multiplayer issues, kiosk PIN problems, and lap time filtering. Staff only intervene for hardware replacement and physical reboots.
+**Milestone Goal:** Replace hardcoded paise billing tiers with DB-driven credits (1 credit = ₹1 = 100 paise), non-retroactive 3-tier per-minute rates configurable from the admin panel without a code deploy, and every screen shows credits instead of rupees.
 
 ## Phases
 
@@ -56,88 +63,53 @@ Key: billing↔game lifecycle wired end-to-end; CM fallback diagnostics; acServe
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 23: Protocol Contract + Concurrency Safety** - Shared failure taxonomy and concurrency guard land in rc-common before any bot detection code exists — cross-crate compile dependency makes this non-negotiable first (completed 2026-03-16)
-- [x] **Phase 24: Crash, Hang, Launch + USB Bot Patterns** - failure_monitor.rs detects game freeze, launch timeout, and USB disconnect on the pod; ai_debugger.rs gains 6 new fix arms including FFB zero-force on crash (completed 2026-03-16)
-- [x] **Phase 25: Billing Guard + Server Bot Coordinator** - billing_guard.rs detects stuck sessions and idle drift on the pod; bot_coordinator.rs on racecontrol routes anomalies to recovery and fences the cloud sync wallet race (completed 2026-03-16)
-- [x] **Phase 26: Lap Filter, PIN Security, Telemetry + Multiplayer** - lap_filter.rs wires game-reported validity into persist_lap; PIN counters separate customer from staff; telemetry gap and multiplayer desync alert via bot_coordinator (completed 2026-03-16)
+- [ ] **Phase 33: DB Schema + Billing Engine** - billing_rates table, seed data, cloud sync registration, non-retroactive cost algorithm, in-memory rate cache, and rc-common protocol field rename land together — consuming crates compile against the new schema and types before any UI or API is written
+- [ ] **Phase 34: Admin Rates API** - four CRUD endpoints for billing_rates are wired into racecontrol routes — staff can read, create, update, and delete rate tiers via HTTP, and every write immediately invalidates the in-memory cache
+- [ ] **Phase 35: Credits UI** - every user-facing surface that previously showed rupees now shows credits — overlay, kiosk billing modal, admin billing history, and admin pricing page are all updated in a single frontend pass
 
 ## Phase Details
 
-### Phase 23: Protocol Contract + Concurrency Safety
-**Goal**: The shared failure taxonomy and concurrency guard exist in rc-common before any bot detection code is written — PodFailureReason enum, 5 new AgentMessage variants, and is_pod_in_recovery() utility compile cleanly in both consuming crates
-**Depends on**: Phase 22
-**Requirements**: PROTO-01, PROTO-02, PROTO-03
+### Phase 33: DB Schema + Billing Engine
+**Goal**: The billing_rates table exists in the DB with seed data, the non-retroactive cost algorithm is live, the in-memory rate cache is wired into BillingManager, and the rc-common protocol field is renamed with backward-compat alias — all consuming crates compile and existing tests stay green before any admin API or UI is built
+**Depends on**: Phase 32 (v4.5 Synchronized Group Play — last completed phase)
+**Requirements**: RATE-01, RATE-02, RATE-03, BILLC-02, BILLC-03, BILLC-04, BILLC-05, PROTOC-01, PROTOC-02
 **Success Criteria** (what must be TRUE):
-  1. rc-common compiles with PodFailureReason enum covering all 9 bot failure classes (crash, hang, launch, USB, billing, telemetry, multiplayer, PIN, lap) — verified by `cargo test -p rc-common` passing
-  2. Both rc-agent and racecontrol compile after handling the 5 new AgentMessage variants (HardwareFailure, TelemetryGap, BillingAnomaly, LapFlagged, MultiplayerFailure) — no unhandled variant warnings in match arms
-  3. Calling is_pod_in_recovery() in a test with an active recovery state returns true and blocks a second bot task from acting — confirmed by unit test in racecontrol
-  4. All 47 existing tests remain green after the rc-common additions — no regressions from enum extension
-**Plans**: 2 plans
+  1. `cargo test -p rc-common` passes after `minutes_to_next_tier` rename with `#[serde(alias = "minutes_to_value_tier")]` — old JSON field name still deserializes without error, confirmed by a round-trip unit test
+  2. A billing session of 45 minutes costs exactly 1050 cr: `compute_session_cost(45, &tiers)` returns 1050 — (30 × 25) + (15 × 20), not 45 × 20 — confirmed by unit test in billing.rs
+  3. BillingManager starts with hardcoded defaults in its rate cache and the `cargo test -p racecontrol-crate` billing suite passes — no DB required for the cache to initialise
+  4. After server startup, `GET /billing/rates` returns 3 seed rows (Standard 2500 p/min, Extended 2000 p/min, Marathon 1500 p/min) read from the DB
+  5. The billing_rates table name appears in SYNC_TABLES and a cloud sync push run does not error on a clean DB — confirmed by checking cloud_sync.rs SYNC_TABLES list and running `cargo test` with sync tests passing
+**Plans**: TBD
 
-Plans:
-- [ ] 23-01-PLAN.md — PodFailureReason enum (PROTO-01) + 5 AgentMessage variants + ws stub arms (PROTO-02)
-- [ ] 23-02-PLAN.md — is_pod_in_recovery() predicate + 4 unit tests in pod_healer.rs (PROTO-03)
-
-### Phase 24: Crash, Hang, Launch + USB Bot Patterns
-**Goal**: The bot autonomously handles game freeze, launch timeout, and USB wheelbase disconnect on any pod — staff no longer walk to the pod when a game hangs or a wheelbase drops mid-session
-**Depends on**: Phase 23
-**Requirements**: CRASH-01, CRASH-02, CRASH-03, UI-01, USB-01
+### Phase 34: Admin Rates API
+**Goal**: Staff can manage billing rate tiers through four CRUD HTTP endpoints — every write triggers immediate cache invalidation so the billing engine picks up the new rates on the next per-second tick without waiting for the 60-second background refresh
+**Depends on**: Phase 33
+**Requirements**: ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04
 **Success Criteria** (what must be TRUE):
-  1. When a game process produces no UDP packets for 30 seconds AND IsHungAppWindow returns true, the bot kills the game and relaunches it without any staff action — verified on Pod 8 by blocking UDP and checking rc-agent logs
-  2. When Content Manager is still running 90 seconds after a launch command, the bot kills Content Manager and retries the launch — the pod returns to a playable state without staff intervention
-  3. When the Conspit Ares wheelbase is physically unplugged and replugged during a session, the bot detects the VID:0x1209 PID:0xFFB0 device reappearing within 10 seconds and restarts the FFB controller
-  4. Any game kill triggered by the bot sends CMD_ESTOP (FFB zero-force) to the wheelbase before the process kill executes — confirmed by log ordering showing FFB zero before game kill in every test run
-  5. Windows error dialogs (WerFault, crash reporters) are suppressed by the bot before any process kill — customers never see a system error dialog during recovery
-**Plans**: 4 plans
+  1. `GET /billing/rates` returns all active rate tiers as JSON — confirmed by integration test asserting the 3 seed rows are returned after a clean migration
+  2. `POST /billing/rates` with a valid payload inserts a new tier and returns 201 — a subsequent GET includes the new row
+  3. `PUT /billing/rates/{id}` with an updated rate_per_min_paise value persists the change and the BillingManager rate cache reflects the new value within one billing tick (under 1 second) — no server restart required
+  4. `DELETE /billing/rates/{id}` removes the tier and returns 204 — a subsequent compute_session_cost() call does not include the deleted tier's contribution, confirmed by unit test
+**Plans**: TBD
 
-Plans:
-- [ ] 24-01-PLAN.md — Wave 0: PodStateSnapshot Default derive + 3 new fields + 10 RED test stubs (all requirements)
-- [ ] 24-02-PLAN.md — Wave 1a: fix_frozen_game, fix_launch_timeout, fix_usb_reconnect + 2 new try_auto_fix arms (CRASH-01, CRASH-02, CRASH-03, UI-01)
-- [ ] 24-03-PLAN.md — Wave 1b: failure_monitor.rs new file with FailureMonitorState, spawn(), detection logic (CRASH-01, CRASH-02, USB-01)
-- [ ] 24-04-PLAN.md — Wave 2: main.rs wiring — mod declaration, watch channel, 8 state update sites, PodStateSnapshot new fields (all requirements)
-
-### Phase 25: Billing Guard + Server Bot Coordinator
-**Goal**: The bot detects and recovers from stuck billing sessions and idle drift without risking wallet corruption — bot_coordinator.rs on racecontrol routes anomalies through the correct StopSession sequence and fences the cloud sync race
-**Depends on**: Phase 24
-**Requirements**: BILL-01, BILL-02, BILL-03, BILL-04, BOT-01
+### Phase 35: Credits UI
+**Goal**: Every customer-facing and staff-facing screen that previously displayed a rupee amount now shows a credit value — the string "Rs." or formatINR no longer appears anywhere in the overlay, kiosk, or admin billing pages
+**Depends on**: Phase 34
+**Requirements**: BILLC-01, UIC-01, UIC-02, UIC-03, UIC-04
 **Success Criteria** (what must be TRUE):
-  1. billing.rs has a characterization test suite covering start_session, end_session, idle detection, and sync paths — all tests pass before any billing bot code is written (BILL-01 prerequisite gate)
-  2. When billing is active and the game process has exited for more than 60 seconds, the bot triggers end_session() via the correct StopSession → SessionUpdate::Finished sequence — the billing timer stops and the lock screen appears within 5 seconds
-  3. When billing is active and DrivingState is inactive for more than 5 minutes, the bot sends a staff alert rather than auto-ending the session — staff receive the alert and can choose to act
-  4. A bot-triggered session end waits for cloud sync acknowledgment before completing teardown — verified by confirming no wallet balance discrepancy after an artificially induced stuck session recovery
-  5. bot_coordinator.rs on racecontrol receives BillingAnomaly, TelemetryGap, and HardwareFailure messages and routes each to the correct handler — confirmed by integration test sending each variant and asserting the handler fires
-**Plans**: 4 plans
-
-Plans:
-- [ ] 25-01-PLAN.md — Wave 0 (TDD gate): 4 billing.rs characterization tests + FailureMonitorState.driving_state field (BILL-01)
-- [ ] 25-02-PLAN.md — Wave 1a (TDD): billing_guard.rs new file — stuck session + idle drift detection, AgentMessage::BillingAnomaly send (BILL-02, BILL-03)
-- [ ] 25-03-PLAN.md — Wave 1b (TDD): bot_coordinator.rs new file — handle_billing_anomaly routing, recover_stuck_session, alert_staff_idle_drift, handle_hardware_failure + handle_telemetry_gap stubs (BOT-01, BILL-02, BILL-03)
-- [ ] 25-04-PLAN.md — Wave 2: main.rs wiring (billing_guard::spawn + DrivingState send_modify) + ws/mod.rs stub replacement + BILL-04 cloud sync fence in recover_stuck_session (BILL-04, BILL-02, BILL-03)
-
-### Phase 26: Lap Filter, PIN Security, Telemetry + Multiplayer
-**Goal**: Invalid laps are caught at capture time and never reach the leaderboard, PIN failures cannot lock out staff, and telemetry gaps and multiplayer disconnects trigger staff alerts through the coordinator
-**Depends on**: Phase 25
-**Requirements**: LAP-01, LAP-02, LAP-03, PIN-01, PIN-02, TELEM-01, MULTI-01
-**Success Criteria** (what must be TRUE):
-  1. When AC or F1 25 marks a lap as invalid (track cut, collision), the isValidLap flag from the sim adapter is wired into persist_lap and the lap is stored with valid=false — it does not appear on the public leaderboard
-  2. A per-track minimum lap time is configurable in the track catalog (verified with Monza, Silverstone, Spa) — a lap below the minimum floor is flagged with review_required=true regardless of game validity signal
-  3. Customer PIN failure attempts and staff PIN failure attempts are tracked in separate counters — exhausting customer PIN attempts does not lock out the staff PIN path
-  4. When UDP telemetry is silent for more than 60 seconds during an active billing session (game state is Live), staff receive an email alert — no alert fires during menu navigation or idle state
-  5. When an AC multiplayer server disconnect is detected mid-race, the bot triggers lock screen → end billing → log event in that order — the pod ends up in a clean idle state, not a stuck billing limbo
-**Plans**: 4 plans
-
-Plans:
-- [ ] 26-01-PLAN.md — Wave 0: RED test stubs for all 7 requirements (LAP-01, LAP-02, LAP-03, PIN-01, PIN-02, TELEM-01, MULTI-01)
-- [ ] 26-02-PLAN.md — Wave 1: LapData.session_type + catalog min_lap_time_ms + persist_lap review_required (LAP-01, LAP-02, LAP-03)
-- [ ] 26-03-PLAN.md — Wave 1 (parallel): customer_pin_failures + staff_pin_failures counters in AppState and validate_pin (PIN-01, PIN-02)
-- [ ] 26-04-PLAN.md — Wave 2: handle_telemetry_gap + handle_multiplayer_failure + failure_monitor TelemetryGap send + ws wiring (TELEM-01, MULTI-01)
+  1. The rc-agent overlay's `format_cost()` function renders "45 cr" for a 45-credit cost — "Rs." and "₹" are absent from overlay output, confirmed by unit test on the format function
+  2. The admin billing history page shows the credit amount (e.g. "1050 cr") in the cost column — no call to formatINR remains in the billing history component, confirmed by grep
+  3. The admin pricing page displays a Per-Minute Rates table with the 3 seed tiers and allows inline editing of rate_per_min_paise — a staff member can change a rate and save it without leaving the page
+  4. BillingStartModal shows the estimated cost in credits ("~25 cr/min for first 30 min") — no rupee formatting in the modal, confirmed by UI component test
+  5. A full booking flow from kiosk start to session end shows credits at every cost display point — overlay during play, summary screen at end, admin history after session — no rupee strings anywhere in the user journey
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 23 → 24 → 25 → 26
+Phases execute in numeric order: 33 → 34 → 35
 
-Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before both consuming crates and any new enum variant breaks them until handled. Phase 24 (Crash/USB patterns) can be validated on Pod 8 canary before the server coordinator exists. Phase 25 (Billing Guard) requires the concurrency guard from Phase 23 and the detection foundation from Phase 24; billing.rs characterization tests must pass before any billing bot code is written. Phase 26 (Lap/PIN/Telemetry/Multiplayer) depends on bot_coordinator.rs from Phase 25 being in place for alert routing.
+Note: Phase 33 (DB + Engine) is non-negotiable first — billing_rates table and the BillingRateTier type must exist before CRUD routes can reference them, and the rc-common protocol rename must compile cleanly in both consuming crates before any phase-34 or phase-35 code touches protocol.rs. Phase 34 (Admin API) depends on the DB schema and cache from Phase 33. Phase 35 (Credits UI) depends on Phase 34 having live endpoints so the pricing page can wire up inline editing against real API calls.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -155,7 +127,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 12. Data Foundation | v3.0 | 2/2 | Complete | 2026-03-14 |
 | 13. Leaderboard Core | v3.0 | 5/5 | Complete | 2026-03-15 |
 | 13.1. Pod Fleet Reliability | v3.0 | 3/3 | Complete | 2026-03-15 |
-| 14. Events and Championships | 2/5 | In Progress|  | - |
+| 14. Events and Championships | v3.0 | 2/5 | In Progress | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Deferred | - |
 | 16. Firewall Auto-Config | v4.0 | 1/1 | Complete | 2026-03-15 |
 | 17. WebSocket Exec | v4.0 | 3/3 | Complete | 2026-03-15 |
@@ -172,8 +144,11 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 23. Protocol Contract + Concurrency Safety | v5.0 | 2/2 | Complete | 2026-03-16 |
 | 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 4/4 | Complete | 2026-03-16 |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 4/4 | Complete | 2026-03-16 |
-| 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | Complete    | 2026-03-16 | 2026-03-16 |
-| 27. Tailscale Mesh + Internet Fallback | - | Complete    | 2026-03-16 | 2026-03-16 |
+| 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 4/4 | Complete | 2026-03-16 |
+| 27. Tailscale Mesh + Internet Fallback | v5.0 | 5/5 | Complete | 2026-03-16 |
+| 33. DB Schema + Billing Engine | v5.5 | 0/? | Not started | - |
+| 34. Admin Rates API | v5.5 | 0/? | Not started | - |
+| 35. Credits UI | v5.5 | 0/? | Not started | - |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
 
