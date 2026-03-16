@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 22-02-PLAN.md — Pod 2 deployed, pods 1/3-8 need manual rc-agent start
-last_updated: "2026-03-16T09:37:37.016Z"
+stopped_at: Completed 23-02-PLAN.md — is_pod_in_recovery() predicate added to pod_healer.rs, all 4 tests green
+last_updated: "2026-03-16T10:10:28.791Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
+  completed_plans: 1
   percent: 90
 ---
 
@@ -71,6 +71,7 @@ Progress: [░░░░░░░░░░] 0%
 | 21-fleet-health-dashboard P02 | 5 min | 1 task | 3 files |
 | 22-pod-recovery P01 | 12 min | 3 tasks | 3 files |
 | Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability P02 | 95 | 1 tasks | 1 files |
+| Phase 23-protocol-contract-concurrency-safety P02 | 10 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,7 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: deploy_pod.py server-exec fallback: probe :8090 first, use racecontrol server WS proxy when blocked by GPO domain firewall policy
 - [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: PowerShell -EncodedCommand (UTF-16LE base64) for all WS-exec-proxied file writes: cmd.exe strips dollar-signs in -Command mode
 - [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: Rename-then-copy binary swap: Windows allows ren while running but not overwrite; rename old.exe, copy new.exe into vacated name, kill old PID, start new
+- [Phase 23-protocol-contract-concurrency-safety]: is_pod_in_recovery() lives in racecontrol (not rc-common) — WatchdogState is server-local; RecoveryFailed returns false so bots may still attempt fixes after watchdog gives up
 
 ### Roadmap Evolution
 
@@ -107,6 +109,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T09:37:37.013Z
-Stopped at: Completed 22-02-PLAN.md — Pod 2 deployed, pods 1/3-8 need manual rc-agent start
+Last session: 2026-03-16T10:10:28.788Z
+Stopped at: Completed 23-02-PLAN.md — is_pod_in_recovery() predicate added to pod_healer.rs, all 4 tests green
 Resume file: None
