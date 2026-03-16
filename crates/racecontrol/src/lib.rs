@@ -3,6 +3,7 @@
 pub mod ac_camera;
 pub mod ac_server;
 pub mod bono_relay;
+pub mod bot_coordinator;
 pub mod accounting;
 pub mod action_queue;
 pub mod activity_log;
