@@ -68,7 +68,7 @@
 
 ### Billing Guard
 
-- [ ] **BILL-01**: `billing.rs` characterization test suite written before any billing bot code — covers start_session, end_session, idle detection, sync paths
+- [x] **BILL-01**: `billing.rs` characterization test suite written before any billing bot code — covers start_session, end_session, idle detection, sync paths
 - [ ] **BILL-02**: Bot detects stuck session (billing active >60s after game process exits) and triggers safe `end_session()` via correct StopSession → SessionUpdate::Finished order
 - [ ] **BILL-03**: Bot detects idle billing drift (billing active + DrivingState inactive > 5 minutes) and alerts staff rather than auto-ending
 - [ ] **BILL-04**: Bot-triggered session end fences cloud sync — waits for sync acknowledgment before completing teardown to prevent wallet CRDT race
@@ -147,7 +147,7 @@
 | CRASH-03 | Phase 24 | Complete |
 | UI-01 | Phase 24 | Complete |
 | USB-01 | Phase 24 | Complete |
-| BILL-01 | Phase 25 | Pending |
+| BILL-01 | Phase 25 | Complete |
 | BILL-02 | Phase 25 | Pending |
 | BILL-03 | Phase 25 | Pending |
 | BILL-04 | Phase 25 | Pending |
