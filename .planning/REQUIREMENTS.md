@@ -1,7 +1,51 @@
-# Requirements: RaceControl v5.0 RC Bot Expansion
+# Requirements: RaceControl
 
-**Defined:** 2026-03-16
-**Core Value:** The auto-fix bot handles every common failure class autonomously — staff only intervene for hardware replacement and physical reboots.
+**Last updated:** 2026-03-16
+**Core Value (v5.0):** The auto-fix bot handles every common failure class autonomously — staff only intervene for hardware replacement and physical reboots.
+
+## v4.5 Requirements — AC Launch Reliability (Completed 2026-03-16)
+
+**Core Value:** No customer ever plays for free and no customer ever pays for downtime — billing and game process always in sync.
+
+### Billing-Game Lifecycle (LIFE) — Phases 28
+
+- [x] **LIFE-01**: When billing session expires or is manually stopped, the running game is force-closed within 10 seconds
+- [x] **LIFE-02**: Staff cannot launch a game on a pod that has no active billing session
+- [x] **LIFE-03**: After session ends, pod shows a brief session summary (15s) then returns to the idle lock screen automatically
+- [x] **LIFE-04**: Rapid "launch game" requests are deduplicated — only one game launch per active billing session
+
+### Game Crash Recovery (GCR) — Phase 29
+
+> Note: GCR prefix used to avoid collision with v5.0 bot CRASH- requirements (different layer: lifecycle vs auto-fix)
+
+- [x] **GCR-01**: rc-agent detects game process exit within 5 seconds of the process ending
+- [x] **GCR-02**: Billing timer auto-pauses when the game process crashes or closes unexpectedly
+- [x] **GCR-03**: Staff sees "Game Crashed" status on kiosk dashboard for the affected pod
+- [x] **GCR-04**: Staff can re-launch the game from kiosk after a crash without starting a new billing session
+
+### Launch Resilience (LAUNCH) — Phase 30
+
+- [x] **LAUNCH-01**: When Content Manager hangs or fails, AC falls back to direct acs.exe launch within 15 seconds
+- [x] **LAUNCH-02**: Game launch failure details (exit code, CM log errors) are reported to racecontrol and visible on the dashboard
+- [x] **LAUNCH-03**: When game launch fails entirely, billing is auto-paused until staff takes action
+
+### AC Multiplayer Lifecycle (AML) — Phase 31
+
+> Note: AML prefix used to avoid collision with v5.0 bot MULTI- requirements (different layer: server lifecycle vs bot recovery)
+
+- [x] **AML-01**: When a multiplayer booking is confirmed, acServer.exe auto-starts with the selected track/car/session config
+- [x] **AML-02**: When billing ends for all pods in a multiplayer session, acServer.exe auto-stops within 10 seconds
+- [x] **AML-03**: Customer can select "Play with Friends" on kiosk booking wizard to start a multiplayer session without staff
+- [x] **AML-04**: Each friend in a kiosk multiplayer booking gets a unique PIN and assigned pod number
+
+### Synchronized Group Play (GROUP) — Phase 32
+
+- [x] **GROUP-01**: All pods in a multiplayer group launch AC and join the server simultaneously (coordinated start)
+- [x] **GROUP-02**: Staff can enable "continuous" mode — when a race ends, a new session auto-starts while billing is active
+- [x] **GROUP-03**: If any pod fails to join the AC server, staff sees which pod failed and can retry from kiosk
+- [x] **GROUP-04**: Staff can change track/car between races in continuous mode without stopping the full AC server
+
+---
 
 ## v5.0 Requirements
 
@@ -76,6 +120,25 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| LIFE-01 | Phase 28 | Complete |
+| LIFE-02 | Phase 28 | Complete |
+| LIFE-03 | Phase 28 | Complete |
+| LIFE-04 | Phase 28 | Complete |
+| GCR-01 | Phase 29 | Complete |
+| GCR-02 | Phase 29 | Complete |
+| GCR-03 | Phase 29 | Complete |
+| GCR-04 | Phase 29 | Complete |
+| LAUNCH-01 | Phase 30 | Complete |
+| LAUNCH-02 | Phase 30 | Complete |
+| LAUNCH-03 | Phase 30 | Complete |
+| AML-01 | Phase 31 | Complete |
+| AML-02 | Phase 31 | Complete |
+| AML-03 | Phase 31 | Complete |
+| AML-04 | Phase 31 | Complete |
+| GROUP-01 | Phase 32 | Complete |
+| GROUP-02 | Phase 32 | Complete |
+| GROUP-03 | Phase 32 | Complete |
+| GROUP-04 | Phase 32 | Complete |
 | PROTO-01 | Phase 23 | Complete |
 | PROTO-02 | Phase 23 | Complete |
 | PROTO-03 | Phase 23 | Complete |

@@ -23,7 +23,7 @@
 - Staff dashboard: one-click lockdown toggle, power management (restart/shutdown/wake) per-pod and bulk
 - Customer experience: Racing Point branding on lock/blank screens, session results display, staff-configurable wallpaper
 
-## v5.0 AC Launch Reliability (Shipped: 2026-03-16)
+## v4.5 AC Launch Reliability (Shipped: 2026-03-16)
 
 **Phases completed:** 5 phases, 10 plans, 19 requirements
 

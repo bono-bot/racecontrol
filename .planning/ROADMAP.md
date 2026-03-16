@@ -33,6 +33,15 @@ Phases: Firewall Auto-Config → WebSocket Exec → Startup Self-Healing → Wat
 
 </details>
 
+<details>
+<summary>v4.5 AC Launch Reliability — Phases 28–32 (Shipped 2026-03-16)</summary>
+
+Phases: Billing-Game Lifecycle → Game Crash Recovery → Launch Resilience → Multiplayer Server Lifecycle → Synchronized Group Play
+
+Key: billing↔game lifecycle wired end-to-end; CM fallback diagnostics; acServer.exe auto-start/stop on booking/billing; kiosk self-serve multiplayer with per-pod PINs; coordinated group launch + continuous race mode + join failure recovery.
+
+</details>
+
 ## Current Milestone
 
 ### v5.0 RC Bot Expansion (Phases 23–26)
@@ -142,9 +151,14 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 19. Watchdog Service | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
-| 22. Pod 6/7/8 Recovery + Remote Restart Reliability | 2/2 | Complete   | 2026-03-16 | - |
-| 23. Protocol Contract + Concurrency Safety | 2/2 | Complete    | 2026-03-16 | - |
-| 24. Crash, Hang, Launch + USB Bot Patterns | 3/4 | In Progress|  | - |
+| 22. Pod 6/7/8 Recovery + Remote Restart Reliability | v4.0 | 2/2 | Complete | 2026-03-16 |
+| 28. Billing-Game Lifecycle | v4.5 | 2/2 | Complete | 2026-03-16 |
+| 29. Game Crash Recovery | v4.5 | 2/2 | Complete | 2026-03-16 |
+| 30. Launch Resilience | v4.5 | 2/2 | Complete | 2026-03-16 |
+| 31. Multiplayer Server Lifecycle | v4.5 | 2/2 | Complete | 2026-03-16 |
+| 32. Synchronized Group Play | v4.5 | 2/2 | Complete | 2026-03-16 |
+| 23. Protocol Contract + Concurrency Safety | v5.0 | 2/2 | Complete | 2026-03-16 |
+| 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 3/4 | In Progress | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
 

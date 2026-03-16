@@ -14,37 +14,6 @@ progress:
   percent: 84
 ---
 
----
-gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: RC Bot Expansion
-status: ready_to_plan
-stopped_at: Completed 23-01-PLAN.md — PodFailureReason enum and 5 AgentMessage variants committed, full test suite green
-last_updated: "2026-03-16T10:37:59.437Z"
-last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
-progress:
-  [████████░░] 84%
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 90
----
-
----
-gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: RC Bot Expansion
-status: ready_to_plan
-stopped_at: ~
-last_updated: "2026-03-16T00:00:00.000Z"
-last_activity: 2026-03-16 — v5.0 roadmap created. Phases 23-26 defined, 19/19 requirements mapped.
-progress:
-  [█████████░] 90%
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
----
-
 # Project State
 
 ## Project Reference
