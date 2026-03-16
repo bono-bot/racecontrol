@@ -63,7 +63,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Both rc-agent and racecontrol compile after handling the 5 new AgentMessage variants (HardwareFailure, TelemetryGap, BillingAnomaly, LapFlagged, MultiplayerFailure) — no unhandled variant warnings in match arms
   3. Calling is_pod_in_recovery() in a test with an active recovery state returns true and blocks a second bot task from acting — confirmed by unit test in racecontrol
   4. All 47 existing tests remain green after the rc-common additions — no regressions from enum extension
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 23-01-PLAN.md — PodFailureReason enum (PROTO-01) + 5 AgentMessage variants + ws stub arms (PROTO-02)
+- [ ] 23-02-PLAN.md — is_pod_in_recovery() predicate + 4 unit tests in pod_healer.rs (PROTO-03)
 
 ### Phase 24: Crash, Hang, Launch + USB Bot Patterns
 **Goal**: The bot autonomously handles game freeze, launch timeout, and USB wheelbase disconnect on any pod — staff no longer walk to the pod when a game hangs or a wheelbase drops mid-session
@@ -133,7 +137,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 22. Pod 6/7/8 Recovery + Remote Restart Reliability | v4.0 | 1/2 | In progress | - |
-| 23. Protocol Contract + Concurrency Safety | v5.0 | 0/? | Not started | - |
+| 23. Protocol Contract + Concurrency Safety | v5.0 | 0/2 | Not started | - |
 | 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/? | Not started | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
