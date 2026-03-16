@@ -21,7 +21,7 @@ use tokio::sync::{mpsc, watch};
 use crate::ai_debugger::{PodStateSnapshot, try_auto_fix};
 use crate::udp_heartbeat::HeartbeatStatus;
 use rc_common::protocol::AgentMessage;
-use rc_common::types::PodFailureReason;
+use rc_common::types::{DrivingState, PodFailureReason};
 
 const POLL_INTERVAL_SECS: u64 = 5;
 const STARTUP_GRACE_SECS: u64 = 30;
@@ -47,6 +47,9 @@ pub struct FailureMonitorState {
     /// conflicting with server-initiated recovery. Cannot use is_pod_in_recovery()
     /// (server-side only in pod_healer.rs) — this is the agent-local equivalent.
     pub recovery_in_progress: bool,
+    /// Current driving state from the detector (None = not yet received).
+    /// Read by billing_guard.rs (Wave 1) for idle drift detection (BILL-03).
+    pub driving_state: Option<DrivingState>,
 }
 
 impl Default for FailureMonitorState {
@@ -58,6 +61,7 @@ impl Default for FailureMonitorState {
             launch_started_at: None,
             billing_active: false,
             recovery_in_progress: false,
+            driving_state: None,
         }
     }
 }
@@ -379,5 +383,6 @@ mod tests {
         assert!(s.launch_started_at.is_none());
         assert!(!s.billing_active);
         assert!(!s.recovery_in_progress);
+        assert!(s.driving_state.is_none(), "driving_state must default to None");
     }
 }
