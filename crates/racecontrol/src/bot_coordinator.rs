@@ -189,13 +189,13 @@ pub async fn handle_multiplayer_failure(
         return;
     };
 
-    // Step 1: Engage lock screen — pod is locked before billing ends
+    // Step 1: Engage lock screen — pod is locked before billing ends.
+    // BlankScreen blanks the pod display immediately (customer can no longer drive).
+    // FFB zero is guaranteed by end_billing_session_public → StopGame arm in main.rs.
     {
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pod_id) {
-            // ClearLockScreen closes the browser window; the HTTP server underneath
-            // serves the default locked idle page — pod returns to locked idle state.
-            let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+            let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
         }
     }
 
