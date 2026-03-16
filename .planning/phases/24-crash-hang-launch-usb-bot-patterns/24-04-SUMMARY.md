@@ -112,3 +112,11 @@ None - no external service configuration required.
 ---
 *Phase: 24-crash-hang-launch-usb-bot-patterns*
 *Completed: 2026-03-16*
+
+## Self-Check: PASSED
+
+- FOUND: crates/rc-agent/src/driving_detector.rs
+- FOUND: crates/rc-agent/src/main.rs
+- FOUND: .planning/phases/24-crash-hang-launch-usb-bot-patterns/24-04-SUMMARY.md
+- FOUND: d87d34d (Task 1 commit)
+- FOUND: 17344fd (Task 2 commit)
