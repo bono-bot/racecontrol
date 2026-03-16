@@ -5,7 +5,10 @@
 use std::sync::Arc;
 
 use rc_common::types::{BillingSessionStatus, DrivingState};
-use racecontrol_crate::lap_tracker::{auto_enter_event, recalculate_event_positions};
+use racecontrol_crate::lap_tracker::{
+    assign_championship_positions, auto_enter_event, compute_championship_standings,
+    recalculate_event_positions, score_group_event,
+};
 use sqlx::SqlitePool;
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
@@ -2930,7 +2933,9 @@ async fn test_f1_points_scoring() {
         .execute(&pool).await.unwrap();
     }
 
-    // After Plan 14-03 calls score_group_event(): entries should have F1 points
+    // Call score_group_event() to process multiplayer_results into hotlap_event_entries
+    score_group_event(&pool, gs_id, event_id).await.expect("score_group_event failed");
+
     let points: Vec<(String, i64)> = sqlx::query_as(
         "SELECT driver_id, points FROM hotlap_event_entries WHERE event_id = ? ORDER BY position"
     ).bind(event_id).fetch_all(&pool).await.unwrap();
@@ -2975,12 +2980,13 @@ async fn test_dns_dnf_zero_points() {
          VALUES ('dnf-res-2', ?, 'dnf-drv-2', 2, 81500, 1)"
     ).bind(gs_id).execute(&pool).await.unwrap();
 
-    // After Plan 14-03: DNF driver must score 0 points
+    // Call score_group_event() to process multiplayer_results including DNF driver
+    score_group_event(&pool, gs_id, event_id).await.expect("score_group_event failed");
+
     let dnf_points = sqlx::query_as::<_, (i64,)>(
         "SELECT points FROM hotlap_event_entries WHERE event_id = ? AND driver_id = 'dnf-drv-2'"
     ).bind(event_id).fetch_optional(&pool).await.unwrap();
 
-    // Entry may not exist yet (no implementation) — assert failure condition
     assert!(dnf_points.is_some(), "DNF driver should have an event entry after scoring");
     assert_eq!(dnf_points.unwrap().0, 0, "DNF driver must score 0 F1 points");
 }
@@ -3017,7 +3023,9 @@ async fn test_gap_to_leader() {
         .execute(&pool).await.unwrap();
     }
 
-    // After Plan 14-03 computes gaps: leader gap=0, P2 gap=1500, P3 gap=3000
+    // Call recalculate_event_positions() to compute gaps for all entries
+    recalculate_event_positions(&pool, event_id).await;
+
     let gaps: Vec<(String, Option<i64>)> = sqlx::query_as(
         "SELECT driver_id, gap_to_leader_ms FROM hotlap_event_entries WHERE event_id = ? ORDER BY position"
     ).bind(event_id).fetch_all(&pool).await.unwrap();
@@ -3070,7 +3078,9 @@ async fn test_championship_standings_sum() {
         .execute(&pool).await.unwrap();
     }
 
-    // After Plan 14-04 computes standings: total should be 25+18=43
+    // Call compute_championship_standings() to aggregate points and persist standings
+    compute_championship_standings(&pool, champ_id).await.expect("compute_championship_standings failed");
+
     let standing = sqlx::query_as::<_, (i64,)>(
         "SELECT total_points FROM championship_standings WHERE championship_id = ? AND driver_id = ?"
     ).bind(champ_id).bind(driver_id).fetch_optional(&pool).await.unwrap();
@@ -3105,7 +3115,9 @@ async fn test_championship_tiebreaker_wins() {
          VALUES (?, 'ctw-drv-b', 43, 1, 2)"
     ).bind(champ_id).execute(&pool).await.unwrap();
 
-    // After Plan 14-04 assigns positions: Driver A (2 wins) should be position 1
+    // Call assign_championship_positions() to sort by tiebreaker and assign positions
+    assign_championship_positions(&pool, champ_id).await.expect("assign_championship_positions failed");
+
     let positions: Vec<(String, Option<i64>)> = sqlx::query_as(
         "SELECT driver_id, position FROM championship_standings WHERE championship_id = ? ORDER BY position"
     ).bind(champ_id).fetch_all(&pool).await.unwrap();
@@ -3143,7 +3155,9 @@ async fn test_championship_tiebreaker_p2() {
          VALUES (?, 'ctp2-drv-b', 43, 1, 1)"
     ).bind(champ_id).execute(&pool).await.unwrap();
 
-    // After Plan 14-04 assigns positions: Driver A (2 P2s) should be position 1
+    // Call assign_championship_positions() to sort by P2 tiebreaker and assign positions
+    assign_championship_positions(&pool, champ_id).await.expect("assign_championship_positions failed");
+
     let positions: Vec<(String, Option<i64>)> = sqlx::query_as(
         "SELECT driver_id, position FROM championship_standings WHERE championship_id = ? ORDER BY position"
     ).bind(champ_id).fetch_all(&pool).await.unwrap();

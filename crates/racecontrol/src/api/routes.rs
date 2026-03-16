@@ -262,6 +262,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/public/time-trial", get(public_time_trial))
         .route("/public/laps/{lap_id}/telemetry", get(public_lap_telemetry))
         .route("/public/sessions/{id}", get(public_session_summary))
+        .route("/public/championships/{id}/standings", get(public_championship_standings_handler))
         // Pod Activity Log (unified real-time feed)
         .route("/activity", get(global_activity))
         .route("/pods/{pod_id}/activity", get(pod_activity))
@@ -296,6 +297,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/staff/championships/{id}", get(get_staff_championship))
         .route("/staff/championships/{id}/rounds", post(add_championship_round))
         .route("/staff/events/{id}/link-session", post(link_group_session_to_event))
+        .route("/staff/group-sessions/{id}/complete", post(complete_group_session))
 }
 
 async fn health() -> Json<Value> {
@@ -8904,6 +8906,115 @@ async fn public_session_summary(
     }))
 }
 
+// ─── Public Championship Standings ───────────────────────────────────────────
+
+/// GET /public/championships/{id}/standings — public championship standings with F1 tiebreaker
+///
+/// Returns championship metadata plus live-computed standings from hotlap_event_entries.
+/// Standings are ordered by: total_points DESC, wins DESC, p2_count DESC, p3_count DESC.
+async fn public_championship_standings_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    // Fetch championship metadata
+    let champ = sqlx::query_as::<_, (String, String, Option<String>, String, String, i64, i64)>(
+        "SELECT id, name, season, status, scoring_system, total_rounds, completed_rounds
+         FROM championships WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let (champ_name, season, champ_status, scoring_system, total_rounds, completed_rounds) =
+        match champ {
+            Ok(Some((_, name, season, status, scoring, total, completed))) => {
+                (name, season, status, scoring, total, completed)
+            }
+            Ok(None) => return Json(json!({ "error": "Championship not found" })),
+            Err(e) => return Json(json!({ "error": e.to_string() })),
+        };
+
+    // Compute standings live from hotlap_event_entries
+    let standings_rows: Vec<(String, String, i64, i64, i64, i64, i64, Option<i64>)> =
+        sqlx::query_as(
+            "SELECT hee.driver_id,
+                    COALESCE(d.nickname, d.name, 'Unknown') as display_name,
+                    COALESCE(SUM(hee.points), 0) as total_points,
+                    COUNT(DISTINCT cr.event_id) as rounds_entered,
+                    SUM(CASE WHEN hee.position = 1 AND hee.result_status = 'finished' THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN hee.position = 2 AND hee.result_status = 'finished' THEN 1 ELSE 0 END) as p2_count,
+                    SUM(CASE WHEN hee.position = 3 AND hee.result_status = 'finished' THEN 1 ELSE 0 END) as p3_count,
+                    MIN(hee.position) as best_result
+             FROM hotlap_event_entries hee
+             INNER JOIN championship_rounds cr ON cr.event_id = hee.event_id
+             LEFT JOIN drivers d ON d.id = hee.driver_id
+             WHERE cr.championship_id = ?
+               AND hee.result_status IN ('finished', 'dnf', 'dns')
+             GROUP BY hee.driver_id
+             ORDER BY total_points DESC, wins DESC, p2_count DESC, p3_count DESC",
+        )
+        .bind(&id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let standings: Vec<Value> = standings_rows
+        .iter()
+        .enumerate()
+        .map(|(i, (driver_id, display_name, total_points, rounds_entered, wins, p2_count, p3_count, best_result))| {
+            json!({
+                "position": i as i64 + 1,
+                "driver_id": driver_id,
+                "display_name": display_name,
+                "total_points": total_points,
+                "rounds_entered": rounds_entered,
+                "wins": wins,
+                "p2_count": p2_count,
+                "p3_count": p3_count,
+                "best_result": best_result,
+            })
+        })
+        .collect();
+
+    // Fetch rounds list
+    let rounds: Vec<(i64, String, Option<String>)> = sqlx::query_as(
+        "SELECT cr.round_number, cr.event_id, he.name
+         FROM championship_rounds cr
+         LEFT JOIN hotlap_events he ON he.id = cr.event_id
+         WHERE cr.championship_id = ?
+         ORDER BY cr.round_number",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let rounds_json: Vec<Value> = rounds
+        .iter()
+        .map(|(num, evt_id, name)| {
+            json!({
+                "round_number": num,
+                "event_id": evt_id,
+                "event_name": name,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "championship": {
+            "id": id,
+            "name": champ_name,
+            "season": season,
+            "status": champ_status,
+            "scoring_system": scoring_system,
+            "total_rounds": total_rounds,
+            "completed_rounds": completed_rounds,
+        },
+        "standings": standings,
+        "rounds": rounds_json,
+    }))
+}
+
 // ─── Dynamic Pricing Admin ───────────────────────────────────────────────────
 
 async fn list_pricing_rules(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -11783,6 +11894,58 @@ async fn add_championship_round(
         championship_id, round_number, event_id
     );
     Json(json!({ "status": "round_added" }))
+}
+
+/// POST /staff/group-sessions/{id}/complete — mark a group session completed and score the linked event
+async fn complete_group_session(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(session_id): Path<String>,
+) -> Json<Value> {
+    if let Err(e) = check_terminal_auth(&state, &headers).await {
+        return Json(json!({ "error": e }));
+    }
+
+    // Fetch group session and its hotlap_event_id
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT id, hotlap_event_id FROM group_sessions WHERE id = ?",
+    )
+    .bind(&session_id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let hotlap_event_id = match row {
+        None => return Json(json!({ "error": "Group session not found" })),
+        Some((_, None)) => {
+            return Json(json!({
+                "error": "Group session not linked to an event. Use POST /staff/events/{id}/link-session first."
+            }));
+        }
+        Some((_, Some(event_id))) => event_id,
+    };
+
+    // Mark session as completed
+    let result = sqlx::query(
+        "UPDATE group_sessions SET status = 'completed', completed_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&session_id)
+    .execute(&state.db)
+    .await;
+
+    if let Err(e) = result {
+        return Json(json!({ "error": format!("Failed to complete session: {e}") }));
+    }
+
+    // Score the event from multiplayer_results
+    if let Err(e) = crate::lap_tracker::score_group_event(&state.db, &session_id, &hotlap_event_id).await {
+        return Json(json!({ "error": format!("Session marked complete but scoring failed: {e}") }));
+    }
+
+    Json(json!({
+        "status": "completed",
+        "scored_event": hotlap_event_id
+    }))
 }
 
 /// POST /staff/events/{id}/link-session — link a group session to a hotlap event
