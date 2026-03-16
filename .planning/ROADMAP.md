@@ -79,7 +79,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. BillingManager starts with hardcoded defaults in its rate cache and the `cargo test -p racecontrol-crate` billing suite passes — no DB required for the cache to initialise
   4. After server startup, `GET /billing/rates` returns 3 seed rows (Standard 2500 p/min, Extended 2000 p/min, Marathon 1500 p/min) read from the DB
   5. The billing_rates table name appears in SYNC_TABLES and a cloud sync push run does not error on a clean DB — confirmed by checking cloud_sync.rs SYNC_TABLES list and running `cargo test` with sync tests passing
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 33-01-PLAN.md — Wave 1: Fix seed capitalization, add serde alias round-trip test, add billing_rates seed count assertion (RATE-01, RATE-02, RATE-03, BILLC-02, BILLC-03, BILLC-04, BILLC-05, PROTOC-01, PROTOC-02)
 
 ### Phase 34: Admin Rates API
 **Goal**: Staff can manage billing rate tiers through four CRUD HTTP endpoints — every write triggers immediate cache invalidation so the billing engine picks up the new rates on the next per-second tick without waiting for the 60-second background refresh
@@ -146,7 +149,7 @@ Note: Phase 33 (DB + Engine) is non-negotiable first — billing_rates table and
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 4/4 | Complete | 2026-03-16 |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 4/4 | Complete | 2026-03-16 |
 | 27. Tailscale Mesh + Internet Fallback | v5.0 | 5/5 | Complete | 2026-03-16 |
-| 33. DB Schema + Billing Engine | v5.5 | 0/? | Not started | - |
+| 33. DB Schema + Billing Engine | v5.5 | 0/1 | In Progress | - |
 | 34. Admin Rates API | v5.5 | 0/? | Not started | - |
 | 35. Credits UI | v5.5 | 0/? | Not started | - |
 
