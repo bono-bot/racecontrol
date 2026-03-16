@@ -3439,3 +3439,158 @@ async fn test_sync_targeted_telemetry() {
     let free_in_sync = event_laps.iter().any(|(id,)| id == "tele-lap-free");
     assert!(!free_in_sync, "Free practice lap must not be in targeted telemetry sync");
 }
+
+// =============================================================================
+// Phase 34: Admin Rates API — ADMIN-01..04
+// =============================================================================
+
+#[tokio::test]
+async fn test_billing_rates_get_returns_seed_rows() {
+    use racecontrol_crate::billing;
+
+    let pool = create_test_db().await;
+    let state = create_test_state(pool.clone());
+
+    // Seed rows are already in the DB from run_test_migrations.
+    // Populate the cache from DB.
+    billing::refresh_rate_tiers(&state).await;
+
+    let tiers = state.billing.rate_tiers.read().await;
+    assert_eq!(
+        tiers.len(),
+        3,
+        "GET /billing/rates should return the 3 seeded tiers (Standard, Extended, Marathon)"
+    );
+
+    // Verify tier names are the expected seed rows.
+    let names: Vec<&str> = tiers.iter().map(|t| t.tier_name.as_str()).collect();
+    assert!(names.contains(&"Standard"), "Standard tier must be present");
+    assert!(names.contains(&"Extended"), "Extended tier must be present");
+    assert!(names.contains(&"Marathon"), "Marathon tier must be present");
+}
+
+#[tokio::test]
+async fn test_billing_rates_create_inserts_and_cache_updates() {
+    use racecontrol_crate::billing;
+
+    let pool = create_test_db().await;
+    let state = create_test_state(pool.clone());
+
+    // Perform the same INSERT the create_billing_rate handler does.
+    let new_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&new_id)
+    .bind(4_i64)
+    .bind("VIP")
+    .bind(90_i64)
+    .bind(1200_i64)
+    .execute(&pool)
+    .await
+    .expect("INSERT billing_rate should succeed");
+
+    // Invalidate and reload cache.
+    billing::refresh_rate_tiers(&state).await;
+
+    // Cache should now have 4 entries.
+    let tiers = state.billing.rate_tiers.read().await;
+    assert_eq!(tiers.len(), 4, "Cache must have 4 tiers after POST creates a new one");
+
+    // New tier must be in the cache.
+    let vip = tiers.iter().find(|t| t.tier_name == "VIP");
+    assert!(vip.is_some(), "VIP tier must appear in cache after create + refresh");
+    assert_eq!(vip.unwrap().rate_per_min_paise, 1200);
+
+    // New row must be in the DB.
+    let row = sqlx::query_as::<_, (String,)>(
+        "SELECT tier_name FROM billing_rates WHERE id = ?",
+    )
+    .bind(&new_id)
+    .fetch_one(&pool)
+    .await
+    .expect("New billing_rate must exist in DB after POST");
+    assert_eq!(row.0, "VIP");
+}
+
+#[tokio::test]
+async fn test_billing_rates_update_invalidates_cache() {
+    use racecontrol_crate::billing;
+
+    let pool = create_test_db().await;
+    let state = create_test_state(pool.clone());
+
+    // Initial cache load.
+    billing::refresh_rate_tiers(&state).await;
+    {
+        let tiers = state.billing.rate_tiers.read().await;
+        let std = tiers.iter().find(|t| t.tier_name == "Standard").expect("Standard must exist");
+        assert_eq!(std.rate_per_min_paise, 2500, "Standard seed rate must be 2500 paise");
+    }
+
+    // Perform the same UPDATE the update_billing_rate handler does.
+    sqlx::query(
+        "UPDATE billing_rates SET rate_per_min_paise = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(3000_i64)
+    .bind("rate_standard")
+    .execute(&pool)
+    .await
+    .expect("UPDATE billing_rate should succeed");
+
+    // Invalidate cache immediately (simulates handler calling refresh_rate_tiers).
+    billing::refresh_rate_tiers(&state).await;
+
+    // Cache must reflect new value within this call — no restart required.
+    let tiers = state.billing.rate_tiers.read().await;
+    let std = tiers.iter().find(|t| t.tier_name == "Standard").expect("Standard must still exist");
+    assert_eq!(
+        std.rate_per_min_paise, 3000,
+        "Cache must reflect updated rate_per_min_paise within one billing tick"
+    );
+}
+
+#[tokio::test]
+async fn test_billing_rates_delete_excludes_from_cost() {
+    use racecontrol_crate::billing;
+
+    let pool = create_test_db().await;
+    let state = create_test_state(pool.clone());
+
+    // Load all 3 tiers and compute cost for a 90-minute session as baseline.
+    billing::refresh_rate_tiers(&state).await;
+    let all_tiers = state.billing.rate_tiers.read().await.clone();
+    assert_eq!(all_tiers.len(), 3, "Baseline: 3 tiers seeded");
+    let cost_before = billing::compute_session_cost(90 * 60, &all_tiers);
+    // 90 min = 30 × 2500 + 30 × 2000 + 30 × 1500 = 75000 + 60000 + 45000 = 180000
+    assert_eq!(cost_before.total_paise, 180_000, "Baseline 90-min cost must be 180000 paise");
+    drop(all_tiers);
+
+    // Soft-delete the Marathon tier (rate_marathon) — same UPDATE the handler does.
+    sqlx::query(
+        "UPDATE billing_rates SET is_active = 0, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind("rate_marathon")
+    .execute(&pool)
+    .await
+    .expect("Soft-delete billing_rate must succeed");
+
+    // Refresh cache — Marathon tier must be gone.
+    billing::refresh_rate_tiers(&state).await;
+    let tiers_after = state.billing.rate_tiers.read().await.clone();
+    assert_eq!(tiers_after.len(), 2, "Cache must have 2 tiers after soft-deleting Marathon");
+
+    // compute_session_cost must not include the deleted tier's contribution.
+    let cost_after = billing::compute_session_cost(90 * 60, &tiers_after);
+    // Without Marathon tier: 30 × 2500 + 30 × 2000 = 75000 + 60000 = 135000
+    // (minutes 60–90 are uncovered — no unlimited tier remains after Marathon deleted)
+    assert_eq!(
+        cost_after.total_paise, 135_000,
+        "compute_session_cost must exclude soft-deleted Marathon tier"
+    );
+    assert!(
+        cost_after.total_paise != cost_before.total_paise,
+        "Cost must differ after deleting a tier"
+    );
+}
