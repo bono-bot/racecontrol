@@ -87,6 +87,10 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "ollama.exe",
     "ollama_llama_server.exe",
 
+    // Pod watchdog — hybrid connectivity agent (fallback :9091 + CLOSE_WAIT auto-restart)
+    "pod_watchdog.exe",
+    "pod_watchdog",
+
     // Node.js services
     "node.exe",
 

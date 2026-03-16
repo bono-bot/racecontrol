@@ -172,7 +172,7 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
     step(8, "Verifying files at destination");
     let bin_size = match verify_files(dest) {
         Ok(size) => {
-            ok(&format!("4/4 files verified, binary: {} bytes", size));
+            ok(&format!("6/6 files verified, binary: {} bytes", size));
             size
         }
         Err(e) => {
@@ -275,6 +275,8 @@ fn verify_sources(pod: u8, src: &Path) -> Result<(), String> {
         format!("rc-agent-pod{}.toml", pod),
         "start-rcagent.bat".into(),
         "edge-harden.bat".into(),
+        "pod_watchdog.exe".into(),
+        "start-watchdog.bat".into(),
     ];
 
     let missing: Vec<&String> = files.iter().filter(|f| !src.join(f).exists()).collect();
@@ -422,16 +424,12 @@ fn prepare_destination(dest: &Path) -> Result<(), String> {
 fn copy_files(pod: u8, src: &Path, dest: &Path) -> Result<(), String> {
     // Use std::fs::copy — proper error handling, no shell quoting issues
     let copies: Vec<(PathBuf, PathBuf)> = vec![
-        (src.join("rc-agent.exe"), dest.join("rc-agent.exe")),
-        (
-            src.join(format!("rc-agent-pod{}.toml", pod)),
-            dest.join("rc-agent.toml"),
-        ),
-        (
-            src.join("start-rcagent.bat"),
-            dest.join("start-rcagent.bat"),
-        ),
-        (src.join("edge-harden.bat"), dest.join("edge-harden.bat")),
+        (src.join("rc-agent.exe"),          dest.join("rc-agent.exe")),
+        (src.join(format!("rc-agent-pod{}.toml", pod)), dest.join("rc-agent.toml")),
+        (src.join("start-rcagent.bat"),     dest.join("start-rcagent.bat")),
+        (src.join("edge-harden.bat"),       dest.join("edge-harden.bat")),
+        (src.join("pod_watchdog.exe"),      dest.join("pod_watchdog.exe")),
+        (src.join("start-watchdog.bat"),    dest.join("start-watchdog.bat")),
     ];
 
     for (from, to) in &copies {
@@ -445,7 +443,7 @@ fn copy_files(pod: u8, src: &Path, dest: &Path) -> Result<(), String> {
         })?;
     }
 
-    ok("4 files copied");
+    ok("6 files copied (rc-agent + watchdog)");
     Ok(())
 }
 
@@ -527,6 +525,8 @@ fn verify_files(dest: &Path) -> Result<u64, String> {
         "rc-agent.toml",
         "start-rcagent.bat",
         "edge-harden.bat",
+        "pod_watchdog.exe",
+        "start-watchdog.bat",
     ];
 
     let missing: Vec<&&str> = required.iter().filter(|f| !dest.join(f).exists()).collect();
@@ -676,6 +676,16 @@ fn set_registry_keys(dest: &Path) -> Result<(), String> {
     if !output.status.success() {
         return Err("Failed to set RCAgent Run key".into());
     }
+
+    // Set watchdog auto-start Run key
+    let watchdog_bat = dest.join("start-watchdog.bat");
+    let _ = run("reg", &[
+        "add",
+        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        "/v", "RCWatchdog",
+        "/d", &watchdog_bat.to_string_lossy(),
+        "/f",
+    ]);
 
     // Remove legacy PodAgent key (best effort)
     let _ = run("reg", &[
