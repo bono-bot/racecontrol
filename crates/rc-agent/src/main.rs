@@ -11,6 +11,7 @@ mod lock_screen;
 mod overlay;
 mod remote_ops;
 mod self_heal;
+mod self_monitor;
 mod sims;
 mod startup_log;
 mod udp_heartbeat;
@@ -592,6 +593,10 @@ async fn main() -> Result<()> {
         });
     }
     tracing::info!("UDP heartbeat started → {}:{}", core_ip, rc_common::udp_protocol::HEARTBEAT_PORT);
+
+    // ─── Self-Monitor (CLOSE_WAIT detection + LLM-gated relaunch) ───────────
+    self_monitor::spawn(config.ai_debugger.clone(), heartbeat_status.clone());
+    tracing::info!("Self-monitor started (check interval: 5min)");
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
