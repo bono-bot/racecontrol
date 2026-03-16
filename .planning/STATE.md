@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 27-01-PLAN.md — BonoConfig + bono_relay.rs skeleton, 247 tests green
-last_updated: "2026-03-16T11:35:56.836Z"
+stopped_at: Completed 24-04-PLAN.md — failure_monitor wired end-to-end with 13 state update sites + 3 new PodStateSnapshot fields, all tests green
+last_updated: "2026-03-16T11:37:00.401Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
   percent: 88
 ---
 
@@ -78,6 +78,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 24-crash-hang-launch-usb-bot-patterns P03 | 6 | 1 tasks | 2 files |
 | Phase 24-crash-hang-launch-usb-bot-patterns P02 | 6 | 2 tasks | 1 files |
 | Phase 27-tailscale-mesh-internet-fallback P01 | 15 | 2 tasks | 3 files |
+| Phase 24-crash-hang-launch-usb-bot-patterns P04 | 18 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 24-crash-hang-launch-usb-bot-patterns]: fix_usb_reconnect has no billing gate — USB HID reconnect FFB safety reset is always appropriate regardless of billing state
 - [Phase 27-tailscale-mesh-internet-fallback]: relay_port=8099 not 8081 — PortAllocator reserves 8081-8096 for AC dedicated server sessions
 - [Phase 27-tailscale-mesh-internet-fallback]: BonoConfig uses manual Default impl — derived Default gives relay_port=0, serde default fn only fires during deserialization
+- [Phase 24-crash-hang-launch-usb-bot-patterns]: send_modify() used instead of full send() at failure_monitor update sites — enables partial field updates without cloning full FailureMonitorState on every change
+- [Phase 24-crash-hang-launch-usb-bot-patterns]: SubSessionEnded clears launch_started_at + recovery_in_progress but NOT billing_active — billing stays active between session splits
 
 ### Roadmap Evolution
 
@@ -126,6 +129,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T11:35:56.833Z
-Stopped at: Completed 27-01-PLAN.md — BonoConfig + bono_relay.rs skeleton, 247 tests green
+Last session: 2026-03-16T11:37:00.398Z
+Stopped at: Completed 24-04-PLAN.md — failure_monitor wired end-to-end with 13 state update sites + 3 new PodStateSnapshot fields, all tests green
 Resume file: None

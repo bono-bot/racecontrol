@@ -57,7 +57,7 @@ Key: billing↔game lifecycle wired end-to-end; CM fallback diagnostics; acServe
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 23: Protocol Contract + Concurrency Safety** - Shared failure taxonomy and concurrency guard land in rc-common before any bot detection code exists — cross-crate compile dependency makes this non-negotiable first (completed 2026-03-16)
-- [ ] **Phase 24: Crash, Hang, Launch + USB Bot Patterns** - failure_monitor.rs detects game freeze, launch timeout, and USB disconnect on the pod; ai_debugger.rs gains 6 new fix arms including FFB zero-force on crash
+- [x] **Phase 24: Crash, Hang, Launch + USB Bot Patterns** - failure_monitor.rs detects game freeze, launch timeout, and USB disconnect on the pod; ai_debugger.rs gains 6 new fix arms including FFB zero-force on crash (completed 2026-03-16)
 - [ ] **Phase 25: Billing Guard + Server Bot Coordinator** - billing_guard.rs detects stuck sessions and idle drift on the pod; bot_coordinator.rs on racecontrol routes anomalies to recovery and fences the cloud sync wallet race
 - [ ] **Phase 26: Lap Filter, PIN Security, Telemetry + Multiplayer** - lap_filter.rs wires game-reported validity into persist_lap; PIN counters separate customer from staff; telemetry gap and multiplayer desync alert via bot_coordinator
 
@@ -158,7 +158,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 31. Multiplayer Server Lifecycle | v4.5 | 2/2 | Complete | 2026-03-16 |
 | 32. Synchronized Group Play | v4.5 | 2/2 | Complete | 2026-03-16 |
 | 23. Protocol Contract + Concurrency Safety | v5.0 | 2/2 | Complete | 2026-03-16 |
-| 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 3/4 | In Progress | - |
+| 24. Crash, Hang, Launch + USB Bot Patterns | 4/4 | Complete   | 2026-03-16 | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
 
@@ -167,7 +167,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 **Goal:** All 8 pods, server, and Bono's VPS join a Tailscale mesh network — installed as a Windows Service via WinRM, cloud_sync routes through Tailscale IP, and the server pushes telemetry/game state/pod health events to Bono in real time with a bidirectional command relay for PWA-triggered game launches
 **Requirements**: TS-01, TS-02, TS-03, TS-04, TS-05, TS-06, TS-DEPLOY
 **Depends on:** Phase 26
-**Plans:** 1/5 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 27-01-PLAN.md — Wave 1 (TDD): BonoConfig in config.rs + bono_relay.rs skeleton with 3 RED test stubs (TS-01, TS-02, TS-03, TS-04)
