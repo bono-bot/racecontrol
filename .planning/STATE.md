@@ -13,22 +13,6 @@ progress:
   completed_plans: 9
 ---
 
----
-gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: RC Bot Expansion
-status: ready_to_plan
-stopped_at: Completed 27-04-PLAN.md -- WinRM fleet deploy script for Tailscale on all 8 pods + server with canary-first rollout
-last_updated: "2026-03-16T11:40:44.438Z"
-last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
-progress:
-  total_phases: 5
-  completed_phases: 2
-  total_plans: 11
-  completed_plans: 8
-  percent: 91
----
-
 # Project State
 
 ## Project Reference
