@@ -93,6 +93,44 @@
 - [x] **TELEM-01**: Bot detects UDP silence >60s during active billing session and alerts staff via email — game-state-aware (no alert during menu or idle state)
 - [x] **MULTI-01**: Bot detects AC multiplayer server disconnect mid-race and triggers safe session teardown (lock screen → end billing → log event)
 
+## v5.5 Requirements — Billing Credits
+
+**Defined:** 2026-03-17
+**Core Value:** Staff can adjust pricing instantly from the admin panel without a code deploy, and every screen shows credits instead of rupees.
+
+### Billing Engine (BILL)
+
+- [ ] **BILLC-01**: User session cost displays in credits (1 cr = ₹1 = 100 paise) in overlay, kiosk, and admin — not rupees
+- [ ] **BILLC-02**: `compute_session_cost()` uses non-retroactive additive algorithm: 45 min = (30 × 25) + (15 × 20) = 1050 cr, not 45 × 20
+- [ ] **BILLC-03**: BillingManager holds in-memory rate cache (`RwLock<Vec<BillingRateTier>>`) with hardcoded defaults matching seed data
+- [ ] **BILLC-04**: Rate cache refreshes from DB at startup and every 60s — never blocks the per-second billing tick
+- [ ] **BILLC-05**: Final session cost saved to `wallet_debit_paise` column on session end
+
+### Rate Configuration (RATE)
+
+- [ ] **RATE-01**: `billing_rates` table with columns: id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active
+- [ ] **RATE-02**: Three default seed rows: Standard (0–30 min, 2500 p/min = 25 cr/min), Extended (31–60 min, 2000 p/min = 20 cr/min), Marathon (60+ min, 1500 p/min = 15 cr/min)
+- [ ] **RATE-03**: `billing_rates` added to cloud_sync SYNC_TABLES for cloud replication
+
+### Admin API (ADMIN)
+
+- [ ] **ADMIN-01**: Staff can GET all billing rates via `/billing/rates`
+- [ ] **ADMIN-02**: Staff can create a rate tier via POST `/billing/rates`
+- [ ] **ADMIN-03**: Staff can update a rate tier via PUT `/billing/rates/{id}` — cache invalidates immediately
+- [ ] **ADMIN-04**: Staff can delete a rate tier via DELETE `/billing/rates/{id}` — cache invalidates immediately
+
+### UI — Credits Display (UIC)
+
+- [ ] **UIC-01**: Overlay `format_cost()` shows "X cr" instead of "Rs. X" (rc-agent overlay.rs)
+- [ ] **UIC-02**: Admin billing history page shows credits (replaces formatINR)
+- [ ] **UIC-03**: Admin pricing page includes Per-Minute Rates section with inline editing (replaces formatINR)
+- [ ] **UIC-04**: BillingStartModal shows credits (replaces formatINR)
+
+### Protocol (PROTOC)
+
+- [ ] **PROTOC-01**: `minutes_to_value_tier` renamed to `minutes_to_next_tier` in rc-common protocol.rs with `#[serde(alias)]` backward compat
+- [ ] **PROTOC-02**: `tier_name` field added to BillingTick as `Option<String>` (previously `&'static str`)
+
 ## v6.0 Requirements (Deferred)
 
 ### Advanced Bot Intelligence
@@ -160,11 +198,33 @@
 | TELEM-01 | Phase 26 | Complete |
 | MULTI-01 | Phase 26 | Complete |
 
+| BILLC-01 | Phase TBD | Pending |
+| BILLC-02 | Phase TBD | Pending |
+| BILLC-03 | Phase TBD | Pending |
+| BILLC-04 | Phase TBD | Pending |
+| BILLC-05 | Phase TBD | Pending |
+| RATE-01 | Phase TBD | Pending |
+| RATE-02 | Phase TBD | Pending |
+| RATE-03 | Phase TBD | Pending |
+| ADMIN-01 | Phase TBD | Pending |
+| ADMIN-02 | Phase TBD | Pending |
+| ADMIN-03 | Phase TBD | Pending |
+| ADMIN-04 | Phase TBD | Pending |
+| UIC-01 | Phase TBD | Pending |
+| UIC-02 | Phase TBD | Pending |
+| UIC-03 | Phase TBD | Pending |
+| UIC-04 | Phase TBD | Pending |
+| PROTOC-01 | Phase TBD | Pending |
+| PROTOC-02 | Phase TBD | Pending |
+
 **Coverage:**
 - v5.0 requirements: 19 total
 - Mapped to phases: 19
 - Unmapped: 0
+- v5.5 requirements: 18 total
+- Mapped to phases: 0 (pending roadmap)
+- Unmapped: 18 ⚠️
 
 ---
 *Requirements defined: 2026-03-16*
-*Last updated: 2026-03-16 — roadmap created, phase assignments confirmed*
+*Last updated: 2026-03-17 — v5.5 Billing Credits requirements added (18 requirements, phases TBD)*
