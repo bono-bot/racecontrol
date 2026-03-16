@@ -70,7 +70,7 @@ contact = "+917981264279"
 [bono]
 enabled = true
 webhook_url = "http://100.70.177.44/webhooks/racecontrol"  # Bono's VPS Tailscale IP
-tailscale_bind_ip = "100.122.218.14"  # Venue server Tailscale IP
+tailscale_bind_ip = "100.71.226.83"  # Venue server Tailscale IP (confirmed via ipconfig)
 relay_port = 8099
 # Shared secret for X-Relay-Secret header — agreed with Bono out-of-band
 relay_secret = "85c650850520f0cabf8f99b0c3cecc3e"
