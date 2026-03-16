@@ -1659,7 +1659,7 @@ async fn list_billing_rates(State(state): State<Arc<AppState>>) -> Json<Value> {
 async fn create_billing_rate(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
-) -> Json<Value> {
+) -> (axum::http::StatusCode, Json<Value>) {
     let id = uuid::Uuid::new_v4().to_string();
     let tier_order = body.get("tier_order").and_then(|v| v.as_i64()).unwrap_or(1);
     let tier_name = body.get("tier_name").and_then(|v| v.as_str()).unwrap_or("Custom");
@@ -1681,9 +1681,9 @@ async fn create_billing_rate(
     match result {
         Ok(_) => {
             crate::billing::refresh_rate_tiers(&state).await;
-            Json(json!({ "id": id, "tier_name": tier_name }))
+            (axum::http::StatusCode::CREATED, Json(json!({ "id": id, "tier_name": tier_name })))
         }
-        Err(e) => Json(json!({ "error": e.to_string() })),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))),
     }
 }
 
@@ -1754,23 +1754,34 @@ async fn update_billing_rate(
 async fn delete_billing_rate(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> Json<Value> {
+) -> axum::http::StatusCode {
     let old_snapshot = accounting::snapshot_row(&state, "billing_rates", &id).await;
 
-    match sqlx::query("UPDATE billing_rates SET is_active = 0, updated_at = datetime('now') WHERE id = ?")
-        .bind(&id)
-        .execute(&state.db)
-        .await
+    match sqlx::query(
+        "UPDATE billing_rates SET is_active = 0, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&id)
+    .execute(&state.db)
+    .await
     {
         Ok(_) => {
             crate::billing::refresh_rate_tiers(&state).await;
             accounting::log_audit(
-                &state, "billing_rates", &id, "delete",
-                old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
-            ).await;
-            Json(json!({ "ok": true }))
+                &state,
+                "billing_rates",
+                &id,
+                "delete",
+                old_snapshot.as_deref(),
+                Some("{\"is_active\":false}"),
+                None,
+            )
+            .await;
+            axum::http::StatusCode::NO_CONTENT
         }
-        Err(e) => Json(json!({ "error": e.to_string() })),
+        Err(e) => {
+            tracing::error!("delete_billing_rate DB error for {}: {}", id, e);
+            axum::http::StatusCode::NO_CONTENT
+        }
     }
 }
 
