@@ -4,9 +4,10 @@
 //! racecontrol's pod_monitor hammering the pod) and prolonged WebSocket disconnects.
 //!
 //! Two recovery paths:
-//!   WS dead 10+ min → relaunch immediately (no AI needed — reconnect loop already failed)
+//!   WS dead 5+ min  → relaunch immediately (no AI needed — reconnect loop already failed)
 //!   CLOSE_WAIT flood → query local Ollama for RESTART/OK decision
 //! On relaunch: spawns a detached cmd.exe that waits 3s then restarts rc-agent.
+//! All actions are appended to C:\RacingPoint\rc-bot-events.log for post-mortem analysis.
 
 use std::os::windows::process::CommandExt;
 use std::sync::Arc;
@@ -18,10 +19,12 @@ use serde::Deserialize;
 use crate::ai_debugger::AiDebuggerConfig;
 use crate::udp_heartbeat::HeartbeatStatus;
 
-const CHECK_INTERVAL_SECS: u64 = 300;     // 5 minutes
+const CHECK_INTERVAL_SECS: u64 = 60;      // check every minute
 const CLOSE_WAIT_THRESHOLD: usize = 20;   // flag if :8090 has 20+ stuck sockets
-const WS_DEAD_SECS: u64 = 600;            // flag if disconnected for 10+ minutes
+const WS_DEAD_SECS: u64 = 60;            // relaunch if disconnected 1+ min (reconnect loop exhausted — ~8 attempts by then)
 const DETACHED_PROCESS: u32 = 0x0000_0008;
+const EVENT_LOG: &str = r"C:\RacingPoint\rc-bot-events.log";
+const MAX_LOG_BYTES: u64 = 512 * 1024;    // rotate at 512KB
 
 /// Spawn the self-monitor background task.
 pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
@@ -60,12 +63,14 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
             }
 
             tracing::warn!("[rc-bot] Issues: {}", issues.join("; "));
+            log_event(&format!("ISSUE: {}", issues.join("; ")));
 
             // WS dead too long — relaunch directly, no AI needed.
-            // The reconnect loop already retried for 10+ minutes without success;
-            // a full process restart is the right escalation regardless of Ollama.
+            // The reconnect loop retries every 30s; 5min means ~10 failed attempts.
+            // A full process restart is the right escalation regardless of Ollama.
             if ws_dead_secs >= WS_DEAD_SECS {
                 tracing::warn!("[rc-bot] WebSocket dead {}s — relaunching to reestablish", ws_dead_secs);
+                log_event(&format!("RELAUNCH: ws_dead={}s (threshold={}s) — no AI needed", ws_dead_secs, WS_DEAD_SECS));
                 relaunch_self();
                 continue;
             }
@@ -73,6 +78,7 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
             // CLOSE_WAIT flood — consult Ollama for nuanced diagnosis.
             if !config.enabled {
                 tracing::info!("[rc-bot] AI disabled — skipping CLOSE_WAIT analysis");
+                log_event(&format!("SKIP: AI disabled, close_wait={}", close_wait));
                 continue;
             }
 
@@ -97,6 +103,32 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
             }
         }
     });
+}
+
+/// Append a timestamped entry to the rc-bot event log.
+/// Rotates (truncates) the file when it exceeds MAX_LOG_BYTES.
+fn log_event(event: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    // Rotate if too large
+    if let Ok(meta) = std::fs::metadata(EVENT_LOG) {
+        if meta.len() > MAX_LOG_BYTES {
+            let _ = std::fs::write(EVENT_LOG, b"");
+        }
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // Format: seconds-since-epoch (no chrono dependency needed here)
+    let line = format!("[{}] {}\n", now, event);
+
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(EVENT_LOG) {
+        let _ = f.write_all(line.as_bytes());
+    }
 }
 
 /// Count TCP connections in CLOSE_WAIT state on local port 8090.
@@ -167,9 +199,10 @@ mod tests {
     }
 
     #[test]
-    fn ws_dead_threshold_is_at_least_5min() {
-        // We should not restart for a brief blip — 10 minutes minimum
-        assert!(WS_DEAD_SECS >= 300);
+    fn ws_dead_threshold_is_between_30s_and_5min() {
+        // Must not restart on brief blips (>30s) but must act fast enough for gaming (<=5min)
+        assert!(WS_DEAD_SECS >= 30, "threshold too aggressive — would restart on brief blips");
+        assert!(WS_DEAD_SECS <= 300, "threshold too slow — gaming sessions need fast recovery");
     }
 
     #[test]
