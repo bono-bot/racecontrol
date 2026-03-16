@@ -35,6 +35,8 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
         let mut interval = tokio::time::interval(Duration::from_secs(CHECK_INTERVAL_SECS));
         // Track when the WS was last seen connected (local to this task)
         let mut ws_last_connected = Instant::now();
+        // Count consecutive checks with CLOSE_WAIT flood (Ollama may be unavailable)
+        let mut close_wait_strikes: u32 = 0;
 
         loop {
             interval.tick().await;
@@ -45,6 +47,13 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
             let close_wait = count_close_wait_on_8090();
             let ws_dead_secs = ws_last_connected.elapsed().as_secs();
+
+            // Track consecutive CLOSE_WAIT strikes; reset when count drops below threshold
+            if close_wait >= CLOSE_WAIT_THRESHOLD {
+                close_wait_strikes = close_wait_strikes.saturating_add(1);
+            } else {
+                close_wait_strikes = 0;
+            }
 
             let mut issues: Vec<String> = Vec::new();
             if close_wait >= CLOSE_WAIT_THRESHOLD {
@@ -75,7 +84,17 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
                 continue;
             }
 
-            // CLOSE_WAIT flood — consult Ollama for nuanced diagnosis.
+            // CLOSE_WAIT persistent for 5+ checks (~5 min) — restart without Ollama.
+            // Ollama may not be installed on pods; don't let a missing model leave
+            // 128 stuck sockets forever. 5 strikes = intentional threshold, not a blip.
+            if close_wait_strikes >= 5 {
+                tracing::warn!("[rc-bot] CLOSE_WAIT persisted for {} checks — relaunching without AI", close_wait_strikes);
+                log_event(&format!("RELAUNCH: close_wait={} (strike={}) — Ollama not consulted", close_wait, close_wait_strikes));
+                relaunch_self();
+                continue;
+            }
+
+            // CLOSE_WAIT flood (early strikes) — consult Ollama for nuanced diagnosis.
             if !config.enabled {
                 tracing::info!("[rc-bot] AI disabled — skipping CLOSE_WAIT analysis");
                 log_event(&format!("SKIP: AI disabled, close_wait={}", close_wait));
@@ -98,7 +117,7 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("[rc-bot] Ollama unavailable: {} — skipping CLOSE_WAIT restart", e);
+                    tracing::warn!("[rc-bot] Ollama unavailable ({}) — waiting for strike limit", e);
                 }
             }
         }
@@ -215,5 +234,15 @@ mod tests {
         assert!(response.trim().to_uppercase().contains("RESTART"));
         let response_ok = "OK";
         assert!(!response_ok.trim().to_uppercase().contains("RESTART"));
+    }
+
+    #[test]
+    fn close_wait_strike_limit_is_at_least_3_and_at_most_10() {
+        // 5 strikes × 60s checks = 5 min before auto-restart without Ollama.
+        // Must be > threshold to avoid restarting on brief bursts (>3),
+        // but short enough to resolve a persistent flood (<= 10 min).
+        const STRIKE_LIMIT: u32 = 5;
+        assert!(STRIKE_LIMIT >= 3, "too eager — would restart on brief CLOSE_WAIT bursts");
+        assert!(STRIKE_LIMIT <= 10, "too slow — 128 stuck sockets for 10+ min is unacceptable");
     }
 }
