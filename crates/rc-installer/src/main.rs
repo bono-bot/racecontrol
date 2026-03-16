@@ -1083,13 +1083,14 @@ fn wait_for_http(dest: &Path) {
 
 /// Get pod number from CLI argument or interactive prompt.
 fn get_pod_number() -> Result<u8, String> {
-    let args: Vec<String> = env::args().collect();
+    // Find first numeric argument (skip flags like --yes, -y)
+    let pod_arg = env::args().skip(1).find(|a| !a.starts_with('-'));
 
-    if args.len() > 1 {
-        let pod: u8 = args[1]
+    if let Some(arg) = pod_arg {
+        let pod: u8 = arg
             .trim()
             .parse()
-            .map_err(|_| format!("'{}' is not a valid number", args[1]))?;
+            .map_err(|_| format!("'{}' is not a valid number", arg))?;
         if !(1..=8).contains(&pod) {
             return Err(format!("Pod number must be 1-8, got: {}", pod));
         }
