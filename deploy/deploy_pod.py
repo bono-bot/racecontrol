@@ -187,6 +187,27 @@ def deploy_pod(pod_number, config_only=False, binary_url=None):
     else:
         print("      :8090 reachable — using direct pod-agent HTTP.")
 
+    # Build the swap script once — used by both the server proxy path and the
+    # direct path. Rename-then-copy keeps the old binary running until kill.
+    if config_only:
+        ps_script = (
+            "Start-Sleep -Milliseconds 500\r\n"
+            "Stop-Process -Name rc-agent -Force -ErrorAction SilentlyContinue\r\n"
+            "Start-Sleep -Seconds 2\r\n"
+            "Start-Process -FilePath 'C:\\RacingPoint\\rc-agent.exe' -WorkingDirectory 'C:\\RacingPoint' -WindowStyle Hidden\r\n"
+        )
+    else:
+        ps_script = (
+            "Rename-Item -Path 'C:\\RacingPoint\\rc-agent.exe' -NewName 'rc-agent-old.exe' -ErrorAction SilentlyContinue\r\n"
+            "Copy-Item -Path 'C:\\RacingPoint\\rc-agent-new.exe' -Destination 'C:\\RacingPoint\\rc-agent.exe' -Force\r\n"
+            "Remove-Item 'C:\\RacingPoint\\rc-agent-new.exe' -ErrorAction SilentlyContinue\r\n"
+            "Start-Sleep -Milliseconds 500\r\n"
+            "Stop-Process -Name rc-agent -Force -ErrorAction SilentlyContinue\r\n"
+            "Start-Sleep -Seconds 2\r\n"
+            "Remove-Item 'C:\\RacingPoint\\rc-agent-old.exe' -ErrorAction SilentlyContinue\r\n"
+            "Start-Process -FilePath 'C:\\RacingPoint\\rc-agent.exe' -WorkingDirectory 'C:\\RacingPoint' -WindowStyle Hidden\r\n"
+        )
+
     if use_server:
         # ── SERVER FALLBACK PATH ──────────────────────────────────────────────
         # Port :8090 is unreachable from James's PC.
@@ -245,29 +266,6 @@ def deploy_pod(pod_number, config_only=False, binary_url=None):
         # The detached PowerShell process then completes the copy + start independently.
         print("\n[5/5] Writing swap script + launching detached PowerShell...")
         swap_script_path = "C:\\RacingPoint\\swap-agent.ps1"
-        if config_only:
-            ps_script = (
-                "Start-Sleep -Milliseconds 500\r\n"
-                "Stop-Process -Name rc-agent -Force -ErrorAction SilentlyContinue\r\n"
-                "Start-Sleep -Seconds 2\r\n"
-                "Start-Process -FilePath 'C:\\RacingPoint\\start-rcagent.bat' -WindowStyle Hidden\r\n"
-            )
-        else:
-            # Rename-then-copy pattern:
-            # 1. Rename running binary (Windows allows rename-while-in-use)
-            # 2. Copy new binary into the original name (no lock on new name)
-            # 3. Kill old process
-            # 4. Start new binary via start-rcagent.bat
-            ps_script = (
-                "Rename-Item -Path 'C:\\RacingPoint\\rc-agent.exe' -NewName 'rc-agent-old.exe' -ErrorAction SilentlyContinue\r\n"
-                "Copy-Item -Path 'C:\\RacingPoint\\rc-agent-new.exe' -Destination 'C:\\RacingPoint\\rc-agent.exe' -Force\r\n"
-                "Remove-Item 'C:\\RacingPoint\\rc-agent-new.exe' -ErrorAction SilentlyContinue\r\n"
-                "Start-Sleep -Milliseconds 500\r\n"
-                "Stop-Process -Name rc-agent -Force -ErrorAction SilentlyContinue\r\n"
-                "Start-Sleep -Seconds 2\r\n"
-                "Remove-Item 'C:\\RacingPoint\\rc-agent-old.exe' -ErrorAction SilentlyContinue\r\n"
-                "Start-Process -FilePath 'C:\\RacingPoint\\start-rcagent.bat' -WindowStyle Hidden\r\n"
-            )
         # Phase A: write the script file
         write_result = pod_write_via_server(pod_number, swap_script_path, ps_script)
         if "error" in write_result and "bytes" not in write_result:
@@ -299,14 +297,10 @@ def deploy_pod(pod_number, config_only=False, binary_url=None):
     else:
         # ── DIRECT PATH ──────────────────────────────────────────────────────
         # Port :8090 is directly reachable — use pod-agent HTTP for all steps.
+        # Keep rc-agent alive through steps 1-4 (it's serving :8090).
+        # Swap happens atomically in step 5 via detached PowerShell script.
 
-        # Step 1: Kill rc-agent.exe (ignore failure — may not be running)
-        print("\n[1/5] Killing rc-agent.exe...")
-        result = pod_exec_direct(pod_ip, "taskkill /F /IM rc-agent.exe", timeout_ms=5000)
-        if result.get("success", False):
-            print("      rc-agent.exe killed.")
-        else:
-            print("      Not running or already stopped (OK): {}".format(result.get("stderr", "")[:80]))
+        print("\n[1/5] Skipping pre-kill (rc-agent serves :8090 — must stay alive for steps 2-4).")
 
         # Step 2: Delete old config (ignore failure — may not exist)
         print("\n[2/5] Deleting old rc-agent.toml...")
@@ -325,10 +319,11 @@ def deploy_pod(pod_number, config_only=False, binary_url=None):
             return False
         print("      Written: {} bytes to {}".format(result.get("bytes", "?"), result.get("path", "?")))
 
-        # Step 4: Download new binary (if not config-only)
+        # Step 4: Download new binary to staging path (keep old binary running)
         if not config_only:
-            print("\n[4/5] Downloading rc-agent.exe from {}...".format(binary_url))
-            dl_cmd = "curl.exe -s -f -o C:\\RacingPoint\\rc-agent.exe {}".format(binary_url)
+            staging_path = "C:\\RacingPoint\\rc-agent-new.exe"
+            print("\n[4/5] Downloading rc-agent-new.exe from {}...".format(binary_url))
+            dl_cmd = "curl.exe -s -f -o {} {}".format(staging_path, binary_url)
             result = pod_exec_direct(pod_ip, dl_cmd, timeout_ms=120000)
             if result.get("success", False):
                 print("      Download complete.")
@@ -338,24 +333,30 @@ def deploy_pod(pod_number, config_only=False, binary_url=None):
         else:
             print("\n[4/5] Skipping binary download (--config-only).")
 
-        # Step 5: Restart rc-agent via RCAGENT_SELF_RESTART sentinel.
-        # relaunch_self() fires directly in Rust — connection close = expected success.
-        print("\n[5/5] Sending RCAGENT_SELF_RESTART to rc-agent...")
-        restart_result = pod_exec_direct(pod_ip, "RCAGENT_SELF_RESTART", timeout_ms=5000)
-        stderr = restart_result.get("stderr", "")
+        # Step 5: Write swap script + launch detached — same rename-then-copy approach as WS path.
+        print("\n[5/5] Writing swap script + launching detached PowerShell...")
+        swap_script_path = "C:\\RacingPoint\\swap-agent.ps1"
+        write_result = pod_write_direct(pod_ip, swap_script_path, ps_script)
+        if "error" in write_result and "bytes" not in write_result:
+            print("      [WARN] Failed to write swap script: {}".format(write_result))
+        else:
+            print("      Swap script written ({} bytes).".format(write_result.get("bytes", "?")))
+
+        launch_ps = "Start-Process powershell -ArgumentList '-NonInteractive -ExecutionPolicy Bypass -File C:\\\\RacingPoint\\\\swap-agent.ps1' -WindowStyle Hidden"
+        detach_cmd = ps_encoded_cmd(launch_ps)
+        restart_result = pod_exec_direct(pod_ip, detach_cmd, timeout_ms=10000)
         error = restart_result.get("error", "")
         relaunch_ok = (
             restart_result.get("success", False)
-            or "timed out" in stderr.lower()
             or "timed out" in error.lower()
             or "connection" in error.lower()
             or "reset" in error.lower()
             or "eof" in error.lower()
         )
         if relaunch_ok:
-            print("      rc-agent relaunch initiated (connection closed = expected).")
+            print("      Detached PowerShell swap launched -> rc-agent will restart in ~5s.")
         else:
-            print("      Note: unexpected restart response: {}".format(restart_result))
+            print("      Note: unexpected response: {}".format(restart_result))
 
     print("\nPod {} deployment complete.".format(pod_number))
     return True
