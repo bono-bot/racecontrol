@@ -1,5 +1,21 @@
 ---
 gsd_state_version: 1.0
+milestone: v5.5
+milestone_name: Billing Credits
+status: completed
+stopped_at: Completed 14-03-PLAN.md — auto_enter_event + recalculate_event_positions, 11 tests GREEN
+last_updated: "2026-03-16T19:42:11.067Z"
+last_activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
+progress:
+  total_phases: 4
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
+---
+
+---
+gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: complete
@@ -7,7 +23,7 @@ stopped_at: Completed 14-02-PLAN.md — 9 staff CRUD endpoints for hotlap events
 last_updated: "2026-03-16T19:29:30.779Z"
 last_activity: 2026-03-17 — Milestone v5.5 Billing Credits started
 progress:
-  total_phases: 5
+  [██████████] 100%
   completed_phases: 5
   total_plans: 19
   completed_plans: 19
@@ -69,6 +85,8 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 - Phase 33 is the non-negotiable foundation: billing_rates table + BillingRateTier type + cache + algorithm must exist before Phase 34 CRUD routes can reference them
 - Phase 34 cache invalidation is synchronous on write — PUT/DELETE handlers call cache.invalidate() before returning 200/204, so the next billing tick (1s) uses fresh rates
 - Phase 35 is a pure frontend pass — no Rust changes expected; all formatINR callsites in Next.js kiosk/admin replaced in one phase
+- [Phase 14-events-and-championships]: lap_id is Option<str> in auto_enter_event — allows None in test calls without seeding laps table (FK constraint workaround)
+- [Phase 14-events-and-championships]: auto_enter_event/recalculate_event_positions pub for direct test invocation — avoids full AppState construction in integration tests
 
 ### Roadmap Evolution
 
@@ -87,7 +105,7 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 
 ## Session Continuity
 
-Last session: 2026-03-17
-Stopped at: Roadmap created for v5.5 — 3 phases (33, 34, 35), 18/18 requirements mapped
+Last session: 2026-03-16T19:42:11.064Z
+Stopped at: Completed 14-03-PLAN.md — auto_enter_event + recalculate_event_positions, 11 tests GREEN
 Resume file: None
 Next action: `/gsd:plan-phase 33`
