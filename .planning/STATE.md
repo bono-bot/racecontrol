@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: "Completed 25-04-PLAN.md — wiring wave: billing_guard spawned, ws/mod.rs stubs replaced with bot_coordinator calls, BILL-04 sync fence added, 422 tests green"
-last_updated: "2026-03-16T12:54:42.233Z"
+stopped_at: "Completed 26-01-PLAN.md — Wave 0 TDD gate: 11 RED stubs in lap_tracker/auth/bot_coordinator, 258 existing tests green"
+last_updated: "2026-03-16T13:25:02.581Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 19
+  completed_plans: 16
 ---
 
 ---
@@ -101,6 +101,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 25-billing-guard-server-bot-coordinator P03 | 3 | 1 tasks | 2 files |
 | Phase 25-billing-guard-server-bot-coordinator P02 | 4 | 1 tasks | 2 files |
 | Phase 25-billing-guard-server-bot-coordinator P04 | 12 | 2 tasks | 3 files |
+| Phase 26-lap-filter-pin-security-telemetry-multiplayer P01 | 200 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 25-billing-guard-server-bot-coordinator]: Used existing PodFailureReason variants (SessionStuckWaitingForGame, IdleBillingDrift) instead of plan speculative names — rc-common enum was already defined with different names in Phase 23
 - [Phase 25-billing-guard-server-bot-coordinator]: ws_exec_result_tx is the mpsc::Sender<AgentMessage> passed to billing_guard::spawn — same channel failure_monitor uses; agent_msg_tx doesn't exist in rc-agent main.rs scope
 - [Phase 25-billing-guard-server-bot-coordinator]: BILL-04 relay fence: 1s poll loop up to 5s for relay_available.load inside if ended block only — failed end_billing_session_public skips fence (no session to sync)
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: Wave 0 gate enforced: all 11 RED stubs committed across lap_tracker/auth/bot_coordinator before any production code change
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: All stubs use todo!() not #[should_panic] — panics automatically on run, compiles cleanly; lap_tracker.rs had no prior test block so new mod tests created
 
 ### Roadmap Evolution
 
@@ -164,6 +167,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T12:38:54.461Z
-Stopped at: Completed 25-04-PLAN.md — wiring wave: billing_guard spawned, ws/mod.rs stubs replaced with bot_coordinator calls, BILL-04 sync fence added, 422 tests green
+Last session: 2026-03-16T13:25:02.579Z
+Stopped at: Completed 26-01-PLAN.md — Wave 0 TDD gate: 11 RED stubs in lap_tracker/auth/bot_coordinator, 258 existing tests green
 Resume file: None

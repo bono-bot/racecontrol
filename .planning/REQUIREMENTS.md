@@ -79,19 +79,19 @@
 
 ### Lap Quality
 
-- [ ] **LAP-01**: `is_valid` flag wired from AC and F1 25 sim adapters into `persist_lap` (currently unwired in both adapters)
-- [ ] **LAP-02**: Per-track minimum lap time configurable in track catalog (Monza, Silverstone, Spa as initial set)
-- [ ] **LAP-03**: Laps classified as hotlap vs practice based on session type reported by sim adapter
+- [x] **LAP-01**: `is_valid` flag wired from AC and F1 25 sim adapters into `persist_lap` (currently unwired in both adapters)
+- [x] **LAP-02**: Per-track minimum lap time configurable in track catalog (Monza, Silverstone, Spa as initial set)
+- [x] **LAP-03**: Laps classified as hotlap vs practice based on session type reported by sim adapter
 
 ### PIN Security
 
-- [ ] **PIN-01**: Customer and staff PIN failure counters tracked separately (not shared counter)
-- [ ] **PIN-02**: Staff PIN is never locked out by customer PIN failure accumulation
+- [x] **PIN-01**: Customer and staff PIN failure counters tracked separately (not shared counter)
+- [x] **PIN-02**: Staff PIN is never locked out by customer PIN failure accumulation
 
 ### Telemetry & Multiplayer
 
-- [ ] **TELEM-01**: Bot detects UDP silence >60s during active billing session and alerts staff via email — game-state-aware (no alert during menu or idle state)
-- [ ] **MULTI-01**: Bot detects AC multiplayer server disconnect mid-race and triggers safe session teardown (lock screen → end billing → log event)
+- [x] **TELEM-01**: Bot detects UDP silence >60s during active billing session and alerts staff via email — game-state-aware (no alert during menu or idle state)
+- [x] **MULTI-01**: Bot detects AC multiplayer server disconnect mid-race and triggers safe session teardown (lock screen → end billing → log event)
 
 ## v6.0 Requirements (Deferred)
 
@@ -152,13 +152,13 @@
 | BILL-03 | Phase 25 | Complete |
 | BILL-04 | Phase 25 | Complete |
 | BOT-01 | Phase 25 | Complete |
-| LAP-01 | Phase 26 | Pending |
-| LAP-02 | Phase 26 | Pending |
-| LAP-03 | Phase 26 | Pending |
-| PIN-01 | Phase 26 | Pending |
-| PIN-02 | Phase 26 | Pending |
-| TELEM-01 | Phase 26 | Pending |
-| MULTI-01 | Phase 26 | Pending |
+| LAP-01 | Phase 26 | Complete |
+| LAP-02 | Phase 26 | Complete |
+| LAP-03 | Phase 26 | Complete |
+| PIN-01 | Phase 26 | Complete |
+| PIN-02 | Phase 26 | Complete |
+| TELEM-01 | Phase 26 | Complete |
+| MULTI-01 | Phase 26 | Complete |
 
 **Coverage:**
 - v5.0 requirements: 19 total
