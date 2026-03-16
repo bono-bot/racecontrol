@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v5.5
 milestone_name: Billing Credits
 status: completed
-stopped_at: Completed 14-04-PLAN.md — score_group_event, compute_championship_standings, assign_championship_positions, 6 tests GREEN
-last_updated: "2026-03-16T19:51:38.645Z"
+stopped_at: Completed 14-05-PLAN.md — 5 public read endpoints, 2 new tests, 331 tests GREEN
+last_updated: "2026-03-16T20:00:22.100Z"
 last_activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 progress:
   total_phases: 4
@@ -89,6 +89,8 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 - [Phase 14-events-and-championships]: auto_enter_event/recalculate_event_positions pub for direct test invocation — avoids full AppState construction in integration tests
 - [Phase 14-events-and-championships]: assign_championship_positions is a separate pub fn from compute_championship_standings — allows tiebreaker tests to call it without seeding hotlap_event_entries
 - [Phase 14-events-and-championships]: score_group_event computes gap_to_leader_ms inline from multiplayer_results.best_lap_ms — not via recalculate_event_positions which operates on hotlap leaderboard order
+- [Phase 14-events-and-championships]: GET /public/championships/{id} is a full-detail endpoint distinct from Plan 04's /standings — both remain registered
+- [Phase 14-events-and-championships]: public_event_sessions computes gap_to_leader_ms inline from multiplayer_results.best_lap_ms min — consistent with score_group_event
 
 ### Roadmap Evolution
 
@@ -107,7 +109,7 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 
 ## Session Continuity
 
-Last session: 2026-03-16T19:51:32.211Z
-Stopped at: Completed 14-04-PLAN.md — score_group_event, compute_championship_standings, assign_championship_positions, 6 tests GREEN
+Last session: 2026-03-16T20:00:22.098Z
+Stopped at: Completed 14-05-PLAN.md — 5 public read endpoints, 2 new tests, 331 tests GREEN
 Resume file: None
 Next action: `/gsd:plan-phase 33`

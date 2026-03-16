@@ -127,7 +127,7 @@ Note: Phase 33 (DB + Engine) is non-negotiable first — billing_rates table and
 | 12. Data Foundation | v3.0 | 2/2 | Complete | 2026-03-14 |
 | 13. Leaderboard Core | v3.0 | 5/5 | Complete | 2026-03-15 |
 | 13.1. Pod Fleet Reliability | v3.0 | 3/3 | Complete | 2026-03-15 |
-| 14. Events and Championships | 4/5 | In Progress|  | - |
+| 14. Events and Championships | 5/5 | Complete   | 2026-03-16 | - |
 | 15. Telemetry and Driver Rating | v3.0 | 0/? | Deferred | - |
 | 16. Firewall Auto-Config | v4.0 | 1/1 | Complete | 2026-03-15 |
 | 17. WebSocket Exec | v4.0 | 3/3 | Complete | 2026-03-15 |
