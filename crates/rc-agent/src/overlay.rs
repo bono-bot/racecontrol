@@ -1530,6 +1530,9 @@ mod tests {
         assert_eq!(format_cost(67500), "675 cr");
         assert_eq!(format_cost(99), "0 cr");   // floor division
         assert_eq!(format_cost(150), "1 cr");
+        assert_eq!(format_cost(4500), "45 cr");              // UIC-01 exact criterion
+        assert!(!format_cost(4500).contains("Rs."));          // UIC-01: no ASCII rupee prefix
+        assert!(!format_cost(4500).contains('\u{20B9}'));     // UIC-01: no Unicode ₹ symbol
     }
 
     #[test]
