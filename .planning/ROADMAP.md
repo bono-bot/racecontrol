@@ -137,7 +137,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 22. Pod 6/7/8 Recovery + Remote Restart Reliability | 2/2 | Complete   | 2026-03-16 | - |
-| 23. Protocol Contract + Concurrency Safety | 2/2 | Complete   | 2026-03-16 | - |
+| 23. Protocol Contract + Concurrency Safety | 2/2 | Complete    | 2026-03-16 | - |
 | 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/? | Not started | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
