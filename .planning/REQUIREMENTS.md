@@ -7,8 +7,8 @@
 
 ### Protocol Foundation
 
-- [ ] **PROTO-01**: rc-common `PodFailureReason` enum covers all 9 bot failure classes (crash, hang, launch, USB, billing, telemetry, multiplayer, PIN, lap)
-- [ ] **PROTO-02**: 5 new `AgentMessage` variants (HardwareFailure, TelemetryGap, BillingAnomaly, LapFlagged, MultiplayerFailure) for pod→server reporting
+- [x] **PROTO-01**: rc-common `PodFailureReason` enum covers all 9 bot failure classes (crash, hang, launch, USB, billing, telemetry, multiplayer, PIN, lap)
+- [x] **PROTO-02**: 5 new `AgentMessage` variants (HardwareFailure, TelemetryGap, BillingAnomaly, LapFlagged, MultiplayerFailure) for pod→server reporting
 - [x] **PROTO-03**: `is_pod_in_recovery()` shared utility in rc-common prevents concurrent fix races across all bot tasks
 
 ### Crash, Hang & Launch Bot
@@ -76,8 +76,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROTO-01 | Phase 23 | Pending |
-| PROTO-02 | Phase 23 | Pending |
+| PROTO-01 | Phase 23 | Complete |
+| PROTO-02 | Phase 23 | Complete |
 | PROTO-03 | Phase 23 | Complete |
 | CRASH-01 | Phase 24 | Pending |
 | CRASH-02 | Phase 24 | Pending |

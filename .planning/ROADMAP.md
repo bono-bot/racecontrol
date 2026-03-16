@@ -47,7 +47,7 @@ Phases: Firewall Auto-Config → WebSocket Exec → Startup Self-Healing → Wat
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 23: Protocol Contract + Concurrency Safety** - Shared failure taxonomy and concurrency guard land in rc-common before any bot detection code exists — cross-crate compile dependency makes this non-negotiable first
+- [x] **Phase 23: Protocol Contract + Concurrency Safety** - Shared failure taxonomy and concurrency guard land in rc-common before any bot detection code exists — cross-crate compile dependency makes this non-negotiable first (completed 2026-03-16)
 - [ ] **Phase 24: Crash, Hang, Launch + USB Bot Patterns** - failure_monitor.rs detects game freeze, launch timeout, and USB disconnect on the pod; ai_debugger.rs gains 6 new fix arms including FFB zero-force on crash
 - [ ] **Phase 25: Billing Guard + Server Bot Coordinator** - billing_guard.rs detects stuck sessions and idle drift on the pod; bot_coordinator.rs on racecontrol routes anomalies to recovery and fences the cloud sync wallet race
 - [ ] **Phase 26: Lap Filter, PIN Security, Telemetry + Multiplayer** - lap_filter.rs wires game-reported validity into persist_lap; PIN counters separate customer from staff; telemetry gap and multiplayer desync alert via bot_coordinator
@@ -137,7 +137,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 22. Pod 6/7/8 Recovery + Remote Restart Reliability | 2/2 | Complete   | 2026-03-16 | - |
-| 23. Protocol Contract + Concurrency Safety | 1/2 | In Progress|  | - |
+| 23. Protocol Contract + Concurrency Safety | 2/2 | Complete   | 2026-03-16 | - |
 | 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/? | Not started | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |

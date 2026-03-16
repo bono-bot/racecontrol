@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 23-02-PLAN.md — is_pod_in_recovery() predicate added to pod_healer.rs, all 4 tests green
-last_updated: "2026-03-16T10:10:28.791Z"
+stopped_at: Completed 23-01-PLAN.md — PodFailureReason enum and 5 AgentMessage variants committed, full test suite green
+last_updated: "2026-03-16T10:17:10.256Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 90
 ---
 
@@ -72,6 +72,7 @@ Progress: [░░░░░░░░░░] 0%
 | 22-pod-recovery P01 | 12 min | 3 tasks | 3 files |
 | Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability P02 | 95 | 1 tasks | 1 files |
 | Phase 23-protocol-contract-concurrency-safety P02 | 10 | 1 tasks | 1 files |
+| Phase 23-protocol-contract-concurrency-safety P01 | 15 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: PowerShell -EncodedCommand (UTF-16LE base64) for all WS-exec-proxied file writes: cmd.exe strips dollar-signs in -Command mode
 - [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: Rename-then-copy binary swap: Windows allows ren while running but not overwrite; rename old.exe, copy new.exe into vacated name, kill old PID, start new
 - [Phase 23-protocol-contract-concurrency-safety]: is_pod_in_recovery() lives in racecontrol (not rc-common) — WatchdogState is server-local; RecoveryFailed returns false so bots may still attempt fixes after watchdog gives up
+- [Phase 23-protocol-contract-concurrency-safety]: PodFailureReason derives Copy not Hash — not needed as HashMap key in Phase 23, Hash deferred to Phase 24 if needed
+- [Phase 23-protocol-contract-concurrency-safety]: AgentMessage bot variants committed atomically with ws/mod.rs stub arms — adding variants to enum immediately breaks match exhaustiveness; both files must change together
 
 ### Roadmap Evolution
 
@@ -109,6 +112,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T10:10:28.788Z
-Stopped at: Completed 23-02-PLAN.md — is_pod_in_recovery() predicate added to pod_healer.rs, all 4 tests green
+Last session: 2026-03-16T10:17:10.253Z
+Stopped at: Completed 23-01-PLAN.md — PodFailureReason enum and 5 AgentMessage variants committed, full test suite green
 Resume file: None
