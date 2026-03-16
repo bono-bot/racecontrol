@@ -1685,4 +1685,24 @@ mod tests {
 
         pool.close().await;
     }
+
+    #[test]
+    fn customer_and_staff_counters_are_separate() {
+        // PIN-01: customer failures must increment customer counter only
+        // AppState will gain customer_pin_failures and staff_pin_failures HashMaps (Wave 1b)
+        todo!("PIN-01: separate counters not yet implemented in AppState");
+    }
+
+    #[test]
+    fn customer_failures_do_not_affect_staff_counter() {
+        // PIN-01: 5 customer failures must leave staff counter at 0
+        todo!("PIN-01: AppState.customer_pin_failures does not exist yet");
+    }
+
+    #[test]
+    fn staff_pin_succeeds_when_customer_counter_maxed() {
+        // PIN-02: staff can always unlock even after customer exhausts their attempts
+        // validate_employee_pin() must check staff counter, never customer counter
+        todo!("PIN-02: staff lockout prevention not yet implemented");
+    }
 }
