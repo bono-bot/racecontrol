@@ -21,7 +21,7 @@ use crate::udp_heartbeat::HeartbeatStatus;
 
 const CHECK_INTERVAL_SECS: u64 = 60;      // check every minute
 const CLOSE_WAIT_THRESHOLD: usize = 20;   // flag if :8090 has 20+ stuck sockets
-const WS_DEAD_SECS: u64 = 60;            // relaunch if disconnected 1+ min (reconnect loop exhausted — ~8 attempts by then)
+const WS_DEAD_SECS: u64 = 300;           // relaunch if disconnected 5+ min — allows slow boot reconnect without false-positive kills
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 const EVENT_LOG: &str = r"C:\RacingPoint\rc-bot-events.log";
 const MAX_LOG_BYTES: u64 = 512 * 1024;    // rotate at 512KB
