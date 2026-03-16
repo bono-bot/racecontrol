@@ -1,0 +1,164 @@
+   Compiling rc-agent-crate v0.1.0 (C:\Users\bono\racingpoint\racecontrol\crates\rc-agent)
+warning: unused import: `std::os::windows::process::CommandExt`
+   --> crates\rc-agent\src\debug_server.rs:167:17
+    |
+167 |             use std::os::windows::process::CommandExt;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::os::windows::process::CommandExt`
+   --> crates\rc-agent\src\main.rs:220:17
+    |
+220 |             use std::os::windows::process::CommandExt;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `balance_rupees`
+    --> crates\rc-agent\src\lock_screen.rs:1019:9
+     |
+1019 |     let balance_rupees = wallet_balance_paise as f64 / 100.0;
+     |         ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_balance_rupees`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `conditions` is never read
+   --> crates\rc-agent\src\ac_launcher.rs:145:9
+    |
+129 | pub struct AcLaunchParams {
+    |            -------------- field in this struct
+...
+145 |     pub conditions: Option<AcConditions>,
+    |         ^^^^^^^^^^
+    |
+    = note: `AcLaunchParams` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `damage` is never read
+   --> crates\rc-agent\src\ac_launcher.rs:205:9
+    |
+203 | pub struct AcConditions {
+    |            ------------ field in this struct
+204 |     #[serde(default)]
+205 |     pub damage: u8,
+    |         ^^^^^^
+    |
+    = note: `AcConditions` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `set_transmission` is never used
+   --> crates\rc-agent\src\ac_launcher.rs:327:8
+    |
+327 | pub fn set_transmission(transmission: &str) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `cleanup_after_session` is never used
+    --> crates\rc-agent\src\ac_launcher.rs:1488:8
+     |
+1488 | pub fn cleanup_after_session() {
+     |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `telemetry_ports`, `wheelbase_vid`, and `wheelbase_pid` are never read
+  --> crates\rc-agent\src\driving_detector.rs:15:9
+   |
+ 7 | pub struct DetectorConfig {
+   |            -------------- fields in this struct
+...
+15 |     pub telemetry_ports: Vec<u16>,
+   |         ^^^^^^^^^^^^^^^
+16 |     /// Conspit wheelbase USB Vendor ID (OpenFFBoard default: 0x1209)
+17 |     pub wheelbase_vid: u16,
+   |         ^^^^^^^^^^^^^
+18 |     /// Conspit wheelbase USB Product ID (OpenFFBoard default: 0xFFB0)
+19 |     pub wheelbase_pid: u16,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `DetectorConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `allow_process`, `disallow_process`, and `exit_debug_mode` are never used
+   --> crates\rc-agent\src\kiosk.rs:181:12
+    |
+137 | impl KioskManager {
+    | ----------------- methods in this implementation
+...
+181 |     pub fn allow_process(&mut self, name: &str) {
+    |            ^^^^^^^^^^^^^
+...
+186 |     pub fn disallow_process(&mut self, name: &str) {
+    |            ^^^^^^^^^^^^^^^^
+...
+198 |     pub fn exit_debug_mode(&mut self) {
+    |            ^^^^^^^^^^^^^^^
+
+warning: field `token_id` is never read
+  --> crates\rc-agent\src\lock_screen.rs:31:9
+   |
+30 |     PinEntry {
+   |     -------- field in this variant
+31 |         token_id: String,
+   |         ^^^^^^^^
+   |
+   = note: `LockScreenState` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `token_id` is never read
+  --> crates\rc-agent\src\lock_screen.rs:39:9
+   |
+38 |     QrDisplay {
+   |     --------- field in this variant
+39 |         token_id: String,
+   |         ^^^^^^^^
+   |
+   = note: `LockScreenState` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `message` is never read
+  --> crates\rc-agent\src\lock_screen.rs:95:9
+   |
+94 |     ConfigError {
+   |     ----------- field in this variant
+95 |         message: String,
+   |         ^^^^^^^
+   |
+   = note: `LockScreenState` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `valid` is never read
+  --> crates\rc-agent\src\overlay.rs:31:5
+   |
+26 | struct LapRecord {
+   |        --------- field in this struct
+...
+31 |     valid: bool,
+   |     ^^^^^
+   |
+   = note: `LapRecord` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `sim_type` and `session_info` are never used
+  --> crates\rc-agent\src\sims\mod.rs:10:8
+   |
+ 8 | pub trait SimAdapter: Send + Sync {
+   |           ---------- methods in this trait
+ 9 |     /// The sim type this adapter handles
+10 |     fn sim_type(&self) -> SimType;
+   |        ^^^^^^^^
+...
+25 |     fn session_info(&self) -> Result<Option<SessionInfo>>;
+   |        ^^^^^^^^^^^^
+
+warning: constant `IS_IN_PIT` is never used
+  --> crates\rc-agent\src\sims\assetto_corsa.rs:89:15
+   |
+89 |     pub const IS_IN_PIT: usize = 160;         // i32, 1 if in pit lane
+   |               ^^^^^^^^^
+
+warning: constant `NUMBER_OF_LAPS` is never used
+  --> crates\rc-agent\src\sims\assetto_corsa.rs:91:15
+   |
+91 |     pub const NUMBER_OF_LAPS: usize = 172;    // i32, total laps in session (0 = unlimited)
+   |               ^^^^^^^^^^^^^^
+
+warning: constant `NORMALIZED_CAR_POSITION` is never used
+  --> crates\rc-agent\src\sims\assetto_corsa.rs:92:15
+   |
+92 |     pub const NORMALIZED_CAR_POSITION: usize = 248; // f32, 0.0-1.0 track progress
+   |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `rc-agent-crate` (bin "rc-agent" test) generated 17 warnings (run `cargo fix --bin "rc-agent" -p rc-agent-crate --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.22s
+     Running unittests src\main.rs (target\debug\deps\rc_agent-8f2f2e1852a00886.exe)
