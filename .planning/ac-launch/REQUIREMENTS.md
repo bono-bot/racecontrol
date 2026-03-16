@@ -34,10 +34,10 @@
 
 ### Synchronized Group Play (GROUP)
 
-- [ ] **GROUP-01**: All pods in a multiplayer group launch AC and join the server simultaneously (coordinated start)
-- [ ] **GROUP-02**: Staff can enable "continuous" mode — when a race ends, a new session auto-starts while billing is active
-- [ ] **GROUP-03**: If any pod fails to join the AC server, staff sees which pod failed and can retry from kiosk
-- [ ] **GROUP-04**: Staff can change track/car between races in continuous mode without stopping the full AC server
+- [x] **GROUP-01**: All pods in a multiplayer group launch AC and join the server simultaneously (coordinated start)
+- [x] **GROUP-02**: Staff can enable "continuous" mode — when a race ends, a new session auto-starts while billing is active
+- [x] **GROUP-03**: If any pod fails to join the AC server, staff sees which pod failed and can retry from kiosk
+- [x] **GROUP-04**: Staff can change track/car between races in continuous mode without stopping the full AC server
 
 ## Future Requirements
 
@@ -79,10 +79,10 @@
 | MULTI-02 | Phase 4 | Complete (04-01) |
 | MULTI-03 | Phase 4 | Complete (04-01 backend + 04-02 kiosk UI) |
 | MULTI-04 | Phase 4 | Complete (04-01 backend + 04-02 kiosk UI) |
-| GROUP-01 | Phase 5 | Pending |
-| GROUP-02 | Phase 5 | Pending |
-| GROUP-03 | Phase 5 | Pending |
-| GROUP-04 | Phase 5 | Pending |
+| GROUP-01 | Phase 5 | Complete (05-01) |
+| GROUP-02 | Phase 5 | Complete (05-01) |
+| GROUP-03 | Phase 5 | Complete (05-02) |
+| GROUP-04 | Phase 5 | Complete (05-02) |
 
 **Coverage:**
 - v5.0 requirements: 19 total
@@ -91,4 +91,4 @@
 
 ---
 *Requirements defined: 2026-03-15*
-*Last updated: 2026-03-15 after Phase 4 Plan 02 (kiosk multiplayer UI)*
+*Last updated: 2026-03-16 after Phase 5 Plan 02 (join failure recovery + config change) — ALL 19 REQUIREMENTS COMPLETE*

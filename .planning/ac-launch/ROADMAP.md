@@ -14,7 +14,7 @@ No billing rewrite. No game launcher rewrite. Pure wiring between existing syste
 - [x] **Phase 2: Game Crash Recovery** - Detect crash, pause billing, show status, enable re-launch
 - [x] **Phase 3: Launch Resilience** - CM fallback improvements, failure reporting, billing pause on launch failure
 - [x] **Phase 4: Multiplayer Server Lifecycle** - AC server auto-start/stop wired to billing, kiosk self-serve multiplayer booking
-- [ ] **Phase 5: Synchronized Group Play** - Coordinated launch across pods, continuous race mode, failure recovery
+- [x] **Phase 5: Synchronized Group Play** - Coordinated launch across pods, continuous race mode, failure recovery
 
 ## Phase Details
 
@@ -95,7 +95,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md — rc-core: coordinated launch trigger (wait for all PINs validated → send LaunchGame to all pods simultaneously), continuous mode flag on AcServerManager with auto-restart on session end
-- [ ] 05-02-PLAN.md — rc-core + kiosk: per-pod join status tracking, failure display on dashboard with retry button, mid-session config change (track/car swap between races)
+- [x] 05-02-PLAN.md — rc-core + kiosk: per-pod join status tracking, failure display on dashboard with retry button, mid-session config change (track/car swap between races)
 
 ## Progress
 
@@ -108,9 +108,9 @@ Phase 1 first (most critical — revenue loss). Phase 2 depends on Phase 1's gam
 | 2. Game Crash Recovery | 2/2 | Complete | 2026-03-15 |
 | 3. Launch Resilience | 2/2 | Complete | 2026-03-15 |
 | 4. Multiplayer Server Lifecycle | 2/2 | Complete | 2026-03-15 |
-| 5. Synchronized Group Play | 1/2 | In progress | - |
+| 5. Synchronized Group Play | 2/2 | Complete | 2026-03-16 |
 
-**Total: 9/10 plans complete**
+**Total: 10/10 plans complete — MILESTONE v5.0 COMPLETE**
 
 ## Dependency Graph
 

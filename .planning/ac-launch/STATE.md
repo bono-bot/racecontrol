@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: AC Launch Reliability
-status: active
-stopped_at: "Phase 5 Plan 01 complete — coordinated launch wired + continuous mode added, ready for Phase 5 Plan 02"
+status: complete
+stopped_at: "Phase 5 Plan 02 complete — join failure recovery + config change done. ALL 5 PHASES COMPLETE. GSD milestone v5.0 AC Launch Reliability FINISHED."
 last_updated: "2026-03-16"
-last_activity: 2026-03-16 — Phase 5 Plan 01 complete (coordinated launch + continuous mode)
+last_activity: 2026-03-16 — Phase 5 Plan 02 complete (join failure recovery + mid-session config change)
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 10
-  completed_plans: 9
-  percent: 90
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/ac-launch/PROJECT.md (created 2026-03-15)
 ## Current Position
 
 Phase: 5 of 5 — Synchronized Group Play
-Plan: 1 of 2
-Status: Phase 5 Plan 01 complete — coordinated launch + continuous mode done
-Last activity: 2026-03-16 — Phase 5 Plan 01 complete
+Plan: 2 of 2
+Status: ALL PLANS COMPLETE — AC Launch Reliability v5.0 milestone finished
+Last activity: 2026-03-16 — Phase 5 Plan 02 complete (join failure recovery + mid-session config change)
 
-Progress: [#########░] 90%
+Progress: [##########] 100%
 
 ## Performance Metrics
 
@@ -47,7 +47,7 @@ Progress: [#########░] 90%
 | 2. Game Crash Recovery | 2/2 | 8min | 4min |
 | 3. Launch Resilience | 2/2 | 20min | 10min |
 | 4. Multiplayer Server Lifecycle | 2/2 | 11min | 5.5min |
-| 5. Synchronized Group Play | 1/2 | 18min | 18min |
+| 5. Synchronized Group Play | 2/2 | 38min | 19min |
 
 ## Accumulated Context
 
@@ -73,6 +73,9 @@ Progress: [#########░] 90%
 - GROUP-01: AC server start removed from book_multiplayer/book_multiplayer_kiosk — deferred to on_member_validated()->start_ac_lan_for_group() when all PINs validated
 - GROUP-02: Continuous mode monitor uses mutable current_session_id loop (not recursive spawn) — std::process::Child is !Send on Windows, recursive tokio::spawn rejected by compiler
 - GROUP-02: Continuous mode guard in check_and_stop_multiplayer_server defers stop to monitor loop when flag active
+- GROUP-03: join_failed is a top-level KioskPodCard block (not nested in on_track) — TypeScript narrows state to on_track inside that block
+- GROUP-03: multiplayerGroup.pod_ids (group_session_all_validated) is source of truth for pod membership, not acServerInfo.connected_pods
+- GROUP-04: update_session_config() mutates AcServerInstance.config in place; monitor loop re-reads on next restart iteration
 
 ### Existing Infrastructure (do NOT rebuild)
 
@@ -92,7 +95,7 @@ Progress: [#########░] 90%
 
 ### Pending Todos
 
-- Phase 5 Plan 02: join failure recovery (per-pod join status tracking, failure display, retry button, mid-session config change)
+- All plans complete. No pending todos.
 
 ### Blockers/Concerns
 
@@ -104,5 +107,5 @@ Progress: [#########░] 90%
 ## Session Continuity
 
 Last session: 2026-03-16
-Stopped at: Phase 5 Plan 01 complete — coordinated launch wired + continuous mode added, ready for Phase 5 Plan 02
+Stopped at: Phase 5 Plan 02 complete — ALL 10 PLANS DONE. Milestone v5.0 AC Launch Reliability complete.
 Resume file: None
