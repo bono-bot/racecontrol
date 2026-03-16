@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.5
 milestone_name: Billing Credits
 status: completed
-stopped_at: Completed 14-05-PLAN.md — 5 public read endpoints, 2 new tests, 331 tests GREEN
-last_updated: "2026-03-16T20:10:46.439Z"
+stopped_at: Completed 33-01-PLAN.md — billing_rates seed fix, test migrations + assertions, PROTOC-01 alias test, 331+113 tests GREEN
+last_updated: "2026-03-16T20:38:26.949Z"
 last_activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -91,6 +91,8 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 - [Phase 14-events-and-championships]: score_group_event computes gap_to_leader_ms inline from multiplayer_results.best_lap_ms — not via recalculate_event_positions which operates on hotlap leaderboard order
 - [Phase 14-events-and-championships]: GET /public/championships/{id} is a full-detail endpoint distinct from Plan 04's /standings — both remain registered
 - [Phase 14-events-and-championships]: public_event_sessions computes gap_to_leader_ms inline from multiplayer_results.best_lap_ms min — consistent with score_group_event
+- [Phase 33-db-schema-billing-engine]: billing_rates seed uses Title Case tier names (Standard/Extended/Marathon) matching default_billing_rate_tiers() — lowercase was a silent mismatch bug
+- [Phase 33-db-schema-billing-engine]: assert_eq!(3) used for billing_rates seed count (deterministic INSERT OR IGNORE) vs assert!(>= N) for non-deterministic tables
 
 ### Roadmap Evolution
 
@@ -109,7 +111,7 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 
 ## Session Continuity
 
-Last session: 2026-03-16T20:00:22.098Z
-Stopped at: Completed 14-05-PLAN.md — 5 public read endpoints, 2 new tests, 331 tests GREEN
+Last session: 2026-03-16T20:38:26.947Z
+Stopped at: Completed 33-01-PLAN.md — billing_rates seed fix, test migrations + assertions, PROTOC-01 alias test, 331+113 tests GREEN
 Resume file: None
 Next action: `/gsd:plan-phase 33`

@@ -101,16 +101,16 @@
 ### Billing Engine (BILL)
 
 - [ ] **BILLC-01**: User session cost displays in credits (1 cr = ₹1 = 100 paise) in overlay, kiosk, and admin — not rupees
-- [ ] **BILLC-02**: `compute_session_cost()` uses non-retroactive additive algorithm: 45 min = (30 × 25) + (15 × 20) = 1050 cr, not 45 × 20
-- [ ] **BILLC-03**: BillingManager holds in-memory rate cache (`RwLock<Vec<BillingRateTier>>`) with hardcoded defaults matching seed data
-- [ ] **BILLC-04**: Rate cache refreshes from DB at startup and every 60s — never blocks the per-second billing tick
-- [ ] **BILLC-05**: Final session cost saved to `wallet_debit_paise` column on session end
+- [x] **BILLC-02**: `compute_session_cost()` uses non-retroactive additive algorithm: 45 min = (30 × 25) + (15 × 20) = 1050 cr, not 45 × 20
+- [x] **BILLC-03**: BillingManager holds in-memory rate cache (`RwLock<Vec<BillingRateTier>>`) with hardcoded defaults matching seed data
+- [x] **BILLC-04**: Rate cache refreshes from DB at startup and every 60s — never blocks the per-second billing tick
+- [x] **BILLC-05**: Final session cost saved to `wallet_debit_paise` column on session end
 
 ### Rate Configuration (RATE)
 
-- [ ] **RATE-01**: `billing_rates` table with columns: id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active
-- [ ] **RATE-02**: Three default seed rows: Standard (0–30 min, 2500 p/min = 25 cr/min), Extended (31–60 min, 2000 p/min = 20 cr/min), Marathon (60+ min, 1500 p/min = 15 cr/min)
-- [ ] **RATE-03**: `billing_rates` added to cloud_sync SYNC_TABLES for cloud replication
+- [x] **RATE-01**: `billing_rates` table with columns: id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active
+- [x] **RATE-02**: Three default seed rows: Standard (0–30 min, 2500 p/min = 25 cr/min), Extended (31–60 min, 2000 p/min = 20 cr/min), Marathon (60+ min, 1500 p/min = 15 cr/min)
+- [x] **RATE-03**: `billing_rates` added to cloud_sync SYNC_TABLES for cloud replication
 
 ### Admin API (ADMIN)
 
@@ -128,8 +128,8 @@
 
 ### Protocol (PROTOC)
 
-- [ ] **PROTOC-01**: `minutes_to_value_tier` renamed to `minutes_to_next_tier` in rc-common protocol.rs with `#[serde(alias)]` backward compat
-- [ ] **PROTOC-02**: `tier_name` field added to BillingTick as `Option<String>` (previously `&'static str`)
+- [x] **PROTOC-01**: `minutes_to_value_tier` renamed to `minutes_to_next_tier` in rc-common protocol.rs with `#[serde(alias)]` backward compat
+- [x] **PROTOC-02**: `tier_name` field added to BillingTick as `Option<String>` (previously `&'static str`)
 
 ## v6.0 Requirements (Deferred)
 
@@ -199,13 +199,13 @@
 | MULTI-01 | Phase 26 | Complete |
 
 | BILLC-01 | Phase 35 | Pending |
-| BILLC-02 | Phase 33 | Pending |
-| BILLC-03 | Phase 33 | Pending |
-| BILLC-04 | Phase 33 | Pending |
-| BILLC-05 | Phase 33 | Pending |
-| RATE-01 | Phase 33 | Pending |
-| RATE-02 | Phase 33 | Pending |
-| RATE-03 | Phase 33 | Pending |
+| BILLC-02 | Phase 33 | Complete |
+| BILLC-03 | Phase 33 | Complete |
+| BILLC-04 | Phase 33 | Complete |
+| BILLC-05 | Phase 33 | Complete |
+| RATE-01 | Phase 33 | Complete |
+| RATE-02 | Phase 33 | Complete |
+| RATE-03 | Phase 33 | Complete |
 | ADMIN-01 | Phase 34 | Pending |
 | ADMIN-02 | Phase 34 | Pending |
 | ADMIN-03 | Phase 34 | Pending |
@@ -214,8 +214,8 @@
 | UIC-02 | Phase 35 | Pending |
 | UIC-03 | Phase 35 | Pending |
 | UIC-04 | Phase 35 | Pending |
-| PROTOC-01 | Phase 33 | Pending |
-| PROTOC-02 | Phase 33 | Pending |
+| PROTOC-01 | Phase 33 | Complete |
+| PROTOC-02 | Phase 33 | Complete |
 
 **Coverage:**
 - v5.0 requirements: 19 total

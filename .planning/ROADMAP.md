@@ -63,7 +63,7 @@ Phases: Protocol Contract + Concurrency Safety → Crash, Hang, Launch + USB Bot
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 33: DB Schema + Billing Engine** - billing_rates table, seed data, cloud sync registration, non-retroactive cost algorithm, in-memory rate cache, and rc-common protocol field rename land together — consuming crates compile against the new schema and types before any UI or API is written
+- [x] **Phase 33: DB Schema + Billing Engine** - billing_rates table, seed data, cloud sync registration, non-retroactive cost algorithm, in-memory rate cache, and rc-common protocol field rename land together — consuming crates compile against the new schema and types before any UI or API is written (completed 2026-03-16)
 - [ ] **Phase 34: Admin Rates API** - four CRUD endpoints for billing_rates are wired into racecontrol routes — staff can read, create, update, and delete rate tiers via HTTP, and every write immediately invalidates the in-memory cache
 - [ ] **Phase 35: Credits UI** - every user-facing surface that previously showed rupees now shows credits — overlay, kiosk billing modal, admin billing history, and admin pricing page are all updated in a single frontend pass
 
@@ -149,7 +149,7 @@ Note: Phase 33 (DB + Engine) is non-negotiable first — billing_rates table and
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 4/4 | Complete | 2026-03-16 |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 4/4 | Complete | 2026-03-16 |
 | 27. Tailscale Mesh + Internet Fallback | v5.0 | 5/5 | Complete | 2026-03-16 |
-| 33. DB Schema + Billing Engine | v5.5 | 0/1 | In Progress | - |
+| 33. DB Schema + Billing Engine | 1/1 | Complete   | 2026-03-16 | - |
 | 34. Admin Rates API | v5.5 | 0/? | Not started | - |
 | 35. Credits UI | v5.5 | 0/? | Not started | - |
 
@@ -158,7 +158,7 @@ Note: Phase 33 (DB + Engine) is non-negotiable first — billing_rates table and
 **Goal:** All 8 pods, server, and Bono's VPS join a Tailscale mesh network — installed as a Windows Service via WinRM, cloud_sync routes through Tailscale IP, and the server pushes telemetry/game state/pod health events to Bono in real time with a bidirectional command relay for PWA-triggered game launches
 **Requirements**: TS-01, TS-02, TS-03, TS-04, TS-05, TS-06, TS-DEPLOY
 **Depends on:** Phase 26
-**Plans:** 4/4 plans complete
+**Plans:** 1/1 plans complete
 
 Plans:
 - [x] 27-01-PLAN.md — Wave 1 (TDD): BonoConfig in config.rs + bono_relay.rs skeleton with 3 RED test stubs (TS-01, TS-02, TS-03, TS-04)
