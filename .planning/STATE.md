@@ -14,22 +14,6 @@ progress:
   percent: 88
 ---
 
----
-gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: RC Bot Expansion
-status: ready_to_plan
-stopped_at: Completed 24-02-PLAN.md — 3 new fix functions + extended fix_kill_error_dialogs, all 10 Wave 0 tests GREEN
-last_updated: "2026-03-16T11:24:23.967Z"
-last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
-progress:
-  [█████████░] 88%
-  completed_phases: 1
-  total_plans: 11
-  completed_plans: 5
-  percent: 84
----
-
 # Project State
 
 ## Project Reference
