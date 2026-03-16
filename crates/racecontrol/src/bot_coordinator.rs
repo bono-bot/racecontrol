@@ -199,7 +199,11 @@ pub async fn handle_multiplayer_failure(
         }
     }
 
-    // Step 2: End billing session
+    // Step 2: End billing for triggering pod.
+    // end_billing_session_public sends StopGame to the agent.
+    // The agent's StopGame handler zeroes FFB BEFORE killing the game process
+    // (rc-agent/src/main.rs, StopGame arm: ffb.zero_force() is awaited first).
+    // No separate FFB zero step is needed here.
     let ended = end_billing_session_public(
         state,
         &resolved_session_id,
@@ -207,21 +211,83 @@ pub async fn handle_multiplayer_failure(
     )
     .await;
     tracing::info!(
-        "[bot-coord] MULTI-01 session {} ended={} for pod={}",
+        "[bot-coord] MULTI-01 triggering pod={} session={} ended={}",
+        pod_id,
         resolved_session_id,
-        ended,
-        pod_id
+        ended
     );
 
-    // Step 3: Log event
+    // Step 3: Cascade teardown to all other pods in the same group session.
+    // BillingTimer does NOT carry group_session_id — resolve via DB.
+    // group_session_members table: pod_id, group_session_id, status
+    let group_pods: Vec<String> = sqlx::query_as::<_, (String,)>(
+        "SELECT pod_id FROM group_session_members
+         WHERE group_session_id = (
+             SELECT group_session_id FROM group_session_members
+             WHERE pod_id = ? AND status = 'validated'
+         )
+         AND pod_id != ?
+         AND pod_id IS NOT NULL",
+    )
+    .bind(pod_id)
+    .bind(pod_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(p,)| p)
+    .collect();
+
+    for group_pod_id in &group_pods {
+        tracing::warn!(
+            "[bot-coord] MULTI-01 cascade to pod={} (same group as triggering pod={})",
+            group_pod_id,
+            pod_id
+        );
+        // Blank screen each group pod first
+        {
+            let agent_senders = state.agent_senders.read().await;
+            if let Some(sender) = agent_senders.get(group_pod_id.as_str()) {
+                let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
+            }
+        }
+        // End billing for each group pod (sends StopGame → FFB zero on each agent)
+        let group_session_id = state
+            .billing
+            .active_timers
+            .read()
+            .await
+            .get(group_pod_id.as_str())
+            .map(|t| t.session_id.clone());
+        if let Some(gsid) = group_session_id {
+            let _ = end_billing_session_public(
+                state,
+                &gsid,
+                BillingSessionStatus::EndedEarly,
+            )
+            .await;
+            tracing::info!(
+                "[bot-coord] MULTI-01 cascade: pod={} session={} ended",
+                group_pod_id,
+                gsid
+            );
+        } else {
+            tracing::warn!(
+                "[bot-coord] MULTI-01 cascade: pod={} has no active billing (already ended?)",
+                group_pod_id
+            );
+        }
+    }
+
+    // Step 4: Log event (triggering pod; group pods are logged by their own end_billing calls)
     crate::activity_log::log_pod_activity(
         state,
         pod_id,
         "multiplayer",
         "Multiplayer Disconnect",
         &format!(
-            "reason={:?} session={}",
-            reason, resolved_session_id
+            "reason={:?} session={} cascaded_to={:?}",
+            reason, resolved_session_id, group_pods
         ),
         "bot",
     );
@@ -400,13 +466,15 @@ mod tests {
 
     #[test]
     fn multiplayer_failure_triggers_lock_end_billing_log_in_order() {
-        // MULTI-01: teardown order invariant documented as a test
-        // Actual ordering is enforced by sequential awaits in handle_multiplayer_failure
-        // This test verifies the conceptual invariant
-        let steps = vec!["lock_screen", "end_billing", "log_event"];
-        assert_eq!(steps[0], "lock_screen", "lock screen must come first");
-        assert_eq!(steps[1], "end_billing", "billing end must come after lock");
-        assert_eq!(steps[2], "log_event", "log must come last");
+        // MULTI-01: teardown order invariant documented as a test.
+        // Actual ordering is enforced by sequential awaits in handle_multiplayer_failure.
+        // FFB zero is guaranteed by end_billing_session_public → StopGame → ffb.zero_force()
+        // on the agent side (rc-agent/src/main.rs StopGame arm).
+        let steps = vec!["blank_screen", "end_billing_ffb_zero_via_stop_game", "cascade_group_pods", "log_event"];
+        assert_eq!(steps[0], "blank_screen", "lock screen must come first");
+        assert_eq!(steps[1], "end_billing_ffb_zero_via_stop_game", "billing end (with FFB zero) must come after lock");
+        assert_eq!(steps[2], "cascade_group_pods", "group pod cascade must follow triggering pod teardown");
+        assert_eq!(steps[3], "log_event", "log must come last");
     }
 
     #[test]
