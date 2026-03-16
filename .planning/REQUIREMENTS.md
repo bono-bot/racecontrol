@@ -100,8 +100,8 @@
 **Coverage:**
 - v5.0 requirements: 19 total
 - Mapped to phases: 19
-- Unmapped: 0 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-16*
-*Last updated: 2026-03-16 after initial definition*
+*Last updated: 2026-03-16 — roadmap created, phase assignments confirmed*

@@ -26,13 +26,18 @@ Phases paused: Events and Championships (Phase 14), Telemetry and Driver Rating 
 
 </details>
 
+<details>
+<summary>v4.0 Pod Fleet Self-Healing — Phases 16–22 (Shipped 2026-03-16)</summary>
+
+Phases: Firewall Auto-Config → WebSocket Exec → Startup Self-Healing → Watchdog Service → Deploy Resilience → Fleet Health Dashboard → Pod 6/7/8 Recovery and Remote Restart Reliability
+
+</details>
+
 ## Current Milestone
 
-### v4.0 Pod Fleet Self-Healing (Phases 16–21)
+### v5.0 RC Bot Expansion (Phases 23–26)
 
-**Milestone Goal:** Every pod survives any failure — crashes, reboots, firewall resets, missing files — without physical intervention. Pods self-heal and remain remotely manageable at all times.
-
-**Motivated by:** 4-hour debugging session on Mar 15, 2026 — Pods 1/3/4 offline due to exec exhaustion, CRLF-damaged batch files, missing firewall rules, rc-agent crash with no restart, no remote diagnostics when HTTP blocked.
+**Milestone Goal:** Expand the AI auto-fix bot with deterministic pattern-match rules for every failure class — pod crashes, billing edges, USB hardware, game launch failures, telemetry gaps, multiplayer issues, kiosk PIN problems, and lap time filtering. Staff only intervene for hardware replacement and physical reboots.
 
 ## Phases
 
@@ -42,104 +47,66 @@ Phases paused: Events and Championships (Phase 14), Telemetry and Driver Rating 
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 16: Firewall Auto-Config** - rc-agent configures ICMP + TCP 8090 rules in Rust on every startup — eliminates CRLF-damaged batch file failures permanently (completed 2026-03-15)
-- [x] **Phase 17: WebSocket Exec** - racecontrol can send shell commands to any pod over the existing WebSocket — pods remain manageable even when HTTP port 8090 is firewall-blocked (completed 2026-03-15)
-- [x] **Phase 18: Startup Self-Healing** - rc-agent verifies and repairs its own config, start script, and registry key on every boot — pods recover from corrupted config without physical intervention (completed 2026-03-15)
-- [x] **Phase 19: Watchdog Service** - rc-watchdog.exe runs as a Windows SYSTEM service and auto-restarts rc-agent in Session 1 after any crash — no more permanent agent death on unhandled panic (completed 2026-03-15)
-- [x] **Phase 20: Deploy Resilience** - Deploys verify pod health post-swap, auto-rollback on failure, and fleet summary reports per-pod outcomes — bad deploys can never leave pods permanently offline (completed 2026-03-15)
-- [x] **Phase 21: Fleet Health Dashboard** - Uday can see real-time status for all 8 pods (WS connected, HTTP reachable, version, uptime) from his phone via the kiosk /fleet page (completed 2026-03-15)
+- [ ] **Phase 23: Protocol Contract + Concurrency Safety** - Shared failure taxonomy and concurrency guard land in rc-common before any bot detection code exists — cross-crate compile dependency makes this non-negotiable first
+- [ ] **Phase 24: Crash, Hang, Launch + USB Bot Patterns** - failure_monitor.rs detects game freeze, launch timeout, and USB disconnect on the pod; ai_debugger.rs gains 6 new fix arms including FFB zero-force on crash
+- [ ] **Phase 25: Billing Guard + Server Bot Coordinator** - billing_guard.rs detects stuck sessions and idle drift on the pod; bot_coordinator.rs on racecontrol routes anomalies to recovery and fences the cloud sync wallet race
+- [ ] **Phase 26: Lap Filter, PIN Security, Telemetry + Multiplayer** - lap_filter.rs wires game-reported validity into persist_lap; PIN counters separate customer from staff; telemetry gap and multiplayer desync alert via bot_coordinator
 
 ## Phase Details
 
-### Phase 16: Firewall Auto-Config
-**Goal**: rc-agent ensures its own firewall rules are correct on every startup — ICMP echo and TCP 8090 open with profile=any — so pods are always reachable from the server after any reboot or firewall reset
-**Depends on**: Phase 13.1 (v3.0 complete)
-**Requirements**: FW-01, FW-02, FW-03
+### Phase 23: Protocol Contract + Concurrency Safety
+**Goal**: The shared failure taxonomy and concurrency guard exist in rc-common before any bot detection code is written — PodFailureReason enum, 5 new AgentMessage variants, and is_pod_in_recovery() utility compile cleanly in both consuming crates
+**Depends on**: Phase 22
+**Requirements**: PROTO-01, PROTO-02, PROTO-03
 **Success Criteria** (what must be TRUE):
-  1. After a fresh reboot of any pod, port 8090 is reachable from the server without running any batch file or manual netsh command
-  2. rc-agent can be started 10 times in a row and the firewall rule list does not accumulate duplicate entries — idempotency verified by running `netsh advfirewall show` before and after
-  3. The firewall rules apply to all network profiles (domain, private, public) — verified by checking `profile=any` in the rule output
-  4. rc-agent startup log shows "Firewall configured" before the HTTP server bind line — confirming rules are applied before the port opens
-**Plans:** 1/1 plans complete
-Plans:
-- [x] 16-01-PLAN.md — Create firewall.rs module and wire into rc-agent startup
+  1. rc-common compiles with PodFailureReason enum covering all 9 bot failure classes (crash, hang, launch, USB, billing, telemetry, multiplayer, PIN, lap) — verified by `cargo test -p rc-common` passing
+  2. Both rc-agent and racecontrol compile after handling the 5 new AgentMessage variants (HardwareFailure, TelemetryGap, BillingAnomaly, LapFlagged, MultiplayerFailure) — no unhandled variant warnings in match arms
+  3. Calling is_pod_in_recovery() in a test with an active recovery state returns true and blocks a second bot task from acting — confirmed by unit test in racecontrol
+  4. All 47 existing tests remain green after the rc-common additions — no regressions from enum extension
+**Plans**: TBD
 
-### Phase 17: WebSocket Exec
-**Goal**: racecontrol can send any shell command to any connected pod over the existing WebSocket connection and receive stdout, stderr, and exit code — so pods remain manageable even when HTTP port 8090 is firewall-blocked
-**Depends on**: Phase 16
-**Requirements**: WSEX-01, WSEX-02, WSEX-03, WSEX-04
+### Phase 24: Crash, Hang, Launch + USB Bot Patterns
+**Goal**: The bot autonomously handles game freeze, launch timeout, and USB wheelbase disconnect on any pod — staff no longer walk to the pod when a game hangs or a wheelbase drops mid-session
+**Depends on**: Phase 23
+**Requirements**: CRASH-01, CRASH-02, CRASH-03, UI-01, USB-01
 **Success Criteria** (what must be TRUE):
-  1. From racecontrol (or a test harness), a shell command sent via WebSocket to a pod returns the correct stdout/stderr/exit code within 30 seconds — verified with a simple `whoami` or `dir` command
-  2. WebSocket exec works correctly even when a simultaneous HTTP exec request fills all 4 HTTP exec slots — the two paths do not compete for the same semaphore
-  3. When HTTP port 8090 is blocked on a pod (firewall rule manually deleted), deploy.rs falls back to WebSocket exec and the deploy completes successfully
-  4. Each WebSocket exec response includes the same request_id that was sent — confirmed by sending two concurrent commands and verifying responses are correctly correlated
-**Plans:** 3/3 plans complete
-Plans:
-- [x] 17-01-PLAN.md — WebSocket exec protocol types + agent handler (WSEX-01, WSEX-04)
-- [x] 17-02-PLAN.md — Core WS exec sender + HTTP-first fallback (WSEX-02, WSEX-03)
-- [x] 17-03-PLAN.md — Deploy fallback integration (WSEX-03)
+  1. When a game process produces no UDP packets for 30 seconds AND IsHungAppWindow returns true, the bot kills the game and relaunches it without any staff action — verified on Pod 8 by blocking UDP and checking rc-agent logs
+  2. When Content Manager is still running 90 seconds after a launch command, the bot kills Content Manager and retries the launch — the pod returns to a playable state without staff intervention
+  3. When the Conspit Ares wheelbase is physically unplugged and replugged during a session, the bot detects the VID:0x1209 PID:0xFFB0 device reappearing within 10 seconds and restarts the FFB controller
+  4. Any game kill triggered by the bot sends CMD_ESTOP (FFB zero-force) to the wheelbase before the process kill executes — confirmed by log ordering showing FFB zero before game kill in every test run
+  5. Windows error dialogs (WerFault, crash reporters) are suppressed by the bot before any process kill — customers never see a system error dialog during recovery
+**Plans**: TBD
 
-### Phase 18: Startup Self-Healing
-**Goal**: rc-agent detects and repairs its own broken state on every startup — missing config file, CRLF-damaged start script, missing registry key — so a pod recovers from corruption automatically the next time it reboots
-**Depends on**: Phase 16
-**Requirements**: HEAL-01, HEAL-02, HEAL-03
+### Phase 25: Billing Guard + Server Bot Coordinator
+**Goal**: The bot detects and recovers from stuck billing sessions and idle drift without risking wallet corruption — bot_coordinator.rs on racecontrol routes anomalies through the correct StopSession sequence and fences the cloud sync race
+**Depends on**: Phase 24
+**Requirements**: BILL-01, BILL-02, BILL-03, BILL-04, BOT-01
 **Success Criteria** (what must be TRUE):
-  1. If the rc-agent.toml config file is deleted from a pod, the next rc-agent startup recreates it from an embedded template and continues running — no manual file copy needed
-  2. If the HKLM Run key for rc-agent is deleted, the next rc-agent startup recreates it — verified by checking the registry after a run with the key manually removed
-  3. racecontrol logs a startup report from each pod within 10 seconds of the pod's WebSocket connecting — the report includes agent version, uptime, config hash, and a crash recovery flag
-  4. If rc-agent crashes before writing its startup log, a partial log file exists at `C:\RacingPoint\rc-agent-startup.log` with the last phase name reached before exit
-**Plans:** 2/2 plans complete
-Plans:
-- [x] 18-01-PLAN.md — Self-heal module + startup log + main.rs wiring (HEAL-01, HEAL-03)
-- [x] 18-02-PLAN.md — StartupReport protocol + core handler (HEAL-02)
+  1. billing.rs has a characterization test suite covering start_session, end_session, idle detection, and sync paths — all tests pass before any billing bot code is written (BILL-01 prerequisite gate)
+  2. When billing is active and the game process has exited for more than 60 seconds, the bot triggers end_session() via the correct StopSession → SessionUpdate::Finished sequence — the billing timer stops and the lock screen appears within 5 seconds
+  3. When billing is active and DrivingState is inactive for more than 5 minutes, the bot sends a staff alert rather than auto-ending the session — staff receive the alert and can choose to act
+  4. A bot-triggered session end waits for cloud sync acknowledgment before completing teardown — verified by confirming no wallet balance discrepancy after an artificially induced stuck session recovery
+  5. bot_coordinator.rs on racecontrol receives BillingAnomaly, TelemetryGap, and HardwareFailure messages and routes each to the correct handler — confirmed by integration test sending each variant and asserting the handler fires
+**Plans**: TBD
 
-### Phase 19: Watchdog Service
-**Goal**: rc-watchdog.exe runs as a Windows SYSTEM service that auto-restarts rc-agent in Session 1 after any crash — so an unhandled panic or OOM kill no longer leaves the pod permanently dead until a human physically intervenes
-**Depends on**: Phase 18
-**Requirements**: SVC-01, SVC-02, SVC-03, SVC-04
+### Phase 26: Lap Filter, PIN Security, Telemetry + Multiplayer
+**Goal**: Invalid laps are caught at capture time and never reach the leaderboard, PIN failures cannot lock out staff, and telemetry gaps and multiplayer disconnects trigger staff alerts through the coordinator
+**Depends on**: Phase 25
+**Requirements**: LAP-01, LAP-02, LAP-03, PIN-01, PIN-02, TELEM-01, MULTI-01
 **Success Criteria** (what must be TRUE):
-  1. After rc-agent is forcibly killed (TaskKill) on any pod, rc-watchdog detects the absence and restarts it in Session 1 within 10 seconds — verified by watching `tasklist` and the pod reconnecting to racecontrol
-  2. After a pod reboots with no one logged in, rc-watchdog starts automatically and then starts rc-agent in Session 1 without any manual login — the kiosk lock screen appears within 60 seconds of Windows boot
-  3. racecontrol receives a crash report from the watchdog within 30 seconds of rc-agent dying — the report includes exit code, crash time, and restart count
-  4. rc-agent running under the watchdog shows Session# = 1 in `tasklist /v` output — confirmed on Pod 8 canary before fleet rollout
-**Plans:** 2/2 plans complete
-Plans:
-- [x] 19-01-PLAN.md — Create rc-watchdog crate with service entry, poll loop, Session 1 spawn, and crash reporting (SVC-01, SVC-02, SVC-03)
-- [x] 19-02-PLAN.md — racecontrol crash report endpoint + install script + Pod 8 canary verification (SVC-03, SVC-04)
-
-### Phase 20: Deploy Resilience
-**Goal**: Deploying a new rc-agent binary is safe — the previous binary is preserved for rollback, health is verified after swap, and if health fails the pod automatically reverts — so a bad deploy can never leave all 8 pods permanently offline
-**Depends on**: Phase 17
-**Requirements**: DEP-01, DEP-02, DEP-03, DEP-04
-**Success Criteria** (what must be TRUE):
-  1. After a successful deploy to any pod, `rc-agent-prev.exe` exists at `C:\RacingPoint\` — confirmed by checking the file listing via pod-agent exec after deploy
-  2. If a deployed binary crashes immediately on startup, the pod automatically rolls back to the previous binary within 60 seconds — verified by deploying a known-bad binary and watching the pod recover
-  3. Staging `rc-agent-new.exe` on a pod does not trigger a Windows Defender quarantine — Defender exclusion for the staging filename is present and verified via registry check at startup
-  4. After a fleet deploy across all 8 pods, racecontrol logs a per-pod summary showing which pods succeeded, which failed, and which were retried — Uday can see the outcome without SSHing into each pod
-**Plans:** 2/2 plans complete
-Plans:
-- [x] 20-01-PLAN.md — Self-swap binary preservation + DeployState::RollingBack + automatic rollback on health failure (DEP-01, DEP-02)
-- [x] 20-02-PLAN.md — Defender exclusion self-heal + fleet deploy summary with retry + Pod 8 canary verification (DEP-03, DEP-04)
-
-### Phase 21: Fleet Health Dashboard
-**Goal**: Uday can open his phone and see the real-time health of all 8 pods on a single screen — which pods are connected, which are reachable, what version is running, how long they have been up — so he knows the fleet state without calling James
-**Depends on**: Phase 19, Phase 20
-**Requirements**: FLEET-01, FLEET-02, FLEET-03
-**Success Criteria** (what must be TRUE):
-  1. Uday opens http://192.168.31.23:3300/fleet on his phone and sees a grid of all 8 pods with their current status — no login required, page loads within 3 seconds
-  2. The dashboard shows WebSocket connected status and HTTP reachable status as two separate indicators — a pod with WS up but HTTP blocked is visually distinct from a fully healthy pod
-  3. Each pod card shows the rc-agent version number and uptime — after a fleet deploy, Uday can confirm all 8 pods show the new version without running any commands
-**Plans:** 2/2 plans complete
-Plans:
-- [x] 21-01-PLAN.md — Backend fleet health module: PodFleetHealth state, HTTP probe loop, StartupReport storage, GET /fleet/health endpoint (FLEET-01, FLEET-02)
-- [x] 21-02-PLAN.md — Frontend /fleet page: mobile-first card grid with WS/HTTP indicators, version, uptime, 5s polling (FLEET-01, FLEET-03)
+  1. When AC or F1 25 marks a lap as invalid (track cut, collision), the isValidLap flag from the sim adapter is wired into persist_lap and the lap is stored with valid=false — it does not appear on the public leaderboard
+  2. A per-track minimum lap time is configurable in the track catalog (verified with Monza, Silverstone, Spa) — a lap below the minimum floor is flagged with review_required=true regardless of game validity signal
+  3. Customer PIN failure attempts and staff PIN failure attempts are tracked in separate counters — exhausting customer PIN attempts does not lock out the staff PIN path
+  4. When UDP telemetry is silent for more than 60 seconds during an active billing session (game state is Live), staff receive an email alert — no alert fires during menu navigation or idle state
+  5. When an AC multiplayer server disconnect is detected mid-race, the bot triggers lock screen → end billing → log event in that order — the pod ends up in a clean idle state, not a stuck billing limbo
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 16 → 17 → 18 → 19 → 20 → 21
+Phases execute in numeric order: 23 → 24 → 25 → 26
 
-Note: Phase 16 (Firewall) is independent and ships first for immediate pain relief. Phase 17 (WebSocket Exec) requires rc-common protocol additions as its first implementation step — both rc-agent and racecontrol are built together in this phase. Phase 18 (Self-Healing) can be developed in parallel with 17 but deploys after 16 is live. Phase 19 (Watchdog) must come after 18 because crash-restarts bring up a fresh agent — that agent needs firewall and self-healing to work on first restart. Phase 20 (Deploy Resilience) needs WebSocket exec as its fallback path (Phase 17). Phase 21 (Fleet Dashboard) is read-only and depends on health data from all preceding phases.
+Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before both consuming crates and any new enum variant breaks them until handled. Phase 24 (Crash/USB patterns) can be validated on Pod 8 canary before the server coordinator exists. Phase 25 (Billing Guard) requires the concurrency guard from Phase 23 and the detection foundation from Phase 24; billing.rs characterization tests must pass before any billing bot code is written. Phase 26 (Lap/PIN/Telemetry/Multiplayer) depends on bot_coordinator.rs from Phase 25 being in place for alert routing.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -165,14 +132,8 @@ Note: Phase 16 (Firewall) is independent and ships first for immediate pain reli
 | 19. Watchdog Service | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 20. Deploy Resilience | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
-
-### Phase 22: Pod 6/7/8 Recovery and Remote Restart Reliability
-
-**Goal:** Pods 6, 7, 8 are back online and all 8 pods can be reliably restarted remotely via the RCAGENT_SELF_RESTART sentinel, which calls relaunch_self() directly in Rust and bypasses cmd.exe, start-rcagent.bat, and PowerShell interpretation entirely.
-**Requirements**: RESTART-01, RESTART-02, RESTART-03
-**Depends on:** Phase 21
-**Plans:** 1/2 plans executed
-
-Plans:
-- [ ] 22-01-PLAN.md — Add RCAGENT_SELF_RESTART sentinel to rc-agent exec handler + update deploy_pod.py
-- [ ] 22-02-PLAN.md — Build release binary, deploy to all 8 pods, verify RCAGENT_SELF_RESTART works
+| 22. Pod 6/7/8 Recovery + Remote Restart Reliability | v4.0 | 1/2 | In progress | - |
+| 23. Protocol Contract + Concurrency Safety | v5.0 | 0/? | Not started | - |
+| 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/? | Not started | - |
+| 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
+| 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |

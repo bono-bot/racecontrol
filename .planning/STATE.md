@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
-status: defining_requirements
+status: ready_to_plan
 stopped_at: ~
 last_updated: "2026-03-16T00:00:00.000Z"
-last_activity: 2026-03-16 — Milestone v5.0 started. Researching failure patterns.
+last_activity: 2026-03-16 — v5.0 roadmap created. Phases 23-26 defined, 19/19 requirements mapped.
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,15 +19,15 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-16)
 
-**Core value:** Every pod survives any failure without physical intervention. Pods self-heal and remain remotely manageable at all times.
-**Current focus:** v5.0 RC Bot Expansion — defining requirements after research.
+**Core value:** The auto-fix bot handles every common failure class autonomously — staff only intervene for hardware replacement and physical reboots.
+**Current focus:** v5.0 RC Bot Expansion — Phase 23 ready to plan.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Researching codebase failure patterns for v5.0 RC Bot Expansion
-Last activity: 2026-03-16 — Milestone v5.0 started
+Phase: 23 of 26 (Protocol Contract + Concurrency Safety)
+Plan: — (not started)
+Status: Ready to plan Phase 23
+Last activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -53,50 +53,40 @@ Progress: [░░░░░░░░░░] 0%
 | 20-deploy-resilience P02 | 4 min | 2 tasks | 3 files |
 | 21-fleet-health-dashboard P01 | 6 min | 2 tasks | 6 files |
 | 21-fleet-health-dashboard P02 | 5 min | 1 task | 3 files |
-| Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability P01 | 12 | 3 tasks | 3 files |
+| 22-pod-recovery P01 | 12 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
 ### Decisions
 
-- Watchdog pattern: rc-watchdog.exe as SYSTEM service wrapping start-rcagent.bat — NOT native ServiceMain (Session 0 GUI boundary), NOT NSSM (external dependency)
-- Firewall: Move entirely to Rust (std::process::Command calling netsh) — eliminate CRLF-sensitive batch files permanently
-- WebSocket exec: CoreToAgentMessage::Exec with request_id correlation; independent semaphore from HTTP exec slots
-- Deploy rollback: Preserve rc-agent-prev.exe; auto-rollback on 60s health gate failure (automatic, not manual confirm)
-- AV exclusion: Directory-wide C:\RacingPoint\ exclusion — simpler, avoids staging filename enumeration
-- v3.0 Phases 14 and 15 paused until v4.0 completes
-- Pod-agent merged into rc-agent (Phase 13.1, commit eea644e) — single binary per pod
-- [Phase 16]: synchronous std::process::Command for netsh, non-fatal on failure, RacingPoint-prefixed rule names
-- [Phase 17 P01]: Struct-style enum variants for Exec/ExecResult; serde default 10s timeout; request_id correlation
-- [Phase 17 P03]: Pod-prefixed request_id; HTTP-first WS-fallback exec; oneshot channel resolution
-- [Phase 18 P01]: Synchronous self-heal before load_config; embedded config template; START_SCRIPT_CONTENT const with CRLF
-- [Phase 18 P02]: StartupReport sent once per process lifetime; fire-and-forget; Register -> StartupReport -> ContentManifest ordering
-- [Phase 19 P01]: rc-watchdog crate with windows-service 0.8; tasklist polling; 15s restart grace; WTSQueryUserToken for Session 1
-- [Phase 19 P02]: Bare StatusCode::OK crash report; log_pod_activity source='watchdog'; sc.exe failure actions
-- [Phase 20 P01]: RollingBack is active (prevents concurrent deploy); SWAP via /write endpoint; rollback success = Failed with reason
-- [Phase 20 P02]: Defender check non-fatal; failed.drain() retry pattern avoids double-counting
-- [Phase 21 P01]: Used futures_util::join_all (existing dep) for parallel probes; dedicated 3s timeout client; uptime_secs computed live from agent_started_at
-- [Phase 21 P01]: fleet_health route is public (no auth) for Uday's LAN phone access; clear_on_disconnect preserves http_reachable
-- [Phase 21 P02]: No auth on /fleet page; keep last known pod data on poll error; error shown as yellow banner, cards never blank
-- [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: RCAGENT_SELF_RESTART sentinel: direct Rust call to relaunch_self() bypasses cmd.exe/batch, eliminating PowerShell interpretation issues on pods 6/7/8
-- [Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability]: deploy_pod.py connection-close-as-success: treats eof/reset/timeout as success since rc-agent exits before HTTP response completes
+- Build order for v5.0 is non-negotiable: rc-common first (Phase 23) — cross-crate compile dependency
+- All bot fix functions must gate on billing_active inside the fix itself — pattern memory replay bypasses call-site guards
+- billing.rs characterization tests required before any billing bot code (BILL-01 is a prerequisite gate, not a deliverable)
+- Wallet sync fence required before recover_stuck_session() ships — CRDT MAX(updated_at) race documented in CONCERNS.md P1
+- Multiplayer scope: detection + safe teardown only — auto-rejoin deferred (no AC session token path exists)
+- Lap filter: game-reported isValidLap is authoritative; bot analysis sets review_required flag only, never hard-deletes
+- PIN counters: strict type separation — customer and staff counters never share state
+- [Phase 22]: RCAGENT_SELF_RESTART sentinel: direct Rust call to relaunch_self() bypasses cmd.exe/batch
 
 ### Roadmap Evolution
 
 - Phase 22 added: Pod 6/7/8 Recovery and Remote Restart Reliability
+- Phases 23-26 added: v5.0 RC Bot Expansion roadmap (2026-03-16)
 
 ### Pending Todos
 
 - Pod 3 still not verified running after fix-pod.bat — needs physical reboot + verification
 - Version string inconsistency: USB-installed pods report v0.1.0, HTTP-deployed report v0.5.2
-- Pod 8 canary verification for Phases 19+20 deferred until fleet deploy
+- Phase 22 plan 22-02 still pending: build release binary + fleet deploy
+- Wallet sync fence mechanism decision needed before Phase 25 coding begins
 
 ### Blockers/Concerns
 
-- Fleet deploy needed: all v4.0 code complete but needs release build + fleet rollout to verify end-to-end
+- Phase 22 incomplete: 22-02 (fleet deploy + verification) not yet executed
+- Phase 25 pre-condition: wallet sync fence mechanism must be decided before recover_stuck_session() is implemented — options: (a) timestamp skew, (b) venue_authoritative flag, (c) transaction log migration
 
 ## Session Continuity
 
-Last session: 2026-03-16T08:31:15.165Z
-Stopped at: Completed 22-01-PLAN.md
+Last session: 2026-03-16
+Stopped at: v5.0 roadmap created (Phases 23-26). Phase 22 still has 22-02 pending.
 Resume file: None
