@@ -159,7 +159,7 @@ Note: Phase 33 (DB + Engine) is non-negotiable first — billing_rates table and
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 4/4 | Complete | 2026-03-16 |
 | 27. Tailscale Mesh + Internet Fallback | v5.0 | 5/5 | Complete | 2026-03-16 |
 | 33. DB Schema + Billing Engine | 1/1 | Complete    | 2026-03-16 | - |
-| 34. Admin Rates API | 1/1 | Complete   | 2026-03-16 | - |
+| 34. Admin Rates API | 1/1 | Complete    | 2026-03-16 | - |
 | 35. Credits UI | v5.5 | 0/? | Not started | - |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
