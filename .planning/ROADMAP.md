@@ -144,7 +144,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 21. Fleet Health Dashboard | v4.0 | 2/2 | Complete | 2026-03-15 |
 | 22. Pod 6/7/8 Recovery + Remote Restart Reliability | 2/2 | Complete   | 2026-03-16 | - |
 | 23. Protocol Contract + Concurrency Safety | 2/2 | Complete    | 2026-03-16 | - |
-| 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 0/4 | Not started | - |
+| 24. Crash, Hang, Launch + USB Bot Patterns | 1/4 | In Progress|  | - |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | 0/? | Not started | - |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
 
@@ -153,7 +153,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 **Goal:** All 8 pods, server, and Bono's VPS join a Tailscale mesh network — installed as a Windows Service via WinRM, cloud_sync routes through Tailscale IP, and the server pushes telemetry/game state/pod health events to Bono in real time with a bidirectional command relay for PWA-triggered game launches
 **Requirements**: TBD
 **Depends on:** Phase 26
-**Plans:** 0 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 27 to break down)

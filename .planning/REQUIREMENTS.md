@@ -13,14 +13,14 @@
 
 ### Crash, Hang & Launch Bot
 
-- [ ] **CRASH-01**: Bot detects game freeze (UDP silent 30s + IsHungAppWindow) and kills/restarts game without staff intervention
-- [ ] **CRASH-02**: Bot detects launch timeout (game not running 90s after launch command) and kills Content Manager + retries launch
-- [ ] **CRASH-03**: Bot zeros FFB torque before any game kill in teardown sequence (safety ordering — FFB zero must precede game kill)
-- [ ] **UI-01**: Bot suppresses Windows error dialogs (WER, crash reporters) before any process kill — customer never sees system internals during recovery
+- [x] **CRASH-01**: Bot detects game freeze (UDP silent 30s + IsHungAppWindow) and kills/restarts game without staff intervention
+- [x] **CRASH-02**: Bot detects launch timeout (game not running 90s after launch command) and kills Content Manager + retries launch
+- [x] **CRASH-03**: Bot zeros FFB torque before any game kill in teardown sequence (safety ordering — FFB zero must precede game kill)
+- [x] **UI-01**: Bot suppresses Windows error dialogs (WER, crash reporters) before any process kill — customer never sees system internals during recovery
 
 ### USB Hardware Bot
 
-- [ ] **USB-01**: Bot polls for wheelbase USB reconnect (hidapi 5s scan, VID:0x1209 PID:0xFFB0) and restarts FFB controller when device re-appears
+- [x] **USB-01**: Bot polls for wheelbase USB reconnect (hidapi 5s scan, VID:0x1209 PID:0xFFB0) and restarts FFB controller when device re-appears
 
 ### Billing Guard
 
@@ -79,11 +79,11 @@
 | PROTO-01 | Phase 23 | Complete |
 | PROTO-02 | Phase 23 | Complete |
 | PROTO-03 | Phase 23 | Complete |
-| CRASH-01 | Phase 24 | Pending |
-| CRASH-02 | Phase 24 | Pending |
-| CRASH-03 | Phase 24 | Pending |
-| UI-01 | Phase 24 | Pending |
-| USB-01 | Phase 24 | Pending |
+| CRASH-01 | Phase 24 | Complete |
+| CRASH-02 | Phase 24 | Complete |
+| CRASH-03 | Phase 24 | Complete |
+| UI-01 | Phase 24 | Complete |
+| USB-01 | Phase 24 | Complete |
 | BILL-01 | Phase 25 | Pending |
 | BILL-02 | Phase 25 | Pending |
 | BILL-03 | Phase 25 | Pending |

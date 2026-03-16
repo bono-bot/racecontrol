@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
+stopped_at: Completed 24-01-PLAN.md — PodStateSnapshot Default derive + 3 fields, 10 RED test stubs for Wave 0 Nyquist compliance
+last_updated: "2026-03-16T11:14:27.976Z"
+last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
+progress:
+  total_phases: 5
+  completed_phases: 1
+  total_plans: 10
+  completed_plans: 3
+  percent: 84
+---
+
+---
+gsd_state_version: 1.0
+milestone: v5.0
+milestone_name: RC Bot Expansion
+status: ready_to_plan
 stopped_at: Completed 23-01-PLAN.md — PodFailureReason enum and 5 AgentMessage variants committed, full test suite green
 last_updated: "2026-03-16T10:37:59.437Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
-  total_phases: 4
+  [████████░░] 84%
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
@@ -73,6 +89,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 22-pod-6-7-8-recovery-and-remote-restart-reliability P02 | 95 | 1 tasks | 1 files |
 | Phase 23-protocol-contract-concurrency-safety P02 | 10 | 1 tasks | 1 files |
 | Phase 23-protocol-contract-concurrency-safety P01 | 15 | 2 tasks | 3 files |
+| Phase 24-crash-hang-launch-usb-bot-patterns P01 | 6 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -92,6 +109,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 23-protocol-contract-concurrency-safety]: is_pod_in_recovery() lives in racecontrol (not rc-common) — WatchdogState is server-local; RecoveryFailed returns false so bots may still attempt fixes after watchdog gives up
 - [Phase 23-protocol-contract-concurrency-safety]: PodFailureReason derives Copy not Hash — not needed as HashMap key in Phase 23, Hash deferred to Phase 24 if needed
 - [Phase 23-protocol-contract-concurrency-safety]: AgentMessage bot variants committed atomically with ws/mod.rs stub arms — adding variants to enum immediately breaks match exhaustiveness; both files must change together
+- [Phase 24-crash-hang-launch-usb-bot-patterns]: try_auto_fix dispatch arms added in Wave 0 so frozen-game/launch-timeout/usb-reconnect tests compile and fail at todo! boundary rather than returning None
+- [Phase 24-crash-hang-launch-usb-bot-patterns]: fix_frozen_game arm placed before generic relaunch+game arm — keyword specificity ensures game frozen dispatches to correct fix function
 
 ### Roadmap Evolution
 
@@ -113,6 +132,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T10:17:10.253Z
-Stopped at: Completed 23-01-PLAN.md — PodFailureReason enum and 5 AgentMessage variants committed, full test suite green
+Last session: 2026-03-16T11:14:27.974Z
+Stopped at: Completed 24-01-PLAN.md — PodStateSnapshot Default derive + 3 fields, 10 RED test stubs for Wave 0 Nyquist compliance
 Resume file: None
