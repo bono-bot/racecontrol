@@ -12,9 +12,7 @@ path = "./data/racecontrol.db"
 
 [cloud]
 enabled = true
-# Phase 27 TODO: switch api_url to Bono's Tailscale IP once tailnet is live
-# api_url = "http://100.BONO.IP.HERE/api/v1"   # Tailscale mesh (WireGuard-encrypted, no https needed)
-api_url = "https://app.racingpoint.cloud/api/v1"  # Keep public URL until Tailscale IPs confirmed
+api_url = "http://100.70.177.44/api/v1"  # Bono's VPS via Tailscale mesh (Phase 27)
 sync_interval_secs = 30
 terminal_secret = "rp-terminal-2026"
 terminal_pin = "261121"
@@ -70,11 +68,9 @@ contact = "+917981264279"
 # Set enabled = true after: (1) running scripts/deploy-tailscale.ps1, (2) confirming
 # Tailscale IPs from admin console, (3) updating webhook_url and tailscale_bind_ip below.
 [bono]
-enabled = false
-# Phase 27 TODO: fill in Bono's Tailscale IP after tailnet enrollment
-webhook_url = "http://100.BONO.IP.HERE/webhooks/racecontrol"
-# Phase 27 TODO: run `tailscale.exe ip -4` on server (192.168.31.23) and fill in here
-tailscale_bind_ip = "100.SERVER.IP.HERE"
+enabled = true
+webhook_url = "http://100.70.177.44/webhooks/racecontrol"  # Bono's VPS Tailscale IP
+tailscale_bind_ip = "100.122.218.14"  # Venue server Tailscale IP
 relay_port = 8099
 # Shared secret for X-Relay-Secret header — agreed with Bono out-of-band
 relay_secret = "85c650850520f0cabf8f99b0c3cecc3e"
