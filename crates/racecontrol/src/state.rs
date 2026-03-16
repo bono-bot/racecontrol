@@ -82,6 +82,9 @@ pub struct AppState {
     pub db: SqlitePool,
     pub pods: RwLock<HashMap<String, PodInfo>>,
     pub dashboard_tx: broadcast::Sender<DashboardEvent>,
+    /// Broadcast channel for emitting events to Bono's VPS relay.
+    /// Other modules send here; bono_relay::spawn() subscribes and pushes to webhook.
+    pub bono_event_tx: broadcast::Sender<crate::bono_relay::BonoEvent>,
     pub billing: BillingManager,
     pub game_launcher: GameManager,
     pub ac_server: AcServerManager,
@@ -139,6 +142,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config, db: SqlitePool) -> Self {
         let (dashboard_tx, _) = broadcast::channel(1024);
+        let (bono_event_tx, _) = broadcast::channel(256);
         // Extract email alert config before config is moved into the struct
         let email_recipient = config.watchdog.email_recipient.clone();
         let email_script_path = config.watchdog.email_script_path.clone();
@@ -148,6 +152,7 @@ impl AppState {
             db,
             pods: RwLock::new(HashMap::new()),
             dashboard_tx,
+            bono_event_tx,
             billing: BillingManager::new(),
             game_launcher: GameManager::new(),
             ac_server: AcServerManager::new(),
