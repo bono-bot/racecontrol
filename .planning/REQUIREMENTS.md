@@ -114,10 +114,10 @@
 
 ### Admin API (ADMIN)
 
-- [ ] **ADMIN-01**: Staff can GET all billing rates via `/billing/rates`
-- [ ] **ADMIN-02**: Staff can create a rate tier via POST `/billing/rates`
-- [ ] **ADMIN-03**: Staff can update a rate tier via PUT `/billing/rates/{id}` — cache invalidates immediately
-- [ ] **ADMIN-04**: Staff can delete a rate tier via DELETE `/billing/rates/{id}` — cache invalidates immediately
+- [x] **ADMIN-01**: Staff can GET all billing rates via `/billing/rates`
+- [x] **ADMIN-02**: Staff can create a rate tier via POST `/billing/rates`
+- [x] **ADMIN-03**: Staff can update a rate tier via PUT `/billing/rates/{id}` — cache invalidates immediately
+- [x] **ADMIN-04**: Staff can delete a rate tier via DELETE `/billing/rates/{id}` — cache invalidates immediately
 
 ### UI — Credits Display (UIC)
 
@@ -206,10 +206,10 @@
 | RATE-01 | Phase 33 | Complete |
 | RATE-02 | Phase 33 | Complete |
 | RATE-03 | Phase 33 | Complete |
-| ADMIN-01 | Phase 34 | Pending |
-| ADMIN-02 | Phase 34 | Pending |
-| ADMIN-03 | Phase 34 | Pending |
-| ADMIN-04 | Phase 34 | Pending |
+| ADMIN-01 | Phase 34 | Complete |
+| ADMIN-02 | Phase 34 | Complete |
+| ADMIN-03 | Phase 34 | Complete |
+| ADMIN-04 | Phase 34 | Complete |
 | UIC-01 | Phase 35 | Pending |
 | UIC-02 | Phase 35 | Pending |
 | UIC-03 | Phase 35 | Pending |

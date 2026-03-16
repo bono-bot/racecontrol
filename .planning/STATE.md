@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.5
 milestone_name: Billing Credits
 status: completed
-stopped_at: Completed 33-01-PLAN.md — billing_rates seed fix, test migrations + assertions, PROTOC-01 alias test, 331+113 tests GREEN
-last_updated: "2026-03-16T20:42:10.213Z"
+stopped_at: Completed 34-01-PLAN.md — HTTP 201/204 status code fixes + 4 billing rates integration tests, 335 tests GREEN
+last_updated: "2026-03-16T21:08:12.635Z"
 last_activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  completed_phases: 3
+  total_plans: 7
+  completed_plans: 7
   percent: 100
 ---
 
@@ -93,6 +93,8 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 - [Phase 14-events-and-championships]: public_event_sessions computes gap_to_leader_ms inline from multiplayer_results.best_lap_ms min — consistent with score_group_event
 - [Phase 33-db-schema-billing-engine]: billing_rates seed uses Title Case tier names (Standard/Extended/Marathon) matching default_billing_rate_tiers() — lowercase was a silent mismatch bug
 - [Phase 33-db-schema-billing-engine]: assert_eq!(3) used for billing_rates seed count (deterministic INSERT OR IGNORE) vs assert!(>= N) for non-deterministic tables
+- [Phase 34-admin-rates-api]: delete_billing_rate DB error arm returns 204 (not 500) — soft-deletes on SQLite rarely fail, tracing::error! logged, response stays 204
+- [Phase 34-admin-rates-api]: Axum pattern: POST handlers use (StatusCode, Json<Value>) tuple for 201; DELETE handlers with no body use bare StatusCode for 204
 
 ### Roadmap Evolution
 
@@ -111,7 +113,7 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 
 ## Session Continuity
 
-Last session: 2026-03-16T20:38:50.461Z
-Stopped at: Completed 33-01-PLAN.md — billing_rates seed fix, test migrations + assertions, PROTOC-01 alias test, 331+113 tests GREEN
+Last session: 2026-03-16T21:08:12.632Z
+Stopped at: Completed 34-01-PLAN.md — HTTP 201/204 status code fixes + 4 billing rates integration tests, 335 tests GREEN
 Resume file: None
 Next action: `/gsd:plan-phase 33`
