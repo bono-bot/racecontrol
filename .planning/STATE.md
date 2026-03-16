@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: "Completed 26-04-PLAN.md — TELEM-01 email alert + MULTI-01 safe teardown: all 7 Phase 26 requirements GREEN, human verify checkpoint approved, Phase 26 complete (4/4 plans)"
-last_updated: "2026-03-16T14:20:39.999Z"
+stopped_at: Completed 14-01-PLAN.md — 19 RED test stubs + 3 schema migrations, Phase 14 Wave 0 complete
+last_updated: "2026-03-16T19:18:55.666Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
@@ -124,6 +124,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 6 | 2 tasks | 3 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 20 | 2 tasks | 3 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 9 | 2 tasks | 3 files |
+| Phase 14-events-and-championships P14-01 | 6 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -185,6 +186,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: telem_gap_fired is task-local (not in FailureMonitorState) — transition detection requires task-private prev state, same rationale as launch_timeout_fired
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: MULTI-01 cascade uses group_session_members DB subquery — BillingTimer lacks group_session_id, DB is only resolution path
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: MULTI-01 cascade loop placed after triggering pod steps 1+2 — triggering pod torn down before group pods start cascade
+- [Phase 14-events-and-championships]: pod_id omitted in Phase 14 test laps inserts — pod context irrelevant for event/championship logic, nullable FK allows NULL
+- [Phase 14-events-and-championships]: 7 of 19 RED tests pass vacuously (negative cases: no entry expected) — canonical RED failure is test_auto_event_entry proving auto-entry logic is absent
 
 ### Roadmap Evolution
 
@@ -206,6 +209,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T14:06:34.094Z
-Stopped at: Completed 26-04-PLAN.md — TELEM-01 email alert + MULTI-01 safe teardown: all 7 Phase 26 requirements GREEN, human verify checkpoint approved, Phase 26 complete (4/4 plans)
+Last session: 2026-03-16T19:18:55.663Z
+Stopped at: Completed 14-01-PLAN.md — 19 RED test stubs + 3 schema migrations, Phase 14 Wave 0 complete
 Resume file: None
