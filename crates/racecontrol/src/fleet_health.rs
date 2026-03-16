@@ -30,6 +30,10 @@ pub struct FleetHealthStore {
     /// rc-agent binary version string from the most recent StartupReport.
     /// Cleared on disconnect.
     pub version: Option<String>,
+    /// Git commit hash of the running rc-agent binary.
+    /// Populated by the HTTP probe loop parsing :8090/health JSON.
+    /// None = probe hasn't succeeded yet or old binary without build_id.
+    pub build_id: Option<String>,
     /// Computed as `Utc::now() - uptime_secs` when StartupReport arrives.
     /// Used to compute live uptime_secs in the API response.
     /// Cleared on disconnect.
@@ -47,6 +51,9 @@ pub struct PodFleetStatus {
     pub ws_connected: bool,
     pub http_reachable: bool,
     pub version: Option<String>,
+    /// Git commit hash from the running rc-agent binary's /health endpoint.
+    /// null = old binary (pre-build-ID) or pod not yet probed.
+    pub build_id: Option<String>,
     /// Live uptime in seconds, computed from `agent_started_at`. None if no StartupReport yet.
     pub uptime_secs: Option<i64>,
     pub crash_recovery: Option<bool>,
@@ -82,6 +89,7 @@ pub fn store_startup_report(
 /// and remains valid until the next probe cycle.
 pub fn clear_on_disconnect(store: &mut FleetHealthStore) {
     store.version = None;
+    store.build_id = None;
     store.agent_started_at = None;
     store.crash_recovery = None;
 }
@@ -128,14 +136,22 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                     let url = format!("http://{}:8090/health", ip);
                     let pod_id = pod_id.clone();
                     async move {
-                        let reachable = client
+                        let result = client
                             .get(&url)
                             .timeout(Duration::from_secs(3))
                             .send()
-                            .await
-                            .map(|r| r.status().is_success())
-                            .unwrap_or(false);
-                        (pod_id, reachable)
+                            .await;
+                        let (reachable, build_id) = match result {
+                            Ok(r) if r.status().is_success() => {
+                                // Parse JSON to extract build_id.
+                                let build_id = r.json::<serde_json::Value>().await
+                                    .ok()
+                                    .and_then(|v| v.get("build_id")?.as_str().map(String::from));
+                                (true, build_id)
+                            }
+                            _ => (false, None),
+                        };
+                        (pod_id, reachable, build_id)
                     }
                 })
                 .collect();
@@ -145,10 +161,13 @@ pub fn start_probe_loop(state: Arc<AppState>) {
 
             // Write probe results into pod_fleet_health.
             let mut fleet = state.pod_fleet_health.write().await;
-            for (pod_id, reachable) in results {
+            for (pod_id, reachable, build_id) in results {
                 let store = fleet.entry(pod_id).or_default();
                 store.http_reachable = reachable;
                 store.last_http_check = Some(now);
+                if let Some(id) = build_id {
+                    store.build_id = Some(id);
+                }
             }
         }
     });
@@ -185,6 +204,7 @@ pub async fn fleet_health_handler(
                     ws_connected: false,
                     http_reachable: false,
                     version: None,
+                    build_id: None,
                     uptime_secs: None,
                     crash_recovery: None,
                     ip_address: None,
@@ -206,6 +226,7 @@ pub async fn fleet_health_handler(
 
                 let http_reachable = store.map(|s| s.http_reachable).unwrap_or(false);
                 let version = store.and_then(|s| s.version.clone());
+                let build_id = store.and_then(|s| s.build_id.clone());
                 let crash_recovery = store.and_then(|s| s.crash_recovery);
                 let last_http_check = store
                     .and_then(|s| s.last_http_check)
@@ -229,6 +250,7 @@ pub async fn fleet_health_handler(
                     ws_connected,
                     http_reachable,
                     version,
+                    build_id,
                     uptime_secs,
                     crash_recovery,
                     ip_address: Some(info.ip_address.clone()),

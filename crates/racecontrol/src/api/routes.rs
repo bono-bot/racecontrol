@@ -305,11 +305,14 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/staff/group-sessions/{id}/complete", post(complete_group_session))
 }
 
+const BUILD_ID: &str = env!("GIT_HASH");
+
 async fn health() -> Json<Value> {
     Json(json!({
         "status": "ok",
         "service": "racecontrol",
         "version": env!("CARGO_PKG_VERSION"),
+        "build_id": BUILD_ID,
     }))
 }
 
