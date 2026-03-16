@@ -47,6 +47,38 @@ pub enum PodStatus {
     Disabled,
 }
 
+/// Classification of pod failure causes — shared taxonomy for bot detection (Phase 24+)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PodFailureReason {
+    // Crash/hang class
+    GameFrozen,
+    ProcessHung,
+    // Game launch class
+    ContentManagerHang,
+    LaunchTimeout,
+    // USB/hardware class
+    WheelbaseDisconnected,
+    FfbFault,
+    // Billing class
+    SessionStuckWaitingForGame,
+    IdleBillingDrift,
+    CreditSyncFailed,
+    // Telemetry class
+    UdpDataMissing,
+    TelemetryInvalid,
+    // Multiplayer class
+    MultiplayerDesync,
+    MultiplayerServerDisconnect,
+    // PIN class
+    PinValidationFailed,
+    StaffUnlockNeeded,
+    // Lap class
+    LapCut,
+    LapInvalidSpeed,
+    LapSpin,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PodInfo {
     pub id: String,
@@ -1272,5 +1304,50 @@ mod tests {
         assert_eq!(info.car, None);
         assert_eq!(info.ai_count, None);
         assert_eq!(info.difficulty_tier, None);
+    }
+
+    // ── Phase 23 Plan 01: PodFailureReason serde tests ────────────────────
+
+    #[test]
+    fn test_pod_failure_reason_serde_roundtrip() {
+        // 1. Serde roundtrip: GameFrozen → json → back
+        let reason = PodFailureReason::GameFrozen;
+        let json = serde_json::to_string(&reason).unwrap();
+        assert!(json.contains("game_frozen"), "Expected 'game_frozen' in JSON, got: {}", json);
+        let parsed: PodFailureReason = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, PodFailureReason::GameFrozen);
+
+        // 2. All 9 failure class groups have at least one variant
+        // Crash/hang class
+        let _ = PodFailureReason::GameFrozen;
+        let _ = PodFailureReason::ProcessHung;
+        // Game launch class
+        let _ = PodFailureReason::ContentManagerHang;
+        let _ = PodFailureReason::LaunchTimeout;
+        // USB/hardware class
+        let _ = PodFailureReason::WheelbaseDisconnected;
+        let _ = PodFailureReason::FfbFault;
+        // Billing class
+        let _ = PodFailureReason::SessionStuckWaitingForGame;
+        let _ = PodFailureReason::IdleBillingDrift;
+        let _ = PodFailureReason::CreditSyncFailed;
+        // Telemetry class
+        let _ = PodFailureReason::UdpDataMissing;
+        let _ = PodFailureReason::TelemetryInvalid;
+        // Multiplayer class
+        let _ = PodFailureReason::MultiplayerDesync;
+        let _ = PodFailureReason::MultiplayerServerDisconnect;
+        // PIN class
+        let _ = PodFailureReason::PinValidationFailed;
+        let _ = PodFailureReason::StaffUnlockNeeded;
+        // Lap class
+        let _ = PodFailureReason::LapCut;
+        let _ = PodFailureReason::LapInvalidSpeed;
+        let _ = PodFailureReason::LapSpin;
+
+        // 3. Copy trait works — assign to variable twice without move error
+        let r = PodFailureReason::WheelbaseDisconnected;
+        let r2 = r; // Copy — no move
+        assert_eq!(r, r2);
     }
 }
