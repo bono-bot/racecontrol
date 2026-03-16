@@ -518,7 +518,12 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             tracing::info!("[bot] LapFlagged pod={} lap={} reason={:?}: {}", pod_id, lap_id, reason, detail);
                         }
                         AgentMessage::MultiplayerFailure { pod_id, reason, session_id } => {
-                            tracing::info!("[bot] MultiplayerFailure pod={} reason={:?} session={:?}", pod_id, reason, session_id);
+                            crate::bot_coordinator::handle_multiplayer_failure(
+                                &state,
+                                &pod_id,
+                                &reason,
+                                session_id.as_deref(),
+                            ).await;
                         }
                         AgentMessage::Disconnect { pod_id } => {
                             tracing::info!("Pod {} disconnected", pod_id);

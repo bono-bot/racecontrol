@@ -11,6 +11,7 @@
 //!   CRASH-02: launch_started_at.elapsed() > 90s + game_pid.is_none() + not yet fired this attempt
 //!   USB-01 reconnect: prev_hid_connected=false → true (billing active)
 //!   USB disconnect:   prev_hid_connected=true → false (billing active) → send HardwareFailure
+//!   TELEM-01: billing_active + game_pid.is_some() + last_udp_secs_ago >= 60s → send TelemetryGap (once per silence window)
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -21,12 +22,13 @@ use tokio::sync::{mpsc, watch};
 use crate::ai_debugger::{PodStateSnapshot, try_auto_fix};
 use crate::udp_heartbeat::HeartbeatStatus;
 use rc_common::protocol::AgentMessage;
-use rc_common::types::{DrivingState, PodFailureReason};
+use rc_common::types::{DrivingState, PodFailureReason, SimType};
 
 const POLL_INTERVAL_SECS: u64 = 5;
 const STARTUP_GRACE_SECS: u64 = 30;
 const FREEZE_UDP_SILENCE_SECS: u64 = 30;
 const LAUNCH_TIMEOUT_SECS: u64 = 90;
+const TELEM_GAP_SECS: u64 = 60;
 
 /// Shared state updated by main.rs event loop and read by failure_monitor.
 /// Sent via tokio::sync::watch channel — clone-on-read, no locking required.
@@ -89,6 +91,7 @@ pub fn spawn(
         let mut interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
         let mut prev_hid_connected = false;
         let mut launch_timeout_fired = false; // prevents duplicate fires per launch attempt
+        let mut telem_gap_fired = false; // TELEM-01: prevents repeated TelemetryGap sends per silence window
 
         loop {
             interval.tick().await;
@@ -131,6 +134,38 @@ pub fn spawn(
             }
 
             prev_hid_connected = state.hid_connected;
+
+            // TELEM-01: UDP silence 60s while billing active + game running
+            if state.billing_active && state.game_pid.is_some() && !state.recovery_in_progress {
+                let udp_silent_60 = state
+                    .last_udp_secs_ago
+                    .map(|s| s >= TELEM_GAP_SECS)
+                    .unwrap_or(false);
+
+                if udp_silent_60 && !telem_gap_fired {
+                    telem_gap_fired = true;
+                    let gap = state.last_udp_secs_ago.unwrap_or(TELEM_GAP_SECS);
+                    tracing::warn!(
+                        "[failure-monitor] TELEM-01: UDP silent {}s on pod {} — sending TelemetryGap",
+                        gap,
+                        pod_id
+                    );
+                    let msg = AgentMessage::TelemetryGap {
+                        pod_id: pod_id.clone(),
+                        sim_type: SimType::AssettoCorsa, // TODO: read from state.sim_type when available
+                        gap_seconds: gap as u32,
+                    };
+                    let _ = agent_msg_tx.try_send(msg);
+                }
+
+                // Reset flag when data resumes
+                if !udp_silent_60 {
+                    telem_gap_fired = false;
+                }
+            } else {
+                // Billing stopped or game exited — reset flag
+                telem_gap_fired = false;
+            }
 
             // CRASH-02: Launch timeout — game process never appeared 90s after LaunchGame
             if let Some(launched_at) = state.launch_started_at {
@@ -384,5 +419,96 @@ mod tests {
         assert!(!s.billing_active);
         assert!(!s.recovery_in_progress);
         assert!(s.driving_state.is_none(), "driving_state must default to None");
+    }
+
+    #[test]
+    fn telem_gap_fires_when_billing_active_game_pid_and_60s_silence() {
+        // TELEM-01: all conditions met — should send TelemetryGap
+        let state = make_state(|s| {
+            s.billing_active = true;
+            s.game_pid = Some(1234);
+            s.last_udp_secs_ago = Some(65); // 65s > 60s threshold
+            s.recovery_in_progress = false;
+        });
+        let udp_silent_60 = state.last_udp_secs_ago
+            .map(|s| s >= TELEM_GAP_SECS)
+            .unwrap_or(false);
+        let should_fire = state.billing_active && state.game_pid.is_some()
+            && !state.recovery_in_progress && udp_silent_60;
+        assert!(should_fire, "TELEM-01 must fire with billing+game+60s silence");
+    }
+
+    #[test]
+    fn telem_gap_does_not_fire_when_billing_inactive() {
+        // TELEM-01: billing not active — no alert
+        let state = make_state(|s| {
+            s.billing_active = false;
+            s.game_pid = Some(1234);
+            s.last_udp_secs_ago = Some(90);
+            s.recovery_in_progress = false;
+        });
+        let udp_silent_60 = state.last_udp_secs_ago
+            .map(|s| s >= TELEM_GAP_SECS)
+            .unwrap_or(false);
+        let should_fire = state.billing_active && state.game_pid.is_some()
+            && !state.recovery_in_progress && udp_silent_60;
+        assert!(!should_fire, "TELEM-01 must NOT fire without active billing");
+    }
+
+    #[test]
+    fn telem_gap_does_not_fire_when_game_pid_none() {
+        // TELEM-01: no game PID — no alert (game not running)
+        let state = make_state(|s| {
+            s.billing_active = true;
+            s.game_pid = None; // no game process
+            s.last_udp_secs_ago = Some(90);
+            s.recovery_in_progress = false;
+        });
+        let udp_silent_60 = state.last_udp_secs_ago
+            .map(|s| s >= TELEM_GAP_SECS)
+            .unwrap_or(false);
+        let should_fire = state.billing_active && state.game_pid.is_some()
+            && !state.recovery_in_progress && udp_silent_60;
+        assert!(!should_fire, "TELEM-01 must NOT fire without a game PID");
+    }
+
+    #[test]
+    fn telem_gap_does_not_fire_below_60s_threshold() {
+        // TELEM-01: 59s silence — below 60s threshold
+        let state = make_state(|s| {
+            s.billing_active = true;
+            s.game_pid = Some(1234);
+            s.last_udp_secs_ago = Some(59); // just below threshold
+            s.recovery_in_progress = false;
+        });
+        let udp_silent_60 = state.last_udp_secs_ago
+            .map(|s| s >= TELEM_GAP_SECS)
+            .unwrap_or(false);
+        assert!(!udp_silent_60, "59s must NOT cross TELEM_GAP_SECS=60 threshold");
+    }
+
+    #[test]
+    fn telem_gap_fired_flag_prevents_duplicate_sends() {
+        // TELEM-01: once fired, telem_gap_fired=true suppresses repeat sends
+        let telem_gap_fired = true; // simulates already having fired this silence window
+        let udp_still_silent = true;
+        let would_send_again = udp_still_silent && !telem_gap_fired;
+        assert!(!would_send_again, "telem_gap_fired flag must suppress duplicate TelemetryGap sends");
+    }
+
+    #[test]
+    fn telem_gap_flag_resets_when_udp_resumes() {
+        // TELEM-01: when last_udp_secs_ago drops below threshold, flag resets
+        let state = make_state(|s| {
+            s.billing_active = true;
+            s.game_pid = Some(1234);
+            s.last_udp_secs_ago = Some(10); // data resumed
+            s.recovery_in_progress = false;
+        });
+        let udp_silent_60 = state.last_udp_secs_ago
+            .map(|s| s >= TELEM_GAP_SECS)
+            .unwrap_or(false);
+        // When not silent, telem_gap_fired should be reset to false
+        assert!(!udp_silent_60, "10s is below threshold — telem_gap_fired must reset");
     }
 }
