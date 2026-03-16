@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: "Completed 26-04-PLAN.md — TELEM-01 email alert + MULTI-01 safe teardown: all 7 Phase 26 requirements GREEN, 3-crate suite passes, human verify checkpoint reached"
-last_updated: "2026-03-16T13:57:22.362Z"
+stopped_at: Completed 26-04-PLAN.md — MULTI-01 cascade loop added (group_session_members DB query), all 7 Phase 26 requirements GREEN, 310 racecontrol-crate tests pass, checkpoint reached
+last_updated: "2026-03-16T14:02:12.755Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
@@ -108,6 +108,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P02 | 12 | 2 tasks | 5 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 6 | 2 tasks | 3 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 20 | 2 tasks | 3 files |
+| Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 6 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -167,6 +168,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: TELEM-01 double guard: game_state==Running AND billing_active before email — neither alone is sufficient
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: MULTI-01 uses BlankScreen (not ClearLockScreen) for pod lock — blanks display immediately, FFB zero guaranteed by end_billing_session_public StopGame chain
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: telem_gap_fired is task-local (not in FailureMonitorState) — transition detection requires task-private prev state, same rationale as launch_timeout_fired
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: MULTI-01 cascade uses group_session_members DB subquery — BillingTimer lacks group_session_id, DB is only resolution path
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: MULTI-01 cascade loop placed after triggering pod steps 1+2 — triggering pod torn down before group pods start cascade
 
 ### Roadmap Evolution
 
@@ -188,6 +191,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T13:49:43.944Z
-Stopped at: Completed 26-04-PLAN.md — TELEM-01 email alert + MULTI-01 safe teardown: all 7 Phase 26 requirements GREEN, 3-crate suite passes, human verify checkpoint reached
+Last session: 2026-03-16T14:02:12.752Z
+Stopped at: Completed 26-04-PLAN.md — MULTI-01 cascade loop added (group_session_members DB query), all 7 Phase 26 requirements GREEN, 310 racecontrol-crate tests pass, checkpoint reached
 Resume file: None

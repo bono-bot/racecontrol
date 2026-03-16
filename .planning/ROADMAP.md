@@ -172,7 +172,7 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 23. Protocol Contract + Concurrency Safety | v5.0 | 2/2 | Complete | 2026-03-16 |
 | 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 4/4 | Complete | 2026-03-16 |
 | 25. Billing Guard + Server Bot Coordinator | v5.0 | Complete    | 2026-03-16 | 2026-03-16 |
-| 26. Lap Filter, PIN Security, Telemetry + Multiplayer | 4/4 | Complete    | 2026-03-16 | - |
+| 26. Lap Filter, PIN Security, Telemetry + Multiplayer | 4/4 | Complete   | 2026-03-16 | - |
 | 27. Tailscale Mesh + Internet Fallback | - | Complete    | 2026-03-16 | 2026-03-16 |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
