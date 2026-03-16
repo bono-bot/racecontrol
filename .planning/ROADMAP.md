@@ -124,7 +124,13 @@ Plans:
   3. Customer PIN failure attempts and staff PIN failure attempts are tracked in separate counters — exhausting customer PIN attempts does not lock out the staff PIN path
   4. When UDP telemetry is silent for more than 60 seconds during an active billing session (game state is Live), staff receive an email alert — no alert fires during menu navigation or idle state
   5. When an AC multiplayer server disconnect is detected mid-race, the bot triggers lock screen → end billing → log event in that order — the pod ends up in a clean idle state, not a stuck billing limbo
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 26-01-PLAN.md — Wave 0: RED test stubs for all 7 requirements (LAP-01, LAP-02, LAP-03, PIN-01, PIN-02, TELEM-01, MULTI-01)
+- [ ] 26-02-PLAN.md — Wave 1: LapData.session_type + catalog min_lap_time_ms + persist_lap review_required (LAP-01, LAP-02, LAP-03)
+- [ ] 26-03-PLAN.md — Wave 1 (parallel): customer_pin_failures + staff_pin_failures counters in AppState and validate_pin (PIN-01, PIN-02)
+- [ ] 26-04-PLAN.md — Wave 2: handle_telemetry_gap + handle_multiplayer_failure + failure_monitor TelemetryGap send + ws wiring (TELEM-01, MULTI-01)
 
 ## Progress
 
