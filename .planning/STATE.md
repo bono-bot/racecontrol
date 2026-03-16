@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: "Completed 26-02-PLAN.md — LAP-01/02/03 all GREEN: session_type in LapData, catalog min_lap_time_ms floors, review_required post-INSERT logic, 265 racecontrol tests pass"
-last_updated: "2026-03-16T13:38:26.503Z"
+stopped_at: Completed 26-04-PLAN.md — TELEM-01 email + MULTI-01 teardown operational; all 9 bot_coordinator tests GREEN; 14 failure_monitor tests GREEN; ws MultiplayerFailure arm wired
+last_updated: "2026-03-16T13:48:47.426Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 19
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 ---
@@ -106,6 +106,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P03 | 10 | 1 tasks | 2 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P02 | 9 | 2 tasks | 6 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P02 | 12 | 2 tasks | 5 files |
+| Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 6 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: session_type is non-optional on LapData — forces all construction sites to explicitly set it (no hidden defaults)
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: AC adapter hardcodes SessionType::Practice — AC shared memory has no session type field exposed
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: review_required is a post-INSERT UPDATE not a column flag — computed from catalog static data after lap is committed
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: BlankScreen used for MULTI-01 lock step (not ClearLockScreen) — blanks display immediately, FFB zero guaranteed by StopGame in end_billing_session_public
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: telem_gap_fired is task-local in failure_monitor (not in FailureMonitorState) — transition detection requires task-private prev state, same rationale as launch_timeout_fired
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: TELEM_GAP_SECS=60 hardcoded per TELEM-01 requirement — not configurable
 
 ### Roadmap Evolution
 
@@ -180,6 +184,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T13:38:26.500Z
-Stopped at: Completed 26-02-PLAN.md — LAP-01/02/03 all GREEN: session_type in LapData, catalog min_lap_time_ms floors, review_required post-INSERT logic, 265 racecontrol tests pass
+Last session: 2026-03-16T13:48:47.424Z
+Stopped at: Completed 26-04-PLAN.md — TELEM-01 email + MULTI-01 teardown operational; all 9 bot_coordinator tests GREEN; 14 failure_monitor tests GREEN; ws MultiplayerFailure arm wired
 Resume file: None
