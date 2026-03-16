@@ -165,8 +165,9 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 | 32. Synchronized Group Play | v4.5 | 2/2 | Complete | 2026-03-16 |
 | 23. Protocol Contract + Concurrency Safety | v5.0 | 2/2 | Complete | 2026-03-16 |
 | 24. Crash, Hang, Launch + USB Bot Patterns | v5.0 | 4/4 | Complete | 2026-03-16 |
-| 25. Billing Guard + Server Bot Coordinator | v5.0 | 4/4 | Complete | 2026-03-16 |
+| 25. Billing Guard + Server Bot Coordinator | v5.0 | Complete    | 2026-03-16 | 2026-03-16 |
 | 26. Lap Filter, PIN Security, Telemetry + Multiplayer | v5.0 | 0/? | Not started | - |
+| 27. Tailscale Mesh + Internet Fallback | - | 5/5 | Complete | 2026-03-16 |
 
 ### Phase 27: Tailscale Mesh + Internet Fallback
 
@@ -176,8 +177,8 @@ Note: Phase 23 (Protocol) is non-negotiable first — rc-common compiles before 
 **Plans:** 4/4 plans complete
 
 Plans:
-- [ ] 27-01-PLAN.md — Wave 1 (TDD): BonoConfig in config.rs + bono_relay.rs skeleton with 3 RED test stubs (TS-01, TS-02, TS-03, TS-04)
-- [ ] 27-02-PLAN.md — Wave 2: Full bono_relay.rs implementation — spawn loop, push_event, handle_command, build_relay_router; AppState bono_event_tx channel (TS-02, TS-03, TS-04)
-- [ ] 27-03-PLAN.md — Wave 3: main.rs wiring — bono_relay::spawn() + second Axum listener on Tailscale IP:8099 (TS-02, TS-03, TS-06)
-- [ ] 27-04-PLAN.md — Wave 2 (parallel): scripts/deploy-tailscale.ps1 — WinRM fleet deploy script, canary Pod 8 first (TS-DEPLOY)
-- [ ] 27-05-PLAN.md — Wave 4: racecontrol.toml [bono] section + build + deploy + human verify Pod 8 Tailscale IP + relay 401 auth (TS-05, TS-06, TS-DEPLOY)
+- [x] 27-01-PLAN.md — Wave 1 (TDD): BonoConfig in config.rs + bono_relay.rs skeleton with 3 RED test stubs (TS-01, TS-02, TS-03, TS-04)
+- [x] 27-02-PLAN.md — Wave 2: Full bono_relay.rs implementation — spawn loop, push_event, handle_command, build_relay_router; AppState bono_event_tx channel (TS-02, TS-03, TS-04)
+- [x] 27-03-PLAN.md — Wave 3: main.rs wiring — bono_relay::spawn() + second Axum listener on Tailscale IP:8099 (TS-02, TS-03, TS-06)
+- [x] 27-04-PLAN.md — Wave 2 (parallel): scripts/deploy-tailscale.ps1 — WinRM fleet deploy script, canary Pod 8 first (TS-DEPLOY)
+- [x] 27-05-PLAN.md — Wave 4: racecontrol.toml [bono] section + build + deploy + human verify Pod 8 Tailscale IP + relay 401 auth (TS-05, TS-06, TS-DEPLOY)
