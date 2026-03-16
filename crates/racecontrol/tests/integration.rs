@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use rc_common::types::{BillingSessionStatus, DrivingState};
+use racecontrol_crate::lap_tracker::{auto_enter_event, recalculate_event_positions};
 use sqlx::SqlitePool;
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
@@ -2525,8 +2526,9 @@ async fn test_auto_event_entry() {
          VALUES ('ae-lap-1', ?, 'assetto_corsa', 'monza', 'ks_ferrari_458_gt2', 1, 90000, 1, 'gt3', 0, datetime('now'))"
     ).bind(driver_id).execute(&pool).await.unwrap();
 
-    // Implementation (Plan 14-02) will call auto_enter_event() here.
-    // For now, assert expected post-state: an entry row should exist.
+    // Call auto_enter_event directly (mirrors what persist_lap calls after INSERT)
+    auto_enter_event(&pool, Some("ae-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None).await;
+
     let entry = sqlx::query_as::<_, (String, i64)>(
         "SELECT driver_id, lap_time_ms FROM hotlap_event_entries WHERE event_id = ?"
     ).bind(event_id).fetch_optional(&pool).await.unwrap();
@@ -2560,13 +2562,13 @@ async fn test_auto_entry_no_match() {
          VALUES ('nm-lap-1', ?, 'assetto_corsa', 'monza', 'ks_bmw_m3', 1, 90000, 1, 'gt4', 0, datetime('now'))"
     ).bind(driver_id).execute(&pool).await.unwrap();
 
-    // After Plan 14-02 auto_enter_event() — gt4 lap must NOT enter gt3 event
+    // gt4 class should not match gt3 event
+    auto_enter_event(&pool, Some("nm-lap-1"), driver_id, "monza", "gt4", "assetto_corsa", 90000, None, None, None).await;
+
     let count = sqlx::query_as::<_, (i64,)>(
         "SELECT COUNT(*) FROM hotlap_event_entries WHERE event_id = ?"
     ).bind(event_id).fetch_one(&pool).await.unwrap();
 
-    // This PASSES currently (no entry = correct for no-match case),
-    // but test_auto_event_entry RED shows the auto-entry logic is missing.
     assert_eq!(count.0, 0, "GT4 lap must not auto-enter GT3 event");
 }
 
@@ -2596,7 +2598,9 @@ async fn test_auto_entry_date_range() {
          VALUES ('dr-lap-1', ?, 'assetto_corsa', 'monza', 'ks_ferrari_458_gt2', 1, 90000, 1, 'gt3', 0, datetime('now'))"
     ).bind(driver_id).execute(&pool).await.unwrap();
 
-    // After Plan 14-02: expired event must not receive entry
+    // Expired event should not receive entry
+    auto_enter_event(&pool, Some("dr-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None).await;
+
     let count = sqlx::query_as::<_, (i64,)>(
         "SELECT COUNT(*) FROM hotlap_event_entries WHERE event_id = ?"
     ).bind(event_id).fetch_one(&pool).await.unwrap();
@@ -2635,7 +2639,9 @@ async fn test_auto_entry_faster_lap() {
          VALUES ('fl-lap-1', ?, 'assetto_corsa', 'monza', 'ks_ferrari_458_gt2', 2, 85000, 1, 'gt3', 0, datetime('now'))"
     ).bind(driver_id).execute(&pool).await.unwrap();
 
-    // After Plan 14-02: entry should be updated to 85000ms
+    // Faster lap should replace the existing 90000ms entry
+    auto_enter_event(&pool, Some("fl-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 85000, None, None, None).await;
+
     let lap_time = sqlx::query_as::<_, (i64,)>(
         "SELECT lap_time_ms FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
     ).bind(event_id).bind(driver_id).fetch_one(&pool).await.unwrap();
@@ -2674,7 +2680,9 @@ async fn test_auto_entry_no_replace_slower() {
          VALUES ('sl-lap-1', ?, 'assetto_corsa', 'monza', 'ks_ferrari_458_gt2', 2, 90000, 1, 'gt3', 0, datetime('now'))"
     ).bind(driver_id).execute(&pool).await.unwrap();
 
-    // After Plan 14-02: entry must remain at 85000ms (best time preserved)
+    // Slower lap should NOT replace the existing 85000ms best entry
+    auto_enter_event(&pool, Some("sl-lap-1"), driver_id, "monza", "gt3", "assetto_corsa", 90000, None, None, None).await;
+
     let lap_time = sqlx::query_as::<_, (i64,)>(
         "SELECT lap_time_ms FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
     ).bind(event_id).bind(driver_id).fetch_one(&pool).await.unwrap();
@@ -2715,8 +2723,10 @@ async fn test_107_percent_rule() {
          VALUES ('p107-entry-slow', ?, ?, 86000, 2, 1, 'finished')"
     ).bind(event_id).bind(slow_driver).execute(&pool).await.unwrap();
 
-    // After Plan 14-02/03 computes 107%: slow entry should have within_107_percent=0
-    // Integer math: lap_ms * 100 <= leader_ms * 107 => 86000*100=8600000 vs 80000*107=8560000 => outside
+    // Recalculate positions and 107% flags for all entries in the event
+    recalculate_event_positions(&pool, event_id).await;
+
+    // Integer math: 86000*100=8600000 vs 80000*107=8560000 => outside 107%
     let flag = sqlx::query_as::<_, (i64,)>(
         "SELECT within_107_percent FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
     ).bind(event_id).bind(slow_driver).fetch_one(&pool).await.unwrap();
@@ -2757,6 +2767,9 @@ async fn test_107_boundary() {
          VALUES ('p107b-entry-boundary', ?, ?, 85600, 2, 1, 'finished')"
     ).bind(event_id).bind(boundary_driver).execute(&pool).await.unwrap();
 
+    // Recalculate positions and 107% flags
+    recalculate_event_positions(&pool, event_id).await;
+
     // Integer math: 85600 * 100 = 8560000 <= 80000 * 107 = 8560000 => exactly on boundary = within
     let flag = sqlx::query_as::<_, (i64,)>(
         "SELECT within_107_percent FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2766,7 +2779,6 @@ async fn test_107_boundary() {
 }
 
 /// EVT-06 (#8): Gold badge — within 102% of reference_time_ms.
-/// FAILS: badge calculation not yet implemented.
 #[tokio::test]
 async fn test_badge_gold() {
     let pool = create_test_db().await;
@@ -2785,12 +2797,9 @@ async fn test_badge_gold() {
     ).bind(event_id).execute(&pool).await.unwrap();
 
     // 81500ms = 101.875% of 80000 => within gold threshold (<=102%)
-    sqlx::query(
-        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_time_ms, result_status)
-         VALUES ('badge-entry-gold', ?, ?, 81500, 'finished')"
-    ).bind(event_id).bind(driver_id).execute(&pool).await.unwrap();
+    // auto_enter_event computes badge at insert time from the event's reference_time_ms
+    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 81500, None, None, None).await;
 
-    // After Plan 14-02/03 calculates badge
     let badge = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT badge FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
     ).bind(event_id).bind(driver_id).fetch_one(&pool).await.unwrap();
@@ -2799,7 +2808,6 @@ async fn test_badge_gold() {
 }
 
 /// EVT-06 (#9): Silver badge — within 102-105% of reference_time_ms.
-/// FAILS: badge calculation not yet implemented.
 #[tokio::test]
 async fn test_badge_silver() {
     let pool = create_test_db().await;
@@ -2818,10 +2826,7 @@ async fn test_badge_silver() {
     ).bind(event_id).execute(&pool).await.unwrap();
 
     // 83500ms = 104.375% of 80000 => silver (>102% and <=105%)
-    sqlx::query(
-        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_time_ms, result_status)
-         VALUES ('badge-entry-silver', ?, ?, 83500, 'finished')"
-    ).bind(event_id).bind(driver_id).execute(&pool).await.unwrap();
+    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 83500, None, None, None).await;
 
     let badge = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT badge FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2831,7 +2836,6 @@ async fn test_badge_silver() {
 }
 
 /// EVT-06 (#10): Bronze badge — within 105-108% of reference_time_ms.
-/// FAILS: badge calculation not yet implemented.
 #[tokio::test]
 async fn test_badge_bronze() {
     let pool = create_test_db().await;
@@ -2850,10 +2854,7 @@ async fn test_badge_bronze() {
     ).bind(event_id).execute(&pool).await.unwrap();
 
     // 86000ms = 107.5% of 80000 => bronze (>105% and <=108%)
-    sqlx::query(
-        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_time_ms, result_status)
-         VALUES ('badge-entry-bronze', ?, ?, 86000, 'finished')"
-    ).bind(event_id).bind(driver_id).execute(&pool).await.unwrap();
+    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 86000, None, None, None).await;
 
     let badge = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT badge FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
@@ -2863,7 +2864,6 @@ async fn test_badge_bronze() {
 }
 
 /// EVT-06 (#11): No badge when reference_time_ms is NULL.
-/// FAILS: badge calculation not yet implemented (should set NULL, not a string).
 #[tokio::test]
 async fn test_badge_no_reference() {
     let pool = create_test_db().await;
@@ -2881,12 +2881,9 @@ async fn test_badge_no_reference() {
                  datetime('now', '-1 day'), datetime('now', '+1 day'))"
     ).bind(event_id).execute(&pool).await.unwrap();
 
-    sqlx::query(
-        "INSERT INTO hotlap_event_entries (id, event_id, driver_id, lap_time_ms, result_status)
-         VALUES ('badge-entry-noref', ?, ?, 81000, 'finished')"
-    ).bind(event_id).bind(driver_id).execute(&pool).await.unwrap();
+    // When event has no reference_time_ms, badge must be NULL (not "none")
+    auto_enter_event(&pool, None, driver_id, "monza", "gt3", "assetto_corsa", 81000, None, None, None).await;
 
-    // After Plan 14-02/03: badge must be NULL (not "none") when no reference time
     let badge = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT badge FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?"
     ).bind(event_id).bind(driver_id).fetch_one(&pool).await.unwrap();

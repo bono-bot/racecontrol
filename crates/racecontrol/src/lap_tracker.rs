@@ -284,7 +284,188 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .execute(&state.db)
     .await;
 
+    // Phase 14: Auto-enter into matching hotlap events
+    if suspect_flag == 0 {
+        if let Some(ref class) = car_class {
+            let sim_str = format!("{:?}", lap.sim_type).to_lowercase();
+            auto_enter_event(
+                &state.db,
+                Some(lap.id.as_str()),
+                &lap.driver_id,
+                &lap.track,
+                class,
+                &sim_str,
+                lap.lap_time_ms,
+                lap.sector1_ms,
+                lap.sector2_ms,
+                lap.sector3_ms,
+            )
+            .await;
+        }
+    }
+
     is_record
+}
+
+/// Auto-enter a valid lap into matching active hotlap events.
+/// Called from persist_lap() after lap INSERT, only if valid && suspect==0.
+/// Made pub so integration tests can call it directly with a pool.
+pub async fn auto_enter_event(
+    pool: &sqlx::SqlitePool,
+    lap_id: Option<&str>,
+    driver_id: &str,
+    track: &str,
+    car_class: &str,
+    sim_type_str: &str,
+    lap_time_ms: u32,
+    sector1_ms: Option<u32>,
+    sector2_ms: Option<u32>,
+    sector3_ms: Option<u32>,
+) {
+    // Query matching active/upcoming events for this track+car_class+sim_type in the current date range
+    let events = sqlx::query_as::<_, (String, Option<i64>)>(
+        "SELECT id, reference_time_ms FROM hotlap_events
+         WHERE track = ? AND car_class = ? AND sim_type = ?
+           AND status IN ('active', 'upcoming')
+           AND (starts_at IS NULL OR datetime(starts_at) <= datetime('now'))
+           AND (ends_at IS NULL OR datetime(ends_at) >= datetime('now'))",
+    )
+    .bind(track)
+    .bind(car_class)
+    .bind(sim_type_str)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    for (event_id, reference_time_ms) in events {
+        // Check if driver already has a faster or equal entry for this event
+        let existing: Option<(i64,)> = sqlx::query_as(
+            "SELECT lap_time_ms FROM hotlap_event_entries WHERE event_id = ? AND driver_id = ?",
+        )
+        .bind(&event_id)
+        .bind(driver_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+
+        if let Some((existing_ms,)) = existing {
+            if existing_ms <= lap_time_ms as i64 {
+                // Existing entry is faster or equal -- skip
+                continue;
+            }
+        }
+
+        // Compute badge from reference_time_ms
+        let badge: Option<&str> = match reference_time_ms {
+            None => None,
+            Some(ref_ms) => {
+                let ratio = lap_time_ms as f64 / ref_ms as f64;
+                if ratio <= 1.02 {
+                    Some("gold")
+                } else if ratio <= 1.05 {
+                    Some("silver")
+                } else if ratio <= 1.08 {
+                    Some("bronze")
+                } else {
+                    Some("none")
+                }
+            }
+        };
+
+        // Generate a new UUID for the entry
+        let entry_id = uuid::Uuid::new_v4().to_string();
+
+        // UPSERT the entry (ON CONFLICT updates if this lap is faster)
+        let upsert_result = sqlx::query(
+            "INSERT INTO hotlap_event_entries
+                (id, event_id, driver_id, lap_id, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, badge, result_status, entered_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'finished', datetime('now'))
+             ON CONFLICT(event_id, driver_id) DO UPDATE SET
+                lap_id = excluded.lap_id,
+                lap_time_ms = excluded.lap_time_ms,
+                sector1_ms = excluded.sector1_ms,
+                sector2_ms = excluded.sector2_ms,
+                sector3_ms = excluded.sector3_ms,
+                badge = excluded.badge,
+                result_status = 'finished',
+                entered_at = excluded.entered_at",
+        )
+        .bind(&entry_id)
+        .bind(&event_id)
+        .bind(driver_id)
+        .bind(lap_id)
+        .bind(lap_time_ms as i64)
+        .bind(sector1_ms.map(|v| v as i64))
+        .bind(sector2_ms.map(|v| v as i64))
+        .bind(sector3_ms.map(|v| v as i64))
+        .bind(badge)
+        .execute(pool)
+        .await;
+
+        match upsert_result {
+            Ok(_) => {
+                tracing::info!(
+                    "[events] Driver {} entered event {} with {}ms (badge: {:?})",
+                    driver_id, event_id, lap_time_ms, badge
+                );
+                // Recalculate positions and gaps for all entries in this event
+                recalculate_event_positions(pool, &event_id).await;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "[events] Failed to upsert event entry for driver {} event {}: {}",
+                    driver_id, event_id, e
+                );
+            }
+        }
+    }
+}
+
+/// Recalculate position, gap_to_leader_ms, and within_107_percent for all entries in an event.
+/// Uses a two-step approach since SQLite UPDATE doesn't support window functions directly.
+/// Made pub so integration tests can call it directly.
+pub async fn recalculate_event_positions(pool: &sqlx::SqlitePool, event_id: &str) {
+    // Step 1: Fetch all finished entries ordered by lap time (fastest first)
+    let entries: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT id, lap_time_ms FROM hotlap_event_entries
+         WHERE event_id = ? AND result_status = 'finished'
+         ORDER BY lap_time_ms ASC",
+    )
+    .bind(event_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if entries.is_empty() {
+        return;
+    }
+
+    let leader_ms = entries[0].1;
+
+    // Step 2: Update each entry's position, gap, and 107% flag
+    for (position, (entry_id, lap_ms)) in entries.iter().enumerate() {
+        let pos = (position + 1) as i64;
+        let gap = lap_ms - leader_ms;
+        // Integer math: lap_ms * 100 <= leader_ms * 107
+        let within_107: i64 = if lap_ms * 100 <= leader_ms * 107 { 1 } else { 0 };
+
+        let _ = sqlx::query(
+            "UPDATE hotlap_event_entries
+             SET position = ?, gap_to_leader_ms = ?, within_107_percent = ?
+             WHERE id = ?",
+        )
+        .bind(pos)
+        .bind(gap)
+        .bind(within_107)
+        .bind(entry_id)
+        .execute(pool)
+        .await;
+    }
+
+    tracing::debug!(
+        "[events] Recalculated positions for event {} ({} entries, leader: {}ms)",
+        event_id, entries.len(), leader_ms
+    );
 }
 
 /// Fetch the current track record holder's best time, name, and email for a given track+car.
