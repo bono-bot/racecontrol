@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: RC Bot Expansion
 status: ready_to_plan
-stopped_at: Completed 26-04-PLAN.md — TELEM-01 email + MULTI-01 teardown operational; all 9 bot_coordinator tests GREEN; 14 failure_monitor tests GREEN; ws MultiplayerFailure arm wired
-last_updated: "2026-03-16T13:48:47.426Z"
+stopped_at: "Completed 26-04-PLAN.md — TELEM-01 email alert + MULTI-01 safe teardown: all 7 Phase 26 requirements GREEN, 3-crate suite passes, human verify checkpoint reached"
+last_updated: "2026-03-16T13:49:43.947Z"
 last_activity: 2026-03-16 — v5.0 roadmap written (Phases 23-26, 19 requirements, 100% coverage)
 progress:
   total_phases: 5
@@ -107,6 +107,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P02 | 9 | 2 tasks | 6 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P02 | 12 | 2 tasks | 5 files |
 | Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 6 | 2 tasks | 3 files |
+| Phase 26-lap-filter-pin-security-telemetry-multiplayer P04 | 20 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: BlankScreen used for MULTI-01 lock step (not ClearLockScreen) — blanks display immediately, FFB zero guaranteed by StopGame in end_billing_session_public
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: telem_gap_fired is task-local in failure_monitor (not in FailureMonitorState) — transition detection requires task-private prev state, same rationale as launch_timeout_fired
 - [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: TELEM_GAP_SECS=60 hardcoded per TELEM-01 requirement — not configurable
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: TELEM-01 double guard: game_state==Running AND billing_active before email — neither alone is sufficient
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: MULTI-01 uses BlankScreen (not ClearLockScreen) for pod lock — blanks display immediately, FFB zero guaranteed by end_billing_session_public StopGame chain
+- [Phase 26-lap-filter-pin-security-telemetry-multiplayer]: telem_gap_fired is task-local (not in FailureMonitorState) — transition detection requires task-private prev state, same rationale as launch_timeout_fired
 
 ### Roadmap Evolution
 
@@ -184,6 +188,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-16T13:48:47.424Z
-Stopped at: Completed 26-04-PLAN.md — TELEM-01 email + MULTI-01 teardown operational; all 9 bot_coordinator tests GREEN; 14 failure_monitor tests GREEN; ws MultiplayerFailure arm wired
+Last session: 2026-03-16T13:49:43.944Z
+Stopped at: Completed 26-04-PLAN.md — TELEM-01 email alert + MULTI-01 safe teardown: all 7 Phase 26 requirements GREEN, 3-crate suite passes, human verify checkpoint reached
 Resume file: None
