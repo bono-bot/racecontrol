@@ -131,7 +131,50 @@
 - [x] **PROTOC-01**: `minutes_to_value_tier` renamed to `minutes_to_next_tier` in rc-common protocol.rs with `#[serde(alias)]` backward compat
 - [x] **PROTOC-02**: `tier_name` field added to BillingTick as `Option<String>` (previously `&'static str`)
 
-## v6.0 Requirements (Deferred)
+## v6.0 Requirements — Salt Fleet Management
+
+**Defined:** 2026-03-17
+**Core Value:** Fleet management via SaltStack replaces custom pod-agent/remote_ops — standard tooling, no custom HTTP endpoints, one command manages all pods.
+
+### Infrastructure (INFRA)
+
+- [ ] **INFRA-01**: WSL2 Ubuntu 24.04 with mirrored networking mode configured on James (.27), reachable from pods at 192.168.31.27
+- [ ] **INFRA-02**: salt-master 3008 LTS installed in WSL2, listening on TCP 4505/4506
+- [ ] **INFRA-03**: Both firewall layers opened — Windows Defender + Hyper-V firewall for inbound 4505/4506 on James's machine
+- [ ] **INFRA-04**: salt-api (rest_cherrypy) running in WSL2 with token auth, accessible from racecontrol server (.23)
+- [ ] **INFRA-05**: WSL2 + salt-master + salt-api auto-start on James's machine boot via Windows Task Scheduler
+
+### Minion Bootstrap (MINION)
+
+- [ ] **MINION-01**: Salt minion 3008 LTS silently installed on Pod 8 (canary) with minion ID `pod8` pointing to master 192.168.31.27
+- [ ] **MINION-02**: `salt 'pod8' test.ping` returns True from James's WSL2 terminal
+- [ ] **MINION-03**: install.bat rewritten — Defender exclusions + rc-agent binary + salt-minion MSI bootstrap only (all pod-agent portions removed)
+- [ ] **MINION-04**: Windows `sc failure` recovery configured for salt-minion service on every pod
+- [ ] **MINION-05**: Salt minion installed on all 8 pods + server (.23), all keys accepted, `salt '*' test.ping` all True
+
+### Rust Integration (SALT)
+
+- [ ] **SALT-01**: `salt_exec.rs` module in racecontrol crate wrapping salt-api REST calls (cmd.run, cp.get_file, service management) via existing reqwest
+- [ ] **SALT-02**: `deploy.rs` migrated from pod-agent HTTP to salt_exec for binary distribution and service restart
+- [ ] **SALT-03**: `fleet_health.rs` migrated from pod-agent health checks to Salt test.ping / grains
+- [ ] **SALT-04**: `pod_monitor.rs` migrated from pod-agent status checks to salt_exec
+- [ ] **SALT-05**: `pod_healer.rs` migrated from pod-agent exec to salt_exec for healing commands
+
+### Code Removal (PURGE)
+
+- [ ] **PURGE-01**: `remote_ops.rs` deleted from rc-agent, port 8090 HTTP listener removed
+- [ ] **PURGE-02**: All pod-agent references removed from Rust source (firewall.rs 8090 rules, constants, imports)
+- [ ] **PURGE-03**: Pod-agent references removed from deploy scripts, training data, and operational docs
+- [ ] **PURGE-04**: Port 8090 firewall rules removed from install.bat and pod netsh configs
+- [ ] **PURGE-05**: rc-agent compiles and all existing tests pass without remote_ops module
+
+### Fleet Rollout (FLEET)
+
+- [ ] **FLEET-01**: Pod 8 canary — rc-agent without remote_ops deployed, billing lifecycle verified end-to-end
+- [ ] **FLEET-02**: All 8 pods running rc-agent without remote_ops, Salt connectivity verified
+- [ ] **FLEET-03**: Deploy workflow fully migrated — staff can deploy new rc-agent.exe to any pod via Salt from James's machine
+
+## Future Requirements (Deferred)
 
 ### Advanced Bot Intelligence
 
@@ -143,6 +186,12 @@
 - **CRASH-D1**: Multi-crash threshold detection — 3 crashes in 30 min triggers "unhealthy pod" alert, suppresses auto-restart
 - **USB-D1**: USB hub power-cycle via Windows DevCon API when reconnect polling fails 3 times
 - **BILL-D1**: Auto-refund partial credit when bot terminates session due to hardware failure (with staff approval gate)
+
+### Salt Advanced (Deferred)
+
+- **SALT-D1**: Salt state files for idempotent pod configuration enforcement (Defender exclusions, power settings, registry)
+- **SALT-D2**: Custom Salt grains for pod metadata (pod number, MAC, wheelbase model, game installs)
+- **SALT-D3**: Salt beacon for proactive monitoring (disk space, process health)
 
 ## Out of Scope
 
@@ -227,4 +276,4 @@
 
 ---
 *Requirements defined: 2026-03-16*
-*Last updated: 2026-03-17 — v5.5 Billing Credits phases assigned (Phase 33: 9 reqs, Phase 34: 4 reqs, Phase 35: 5 reqs)*
+*Last updated: 2026-03-17 — v6.0 Salt Fleet Management requirements added (20 reqs: 5 INFRA, 5 MINION, 5 SALT, 5 PURGE, 3 FLEET)*
