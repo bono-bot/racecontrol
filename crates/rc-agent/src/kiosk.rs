@@ -123,8 +123,23 @@ const ALLOWED_PROCESSES: &[&str] = &[
     // Audio
     "realtek audio console.exe",
 
-    // Networking
+    // Networking & remote access
     "networkmanager.exe",
+    "tailscaled.exe",              // Tailscale mesh VPN (Phase 27)
+    "tailscale-ipn.exe",           // Tailscale GUI
+    "ipconfig.exe",                // Used by Tailscale internally
+    "netstat.exe",                 // Used by self-monitor
+
+    // Installer
+    "rc-installer.exe",            // Pod installer (Rust)
+
+    // Audio services (Realtek — respawns endlessly if killed)
+    "rtkauduservice64.exe",
+
+    // Windows services that respawn if killed
+    "gamingservices.exe",
+    "gamingservicesnet.exe",
+    "shellhost.exe",
 ];
 
 /// Kiosk mode manager.
@@ -205,19 +220,28 @@ impl KioskManager {
         self.debug_mode
     }
 
-    /// Scan running processes and kill any not on the allow list.
-    /// Call this periodically (e.g., every 5 seconds).
-    pub fn enforce_process_whitelist(&self) {
-        if !self.active.load(Ordering::SeqCst) {
-            return;
-        }
-
-        let allowed_set: HashSet<String> = ALLOWED_PROCESSES
+    /// Build the full allowed process set (static + dynamic extras).
+    /// Used by `enforce_process_whitelist_blocking` to run on a blocking thread.
+    pub fn allowed_set_snapshot(&self) -> HashSet<String> {
+        ALLOWED_PROCESSES
             .iter()
             .map(|s| s.to_lowercase())
             .chain(self.allowed_extra.iter().cloned())
-            .collect();
+            .collect()
+    }
 
+    /// Check if kiosk enforcement should run (active and not in debug mode).
+    pub fn should_enforce(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
+
+    /// Scan running processes and kill any not on the allow list.
+    /// Call this periodically (e.g., every 5 seconds).
+    ///
+    /// WARNING: This calls `sysinfo::refresh_processes()` which blocks for 100-300ms
+    /// on Windows. Always call from `tokio::task::spawn_blocking`, never from the
+    /// async event loop directly.
+    pub fn enforce_process_whitelist_blocking(allowed_set: HashSet<String>) {
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 

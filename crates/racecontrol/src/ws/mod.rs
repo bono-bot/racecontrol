@@ -353,7 +353,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             log_pod_activity(&state, pod_id, "auth", "PIN Entered", "", "agent");
                             auth::handle_pin_entered(&state, pod_id.clone(), pin.clone()).await;
                         }
-                        AgentMessage::Pong { id } => {
+                        AgentMessage::Pong { id, agent_delay_us } => {
                             // Application-level round-trip measurement response
                             let mut guard = pending_ping.lock().await;
                             if let Some((pending_id, sent_at)) = guard.take() {
@@ -362,9 +362,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     let fallback_label = format!("conn_{}", conn_id);
                                     let label = registered_pod_id.as_deref().unwrap_or(&fallback_label);
                                     if elapsed_ms > 200 {
+                                        let agent_info = match agent_delay_us {
+                                            Some(us) => format!(", agent_process={}us", us),
+                                            None => String::new(),
+                                        };
                                         tracing::warn!(
-                                            "WS round-trip slow: {} took {}ms (threshold 200ms)",
-                                            label, elapsed_ms
+                                            "WS round-trip slow: {} took {}ms (threshold 200ms{})",
+                                            label, elapsed_ms, agent_info
                                         );
                                     } else {
                                         tracing::debug!(

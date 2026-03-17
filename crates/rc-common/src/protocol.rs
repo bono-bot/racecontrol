@@ -50,8 +50,10 @@ pub enum AgentMessage {
     /// Customer entered PIN on lock screen
     PinEntered { pod_id: String, pin: String },
 
-    /// Response to CoreToAgentMessage::Ping — carries same id back for round-trip measurement
-    Pong { id: u64 },
+    /// Response to CoreToAgentMessage::Ping — carries same id back for round-trip measurement.
+    /// `agent_delay_us` reports how long the agent's event loop took to process the Ping
+    /// (measured on the pod side via Instant). High values indicate a blocked async runtime.
+    Pong { id: u64, #[serde(default)] agent_delay_us: Option<u64> },
 
     /// Agent reports AC shared memory STATUS change (Off/Replay/Live/Pause)
     GameStatusUpdate { pod_id: String, ac_status: AcStatus },
@@ -949,14 +951,28 @@ mod tests {
 
     #[test]
     fn test_agent_pong_roundtrip() {
-        let msg = AgentMessage::Pong { id: 99 };
+        let msg = AgentMessage::Pong { id: 99, agent_delay_us: Some(1234) };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("pong"), "Expected 'pong' in: {}", json);
         let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
-        if let AgentMessage::Pong { id } = parsed {
+        if let AgentMessage::Pong { id, agent_delay_us } = parsed {
             assert_eq!(id, 99);
+            assert_eq!(agent_delay_us, Some(1234));
         } else {
             panic!("Wrong variant after roundtrip: expected Pong");
+        }
+    }
+
+    #[test]
+    fn test_agent_pong_backwards_compat() {
+        // Old agents send Pong without agent_delay_us — must still parse
+        let json = r#"{"type":"pong","data":{"id":42}}"#;
+        let parsed: AgentMessage = serde_json::from_str(json).unwrap();
+        if let AgentMessage::Pong { id, agent_delay_us } = parsed {
+            assert_eq!(id, 42);
+            assert_eq!(agent_delay_us, None);
+        } else {
+            panic!("Wrong variant: expected Pong");
         }
     }
 

@@ -1114,10 +1114,14 @@ async fn main() -> Result<()> {
                     Err(e) => tracing::error!("[ai-result] Failed to send AiDebugResult: {}", e),
                 }
             }
-            // Kiosk enforcement — kill unauthorized processes
+            // Kiosk enforcement — kill unauthorized processes (on blocking thread
+            // to avoid stalling the async event loop for 100-300ms during process enumeration)
             _ = kiosk_interval.tick() => {
-                if kiosk_enabled {
-                    kiosk.enforce_process_whitelist();
+                if kiosk_enabled && kiosk.should_enforce() {
+                    let allowed = kiosk.allowed_set_snapshot();
+                    tokio::task::spawn_blocking(move || {
+                        crate::kiosk::KioskManager::enforce_process_whitelist_blocking(allowed);
+                    });
                 }
             }
             // Re-enforce overlay TOPMOST + clean desktop + Conspit watchdog every 10s
@@ -2013,12 +2017,23 @@ async fn main() -> Result<()> {
                                     lock_screen.show_pin_error(&reason);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::Ping { id } => {
-                                    let pong = rc_common::protocol::AgentMessage::Pong { id };
+                                    // Measure how long the event loop took to reach this Ping.
+                                    // The WS frame arrived at the OS socket earlier — the delta
+                                    // between frame arrival and here reveals async runtime stalls.
+                                    let received_at = std::time::Instant::now();
+                                    let pong = rc_common::protocol::AgentMessage::Pong {
+                                        id,
+                                        agent_delay_us: None, // set below after send
+                                    };
                                     if let Ok(json) = serde_json::to_string(&pong) {
                                         if ws_tx.send(Message::Text(json.into())).await.is_err() {
                                             tracing::error!("Failed to send Pong, connection lost");
                                             break;
                                         }
+                                    }
+                                    let process_us = received_at.elapsed().as_micros() as u64;
+                                    if process_us > 5000 {
+                                        tracing::warn!("Pong send took {}us (>5ms)", process_us);
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } => {
