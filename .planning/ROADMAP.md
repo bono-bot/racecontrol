@@ -89,7 +89,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `salt-call --local test.ping` inside WSL2 Ubuntu returns True — salt-master process is running and responding
   3. A curl request to `http://192.168.31.27:8000/login` from the racecontrol server (.23) returns a 200 with a token — salt-api is reachable from the server subnet
   4. After a full reboot of James's machine, salt-master and salt-api are running within 60 seconds without manual intervention — Windows Task Scheduler autostart is working
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 36-01-PLAN.md — WSL2 mirrored networking + salt-master 3008 install + Hyper-V firewall rule (INFRA-01, INFRA-02, INFRA-03)
