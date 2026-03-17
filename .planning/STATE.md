@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: ready_to_plan
-stopped_at: Phase 36 planned — 2 plans, 2 waves, verification passed
-last_updated: "2026-03-17T06:32:25.239Z"
+stopped_at: Phase 36 Plan 01 — blocked at Task 1 (BIOS AMD-V disabled, WSL2 cannot install)
+last_updated: "2026-03-17T06:38:38.239Z"
 last_activity: 2026-03-17 — v6.0 roadmap created, Phases 36–40
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
+  completed_plans: 1
 ---
 
 ---
@@ -72,6 +72,7 @@ Progress: [░░░░░░░░░░] 0%
 - Minion IDs must be explicit (id: pod1–pod8, server) — never auto-generated from OEM hostname
 - Salt cannot launch GUI applications (Session 0 isolation) — WebSocket channel unchanged for game launch, billing, lock screen
 - salt_exec.rs uses existing reqwest client — no new Cargo dependencies
+- [Phase 36-wsl2-infrastructure]: BIOS AMD-V (SVM Mode) must be enabled before WSL2 can install on Ryzen 7 5800X — VirtualizationFirmwareEnabled=False confirmed
 
 ### Pending Todos
 
@@ -83,10 +84,11 @@ Progress: [░░░░░░░░░░] 0%
 
 - Phase 36 gate: if mirrored networking + Hyper-V firewall cannot be verified from Pod 8 (Test-NetConnection port 4505), all downstream phases are blocked — no Rust code should be written until this gate passes
 - Phase 39 gate: remote_ops.rs AppState field inventory must be done before characterization test scope is known — read remote_ops.rs in full and grep AppState mutations before starting 39-01-PLAN.md
+- BIOS AMD-V disabled on Ryzen 7 5800X — WSL2 cannot install. Enable SVM Mode in BIOS. .wslconfig already created and ready.
 
 ## Session Continuity
 
-Last session: 2026-03-17T06:32:25.237Z
-Stopped at: Phase 36 planned — 2 plans, 2 waves, verification passed
-Resume file: .planning/phases/36-wsl2-infrastructure/36-01-PLAN.md
+Last session: 2026-03-17T06:38:38.236Z
+Stopped at: Phase 36 Plan 01 — blocked at Task 1 (BIOS AMD-V disabled, WSL2 cannot install)
+Resume file: None
 Next action: `/gsd:plan-phase 36`
