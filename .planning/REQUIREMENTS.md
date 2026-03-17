@@ -246,7 +246,6 @@
 | PIN-02 | Phase 26 | Complete |
 | TELEM-01 | Phase 26 | Complete |
 | MULTI-01 | Phase 26 | Complete |
-
 | BILLC-01 | Phase 35 | Complete |
 | BILLC-02 | Phase 33 | Complete |
 | BILLC-03 | Phase 33 | Complete |
@@ -265,6 +264,29 @@
 | UIC-04 | Phase 35 | Complete |
 | PROTOC-01 | Phase 33 | Complete |
 | PROTOC-02 | Phase 33 | Complete |
+| INFRA-01 | Phase 36 | Pending |
+| INFRA-02 | Phase 36 | Pending |
+| INFRA-03 | Phase 36 | Pending |
+| INFRA-04 | Phase 36 | Pending |
+| INFRA-05 | Phase 36 | Pending |
+| MINION-01 | Phase 37 | Pending |
+| MINION-02 | Phase 37 | Pending |
+| MINION-03 | Phase 37 | Pending |
+| MINION-04 | Phase 37 | Pending |
+| MINION-05 | Phase 40 | Pending |
+| SALT-01 | Phase 38 | Pending |
+| SALT-02 | Phase 38 | Pending |
+| SALT-03 | Phase 38 | Pending |
+| SALT-04 | Phase 38 | Pending |
+| SALT-05 | Phase 38 | Pending |
+| PURGE-01 | Phase 39 | Pending |
+| PURGE-02 | Phase 39 | Pending |
+| PURGE-03 | Phase 39 | Pending |
+| PURGE-04 | Phase 39 | Pending |
+| PURGE-05 | Phase 39 | Pending |
+| FLEET-01 | Phase 39 | Pending |
+| FLEET-02 | Phase 40 | Pending |
+| FLEET-03 | Phase 40 | Pending |
 
 **Coverage:**
 - v5.0 requirements: 19 total
@@ -273,7 +295,10 @@
 - v5.5 requirements: 18 total
 - Mapped to phases: 18
 - Unmapped: 0
+- v6.0 requirements: 20 total
+- Mapped to phases: 20
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-16*
-*Last updated: 2026-03-17 — v6.0 Salt Fleet Management requirements added (20 reqs: 5 INFRA, 5 MINION, 5 SALT, 5 PURGE, 3 FLEET)*
+*Last updated: 2026-03-17 — v6.0 traceability added (20 reqs mapped: INFRA→36, MINION-01–04→37, MINION-05→40, SALT→38, PURGE+FLEET-01→39, FLEET-02/03→40)*
