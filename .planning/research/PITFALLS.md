@@ -1,261 +1,291 @@
 # Pitfalls Research
 
-**Domain:** Sim racing venue management — expanding a deterministic auto-fix bot (RC Bot Expansion v5.0)
-**Researched:** 2026-03-16
-**Confidence:** HIGH (derived from direct codebase reading: ai_debugger.rs, billing.rs, pod_healer.rs, CONCERNS.md, PROJECT.md, plus observed production bugs documented in MEMORY.md)
+**Domain:** Adding SaltStack fleet management to existing Windows pod fleet with WSL2 master (RaceControl v6.0)
+**Researched:** 2026-03-17
+**Confidence:** HIGH (WSL2 networking from official Microsoft docs; Salt service/Windows issues from official Salt docs + verified GitHub issues; cp.get_file silent failure from Salt mailing list + GitHub; path separator from Salt issue tracker)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Fix Pattern Fires During Active Billing Session Without a Guard
+### Pitfall 1: WSL2 NAT Architecture Makes Salt Ports Unreachable from LAN
 
 **What goes wrong:**
-A new bot pattern (e.g., "kill stale game process", "USB reset", "WebSocket reconnect force") fires while a customer is mid-session. The fix interrupts the game or clears state that the billing timer depends on. The session ends prematurely but the customer was already charged, or the billing timer loses its reference and continues ticking against a dead session.
+Salt master runs in WSL2 (Ubuntu) on James's machine (.27). By default WSL2 uses NAT networking — the WSL instance gets a private IP in the 172.30.x.x range, invisible to the rest of the venue LAN. Pods on 192.168.31.x cannot reach 4505/4506 on the WSL instance at all. Salt minions on pods silently fail to connect, logging "No master could be reached" indefinitely. `salt-key -L` on the master shows zero pending keys. Nothing indicates a network problem — it just looks like the minions are not installed.
 
 **Why it happens:**
-New fix patterns are wired into `try_auto_fix()` or `heal_pod()` via keyword matching against AI suggestion text. `PodStateSnapshot.billing_active` exists but there is no enforcement that callers check it before executing. The `fix_kill_stale_game()` implementation today does not consult `snapshot.billing_active`. Pattern memory replay (`DebugMemory::instant_fix()`) bypasses any call-site guards entirely.
+WSL2 implements networking via a Hyper-V virtual switch with NAT, meaning the WSL instance IP is only routable from the Windows host itself, not from other LAN hosts. This is documented by Microsoft: "This isn't the default case in WSL 2. WSL 2 has a virtualized ethernet adapter with its own unique IP address." Port 4505/4506 on the WSL instance are not exposed to the LAN unless explicitly forwarded or mirrored networking is used.
 
 **How to avoid:**
-Every new fix function that can terminate a process, reset a device, or close a socket MUST gate on `!snapshot.billing_active` before executing. The guard must be inside the fix function itself, not only at the call site — because pattern memory replay returns a suggestion string and calls `try_auto_fix()` directly. Add a required test for every new fix: assert that `billing_active: true` causes the fix to return `None` (no-op).
+Use mirrored networking mode (Windows 11 22H2+ required — James's machine qualifies). Add to `C:\Users\bono\.wslconfig`:
+```
+[wsl2]
+networkingMode=mirrored
+```
+Then in elevated PowerShell, open the Hyper-V firewall (separate from Windows Defender Firewall):
+```powershell
+Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow
+```
+Restart WSL after applying. In mirrored mode, WSL shares Windows's LAN IP (.27), so pods connect to 192.168.31.27:4505 and 192.168.31.27:4506. The WSL IP no longer changes on reboot. Verify before deploying any minion: `Test-NetConnection 192.168.31.27 -Port 4505` from Pod 8 must return `TcpTestSucceeded: True`.
 
 **Warning signs:**
-- New fix function added to `try_auto_fix()` without a matching test with `billing_active: true`.
-- Pattern memory test covers round-trip but not context gate.
-- Fix function signature does not receive `&PodStateSnapshot` (cannot inspect billing state).
+- `salt 'pod*' test.ping` returns empty output with no timeout errors
+- `salt-key -L` shows no pending keys even after minion install on a pod
+- `Test-NetConnection 192.168.31.27 -Port 4505` from a pod returns `TcpTestSucceeded: False`
+- `wsl hostname -I` shows 172.30.x.x instead of 192.168.31.27
 
-**Phase to address:**
-Every phase that adds a new bot pattern. Billing active guard must be in the acceptance criteria for each fix.
+**Phase to address:** Phase 1 (WSL2 Salt master setup) — must be verified before deploying any minion. This is the single most likely blocker.
 
 ---
 
-### Pitfall 2: Pattern Memory Replays a Fix That Was Safe in One Context but Dangerous in Another
+### Pitfall 2: Hyper-V Firewall Silently Blocks Inbound to WSL2 Even After Mirrored Mode Enabled
 
 **What goes wrong:**
-`DebugMemory::instant_fix()` keys on `"{SimType}:{exit_code}"` only. It ignores billing state at the time of recording. A fix recorded between sessions (billing_active: false, safe to kill game) replays instantly during an active session (billing_active: true, dangerous to kill game). The replay happens before any billing guard logic because `analyze_crash()` returns early with the cached suggestion and `try_auto_fix()` is called with the replayed text.
+Even after enabling mirrored networking, Windows 11 22H2+ with WSL 2.0.9+ activates a Hyper-V firewall layer by default with `DefaultInboundAction: Block`. This firewall is separate from Windows Defender Firewall and blocks inbound connections from the LAN to the WSL instance even when mirrored mode is active and the Windows host firewall allows it. Salt minions on pods cannot reach 4505/4506. The failure looks identical to Pitfall 1, making diagnosis confusing.
 
 **Why it happens:**
-`pattern_key()` strips all context except simulator type and exit code. This was correct when the fix set was small and all safe. As the fix set expands to include destructive operations (game kill, USB reset, session end), context must become part of the key.
+Microsoft added Hyper-V Firewall as a security layer in WSL 2.0.9. It operates independently of the Windows host firewall. The default inbound policy is Block. The `netsh advfirewall` rules on the Windows host do not affect this layer — it requires separate `Set-NetFirewallHyperVVMSetting` or `New-NetFirewallHyperVRule` commands.
 
 **How to avoid:**
-Extend `pattern_key` to encode billing context: `"{SimType}:{exit_code}:billing={true/false}"`. This splits the memory pool so fixes recorded during idle never replay during active sessions. Alternatively, store `billing_active_when_recorded: bool` in `DebugIncident` and skip replay when the current context does not match.
+Run after enabling mirrored mode (combined with Pitfall 1 fix):
+```powershell
+# Simple: allow all inbound to WSL on a private closed LAN
+Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow
+
+# Alternative: narrow rules for Salt ports only
+New-NetFirewallHyperVRule -Name "Salt-4505" -DisplayName "Salt Publisher" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 4505
+New-NetFirewallHyperVRule -Name "Salt-4506" -DisplayName "Salt Request" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 4506
+```
+Also ensure the Windows host firewall allows inbound on 4505/4506:
+```
+netsh advfirewall firewall add rule name="Salt Master" dir=in action=allow protocol=TCP localport=4505-4506
+```
 
 **Warning signs:**
-- `DebugIncident` struct has no billing context field.
-- Test `test_record_and_instant_fix_round_trip` does not assert that a fix recorded with `billing_active: false` is suppressed when replayed with `billing_active: true`.
-- `debug-memory.json` contains `fix_type: kill_stale_game` entries with no billing context stored.
+- `Test-NetConnection 192.168.31.27 -Port 4505` from a pod **times out** (not "connection refused" — times out, indicating firewall drop not port closed)
+- `ss -tlnp | grep 45` inside WSL shows LISTEN on 0.0.0.0:4505 and 0.0.0.0:4506 (master bound correctly)
+- The failure persists even after verifying mirrored mode is active
 
-**Phase to address:**
-Phase adding new fix patterns to pattern memory. Must update `DebugIncident` schema before adding any destructive fix type.
+**Phase to address:** Phase 1 (WSL2 Salt master setup) — add Hyper-V firewall rule as part of the documented setup sequence, not as an afterthought.
 
 ---
 
-### Pitfall 3: Billing Timer Orphans After Auto-Fix Kills the Game
+### Pitfall 3: WSL2 IP Changes on Reboot Breaks Any NAT Portproxy Fallback
 
 **What goes wrong:**
-Bot kills the game process (`fix_kill_stale_game`). The game normally sends `AcStatus::Off` via UDP/WebSocket to `handle_game_status_update()`, which calls `end_billing_session()`. But if the WebSocket is also degraded (which is why the crash happened), `AcStatus::Off` is delayed or dropped. The billing timer in `BillingManager::active_timers` keeps ticking via its background loop. The customer is charged for time after the game was already killed by the bot.
+If mirrored mode is unavailable or fails to activate (e.g., Hyper-V not enabled, older Windows build), the fallback is `netsh interface portproxy` to forward 4505/4506 from the Windows host NIC to the WSL NAT IP. The portproxy rule's `connectaddress` is a static IP captured at rule-creation time. After any WSL restart or Windows reboot, WSL gets a new NAT IP. The portproxy silently routes connections to the old dead IP. Pods report connection refused or timeout with no indication the rule is stale.
 
 **Why it happens:**
-`billing.rs` `BillingTimer::tick()` runs in a background task independent of game state. It has no awareness that the game was killed by an automated fix vs. a user-initiated quit. There is no "BotKill" session end path that explicitly calls `end_billing_session()` before the kill.
+WSL2 generates a new IP for the Hyper-V virtual adapter on each start. This is a known Microsoft limitation with NAT mode. There is no built-in mechanism to update portproxy rules when WSL's IP changes.
 
 **How to avoid:**
-Any fix that kills a game process must: (1) check if there is an active billing timer for this pod via `state.billing.active_timers`, (2) if yes, call `end_billing_session()` with an explicit reason before killing the process — do not rely on `AcStatus::Off` propagation as the end signal when the kill was initiated by the bot.
+Use mirrored mode (Pitfall 1) to eliminate this problem entirely. If portproxy must be used as a fallback, write a PowerShell script that: (1) queries `(wsl hostname -I).Trim()` for the current WSL IP, (2) deletes old portproxy rules with `netsh interface portproxy delete v4tov4 listenport=4505`, (3) adds fresh rules with the new IP. Schedule this script to run at logon via Task Scheduler. Never document a static WSL IP anywhere in configs.
 
 **Warning signs:**
-- `fix_kill_stale_game()` does not call any billing end function.
-- The billing end is expected to come from `handle_game_status_update(AcStatus::Off)` which depends on game process emitting an exit event — unreliable in a crash scenario.
-- No test verifies: "if billing is active and game kill fix fires, billing session is ended atomically."
+- Salt worked after setup but fails after the first reboot
+- `netsh interface portproxy show all` shows a `connectaddress` that does not match `wsl hostname -I`
+- Issue resolves temporarily after manually re-running the portproxy command with the current WSL IP
 
-**Phase to address:**
-Phase implementing crash/hang detection and game kill fixes.
+**Phase to address:** Phase 1 (WSL2 Salt master setup) — document mirrored mode as the required path; portproxy is a fallback with documented maintenance overhead.
 
 ---
 
-### Pitfall 4: USB Reset Causes Windows to Re-Enumerate the Wheelbase at a Different Device Path
+### Pitfall 4: Windows Defender Quarantines Salt Minion Binary or Python Runtime After Install
 
 **What goes wrong:**
-The bot detects a disconnected wheelbase (OpenFFBoard VID:0x1209 PID:0xFFB0) and issues a USB reset. Windows re-enumerates the device but the new device instance path includes a serial suffix that may differ from before. ConspitLink2.0 (which holds the wheelbase handle) silently reconnects to the stale handle and reports "connected" while FFB is actually dead. The fix is marked `success: true` but the customer is driving with no force feedback.
+The salt-minion installer ships with a bundled Python runtime and ZeroMQ binaries that Windows Defender heuristics flag as suspicious (packed executables, Python interpreters running as services). Defender silently quarantines files asynchronously after the installer exits. The installer returns exit code 0 (success), but the salt-minion service starts and then immediately stops. The deploy script sees install success, moves on, and the pod is never actually managed by Salt.
 
 **Why it happens:**
-Windows HID enumeration is not stable across device resets. Device instance paths include enumeration-order or serial-number suffixes that can shift when a USB port is reset. There is no API guarantee that the new path matches the old path after reset.
+Real-time protection scans newly written executables after they land on disk. Salt's bundled Python and ZeroMQ binaries match heuristic patterns for obfuscated executables. The quarantine happens 5-15 seconds after install, after the installer has already reported success. The RC project already handles this for `C:\RacingPoint\` — Salt's install path is separate and not covered by the existing exclusions.
 
 **How to avoid:**
-After any USB reset action, re-enumerate HID devices fresh using VID/PID filter and confirm the wheelbase responds to FFB commands before marking the fix successful. Treat the fix as "pending verification" until a follow-up enumeration confirms. Never mark `success: true` immediately on `DeviceIoControl` returning `Ok`.
+Add Defender exclusions before running the salt-minion installer. Extend install.bat with:
+```bat
+powershell -Command "Add-MpPreference -ExclusionPath 'C:\Program Files\Salt Project\Salt'"
+powershell -Command "Add-MpPreference -ExclusionPath 'C:\ProgramData\Salt Project\Salt'"
+powershell -Command "Add-MpPreference -ExclusionProcess 'salt-minion.exe'"
+```
+Run these before the silent installer command. After install, wait 15 seconds then check: `sc query salt-minion` must show STATE: RUNNING. Do not accept install success based on installer exit code alone.
 
 **Warning signs:**
-- USB fix returns `AutoFixResult { success: true }` without a re-enumeration step.
-- `wheelbase_connected: true` in `PodStateSnapshot` after a USB reset but ConspitLink telemetry shows zero FFB output.
-- No post-reset verification logic exists in the fix function.
+- `sc query salt-minion` shows `STATE: STOPPED` 15-30 seconds after install despite installer returning 0
+- Windows Security event log shows "threat quarantined" entries timestamped near install time
+- `Get-MpThreatDetection | Where ThreatName -match salt` lists salt files
 
-**Phase to address:**
-Phase implementing USB hardware self-healing.
+**Phase to address:** Phase 2 (salt-minion bootstrap in install.bat) — exclusions must precede the installer command.
 
 ---
 
-### Pitfall 5: WerFault Kill Fires During a Legitimate AC Save Dialog
+### Pitfall 5: Salt Minion Service Cannot Restart Itself on Windows (Stops But Does Not Start)
 
 **What goes wrong:**
-New bot pattern kills `WerFault.exe` whenever a crash keyword appears in the AI suggestion. In some AC scenarios (end of race, replay save), Windows briefly presents a dialog that the pattern incorrectly identifies as a crash dialog. The bot kills it, corrupting the AC replay save state. Customer's best lap is not recorded because the replay could not be saved.
+Running `salt pod1 service.restart salt-minion` stops the service but never starts it again. The pod becomes unreachable via Salt until someone physically restarts the service on-site. This is a critical operational problem: any Salt state that tries to restart the minion (e.g., after config change) permanently loses the pod until manual intervention. This has been a confirmed bug since at least 2014, with a fresh report as recently as 2024 (issue #65577).
 
 **Why it happens:**
-`fix_kill_error_dialogs()` issues `taskkill /IM WerFault.exe /F` unconditionally. WerFault is the Windows Error Reporting process, but it can appear briefly for non-crash dialogs. The fix has no verification that the dialog is an actual crash report vs. a save or exit prompt. The existing implementation does not check `billing_active` or `driving_state`.
+When salt-minion receives a restart command, it calls the Windows Service Control Manager to stop itself. Once stopped, there is no process left to call SCM to start again. On Linux, systemd handles this outside the process. On Windows, Salt implements a scheduled task workaround — but this only works when the function detects the `salt-minion` service name specifically, and breaks if `schtasks.exe` is not accessible in the session running the command.
 
 **How to avoid:**
-Before killing WerFault, verify: (a) the parent process PID is one of the known game executables (`acs.exe`, `F1_25.exe`), AND (b) the game process is non-responsive (check via `WaitForSingleObject` with zero timeout or check if the game has produced telemetry recently). Only kill WerFault if both conditions hold. When `billing_active: true AND driving_state: Active`, add extra confirmation delay.
+Configure Windows Service Recovery settings for salt-minion during minion install so SCM automatically restarts it on crash or stop:
+```bat
+sc failure salt-minion reset= 60 actions= restart/5000/restart/10000/restart/30000
+```
+This tells SCM to restart salt-minion 5s after first failure, 10s after second, 30s after third, resetting the count after 60s of clean uptime. This means if the service stops for any reason (including a failed restart attempt), SCM handles the restart — not Salt. Verify with `sc qfailure salt-minion` on each pod after install. Note: the MSI installer may overwrite service properties — check after every reinstall.
 
 **Warning signs:**
-- `fix_kill_error_dialogs()` does not consult `snapshot.billing_active` or `snapshot.driving_state`.
-- Existing test `test_auto_fix_error_dialogs` uses `billing_active: false, driving_state: None` — no coverage of mid-drive state.
+- `salt pod1 service.restart salt-minion` returns success but subsequent `salt pod1 test.ping` times out
+- `sc query salt-minion` on the pod shows `STATE: STOPPED` with no automatic recovery
+- `sc qfailure salt-minion` shows no failure actions configured
 
-**Phase to address:**
-Phase implementing crash/hang detection. Add driving-state guard to the WerFault kill.
+**Phase to address:** Phase 2 (salt-minion bootstrap in install.bat) — add `sc failure` immediately after silent minion install.
 
 ---
 
-### Pitfall 6: Telemetry Gap Bot Spams False Alerts When Pods Are Between Sessions
+### Pitfall 6: Minion Key Pending = Zero Feedback (Looks Like Network Failure)
 
 **What goes wrong:**
-The telemetry gap bot watches UDP ports (9996 AC, 20777 F1) and alerts when no data arrives for N seconds. Between sessions the pod is on the lock screen — no game is running, no telemetry is expected. The bot alerts "telemetry dropped on Pod 3" during off-peak hours. Staff get flooded with false alerts, learn to ignore them, and miss a real telemetry failure during a session.
+After salt-minion installs and starts on a pod, `salt pod1 test.ping` returns absolutely nothing — no error, no timeout message, just an empty prompt return. New deployers spend 30-60 minutes debugging firewall rules, WSL networking, and service status when the actual fix is one command: `salt-key -A`. The minion is connected and waiting but cannot receive or respond to commands until its public key is accepted on the master.
 
 **Why it happens:**
-A telemetry monitoring task spawned independently of the billing system has no visibility into whether a session is currently active. `billing_active` is only in `PodStateSnapshot` (agent-side) but a server-side monitoring task must query `AppState.billing.active_timers` to know whether telemetry silence is expected.
+Salt's security model requires explicit key acceptance. The minion sends its public key on first connection, entering a "pending" queue. The master routes zero commands to pending minions. Crucially, there is no error message when a command is sent to a minion with an unaccepted key — the command simply disappears silently.
 
 **How to avoid:**
-The telemetry gap check must consult `state.billing.active_timers` before alerting. If no active timer exists for the pod, telemetry silence is expected — suppress the alert. Only alert when `billing_active: true AND elapsed_seconds > threshold AND no UDP data received for N seconds`.
+For a closed venue LAN, add `auto_accept: True` to `/etc/salt/master` on the WSL2 instance. This accepts all new keys automatically. Acceptable risk for a private LAN with no guest or external access on the same subnet — document the decision. Alternatively, use preseed keys: pre-generate keypairs on the master with `salt-key --gen-keys=pod1`, copy `pod1.pub` to `/etc/salt/pki/master/minions/pod1`, and ship `pod1.pem`/`pod1.pub` to the pod's minion config directory before starting the service. The minion connects with a pre-accepted key and is immediately addressable. Build key acceptance verification into the deploy workflow: `salt-key -L` check after every pod deploy before testing.
 
 **Warning signs:**
-- Telemetry monitoring task spawned in `main.rs` without a reference to `billing.active_timers`.
-- Alert log shows telemetry warnings at times when `billing_sessions` table has no active sessions.
-- No test for "no alert when pod has no active timer."
+- `salt 'pod*' test.ping` returns empty output despite minion service running on the pod
+- `salt-key -L` shows pod names under "Unaccepted Keys" (not "Accepted Keys")
+- `salt-key -L` shows no keys at all (minion has not connected yet — different problem: networking)
 
-**Phase to address:**
-Phase implementing telemetry gap detection.
+**Phase to address:** Phase 1 (Salt master config) for auto_accept decision; Phase 2 (minion bootstrap) for preseed key deployment.
 
 ---
 
-### Pitfall 7: Cloud Sync Overwrites Billing Write During Auto-Fix Window
+### Pitfall 7: Removing remote_ops.rs Without Auditing Shared AppState Initialization
 
 **What goes wrong:**
-Bot triggers session end early (`EndedEarly`). `end_billing_session()` debits the wallet and writes the session record. Within the next 30-second cloud sync window, `cloud_sync.rs` pulls wallet data from cloud where the wallet balance is still at the pre-session value (stale). The `upsert_wallet` CRDT merge uses `MAX(updated_at)`. If the cloud record has a newer `updated_at` (clock skew of even 1 second), the cloud's stale balance wins — effectively reversing the deduction. The customer was charged locally but the cloud wallet now shows the full pre-session credit.
+`remote_ops.rs` hosts the port 8090 HTTP listener, but it may also initialize fields in `AppState` or spawn background tasks that other modules depend on. Deleting the module compiles cleanly in Rust — the compiler only catches type errors, not "initialized in deleted module, used in surviving module" patterns. The rc-agent binary starts on pods, the WebSocket connection to racecontrol establishes, but billing signals or game state updates silently fail because a shared Arc or channel was only initialized in the remote_ops startup path.
 
 **Why it happens:**
-CONCERNS.md documents this as P1: "Wallet sync CRDT merge untested. updated_at can be clock-skewed between cloud and venue." Bot-triggered `EndedEarly` makes this worse because it happens asynchronously and unpredictably within the 30-second sync window. The billing write and the cloud sync poll race.
+Rust's module system does not track runtime initialization dependencies. A `Arc<Mutex<RemoteOpsState>>` stored in AppState compiles fine even if the only code that populates it is removed. The bug surfaces as a runtime panic (unwrap on None) or deadlock at the first point where the surviving code tries to read or write the now-empty field.
 
 **How to avoid:**
-After any bot-triggered session end, ensure the wallet write timestamp is guaranteed to beat the cloud record. One approach: write `updated_at = MAX(current_cloud_updated_at + 1s, Utc::now())` — requires knowing the cloud timestamp. Safer: add a "venue authoritative" flag or a minimum hold-off before the next cloud pull after a billing write. Long-term: migrate wallet sync from balance snapshots to transaction logs (additive, not overwriting).
+Before deleting remote_ops.rs: run `grep -r "remote_ops\|RemoteOps\|port.*8090\|8090.*port" crates/` to find all references. Audit every `AppState` field that remote_ops.rs writes at startup. For each field: confirm another module initializes it, or move initialization to `main.rs`. Write characterization tests that exercise the WebSocket path (game state, billing start/stop, lock screen) without remote_ops running — make these tests pass before deletion. After deletion: deploy to Pod 8 only first, run a full billing lifecycle manually, confirm no panics in rc-agent logs before rolling to all 8 pods.
 
 **Warning signs:**
-- After a bot-triggered EndedEarly, compare wallet balance on cloud vs. `billing_sessions` table — mismatch indicates a sync race was lost.
-- Cloud sync interval is 30s; bot fixes can occur at any point in that window with no fence.
-- `end_billing_session()` does not set any "hold off cloud sync" flag.
+- `cargo build` succeeds after deletion but rc-agent panics at startup on Pod 8 with `called Option::unwrap() on None` or thread panic in the AppState initialization phase
+- Billing sessions start but never complete (WS disconnect not detected, session hangs)
+- Lock screen does not appear on session end (game status update path broken)
+- rc-agent logs show no errors but racecontrol dashboard shows pod as OFFLINE
 
-**Phase to address:**
-Phase implementing billing edge case recovery. Must address wallet write fence before shipping bot-triggered session end.
+**Phase to address:** Phase 3 (remove remote_ops.rs) — write characterization tests before deleting anything. Canary deploy to Pod 8, verify billing lifecycle, then roll to fleet.
 
 ---
 
-### Pitfall 8: Multiple Bot Tasks Race to Fix the Same Pod Simultaneously
+### Pitfall 8: Slimmed install.bat Accidentally Removes Firewall Rules rc-agent Needs
 
 **What goes wrong:**
-`pod_healer.rs` runs on its own interval. `pod_monitor.rs` runs independently. New crash bot tasks run on their own intervals. All three see the same degraded pod state simultaneously. `pod_healer` flags the pod for restart; `pod_monitor` triggers the restart; the crash bot kills the game. Three concurrent modifications result in: game killed by crash bot, rc-agent restarted by pod_monitor, healer tries to execute a heal action on an rc-agent that just restarted and whose port 8090 is temporarily unreachable. The pod ends up in a worse state than before, requiring staff intervention.
+The current install.bat includes `netsh advfirewall` commands for rc-agent's ports. When slimming install.bat to only "Defender exclusions + rc-agent binary + salt-minion bootstrap," the developer removes the netsh commands thinking "Salt handles firewall" or "rc-agent's Rust code handles it at startup." The pods deploy cleanly, salt-minion connects, but racecontrol cannot establish WebSocket connections to rc-agent — the entire pod control plane is dead. Billing, game launch, and lock screen all fail.
 
 **Why it happens:**
-`pod_healer.rs` already has partial coordination with `pod_monitor.rs` via `pod_watchdog_states` — it skips pods in recovery cycles (lines 151-176). But new bot tasks added to the system are not automatically wired into this coordination. CONCERNS.md identifies pod state race conditions as P1. Adding more concurrent tasks multiplies the risk.
+Salt only opens firewall rules on the master machine (4505/4506 inbound to master). Salt minion deployment does not open any firewall rules on the minion machine for other services. rc-agent's own firewall auto-configuration (FW-01 through FW-03) runs at startup — but it requires the rc-agent process to have already started with appropriate privileges. If a fresh pod install runs install.bat without the netsh lines and rc-agent starts without those privileges, the firewall rules are never set.
 
 **How to avoid:**
-All new bot tasks MUST check `pod_watchdog_states` and `pod_deploy_states` before acting — the same pattern used in `heal_pod()`. Extract this check into a shared `is_pod_in_recovery(state, pod_id) -> bool` utility in `AppState` and require all bot tasks to call it. Make this a code review requirement for every new fix task.
+Keep the netsh firewall commands explicitly for rc-agent's ports in the slimmed install.bat. The slimmed script should contain in this order: (1) Defender exclusions for `C:\RacingPoint\` and Salt paths, (2) `mkdir C:\RacingPoint` if it does not exist, (3) rc-agent binary copy, (4) HKLM Run key for `start-rcagent.bat`, (5) Salt minion silent install, (6) `sc failure salt-minion` recovery config, (7) explicit `netsh advfirewall` rules for rc-agent's ports, (8) verification step (both services running, port reachable). Do not remove any netsh rule without first confirming rc-agent's Rust startup code sets that exact rule.
 
 **Warning signs:**
-- A new bot fix function calls `execute_on_pod()` or sends a WebSocket command without first calling `is_pod_in_recovery()`.
-- Two fix actions appear in the activity log for the same pod within a 5-second window from different subsystems.
-- New bot task is spawned in `main.rs` without consulting `pod_watchdog_states`.
+- Pod deploys cleanly, `salt pod1 test.ping` returns True, but racecontrol dashboard shows pod as OFFLINE
+- WebSocket connection from racecontrol to pod times out (not refused — times out indicates firewall drop)
+- `salt pod1 cmd.run 'netsh advfirewall firewall show rule name=all verbose' shell=cmd` output does not include a rule for rc-agent's port
 
-**Phase to address:**
-Phase 1 — establish `is_pod_in_recovery()` utility before any new bot tasks are added. Enforce as a code review gate for all subsequent phases.
+**Phase to address:** Phase 2 (install.bat rewrite) — build an explicit verification checklist into install.bat's exit sequence.
 
 ---
 
-### Pitfall 9: Idle Detection Fires During AC Menu Navigation at Session Start
+### Pitfall 9: Salt cmd.run Backslash Paths Silently Fail on Windows Minions
 
 **What goes wrong:**
-A new idle billing drift fix uses UDP silence or driving state absence as its idle signal. At session start, the customer spends 15-30 seconds in the AC car selection menu — no telemetry, no driving state. The bot flags this as "idle billing" and ends the session. Customer loses their session having never driven. Or billing is prematurely ended just before the customer enters the track.
+Salt state files are YAML. YAML double-quoted strings interpret backslashes as escape sequences. A state with `cmd.run: 'copy C:\RacingPoint\rc-agent.exe C:\RacingPoint\rc-agent.exe.bak'` sends a garbled path to the minion. The command arrives with missing characters (`C:RacingPointrc-agent.exe`), causes "The system cannot find the path specified," and Salt reports a non-zero exit code with a cryptic error rather than pointing to the escaping problem. This affects `cmd.run`, `file.managed`, and `file.file_exists` equally.
 
 **Why it happens:**
-`BillingSessionStatus::WaitingForGame` was designed for the gap before `AcStatus::Live`. Once billing starts (Live received), there is another gap before the customer finishes menu navigation and UDP telemetry begins. A naive idle detector that measures "time since last UDP packet" or "time since last DrivingState::Active" will misfire during this gap.
+Python parses YAML and interprets backslash sequences. `\R` becomes just `R`, `\P` becomes just `P`. Single-quoted YAML strings pass backslashes through, but cmd.exe also has its own interpretation layer. The issue is compounded by the salt:// file server, where minionfs paths with Windows drive letters (e.g., `salt:///c:/file.txt`) require removing the colon to work on Windows minions.
 
 **How to avoid:**
-Idle detection must use `DrivingState` (from the sim protocol), not UDP packet presence alone. `DrivingState::Idle` means confirmed idle in-car. No driving state at all means menu — which must not trigger idle action. Only act when `DrivingState::Idle` has been confirmed for longer than the threshold AND billing status is `Active` (not `WaitingForGame`). Minimum threshold must exceed the longest expected menu navigation time (suggest 60 seconds minimum).
+Use forward slashes in all Salt state files and `cmd.run` arguments, even for Windows paths. `C:/RacingPoint/rc-agent.exe` works correctly in both cmd.exe and PowerShell on Windows. Establish this as the team convention before writing any states. When using `cmd.run` with `shell=powershell`, single-quote the outer YAML and double-quote the PowerShell string. Test every new `cmd.run` on Pod 8 first with `salt pod8 cmd.run '...' shell=cmd` before adding to a state file.
 
 **Warning signs:**
-- Idle detection logic uses `last_telemetry_received` timestamp as the primary idle signal.
-- No test for the `WaitingForGame -> Active -> (menu navigation) -> no-UDP period` sequence.
-- Threshold is set to the same 10-second idle value used for hardware detection (too short for menu navigation).
+- `salt pod8 cmd.run 'type C:\RacingPoint\rc-agent.toml' shell=cmd` returns "The system cannot find the path specified" but the file is known to exist
+- Forward-slash version of the same path succeeds immediately
+- `salt pod8 file.file_exists 'C:\RacingPoint\rc-agent.exe'` returns False when the file is present
 
-**Phase to address:**
-Phase implementing billing edge case recovery.
+**Phase to address:** Phase 3 (migrate deploy workflow to Salt) — establish path conventions as the first step before writing any state files.
 
 ---
 
-### Pitfall 10: CRLF-Damaged Commands Sent via Remote Exec Look Successful but Do Nothing
+### Pitfall 10: cp.get_file Silently Succeeds Without Transferring the File
 
 **What goes wrong:**
-A new bot fix constructs a multi-line batch command string in Rust (Unix `\n` endings) and posts it to the pod-agent `/exec` endpoint or WebSocket remote exec. `cmd.exe` misparses the multi-line string as one long invalid command. The command silently does nothing. `fix_result.success` is `true` because pod-agent returned HTTP 200 on dispatch — but the fix never executed. This is the same class of bug that caused the March 15 outage (CRLF-damaged bat files, MEMORY.md).
+`salt pod8 cp.get_file salt://rc-agent.exe C:/RacingPoint/rc-agent.exe` returns True (success), but the file is not on the pod. This is confirmed Salt behavior: `cp.get_file` does not create missing destination directories and does not report an error when the destination path is invalid — it returns True as long as the transfer itself did not throw an exception. On a fresh pod where `C:\RacingPoint\` does not exist yet, the file transfer silently drops to /dev/null.
 
 **Why it happens:**
-Rust string literals use Unix line endings. When a fix constructs a multi-line command for remote execution, the developer naturally uses `\n`. `cmd.exe` splits on `\r\n`, so the multi-line command is treated as a single (invalid) line. The fix function returns success because success is measured at the HTTP layer, not at the command execution layer.
+The Salt file transfer module treats "destination directory does not exist" as a non-error condition. The return value reflects the success of the ZeroMQ transfer protocol, not whether the file landed on disk. This affects both `cp.get_file` and `cp.get_dir` on Windows minions.
 
 **How to avoid:**
-All bot fix functions that construct remote command strings for `cmd.exe` execution MUST use `\r\n` separators, not `\n`. Single-line commands (e.g., `taskkill /IM acs.exe /F`) are safe. Multi-line scripts are the danger zone. Add a unit test for each remote command that asserts `\r\n` presence in the final command string.
+Always precede `cp.get_file` with a directory check. In states, use a `file.directory` state before any `cp.get_file` or `file.managed`. In ad-hoc deploy commands:
+```
+salt pod8 file.makedirs 'C:/RacingPoint/'
+salt pod8 cp.get_file salt://rc-agent.exe C:/RacingPoint/rc-agent.exe
+salt pod8 file.file_exists 'C:/RacingPoint/rc-agent.exe'
+```
+The third command must return True before the deploy is considered successful. Never accept `cp.get_file` return value alone as proof of transfer.
 
 **Warning signs:**
-- Fix function builds a `String` with `\n` separators and passes it to `execute_on_pod()`.
-- Fix returns `success: true` but the targeted process is still running (verified by follow-up query).
-- No test validates line endings of remote command payloads.
+- `cp.get_file` returns True but the pod still runs the old rc-agent version (check file modification timestamp)
+- `salt pod8 file.file_exists 'C:/RacingPoint/rc-agent.exe'` returns False immediately after a "successful" transfer
+- Version mismatches appear between pods: some updated, some silently not
 
-**Phase to address:**
-All phases. CRLF is cross-cutting. Every remote execution path needs a linting check.
+**Phase to address:** Phase 3 (migrate deploy workflow to Salt) — add mandatory post-transfer verification to every deploy procedure before rolling to fleet.
 
 ---
 
-### Pitfall 11: Lap Filter Bot Rejects Valid Laps Due to LAN Packet Loss Mid-Lap
+### Pitfall 11: DHCP Drift on Pods Breaks Minion Connection Silently
 
 **What goes wrong:**
-The lap filter bot flags laps as invalid when it detects speed discontinuities (track cuts) or missing sector splits. But on this venue's LAN, UDP packets are dropped mid-lap (slow internet noted in PROJECT.md context). A missing telemetry packet looks identical to a speed discontinuity caused by a track cut. Valid hotlaps are rejected. Customers complain their best lap was not recorded. This undermines the leaderboard — the venue's core value proposition.
+If a pod's IP changes via DHCP after the salt-minion is connected, the ZeroMQ TCP socket becomes stale. The minion cannot reconnect from its new IP without a service restart. The master keeps the old connection entry as "alive" because ZeroMQ heartbeats may still ACK at the TCP layer from cached state. `salt pod3 test.ping` appears in the master's accepted keys and was once responsive but now returns no output — and nothing in the logs explains why.
 
 **Why it happens:**
-AC UDP telemetry is fire-and-forget — no retransmission, no gap filling. A missing packet is indistinguishable from a game state discontinuity at the packet analysis layer. Naive validity computation from raw telemetry samples always produces false positives on a lossy network.
+ZeroMQ maintains persistent TCP connections and does not auto-detect source IP changes. Salt minion does not detect its own IP change and re-initiate. The master's connection state becomes a zombie: present in `salt-key -L` as Accepted, but unresponsive to commands. DHCP drift has already caused issues in this project (server .23 drifted .51→.23→.4→.23).
 
 **How to avoid:**
-Lap validity MUST use the game-reported `isValidLap` field (AC physics packet) as the primary signal — not bot analysis. Bot analysis is secondary: flag for staff review only, never auto-reject. Auto-reject only when the game itself reported the lap invalid, OR the lap time is physically impossible (e.g., <10% of track record). Preserve the lap row with a `review_required` flag rather than deleting it.
+Extend the existing DHCP reservation strategy (already applied to server .23 per HOST-01) to all 8 pods before deploying any minion. The pod MAC addresses are documented in MEMORY.md — add static leases in the router for all 8 pods. Set `master_alive_interval: 30` in each minion config so minions detect and reconnect faster when any connectivity change occurs. Also set `ping_interval: 20` in master config for faster dead-minion detection.
 
 **Warning signs:**
-- Lap filter implementation recomputes validity from raw `telemetry_samples` rather than reading the game's own validity flag.
-- Invalid lap rate is higher on pods with weaker LAN signal (correlation indicates false positives).
-- Lap filter deletes rows rather than flagging them with `review_required`.
+- Pod minion worked, then `salt pod3 test.ping` times out with no change to the pod itself
+- `salt-key -L` shows pod3 in Accepted Keys but `salt pod3 test.ping` returns empty
+- Restarting the salt-minion service on the pod immediately restores connectivity
+- Pod's current IP (from router DHCP table) differs from the IP it had when the minion first connected
 
-**Phase to address:**
-Phase implementing lap filter bot.
+**Phase to address:** Phase 1 (infrastructure preparation) — all 8 pods need DHCP reservations in the router before any minion is deployed.
 
 ---
 
-### Pitfall 12: Kiosk PIN Bot Locks Out Staff by Sharing a Failure Counter with Customer PINs
+### Pitfall 12: Minion ID Derives from Windows Hostname — All Pods Get Generic IDs
 
 **What goes wrong:**
-The PIN bot detects repeated PIN validation failures and increments a lockout counter. During a busy Saturday, multiple customers mistype PINs simultaneously across several pods. The bot's lockout counter fires for all pods simultaneously. If the lockout logic does not distinguish customer PINs from staff/debug PINs, staff cannot unlock pods manually. The employee daily rotating debug PIN is also blocked.
+When `id:` is not set in the minion config, Salt auto-generates the minion_id from the Windows hostname. Gaming pods typically have generic hostnames like `DESKTOP-AB3F7K` or `GAMING-POD` set by Windows during OEM setup. If two pods were imaged from the same base and never had their hostnames changed, they register with the same minion_id. The first one to connect gets the key accepted; the second silently fails or overwrites the first's accepted key. Fleet targeting with `salt 'pod*' cmd.run` produces unpredictable results.
 
 **Why it happens:**
-`AUTH-01` (PROJECT.md) unified PIN auth infrastructure. A lockout mechanism that counts failures without separating customer vs. staff PIN type will penalize staff attempting to debug. The failure counter is keyed on pod or IP, not on PIN type.
+Salt minion auto-generates minion_id at first start and caches it in `C:\ProgramData\Salt Project\Salt\var\cache\salt\minion\minion_id`. If the hostname is generic, the ID is generic. The ID is locked after first generation — changing the hostname later does not update the cached ID unless the file is manually deleted.
 
 **How to avoid:**
-PIN failure counting MUST be scoped by PIN type: customer PINs and staff/debug PINs must have separate failure counters and separate lockout policies. The bot's lockout action must never apply to the employee debug PIN. Add `pin_type: customer | staff | debug` to all PIN validation attempts and filter bot lockout actions to `customer` type only.
+Explicitly set `id: pod{N}` in each pod's `C:\ProgramData\Salt Project\Salt\conf\minion` config file before starting the minion service for the first time. The install.bat already ships per-pod config files (`rc-agent-pod{1-8}.toml`) — create corresponding `salt-minion-pod{1-8}.conf` files in the deploy kit with the correct `id:` and `master:` values pre-set. Deploy the correct config file to each pod as part of install.bat.
 
 **Warning signs:**
-- PIN validation failure handler does not extract PIN type before incrementing failure counter.
-- No test for "staff PIN succeeds after 5 consecutive customer PIN failures on the same pod."
-- Lockout counter is keyed on pod_id only (not pod_id + pin_type).
+- `salt-key -L` shows two pods with the same ID (one in Accepted, one in Unaccepted with identical name)
+- `salt 'pod*' test.ping` returns fewer than 8 responses
+- Salt commands target the wrong pod (both "pod3" instances respond, or neither does)
+- Any pod's minion_id file contains a Windows hostname instead of `pod{N}`
 
-**Phase to address:**
-Phase implementing kiosk PIN bot.
+**Phase to address:** Phase 2 (minion bootstrap / install.bat) — per-pod minion config files must be in the deploy kit before first install.
 
 ---
 
@@ -263,99 +293,125 @@ Phase implementing kiosk PIN bot.
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Keyword matching on AI suggestion text for fix dispatch | Simple to add new patterns | Ambiguous; two patterns can fire on the same text; brittle against AI phrasing changes | MVP only — replace with structured fix type codes from AI |
-| `success: true` based on `taskkill` exit code 0 | Simple result reporting | taskkill exits 0 even if the process was not found; fix appears successful when it did nothing | Never — verify process absence after kill |
-| Single `PROTECTED_PROCESSES` list shared between agent and healer | DRY | Agent and healer have different contexts; healer correctly protects `acs.exe` (never kill game from server), agent should not kill `acs.exe` either but for different reasons | Extract to rc-common with context enum |
-| `pattern_key = "{SimType}:{exit_code}"` (no billing context) | Smaller memory footprint | Fix replayed in wrong billing context — Pitfall 2 | Never — extend key to include billing state before adding destructive fix types |
-| Remote exec success = HTTP 200 from pod-agent | Simple status check | Pod-agent returns 200 on command dispatch, not on command success; fix may have silently failed | Never for destructive fixes — add post-fix verification step |
+| `auto_accept: True` with no minion ID validation | Zero friction for pod re-imaging | Any device on LAN subnet auto-registers and can receive fleet commands | Acceptable for closed venue LAN — document the trust decision; ensure Salt is bound only to venue NIC |
+| Hardcoding WSL IP in portproxy rules | Simple one-time setup | Rules break on every reboot/WSL restart, silently | Never — use mirrored mode or dynamic portproxy script |
+| Minion ID from auto-generated hostname | Zero config per pod | Duplicate IDs if pods share hostname; untargetable fleet | Never — always set explicit `id: pod{N}` in minion config |
+| Deleting remote_ops.rs without characterization tests | Faster deletion | Runtime panics from uninitialized AppState fields; invisible until runtime on pod | Never — write tests first, delete second (Refactor Second rule) |
+| Accepting `cp.get_file` return value as transfer success | Simpler deploy script | Silent partial deploys; version drift across pods | Never — always verify with `file.file_exists` after transfer |
+| Relying on rc-agent Rust startup code to open firewall rules | DRY, no duplication | Startup code requires specific privileges and session type; fails silently on fresh image | Never for fleet deploy — keep explicit netsh in install.bat |
+
+---
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Windows HID USB reset | Issue reset, mark connected immediately | Re-enumerate after reset, confirm VID/PID present, confirm FFB response before marking success |
-| AC UDP telemetry gap | Treat packet absence as game absence | Distinguish "game running, no UDP" from "game not running"; use `game_pid` presence from snapshot |
-| pod-agent `/exec` endpoint | Check HTTP 200 as confirmation of fix success | HTTP 200 = command dispatched; add follow-up `/exec` to verify the expected outcome |
-| Cloud sync (billing write) | Assume billing DB write beats cloud pull | Cloud pulls every 30s regardless; bot-triggered billing writes need a fence or tombstone timestamp |
-| WerFault.exe | Kill unconditionally when crash keyword seen | Verify parent process is a known game EXE and game is non-responsive before killing |
-| WebSocket remote exec | Send multi-line batch with `\n` separators | Always use `\r\n` for cmd.exe compatibility in remote commands |
-| AC `isValidLap` field | Recompute validity from raw telemetry | Trust game-reported validity as primary signal; bot analysis is secondary review flag only |
+| WSL2 + Salt master | Assume `localhost` in WSL is reachable from LAN pods | Enable mirrored networking + Hyper-V firewall rule; verify with `Test-NetConnection` from a pod |
+| Salt + Windows Defender | Install salt-minion without pre-exclusions | Add Defender exclusions for Salt paths before running installer; verify service RUNNING 15s after install |
+| Salt `service.restart salt-minion` on Windows | Call remote restart expecting self-recovery | Set `sc failure` SCM recovery actions; salt-minion restarts via SCM, not via Salt |
+| `cp.get_file` on Windows | Trust return value True as proof of file transfer | Follow every transfer with `file.file_exists` verification |
+| Salt YAML + Windows paths | Use backslashes in state files | Use forward slashes everywhere in Salt states; test on Pod 8 first |
+| Salt minion_id on Windows | Let minion auto-generate ID from hostname | Explicitly set `id: pod{N}` in each pod's minion config before first start |
+| rc-agent WebSocket + remote_ops.rs removal | Delete module, trust compiler to catch all issues | Audit AppState fields initialized by remote_ops; write characterization tests; canary on Pod 8 |
+| Salt file server + Windows drive paths | Use `salt:///c:/file.txt` syntax | Remove the colon: `salt://minion/c/file.txt`, or use `file.managed` with `source: salt://...` |
+
+---
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Healer scans all 8 pods every 2 minutes with 3+ remote commands per pod | Acceptable at 8 pods, low traffic | If healer interval shrinks or command count grows, 24+ remote calls per cycle accumulates latency | When healer interval drops below 60s or command count exceeds 5 per pod |
-| Pattern memory file write on every `record_fix()` | Instant persistence | JSON serialization + file write on every successful fix; under rapid failure/fix cycles this hammers disk | Any incident that triggers the same fix 10+ times rapidly |
-| AI escalation on every healer cycle when issue persists | Catches issues quickly | OpenRouter has rate limits; repeated escalation of same persistent issue burns API quota | Any persistent issue that does not resolve between healer cycles |
-| New bot task spawned per pod (not shared) | Simple isolation | 8 tasks × 5 bot types = 40 background tasks competing for tokio executor | At 8 pods this is manageable; design shared tasks with per-pod dispatch from day one |
+| `salt '*' cp.get_file` fleet-wide simultaneously | All 8 pods download rc-agent.exe (~10MB) at once via Salt file server in WSL2, saturating the virtual network | Use `--batch-size 2` for binary transfers; or keep HTTP server on Windows side for binaries, Salt for config only | Immediate on large binary deploys |
+| `master_alive_interval` set too low (< 30s) | Reconnect storms on stable LAN — minions constantly disconnecting and reconnecting | Set `master_alive_interval: 60` for a stable venue LAN | At 8 pods with interval < 10s: ZeroMQ connection floods |
+| Salt targeting `'pod*'` during active customer sessions | Commands execute on pods mid-session: file copies interrupt game I/O, cmd.run commands consume CPU | Schedule fleet-wide Salt operations to off-hours; confirm no active billing sessions before fleet commands | Any time a Salt command does I/O on a pod during active AC or F1 session |
+
+---
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Bot fix commands constructed from AI suggestion text (untrusted input) | Prompt injection: adversarial AI response crafts a suggestion that triggers a dangerous fix keyword | Validate fix type against a fixed enum before executing; never execute free-form AI text as a command |
-| `debug-memory.json` writable by any process on the pod | Attacker modifies file to inject a cached "fix" that triggers arbitrary commands on next replay | Lock file to rc-agent user only; validate JSON schema on load; reject entries with unknown fix_type values |
-| `fix_kill_stale_game()` kills by executable name, not PID | Could theoretically kill a legitimate process with the same name that is not the game | Use `game_pid` from snapshot (specific PID) rather than name matching when a PID is available |
+| Salt master bound to all interfaces (0.0.0.0) in WSL2 | If WSL2 is accessible from the internet (it is not in this venue setup, but worth noting), master accepts connections from anywhere | Bind salt-master to venue LAN IP only: `interface: 192.168.31.27` in `/etc/salt/master` |
+| `auto_accept: True` without binding master to venue NIC | Any device on any network segment reachable from WSL2 can auto-register as a minion | Combine auto_accept with explicit interface binding and per-pod preseed keys for belt-and-suspenders |
+| Leaving port 8090 firewall rule active after removing remote_ops.rs | Open attack surface port with no service behind it (connection refused, but still fingerprintable) | Remove the 8090 rule in install.bat when remote_ops.rs is removed; verify with `netsh advfirewall firewall show rule name=all` |
+| Minion config shipped without `master:` set | Minion may connect to default `salt` hostname (DNS lookup), or fail to connect, or connect to a stale cached master | Always set `master: 192.168.31.27` explicitly in every per-pod minion config file in the deploy kit |
 
-## UX Pitfalls
-
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| Bot silently ends session (EndedEarly) with no customer notification | Customer sees lock screen mid-drive with no explanation; perceives a crash | Bot-triggered session end must display a reason on the lock screen before terminating |
-| Telemetry gap alerts fire during off-peak (no sessions) | Staff alert fatigue; real alerts ignored | Gate all bot alerts on session-active state |
-| Lap flagged invalid by bot is permanently deleted | Customer's best lap irretrievably lost | Invalid flags must be soft — preserve lap with `review_required: true` for staff review |
-| Idle detection ends session during menu navigation | Customer charged for session they never drove | Idle threshold must exceed longest expected menu navigation; use DrivingState not UDP silence |
+---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Billing guard:** Every new fix function has a test with `billing_active: true` confirming it returns `None` (no-op) — grep tests for `billing_active: true`
-- [ ] **Post-fix verification:** Fix functions confirm the targeted condition is resolved before returning `success: true` — not just that the command ran
-- [ ] **CRLF in remote commands:** Multi-line command strings use `\r\n` — assert `cmd_string.contains("\r\n")` in tests
-- [ ] **Pattern memory context:** `DebugIncident` includes billing state at recording time — verify schema field present
-- [ ] **USB reconnect verified:** USB fix includes re-enumeration step before marking success — verify in fix implementation
-- [ ] **Lap validity primary signal:** Lap filter uses game-reported `isValidLap` as primary signal — verify in filter logic
-- [ ] **PIN type separation:** PIN failure counter is scoped to `customer` pin_type — verify lockout does not affect staff PINs
-- [ ] **Concurrent fix coordination:** Every new bot task calls `is_pod_in_recovery()` before acting — verify in code review
+- [ ] **WSL2 master reachable from LAN:** `Test-NetConnection 192.168.31.27 -Port 4505` from Pod 8 returns `TcpTestSucceeded: True` — not just from James's machine, from an actual pod
+- [ ] **Hyper-V firewall open:** Verify the Hyper-V rule is set with `Get-NetFirewallHyperVVMSetting` — connection test alone does not confirm which layer was blocking
+- [ ] **Minion key accepted:** `salt-key -L` shows all 8 pod names in "Accepted Keys"; `salt 'pod*' test.ping` returns 8 responses
+- [ ] **Service recovery configured:** `sc qfailure salt-minion` on each pod shows restart actions — not empty
+- [ ] **Defender exclusions applied:** `Get-MpPreference | Select-Object -ExpandProperty ExclusionPath` on each pod includes Salt install directories
+- [ ] **Explicit minion IDs set:** `salt 'pod*' grains.item id` returns `pod1` through `pod8`, not Windows hostnames
+- [ ] **rc-agent WebSocket still works after remote_ops.rs removal:** Billing session start/stop, game launch, and lock screen all confirmed on Pod 8 before fleet rollout
+- [ ] **Port 8090 rule removed from all pods:** `netsh advfirewall firewall show rule name=all` on each pod shows no rule for 8090
+- [ ] **Forward slashes in all Salt states:** No backslash-in-path issues; `grep -r "\\\\" /etc/salt/` finds no backslashes in state files
+- [ ] **cp.get_file transfers verified:** `salt 'pod*' file.file_exists 'C:/RacingPoint/rc-agent.exe'` returns True on all pods after every binary deploy
+- [ ] **DHCP reservations in place:** Router DHCP table shows static leases for all 8 pod MACs before first minion deployment
+
+---
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Fix fired during active session, session ended prematurely | HIGH — customer trust damage | Staff manually issue credit refund; insert compensating row in billing_sessions |
-| Pattern memory replayed wrong fix in billing context | MEDIUM | Delete or correct the entry in `C:\RacingPoint\debug-memory.json` on the pod; re-run correct fix manually |
-| USB reset left wheelbase at wrong device path | MEDIUM | Physical replug; ConspitLink2.0 watchdog detects and reconnects; verify FFB before next session |
-| Cloud sync overwrote wallet balance | HIGH — financial data integrity | Compare `billing_sessions` table (source of truth) with `wallets` table; compute correct balance; apply manual correction SQL |
-| Multiple tasks put pod in inconsistent state | MEDIUM | Staff dashboard "force pod reset"; rc-agent restart via deploy infrastructure |
-| Lap wrongly flagged invalid | LOW if soft-flagged | Staff review queue; unset `review_required`; validate lap |
-| Kiosk PIN bot locked out staff PIN | HIGH — operational blocker | Direct console access to racecontrol; manually clear lockout counter for staff PIN type |
+| WSL2 NAT blocks Salt ports | MEDIUM | Enable mirrored mode in `.wslconfig`, restart WSL, set Hyper-V firewall rule, re-test |
+| Hyper-V firewall blocks inbound | LOW | Run `Set-NetFirewallHyperVVMSetting` in elevated PowerShell; immediate effect |
+| Portproxy stale after reboot (NAT mode) | LOW | Delete old rules with `netsh interface portproxy delete v4tov4 listenport=4505`, re-add with current WSL IP |
+| Defender quarantines salt-minion | MEDIUM | `Restore-MpThreat` to restore quarantined files, add exclusion, reinstall minion |
+| Minion service stopped, no auto-restart | LOW | `salt pod{N} cmd.run 'sc start salt-minion' shell=cmd` from master; or use Pod 8 web terminal as fallback |
+| Key not accepted, pod unresponsive | LOW | `salt-key -a pod{N}` on master; minion responds within seconds |
+| remote_ops.rs deletion causes runtime panic | HIGH | Revert deletion from git, write characterization tests covering affected code paths, re-delete with safety net |
+| install.bat removed firewall rules for rc-agent | MEDIUM | `salt pod{N} cmd.run 'netsh advfirewall firewall add rule ...' shell=cmd` for each missing rule; update install.bat |
+| cp.get_file silent failure | LOW | Confirm destination directory exists with `file.makedirs`, re-run transfer, verify with `file.file_exists` |
+| DHCP drift kills minion | LOW | Restart salt-minion service on pod; add DHCP reservation for that pod immediately |
+| Duplicate minion IDs | MEDIUM | Stop minion on both pods, delete `C:\ProgramData\Salt Project\Salt\var\cache\salt\minion\minion_id` on both, set explicit `id:` in config, restart minion on each, accept new keys |
+
+---
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Fix fires without billing guard | Every phase adding a fix pattern | Each fix has a `billing_active: true` test confirming no-op |
-| Pattern memory replays fix in wrong context | Phase adding new destructive fix types | Test: fix recorded with `billing=false` is suppressed when replayed with `billing=true` |
-| Billing timer orphans after game kill | Phase: crash/hang bot | Test: bot-triggered game kill also triggers billing end before kill |
-| USB reset causes device path shift | Phase: USB hardware self-healing | Test: post-reset enumeration confirms device by VID/PID before marking success |
-| WerFault false positive during save | Phase: crash/hang bot | Test: `driving_state=Active` suppresses WerFault kill |
-| Telemetry gap false alert when idle | Phase: telemetry gap bot | Test: no alert when `billing_active: false` |
-| Cloud sync overwrites billing write | Phase: billing edge cases | Test: wallet balance correct after bot-triggered EndedEarly + simulated cloud pull within 30s |
-| Multiple tasks race on same pod | Every phase | Code review: every new bot task calls `is_pod_in_recovery()` |
-| Idle detection fires during menu | Phase: billing edge cases | Test: WaitingForGame -> UDP silence -> no idle alert |
-| CRLF in remote commands | All phases | Unit test: assert `\r\n` in multi-line command strings |
-| Lap filter rejects valid laps | Phase: lap filter bot | Test: laps with UDP gaps but game-reported `isValidLap=true` are accepted |
-| PIN bot locks out staff | Phase: kiosk PIN bot | Test: 5 customer PIN failures do not affect staff PIN success on same pod |
+| WSL2 NAT breaks LAN reachability | Phase 1: WSL2 master setup | `Test-NetConnection 192.168.31.27 -Port 4505` from Pod 8 returns True |
+| Hyper-V firewall blocks inbound | Phase 1: WSL2 master setup | Connection test from pod succeeds; `Get-NetFirewallHyperVVMSetting` shows Allow |
+| WSL2 IP changes on reboot | Phase 1: WSL2 master setup | Reboot James's machine, re-run connectivity test from Pod 8 — still True |
+| DHCP drift on pods | Phase 1: infrastructure prep | Router shows static leases for all 8 pod MACs before any minion deployed |
+| Defender quarantines salt-minion | Phase 2: install.bat rewrite | `sc query salt-minion` shows RUNNING 30s after install |
+| Minion service cannot self-restart | Phase 2: install.bat rewrite | `sc qfailure salt-minion` shows restart actions; verified with deliberate kill + wait |
+| Key acceptance dead silence | Phase 1 (auto_accept decision) + Phase 2 (preseed keys) | `salt 'pod*' test.ping` returns True for all pods without manual key accept |
+| Minion ID from Windows hostname | Phase 2: minion bootstrap | `salt 'pod*' grains.item id` returns pod1..pod8 |
+| remote_ops.rs deletion breaks WebSocket | Phase 3: remove remote_ops.rs | Billing lifecycle test on Pod 8 passes before fleet rollout |
+| install.bat strips rc-agent firewall rules | Phase 2: install.bat rewrite | rc-agent WebSocket connected from racecontrol after clean install from slimmed script |
+| Backslash paths in Salt states | Phase 3: deploy workflow migration | All states use forward slashes; `salt pod8 cmd.run` path test passes before writing states |
+| cp.get_file silent failure | Phase 3: deploy workflow migration | Every deploy ends with `file.file_exists` verification returning True for all pods |
+
+---
 
 ## Sources
 
-- `crates/rc-agent/src/ai_debugger.rs` — `try_auto_fix()`, `fix_kill_stale_game()`, `fix_kill_error_dialogs()`, `DebugMemory::instant_fix()`, `PodStateSnapshot`, `PROTECTED_PROCESSES`
-- `crates/racecontrol/src/pod_healer.rs` — `heal_pod()` coordination logic, billing active check (lines 223-230), watchdog state skip (lines 151-176), `PROTECTED_PROCESSES` (healer context)
-- `crates/racecontrol/src/billing.rs` — `BillingTimer::tick()`, `handle_game_status_update()`, `WaitingForGameEntry`, multiplayer billing coordination, `end_billing_session()` flow
-- `.planning/codebase/CONCERNS.md` — P0/P1 issues: no billing transaction wrapping, cloud sync CRDT untested, pod state races, 154 `.ok()` error silences, `billing.rs` zero test coverage
-- `.planning/PROJECT.md` — v5.0 requirements, constraint list, known past bugs (CRLF, Session 0 GUI, Edge stacking, stale sockets)
-- MEMORY.md — CRLF bug root cause (March 15 outage), ConspitLink watchdog pattern, billing rules, 10-second idle threshold
+- [Microsoft WSL Networking Documentation](https://learn.microsoft.com/en-us/windows/wsl/networking) — NAT vs mirrored mode, portproxy, Hyper-V firewall (updated 2024-07-16)
+- [Salt Troubleshooting: Minion](https://docs.saltproject.io/en/3006/topics/troubleshooting/minion.html) — connection issues, key acceptance, Windows service problems
+- [Salt Firewall Tutorial](https://docs.saltproject.io/en/latest/topics/tutorials/firewall.html) — port requirements, inbound vs outbound directions, netsh commands
+- [Salt Configure Minion Reference](https://docs.saltproject.io/en/latest/ref/configuration/minion.html) — master_alive_interval, id, master options
+- [Salt Windows Install Guide](https://docs.saltproject.io/salt/install-guide/en/latest/topics/install-by-operating-system/windows.html) — MSI silent install, upgrade pitfalls
+- [Salt Security Documentation](https://docs.saltproject.io/salt/user-guide/en/latest/topics/security.html) — auto_accept risks, key management
+- [Salt cp module documentation](https://docs.saltproject.io/en/latest/ref/modules/all/salt.modules.cp.html) — cp.get_file directory creation caveat
+- [GitHub: salt-minion service restart only stops #65577](https://github.com/saltstack/salt/issues/65577) — confirmed 2024 Windows service restart bug
+- [GitHub: Restarting salt-minion kills service #11726](https://github.com/saltstack/salt/issues/11726) — long-standing Windows service limitation
+- [GitHub: Salt minion StreamClosedError when Master IP changes #63654](https://github.com/saltstack/salt/issues/63654) — DHCP drift / IP change impact on ZeroMQ
+- [GitHub: cp.get_file silently does nothing on Windows (Salt mailing list)](https://groups.google.com/g/salt-users/c/ov9U9pRxAAs) — silent failure on missing directory
+- [GitHub: Backslash not working in file.file_exists on Windows #16020](https://github.com/saltstack/salt/issues/16020) — path separator issue confirmed
+- [GitHub: Minion upgrade fails on Windows 3006.9 #67054](https://github.com/saltstack/salt/issues/67054) — 2024 upgrade pitfall with "service already exists" error
+- [GitHub: WSL2 NIC Bridge mode #4150](https://github.com/microsoft/WSL/issues/4150) — NAT limitation, bridged/mirrored workarounds
+- [GitHub: Salt minion ID generation with hostname #31383](https://github.com/saltstack/salt/issues/31383) — minion_id generation issues
+- [GitHub: salt-minion uses reverse DNS for minion_id #62478](https://github.com/saltstack/salt/issues/62478) — hostname vs FQDN vs reverse DNS
+- [GitHub: salt-master behind NAT (Salt users group)](https://groups.google.com/g/salt-users/c/4BDWyQBJXs0) — NAT reachability workarounds
+- [Preseed minion keys tutorial](https://docs.saltproject.io/en/latest/topics/tutorials/preseed_key.html) — pre-generating keypairs to skip pending queue
 
 ---
-*Pitfalls research for: RC Bot Expansion (v5.0) — sim racing venue auto-fix bot expansion*
-*Researched: 2026-03-16*
+*Pitfalls research for: SaltStack fleet management (Windows pods + WSL2 master) — RaceControl v6.0*
+*Researched: 2026-03-17*

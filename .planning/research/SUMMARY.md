@@ -1,221 +1,223 @@
 # Project Research Summary
 
-**Project:** RC Bot Expansion v5.0 — Deterministic Auto-Fix for Sim Racing Pod Management
-**Domain:** Embedded venue operations — Windows 11 process and hardware watchdog with billing integration
-**Researched:** 2026-03-16
-**Confidence:** HIGH
+**Project:** RaceControl v6.0 — Salt Fleet Management (replacing pod-agent/remote_ops.rs with SaltStack)
+**Domain:** Infrastructure migration — SaltStack fleet management for 8-node Windows 11 gaming pod fleet via WSL2 Ubuntu master
+**Researched:** 2026-03-17
+**Confidence:** MEDIUM-HIGH
 
 ## Executive Summary
 
-RaceControl v5.0 expands the existing `ai_debugger.rs` auto-fix system from 4 fix patterns to 9 failure classes: pod crash/hang, billing edge cases, network repair, USB hardware failure, game launch failures, telemetry gaps, multiplayer session guards, kiosk PIN lockouts, and lap filtering. The research is grounded in direct codebase inspection of every relevant source file — no training-data assumptions. The key finding from STACK.md is that no new crates are required. All 9 patterns are implementable with the existing dependency set (`sysinfo 0.33`, `winapi 0.3`, `hidapi 2`, `tokio 1`, `reqwest 0.12`). The architecture introduces three new rc-agent modules (`failure_monitor.rs`, `billing_guard.rs`, `lap_filter.rs`) and one new racecontrol coordinator (`bot_coordinator.rs`), linked by 5 new `AgentMessage` variants and a shared `PodFailureReason` enum in rc-common.
+RaceControl v6.0 replaces the custom HTTP endpoint (port 8090, `remote_ops.rs`) with SaltStack for all fleet management operations — binary deployment, service restart, remote command execution, and health checking. The recommended approach is a WSL2 Ubuntu master on James's machine (.27) running SaltStack 3008 LTS with mirrored networking mode, and Windows salt-minion 3008 installed on all 8 gaming pods plus the server (.23). Mirrored networking is non-negotiable: default WSL2 NAT mode gives the Ubuntu instance a 172.x.x.x IP that pods on 192.168.31.x cannot reach, while mirrored mode makes WSL2 inherit the Windows host's LAN IP (192.168.31.27) so pods connect directly. No portproxy scripts, no IP drift.
 
-The central architectural constraint is that all detection logic must flow through `try_auto_fix()` keyword dispatch to preserve `DebugMemory` pattern learning. Detection belongs in `failure_monitor.rs`; fix implementations stay in `ai_debugger.rs`. This indirection is not overhead — it is the mechanism that makes fixes smarter over time via pattern replay. The build order is non-negotiable: rc-common protocol changes compile first (both consuming crates break until variants are handled), then rc-agent detection infrastructure, then racecontrol coordinator.
+The migration scope is precisely bounded. Salt replaces only the `remote_ops.rs` HTTP exec path and the Python HTTP server + curl deploy pipeline. It does not touch the WebSocket connection (game state, billing, lock screen), UDP heartbeat, or any application logic — those channels have sub-second latency requirements that Salt's ZeroMQ cannot match. The integration seam on the Rust side is a new `salt_exec.rs` module that calls the `salt-api` REST interface via the existing `reqwest` client — no new Cargo dependencies. racecontrol modules (`deploy.rs`, `fleet_health.rs`, `pod_monitor.rs`, `pod_healer.rs`) are modified to call `salt_exec` instead of the old HTTP endpoint.
 
-The highest-severity risks are billing-related. Any fix that kills a game process or resets hardware must: (1) gate on `billing_active` state inside the fix function itself (not just the call site — pattern memory replay bypasses call-site guards), (2) call `end_billing_session()` before the kill rather than relying on `AcStatus::Off` propagation which may not arrive in crash scenarios, and (3) encode billing context in the pattern memory key. The second major risk is the cloud sync wallet race: a bot-triggered early session end within a 30-second sync window can result in a cloud pull overwriting the local deduction (CRDT merge uses `MAX(updated_at)`, documented as P1 in CONCERNS.md). This race must be fenced before billing edge case fixes ship.
+The highest-risk pitfalls are all WSL2 networking: NAT mode blocking Salt ports, a Hyper-V firewall layer that activates independently of Windows Defender (and silently drops packets even after mirrored mode is enabled), and the known Salt bug where `service.restart salt-minion` stops the Windows service but never restarts it. The recommended build order is infrastructure-first: get the WSL2 master working and verified from Pod 8 before writing a single line of Rust, then migrate server-side modules one at a time with Pod 8 as the canary, and only delete `remote_ops.rs` after every caller has been migrated.
 
 ## Key Findings
 
 ### Recommended Stack
 
-No new crates are required for v5.0. The STACK.md finding is definitive. `winapi 0.3`'s `winuser` feature (already present in `Cargo.toml`) covers `IsHungAppWindow` and `EnumWindows` for hang detection. `hidapi 2`'s `device_list()` covers USB reconnect polling (blocking — wrap in `spawn_blocking`). `sysinfo 0.33` covers game process CPU hang detection with a mandatory two-refresh pattern. `tokio::time::timeout` handles launch timeouts. Versions must not be upgraded: `sysinfo 0.33 -> 0.38` changes `ProcessesToUpdate` and `Process::status()` return types, breaking all 47 existing tests with zero bot benefit.
+SaltStack 3008 LTS is the only correct version for a new deployment. STS 3007 hits EOL 2026-03-31 (this month). 3006 LTS is legacy. The salt-master runs in WSL2 Ubuntu 24.04 using the official Salt bootstrap script. The salt-minion uses the EXE installer format (not MSI — the MSI was used in 3006 era) with silent install flags `/S /master=192.168.31.27 /minion-name=pod1`. All networking uses WSL2 mirrored mode, which requires Windows 11 22H2+ (James's machine is confirmed compatible) and a one-time Hyper-V firewall rule.
 
-**Core technologies (existing, used for new patterns):**
-- `sysinfo 0.33`: Process CPU and alive checks — stay pinned, API changed in 0.34+
-- `winapi 0.3` (winuser feature): `IsHungAppWindow` + `EnumWindows` for game freeze detection — already present, zero Cargo.toml change
-- `hidapi 2`: USB wheelbase reconnect polling via `device_list()` — wrap blocking scan in `spawn_blocking`, existing pattern in `driving_detector.rs`
-- `tokio` (workspace): `time::timeout` for 90-second launch hang detection, `time::interval` for detection polling loops
-- `reqwest 0.12`: HTTP retry pattern for cloud sync failures — already implemented in `cloud_sync.rs`, apply same pattern to rc-agent HTTP calls
+**Core technologies:**
+- SaltStack 3008 LTS (salt-master in WSL2 Ubuntu 24.04): Fleet orchestration — only current LTS, 2-year support to ~2027
+- WSL2 mirrored networking (Windows 11 22H2+): Eliminates NAT portproxy fragility — WSL2 shares LAN IP 192.168.31.27 directly
+- Salt Minion 3008.x-Py3-AMD64 EXE: Windows agent on all 9 nodes — bundles its own Python via relenv, no host Python required
+- `salt.modules.cmd`: Remote shell execution — replaces `/exec` HTTP endpoint
+- `salt.modules.win_service`: Windows service management — replaces `sc.exe` workarounds in pod_monitor.rs
+- `salt.modules.cp`: File distribution from master to minions — replaces Python HTTP server + curl pipeline
+- `salt-api` (rest_cherrypy, port 8000): REST interface allowing racecontrol to call Salt via reqwest without subprocess or WSL2 boundary crossing
 
-**What to avoid adding:** `windows-rs`/`windows-sys` (duplicate Windows bindings, linker conflicts with existing `winapi 0.3`), `notify` (inotify complexity with no benefit over `hidapi` polling), WMI (100ms+ COM startup cost), `lettre` (prohibited by PROJECT.md), `WM_DEVICECHANGE` (requires GUI message pump), any per-bot UDP socket (read HeartbeatStatus atomics instead).
+**Critical version requirements:**
+- Salt 3008 LTS (not 3007 — EOL March 2026, not 3006 — legacy)
+- Windows 11 22H2 build 22621+ for mirrored networking
+- EXE installer format (not MSI) for 3007/3008 on Windows
 
 ### Expected Features
 
-FEATURES.md defines 9 failure classes with P1 (table stakes), P2 (differentiators), and P3 (defer) patterns. P1 patterns are what staff currently handle manually — eliminating them is the entire value proposition of v5.0.
+The migration is a direct capability-for-capability replacement of the custom HTTP exec layer. The MVP is: master running, all 9 minions connected and keys accepted, `cmd.run` verified, `cp.get_file` verified, `service.restart` verified, `remote_ops.rs` deleted from codebase.
 
-**Must have (P1 — eliminates manual staff intervention):**
-- UDP silence timeout -> crash detection: staff do not know a game froze until a customer complains
-- WerFault dismiss on deterministic crash path: currently wired only through AI path; must fire on every crash
-- FFB zero force on session end AND game crash: safety requirement; high torque engaged with no game feedback is a physical hazard
-- Stuck session cleanup: billing stays active after game exit, charging customers for time they did not drive
-- Launch timeout (90s) + Content Manager hang kill: staff currently walk to the pod when launch hangs; bot eliminates most cases
-- PIN fail count tracking + lockout message: customers stranded at lock screen with no guidance
-- Invalid lap flag wiring for F1 and AC sim adapters: without this, track cuts and crashes enter the leaderboard
-- Game-state-aware telemetry silence alerting: must gate on `AcStatus::Live` to suppress in-menu silence noise
+**Must have (table stakes — MVP, v6.0 cannot ship without these):**
+- WSL2 Salt master with mirrored networking, verified from actual pod (not just from .27)
+- Salt minion on all 8 pods + server, keys accepted, `salt 'pod*' test.ping` returns 8 True responses
+- Explicit minion ID convention: `pod1`–`pod8` + `server` (set at install time, never auto-generated from hostname)
+- `cmd.run` remote execution — replaces `/exec` HTTP endpoint
+- `cp.get_file` binary distribution — replaces Python HTTP server + curl pipeline
+- `service.restart` / `service.stop` for rc-agent Windows service management
+- `remote_ops.rs` deleted from rc-agent codebase
+- `install.bat` slimmed: remove pod-agent kill, :8090 firewall rule, add salt-minion EXE bootstrap
 
-**Should have (P2 — operational quality):**
-- USB disconnect mid-session alert path
-- Cloud sync consecutive failure counter and structured recovery
-- IP drift fallback config (multi-IP list in rc-agent.toml)
-- Pre-launch dialog clearance before each launch attempt
-- Crash pattern classification by exit code (0xC0000005 = access violation etc.)
-- Freeze vs crash discrimination (`is_process_alive()` + UDP silence conjunction)
-- Per-track minimum lap time validation (requires `min_lap_ms` in track catalog)
-- AC server reachability pre-check before multiplayer launch
-- Single pod desync detection
+**Should have (valuable, add after MVP validation):**
+- Custom grains for pod identity (`pod_number`, `role`, `venue`) — enables grain-based targeting
+- Nodegroup aliases in master config (`pods: 'pod*'`) — CLI ergonomics
+- `state.apply` for idempotent rc-agent state enforcement — replaces manual install.bat steps
+- `test=True` dry-run habit before fleet-wide state application
+- Rolling deploy with `--batch-size 1` formalized from ad-hoc canary convention
 
-**Defer (P3 or after field validation):**
-- USB re-enumeration auto-reconnect: USB re-enum behavior varies by Windows build; needs field testing on pods before shipping
-- Multiplayer auto-rejoin: requires AC server session token accessible to rc-agent; path does not currently exist
-- WS reconnect storm prevention with jitter: build when reconnect storms are observed in practice
-- Statistical outlier lap detection: needs sufficient lap history volume per track before it produces reliable signals
-- Billing tick gap local pause: edge case with unclear real-world impact
+**Defer to v7+:**
+- `salt-run manage.status` exposed in staff dashboard (medium complexity, requires salt-api or SSH from racecontrol)
+- Compound targeting for A/B config tests across fleet halves
+- Pillar per-pod config (useful only when state files are complex enough to need templating)
+
+**Anti-features — do not build:**
+- Salt beacons + reactors for pod monitoring: Salt latency is seconds, WebSocket monitoring is milliseconds — two competing systems with worse performance
+- Salt schedule on Windows minions: confirmed bug (#19277), cron/when schedules silently fail on Windows
+- Salt `cmd.run` to launch GUI applications: Session 0 isolation prevents any GUI interaction from Salt commands
+- `state.highstate` on a schedule: risk of partial application interrupting live sessions
 
 ### Architecture Approach
 
-The architecture follows strict separation of concerns: `failure_monitor.rs` owns all detection policy, `ai_debugger.rs` owns all fix implementations, and `bot_coordinator.rs` on the server owns all fleet-level decisions (billing recovery, session teardown, multiplayer coordination). Detection flows through synthetic suggestion strings to `try_auto_fix()` — preserving the `DebugMemory` learning loop that enables sub-100ms instant fix replay on recurrence. Server-side billing end never fires until the agent confirms `SessionUpdate::Finished` — preserving the existing invariant: lock screen before game kill, game kill before billing end.
+The architecture places Salt as a parallel fleet operations channel alongside the existing WebSocket real-time channel. WebSocket handles all game state, billing, and lock screen events (sub-second requirement). Salt handles deploy, restart, health check, and diagnostic exec (batch operations, 200-500ms latency acceptable). The integration seam is `salt_exec.rs` — a new Rust module on the server that calls `salt-api` REST via `reqwest` (already in Cargo.toml). All four modules that currently call port 8090 (deploy.rs, fleet_health.rs, pod_monitor.rs, pod_healer.rs) are updated to call `salt_exec` instead. Only one module is deleted from rc-agent: `remote_ops.rs`.
 
 **Major components:**
-1. `failure_monitor.rs` (NEW, rc-agent) — single detection loop for 7 agent-side failure classes; reads HeartbeatStatus atomics; constructs canonical synthetic suggestions; calls `try_auto_fix()`
-2. `billing_guard.rs` (NEW, rc-agent) — 30-second poll for 3 billing anomaly classes; emits `BillingAnomaly` over WebSocket; never directly ends sessions
-3. `lap_filter.rs` (NEW, rc-agent) — validates laps at UDP capture time using game-reported `isValidLap` as primary signal; bot analysis is review flag only, never auto-reject
-4. `bot_coordinator.rs` (NEW, racecontrol) — receives 5 new `AgentMessage` variants; routes billing anomalies to `recover_stuck_session()`, telemetry gaps to dashboard alerts, hardware failures to email alerts, lap flags to `lap_tracker.rs`
-5. `PodFailureReason` enum (NEW, rc-common) — 21-variant shared taxonomy; must be defined before any detection or fix code is written; forces deliberate naming as a compile-time gate
-6. `ai_debugger.rs` (MODIFY, rc-agent) — 6 new `try_auto_fix()` arms + 6 new fix handler functions + 7 extended `PodStateSnapshot` fields for richer AI context
+1. `salt-master` + `salt-api` (WSL2 Ubuntu .27): Fleet command hub — receives commands from salt_exec.rs via HTTP REST, forwards via ZeroMQ to minions
+2. `salt-minion` (Windows service, all 9 nodes): Outbound-only agent — connects to master:4505, receives commands, no inbound firewall rules needed on pods
+3. `salt_exec.rs` (NEW, racecontrol): Salt REST API client — `cmd_run`, `cp_get_file`, `ping`, `ping_all`, `service_restart`; uses existing reqwest client; token stored in racecontrol.toml `[salt]` section
+4. `deploy.rs` (MODIFY): Replace HTTP steps with `salt_exec` calls; preserve `do-swap.bat` self-swap pattern (Windows OS constraint: cannot replace running binary)
+5. `fleet_health.rs` (MODIFY): Replace HTTP probes with `salt_exec.ping_all()`; rename `http_reachable` to `minion_reachable`
+6. `pod_monitor.rs` (MODIFY): Replace `exec_on_pod_via_http()` with `salt_exec.service_restart()`; WatchdogState FSM unchanged
+7. `pod_healer.rs` (MODIFY): Replace `exec_on_pod()` HTTP helper with `salt_exec.cmd_run()`; all diagnostic parse logic unchanged
+8. `remote_ops.rs` (DELETE from rc-agent): Eliminated entirely after all callers migrated
 
-**Key agent-side fix flow:** `failure_monitor` detects -> builds `PodStateSnapshot` -> constructs canonical synthetic suggestion -> `try_auto_fix()` -> fix handler -> `DebugMemory.record_fix()` -> `AgentMessage` to server.
-
-**Key server-side recovery flow:** `BillingAnomaly` received -> `bot_coordinator` -> `CoreToAgentMessage::StopSession` to agent -> agent kills game, shows lock screen -> `AgentMessage::SessionUpdate { Finished }` -> `billing::end_session()` fires.
+**Key patterns:**
+- Salt REST API via salt-api as integration seam (no subprocess, no WSL2 boundary issues, structured JSON response)
+- Preserve `do-swap.bat` for binary self-update (Salt cannot atomically replace a running binary — Windows OS constraint)
+- Static grain metadata only (`pod_number`, `venue`, `role`) — never real-time state (grains are cached, only refresh on minion restart)
 
 ### Critical Pitfalls
 
-1. **Fix fires during active billing session without a guard** — Every new fix function that terminates a process, resets a device, or closes a socket MUST gate on `!snapshot.billing_active` inside the fix function itself. Pattern memory replay (`DebugMemory::instant_fix()`) calls `try_auto_fix()` directly, bypassing any call-site guards. Required: a test for every new fix with `billing_active: true` confirming it returns `None` (no-op). This is acceptance criteria for every phase that adds a fix pattern.
+1. **WSL2 NAT makes Salt ports unreachable from LAN** — Default WSL2 gives a 172.x.x.x IP. Pods on 192.168.31.x cannot reach master. Enable mirrored networking (`networkingMode=mirrored` in `.wslconfig`) before deploying any minion. Verify with `Test-NetConnection 192.168.31.27 -Port 4505` from an actual pod.
 
-2. **Pattern memory replays destructive fix in wrong billing context** — `DebugMemory` keys on `"{SimType}:{exit_code}"` only. A fix recorded while billing was inactive replays instantly during an active session. Extend `pattern_key` to `"{SimType}:{exit_code}:billing={true/false}"` before adding any destructive fix type. Also add `billing_active_when_recorded: bool` to `DebugIncident` schema.
+2. **Hyper-V firewall silently blocks inbound to WSL2 even after mirrored mode is enabled** — A separate Hyper-V firewall layer (added in WSL 2.0.9+) has `DefaultInboundAction: Block`. Windows Defender firewall rules do not affect it. Fix: `Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow` in elevated PowerShell. Failure looks identical to the NAT pitfall.
 
-3. **Billing timer orphans after bot-triggered game kill** — `BillingTimer::tick()` runs independently of game state. If the bot kills the game, `AcStatus::Off` may never arrive (WebSocket degraded was why the fix fired). The billing timer keeps charging. Any game kill fix must call `end_billing_session()` before executing the process kill — not after.
+3. **Salt minion service cannot restart itself on Windows** — `service.restart salt-minion` stops the service but never starts it again (confirmed bug #65577). Fix: configure Windows Service Recovery on each pod during install: `sc failure salt-minion reset= 60 actions= restart/5000/restart/10000/restart/30000`.
 
-4. **Cloud sync wallet race on bot-triggered EndedEarly** — CONCERNS.md P1: CRDT merge uses `MAX(updated_at)`. If the cloud record has a 1-second clock skew advantage, it overwrites the local deduction. Bot-triggered session ends happen asynchronously within the 30-second sync window. Requires a wallet write fence (tombstone timestamp or sync hold-off) before billing recovery ships.
+4. **Windows Defender quarantines salt-minion binaries after install** — Installer returns exit code 0 but Defender asynchronously quarantines Python and ZeroMQ binaries 5–15 seconds later. Fix: add exclusions for `C:\Program Files\Salt Project\Salt` and `C:\ProgramData\Salt Project\Salt` *before* running the installer. Verify with `sc query salt-minion` 30 seconds after install.
 
-5. **CRLF in remote command strings silently does nothing** — Rust string literals use Unix `\n`. `cmd.exe` splits on `\r\n`. Multi-line bot commands posted to pod-agent `/exec` are treated as one long invalid command while returning HTTP 200. This caused the March 15 outage. All multi-line remote commands must use `\r\n` with a unit test asserting their presence. Cross-cutting — applies to every phase.
+5. **`cp.get_file` silently succeeds without transferring the file** — Salt returns True even when the destination directory does not exist. Always precede with `file.makedirs` and follow with `file.file_exists` verification. Never accept the `cp.get_file` return value alone as proof of transfer.
 
-6. **Multiple bot tasks racing on the same pod simultaneously** — `pod_healer`, `pod_monitor`, and new bot tasks can simultaneously detect and attempt to fix the same degraded pod, leaving the pod in a worse state. Establish `is_pod_in_recovery(state, pod_id) -> bool` as a shared utility before any new tasks are added. Every new bot task must call it before acting.
+6. **Minion ID auto-generated from Windows hostname** — Gaming pods have generic OEM hostnames; two pods imaged from the same base get duplicate IDs. Fix: always set `id: pod{N}` explicitly in minion config before first service start. Ship per-pod `salt-minion-pod{1-8}.conf` files in the deploy kit.
 
-7. **Telemetry gap false alerts when no session is active** — A telemetry monitor without billing awareness fires between sessions, causing staff alert fatigue. All telemetry and hardware alerts must gate on `billing_active: true`.
+7. **Deleting `remote_ops.rs` without auditing AppState initialization** — Rust compiler catches type errors, not runtime initialization dependencies. A field only populated by `remote_ops.rs` compiles fine but panics at runtime. Fix: grep all `remote_ops` references, audit AppState fields, write characterization tests covering the WebSocket path (billing lifecycle, game launch, lock screen) before deletion, canary deploy to Pod 8 and run a full billing session before fleet rollout.
 
 ## Implications for Roadmap
 
-The build order is dictated by cross-crate compile dependencies and safety ordering. Four phases are suggested, with Phase 1 being non-negotiable as the protocol foundation.
+The build order is dictated by a hard infrastructure prerequisite: the WSL2 Salt master must be verified from an actual pod before any Rust code is written. Server-side modules migrate one at a time using Pod 8 as the canary throughout. `remote_ops.rs` is deleted last, only after every caller is migrated.
 
-### Phase 1: Protocol Contract and Concurrency Safety
+### Phase 1: WSL2 Infrastructure and Master Setup
 
-**Rationale:** rc-common compiles before both rc-agent and racecontrol. Any new `types.rs` or `protocol.rs` entry breaks both consuming crates until they handle new variants. This must land first, alone, in a clean commit. Additionally, the `is_pod_in_recovery()` concurrency guard must exist before any new bot tasks are spawned — establishing it in Phase 1 prevents racing in all subsequent phases.
+**Rationale:** Everything depends on the master being reachable from pods. This is pure infrastructure — no Rust code. Attempting any code change before WSL2 networking is verified is wasted effort. DHCP reservations for all 8 pods must also be set here, because DHCP drift kills ZeroMQ connections silently.
+**Delivers:** WSL2 Ubuntu 24.04 with salt-master 3008 and salt-api running, mirrored networking active, Hyper-V firewall open, Windows Defender firewall rules for :4505/:4506/:8000, DHCP reservations for all 8 pod MACs in router.
+**Addresses:** Pitfalls 1, 2, 3 (all WSL2 networking), Pitfall 11 (DHCP drift)
+**Verification gate:** `Test-NetConnection 192.168.31.27 -Port 4505` from Pod 8 returns `TcpTestSucceeded: True`
+**Research flag: skip.** All configuration is explicitly documented in STACK.md and ARCHITECTURE.md with exact commands. No unknowns.
 
-**Delivers:** `PodFailureReason` enum (21 variants) in rc-common types.rs. Five new `AgentMessage` variants (`HardwareFailure`, `TelemetryGap`, `BillingAnomaly`, `LapFlagged`, `MultiplayerFailure`) in rc-common protocol.rs. `is_pod_in_recovery()` utility in racecontrol AppState. All rc-common existing tests green. Both consuming crates produce compile errors (expected — no handling code yet), confirming the protocol is wired.
+### Phase 2: Salt Minion Bootstrap on Pod 8 (Canary)
 
-**Avoids:** Pitfall 6 (concurrent task racing) — foundation laid before any new tasks exist. Pitfall 5 (string-typed reasons) — `PodFailureReason` enum defined in rc-common forces typed usage everywhere.
+**Rationale:** Validate WSL2 networking with a real minion before touching any Rust code or deploying to the fleet. This phase also rewrites `install.bat` and configures Windows Service recovery — done once on Pod 8, then replicated across the fleet in Phase 5.
+**Delivers:** Salt minion 3008 installed on Pod 8 with explicit `id: pod8`, Defender exclusions pre-applied, `sc failure` recovery configured, key accepted, `salt 'pod8' test.ping` returns True. Updated `install.bat` with salt-minion bootstrap replacing pod-agent section.
+**Addresses:** Pitfalls 4 (Defender quarantine), 5 (minion self-restart), 6 (minion ID from hostname), 8 (install.bat strips rc-agent firewall rules)
+**Verification gate:** `salt 'pod8' cmd.run 'whoami'` returns successfully; `sc qfailure salt-minion` shows restart actions.
+**Research flag: skip.** All install commands, config paths, and Defender exclusion patterns are explicitly documented in STACK.md and PITFALLS.md.
 
-**Research flag: skip.** serde enum extension with `#[serde(tag = "type")]` is a well-established Rust pattern. Direct codebase inspection of `protocol.rs` confirms exact existing format. No unknowns.
+### Phase 3: `salt_exec.rs` and Server-Side Module Migration
 
-### Phase 2: Crash, Hang, Launch, and USB Bot Patterns
+**Rationale:** `salt_exec.rs` is the foundation that all four server-side modules import. It must compile and be tested against live Pod 8 before any module rewrite. Modules migrate in safety order: fleet_health (read-only, lowest risk) → pod_healer (diagnostic only) → pod_monitor (restarts, higher risk) → deploy (most complex, multi-step with rollback).
+**Delivers:** `salt_exec.rs` with `cmd_run`, `cp_get_file`, `ping`, `ping_all`, `service_restart`; `[salt]` section in racecontrol.toml and config.rs; `SaltClient` in AppState; rewrites of fleet_health.rs, pod_healer.rs, pod_monitor.rs, deploy.rs; `http_reachable` renamed to `minion_reachable`; `build_id` moved to StartupReport in rc-common protocol.
+**Avoids:** Pitfall 9 (backslash paths in Salt states — forward slashes convention established before any state is written), Pitfall 10 (`cp.get_file` silent failure — `file.file_exists` verification added to deploy flow)
+**Verification gate:** All four modified modules compile; `salt 'pod8' test.ping` via salt_exec.rs returns true; deploy end-to-end to Pod 8 succeeds with rollback tested.
+**Research flag: needs attention for `cp.get_file` reliability.** ARCHITECTURE.md documents a known ZeroMQ bug with `cp.get_file` for cross-VLAN scenarios and recommends using the existing curl-from-HTTP-server pattern for binary transfer. Decision needed: whether to use `salt cp.get_file` or keep the HTTP server for the binary download step and use Salt only for the trigger command. Both approaches are documented — make the call before coding `deploy.rs`.
 
-**Rationale:** These four failure classes have the highest staff relief value and lowest implementation complexity. They are entirely agent-side fixes that do not require server coordination beyond the existing `AiDebugResult` path. Creating `failure_monitor.rs` here establishes the detection pattern (synthetic suggestion -> `try_auto_fix()`) that all subsequent agent-side expansion follows. FFB zero-force on crash is a physical safety requirement and must not be deferred.
+### Phase 4: Remove `remote_ops.rs` from rc-agent
 
-**Delivers:** `failure_monitor.rs` with game freeze detection (`IsHungAppWindow` conjunction check: low CPU + no UDP + `IsHungAppWindow` = true, all four required), Content Manager hang kill, 90-second launch timeout via `tokio::time::timeout`, USB wheelbase reconnect polling every 5s via `hidapi::device_list()`. FFB zero-force wiring on crash and session end. Six new `try_auto_fix()` arms with canonical keyword contracts. Extended `PodStateSnapshot` with 7 new fields. Minor changes to `game_process.rs` (expose `launch_elapsed_secs`) and `driving_detector.rs` (expose `last_hid_error: Option<String>`). All 47+ existing tests pass plus new tests per fix handler.
+**Rationale:** Only delete after every caller on the server side is migrated and verified. Deletion is a Rust compile gate that confirms no remaining references. Canary to Pod 8 before fleet rollout.
+**Delivers:** `remote_ops.rs` deleted, `remote_ops::start(8090)` call removed from `main.rs`, :8090 firewall open removed from `firewall.rs`, `cargo build` clean, rc-agent deployed to Pod 8 with full billing lifecycle verified.
+**Avoids:** Pitfall 7 (AppState initialization audit — grep all references, write characterization tests, canary deploy with billing lifecycle test before fleet rollout)
+**Verification gate:** Full billing lifecycle (session start, game launch, billing tick, session end, lock screen) confirmed on Pod 8 with no panics before fleet rollout.
+**Research flag: needs characterization tests first.** Per the "Refactor Second" standing rule: write characterization tests covering the WebSocket path (billing lifecycle, game launch, lock screen) before deleting remote_ops.rs. The compiler will not catch runtime initialization failures.
 
-**Implements:** `failure_monitor.rs` (NEW), extended `ai_debugger.rs`.
+### Phase 5: Fleet Rollout
 
-**Avoids:** Pitfall 1 (billing guard) — every new fix has `billing_active: true` test confirming no-op. Pitfall 3 (billing timer orphan) — game kill fix emits billing end before the kill. Pitfall 4 (USB re-enumeration) — post-reset VID/PID confirmation before marking success. Pitfall 5 (CRLF) — all remote command strings tested for `\r\n`. The IsHungAppWindow conjunction check (all four conditions required) avoids the false positive case of a game at the AC main menu (low CPU + no UDP but window is responsive).
-
-**Research flag: skip.** All patterns derivable directly from existing codebase. `IsHungAppWindow` + `EnumWindows` APIs are in the already-present `winuser` winapi feature. USB polling pattern already exists in `driving_detector.rs`. No external research needed.
-
-### Phase 3: Billing Guard, Telemetry Alerting, and Server Coordinator
-
-**Rationale:** Billing edge cases require both agent-side detection (`billing_guard.rs`) and server-side recovery (`bot_coordinator.rs`). The wallet sync race (CONCERNS.md P1) must be fenced before any bot can trigger `EndedEarly`. The server coordinator must exist before Phase 4 can route multiplayer and PIN messages. Telemetry gap detection belongs here because it shares the billing-active gate requirement and routes through the same coordinator.
-
-**Delivers:** `billing_guard.rs` with stuck session detection (billing_active + game not running >60s), idle drift guard gated on `DrivingState::Idle` with 60-second minimum threshold, cloud sync failure counter. `bot_coordinator.rs` routing `BillingAnomaly`, `TelemetryGap`, `HardwareFailure`. `billing::recover_stuck_session()` helper using the StopSession -> SessionUpdate::Finished -> end_session() flow. Wallet write fence for bot-triggered EndedEarly. Pattern memory key extended to `"{SimType}:{exit_code}:billing={true/false}"`. `DebugIncident` schema extended with `billing_active_when_recorded`. `ws/mod.rs` routing for 5 new AgentMessage variants.
-
-**Implements:** `billing_guard.rs` (NEW rc-agent), `bot_coordinator.rs` (NEW racecontrol), minor modifications to `billing.rs` and `ws/mod.rs`.
-
-**Avoids:** Pitfall 2 (pattern memory context) — DebugIncident gets billing_active field, key extended before any destructive fix type uses it. Pitfall 3 (billing timer orphan) — `recover_stuck_session()` uses the correct sequenced flow, never calls `end_session()` directly. Pitfall 7 (cloud sync wallet race) — fence added after bot EndedEarly, before next sync pull window. Pitfall 9 (idle detection fires during menu navigation) — idle threshold is 60s minimum and gated on `DrivingState::Idle` (confirmed idle in-car), not UDP silence alone.
-
-**Research flag: needs attention before coding.** The wallet sync fence mechanism requires a decision before `recover_stuck_session()` is implemented. Options: (a) write `updated_at = cloud_ts + 1s`, (b) add `venue_authoritative` flag to wallet upsert, (c) migrate to additive transaction log. Review actual `cloud_sync.rs` CRDT merge logic to confirm which option is feasible without a DB migration. Additionally, `billing.rs` has zero test coverage (CONCERNS.md P0) — write characterization tests for the existing session lifecycle before adding new code. This is the "Refactor Second" standing rule.
-
-### Phase 4: Lap Filter, PIN Bot, and Multiplayer Guard
-
-**Rationale:** All three classes depend on the server coordinator from Phase 3 being in place. Lap filter emits `LapFlagged` which routes through `bot_coordinator`. PIN bot extends existing lock_screen state without touching billing. Multiplayer guard requires `bot_coordinator` for cross-pod desync decisions. All three are lower risk than billing edge cases.
-
-**Delivers:** `lap_filter.rs` using game-reported `isValidLap` as primary validity signal; bot analysis (speed floor, sector sum) as secondary review flag only; laps soft-flagged with `review_required: true`, never hard-deleted. Invalid lap flag wiring in AC and F1 sim adapters. PIN fail counter with strict type separation: customer counters and staff/debug counters are independent, lockout action applies to customer type only. QR soft alert after 120s. AC server reachability pre-check before multiplayer launch. Single pod desync detection (one pod `AcStatus::Off` while others remain `Live`). `multiplayer.rs` desync state hook.
-
-**Implements:** `lap_filter.rs` (NEW rc-agent), PIN state extensions in `lock_screen.rs`, `ac_server.rs` reachability check, minor `multiplayer.rs` modification.
-
-**Avoids:** Pitfall 11 (lap filter rejects valid laps on LAN packet loss) — game-reported validity is authoritative; LAN packet loss looks identical to a track cut at the raw telemetry layer; bot analysis alone cannot distinguish them. Pitfall 12 (PIN bot locks out staff) — customer and staff PIN failure counters are strictly separated by pin_type field; lockout applies only to customer type.
-
-**Research flag: skip for lap filter.** Game-reported `isValidLap` as the primary validity signal is the established correct approach for AC UDP protocol — no further research needed. **Needs scoping decision for multiplayer.** Auto-rejoin requires AC server session token access; current architecture has no such path. Phase 4 must be scoped to detection and staff alert only. Auto-rejoin is flagged for potential Phase 5 pending investigation of whether racecontrol can generate and forward the join URL to the agent.
+**Rationale:** Once Pod 8 is verified clean (no remote_ops.rs, Salt minion connected, billing lifecycle working), replicate to all 7 remaining pods and the server using the updated install.bat. Key acceptance for all nodes. Fleet-wide verification.
+**Delivers:** Salt minion on all 8 pods + server, all keys accepted, `salt '*' test.ping` returns 9 True responses, fleet health dashboard shows all pods `minion_reachable: true`, port 8090 firewall rule removed from all pods.
+**Avoids:** Pitfall 12 (duplicate minion IDs — per-pod config files already in deploy kit from Phase 2)
+**Verification gate:** `salt 'pod*' test.ping` returns 8 True; `salt 'server' test.ping` True; fleet health API shows all 8 pods minion_reachable; no active billing sessions interrupted during rollout.
+**Research flag: skip.** Standard Salt fleet deployment using verified install.bat from Phase 2.
 
 ### Phase Ordering Rationale
 
-- Phase 1 first: cross-crate compile dependency makes this non-negotiable.
-- Phase 2 second: can be validated on Pod 8 (canary) before the server coordinator exists. Safety and crash fixes deliver immediate staff relief and establish the `failure_monitor.rs` detection pattern.
-- Phase 3 third: billing recovery is the highest-risk bot action in the codebase. Requires concurrency guard from Phase 1, detection foundation from Phase 2, and a wallet sync fence decision that must not be rushed. Cannot ship before `billing.rs` has characterization tests.
-- Phase 4 last: lowest operational risk. Depends on coordinator from Phase 3. Lap filter and PIN bot can be developed in parallel with Phase 3 but must deploy after.
+- Infrastructure before code: The WSL2 master networking is the single critical-path dependency. All Rust work is blocked until Phase 1 and 2 are verified from an actual pod.
+- Server-side migration before agent deletion: Deleting `remote_ops.rs` while any server module still calls it produces a compile error; migrating callers first makes deletion a clean final step.
+- Pod 8 canary discipline throughout: Every phase that deploys to pods deploys to Pod 8 first and verifies the billing lifecycle before touching the other 7 pods.
+- Safety ordering for server modules: fleet_health (read-only) → pod_healer (diagnostic) → pod_monitor (restarts) → deploy (most complex) — highest-risk module last.
 
 ### Research Flags
 
 Phases needing deeper investigation before coding begins:
 
-- **Phase 3 — Wallet sync fence:** Review actual `cloud_sync.rs` CRDT merge implementation to confirm which fence mechanism is feasible. Do not code `recover_stuck_session()` until the billing end -> sync window race is addressed. Options are (a) timestamp manipulation, (b) authoritative flag, (c) transaction log migration. Option (c) is correct long-term but may be out of scope for v5.0.
-- **Phase 4 — Multiplayer auto-rejoin scope:** Confirm whether racecontrol can generate and forward AC server join URLs to the agent. If not, scope Phase 4 multiplayer to detection plus staff alert only and defer auto-rejoin to Phase 5.
+- **Phase 3 — `cp.get_file` vs curl-for-binaries decision:** ARCHITECTURE.md documents a known ZeroMQ bug where `cp.get_file` silently fails in some cross-VLAN scenarios and recommends keeping the curl-from-HTTP-server pattern for binary files. Decide which approach to use for `deploy.rs` before writing the module. The choice affects whether the Python HTTP server stays or goes entirely.
 
-Phases with established patterns (skip research):
+- **Phase 4 — AppState initialization audit:** Before writing characterization tests, read `remote_ops.rs` in full and grep all `AppState` fields it writes at startup. Confirm each field has an alternative initializer. This audit determines the scope of characterization test work needed.
 
-- **Phase 1:** serde enum extension with `#[serde(tag = "type")]` is well-documented; all existing protocol details confirmed from direct `protocol.rs` inspection.
-- **Phase 2:** All patterns derivable from existing codebase. `IsHungAppWindow`, USB polling, `tokio::time::timeout` are all established uses of already-present dependencies.
-- **Phase 4 (lap filter):** Game-reported `isValidLap` as the primary signal is the correct and established approach for AC UDP telemetry.
+Phases with standard patterns (skip research-phase):
+
+- **Phase 1:** All commands explicitly documented in STACK.md and ARCHITECTURE.md with verified sources. No unknowns.
+- **Phase 2:** Install commands, Defender exclusion paths, `sc failure` syntax, grains config paths all documented in STACK.md and PITFALLS.md.
+- **Phase 5:** Standard `install.bat` fleet deployment. Pod 8 is the validated template.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Dependencies read directly from `Cargo.toml`; version pinning rationale verified against sysinfo API changelog; winapi feature coverage confirmed in docs; "no new crates" finding is definitive |
-| Features | HIGH | All 9 failure classes derived from direct codebase inspection of existing types, protocol messages, and partial implementations; feature table mapped to existing code symbols throughout |
-| Architecture | HIGH | All claims derived from reading actual source files: 767-line `ai_debugger.rs`, 219-line `self_monitor.rs`, `protocol.rs`, `types.rs`, `pod_monitor.rs`, `billing.rs`, `pod_healer.rs`; no training-data assumptions |
-| Pitfalls | HIGH | 12 pitfalls derived from direct code paths (`try_auto_fix`, `BillingTimer::tick`, `DebugMemory::instant_fix`), CONCERNS.md P0/P1 issues, and documented production incidents (CRLF March 15 outage, billing timer behavior) |
+| Stack | HIGH | Official Salt docs, Broadcom KB, Microsoft WSL docs all verified. Version lifecycle (3007 EOL this month, 3008 LTS) is authoritative. WSL2 mirrored mode requirements are confirmed for James's Windows 11 build. |
+| Features | MEDIUM-HIGH | Salt official docs + GitHub issues verify capabilities. Known Windows-specific bugs (#19277 scheduler, #65577 service restart, #4834 Session 0 isolation) are confirmed. WSL2-as-master is an unusual setup — no end-to-end guides exist but all individual components are documented. |
+| Architecture | HIGH | Existing codebase read directly (remote_ops.rs, deploy.rs, fleet_health.rs, pod_monitor.rs, pod_healer.rs, state.rs, config.rs, main.rs). All caller sites and AppState fields inventoried from source. Salt/WSL2 networking verified against official docs. |
+| Pitfalls | HIGH | 12 pitfalls documented with official source references. WSL2 NAT/Hyper-V pitfalls from Microsoft docs and community guides. Salt Windows bugs from confirmed GitHub issues (2014–2024). cp.get_file silent failure from Salt mailing list + GitHub. Path separator from Salt issue tracker. |
 
-**Overall confidence: HIGH**
+**Overall confidence: MEDIUM-HIGH**
 
 ### Gaps to Address
 
-- **Wallet sync CRDT fence implementation:** CONCERNS.md marks wallet sync as P1 with CRDT merge untested under concurrent writes. The exact fence mechanism must be decided before Phase 3 billing recovery ships. Re-read `cloud_sync.rs` implementation before planning Phase 3 sprint.
+- **cp.get_file reliability for binary files:** ARCHITECTURE.md notes a ZeroMQ bug with cp.get_file in some network scenarios and recommends the existing curl-from-HTTP-server pattern. The exact scope of this bug on the venue LAN (same VLAN, not cross-VLAN) is unclear. Test cp.get_file with a test binary on Pod 8 in Phase 2 before committing to it in Phase 3 for deploy.rs.
 
-- **Content Manager process name on all pods:** STACK.md notes CM registers as `Content Manager.exe` but advises confirmation with `tasklist /FI "IMAGENAME eq Content Manager.exe"` on an actual pod before the Phase 2 kill pattern is coded. Run this check on Pod 8 before the launch timeout fix is submitted.
+- **Grains config path on Windows 3008 minions:** ARCHITECTURE.md flags known ambiguity between `C:\salt\grains` (legacy) and `C:\ProgramData\Salt Project\Salt\conf\grains` (newer path, issue #63024). Verify actual path on Pod 8 after minion install with `salt 'pod8' grains.get pod_number`. Do not hard-code paths in deploy kit until verified.
 
-- **`billing.rs` zero test coverage:** CONCERNS.md P0. Phase 3 adds `recover_stuck_session()` to this file. Characterization tests for the existing session lifecycle must be written first. Estimate: 1-2 days of characterization test work before any Phase 3 code is written.
+- **salt-api token rotation plan:** The salt-api token stored in racecontrol.toml is a long-lived credential. Phase 3 must include a note in racecontrol.toml that this token needs rotation when racecontrol is redeployed. No implementation gap, but the operational procedure needs to be documented before Phase 3 ships.
 
-- **AC server session token accessibility for multiplayer auto-rejoin:** Current architecture has no path from rc-agent to the AC server join URL. Determine whether racecontrol can generate and forward it before finalizing Phase 4 scope. This decision gates whether multiplayer auto-rejoin is achievable in v5.0 at all.
-
-- **sysinfo two-refresh CPU pattern in async context:** The game freeze detection requires two `refresh_processes()` calls 500ms apart for accurate CPU readings. The hang detector should maintain a persistent `System` instance in a dedicated async task, pre-warmed every 30s, so CPU data is fresh when the conjunction check fires. Confirm this pattern in the Phase 2 implementation plan before coding.
+- **`remote_ops.rs` AppState field inventory:** This audit must happen before Phase 4 characterization test work begins. Unknown scope until `remote_ops.rs` is fully read and all `AppState` mutation sites are identified.
 
 ## Sources
 
-### Primary (HIGH confidence — direct source reads, 2026-03-16)
+### Primary (HIGH confidence)
 
-- `crates/rc-agent/Cargo.toml` — authoritative dependency list; "no new crates" finding confirmed here
-- `crates/rc-agent/src/ai_debugger.rs` — `try_auto_fix()`, `DebugMemory`, `PodStateSnapshot`, `PROTECTED_PROCESSES` (767 lines)
-- `crates/rc-agent/src/self_monitor.rs` — existing bot loop, CLOSE_WAIT detection, `relaunch_self()` (219 lines)
-- `crates/rc-agent/src/game_process.rs` — `is_process_alive()`, `GetExitCodeProcess`, PID lifecycle, sysinfo usage
-- `crates/rc-agent/src/driving_detector.rs` — `DetectorSignal::HidDisconnected`, `last_udp_packet`, DrivingState FSM
-- `crates/rc-agent/src/ffb_controller.rs` — `CMD_ESTOP`, `zero_force()`, hidapi HID write pattern
-- `crates/rc-agent/src/udp_heartbeat.rs` — `HeartbeatStatus` atomics, `HeartbeatEvent::CoreDead`, sequence tracking
-- `crates/rc-common/src/protocol.rs` — all `AgentMessage` variants, `CoreToAgentMessage`, serde tag format
-- `crates/rc-common/src/types.rs` — `BillingSessionStatus`, `GameState`, `DrivingState`, `AcStatus`, `LapData`
-- `crates/racecontrol/src/pod_monitor.rs` — `WatchdogState` FSM, watchdog coordination pattern
-- `crates/racecontrol/src/billing.rs` — `BillingTimer::tick()`, `end_billing_session()`, `WaitingForGameEntry`
-- `crates/racecontrol/src/pod_healer.rs` — `heal_pod()` billing active check (lines 223-230), watchdog state skip (lines 151-176)
-- `.planning/PROJECT.md` — v5.0 requirements, "no new dependencies" constraint, known past bugs
-- `.planning/codebase/CONCERNS.md` — P0/P1 issues: billing.rs zero test coverage, cloud sync CRDT untested, pod state races, 154 `.ok()` error silences
+- [Salt Windows Install Guide](https://docs.saltproject.io/salt/install-guide/en/latest/topics/install-by-operating-system/windows.html) — installer options, config paths, silent install params
+- [Salt Version Support Lifecycle](https://docs.saltproject.io/salt/install-guide/en/latest/topics/salt-version-support-lifecycle.html) — LTS vs STS model, 3007 EOL 2026-03-31
+- [Salt Firewall Guide](https://docs.saltproject.io/en/3007/topics/tutorials/firewall.html) — ports 4505/4506, minion-outbound-only model
+- [Broadcom Port Requirements KB](https://knowledge.broadcom.com/external/article/403589/port-requirements-for-saltminionsaltmast.html) — confirms 4505/4506 TCP on master only
+- [Microsoft WSL Networking](https://learn.microsoft.com/en-us/windows/wsl/networking) — mirrored mode, NAT limitations, Hyper-V firewall
+- [salt.modules.win_service](https://docs.saltproject.io/en/latest/ref/modules/all/salt.modules.win_service.html) — Windows service management
+- [salt.modules.cp](https://docs.saltproject.io/en/latest/ref/modules/all/salt.modules.cp.html) — file distribution
+- [Salt Bootstrap Script](https://github.com/saltstack/salt-bootstrap) — Ubuntu 24.04 + 3008 stable install
+- [rest_cherrypy docs](https://docs.saltproject.io/en/latest/ref/netapi/all/salt.netapi.rest_cherrypy.html) — salt-api HTTP REST
+- [Broadcom Minion Config Location KB](https://knowledge.broadcom.com/external/article/379823/location-of-minion-config-files-on-windo.html) — confirmed config paths on Windows
+- Direct source reads (2026-03-17): `remote_ops.rs`, `deploy.rs`, `fleet_health.rs`, `pod_monitor.rs`, `pod_healer.rs`, `state.rs`, `config.rs`, `main.rs` (rc-agent), `firewall.rs`, `.planning/PROJECT.md`
 
-### Secondary (MEDIUM confidence — community and docs)
+### Secondary (MEDIUM confidence)
 
-- crates.io/crates/sysinfo — v0.38.3 confirmed latest; v0.33 pinned intentionally, API changed in 0.34+
-- docs.rs/windows-sys `IsHungAppWindow` — confirmed present in `winuser` feature (already in rc-agent Cargo.toml)
-- Rust community: sysinfo CPU two-refresh requirement — documented pattern, matches sysinfo internal behavior
-- kennykerr.ca: winapi vs windows-sys comparison — winapi 0.3 functional for current needs; windows-rs would add duplicate Windows bindings
+- [GitHub #19277: Windows minion cron/when schedules fail silently](https://github.com/saltstack/salt/issues/19277) — confirmed Salt scheduler bug on Windows
+- [GitHub #65577: salt-minion service restart stops but doesn't start](https://github.com/saltstack/salt/issues/65577) — confirmed 2024 Windows service restart bug
+- [GitHub #4834: Session 0 isolation prevents GUI interaction](https://github.com/saltstack/salt/issues/4834) — confirmed architectural limitation
+- [GitHub #16340: cmd.run runas not implemented on Windows](https://github.com/saltstack/salt/issues/16340) — confirmed
+- [GitHub #63024: grains path ambiguity on Windows minions](https://github.com/saltstack/salt/issues/63024) — path issue, needs verification on Pod 8
+- [WSL mirrored mode practical guide](https://informatecdigital.com/en/wsl2-advanced-guide-to-network-configuration-and-nat-and-mirrored-modes/) — Hyper-V firewall rule, .wslconfig setup
+- [Salt cp.get_file ZMQ issue (salt-users mailing list)](https://groups.google.com/g/salt-users/c/rtjniGu1UPM) — cross-scenario failure; use file.managed or cmd.run curl instead
+- [GitHub: WSL2 NIC mirrored mode multicast bug #10535](https://github.com/microsoft/WSL/issues/10535) — confirms unicast TCP (Salt ZMQ) unaffected
 
-### Tertiary (context — production incident records)
+### Tertiary (context)
 
-- MEMORY.md — CRLF bug root cause (March 15 outage), billing_active 10-second idle threshold, Conspit Ares VID/PID, 8-pod network map, Session 0/Session 1 fix history
-- `.planning/codebase/ARCHITECTURE.md` — codebase map (7 docs, 3,960 lines, read 2026-03-16)
+- [endoflife.date/salt](https://endoflife.date/salt) — lifecycle dates consistent with official docs
+- MEMORY.md — pod MAC addresses, subnet 192.168.31.x, James's machine .27, DHCP drift history (server .51→.23→.4→.23)
 
 ---
-*Research completed: 2026-03-16*
+*Research completed: 2026-03-17 IST*
 *Ready for roadmap: yes*
