@@ -15,7 +15,7 @@ use racecontrol_crate::{
     ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
     billing, bono_relay, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
     game_launcher, multiplayer, port_allocator, lap_tracker, pod_healer,
-    pod_monitor, pod_reservation, remote_terminal, scheduler, wallet,
+    pod_monitor, pod_reservation, remote_terminal, scheduler, server_ops, wallet,
     udp_heartbeat, wol, ws,
 };
 
@@ -315,6 +315,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn fleet health probe loop (15s interval, HTTP :8090/health on each registered pod)
     fleet_health::start_probe_loop(state.clone());
+
+    // Start server_ops HTTP endpoint on :8090 (remote command execution, file ops)
+    server_ops::start();
 
     // Bind Bono relay endpoint on Tailscale IP (optional — only if configured)
     // IMPORTANT: state.clone() is called here before state is moved into the main router below.

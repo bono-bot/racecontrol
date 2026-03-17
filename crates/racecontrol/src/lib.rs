@@ -29,6 +29,7 @@ pub mod pod_monitor;
 pub mod pod_reservation;
 pub mod remote_terminal;
 pub mod scheduler;
+pub mod server_ops;
 pub mod state;
 pub mod wallet;
 pub mod udp_heartbeat;

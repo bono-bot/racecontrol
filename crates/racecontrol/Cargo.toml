@@ -24,7 +24,7 @@ toml = { workspace = true }
 
 # Web framework
 axum = { version = "0.8", features = ["ws", "macros"] }
-tower = "0.5"
+tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 
 # Database
@@ -46,3 +46,8 @@ reqwest = { version = "0.12", features = ["json"] }
 
 # URL encoding (for Evolution API instance names)
 urlencoding = "2"
+
+# Server ops (remote command execution)
+sysinfo = "0.33"
+socket2 = "0.5"
+http-body-util = "0.1"
