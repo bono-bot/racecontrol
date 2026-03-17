@@ -7236,6 +7236,57 @@ async fn terminal_submit(
     match result {
         Ok(_) => {
             tracing::info!("Terminal command queued: {} ({})", id, req.cmd);
+
+            // Execute locally in background for instant results (no cloud poll delay)
+            let exec_state = state.clone();
+            let exec_id = id.clone();
+            let exec_cmd = req.cmd.clone();
+            let exec_timeout = timeout_ms as u64;
+            tokio::spawn(async move {
+                use tokio::time::{timeout, Duration};
+                use tokio::process::Command;
+
+                // Mark as running
+                let _ = sqlx::query(
+                    "UPDATE terminal_commands SET status = 'running', started_at = datetime('now') WHERE id = ? AND status = 'pending'",
+                )
+                .bind(&exec_id)
+                .execute(&exec_state.db)
+                .await;
+
+                let max_output: usize = 100 * 1024;
+                let result = timeout(Duration::from_millis(exec_timeout), async {
+                    #[cfg(windows)]
+                    { Command::new("cmd").args(["/C", &exec_cmd]).kill_on_drop(true).output().await }
+                    #[cfg(not(windows))]
+                    { Command::new("sh").args(["-c", &exec_cmd]).kill_on_drop(true).output().await }
+                }).await;
+
+                let (exit_code, stdout, stderr) = match result {
+                    Ok(Ok(output)) => {
+                        let mut stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                        let mut stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                        if stdout.len() > max_output { stdout.truncate(max_output); stdout.push_str("\n... [truncated]"); }
+                        if stderr.len() > max_output { stderr.truncate(max_output); stderr.push_str("\n... [truncated]"); }
+                        (output.status.code(), stdout, stderr)
+                    }
+                    Ok(Err(e)) => (None, String::new(), format!("Failed to execute: {}", e)),
+                    Err(_) => (Some(124), String::new(), format!("Timed out after {}ms", exec_timeout)),
+                };
+
+                let _ = sqlx::query(
+                    "UPDATE terminal_commands SET status = 'completed', exit_code = ?, stdout = ?, stderr = ?, completed_at = datetime('now') WHERE id = ?",
+                )
+                .bind(exit_code)
+                .bind(&stdout)
+                .bind(&stderr)
+                .bind(&exec_id)
+                .execute(&exec_state.db)
+                .await;
+
+                tracing::info!("Terminal command {} executed locally (exit: {:?})", exec_id, exit_code);
+            });
+
             Json(json!({ "status": "queued", "id": id }))
         }
         Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
