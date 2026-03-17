@@ -6,17 +6,18 @@
 
 The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls. v2.0 delivered server IP pinning, lock screen hardening, Edge hardening, pod lockdown UI, and session results display.
 
-## Current Milestone: v5.5 Billing Credits
+## Current Milestone: v6.0 Salt Fleet Management
 
-**Goal:** Replace hardcoded paise billing tiers with DB-driven credits (1 credit = ₹1 = 100 paise), non-retroactive 3-tier per-minute rates configurable from the admin panel without a code deploy.
+**Goal:** Replace the custom pod-agent/remote_ops HTTP endpoint with SaltStack for fleet management — salt-master on WSL2 (James .27), salt-minion on all 8 pods + server (.23), remove remote_ops.rs from rc-agent, strip install.bat to essentials.
 
 **Target features:**
-- Credits as currency: all UI shows "X cr" instead of "Rs. X" (overlay, kiosk, admin, history)
-- DB-driven billing rates: `billing_rates` table with tier_order, tier_name, threshold_minutes, rate_per_min_paise
-- Non-retroactive tier calculation: 45 min = (30 × 25) + (15 × 20) = 1050 cr, not 45 × 20
-- In-memory rate cache on BillingManager — refreshed at startup and every 60s
-- Admin panel rate editor: staff update rates via UI, cache invalidated immediately
-- Rates synced to cloud via cloud_sync.rs SYNC_TABLES
+- Salt master running on WSL2 (Ubuntu) on James's machine (.27)
+- Salt minion installed silently on all 8 pods + server (.23), auto-connecting to master
+- remote_ops.rs module removed from rc-agent (port 8090 HTTP endpoint eliminated)
+- All pod-agent references removed from codebase, deploy scripts, and install.bat
+- install.bat slimmed to: Defender exclusions + rc-agent binary copy + salt-minion bootstrap
+- Deploy workflow migrated: Salt `cp.get_file` + `cmd.run` replaces HTTP server + curl pipeline
+- Fleet management via Salt: `salt 'pod*' cmd.run`, `salt 'pod*' state.apply` for config enforcement
 
 ## What This Is
 
@@ -83,14 +84,24 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Bot handles kiosk PIN failures — validation errors, staff unlock, session recovery (Phase 26)
 - ✓ Bot handles lap filtering — auto-flag invalid laps, separate hotlap vs practice (Phase 26)
 
-### Active (v5.5)
+### Completed (v5.5 — shipped 2026-03-17)
 
-- [ ] Credits replace INR in all user-facing UI — overlay, kiosk, billing history, admin
-- [ ] `billing_rates` DB table with 3 configurable tiers (non-retroactive)
-- [ ] BillingManager holds in-memory rate cache refreshed at startup and every 60s
-- [ ] `compute_session_cost()` rewritten with non-retroactive additive algorithm, accepts tiers param
-- [ ] Admin panel Per-Minute Rates table with inline editing
-- [ ] billing_rates added to SYNC_TABLES for cloud replication
+- ✓ Credits replace INR in all user-facing UI — overlay, kiosk, billing history, admin
+- ✓ `billing_rates` DB table with 3 configurable tiers (non-retroactive)
+- ✓ BillingManager holds in-memory rate cache refreshed at startup and every 60s
+- ✓ `compute_session_cost()` rewritten with non-retroactive additive algorithm, accepts tiers param
+- ✓ Admin panel Per-Minute Rates table with inline editing
+- ✓ billing_rates added to SYNC_TABLES for cloud replication
+
+### Active (v6.0)
+
+- [ ] Salt master on WSL2 (James .27) managing fleet
+- [ ] Salt minion on all 8 pods + server (.23)
+- [ ] remote_ops.rs removed from rc-agent (port 8090 eliminated)
+- [ ] Pod-agent references removed from all code, scripts, and docs
+- [ ] install.bat slimmed to Defender + rc-agent + salt-minion bootstrap
+- [ ] Deploy workflow via Salt replaces HTTP server + curl pipeline
+- [ ] Fleet management commands via Salt targeting
 
 ### Paused (v3.0 — resume after v5.0)
 
@@ -115,7 +126,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 ## Context
 
 - **Venue:** 8 gaming pods (192.168.31.x subnet), 1 server (.23), 1 James workstation (.27)
-- **Stack:** Rust/Axum (racecontrol port 8080, rc-agent per-pod), Node.js (pod-agent port 8090), Next.js (kiosk + PWA)
+- **Stack:** Rust/Axum (racecontrol port 8080, rc-agent per-pod), Salt (fleet management), Next.js (kiosk + PWA)
 - **Crates:** rc-common (shared types/protocol), racecontrol (server), rc-agent (pod client)
 - **Cloud:** app.racingpoint.cloud (72.60.101.58, Bono's VPS) — existing cloud_sync pushes laps, track records, driver stats
 - **Existing data foundations:** laps table (sector1/2/3_ms, valid flag), personal_bests, track_records, telemetry_samples, group_sessions, friendships, drivers (total_laps, total_time_ms)
@@ -126,7 +137,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 ## Constraints
 
 - **Rust/Axum:** racecontrol and rc-agent must stay Rust — no language change
-- **Pod-agent:** MERGED into rc-agent (v3.0 Phase 13.1) — remote_ops.rs module on port 8090
+- **Fleet management:** Salt (SaltStack) replaces pod-agent/remote_ops — salt-master on WSL2, salt-minion on pods
 - **No new dependencies:** Use existing crate deps where possible (tokio, reqwest, serde, chrono, tracing)
 - **Email via send_email.js:** Reuse existing Gmail auth, don't add SMTP crate
 - **Windows:** All pods run Windows 11, Session 1 requirement for GUI processes
@@ -157,4 +168,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-17 after milestone v5.5 Billing Credits started*
+*Last updated: 2026-03-17 after milestone v6.0 Salt Fleet Management started*

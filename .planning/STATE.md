@@ -1,49 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v5.5
-milestone_name: Billing Credits
-status: completed
-stopped_at: Completed 35-01-PLAN.md — UIC-01 test assertions + grep verification, 245 tests green
-last_updated: "2026-03-16T22:36:27.041Z"
-last_activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
-progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
----
-
----
-gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: RC Bot Expansion
-status: complete
-stopped_at: Completed 14-02-PLAN.md — 9 staff CRUD endpoints for hotlap events and championships, cargo build clean
-last_updated: "2026-03-16T19:29:30.779Z"
-last_activity: 2026-03-17 — Milestone v5.5 Billing Credits started
-progress:
-  [██████████] 100%
-  completed_phases: 5
-  total_plans: 19
-  completed_plans: 19
-  percent: 100
----
-
----
-gsd_state_version: 1.0
-milestone: v5.5
-milestone_name: Billing Credits
-status: roadmap_ready
-stopped_at: "Roadmap created — 3 phases (33, 34, 35), 18 requirements mapped, ready for plan-phase 33"
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: defining_requirements
+stopped_at: "Milestone v6.0 started — defining requirements"
 last_updated: "2026-03-17T00:00:00.000Z"
-last_activity: 2026-03-17 — Roadmap created for v5.5 Billing Credits
+last_activity: 2026-03-17 — Milestone v6.0 Salt Fleet Management started
 progress:
-  [__________] 0%
+  total_phases: 0
   completed_phases: 0
-  total_phases: 3
   total_plans: 0
   completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -53,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-17)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry — driving repeat visits and social sharing from a publicly accessible cloud PWA.
-**Current focus:** v5.5 Billing Credits — Phase 33: DB Schema + Billing Engine.
+**Current focus:** v6.0 Salt Fleet Management — Replace pod-agent/remote_ops with SaltStack.
 
 ## Current Position
 
-Phase: 33 — DB Schema + Billing Engine
-Plan: Not started
-Status: Roadmap ready, awaiting plan-phase 33
-Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-17 — Milestone v6.0 Salt Fleet Management started
 
 ## Accumulated Context
 
@@ -104,6 +72,7 @@ Last activity: 2026-03-17 — Roadmap created (3 phases, 18 requirements mapped)
 - Phase 27 added: Tailscale Mesh + Internet Fallback (2026-03-16)
 - v5.5 started: Billing Credits (2026-03-17)
 - Phases 33-35 added: v5.5 Billing Credits roadmap (2026-03-17)
+- v6.0 started: Salt Fleet Management (2026-03-17)
 
 ### Pending Todos
 
