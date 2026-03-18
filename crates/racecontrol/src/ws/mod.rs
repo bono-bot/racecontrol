@@ -18,6 +18,21 @@ use crate::auth;
 use crate::billing;
 use crate::game_launcher;
 use crate::state::{AppState, CachedAssistState};
+
+/// Known MAC addresses for WOL — keyed by pod ID.
+fn pod_mac_address(pod_id: &str) -> Option<String> {
+    match pod_id {
+        "pod_1" => Some("30:56:0F:05:45:88".into()),
+        "pod_2" => Some("30:56:0F:05:46:53".into()),
+        "pod_3" => Some("30:56:0F:05:44:B3".into()),
+        "pod_4" => Some("30:56:0F:05:45:25".into()),
+        "pod_5" => Some("30:56:0F:05:44:B7".into()),
+        "pod_6" => Some("30:56:0F:05:45:6E".into()),
+        "pod_7" => Some("30:56:0F:05:44:B4".into()),
+        "pod_8" => Some("30:56:0F:05:46:C5".into()),
+        _ => None,
+    }
+}
 use rc_common::protocol::{
     AgentMessage, AiChannelMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent,
 };
@@ -254,10 +269,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 if !pod_info.installed_games.is_empty() {
                                     existing.installed_games = pod_info.installed_games.clone();
                                 }
+                                // Backfill MAC address if missing (needed for WOL)
+                                if existing.mac_address.is_none() {
+                                    existing.mac_address = pod_mac_address(&pod_info.id);
+                                }
                                 existing.clone()
                             } else {
-                                pods.insert(pod_info.id.clone(), pod_info.clone());
-                                pod_info.clone()
+                                let mut new_pod = pod_info.clone();
+                                new_pod.mac_address = pod_mac_address(&pod_info.id);
+                                pods.insert(pod_info.id.clone(), new_pod.clone());
+                                new_pod
                             };
                             drop(pods);
                             let _ = state
