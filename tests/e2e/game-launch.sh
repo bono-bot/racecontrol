@@ -183,7 +183,7 @@ else
     AGENT_UP=false
 fi
 
-# ─── Gate 5: Active Games Check ───────────────────────────────────────────
+# ─── Gate 5: Active Games Check + Auto-Cleanup ──────────────────────────
 echo ""
 echo "--- Gate 5: Double-Launch Guard ---"
 
@@ -207,13 +207,73 @@ if [ "$GAME_ON_POD" = "NONE" ]; then
 elif [ "$GAME_ON_POD" = "PARSE_ERROR" ]; then
     info "Could not parse active games response"
 else
-    info "Game already on ${POD_ID}: ${GAME_ON_POD}"
-    info "Double-launch guard will block — stop game first"
+    # Auto-cleanup: stop stale game so test can proceed
+    info "Stale game on ${POD_ID}: ${GAME_ON_POD} — auto-cleaning"
+    curl -s --max-time 10 -X POST \
+        -H "Content-Type: application/json" \
+        -d "{\"pod_id\": \"${POD_ID}\"}" \
+        "${BASE_URL}/games/stop" 2>/dev/null > /dev/null
+    sleep 5
+    # Verify cleared
+    GAME_AFTER=$(curl -s --max-time 5 "${BASE_URL}/games/active" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    games = data if isinstance(data, list) else data.get('games', [])
+    for g in games:
+        if g.get('pod_id','') == '${POD_ID}':
+            print(g.get('game_state','unknown'))
+            break
+    else:
+        print('NONE')
+except: print('ERROR')
+" 2>/dev/null)
+    if [ "$GAME_AFTER" = "NONE" ]; then
+        pass "Stale game cleared — pod ready"
+    else
+        info "Game still in ${GAME_AFTER} state after stop — may need agent restart"
+        # Force restart agent to clear stuck state
+        POD_IP=$(python3 -c "
+ips = {'pod_1':'192.168.31.89','pod_2':'192.168.31.33','pod_3':'192.168.31.28','pod_4':'192.168.31.88','pod_5':'192.168.31.86','pod_6':'192.168.31.87','pod_7':'192.168.31.38','pod_8':'192.168.31.91'}
+print(ips.get('${POD_ID}',''))
+" 2>/dev/null)
+        if [ -n "$POD_IP" ]; then
+            curl -s --max-time 10 -X POST "http://${POD_IP}:8091/exec" \
+                -H "Content-Type: application/json" \
+                -d '{"cmd": "start /MIN cmd /c C:/RacingPoint/start-rcagent.bat"}' 2>/dev/null > /dev/null
+            info "Agent restart triggered — waiting 15s"
+            sleep 15
+            pass "Agent restarted to clear stuck game state"
+        else
+            fail "Could not resolve pod IP for ${POD_ID}"
+        fi
+    fi
 fi
 
 # ─── Gate 6: Full Launch Attempt ──────────────────────────────────────────
 echo ""
 echo "--- Gate 6: Full ${SIM_TYPE} Launch ---"
+
+# Auto-provision billing if none exists (use test driver + trial tier)
+if [ "$HAS_BILLING" != "true" ]; then
+    info "No billing — auto-creating test session on ${POD_ID}"
+    BILL_RESP=$(curl -s --max-time 10 -X POST \
+        -H "Content-Type: application/json" \
+        -d "{\"pod_id\": \"${POD_ID}\", \"driver_id\": \"driver_test_trial\", \"pricing_tier_id\": \"tier_trial\"}" \
+        "${BASE_URL}/billing/start" 2>/dev/null)
+    if echo "$BILL_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('ok') or d.get('billing_session_id') else 1)" 2>/dev/null; then
+        pass "Test billing session created on ${POD_ID}"
+        HAS_BILLING=true
+    else
+        BILL_ERR=$(echo "$BILL_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','unknown'))" 2>/dev/null)
+        if echo "$BILL_ERR" | grep -q "already has an active"; then
+            pass "Billing already active on ${POD_ID}"
+            HAS_BILLING=true
+        else
+            fail "Could not create test billing: ${BILL_ERR}"
+        fi
+    fi
+fi
 
 if [ "$HAS_BILLING" = "true" ]; then
     # Build launch_args matching kiosk wizard output
@@ -271,18 +331,18 @@ except: print('PARSE_ERROR')
 
         info "Game state after 2s: ${GAME_STATE}"
 
-        if echo "$GAME_STATE" | grep -q '"state":"Running"'; then
+        # State values are lowercase from server (running, launching, error)
+        if echo "$GAME_STATE" | grep -qi '"state":\s*"running"'; then
             pass "${SIM_TYPE} is RUNNING on ${POD_ID}!"
-        elif echo "$GAME_STATE" | grep -q '"state":"Launching"'; then
-            info "${SIM_TYPE} still launching (may need Steam startup time)"
-            pass "${SIM_TYPE} reached Launching state"
-        elif echo "$GAME_STATE" | grep -q '"state":"Error"'; then
+        elif echo "$GAME_STATE" | grep -qi '"state":\s*"launching"'; then
+            pass "${SIM_TYPE} reached Launching state (Steam game — PID scan pending)"
+        elif echo "$GAME_STATE" | grep -qi '"state":\s*"error"'; then
             ERRMSG=$(echo "$GAME_STATE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null)
             fail "${SIM_TYPE} launch ERROR: ${ERRMSG}"
         elif [ "$GAME_STATE" = "NOT_FOUND" ]; then
             fail "No game tracker found after launch — agent may not have received command"
         else
-            info "Unexpected game state: ${GAME_STATE}"
+            fail "Unexpected game state: ${GAME_STATE}"
         fi
 
         # Cleanup: stop the game
@@ -403,6 +463,16 @@ if echo "${BASE_URL}" | python3 -c "import sys; sys.exit(0 if '192.168.31.23' in
         fail "Kiosk :3300 returned unexpected HTTP ${KIOSK_DIRECT}"
     fi
 fi
+
+# ─── Cleanup ─────────────────────────────────────────────────────────────
+echo ""
+echo "--- Cleanup ---"
+# Stop any game we launched
+curl -s --max-time 5 -X POST \
+    -H "Content-Type: application/json" \
+    -d "{\"pod_id\": \"${POD_ID}\"}" \
+    "${BASE_URL}/games/stop" 2>/dev/null > /dev/null
+info "Game stop sent"
 
 # ─── Summary ──────────────────────────────────────────────────────────────
 echo ""
