@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: completed
-stopped_at: Completed .planning/phases/41-test-foundation/41-02-PLAN.md
-last_updated: "2026-03-18T21:45:52.969Z"
-last_activity: "2026-03-19 — Plan 41-02 complete: Playwright + cargo-nextest installed"
+status: in_progress
+stopped_at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-01-PLAN.md
+last_updated: "2026-03-19T00:22:44.000Z"
+last_activity: "2026-03-19 — Plan 42-01 complete: 97 data-testid attributes added to kiosk wizard components"
 progress:
   total_phases: 14
   completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 25
+  completed_plans: 4
+  percent: 28
 ---
 
 # Project State
@@ -25,24 +25,25 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 
 ## Current Position
 
-Phase: 41 of 44 (Test Foundation)
-Plan: 2 of 2 (complete)
-Status: Phase 41 complete — all 2 plans done, ready for Phase 42
-Last activity: 2026-03-19 — Plan 41-02 complete: Playwright + cargo-nextest installed
+Phase: 42 of 44 (Kiosk Source Prep + Browser Smoke)
+Plan: 1 of 3 (complete)
+Status: Phase 42 in progress — Plan 42-01 done, ready for 42-02 (smoke spec)
+Last activity: 2026-03-19 — Plan 42-01 complete: 97 data-testid attributes added to kiosk wizard components
 
 Progress: [██░░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2 (v7.0 milestone)
-- Average duration: 5 min
-- Total execution time: 0.17 hours
+- Total plans completed: 3 (v7.0 milestone)
+- Average duration: 7 min
+- Total execution time: 0.33 hours
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | 41-01 | 3 min | 2 | 5 |
 | 41-02 | 7 min | 2 | 6 |
+| 42-01 | 10 min | 2 | 3 |
 
 **Recent Trend:** On track
 
@@ -79,6 +80,11 @@ Progress: [██░░░░░░░░] 25%
 - cargo-nextest per-process isolation is the default — not explicitly configured in nextest.toml
 - node_modules/ was missing from root .gitignore — fixed; root node_modules was being tracked in git
 
+(Phase 42-01 — data-testid attribute decisions)
+- data-testid naming is consistent between book/page.tsx and SetupWizard.tsx for shared step names (step-select-game, step-select-plan, etc.) — Phase 43 specs work against both paths
+- wizard-back-btn applies to both back button instances in SetupWizard.tsx footer (non-review and review conditional blocks both use same testid)
+- pin-modal placed on PinModal component's outer fixed div inside the component function body (not on render call site in CustomerLanding)
+
 ### Pending Todos
 
 - Pod 3 still not verified running after fix-pod.bat — needs physical reboot + verification
@@ -88,12 +94,12 @@ Progress: [██░░░░░░░░] 25%
 ### Blockers/Concerns
 
 - v6.0 (Phases 36–40) is blocked on BIOS AMD-V — Phase 41 may start independently as pure test infrastructure
-- Phase 42 gate: data-testid audit of kiosk/src/app/book/ must confirm attributes exist or be added before wizard specs are scoped
+- Phase 42 gate: RESOLVED — 97 data-testid attributes added to book/page.tsx, SetupWizard.tsx, page.tsx in Plan 42-01
 - Phase 43 gate: Steam app IDs for EA Anti-Cheat wrapped games require manual verification on Pod 8 before launch specs are written
 
 ## Session Continuity
 
 Last session: 2026-03-19
-Stopped at: Completed .planning/phases/41-test-foundation/41-02-PLAN.md
+Stopped at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-01-PLAN.md
 Resume file: None
-Next action: `/gsd:plan-phase 42` (Phase 42 — kiosk data-testid audit)
+Next action: Execute Phase 42 Plan 02 (browser smoke spec)

@@ -12,7 +12,7 @@
 - [x] **FOUND-03**: Playwright installed with `playwright.config.ts` — bundled Chromium, `reuseExistingServer`, sequential workers
 - [ ] **FOUND-04**: Pre-test cleanup fixture — stop stale games, end billing, restart stuck agents before each test run
 - [x] **FOUND-05**: cargo-nextest configured for Rust crate tests with per-process isolation and built-in retries
-- [ ] **FOUND-06**: data-testid attributes added to kiosk wizard components for reliable Playwright selectors
+- [x] **FOUND-06**: data-testid attributes added to kiosk wizard components for reliable Playwright selectors
 - [ ] **FOUND-07**: UI user navigation simulation — keyboard navigation (Tab, Enter, Escape), touch/click targets, scroll behavior
 
 ### Browser Tests
@@ -67,7 +67,7 @@
 | FOUND-03 | Phase 41 | Complete |
 | FOUND-05 | Phase 41 | Complete |
 | FOUND-04 | Phase 42 | Pending |
-| FOUND-06 | Phase 42 | Pending |
+| FOUND-06 | Phase 42 | Complete |
 | FOUND-07 | Phase 42 | Pending |
 | BROW-01 | Phase 42 | Pending |
 | BROW-07 | Phase 42 | Pending |

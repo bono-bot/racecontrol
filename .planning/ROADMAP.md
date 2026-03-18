@@ -94,6 +94,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 47: Local LLM Fleet Deployment** - Ollama + qwen3:0.6b + rp-debug model installed and verified on all 8 pods, rc-agent TOML pointing to localhost:11434, ai_debugger falls back to local model before OpenRouter, self_monitor uses local Ollama for CLOSE_WAIT diagnosis instead of striking out after 5min
 - [ ] **Phase 48: Dynamic Kiosk Allowlist** - Server endpoint GET /api/v1/config/kiosk-allowlist, admin panel UI for adding/removing allowed processes, rc-agent fetches allowlist on startup + every 5 min, merges with hardcoded baseline, eliminates the #1 most frequent manual intervention (6+ incidents of false lockdowns requiring code change + rebuild + redeploy)
 - [ ] **Phase 49: Session Lifecycle Autonomy** - Auto-end orphaned billing sessions after configurable threshold (TOML: auto_end_orphan_session_secs), auto-reset pod to idle 30s after session end, game crash pauses billing with auto-resume on relaunch (max 2 retries before auto-end), fast WS reconnect path (skip relaunch if reconnect succeeds within 30s)
+- [ ] **Phase 50: LLM Self-Test + E2E Integration** - self_test.rs with 18 deterministic probes (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam), local LLM verdict (HEALTHY/DEGRADED/CRITICAL) with correlation and auto-fix recommendations, server /api/v1/pods/{id}/self-test endpoint, fleet health dashboard integration, E2E pod-health.sh uses self-test API, expanded auto-fix patterns 8-14 (DirectX reset, shader cache clear, memory cleanup, DLL repair, Steam repair, performance mode, network reset)
 
 ## Phase Details
 
@@ -294,9 +295,9 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44 → 45 → 46 → 47 → 48 → 49
+Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44 → 45 → 46 → 47 → 48 → 49 → 50
 
-Note: v8.0 phases 45–49 have minimal dependencies and can begin in parallel with v7.0 E2E tests. Phases 45 (CLOSE_WAIT) and 46 (Panic Hook) have no dependencies. Phase 47 (LLM Fleet) depends on 45. Phase 48 (Dynamic Allowlist) has no dependencies. Phase 49 (Session Lifecycle) depends on 46.
+Note: v8.0 phases 45–50 have minimal dependencies and can begin in parallel with v7.0 E2E tests. Phases 45 (CLOSE_WAIT) and 46 (Panic Hook) have no dependencies. Phase 47 (LLM Fleet) depends on 45. Phase 48 (Dynamic Allowlist) has no dependencies. Phase 49 (Session Lifecycle) depends on 46. Phase 50 (Self-Test) depends on 46+47 and integrates with v7.0 Phase 44 (E2E Master Script).
 
 Note: Phase 36 (WSL2 Infrastructure) is the non-negotiable critical path — the mirrored networking and Hyper-V firewall must be verified from an actual pod before any minion is installed or any Rust code is written. Phase 37 (Pod 8 Canary) validates the networking with a real minion and rewrites install.bat — this template is reused in Phase 40. Phase 38 (salt_exec.rs) must compile and be tested against live Pod 8 before any module is considered migrated. Phase 39 (remote_ops.rs Removal) requires characterization tests before any deletion — Refactor Second standing rule. Phase 40 (Fleet Rollout) is the irreversible step; no billing session should be interrupted.
 
@@ -346,7 +347,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 39. remote_ops.rs Removal | v6.0 | 0/3 | Not started | - |
 | 40. Fleet Rollout | v6.0 | 0/2 | Not started | - |
 | 41. Test Foundation | v7.0 | Complete    | 2026-03-18 | 2026-03-19 |
-| 42. Kiosk Source Prep + Browser Smoke | v7.0 | 0/2 | Not started | - |
+| 42. Kiosk Source Prep + Browser Smoke | 1/2 | In Progress|  | - |
 | 43. Wizard Flows + API Pipeline Tests | v7.0 | 0/? | Not started | - |
 | 44. Deploy Verification + Master Script | v7.0 | 0/? | Not started | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | v8.0 | 0/? | Not started | - |
@@ -354,3 +355,4 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 47. Local LLM Fleet Deployment | v8.0 | 0/? | In progress | - |
 | 48. Dynamic Kiosk Allowlist | v8.0 | 0/? | Not started | - |
 | 49. Session Lifecycle Autonomy | v8.0 | 0/? | Not started | - |
+| 50. LLM Self-Test + E2E Integration | v8.0 | 0/? | Not started | - |
