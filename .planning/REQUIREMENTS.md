@@ -18,11 +18,11 @@
 ### Browser Tests
 
 - [x] **BROW-01**: Kiosk page smoke — all pages load (200), no SSR errors, no React error boundaries
-- [ ] **BROW-02**: AC wizard flow — full 13-step flow with track/car selection, AI config, driving settings
-- [ ] **BROW-03**: Non-AC wizard flow — simplified 5-step flow (game → experience → review) for F1 25, EVO, Rally, iRacing
-- [ ] **BROW-04**: Staff mode booking — `?staff=true&pod=pod-8` bypass path tested end-to-end
-- [ ] **BROW-05**: Experience filtering — only selected game's experiences appear, Custom button hidden for non-AC
-- [ ] **BROW-06**: UI navigation — page transitions, back/forward, step indicators update correctly
+- [x] **BROW-02**: AC wizard flow — full 13-step flow with track/car selection, AI config, driving settings
+- [x] **BROW-03**: Non-AC wizard flow — simplified 5-step flow (game → experience → review) for F1 25, EVO, Rally, iRacing
+- [x] **BROW-04**: Staff mode booking — `?staff=true&pod=pod-8` bypass path tested end-to-end
+- [x] **BROW-05**: Experience filtering — only selected game's experiences appear, Custom button hidden for non-AC
+- [x] **BROW-06**: UI navigation — page transitions, back/forward, step indicators update correctly
 - [x] **BROW-07**: Screenshot on failure — capture screenshot + DOM snapshot when any browser test fails for debugging
 
 ### API & Launch
@@ -71,11 +71,11 @@
 | FOUND-07 | Phase 42 | Complete |
 | BROW-01 | Phase 42 | Complete |
 | BROW-07 | Phase 42 | Complete |
-| BROW-02 | Phase 43 | Pending |
-| BROW-03 | Phase 43 | Pending |
-| BROW-04 | Phase 43 | Pending |
-| BROW-05 | Phase 43 | Pending |
-| BROW-06 | Phase 43 | Pending |
+| BROW-02 | Phase 43 | Complete |
+| BROW-03 | Phase 43 | Complete |
+| BROW-04 | Phase 43 | Complete |
+| BROW-05 | Phase 43 | Complete |
+| BROW-06 | Phase 43 | Complete |
 | API-01 | Phase 43 | Pending |
 | API-02 | Phase 43 | Pending |
 | API-03 | Phase 43 | Pending |

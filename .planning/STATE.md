@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-02-PLAN.md
-last_updated: "2026-03-18T22:48:47.250Z"
+stopped_at: Completed .planning/phases/43-wizard-flows-api-pipeline-tests/43-01-PLAN.md
+last_updated: "2026-03-18T23:14:47.437Z"
 last_activity: "2026-03-18 — Plan 42-02 complete: cleanup fixture + 4-test smoke suite (3 routes + keyboard nav)"
 progress:
   total_phases: 14
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
   percent: 83
 ---
 
@@ -49,6 +49,7 @@ Progress: [████████░░] 83%
 **Recent Trend:** On track
 
 *Updated after each plan completion*
+| Phase 43 P01 | 1 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,9 @@ Progress: [████████░░] 83%
 - [Phase 42]: jsErrors array scoped to module level (not testInfo metadata) — simpler than testInfo cast approach; workers:1 means no concurrency issue
 - [Phase 42]: outputDir set to ./tests/e2e/results/ — collocates screenshots with test source, not at repo root test-results/
 - [Phase 42]: Keyboard nav test accepts either advanced or stayed on plan step — only asserts Tab/Enter cause no JS errors as regression guard
+- [Phase 43]: AC wizard BROW-02 tests preset path only (default experienceMode=preset) — custom track/car path separate concern
+- [Phase 43]: session_splits and driving_settings steps use 3s isVisible guards — test survives different tier configs on live server
+- [Phase 43]: Experience DB guards: empty experience list is non-fatal — step rendered without experiences is acceptable behavior
 
 ### Pending Todos
 
@@ -103,7 +107,7 @@ Progress: [████████░░] 83%
 
 ## Session Continuity
 
-Last session: 2026-03-18T22:29:16.328Z
-Stopped at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-02-PLAN.md
+Last session: 2026-03-18T23:14:47.434Z
+Stopped at: Completed .planning/phases/43-wizard-flows-api-pipeline-tests/43-01-PLAN.md
 Resume file: None
 Next action: Execute Phase 43 (wizard specs)
