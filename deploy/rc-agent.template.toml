@@ -22,6 +22,14 @@ use_steam = true
 steam_app_id = 3059520
 use_steam = true
 
+[games.assetto_corsa_evo]
+steam_app_id = 3058630
+use_steam = true
+
+[games.assetto_corsa_rally]
+steam_app_id = 3917090
+use_steam = true
+
 [games.le_mans_ultimate]
 steam_app_id = 1564310
 use_steam = true
