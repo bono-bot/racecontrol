@@ -234,7 +234,11 @@ Plans:
   2. `deploy/verify.sh` detects an EADDRINUSE condition after kiosk restart, polls until port 3300 is free (up to 30s), and only then starts the new kiosk process — the port-free poll loop prevents the documented bind failure
   3. `deploy/verify.sh` verifies binary size changed after a swap, confirms racecontrol process is running on port 8080, and checks `/api/v1/fleet/health` shows all 8 agents reconnected — the full deploy verification sequence completes against Pod 8 as canary
   4. Test failures and error screenshots captured during the run are passed to the AI debugger error log — the `DEPL-04` routing is wired and a test failure produces an entry in the AI debugger input
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 44-01-PLAN.md — Deploy verification script: binary swap, port conflict, fleet health, AI debugger routing (DEPL-01, DEPL-02, DEPL-04)
+- [ ] 44-02-PLAN.md — Master run-all.sh orchestrator: phase-gated sequential runner with summary.json (DEPL-03)
 
 ### Phase 45: CLOSE_WAIT Fix + Connection Hygiene
 **Goal**: Eliminate the CLOSE_WAIT socket leak on port 8090 that causes 5/8 pods to accumulate 100-134 stuck sockets and trigger unnecessary self-relaunches every ~5 minutes — fix the remote_ops axum server to properly close HTTP connections, fix fleet_health.rs to reuse a shared reqwest client, add SO_REUSEADDR to all UDP game telemetry sockets, mark UDP sockets non-inheritable (matching ea30ca3 treatment for :8090), and increase exec slots from 4→8 or separate health checks from exec pool
@@ -353,7 +357,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 41. Test Foundation | v7.0 | Complete    | 2026-03-18 | 2026-03-19 |
 | 42. Kiosk Source Prep + Browser Smoke | 2/2 | Complete    | 2026-03-18 | - |
 | 43. Wizard Flows + API Pipeline Tests | 2/2 | Complete    | 2026-03-18 | - |
-| 44. Deploy Verification + Master Script | v7.0 | 0/? | Not started | - |
+| 44. Deploy Verification + Master Script | v7.0 | 0/2 | Not started | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | v8.0 | 0/? | Not started | - |
 | 46. Crash Safety + Panic Hook | v8.0 | 0/? | Not started | - |
 | 47. Local LLM Fleet Deployment | v8.0 | 0/? | In progress | - |
