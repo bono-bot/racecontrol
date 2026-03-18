@@ -102,6 +102,12 @@ This plan is blocked at Task 1 before any task commit could be made. The `.wslco
 - WSL2 install command is ready: `wsl --install -d Ubuntu-24.04 --no-launch`
 - All subsequent steps (wsl.conf, salt install, firewall) are fully documented in the plan
 
+## Self-Check: PASSED
+
+- FOUND: `C:/Users/bono/.wslconfig` (created, contains networkingMode=mirrored)
+- FOUND: `.planning/phases/36-wsl2-infrastructure/36-01-SUMMARY.md`
+- Commit `9e178be`: docs(36-01): partial plan execution — blocked at BIOS AMD-V gate
+
 ---
 *Phase: 36-wsl2-infrastructure*
 *Completed: 2026-03-17 (partial — BIOS gate)*

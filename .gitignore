@@ -10,3 +10,22 @@ pwa/.next
 .next
 .env
 *.log
+
+# Test/build output files
+*-out.txt
+*-err.txt
+*_out.txt
+*_err.txt
+test_exit.txt
+verify_exit.txt
+test_output.txt
+test_stderr.txt
+build-out.txt
+agent-err.txt
+
+# Python cache
+__pycache__/
+
+# Kiosk
+kiosk/node_modules
+kiosk/.next
