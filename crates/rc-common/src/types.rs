@@ -102,6 +102,12 @@ pub struct PodInfo {
     pub current_game: Option<SimType>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub installed_games: Vec<SimType>,
+    /// Whether the pod screen is currently blanked (black screen between sessions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen_blanked: Option<bool>,
+    /// Current FFB preset: "light", "medium", or "strong".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ffb_preset: Option<String>,
 }
 
 // ─── Driver ──────────────────────────────────────────────────────────────────

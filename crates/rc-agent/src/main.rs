@@ -410,6 +410,8 @@ async fn main() -> Result<()> {
         game_state: None,
         current_game: None,
         installed_games: installed_games.clone(),
+        screen_blanked: None,
+        ffb_preset: None,
     };
 
     // Firewall auto-config — ensure ICMP + TCP 8090 rules exist (FW-01, FW-02, FW-03)
@@ -669,6 +671,8 @@ async fn main() -> Result<()> {
             driving_state: Some(detector.state()),
             game_state: game_process.as_ref().map(|g| g.state),
             current_game: game_process.as_ref().map(|g| g.sim_type),
+            screen_blanked: Some(lock_screen.is_blanked()),
+            ffb_preset: Some("medium".to_string()),
             ..pod_info.clone()
         });
         let json = serde_json::to_string(&register_msg)?;
@@ -748,6 +752,7 @@ async fn main() -> Result<()> {
         // Phase 6: Cache last-sent FFB gain percentage for QueryAssistState responses.
         // Default 70% (medium preset) — could read from controls.ini GAIN= at startup.
         let mut last_ffb_percent: u8 = 70;
+        let mut last_ffb_preset: String = "medium".to_string();
         // Phase 11: Telemetry accumulators for session summary stats (SESS-01, SESS-02).
         // Reset on BillingStarted, passed to show_session_summary on SessionEnded.
         let mut session_max_speed_kmh: f32 = 0.0;
@@ -762,6 +767,8 @@ async fn main() -> Result<()> {
                         driving_state: Some(detector.state()),
                         game_state: game_process.as_ref().map(|g| g.state),
                         current_game: game_process.as_ref().map(|g| g.sim_type),
+                        screen_blanked: Some(lock_screen.is_blanked()),
+                        ffb_preset: Some(last_ffb_preset.clone()),
                         ..pod_info.clone()
                     });
                     let json = serde_json::to_string(&hb)?;
@@ -1886,6 +1893,11 @@ async fn main() -> Result<()> {
                                 rc_common::protocol::CoreToAgentMessage::SetFfb { preset } => {
                                     // Phase 6: parse as percent if numeric, otherwise use legacy preset lookup
                                     tracing::info!("Setting FFB to '{}' mid-session", preset);
+                                    // Track preset name for heartbeat reporting
+                                    match preset.as_str() {
+                                        "light" | "medium" | "strong" => last_ffb_preset = preset.clone(),
+                                        _ => {} // numeric or unknown — don't update preset name
+                                    }
                                     if let Ok(percent) = preset.parse::<u8>() {
                                         match ffb.set_gain(percent) {
                                             Ok(true) => {

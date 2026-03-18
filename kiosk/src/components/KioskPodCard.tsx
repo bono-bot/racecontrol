@@ -298,7 +298,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
             </button>
           )}
           {/* Blank screen toggle — available when online */}
-          {!isOffline && <BlankScreenButton podId={pod.id} />}
+          {!isOffline && <BlankScreenButton podId={pod.id} screenBlanked={pod.screen_blanked} />}
           <StateLabel state={state} isOffline={isOffline} gameInfo={gameInfo} />
         </div>
       </div>
@@ -486,7 +486,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
                 </button>
               )}
               <TransmissionToggle podId={pod.id} />
-              <FfbToggle podId={pod.id} />
+              <FfbToggle podId={pod.id} currentPreset={pod.ffb_preset} />
               <button
                 onClick={(e) => { e.stopPropagation(); onExtendSession(billing.id); }}
                 className="flex-1 px-2 py-1 text-xs border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded transition-colors"
@@ -595,9 +595,14 @@ function TransmissionToggle({ podId }: { podId: string }) {
 const FFB_CYCLE = ["light", "medium", "strong"] as const;
 const FFB_LABELS: Record<string, string> = { light: "FFB Lo", medium: "FFB Mid", strong: "FFB Hi" };
 
-function FfbToggle({ podId }: { podId: string }) {
-  const [preset, setPreset] = useState<string>("medium");
+function FfbToggle({ podId, currentPreset }: { podId: string; currentPreset?: string }) {
+  const [preset, setPreset] = useState<string>(currentPreset || "medium");
   const [busy, setBusy] = useState(false);
+
+  // Sync with pod heartbeat state
+  useEffect(() => {
+    if (currentPreset) setPreset(currentPreset);
+  }, [currentPreset]);
 
   const cycle = async () => {
     const idx = FFB_CYCLE.indexOf(preset as typeof FFB_CYCLE[number]);
@@ -629,9 +634,14 @@ function FfbToggle({ podId }: { podId: string }) {
   );
 }
 
-function BlankScreenButton({ podId }: { podId: string }) {
-  const [blanked, setBlanked] = useState(false);
+function BlankScreenButton({ podId, screenBlanked }: { podId: string; screenBlanked?: boolean }) {
+  const [blanked, setBlanked] = useState(screenBlanked ?? false);
   const [busy, setBusy] = useState(false);
+
+  // Sync with pod heartbeat state
+  useEffect(() => {
+    if (screenBlanked !== undefined) setBlanked(screenBlanked);
+  }, [screenBlanked]);
 
   const toggle = async (e: React.MouseEvent) => {
     e.stopPropagation();

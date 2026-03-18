@@ -49,6 +49,8 @@ export interface Pod {
   game_state?: GameState;
   current_game?: string;
   installed_games?: string[];
+  screen_blanked?: boolean;
+  ffb_preset?: string;
 }
 
 // ─── Telemetry ────────────────────────────────────────────────────────────
