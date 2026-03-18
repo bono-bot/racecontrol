@@ -145,6 +145,21 @@ pub enum AgentMessage {
         reason: PodFailureReason,
         session_id: Option<String>,
     },
+
+    /// Agent detected a persistent unknown process and temporarily allowed it.
+    /// Server should approve or reject within the TTL window.
+    ProcessApprovalRequest {
+        pod_id: String,
+        process_name: String,
+        exe_path: String,
+        sighting_count: u32,
+    },
+
+    /// Agent locked down the kiosk after a process was rejected or approval timed out.
+    KioskLockdown {
+        pod_id: String,
+        reason: String,
+    },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -318,6 +333,16 @@ pub enum CoreToAgentMessage {
         cmd: String,
         #[serde(default = "default_exec_timeout_ms")]
         timeout_ms: u64,
+    },
+
+    /// Approve a temporarily-allowed process (add to permanent learned allowlist)
+    ApproveProcess {
+        process_name: String,
+    },
+
+    /// Reject a temporarily-allowed process (kill it + lock kiosk with staff message)
+    RejectProcess {
+        process_name: String,
     },
 }
 

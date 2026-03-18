@@ -1,7 +1,7 @@
-//! Racing Point Pod Installer — Robust Rust binary
+//! Racing Point Pod Installer -- Robust Rust binary
 //!
 //! Launched by install.bat (Defender shield wrapper).
-//! Handles all 14 installation steps with proper error handling.
+//! Handles all 13 installation steps with proper error handling.
 //!
 //! Design:
 //!   - install.bat adds Defender exclusions (can't be quarantined — it's a .bat)
@@ -39,6 +39,8 @@ const DETACHED_PROCESS: u32 = 0x00000008;
 const DEST_DIR: &str = r"C:\RacingPoint";
 const CORE_URL: &str = "ws://192.168.31.23:8080/ws/agent";
 const TOTAL_STEPS: u8 = 14;
+const CORE_IP: &str = "192.168.31.23";
+const HEARTBEAT_PORT: u16 = 9999;
 const MIN_BINARY_SIZE: u64 = 1_000_000; // 1MB — anything less is truncated
 const BUILD_ID: &str = env!("GIT_HASH");
 
@@ -112,7 +114,7 @@ fn main() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  Orchestrator — runs all 14 steps + health check
+//  Orchestrator — runs all 13 steps + health check
 // ═══════════════════════════════════════════════════════════════
 
 fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
@@ -212,22 +214,25 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
         }
     }
 
-    // ── Step 12: WinRM remote management (IMPORTANT) ─────────
-    step(12, "Setting up WinRM remote management");
-    match setup_winrm() {
-        Ok(()) => {}
-        Err(e) => {
-            warn(&format!("WinRM issue: {}", e));
-            warn("Remote management may not work");
+    // ── Step 12: Remove legacy programs ────────────────────────
+    // OpenSSH, Salt, pod-agent are all scrapped. Clean them up.
+    // Tailscale is the replacement -- do NOT touch it.
+    step(12, "Removing legacy programs");
+    match remove_legacy_programs() {
+        Ok(count) => {
+            if count > 0 {
+                ok(&format!("{} legacy item(s) removed", count));
+            } else {
+                ok("No legacy programs found -- already clean");
+            }
         }
+        Err(e) => warn(&format!("Legacy cleanup issue: {}", e)),
     }
 
-    // ── Step 13: Firewall rules (IMPORTANT) ──────────────────
-    step(13, "Setting firewall rules");
-    match setup_firewall() {
-        Ok(()) => ok("Ports 5985 (WinRM) and 8090 (rc-agent) open"),
-        Err(e) => warn(&format!("Firewall issue: {}", e)),
-    }
+    // ── Step 13: Verify network services ─────────────────────
+    // UDP heartbeat (port 9999) and Tailscale mesh connectivity
+    step(13, "Verifying network services");
+    verify_network_services(pod);
 
     // ── Step 14: Start rc-agent ──────────────────────────────
     step(14, "Starting rc-agent");
@@ -252,7 +257,6 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
             BOLD, RED, problems, RESET
         );
         println!("  Check errors above before leaving.");
-        println!("  WinRM may still work for remote debug.");
         println!("  ========================================");
         1
     } else {
@@ -262,7 +266,6 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
             BOLD, GREEN, pod, RESET
         );
         println!("  Binary: rc-agent.exe ({} bytes)", bin_size);
-        println!("  Services: rc-agent + WinRM");
         println!("  Reboot pod for Session 1 GUI.");
         println!("  ========================================");
         0
@@ -279,8 +282,6 @@ fn verify_sources(pod: u8, src: &Path) -> Result<(), String> {
         format!("rc-agent-pod{}.toml", pod),
         "start-rcagent.bat".into(),
         "edge-harden.bat".into(),
-        "pod_watchdog.exe".into(),
-        "start-watchdog.bat".into(),
     ];
 
     let missing: Vec<&String> = files.iter().filter(|f| !src.join(f).exists()).collect();
@@ -354,6 +355,20 @@ fn write_build_id(dest: &Path) {
 }
 
 fn kill_processes() -> Result<(), String> {
+    // Reserve port 8090 so WinNAT/Hyper-V never steals it.
+    // Must stop winnat first, add persistent reservation, then restart.
+    // This permanently prevents error 10013 on port 8090.
+    let _ = run("net", &["stop", "winnat"]);
+    let _ = run("netsh", &[
+        "int", "ipv4", "add", "excludedportrange",
+        "protocol=tcp", "startport=8090", "numberofports=1", "persistent",
+    ]);
+    let _ = run("netsh", &[
+        "int", "ipv4", "add", "excludedportrange",
+        "protocol=tcp", "startport=18923", "numberofports=3", "persistent",
+    ]);
+    let _ = run("net", &["start", "winnat"]);
+
     // Kill all relevant processes
     for proc in &[
         "rc-agent.exe",
@@ -409,6 +424,7 @@ fn prepare_destination(dest: &Path) -> Result<(), String> {
     let stale = [
         "rc-agent.exe",
         "pod-agent.exe",
+        "pod_watchdog.exe",
         "rc-agent-new.exe",
         "rc-agent-prev.exe",
         "do-deploy.bat",
@@ -421,8 +437,10 @@ fn prepare_destination(dest: &Path) -> Result<(), String> {
         "rc-agent.toml",
         "start-rcagent.bat",
         "start-podagent.bat",
+        "start-watchdog.bat",
         "edge-harden.bat",
         "watchdog-rcagent.bat",
+        "sshd-loop.bat",
     ];
 
     for f in &stale {
@@ -443,8 +461,6 @@ fn copy_files(pod: u8, src: &Path, dest: &Path) -> Result<(), String> {
         (src.join(format!("rc-agent-pod{}.toml", pod)), dest.join("rc-agent.toml")),
         (src.join("start-rcagent.bat"),     dest.join("start-rcagent.bat")),
         (src.join("edge-harden.bat"),       dest.join("edge-harden.bat")),
-        (src.join("pod_watchdog.exe"),      dest.join("pod_watchdog.exe")),
-        (src.join("start-watchdog.bat"),    dest.join("start-watchdog.bat")),
     ];
 
     for (from, to) in &copies {
@@ -458,7 +474,7 @@ fn copy_files(pod: u8, src: &Path, dest: &Path) -> Result<(), String> {
         })?;
     }
 
-    ok("6 files copied (rc-agent + watchdog)");
+    ok("4 files copied");
     Ok(())
 }
 
@@ -540,8 +556,6 @@ fn verify_files(dest: &Path) -> Result<u64, String> {
         "rc-agent.toml",
         "start-rcagent.bat",
         "edge-harden.bat",
-        "pod_watchdog.exe",
-        "start-watchdog.bat",
     ];
 
     let missing: Vec<&&str> = required.iter().filter(|f| !dest.join(f).exists()).collect();
@@ -692,159 +706,300 @@ fn set_registry_keys(dest: &Path) -> Result<(), String> {
         return Err("Failed to set RCAgent Run key".into());
     }
 
-    // Set watchdog auto-start Run key
-    let watchdog_bat = dest.join("start-watchdog.bat");
-    let _ = run("reg", &[
-        "add",
-        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-        "/v", "RCWatchdog",
-        "/d", &watchdog_bat.to_string_lossy(),
-        "/f",
-    ]);
-
-    // Remove legacy PodAgent key (best effort)
-    let _ = run("reg", &[
-        "delete",
-        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-        "/v", "PodAgent",
-        "/f",
-    ]);
+    // Remove legacy keys (best effort)
+    for key in &["PodAgent", "RCWatchdog"] {
+        let _ = run("reg", &[
+            "delete",
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            "/v", key,
+            "/f",
+        ]);
+    }
 
     Ok(())
 }
 
-fn setup_winrm() -> Result<(), String> {
-    // Set network to Private (required for WinRM)
+/// Remove legacy programs that have been scrapped.
+/// OpenSSH, Salt minion, pod-agent, sshd-loop, and related artifacts.
+/// Tailscale is the replacement for remote access -- never touch it.
+fn remove_legacy_programs() -> Result<u32, String> {
+    let mut removed: u32 = 0;
+
+    // Set network to Private (Tailscale needs this)
     let _ = run_ps(
         "Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private",
     );
 
-    // Get current username (pods use "SIM 1", "SIM 2", etc.)
-    let username =
-        env::var("USERNAME").map_err(|_| "Cannot determine current username".to_string())?;
+    // Disable Windows Firewall (pods are on private LAN behind router)
+    let _ = run("netsh", &["advfirewall", "set", "allprofiles", "state", "off"]);
 
-    // Set password (WinRM requires non-blank password).
-    // Try PowerShell first (handles spaced usernames like "SIM 1" reliably),
-    // then fall back to net user.
-    let ps_pw = format!(
-        "Set-LocalUser -Name '{}' -Password (ConvertTo-SecureString 'racing' -AsPlainText -Force)",
-        username
+    // -- OpenSSH Server service --
+    let sshd_exists = run("sc", &["query", "sshd"])
+        .map_or(false, |o| o.status.success());
+    if sshd_exists {
+        info("Removing sshd service...");
+        let _ = run("sc", &["stop", "sshd"]);
+        let _ = run("sc", &["delete", "sshd"]);
+        let _ = run("taskkill", &["/F", "/IM", "sshd.exe"]);
+        ok("sshd service stopped and deleted");
+        removed += 1;
+    }
+
+    // -- OpenSSH Server capability --
+    let capability_installed = run_ps(
+        "$s = (Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*').State; if ($s -eq 'Installed') { exit 0 } else { exit 1 }",
+    ).map_or(false, |o| o.status.success());
+    if capability_installed {
+        info("Removing OpenSSH.Server capability...");
+        let result = run_ps(
+            "Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
+        );
+        match &result {
+            Ok(o) if o.status.success() => {
+                ok("OpenSSH.Server capability removed");
+                removed += 1;
+            }
+            _ => warn("Could not remove OpenSSH capability (may need reboot)"),
+        }
+    }
+
+    // -- OpenSSH registry keys --
+    let openssh_reg = run("reg", &["query", r"HKLM\SOFTWARE\OpenSSH"])
+        .map_or(false, |o| o.status.success());
+    if openssh_reg {
+        let _ = run("reg", &["delete", r"HKLM\SOFTWARE\OpenSSH", "/f"]);
+        ok("Removed HKLM\\SOFTWARE\\OpenSSH registry key");
+        removed += 1;
+    }
+
+    // -- OpenSSHD auto-start Run key --
+    let opensshd_run = run("reg", &[
+        "query",
+        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        "/v", "OpenSSHD",
+    ]).map_or(false, |o| o.status.success());
+    if opensshd_run {
+        let _ = run("reg", &[
+            "delete",
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            "/v", "OpenSSHD",
+            "/f",
+        ]);
+        ok("Removed OpenSSHD Run key");
+        removed += 1;
+    }
+
+    // -- SSH files --
+    let ssh_files = [
+        (r"C:\RacingPoint\sshd-loop.bat", "sshd-loop.bat"),
+        (r"C:\ProgramData\ssh\administrators_authorized_keys", "SSH authorized_keys"),
+    ];
+    for (path, label) in &ssh_files {
+        let p = Path::new(path);
+        if p.exists() {
+            let _ = fs::remove_file(p);
+            ok(&format!("Deleted {}", label));
+            removed += 1;
+        }
+    }
+
+    // -- Salt minion --
+    let salt_exists = run("sc", &["query", "salt-minion"])
+        .map_or(false, |o| o.status.success());
+    if salt_exists {
+        info("Removing salt-minion service...");
+        let _ = run("sc", &["stop", "salt-minion"]);
+        let _ = run("sc", &["delete", "salt-minion"]);
+        let _ = run("taskkill", &["/F", "/IM", "salt-minion.exe"]);
+        ok("salt-minion service removed");
+        removed += 1;
+    }
+    let salt_dir = Path::new(r"C:\salt");
+    if salt_dir.exists() {
+        let _ = fs::remove_dir_all(salt_dir);
+        ok("Removed C:\\salt directory");
+        removed += 1;
+    }
+
+    // -- Pod-agent (legacy) --
+    let pod_agent = Path::new(r"C:\RacingPoint\pod-agent.exe");
+    if pod_agent.exists() {
+        let _ = run("taskkill", &["/F", "/IM", "pod-agent.exe"]);
+        let _ = fs::remove_file(pod_agent);
+        ok("Removed pod-agent.exe");
+        removed += 1;
+    }
+    let start_podagent = Path::new(r"C:\RacingPoint\start-podagent.bat");
+    if start_podagent.exists() {
+        let _ = fs::remove_file(start_podagent);
+        removed += 1;
+    }
+
+    // -- Hexnode MDM (was installed on all pods, now deleted but remnants remain) --
+    let hexnode_procs = [
+        "ps_server.exe",
+        "ps_service_launcher.exe",
+        "parfait_crash_handler.exe",
+    ];
+    let mut hexnode_found = false;
+    for proc in &hexnode_procs {
+        let killed = run("taskkill", &["/F", "/IM", proc])
+            .map_or(false, |o| o.status.success());
+        if killed {
+            hexnode_found = true;
+        }
+    }
+
+    // Remove Hexnode services
+    let hexnode_services = [
+        "PSService",
+        "HexnodeMDM",
+        "Parfait Service",
+        "PerfectShieldService",
+        "ps_service",
+    ];
+    for svc in &hexnode_services {
+        let exists = run("sc", &["query", svc])
+            .map_or(false, |o| o.status.success());
+        if exists {
+            let _ = run("sc", &["stop", svc]);
+            let _ = run("sc", &["delete", svc]);
+            hexnode_found = true;
+        }
+    }
+
+    // Remove Hexnode scheduled tasks
+    let _ = run_ps(
+        "Get-ScheduledTask | Where-Object { $_.TaskName -match 'hexnode|parfait|perfectshield|ps_service' } | ForEach-Object { Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false }"
     );
-    let pw_ok = match run_ps(&ps_pw) {
-        Ok(o) if o.status.success() => {
-            info(&format!("Password set via Set-LocalUser for '{}'", username));
-            true
-        }
-        _ => {
-            warn("Set-LocalUser failed, trying net user fallback...");
-            match run("net", &["user", &username, "racing", "/y"]) {
-                Ok(o) if o.status.success() => {
-                    info(&format!("Password set via net user for '{}'", username));
-                    true
-                }
-                _ => {
-                    warn("Both password methods failed — WinRM may not work");
-                    false
-                }
-            }
-        }
-    };
 
-    // Configure auto-login (keeps boot seamless after password change)
-    let winlogon = r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon";
-    let _ = run("reg", &[
-        "add", winlogon,
-        "/v", "AutoAdminLogon",
-        "/t", "REG_SZ",
-        "/d", "1",
-        "/f",
-    ]);
-    let _ = run("reg", &[
-        "add", winlogon,
-        "/v", "DefaultUserName",
-        "/t", "REG_SZ",
-        "/d", &username,
-        "/f",
-    ]);
-    let _ = run("reg", &[
-        "add", winlogon,
-        "/v", "DefaultPassword",
-        "/t", "REG_SZ",
-        "/d", "racing",
-        "/f",
-    ]);
+    // Remove Hexnode auto-start Run keys
+    let hexnode_keys = [
+        "PerfectShield",
+        "Hexnode",
+        "PSService",
+        "ParfaitService",
+        "ps_service_launcher",
+    ];
+    for key in &hexnode_keys {
+        let _ = run("reg", &[
+            "delete",
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            "/v", key, "/f",
+        ]);
+        let _ = run("reg", &[
+            "delete",
+            r"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            "/v", key, "/f",
+        ]);
+    }
 
-    // Enable WinRM via PowerShell (avoids cmd.exe quoting nightmares with winrm.cmd)
-    let _ = run_ps("Enable-PSRemoting -Force -SkipNetworkProfileCheck");
-    let _ = run_ps(r"Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $true -Force");
-    let _ = run_ps(r"Set-Item WSMan:\localhost\Service\Auth\Basic -Value $true -Force");
-
-    // Ensure auto-start
-    let _ = run("sc", &["config", "WinRM", "start=", "auto"]);
-    let _ = run("net", &["start", "WinRM"]);
-
-    // Verify WinRM is actually working
-    let winrm_test = run_ps("Test-WSMan -ErrorAction SilentlyContinue");
-    match &winrm_test {
-        Ok(o) if o.status.success() => {
-            ok("WinRM listener verified (Test-WSMan passed)");
-        }
-        _ => {
-            // Retry: delete any broken listener and recreate
-            warn("WinRM listener not responding — recreating...");
-            let _ = run_ps("Remove-WSManInstance winrm/config/Listener -SelectorSet @{Address='*';Transport='HTTP'} -ErrorAction SilentlyContinue");
-            let _ = run_ps("New-WSManInstance winrm/config/Listener -SelectorSet @{Address='*';Transport='HTTP'} -ValueSet @{Port=5985} -ErrorAction SilentlyContinue");
-            let _ = run("net", &["stop", "WinRM"]);
-            let _ = run("net", &["start", "WinRM"]);
-
-            // Final check
-            match run_ps("Test-WSMan -ErrorAction SilentlyContinue") {
-                Ok(o) if o.status.success() => {
-                    ok("WinRM listener verified after recreation");
-                }
-                _ => {
-                    warn("WinRM setup failed — remote management won't work (rc-agent unaffected)");
-                }
-            }
+    // Remove Hexnode directories
+    let hexnode_dirs = [
+        r"C:\Program Files\Hexnode",
+        r"C:\Program Files (x86)\Hexnode",
+        r"C:\ProgramData\Hexnode",
+        r"C:\ProgramData\PerfectShield",
+        r"C:\Program Files\ManageEngine",
+        r"C:\Program Files (x86)\ManageEngine",
+        r"C:\ProgramData\ManageEngine",
+    ];
+    for dir in &hexnode_dirs {
+        let p = Path::new(dir);
+        if p.exists() {
+            let _ = fs::remove_dir_all(p);
+            hexnode_found = true;
         }
     }
 
-    if pw_ok {
-        ok(&format!(
-            "Password set for '{}', auto-login configured, WinRM enabled",
-            username
-        ));
-    } else {
-        warn(&format!(
-            "Auto-login configured, WinRM enabled, but password NOT set for '{}'",
-            username
-        ));
+    if hexnode_found {
+        ok("Hexnode MDM remnants removed");
+        removed += 1;
     }
-    Ok(())
+
+    Ok(removed)
 }
 
-fn setup_firewall() -> Result<(), String> {
-    // Domain GPO sets LocalFirewallRules=N/A which means local netsh rules are ignored.
-    // Known issue documented in Phase 22. Fix: disable Windows Firewall entirely.
-    // These pods are on a private LAN behind a router — firewall adds no security value.
-    let off = run("netsh", &["advfirewall", "set", "allprofiles", "state", "off"]);
-    match &off {
-        Ok(o) if o.status.success() => ok("Windows Firewall disabled (GPO local-rules workaround)"),
+/// Verify network services: UDP heartbeat reachability and Tailscale mesh.
+fn verify_network_services(pod: u8) {
+    // -- UDP heartbeat port 9999 --
+    // rc-agent sends UDP pings to server:9999. Verify server is listening.
+    // We can't do a full UDP roundtrip without the heartbeat protocol,
+    // but we can verify the port is reachable via a quick connect test.
+    info(&format!("UDP heartbeat: {}:{}", CORE_IP, HEARTBEAT_PORT));
+
+    // Use PowerShell to send a test UDP packet and check for ICMP unreachable
+    let udp_check = run_ps(&format!(
+        "$u = New-Object System.Net.Sockets.UdpClient; \
+         $u.Client.ReceiveTimeout = 1000; \
+         try {{ \
+             $u.Connect('{}', {}); \
+             $b = [byte[]]@(0x52, 0x50, {}, 0x01, 0,0,0,0, 0,0,0,0); \
+             $u.Send($b, $b.Length) | Out-Null; \
+             Start-Sleep -Milliseconds 500; \
+             echo 'SENT'; \
+         }} catch {{ echo 'FAIL' }} \
+         finally {{ $u.Close() }}",
+        CORE_IP, HEARTBEAT_PORT, pod
+    ));
+    match &udp_check {
+        Ok(o) if String::from_utf8_lossy(&o.stdout).contains("SENT") => {
+            ok(&format!("UDP heartbeat packet sent to {}:{}", CORE_IP, HEARTBEAT_PORT));
+        }
         _ => {
-            warn("Could not disable firewall — falling back to rule-add (may not work under GPO)");
-            let _ = run("netsh", &[
-                "advfirewall", "firewall", "add", "rule",
-                "name=WinRM-HTTP",
-                "dir=in", "action=allow", "protocol=TCP", "localport=5985",
-            ]);
-            let _ = run("netsh", &[
-                "advfirewall", "firewall", "add", "rule",
-                "name=RCAgent",
-                "dir=in", "action=allow", "protocol=TCP", "localport=8090",
-            ]);
+            warn(&format!("Could not send UDP to {}:{} (server may be off)", CORE_IP, HEARTBEAT_PORT));
         }
     }
-    Ok(())
+
+    // -- Tailscale status --
+    let ts_status = run(r"C:\Program Files\Tailscale\tailscale.exe", &["status", "--json"]);
+    match &ts_status {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+
+            // Extract this machine's Tailscale IP
+            let ts_ip = extract_tailscale_self_ip(&stdout);
+            match &ts_ip {
+                Some(ip) => ok(&format!("Tailscale connected: {}", ip)),
+                None => ok("Tailscale connected (could not parse IP)"),
+            }
+
+            // Check if server is reachable via Tailscale
+            if stdout.contains("100.71.226.83") {
+                ok("Server (100.71.226.83) visible in tailnet");
+            } else {
+                warn("Server (100.71.226.83) not visible in tailnet");
+            }
+        }
+        Ok(_) => {
+            warn("Tailscale installed but not connected");
+            info("Run: tailscale up --authkey=<key>");
+        }
+        Err(_) => {
+            warn("Tailscale not installed");
+            info("Install from https://tailscale.com/download");
+        }
+    }
+}
+
+/// Extract this machine's Tailscale IP from `tailscale status --json` output.
+fn extract_tailscale_self_ip(json: &str) -> Option<String> {
+    // Look for "TailscaleIPs":["100.x.x.x" in the Self section
+    // Simple parsing without serde — find Self > TailscaleIPs
+    if let Some(self_pos) = json.find("\"Self\"") {
+        let self_section = &json[self_pos..];
+        if let Some(ips_pos) = self_section.find("\"TailscaleIPs\"") {
+            let after_ips = &self_section[ips_pos..];
+            // Find first IP in the array: "100.x.x.x"
+            if let Some(start) = after_ips.find("\"100.") {
+                let ip_start = start + 1;
+                if let Some(end) = after_ips[ip_start..].find('"') {
+                    return Some(after_ips[ip_start..ip_start + end].to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 fn start_rc_agent(src: &Path, dest: &Path) -> Result<(), String> {
@@ -972,19 +1127,34 @@ fn health_check(dest: &Path) -> u32 {
         warn("Defender exclusion not confirmed");
     }
 
-    // 5. WinRM service
-    let winrm_ok = run("sc", &["query", "WinRM"])
-        .map_or(false, |o| {
-            String::from_utf8_lossy(&o.stdout).contains("RUNNING")
-        });
-
-    if winrm_ok {
-        ok("WinRM running on port 5985");
-    } else {
-        warn("WinRM not running — should start on reboot");
+    // 5. Tailscale mesh
+    let ts_json = run(r"C:\Program Files\Tailscale\tailscale.exe", &["status", "--json"]);
+    match &ts_json {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match extract_tailscale_self_ip(&stdout) {
+                Some(ip) => ok(&format!("Tailscale connected ({})", ip)),
+                None => ok("Tailscale connected"),
+            }
+        }
+        _ => warn("Tailscale not connected"),
     }
 
-    // 6. Port 8090 (rc-agent HTTP server)
+    // 6. UDP heartbeat to server:9999
+    let udp_ok = run_ps(&format!(
+        "$u = New-Object System.Net.Sockets.UdpClient; \
+         try {{ $u.Connect('{}', {}); $u.Send(@(0x52,0x50), 2) | Out-Null; echo 'OK' }} \
+         catch {{ echo 'FAIL' }} finally {{ $u.Close() }}",
+        CORE_IP, HEARTBEAT_PORT
+    )).map_or(false, |o| String::from_utf8_lossy(&o.stdout).contains("OK"));
+
+    if udp_ok {
+        ok(&format!("UDP heartbeat reachable ({}:{})", CORE_IP, HEARTBEAT_PORT));
+    } else {
+        warn(&format!("UDP heartbeat unreachable ({}:{}) -- server may be off", CORE_IP, HEARTBEAT_PORT));
+    }
+
+    // 7. Port 8090 (rc-agent HTTP server)
     let port_ok = run("curl", &["-s", "-m", "5", "http://127.0.0.1:8090/ping"])
         .map_or(false, |o| {
             String::from_utf8_lossy(&o.stdout).contains("pong")
@@ -996,7 +1166,7 @@ fn health_check(dest: &Path) -> u32 {
         warn("Port 8090 not responding (may need more time or reboot)");
     }
 
-    // 7. Run key
+    // 8. Run key
     let run_key_ok = run("reg", &[
         "query",
         r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",

@@ -1114,13 +1114,47 @@ async fn main() -> Result<()> {
                     Err(e) => tracing::error!("[ai-result] Failed to send AiDebugResult: {}", e),
                 }
             }
-            // Kiosk enforcement — kill unauthorized processes (on blocking thread
-            // to avoid stalling the async event loop for 100-300ms during process enumeration)
+            // Kiosk enforcement — watch unauthorized processes, request approval from server
             _ = kiosk_interval.tick() => {
                 if kiosk_enabled && kiosk.should_enforce() {
                     let allowed = kiosk.allowed_set_snapshot();
+                    let pod_id_kiosk = pod_id.clone();
+                    let kiosk_msg_tx = ws_exec_result_tx.clone();
+                    let lockdown_flag = kiosk.lockdown.clone();
+                    let lockdown_reason = kiosk.lockdown_reason.clone();
                     tokio::task::spawn_blocking(move || {
-                        crate::kiosk::KioskManager::enforce_process_whitelist_blocking(allowed);
+                        let result = crate::kiosk::KioskManager::enforce_process_whitelist_blocking(allowed);
+
+                        // Send approval requests to server
+                        for approval in &result.pending_approvals {
+                            let msg = rc_common::protocol::AgentMessage::ProcessApprovalRequest {
+                                pod_id: pod_id_kiosk.clone(),
+                                process_name: approval.process_name.clone(),
+                                exe_path: approval.exe_path.clone(),
+                                sighting_count: approval.sighting_count,
+                            };
+                            let _ = kiosk_msg_tx.try_send(msg);
+                        }
+
+                        // Handle expired temp entries — trigger lockdown
+                        if !result.expired_processes.is_empty() {
+                            let names = result.expired_processes.join(", ");
+                            let reason = format!(
+                                "Unauthorized software detected: {}. Please contact staff to continue.",
+                                names
+                            );
+                            lockdown_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                            if let Ok(mut r) = lockdown_reason.lock() {
+                                *r = reason.clone();
+                            }
+                            tracing::warn!("Kiosk: LOCKDOWN — {}", reason);
+
+                            let msg = rc_common::protocol::AgentMessage::KioskLockdown {
+                                pod_id: pod_id_kiosk.clone(),
+                                reason,
+                            };
+                            let _ = kiosk_msg_tx.try_send(msg);
+                        }
                     });
                 }
             }
@@ -2043,6 +2077,31 @@ async fn main() -> Result<()> {
                                         let result = handle_ws_exec(request_id, cmd, timeout_ms).await;
                                         let _ = result_tx.send(result).await;
                                     });
+                                }
+                                rc_common::protocol::CoreToAgentMessage::ApproveProcess { process_name } => {
+                                    tracing::info!("Server APPROVED process: {}", process_name);
+                                    crate::kiosk::KioskManager::approve_process(&process_name);
+                                    // Clear lockdown if it was triggered by this process
+                                    if kiosk.is_locked_down() {
+                                        kiosk.exit_lockdown();
+                                        lock_screen.show_blank_screen();
+                                    }
+                                }
+                                rc_common::protocol::CoreToAgentMessage::RejectProcess { process_name } => {
+                                    tracing::warn!("Server REJECTED process: {}", process_name);
+                                    crate::kiosk::KioskManager::reject_process(&process_name);
+                                    let reason = format!(
+                                        "Unauthorized software '{}' detected. Please contact staff.",
+                                        process_name
+                                    );
+                                    kiosk.enter_lockdown(&reason);
+                                    lock_screen.show_lockdown(&reason);
+                                    // Notify server via exec result channel
+                                    let lockdown_msg = rc_common::protocol::AgentMessage::KioskLockdown {
+                                        pod_id: pod_id.clone(),
+                                        reason,
+                                    };
+                                    let _ = ws_exec_result_tx.try_send(lockdown_msg);
                                 }
                                 other => {
                                     tracing::warn!("Unhandled CoreToAgentMessage: {:?}", other);

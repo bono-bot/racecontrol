@@ -571,6 +571,33 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             }
                             break;
                         }
+                        AgentMessage::ProcessApprovalRequest { pod_id, process_name, exe_path, sighting_count } => {
+                            tracing::warn!(
+                                "[kiosk] Pod {} requesting approval for '{}' (path: {}, seen {} times)",
+                                pod_id, process_name, exe_path, sighting_count
+                            );
+                            log_pod_activity(
+                                &state,
+                                &pod_id,
+                                "kiosk",
+                                "Process Approval Request",
+                                &format!("Process '{}' at '{}' seen {} times — awaiting approval", process_name, exe_path, sighting_count),
+                                "rc-bot",
+                            );
+                            // TODO: forward to admin dashboard for approve/reject UI
+                            // For now, log and let TTL handle it (auto-reject after 10min)
+                        }
+                        AgentMessage::KioskLockdown { pod_id, reason } => {
+                            tracing::warn!("[kiosk] Pod {} LOCKDOWN: {}", pod_id, reason);
+                            log_pod_activity(
+                                &state,
+                                &pod_id,
+                                "kiosk",
+                                "Kiosk Lockdown",
+                                &reason,
+                                "rc-bot",
+                            );
+                        }
                     }
                 }
                 Err(e) => {

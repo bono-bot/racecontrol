@@ -3,11 +3,82 @@
 //! Prevents customers from accessing system files, desktop, taskbar,
 //! and other unauthorized applications while using the sim rig.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 use sysinfo::System;
 use tracing;
+
+/// Number of times an unknown process must be seen before rc-bot acts.
+/// First N-1 sightings are logged as WARN only.
+const WARN_BEFORE_ACTION_COUNT: u32 = 3;
+
+/// How long (seconds) a temporarily-allowed process stays allowed
+/// before auto-rejecting if no server response.
+const TEMP_ALLOW_TTL_SECS: u64 = 600; // 10 minutes
+
+/// Path to the learned allowlist file (persists across restarts).
+const LEARNED_ALLOWLIST_PATH: &str = "C:\\RacingPoint\\learned-allowlist.json";
+
+/// Tracks how many scan cycles each unknown process name has been seen.
+fn unknown_sightings() -> &'static Mutex<HashMap<String, u32>> {
+    static SIGHTINGS: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+    SIGHTINGS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Temporarily allowed processes awaiting server approval.
+/// Key: lowercase process name, Value: (exe_path, when_added, sighting_count).
+fn temp_allowlist() -> &'static Mutex<HashMap<String, TempAllowEntry>> {
+    static TEMP: OnceLock<Mutex<HashMap<String, TempAllowEntry>>> = OnceLock::new();
+    TEMP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Learned allowlist — processes approved by the server, persisted to disk.
+fn learned_allowlist() -> &'static Mutex<HashSet<String>> {
+    static LEARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    LEARNED.get_or_init(|| {
+        let set = load_learned_allowlist().unwrap_or_default();
+        Mutex::new(set)
+    })
+}
+
+#[derive(Clone, Debug)]
+pub struct TempAllowEntry {
+    pub exe_path: String,
+    pub added_at: Instant,
+    pub sighting_count: u32,
+    pub notified: bool,
+}
+
+/// Result of a kiosk enforcement scan — tells the caller what actions to take.
+#[derive(Default)]
+pub struct EnforceResult {
+    /// Processes that were temporarily allowed and need server approval.
+    pub pending_approvals: Vec<PendingApproval>,
+    /// Processes whose TTL expired without approval — kiosk should lock down.
+    pub expired_processes: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingApproval {
+    pub process_name: String,
+    pub exe_path: String,
+    pub sighting_count: u32,
+}
+
+fn load_learned_allowlist() -> Option<HashSet<String>> {
+    let data = std::fs::read_to_string(LEARNED_ALLOWLIST_PATH).ok()?;
+    let list: Vec<String> = serde_json::from_str(&data).ok()?;
+    Some(list.into_iter().map(|s| s.to_lowercase()).collect())
+}
+
+fn save_learned_allowlist(set: &HashSet<String>) {
+    let list: Vec<&String> = set.iter().collect();
+    if let Ok(json) = serde_json::to_string_pretty(&list) {
+        let _ = std::fs::write(LEARNED_ALLOWLIST_PATH, json);
+    }
+}
 
 /// Processes that are always allowed to run (case-insensitive basenames).
 const ALLOWED_PROCESSES: &[&str] = &[
@@ -130,11 +201,45 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "ipconfig.exe",                // Used by Tailscale internally
     "netstat.exe",                 // Used by self-monitor
 
+    // Remote desktop (Phase 27)
+    "rustdesk.exe",                // RustDesk — remote access when rc-agent is down
+    "rustdesk_service.exe",
+
     // Installer
     "rc-installer.exe",            // Pod installer (Rust)
 
     // Audio services (Realtek — respawns endlessly if killed)
     "rtkauduservice64.exe",
+    "rtkbtmanserv.exe",            // Realtek Bluetooth manager
+    "soundkeeper64.exe",           // Prevents audio device sleep
+
+    // Peripherals — respawn endlessly via Windows Service Manager
+    "corsairdevicecontrolservice.exe",  // Corsair iCUE (keyboards/mice)
+
+    // GPU drivers (AMD — some pods have AMD GPUs)
+    "atieclxx.exe",                // AMD display driver
+    "atiesrxx.exe",                // AMD display driver
+    "amdfendrsr.exe",              // AMD FidelityFX Super Resolution
+    "amdrsserv.exe",               // AMD Radeon Software
+    "amdow.exe",                   // AMD overlay
+    "amdppkgsvc.exe",              // AMD package service
+
+    // Motherboard services (Gigabyte — all pods)
+    "aoruslcdservice.exe",         // AORUS LCD panel
+    "easytuneengineservice.exe",   // Gigabyte EasyTune
+    "gigabyteupdateservice.exe",   // Gigabyte updater
+    "gbt_dl_lib.exe",              // Gigabyte download lib
+    "gcc.exe",                     // Gigabyte control center
+
+    // NVIDIA extras
+    "nvsphelper64.exe",            // NVIDIA ShadowPlay helper
+    "nvrla.exe",                   // NVIDIA telemetry
+    "nvfvsdksvc_x64.exe",         // NVIDIA FrameView SDK
+
+    // Performance monitoring
+    "fvcontainer.exe",             // FrameView container
+    "fvcontainer.system.exe",      // FrameView system
+    "presentmon_x64.exe",          // PresentMon frame timing
 
     // Windows services that respawn if killed
     "gamingservices.exe",
@@ -146,14 +251,25 @@ const ALLOWED_PROCESSES: &[&str] = &[
 pub struct KioskManager {
     active: Arc<AtomicBool>,
     debug_mode: bool,
+    pub lockdown: Arc<AtomicBool>,
+    pub lockdown_reason: Arc<Mutex<String>>,
     allowed_extra: HashSet<String>,
 }
 
 impl KioskManager {
     pub fn new() -> Self {
+        // Load learned allowlist on startup
+        let learned_count = learned_allowlist().lock()
+            .map(|l| l.len()).unwrap_or(0);
+        if learned_count > 0 {
+            tracing::info!("Kiosk: loaded {} learned-allowlist entries", learned_count);
+        }
+
         Self {
             active: Arc::new(AtomicBool::new(false)),
             debug_mode: false,
+            lockdown: Arc::new(AtomicBool::new(false)),
+            lockdown_reason: Arc::new(Mutex::new(String::new())),
             allowed_extra: HashSet::new(),
         }
     }
@@ -220,14 +336,95 @@ impl KioskManager {
         self.debug_mode
     }
 
-    /// Build the full allowed process set (static + dynamic extras).
-    /// Used by `enforce_process_whitelist_blocking` to run on a blocking thread.
+    /// Enter lockdown mode — shows "contact staff" message on lock screen.
+    pub fn enter_lockdown(&self, reason: &str) {
+        self.lockdown.store(true, Ordering::SeqCst);
+        if let Ok(mut r) = self.lockdown_reason.lock() {
+            *r = reason.to_string();
+        }
+        tracing::warn!("Kiosk: LOCKDOWN — {}", reason);
+    }
+
+    /// Exit lockdown mode (e.g., after employee PIN entry).
+    pub fn exit_lockdown(&self) {
+        self.lockdown.store(false, Ordering::SeqCst);
+        if let Ok(mut r) = self.lockdown_reason.lock() {
+            r.clear();
+        }
+        tracing::info!("Kiosk: lockdown cleared");
+    }
+
+    /// Check if kiosk is in lockdown mode.
+    pub fn is_locked_down(&self) -> bool {
+        self.lockdown.load(Ordering::SeqCst)
+    }
+
+    /// Get the lockdown reason message.
+    pub fn lockdown_reason(&self) -> String {
+        self.lockdown_reason.lock()
+            .map(|r| r.clone())
+            .unwrap_or_default()
+    }
+
+    /// Server approved a process — move from temp to permanent learned allowlist.
+    pub fn approve_process(name: &str) {
+        let name_lower = name.to_lowercase();
+
+        // Remove from temp allowlist
+        if let Ok(mut temp) = temp_allowlist().lock() {
+            temp.remove(&name_lower);
+        }
+
+        // Add to learned allowlist and persist
+        if let Ok(mut learned) = learned_allowlist().lock() {
+            learned.insert(name_lower.clone());
+            save_learned_allowlist(&learned);
+        }
+
+        tracing::info!("Kiosk: process '{}' APPROVED — added to learned allowlist", name);
+    }
+
+    /// Server rejected a process — remove from temp, kill it, trigger lockdown.
+    pub fn reject_process(name: &str) -> bool {
+        let name_lower = name.to_lowercase();
+
+        // Remove from temp allowlist
+        if let Ok(mut temp) = temp_allowlist().lock() {
+            temp.remove(&name_lower);
+        }
+
+        // Remove from sightings so it gets killed immediately
+        if let Ok(mut sightings) = unknown_sightings().lock() {
+            sightings.remove(&name_lower);
+        }
+
+        tracing::warn!("Kiosk: process '{}' REJECTED — will be killed on next scan", name);
+        true // caller should trigger lockdown
+    }
+
+    /// Build the full allowed process set (static + dynamic + learned + temp).
     pub fn allowed_set_snapshot(&self) -> HashSet<String> {
-        ALLOWED_PROCESSES
+        let mut set: HashSet<String> = ALLOWED_PROCESSES
             .iter()
             .map(|s| s.to_lowercase())
             .chain(self.allowed_extra.iter().cloned())
-            .collect()
+            .collect();
+
+        // Add learned allowlist
+        if let Ok(learned) = learned_allowlist().lock() {
+            set.extend(learned.iter().cloned());
+        }
+
+        // Add temporarily allowed processes (within TTL)
+        if let Ok(temp) = temp_allowlist().lock() {
+            for (name, entry) in temp.iter() {
+                if entry.added_at.elapsed().as_secs() < TEMP_ALLOW_TTL_SECS {
+                    set.insert(name.clone());
+                }
+            }
+        }
+
+        set
     }
 
     /// Check if kiosk enforcement should run (active and not in debug mode).
@@ -235,22 +432,34 @@ impl KioskManager {
         self.active.load(Ordering::SeqCst)
     }
 
-    /// Scan running processes and kill any not on the allow list.
-    /// Call this periodically (e.g., every 5 seconds).
+    /// Scan running processes and enforce the allow list.
+    ///
+    /// Uses warn-then-allow: unknown processes are logged for the first
+    /// WARN_BEFORE_ACTION_COUNT sightings. On reaching the threshold, instead
+    /// of killing, the process is temporarily allowed and a notification is
+    /// sent to racecontrol for approval. If rejected or TTL expires, the
+    /// process is killed and kiosk enters lockdown.
+    ///
+    /// Returns an `EnforceResult` with pending approvals and expired processes
+    /// so the caller can send WebSocket notifications and trigger lockdown.
     ///
     /// WARNING: This calls `sysinfo::refresh_processes()` which blocks for 100-300ms
     /// on Windows. Always call from `tokio::task::spawn_blocking`, never from the
     /// async event loop directly.
-    pub fn enforce_process_whitelist_blocking(allowed_set: HashSet<String>) {
+    pub fn enforce_process_whitelist_blocking(allowed_set: HashSet<String>) -> EnforceResult {
+        let mut result = EnforceResult::default();
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+
+        // Collect names seen this cycle to prune stale entries later
+        let mut seen_this_cycle: HashSet<String> = HashSet::new();
 
         for (pid, process) in sys.processes() {
             let name = process.name().to_string_lossy().to_lowercase();
             if name.is_empty() {
                 continue;
             }
-            // Skip if allowed
+            // Skip if allowed (includes static + dynamic + learned + temp)
             if allowed_set.contains(&name) {
                 continue;
             }
@@ -258,11 +467,76 @@ impl KioskManager {
             if pid.as_u32() <= 4 {
                 continue;
             }
-            // Kill unauthorized process
-            if process.kill() {
-                tracing::warn!("Kiosk: killed unauthorized process '{}' (PID {})", name, pid);
+            // Allow any process running from Steam folder (games launched by customers)
+            let exe_path = process.exe().map(|p| p.to_string_lossy().to_lowercase()).unwrap_or_default();
+            if exe_path.contains("\\steam\\") || exe_path.contains("\\steamapps\\") || exe_path.contains("/steam/") {
+                continue;
             }
+
+            seen_this_cycle.insert(name.clone());
+
+            // Track sightings
+            let count = {
+                let mut sightings = unknown_sightings().lock().unwrap_or_else(|e| e.into_inner());
+                let count = sightings.entry(name.clone()).or_insert(0);
+                *count += 1;
+                *count
+            };
+
+            if count < WARN_BEFORE_ACTION_COUNT {
+                // Watching phase — log but don't act
+                tracing::warn!(
+                    "Kiosk: unknown process '{}' (PID {}) — seen {}/{} times, watching",
+                    name, pid, count, WARN_BEFORE_ACTION_COUNT
+                );
+            } else if count == WARN_BEFORE_ACTION_COUNT {
+                // Threshold reached — temporarily allow and request approval
+                let mut temp = temp_allowlist().lock().unwrap_or_else(|e| e.into_inner());
+                if !temp.contains_key(&name) {
+                    tracing::warn!(
+                        "Kiosk: temporarily allowing '{}' (PID {}) — requesting server approval",
+                        name, pid
+                    );
+                    temp.insert(name.clone(), TempAllowEntry {
+                        exe_path: exe_path.clone(),
+                        added_at: Instant::now(),
+                        sighting_count: count,
+                        notified: false,
+                    });
+                    result.pending_approvals.push(PendingApproval {
+                        process_name: name.clone(),
+                        exe_path,
+                        sighting_count: count,
+                    });
+                }
+            }
+            // count > threshold: process is in temp_allowlist, so allowed_set contains it
+            // (unless TTL expired — handled below)
         }
+
+        // Prune sightings for processes that exited on their own
+        if let Ok(mut sightings) = unknown_sightings().lock() {
+            sightings.retain(|name, _| seen_this_cycle.contains(name));
+        }
+
+        // Check for expired temp allowlist entries (TTL exceeded, no server response)
+        if let Ok(mut temp) = temp_allowlist().lock() {
+            let expired: Vec<String> = temp.iter()
+                .filter(|(_, entry)| entry.added_at.elapsed().as_secs() >= TEMP_ALLOW_TTL_SECS)
+                .map(|(name, _)| name.clone())
+                .collect();
+
+            for name in &expired {
+                tracing::warn!(
+                    "Kiosk: temp allowlist for '{}' EXPIRED ({}s) — triggering lockdown",
+                    name, TEMP_ALLOW_TTL_SECS
+                );
+                temp.remove(name);
+            }
+            result.expired_processes = expired;
+        }
+
+        result
     }
 }
 

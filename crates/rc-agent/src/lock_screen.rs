@@ -94,6 +94,11 @@ pub enum LockScreenState {
     ConfigError {
         message: String,
     },
+    /// Kiosk lockdown — unauthorized software detected.
+    /// Shows "please contact staff" message. Only cleared by employee PIN or server approval.
+    Lockdown {
+        message: String,
+    },
 }
 
 /// Events emitted by the lock screen to the agent main loop.
@@ -415,6 +420,17 @@ impl LockScreenManager {
             return;
         }
         *state = LockScreenState::Disconnected;
+    }
+
+    /// Show lockdown screen — "please contact staff" message.
+    pub fn show_lockdown(&mut self, message: &str) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::Lockdown {
+                message: message.to_string(),
+            };
+        }
+        self.launch_browser();
     }
 
     pub fn clear(&mut self) {
@@ -787,6 +803,7 @@ fn render_page(state: &LockScreenState, wallpaper_url: Option<&str>) -> String {
         LockScreenState::Disconnected => render_disconnected_page(),
         LockScreenState::StartupConnecting => render_startup_connecting_page(),
         LockScreenState::ConfigError { .. } => render_config_error_page(),
+        LockScreenState::Lockdown { message } => render_lockdown_page(message),
     }
 }
 
@@ -861,6 +878,24 @@ fn render_config_error_page() -> String {
 <div class="msg" style="font-size:1.2em;margin-bottom:30px">Configuration Error - contact staff</div>
 <div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">Please contact a member of staff to resolve this issue.</div>
 </div>"#,
+    )
+}
+
+fn render_lockdown_page(message: &str) -> String {
+    let escaped = html_escape(message);
+    page_shell(
+        "Racing Point — Security",
+        &format!(
+            r#"<div style="text-align:center;padding-top:25vh">
+<div style="font-family:Enthocentric,sans-serif;font-size:2.5em;color:#E10600;margin-bottom:20px;animation:pulse 2s infinite">SECURITY ALERT</div>
+<div style="font-size:1.3em;color:#fff;margin-bottom:30px;max-width:600px;margin-left:auto;margin-right:auto">{}</div>
+<div style="margin-top:40px;font-size:1.1em;color:#5A5A5A">Please contact a member of staff to continue.</div>
+<div style="margin-top:10px;font-size:0.8em;color:#333">Enter employee PIN to unlock.</div>
+</div>
+<style>@keyframes pulse {{ 0%,100% {{ opacity:1 }} 50% {{ opacity:0.6 }} }}</style>
+<script>setTimeout(function(){{location.reload()}},5000)</script>"#,
+            escaped
+        ),
     )
 }
 

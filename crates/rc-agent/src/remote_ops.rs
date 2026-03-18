@@ -70,14 +70,56 @@ pub fn start(port: u16) {
             .route("/input", post(send_input));
 
         let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
-        let listener = match tokio::net::TcpListener::bind(addr).await {
-            Ok(l) => {
-                tracing::info!("Remote ops server listening on http://{}", addr);
-                l
+
+        // Retry binding with SO_REUSEADDR to handle stale CLOSE_WAIT/TIME_WAIT
+        // sockets left over from a previous rc-agent instance.
+        let listener = {
+            let mut bound = None;
+            for attempt in 1..=10 {
+                // Use std socket with SO_REUSEADDR, then convert to tokio
+                let sock = match socket2::Socket::new(
+                    socket2::Domain::IPV4,
+                    socket2::Type::STREAM,
+                    Some(socket2::Protocol::TCP),
+                ) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("Failed to create socket: {}", e);
+                        return;
+                    }
+                };
+                let _ = sock.set_reuse_address(true);
+                let _ = sock.set_nonblocking(true);
+                match sock.bind(&addr.into()) {
+                    Ok(()) => {
+                        let _ = sock.listen(128);
+                        let std_listener: std::net::TcpListener = sock.into();
+                        match tokio::net::TcpListener::from_std(std_listener) {
+                            Ok(l) => {
+                                tracing::info!("Remote ops server listening on http://{}", addr);
+                                bound = Some(l);
+                                break;
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to convert listener (attempt {}): {}", attempt, e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Port {} busy (attempt {}/10): {} — retrying in 3s",
+                            port, attempt, e
+                        );
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                    }
+                }
             }
-            Err(e) => {
-                tracing::error!("Failed to bind remote ops server on port {}: {}", port, e);
-                return;
+            match bound {
+                Some(l) => l,
+                None => {
+                    tracing::error!("Failed to bind port {} after 10 attempts (30s). Stale sockets?", port);
+                    return;
+                }
             }
         };
 
