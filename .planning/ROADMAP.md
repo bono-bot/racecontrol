@@ -341,7 +341,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 38. salt_exec.rs + Server Module Migration | v6.0 | 0/3 | Not started | - |
 | 39. remote_ops.rs Removal | v6.0 | 0/3 | Not started | - |
 | 40. Fleet Rollout | v6.0 | 0/2 | Not started | - |
-| 41. Test Foundation | v7.0 | 0/2 | Not started | - |
+| 41. Test Foundation | 1/2 | In Progress|  | - |
 | 42. Kiosk Source Prep + Browser Smoke | v7.0 | 0/? | Not started | - |
 | 43. Wizard Flows + API Pipeline Tests | v7.0 | 0/? | Not started | - |
 | 44. Deploy Verification + Master Script | v7.0 | 0/? | Not started | - |
