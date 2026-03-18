@@ -403,7 +403,7 @@ function BookingPageInner() {
   // ═══════════════════════════════════════════════════════════════════════
   if (phase === "phone") {
     return (
-      <div className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center px-8" onClick={touch}>
+      <div data-testid="booking-phone-screen" className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center px-8" onClick={touch}>
         {/* Header */}
         <div className="text-center mb-8">
           {isStaffMode && staffPodId && (
@@ -419,7 +419,7 @@ function BookingPageInner() {
 
         {/* Phone display */}
         <div className="mb-8 text-center">
-          <p className="text-4xl font-bold text-white font-[family-name:var(--font-mono-jb)] tracking-wider">
+          <p data-testid="phone-display" className="text-4xl font-bold text-white font-[family-name:var(--font-mono-jb)] tracking-wider">
             {phone || <span className="text-rp-grey/50">Phone number</span>}
           </p>
           {errorMsg && <p className="text-red-400 text-sm mt-2">{errorMsg}</p>}
@@ -430,6 +430,7 @@ function BookingPageInner() {
           {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
             <button
               key={digit}
+              data-testid={`numpad-digit-${digit}`}
               onClick={() => handlePhoneDigit(digit)}
               className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 transition-colors"
             >
@@ -443,6 +444,7 @@ function BookingPageInner() {
             Clear
           </button>
           <button
+            data-testid="numpad-digit-0"
             onClick={() => handlePhoneDigit("0")}
             className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 transition-colors"
           >
@@ -460,6 +462,7 @@ function BookingPageInner() {
 
         {/* Send OTP button */}
         <button
+          data-testid="send-otp-btn"
           onClick={handleSendOtp}
           disabled={phone.length < 10 || loading}
           className="mt-6 w-full max-w-sm py-4 bg-rp-red hover:bg-rp-red-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-lg rounded-xl transition-colors"
@@ -470,6 +473,7 @@ function BookingPageInner() {
         {/* Staff walk-in option */}
         {isStaffMode && (
           <button
+            data-testid="walkin-btn"
             onClick={handleStaffWalkIn}
             className="mt-3 w-full max-w-sm py-4 bg-amber-600/20 border border-amber-600 text-amber-400 font-bold text-lg rounded-xl hover:bg-amber-600 hover:text-white transition-colors"
           >
@@ -479,6 +483,7 @@ function BookingPageInner() {
 
         {/* Cancel */}
         <button
+          data-testid="cancel-btn"
           onClick={handleCancel}
           className="mt-4 text-rp-grey text-sm hover:text-white transition-colors"
         >
@@ -493,7 +498,7 @@ function BookingPageInner() {
   // ═══════════════════════════════════════════════════════════════════════
   if (phase === "otp") {
     return (
-      <div className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center px-8" onClick={touch}>
+      <div data-testid="booking-otp-screen" className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center px-8" onClick={touch}>
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">Enter OTP</h1>
@@ -527,6 +532,7 @@ function BookingPageInner() {
           {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
             <button
               key={digit}
+              data-testid={`otp-digit-${digit}`}
               onClick={() => handleOtpDigit(digit)}
               className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 transition-colors"
             >
@@ -540,6 +546,7 @@ function BookingPageInner() {
             Clear
           </button>
           <button
+            data-testid="otp-digit-0"
             onClick={() => handleOtpDigit("0")}
             className="h-20 rounded-xl bg-rp-surface border border-rp-border text-3xl font-bold text-white hover:bg-rp-red/10 hover:border-rp-red/50 active:bg-rp-red/20 transition-colors"
           >
@@ -594,7 +601,7 @@ function BookingPageInner() {
     const isMulti = multiAssignments.length > 0;
 
     return (
-      <div className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center gap-6 px-8">
+      <div data-testid="booking-success" className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center gap-6 px-8">
         {/* Checkmark */}
         <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
           <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -710,7 +717,7 @@ function BookingPageInner() {
   // ═══════════════════════════════════════════════════════════════════════
   if (phase === "error") {
     return (
-      <div className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center gap-6">
+      <div data-testid="booking-error" className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center gap-6">
         <div className="w-20 h-20 rounded-full bg-red-900/30 flex items-center justify-center">
           <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
@@ -743,7 +750,7 @@ function BookingPageInner() {
   // PHASE: WIZARD — Game Configuration Steps
   // ═══════════════════════════════════════════════════════════════════════
   return (
-    <div className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col">
+    <div data-testid="booking-wizard" className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col">
       {/* Top Bar */}
       <div className="px-6 py-4 border-b border-rp-border bg-rp-card/50 shrink-0">
         <div className="flex items-center justify-between">
@@ -757,11 +764,12 @@ function BookingPageInner() {
                 </>
               )}
             </div>
-            <h2 className="text-xl font-bold text-white mt-1">
+            <h2 data-testid="wizard-step-title" className="text-xl font-bold text-white mt-1">
               {STEP_TITLES[step] || step}
             </h2>
           </div>
           <button
+            data-testid="cancel-btn"
             onClick={handleCancel}
             className="px-4 py-2 border border-rp-border rounded-lg text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors"
           >
@@ -776,10 +784,11 @@ function BookingPageInner() {
 
           {/* ─── SELECT PLAN ──────────────────────────────────────── */}
           {step === "select_plan" && (
-            <div className="space-y-3">
+            <div data-testid="step-select-plan" className="space-y-3">
               {tiers.map((tier) => (
                 <button
                   key={tier.id}
+                  data-testid={`tier-option-${tier.id}`}
                   onClick={() => handleSelectTier(tier)}
                   className="w-full flex items-center justify-between px-6 py-5 bg-rp-surface border-2 border-rp-border rounded-xl hover:border-rp-red/50 transition-all"
                 >
@@ -797,10 +806,11 @@ function BookingPageInner() {
 
           {/* ─── SELECT GAME ──────────────────────────────────────── */}
           {step === "select_game" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div data-testid="step-select-game" className="grid grid-cols-2 gap-4">
               {GAMES.map((g) => (
                 <button
                   key={g.id}
+                  data-testid={`game-option-${g.id}`}
                   disabled={!g.enabled}
                   onClick={() => handleSelectGame(g.id)}
                   className={`p-8 rounded-xl border-2 text-center transition-all ${
@@ -818,8 +828,9 @@ function BookingPageInner() {
 
           {/* ─── PLAYER MODE ──────────────────────────────────────── */}
           {step === "player_mode" && (
-            <div className="grid grid-cols-2 gap-6">
+            <div data-testid="step-player-mode" className="grid grid-cols-2 gap-6">
               <button
+                data-testid="player-mode-single"
                 onClick={() => handleSelectPlayerMode("single")}
                 className="p-8 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
               >
@@ -830,6 +841,7 @@ function BookingPageInner() {
                 <p className="text-sm text-rp-grey mt-1">Practice &amp; hot laps</p>
               </button>
               <button
+                data-testid="player-mode-multi"
                 onClick={() => handleSelectPlayerMode("multi")}
                 className="p-8 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
               >
@@ -844,7 +856,7 @@ function BookingPageInner() {
 
           {/* ─── SESSION TYPE ─────────────────────────────────────── */}
           {step === "session_type" && (
-            <div className="space-y-4">
+            <div data-testid="step-session-type" className="space-y-4">
               {([
                 { type: "practice" as const, label: "Practice", desc: "Free driving with no timer or AI pressure", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
                 { type: "hotlap" as const, label: "Hot Lap", desc: "Timed laps — set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
@@ -852,6 +864,7 @@ function BookingPageInner() {
               ]).map(({ type, label, desc, icon }) => (
                 <button
                   key={type}
+                  data-testid={`session-type-${type}`}
                   onClick={() => handleSelectSessionType(type)}
                   className={`w-full flex items-center gap-5 px-6 py-5 rounded-xl border-2 transition-all text-left ${
                     ws.sessionType === type
@@ -873,13 +886,14 @@ function BookingPageInner() {
 
           {/* ─── AI CONFIG ────────────────────────────────────────── */}
           {step === "ai_config" && (
-            <div className="space-y-8">
+            <div data-testid="step-ai-config" className="space-y-8">
               <div className="flex items-center justify-between px-6 py-4 bg-rp-surface border border-rp-border rounded-xl">
                 <div>
                   <p className="text-lg font-semibold text-white">AI Opponents</p>
                   <p className="text-sm text-rp-grey">Race against computer-controlled drivers</p>
                 </div>
                 <button
+                  data-testid="ai-toggle"
                   onClick={() => wizard.setField("aiEnabled", !ws.aiEnabled)}
                   className={`w-14 h-7 rounded-full transition-colors ${ws.aiEnabled ? "bg-rp-red" : "bg-zinc-700"}`}
                 >
@@ -895,6 +909,7 @@ function BookingPageInner() {
                       {(["easy", "medium", "hard"] as const).map((level) => (
                         <button
                           key={level}
+                          data-testid={`ai-difficulty-${level}`}
                           onClick={() => wizard.setField("aiDifficulty", level)}
                           className={`p-5 rounded-xl border-2 text-center transition-all ${
                             ws.aiDifficulty === level
@@ -913,6 +928,7 @@ function BookingPageInner() {
                       Number of AI: <span className="text-rp-red">{ws.aiCount}</span>
                     </h4>
                     <input
+                      data-testid="ai-count-slider"
                       type="range"
                       min={1}
                       max={20}
@@ -929,6 +945,7 @@ function BookingPageInner() {
               )}
 
               <button
+                data-testid="ai-config-next"
                 onClick={() => wizard.goNext()}
                 className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
               >
@@ -939,7 +956,7 @@ function BookingPageInner() {
 
           {/* ─── MULTIPLAYER LOBBY (pod count selector) ──────────── */}
           {step === "multiplayer_lobby" && (
-            <div className="space-y-8">
+            <div data-testid="step-multiplayer-lobby" className="space-y-8">
               <div className="text-center">
                 <h2 className="text-xl font-bold text-white mb-2">How many rigs?</h2>
                 <p className="text-rp-grey text-sm">Including your own rig</p>
@@ -974,9 +991,10 @@ function BookingPageInner() {
 
           {/* ─── SELECT EXPERIENCE (preset) ───────────────────────── */}
           {step === "select_experience" && (
-            <div className="space-y-4">
+            <div data-testid="step-select-experience" className="space-y-4">
               <div className="flex gap-3">
                 <button
+                  data-testid="experience-mode-preset"
                   onClick={() => wizard.setField("experienceMode", "preset")}
                   className={`flex-1 py-3 rounded-xl text-sm font-medium transition-colors ${
                     ws.experienceMode === "preset"
@@ -987,6 +1005,7 @@ function BookingPageInner() {
                   Preset Experiences
                 </button>
                 <button
+                  data-testid="experience-mode-custom"
                   onClick={() => {
                     wizard.setField("experienceMode", "custom");
                     wizard.goToStep("select_track");
@@ -997,13 +1016,14 @@ function BookingPageInner() {
                 </button>
               </div>
 
-              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+              <div data-testid="experience-list" className="space-y-3 max-h-[60vh] overflow-y-auto">
                 {experiences.length === 0 ? (
                   <p className="text-sm text-rp-grey text-center py-8">No experiences configured</p>
                 ) : (
                   experiences.map((exp) => (
                     <button
                       key={exp.id}
+                      data-testid={`experience-option-${exp.id}`}
                       onClick={() => handleSelectExperience(exp)}
                       className="w-full flex items-center gap-4 px-5 py-4 bg-rp-surface border-2 border-rp-border rounded-xl hover:border-rp-red/50 transition-all text-left"
                     >
@@ -1028,8 +1048,9 @@ function BookingPageInner() {
 
           {/* ─── SELECT TRACK ─────────────────────────────────────── */}
           {step === "select_track" && (
-            <div className="space-y-4">
+            <div data-testid="step-select-track" className="space-y-4">
               <input
+                data-testid="track-search"
                 type="text"
                 value={trackSearch}
                 onChange={(e) => setTrackSearch(e.target.value)}
@@ -1055,6 +1076,7 @@ function BookingPageInner() {
                 {filteredTracks.map((t) => (
                   <button
                     key={t.id}
+                    data-testid={`track-option-${t.id}`}
                     onClick={() => handleSelectTrack(t)}
                     className={`p-4 rounded-xl border-2 text-left transition-all ${
                       ws.selectedTrack?.id === t.id
@@ -1075,8 +1097,9 @@ function BookingPageInner() {
 
           {/* ─── SELECT CAR ───────────────────────────────────────── */}
           {step === "select_car" && (
-            <div className="space-y-4">
+            <div data-testid="step-select-car" className="space-y-4">
               <input
+                data-testid="car-search"
                 type="text"
                 value={carSearch}
                 onChange={(e) => setCarSearch(e.target.value)}
@@ -1102,6 +1125,7 @@ function BookingPageInner() {
                 {filteredCars.map((c) => (
                   <button
                     key={c.id}
+                    data-testid={`car-option-${c.id}`}
                     onClick={() => handleSelectCar(c)}
                     className={`p-4 rounded-xl border-2 text-left transition-all ${
                       ws.selectedCar?.id === c.id
@@ -1122,13 +1146,14 @@ function BookingPageInner() {
 
           {/* ─── DRIVING SETTINGS ─────────────────────────────────── */}
           {step === "driving_settings" && (
-            <div className="space-y-8">
+            <div data-testid="step-driving-settings" className="space-y-8">
               <div>
                 <h4 className="text-base font-semibold text-white mb-3">Difficulty</h4>
                 <div className="grid grid-cols-3 gap-4">
                   {Object.entries(DIFFICULTY_PRESETS).map(([key, preset]) => (
                     <button
                       key={key}
+                      data-testid={`difficulty-${key}`}
                       onClick={() => wizard.setField("drivingDifficulty", key)}
                       className={`p-5 rounded-xl border-2 text-center transition-all ${
                         ws.drivingDifficulty === key
@@ -1152,6 +1177,7 @@ function BookingPageInner() {
                   ] as const).map(({ key, label, desc }) => (
                     <button
                       key={key}
+                      data-testid={`transmission-${key}`}
                       onClick={() => wizard.setField("transmission", key)}
                       className={`p-5 rounded-xl border-2 text-center transition-all ${
                         ws.transmission === key
@@ -1176,6 +1202,7 @@ function BookingPageInner() {
                   ] as const).map(({ key, label, desc }) => (
                     <button
                       key={key}
+                      data-testid={`ffb-${key}`}
                       onClick={() => wizard.setField("ffb", key)}
                       className={`p-5 rounded-xl border-2 text-center transition-all ${
                         ws.ffb === key
@@ -1191,6 +1218,7 @@ function BookingPageInner() {
               </div>
 
               <button
+                data-testid="driving-settings-next"
                 onClick={() => wizard.goNext()}
                 className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
               >
@@ -1201,7 +1229,7 @@ function BookingPageInner() {
 
           {/* ─── REVIEW & BOOK ────────────────────────────────────── */}
           {step === "review" && (
-            <div className="space-y-6">
+            <div data-testid="step-review" className="space-y-6">
               <div className="bg-rp-surface border-2 border-rp-border rounded-xl p-6 space-y-4">
                 <ReviewRow label="Driver" value={driverName} />
                 <ReviewRow label="Plan" value={ws.selectedTier?.name || ""} />
@@ -1228,6 +1256,7 @@ function BookingPageInner() {
               </div>
 
               <button
+                data-testid="book-btn"
                 onClick={ws.playerMode === "multi" ? handleBookMultiplayer : handleBook}
                 className="w-full py-5 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-xl rounded-xl transition-colors"
               >
@@ -1241,6 +1270,7 @@ function BookingPageInner() {
       {/* Footer with Back button */}
       <div className="px-6 py-4 border-t border-rp-border shrink-0">
         <button
+          data-testid="wizard-back-btn"
           onClick={handleWizardBack}
           className="px-6 py-3 border border-rp-border rounded-xl text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors"
         >
