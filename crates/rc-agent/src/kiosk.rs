@@ -298,6 +298,13 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "onedrive.exe",                // OneDrive sync
     "copilot.exe",                 // Windows Copilot
     "storedesktopextension.exe",   // Microsoft Store
+    "systemsettings.exe",          // Windows Settings (Win+I)
+
+    // Browsers
+    "firefox.exe",                 // Mozilla Firefox
+
+    // Racing Point internal
+    "rc-sentry.exe",              // Backup remote exec service
 ];
 
 /// Kiosk mode manager.
