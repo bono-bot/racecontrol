@@ -9,9 +9,9 @@
 
 - [x] **FOUND-01**: Shared shell library (`lib/common.sh`) with pass/fail/skip/info helpers and exit code tracking
 - [x] **FOUND-02**: Shared pod IP map (`lib/pod-map.sh`) with all 8 pod IPs, used by all test scripts
-- [ ] **FOUND-03**: Playwright installed with `playwright.config.ts` — bundled Chromium, `reuseExistingServer`, sequential workers
+- [x] **FOUND-03**: Playwright installed with `playwright.config.ts` — bundled Chromium, `reuseExistingServer`, sequential workers
 - [ ] **FOUND-04**: Pre-test cleanup fixture — stop stale games, end billing, restart stuck agents before each test run
-- [ ] **FOUND-05**: cargo-nextest configured for Rust crate tests with per-process isolation and built-in retries
+- [x] **FOUND-05**: cargo-nextest configured for Rust crate tests with per-process isolation and built-in retries
 - [ ] **FOUND-06**: data-testid attributes added to kiosk wizard components for reliable Playwright selectors
 - [ ] **FOUND-07**: UI user navigation simulation — keyboard navigation (Tab, Enter, Escape), touch/click targets, scroll behavior
 
@@ -64,8 +64,8 @@
 |-------------|-------|--------|
 | FOUND-01 | Phase 41 | Complete |
 | FOUND-02 | Phase 41 | Complete |
-| FOUND-03 | Phase 41 | Pending |
-| FOUND-05 | Phase 41 | Pending |
+| FOUND-03 | Phase 41 | Complete |
+| FOUND-05 | Phase 41 | Complete |
 | FOUND-04 | Phase 42 | Pending |
 | FOUND-06 | Phase 42 | Pending |
 | FOUND-07 | Phase 42 | Pending |

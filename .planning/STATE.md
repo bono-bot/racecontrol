@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: E2E Test Suite
 status: in_progress
-stopped_at: "Phase 41 Plan 01 complete — shell test library created and refactored"
-last_updated: "2026-03-19T21:35:20.000Z"
-last_activity: 2026-03-19 — Phase 41-01 complete, lib/common.sh and lib/pod-map.sh created
+stopped_at: "Phase 41 Plan 02 complete — Playwright 1.58.2 + cargo-nextest 0.9.131 installed and configured"
+last_updated: "2026-03-18T21:39:23.000Z"
+last_activity: 2026-03-19 — Phase 41-02 complete, playwright.config.ts + .config/nextest.toml created
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 2
-  completed_plans: 1
-  percent: 12
+  completed_plans: 2
+  percent: 25
 ---
 
 # Project State
@@ -26,22 +26,23 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 ## Current Position
 
 Phase: 41 of 44 (Test Foundation)
-Plan: 1 of 2 (complete)
-Status: In progress — Plan 41-01 complete, Plan 41-02 next
-Last activity: 2026-03-19 — Plan 41-01 complete: shell test library + pod map
+Plan: 2 of 2 (complete)
+Status: Phase 41 complete — all 2 plans done, ready for Phase 42
+Last activity: 2026-03-19 — Plan 41-02 complete: Playwright + cargo-nextest installed
 
-Progress: [█░░░░░░░░░] 12%
+Progress: [██░░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1 (v7.0 milestone)
-- Average duration: 3 min
-- Total execution time: 0.05 hours
+- Total plans completed: 2 (v7.0 milestone)
+- Average duration: 5 min
+- Total execution time: 0.17 hours
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | 41-01 | 3 min | 2 | 5 |
+| 41-02 | 7 min | 2 | 6 |
 
 **Recent Trend:** On track
 
@@ -69,6 +70,15 @@ Progress: [█░░░░░░░░░] 12%
 - pod_ip() uses hyphens (pod-1 through pod-8) matching POD_ID variable format — Python dict used underscores and silently failed
 - TTY check gates ANSI colors — CI gets clean text, terminals get colors
 
+(Phase 41-02 — Playwright and nextest decisions)
+- Playwright 1.58.2 with bundled Chromium — msedge channel has documented 30s hang (GitHub #22776)
+- fullyParallel:false and workers:1 are non-negotiable — game launch tests mutate live pod state
+- reuseExistingServer:true — venue kiosk already running on :3300, must attach not restart
+- baseURL defaults to http://192.168.31.23:3300 — KIOSK_BASE_URL env var overrides for dev/CI
+- playwright.config.ts at repo root — auto-discovered by npx playwright test without --config flag
+- cargo-nextest per-process isolation is the default — not explicitly configured in nextest.toml
+- node_modules/ was missing from root .gitignore — fixed; root node_modules was being tracked in git
+
 ### Pending Todos
 
 - Pod 3 still not verified running after fix-pod.bat — needs physical reboot + verification
@@ -84,6 +94,6 @@ Progress: [█░░░░░░░░░] 12%
 ## Session Continuity
 
 Last session: 2026-03-19
-Stopped at: Completed .planning/phases/41-test-foundation/41-01-PLAN.md
+Stopped at: Completed .planning/phases/41-test-foundation/41-02-PLAN.md
 Resume file: None
-Next action: `/gsd:execute-phase 41` (plan 41-02)
+Next action: `/gsd:plan-phase 42` (Phase 42 — kiosk data-testid audit)
