@@ -13,34 +13,10 @@
 
 set -uo pipefail
 
-# ANSI colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-# Counters
-PASS=0
-FAIL=0
-SKIP=0
-
-pass() {
-  PASS=$((PASS + 1))
-  echo -e "  ${GREEN}PASS${NC}  $1"
-}
-
-fail() {
-  FAIL=$((FAIL + 1))
-  echo -e "  ${RED}FAIL${NC}  $1"
-}
-
-skip() {
-  SKIP=$((SKIP + 1))
-  echo -e "  ${YELLOW}SKIP${NC}  $1"
-}
-
 # Resolve paths
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
 ROOT_DIR=$(cd "$SCRIPT_DIR/../.." && pwd)
 
 echo ""
@@ -170,9 +146,4 @@ fi
 echo ""
 
 # ─── Summary ──────────────────────────────────────────────────────────────
-TOTAL=$((PASS + FAIL + SKIP))
-echo "=== Cross-Process Integration Tests ==="
-echo -e "Results: ${GREEN}${PASS} passed${NC}, ${RED}${FAIL} failed${NC}, ${YELLOW}${SKIP} skipped${NC} (${TOTAL} total)"
-echo ""
-
-exit "$FAIL"
+summary_exit

@@ -13,22 +13,10 @@
 set -euo pipefail
 
 BASE_URL="${RC_BASE_URL:-http://localhost:8080/api/v1}"
-PASS=0
-FAIL=0
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
 TOTAL=0
-
-# Colors (disable if not a terminal)
-if [ -t 1 ]; then
-    GREEN='\033[0;32m'
-    RED='\033[0;31m'
-    YELLOW='\033[0;33m'
-    NC='\033[0m'
-else
-    GREEN=''
-    RED=''
-    YELLOW=''
-    NC=''
-fi
 
 check() {
     local endpoint="$1"
@@ -110,15 +98,4 @@ echo "--- Kiosk ---"
 check_json "/kiosk/experiences" "200" "Kiosk experiences"
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
-echo ""
-echo "========================================"
-echo -e "Results: ${GREEN}${PASS} passed${NC}, ${RED}${FAIL} failed${NC} (${TOTAL} total)"
-echo "========================================"
-
-if [ "$FAIL" -gt 0 ]; then
-    echo -e "${RED}SMOKE TEST FAILED${NC}"
-    exit 1
-else
-    echo -e "${GREEN}SMOKE TEST PASSED${NC}"
-    exit 0
-fi
+summary_exit

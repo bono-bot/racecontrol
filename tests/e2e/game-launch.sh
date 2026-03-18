@@ -21,26 +21,11 @@ set -uo pipefail
 BASE_URL="${RC_BASE_URL:-http://localhost:8080/api/v1}"
 SIM_TYPE="${SIM_TYPE:-f1_25}"
 POD_ID="${POD_ID:-pod-8}"
-PASS=0
-FAIL=0
-SKIP=0
-TOTAL=0
-
-# Colors
-if [ -t 1 ]; then
-    GREEN='\033[0;32m'
-    RED='\033[0;31m'
-    YELLOW='\033[0;33m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
-else
-    GREEN='' RED='' YELLOW='' CYAN='' NC=''
-fi
-
-pass() { TOTAL=$((TOTAL+1)); PASS=$((PASS+1)); echo -e "  ${GREEN}PASS${NC}  $1"; }
-fail() { TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1)); echo -e "  ${RED}FAIL${NC}  $1"; }
-skip() { TOTAL=$((TOTAL+1)); SKIP=$((SKIP+1)); echo -e "  ${YELLOW}SKIP${NC}  $1"; }
-info() { echo -e "  ${CYAN}INFO${NC}  $1"; }
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/pod-map.sh
+source "$SCRIPT_DIR/lib/pod-map.sh"
 
 echo "========================================"
 echo "Game Launch E2E Test"
@@ -233,10 +218,7 @@ except: print('ERROR')
     else
         info "Game still in ${GAME_AFTER} state after stop — may need agent restart"
         # Force restart agent to clear stuck state
-        POD_IP=$(python3 -c "
-ips = {'pod_1':'192.168.31.89','pod_2':'192.168.31.33','pod_3':'192.168.31.28','pod_4':'192.168.31.88','pod_5':'192.168.31.86','pod_6':'192.168.31.87','pod_7':'192.168.31.38','pod_8':'192.168.31.91'}
-print(ips.get('${POD_ID}',''))
-" 2>/dev/null)
+        POD_IP=$(pod_ip "${POD_ID}" 2>/dev/null || echo "")
         if [ -n "$POD_IP" ]; then
             curl -s --max-time 10 -X POST "http://${POD_IP}:8091/exec" \
                 -H "Content-Type: application/json" \
@@ -475,15 +457,4 @@ curl -s --max-time 5 -X POST \
 info "Game stop sent"
 
 # ─── Summary ──────────────────────────────────────────────────────────────
-echo ""
-echo "========================================"
-echo -e "Results: ${GREEN}${PASS} passed${NC}, ${RED}${FAIL} failed${NC}, ${YELLOW}${SKIP} skipped${NC} ($((PASS+FAIL+SKIP)) total)"
-echo "========================================"
-
-if [ "$FAIL" -gt 0 ]; then
-    echo -e "${RED}LAUNCH TEST FAILED${NC}"
-    exit 1
-else
-    echo -e "${GREEN}LAUNCH TEST PASSED${NC}"
-    exit 0
-fi
+summary_exit
