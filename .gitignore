@@ -34,3 +34,4 @@ kiosk/.next
 # Playwright
 playwright-report/
 test-results/
+tests/e2e/results/
