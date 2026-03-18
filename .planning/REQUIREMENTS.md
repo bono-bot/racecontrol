@@ -62,35 +62,35 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | — | Pending |
-| FOUND-02 | — | Pending |
-| FOUND-03 | — | Pending |
-| FOUND-04 | — | Pending |
-| FOUND-05 | — | Pending |
-| FOUND-06 | — | Pending |
-| FOUND-07 | — | Pending |
-| BROW-01 | — | Pending |
-| BROW-02 | — | Pending |
-| BROW-03 | — | Pending |
-| BROW-04 | — | Pending |
-| BROW-05 | — | Pending |
-| BROW-06 | — | Pending |
-| BROW-07 | — | Pending |
-| API-01 | — | Pending |
-| API-02 | — | Pending |
-| API-03 | — | Pending |
-| API-04 | — | Pending |
-| API-05 | — | Pending |
-| DEPL-01 | — | Pending |
-| DEPL-02 | — | Pending |
-| DEPL-03 | — | Pending |
-| DEPL-04 | — | Pending |
+| FOUND-01 | Phase 41 | Pending |
+| FOUND-02 | Phase 41 | Pending |
+| FOUND-03 | Phase 41 | Pending |
+| FOUND-05 | Phase 41 | Pending |
+| FOUND-04 | Phase 42 | Pending |
+| FOUND-06 | Phase 42 | Pending |
+| FOUND-07 | Phase 42 | Pending |
+| BROW-01 | Phase 42 | Pending |
+| BROW-07 | Phase 42 | Pending |
+| BROW-02 | Phase 43 | Pending |
+| BROW-03 | Phase 43 | Pending |
+| BROW-04 | Phase 43 | Pending |
+| BROW-05 | Phase 43 | Pending |
+| BROW-06 | Phase 43 | Pending |
+| API-01 | Phase 43 | Pending |
+| API-02 | Phase 43 | Pending |
+| API-03 | Phase 43 | Pending |
+| API-04 | Phase 43 | Pending |
+| API-05 | Phase 43 | Pending |
+| DEPL-01 | Phase 44 | Pending |
+| DEPL-02 | Phase 44 | Pending |
+| DEPL-03 | Phase 44 | Pending |
+| DEPL-04 | Phase 44 | Pending |
 
 **Coverage:**
 - v7.0 requirements: 23 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 23
+- Mapped to phases: 23
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-19*
-*Last updated: 2026-03-19 after initial definition*
+*Last updated: 2026-03-19 — traceability mapped to phases 41–44*

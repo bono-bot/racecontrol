@@ -64,6 +64,10 @@ Key: billing_rates DB table + non-retroactive additive algorithm + in-memory rat
 
 **Milestone Goal:** Replace the custom pod-agent/remote_ops HTTP endpoint (port 8090) with SaltStack — salt-master on WSL2 James (.27), salt-minion on all 8 pods + server (.23), salt_exec.rs as the server-side integration seam, remote_ops.rs deleted from rc-agent, and deploy workflow fully migrated to Salt.
 
+### v7.0 E2E Test Suite (Phases 41–44)
+
+**Milestone Goal:** Comprehensive end-to-end test coverage for the full kiosk→server→agent→game launch pipeline — Playwright browser tests for all 5 sim wizard flows, curl-based API pipeline tests for billing/launch/game-state lifecycle, deploy verification for binary swap and port conflict detection, and a single master `run-all.sh` entry point reusable for future services (POS, Admin Dashboard).
+
 ## Phases
 
 **Phase Numbering:**
@@ -77,6 +81,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 38: salt_exec.rs + Server Module Migration** - New salt_exec.rs Rust module wrapping salt-api REST calls, all four server-side modules (deploy.rs, fleet_health.rs, pod_monitor.rs, pod_healer.rs) migrated from pod-agent HTTP to Salt
 - [ ] **Phase 39: remote_ops.rs Removal** - Characterization tests written covering the WebSocket path, remote_ops.rs deleted from rc-agent, all port 8090 references purged from Rust source and deploy scripts, cargo build clean, Pod 8 canary billing lifecycle verified
 - [ ] **Phase 40: Fleet Rollout** - Salt minion deployed to all 8 pods + server via updated install.bat, all keys accepted, salt '*' test.ping returns 9 True, deploy workflow fully migrated to Salt
+- [ ] **Phase 41: Test Foundation** - Shared shell library, pod IP map, Playwright config, and cargo-nextest configured — the skeleton every other test script sources
+- [ ] **Phase 42: Kiosk Source Prep + Browser Smoke** - data-testid attributes added to kiosk wizard components, pre-test cleanup fixture built, page smoke tests confirm all routes load in a real browser with no SSR/JS errors
+- [ ] **Phase 43: Wizard Flows + API Pipeline Tests** - All 5 sim wizard flows tested per-step in Playwright, API pipeline tests for billing lifecycle and game state, per-game launch validation with PID check, Steam dialog dismissal
+- [ ] **Phase 44: Deploy Verification + Master Script** - Deploy verify script (binary swap, port conflict, agent reconnect), fleet health validation, run-all.sh phase-gated orchestrator, AI debugger error routing
 
 ## Phase Details
 
@@ -160,12 +168,60 @@ Plans:
 - [ ] 40-01-PLAN.md — Install salt-minion on pods 1–7 + server via updated install.bat; accept all keys; fleet-wide test.ping (MINION-05, FLEET-02)
 - [ ] 40-02-PLAN.md — Verify full deploy workflow via Salt to all pods; confirm staff dashboard shows all minion_reachable; close port 8090 on all pods (FLEET-03)
 
+### Phase 41: Test Foundation
+**Goal**: Every test script has a shared library to source — `lib/common.sh` with pass/fail/skip/info helpers, `lib/pod-map.sh` with all 8 pod IPs, Playwright installed with bundled Chromium and `playwright.config.ts` configured for sequential single-worker runs against the live venue server, and cargo-nextest configured for Rust crate tests with per-process isolation
+**Depends on**: Phase 40 (v6.0 Fleet Rollout — last v6.0 phase; may also start independently as v7.0 infrastructure)
+**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-05
+**Success Criteria** (what must be TRUE):
+  1. Any shell script that sources `lib/common.sh` can call `pass "message"`, `fail "message"`, and `skip "message"` and the output is consistently color-coded with correct exit code tracking — the shared library works
+  2. `lib/pod-map.sh` is sourced once and all 8 pod IPs (192.168.31.x) are available as variables to any script in the suite — no more hardcoded IPs scattered across scripts
+  3. `npx playwright test --list` from `tests/e2e/` shows discovered spec files and the Playwright config reports `workers: 1`, `fullyParallel: false`, and `baseURL` set from `RC_BASE_URL` — Playwright is installed and configured correctly
+  4. `cargo nextest run -p racecontrol-crate` exits 0 with per-process test isolation active — cargo-nextest is configured and Rust crate tests pass under it
+**Plans**: TBD
+
+### Phase 42: Kiosk Source Prep + Browser Smoke
+**Goal**: The kiosk wizard components have `data-testid` attributes on every interactive element (game selector, track selector, car selector, wizard step indicators, next/back buttons), a pre-test cleanup fixture stops stale games and ends stale billing before each run, and the browser smoke spec confirms every kiosk route returns 200 in a real Chromium instance with no SSR errors, no React error boundaries, and no uncaught JS exceptions
+**Depends on**: Phase 41
+**Requirements**: FOUND-04, FOUND-06, FOUND-07, BROW-01, BROW-07
+**Success Criteria** (what must be TRUE):
+  1. `npx playwright test smoke.spec.ts` passes — all kiosk routes (`/`, `/kiosk`, `/kiosk/book`, `/kiosk/pods`) return HTTP 200 in a real Chromium browser with no `pageerror` events and no React error boundary text visible in the DOM
+  2. A Playwright spec that selects the game picker by `[data-testid="sim-select"]` and clicks the AC option by `[data-testid="game-option-ac"]` successfully opens the AC wizard — data-testid attributes are present and functional in the live kiosk
+  3. Running the pre-test cleanup fixture against a pod with a stale billing session results in that session being ended and the pod returning to Idle state before any test assertion runs — cleanup is idempotent and safe to run on a clean pod
+  4. A Playwright test that fails captures a PNG screenshot and a DOM snapshot in `tests/e2e/results/screenshots/` automatically — the screenshot-on-failure hook is wired
+  5. Tab, Enter, and Escape key navigation through the wizard reaches the expected step — keyboard navigation simulation works against the live kiosk
+**Plans**: TBD
+
+### Phase 43: Wizard Flows + API Pipeline Tests
+**Goal**: All 5 sim wizard flows are exercised step-by-step in Playwright (AC: 13-step full flow; F1 25/EVO/Rally/iRacing: 5-step simplified flow), experience filtering and staff mode bypass are validated in the browser, and curl-based API tests confirm the full billing lifecycle, per-game launch with PID verification, game state machine transitions, and Steam dialog auto-dismissal on Pod 8
+**Depends on**: Phase 42
+**Requirements**: BROW-02, BROW-03, BROW-04, BROW-05, BROW-06, API-01, API-02, API-03, API-04, API-05
+**Success Criteria** (what must be TRUE):
+  1. `npx playwright test wizard.spec.ts` passes for all 5 sim types — AC wizard reaches the review step via all 13 steps with track and car selections confirmed; non-AC wizard reaches review via exactly 5 steps with no `select_track` or `select_car` steps present in the DOM
+  2. Staff mode test (`?staff=true&pod=pod-8`) navigates the full booking flow without the phone/OTP step appearing — the staff bypass path is exercised end-to-end
+  3. The experience filtering spec confirms that selecting F1 25 shows only F1 25 experiences and the Custom button is absent from the DOM — per-game filtering works correctly
+  4. `api/billing.sh` exits 0 — a billing session is created, the launch gate rejects a launch request without an active session, the session timer ticks, and the session is ended cleanly
+  5. `api/launch.sh` exits 0 for each installed sim — each game reaches `Launching` state with a PID returned or a confirmed `Launching` state within 60s; game state cycles through Idle→Launching→Running→Idle; Steam dialog dismissal via WM_CLOSE is attempted and logged
+**Plans**: TBD
+
+### Phase 44: Deploy Verification + Master Script
+**Goal**: A single `run-all.sh` entry point runs all test phases in sequence, aborts on preflight failure, collects exit codes from each phase, writes a `results/summary.json`, and exits with the total failure count — making it usable as a pre-deploy gate; deploy verification confirms binary swap, detects EADDRINUSE after kiosk restart, and validates all 8 pods reconnect after a rolling restart
+**Depends on**: Phase 43
+**Requirements**: DEPL-01, DEPL-02, DEPL-03, DEPL-04
+**Success Criteria** (what must be TRUE):
+  1. `bash tests/e2e/run-all.sh` runs all four phases in sequence, prints a summary table with pass/fail counts per phase, exits 0 when all tests pass, and exits with the failure count when any test fails — the master entry point works as a pre-deploy gate
+  2. `deploy/verify.sh` detects an EADDRINUSE condition after kiosk restart, polls until port 3300 is free (up to 30s), and only then starts the new kiosk process — the port-free poll loop prevents the documented bind failure
+  3. `deploy/verify.sh` verifies binary size changed after a swap, confirms racecontrol process is running on port 8080, and checks `/api/v1/fleet/health` shows all 8 agents reconnected — the full deploy verification sequence completes against Pod 8 as canary
+  4. Test failures and error screenshots captured during the run are passed to the AI debugger error log — the `DEPL-04` routing is wired and a test failure produces an entry in the AI debugger input
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 36 → 37 → 38 → 39 → 40
+Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44
 
 Note: Phase 36 (WSL2 Infrastructure) is the non-negotiable critical path — the mirrored networking and Hyper-V firewall must be verified from an actual pod before any minion is installed or any Rust code is written. Phase 37 (Pod 8 Canary) validates the networking with a real minion and rewrites install.bat — this template is reused in Phase 40. Phase 38 (salt_exec.rs) must compile and be tested against live Pod 8 before any module is considered migrated. Phase 39 (remote_ops.rs Removal) requires characterization tests before any deletion — Refactor Second standing rule. Phase 40 (Fleet Rollout) is the irreversible step; no billing session should be interrupted.
+
+For v7.0: Phase 41 (Foundation) must complete before any script can source the shared library. Phase 42 (Kiosk Source Prep) must add data-testid attributes before Phase 43 wizard specs can select wizard elements. Phase 43 (Wizard + API) must complete before Phase 44 can wire run-all.sh around phase scripts that do not yet exist.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -210,3 +266,7 @@ Note: Phase 36 (WSL2 Infrastructure) is the non-negotiable critical path — the
 | 38. salt_exec.rs + Server Module Migration | v6.0 | 0/3 | Not started | - |
 | 39. remote_ops.rs Removal | v6.0 | 0/3 | Not started | - |
 | 40. Fleet Rollout | v6.0 | 0/2 | Not started | - |
+| 41. Test Foundation | v7.0 | 0/? | Not started | - |
+| 42. Kiosk Source Prep + Browser Smoke | v7.0 | 0/? | Not started | - |
+| 43. Wizard Flows + API Pipeline Tests | v7.0 | 0/? | Not started | - |
+| 44. Deploy Verification + Master Script | v7.0 | 0/? | Not started | - |
