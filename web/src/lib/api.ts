@@ -43,6 +43,19 @@ export const api = {
   // Leaderboard
   trackLeaderboard: (track: string) => fetchApi<{ track: string; records: LeaderboardEntry[] }>(`/leaderboard/${track}`),
 
+  // Public leaderboard (overview: records, tracks, top drivers)
+  publicLeaderboard: () => fetchApi<PublicLeaderboardData>("/public/leaderboard"),
+
+  // Public track leaderboard with filters
+  publicTrackLeaderboard: (track: string, params?: { sim_type?: string; car?: string; show_invalid?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (params?.sim_type) qs.set("sim_type", params.sim_type);
+    if (params?.car) qs.set("car", params.car);
+    if (params?.show_invalid) qs.set("show_invalid", "true");
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetchApi<PublicTrackLeaderboardData>(`/public/leaderboard/${encodeURIComponent(track)}${suffix}`);
+  },
+
   // Events
   listEvents: () => fetchApi<{ events: RaceEvent[] }>("/events"),
 
@@ -282,6 +295,50 @@ export interface LeaderboardEntry {
   driver: string;
   best_lap_ms: number;
   achieved_at: string;
+}
+
+export interface PublicTrackRecord {
+  track: string;
+  car: string;
+  driver: string;
+  best_lap_ms: number;
+  best_lap_display: string;
+  achieved_at: string;
+}
+
+export interface PublicTrackInfo {
+  name: string;
+  total_laps: number;
+}
+
+export interface PublicTopDriver {
+  position: number;
+  name: string;
+  total_laps: number;
+  fastest_lap_ms: number | null;
+}
+
+export interface PublicLeaderboardData {
+  records: PublicTrackRecord[];
+  tracks: PublicTrackInfo[];
+  top_drivers: PublicTopDriver[];
+}
+
+export interface PublicTrackLeaderboardEntry {
+  position: number;
+  driver: string;
+  car: string;
+  best_lap_ms: number;
+  best_lap_display: string;
+  achieved_at: string;
+  lap_id?: string;
+}
+
+export interface PublicTrackLeaderboardData {
+  track: string;
+  sim_type: string;
+  stats: { total_laps: number; unique_drivers: number; unique_cars: number } | null;
+  leaderboard: PublicTrackLeaderboardEntry[];
 }
 
 export interface RaceEvent {
