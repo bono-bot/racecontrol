@@ -234,11 +234,12 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
     step(13, "Verifying network services");
     verify_network_services(pod);
 
-    // ── Step 14: Start rc-agent ──────────────────────────────
-    step(14, "Starting rc-agent");
+    // ── Step 14: Start rc-agent + rc-sentry ────────────────
+    step(14, "Starting rc-agent + rc-sentry");
     if let Err(e) = start_rc_agent(src, dest) {
         warn(&format!("{}", e));
     }
+    start_rc_sentry(dest);
 
     // ── Health Check ─────────────────────────────────────────
     println!();
@@ -324,6 +325,9 @@ fn verify_defender_exclusion(dest: &Path) -> Result<(), String> {
     let _ = run_ps(
         &format!("Add-MpPreference -ExclusionProcess '{}\\rc-agent.exe' -ErrorAction SilentlyContinue", dest_str),
     );
+    let _ = run_ps(
+        &format!("Add-MpPreference -ExclusionProcess '{}\\rc-sentry.exe' -ErrorAction SilentlyContinue", dest_str),
+    );
 
     // Wait for WdFilter.sys minifilter to recognize new exclusions
     info("Waiting 2s for exclusion propagation...");
@@ -365,6 +369,10 @@ fn kill_processes() -> Result<(), String> {
     ]);
     let _ = run("netsh", &[
         "int", "ipv4", "add", "excludedportrange",
+        "protocol=tcp", "startport=8091", "numberofports=1", "persistent",
+    ]);
+    let _ = run("netsh", &[
+        "int", "ipv4", "add", "excludedportrange",
         "protocol=tcp", "startport=18923", "numberofports=3", "persistent",
     ]);
     let _ = run("net", &["start", "winnat"]);
@@ -372,6 +380,7 @@ fn kill_processes() -> Result<(), String> {
     // Kill all relevant processes
     for proc in &[
         "rc-agent.exe",
+        "rc-sentry.exe",
         "pod-agent.exe",
         "msedge.exe",
         "msedgewebview2.exe",
@@ -421,6 +430,9 @@ fn prepare_destination(dest: &Path) -> Result<(), String> {
     }
 
     // Clean all known files (best effort)
+    // NOTE: rc-sentry.exe is deliberately NOT cleaned — it's the backup
+    // remote exec that must survive even a botched install. Only overwritten
+    // by copy_files() when a newer binary is on the pendrive.
     let stale = [
         "rc-agent.exe",
         "pod-agent.exe",
@@ -474,7 +486,18 @@ fn copy_files(pod: u8, src: &Path, dest: &Path) -> Result<(), String> {
         })?;
     }
 
-    ok("4 files copied");
+    // rc-sentry: backup remote exec — optional but strongly recommended
+    let sentry_src = src.join("rc-sentry.exe");
+    if sentry_src.exists() {
+        fs::copy(&sentry_src, dest.join("rc-sentry.exe")).map_err(|e| {
+            format!("Copy failed: rc-sentry.exe: {}", e)
+        })?;
+        ok("5 files copied (includes rc-sentry)");
+    } else {
+        warn("rc-sentry.exe not on pendrive — skipping backup remote exec");
+        ok("4 files copied");
+    }
+
     Ok(())
 }
 
@@ -493,6 +516,14 @@ fn quarantine_check(src: &Path, dest: &Path) -> Result<(), String> {
     thread::sleep(Duration::from_secs(5));
 
     let binary = dest.join("rc-agent.exe");
+    let sentry = dest.join("rc-sentry.exe");
+
+    // Check rc-sentry quarantine (non-fatal)
+    if sentry.exists() {
+        ok("rc-sentry.exe on disk — not quarantined");
+    } else if src.join("rc-sentry.exe").exists() {
+        warn("rc-sentry.exe may have been quarantined — will retry after recovery");
+    }
 
     if binary.exists() {
         let size = binary
@@ -704,6 +735,24 @@ fn set_registry_keys(dest: &Path) -> Result<(), String> {
 
     if !output.status.success() {
         return Err("Failed to set RCAgent Run key".into());
+    }
+
+    // Set rc-sentry auto-start Run key (independent of rc-agent)
+    let sentry_exe = dest.join("rc-sentry.exe");
+    if sentry_exe.exists() {
+        let sentry_str = sentry_exe.to_string_lossy();
+        let sentry_out = run("reg", &[
+            "add",
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            "/v", "RCSentry",
+            "/d", &sentry_str,
+            "/f",
+        ])?;
+        if sentry_out.status.success() {
+            ok("RCSentry Run key set (backup remote exec on boot)");
+        } else {
+            warn("Failed to set RCSentry Run key");
+        }
     }
 
     // Remove legacy keys (best effort)
@@ -1106,6 +1155,36 @@ fn start_rc_agent(src: &Path, dest: &Path) -> Result<(), String> {
     Err("rc-agent failed to start after 2 attempts".into())
 }
 
+/// Start rc-sentry (backup remote exec) as a detached process.
+/// Non-critical — failure here is a warning, not an abort.
+fn start_rc_sentry(dest: &Path) {
+    let sentry = dest.join("rc-sentry.exe");
+    if !sentry.exists() {
+        warn("rc-sentry.exe not found — skipping backup remote exec");
+        return;
+    }
+
+    // Kill any lingering instance first
+    let _ = run("taskkill", &["/F", "/IM", "rc-sentry.exe"]);
+    thread::sleep(Duration::from_secs(1));
+
+    match Command::new(&sentry)
+        .current_dir(dest)
+        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+        .spawn()
+    {
+        Ok(_) => {
+            thread::sleep(Duration::from_secs(2));
+            if is_process_running("rc-sentry.exe") {
+                ok("rc-sentry started (backup remote exec on :8091)");
+            } else {
+                warn("rc-sentry spawned but not running — port 8091 may be in use");
+            }
+        }
+        Err(e) => warn(&format!("Cannot start rc-sentry: {}", e)),
+    }
+}
+
 fn health_check(dest: &Path) -> u32 {
     let mut problems: u32 = 0;
 
@@ -1198,6 +1277,43 @@ fn health_check(dest: &Path) -> u32 {
     } else {
         fail("RCAgent Run key missing");
         problems += 1;
+    }
+
+    // 9. rc-sentry (backup remote exec)
+    if dest.join("rc-sentry.exe").exists() {
+        ok("rc-sentry.exe binary present on disk");
+
+        if is_process_running("rc-sentry.exe") {
+            ok("rc-sentry.exe is running");
+        } else {
+            warn("rc-sentry.exe is NOT running (will start on next boot)");
+        }
+
+        let sentry_key_ok = run("reg", &[
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            "/v", "RCSentry",
+        ])
+        .map_or(false, |o| o.status.success());
+
+        if sentry_key_ok {
+            ok("RCSentry Run key set (auto-start on boot)");
+        } else {
+            warn("RCSentry Run key missing — rc-sentry won't auto-start");
+        }
+
+        // Check port 8091
+        let sentry_port_ok = run("curl", &["-s", "-m", "3", "http://127.0.0.1:8091/ping"])
+            .map_or(false, |o| {
+                String::from_utf8_lossy(&o.stdout).contains("pong")
+            });
+        if sentry_port_ok {
+            ok("Port 8091 responding — backup remote exec active");
+        } else {
+            warn("Port 8091 not responding (may need more time)");
+        }
+    } else {
+        warn("rc-sentry.exe not installed — no backup remote exec");
     }
 
     problems
