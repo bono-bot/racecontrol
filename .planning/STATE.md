@@ -1,30 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
-status: ready_to_plan
-stopped_at: Completed 260318-wkg-01 (web dashboard watchdog)
-last_updated: "2026-03-18T18:05:37.885Z"
-last_activity: 2026-03-17 — v6.0 roadmap created, Phases 36–40
+milestone: v7.0
+milestone_name: E2E Test Suite
+status: defining_requirements
+stopped_at: "Milestone started — defining requirements"
+last_updated: "2026-03-19T00:00:00.000Z"
+last_activity: 2026-03-19 — Milestone v7.0 E2E Test Suite started
 progress:
-  total_phases: 5
+  total_phases: 0
   completed_phases: 0
-  total_plans: 2
-  completed_plans: 1
----
-
----
-gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
-status: ready_to_plan
-stopped_at: "Roadmap created — 5 phases, 20 requirements mapped, ready to plan Phase 36"
-last_updated: "2026-03-17T00:00:00.000Z"
-last_activity: 2026-03-17 — v6.0 roadmap created (Phases 36–40)
-progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 12
+  total_plans: 0
   completed_plans: 0
   percent: 0
 ---
@@ -33,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-17)
+See: .planning/PROJECT.md (updated 2026-03-19)
 
-**Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry — driving repeat visits and social sharing from a publicly accessible cloud PWA.
-**Current focus:** v6.0 Salt Fleet Management — Phase 36 (WSL2 Infrastructure) is next.
+**Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
+**Current focus:** v7.0 E2E Test Suite — comprehensive test coverage for game launch pipeline
 
 ## Current Position
 
-Phase: 36 of 40 (WSL2 Infrastructure)
-Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-03-18 - Completed quick task 260318-xbn: Kiosk watchdog
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-19 — Milestone v7.0 E2E Test Suite started
 
 Progress: [░░░░░░░░░░] 0%
 

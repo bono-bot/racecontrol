@@ -6,18 +6,22 @@
 
 The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls. v2.0 delivered server IP pinning, lock screen hardening, Edge hardening, pod lockdown UI, and session results display.
 
-## Current Milestone: v6.0 Salt Fleet Management
+## Current Milestone: v7.0 E2E Test Suite
 
-**Goal:** Replace the custom pod-agent/remote_ops HTTP endpoint with SaltStack for fleet management — salt-master on WSL2 (James .27), salt-minion on all 8 pods + server (.23), remove remote_ops.rs from rc-agent, strip install.bat to essentials.
+**Goal:** Comprehensive end-to-end test coverage for the full kiosk→server→agent→game launch pipeline across all sim types, with Playwright browser tests, self-healing error correction, per-game launch validation, and deploy verification — reusable as a master test script for future projects (POS, Admin Dashboard).
 
 **Target features:**
-- Salt master running on WSL2 (Ubuntu) on James's machine (.27)
-- Salt minion installed silently on all 8 pods + server (.23), auto-connecting to master
-- remote_ops.rs module removed from rc-agent (port 8090 HTTP endpoint eliminated)
-- All pod-agent references removed from codebase, deploy scripts, and install.bat
-- install.bat slimmed to: Defender exclusions + rc-agent binary copy + salt-minion bootstrap
-- Deploy workflow migrated: Salt `cp.get_file` + `cmd.run` replaces HTTP server + curl pipeline
-- Fleet management via Salt: `salt 'pod*' cmd.run`, `salt 'pod*' state.apply` for config enforcement
+- Playwright browser tests for kiosk wizard flow (per-game: AC, F1 25, EVO, Rally, iRacing)
+- API pipeline tests (billing gates, launch lifecycle, SimType parsing, game state transitions)
+- Deploy verification (binary swap, port conflict detection, service restart, config propagation)
+- Per-game launch validation (launch each installed game, verify PID, auto-dismiss Steam dialogs)
+- Self-healing test runner (auto-cleanup stale games, restart agents, retry failed gates)
+- Kiosk frontend smoke tests (page rendering, SSR error detection, wizard step correctness)
+- Single master E2E script in tests/e2e/ reusable for other services
+
+## Paused Milestone: v6.0 Salt Fleet Management
+
+**Goal:** Replace the custom pod-agent/remote_ops HTTP endpoint with SaltStack for fleet management. Blocked at BIOS AMD-V gate for WSL2.
 
 ## What This Is
 
@@ -93,15 +97,22 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Admin panel Per-Minute Rates table with inline editing
 - ✓ billing_rates added to SYNC_TABLES for cloud replication
 
-### Active (v6.0)
+### Active (v7.0)
+
+- [ ] Playwright browser tests for kiosk wizard per-game flow
+- [ ] API pipeline tests (billing, launch, game state lifecycle)
+- [ ] Deploy verification (binary swap, port conflicts, service health)
+- [ ] Per-game launch validation (AC, F1 25, EVO, Rally, iRacing)
+- [ ] Self-healing test runner with auto-cleanup and retry
+- [ ] Kiosk frontend smoke (page load, SSR errors, wizard correctness)
+- [ ] Master E2E script reusable for other services
+
+### Paused (v6.0 — blocked at BIOS AMD-V)
 
 - [ ] Salt master on WSL2 (James .27) managing fleet
 - [ ] Salt minion on all 8 pods + server (.23)
 - [ ] remote_ops.rs removed from rc-agent (port 8090 eliminated)
-- [ ] Pod-agent references removed from all code, scripts, and docs
-- [ ] install.bat slimmed to Defender + rc-agent + salt-minion bootstrap
 - [ ] Deploy workflow via Salt replaces HTTP server + curl pipeline
-- [ ] Fleet management commands via Salt targeting
 
 ### Paused (v3.0 — resume after v5.0)
 
@@ -168,4 +179,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-17 after milestone v6.0 Salt Fleet Management started*
+*Last updated: 2026-03-19 after milestone v7.0 E2E Test Suite started*
