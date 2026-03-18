@@ -202,7 +202,11 @@ Plans:
   3. Running the pre-test cleanup fixture against a pod with a stale billing session results in that session being ended and the pod returning to Idle state before any test assertion runs — cleanup is idempotent and safe to run on a clean pod
   4. A Playwright test that fails captures a PNG screenshot and a DOM snapshot in `tests/e2e/results/screenshots/` automatically — the screenshot-on-failure hook is wired
   5. Tab, Enter, and Escape key navigation through the wizard reaches the expected step — keyboard navigation simulation works against the live kiosk
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 42-01-PLAN.md — Add data-testid attributes to kiosk wizard source files (FOUND-06)
+- [ ] 42-02-PLAN.md — Pre-test cleanup fixture + browser smoke spec + keyboard nav (FOUND-04, FOUND-07, BROW-01, BROW-07)
 
 ### Phase 43: Wizard Flows + API Pipeline Tests
 **Goal**: All 5 sim wizard flows are exercised step-by-step in Playwright (AC: 13-step full flow; F1 25/EVO/Rally/iRacing: 5-step simplified flow), experience filtering and staff mode bypass are validated in the browser, and curl-based API tests confirm the full billing lifecycle, per-game launch with PID verification, game state machine transitions, and Steam dialog auto-dismissal on Pod 8
@@ -342,7 +346,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 39. remote_ops.rs Removal | v6.0 | 0/3 | Not started | - |
 | 40. Fleet Rollout | v6.0 | 0/2 | Not started | - |
 | 41. Test Foundation | v7.0 | Complete    | 2026-03-18 | 2026-03-19 |
-| 42. Kiosk Source Prep + Browser Smoke | v7.0 | 0/? | Not started | - |
+| 42. Kiosk Source Prep + Browser Smoke | v7.0 | 0/2 | Not started | - |
 | 43. Wizard Flows + API Pipeline Tests | v7.0 | 0/? | Not started | - |
 | 44. Deploy Verification + Master Script | v7.0 | 0/? | Not started | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | v8.0 | 0/? | Not started | - |
