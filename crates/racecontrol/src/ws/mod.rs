@@ -249,6 +249,11 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 existing.driving_state = pod_info.driving_state;
                                 existing.game_state = pod_info.game_state;
                                 existing.current_game = pod_info.current_game;
+                                existing.screen_blanked = pod_info.screen_blanked;
+                                existing.ffb_preset = pod_info.ffb_preset.clone();
+                                if !pod_info.installed_games.is_empty() {
+                                    existing.installed_games = pod_info.installed_games.clone();
+                                }
                                 existing.clone()
                             } else {
                                 pods.insert(pod_info.id.clone(), pod_info.clone());

@@ -548,6 +548,17 @@ async fn set_pod_screen(
                 CoreToAgentMessage::ClearLockScreen
             };
             let _ = sender.send(msg).await;
+
+            // Optimistic update: reflect blank state immediately so kiosk sees the change
+            // without waiting for the next heartbeat cycle
+            {
+                let mut pods = state.pods.write().await;
+                if let Some(pod) = pods.get_mut(&id) {
+                    pod.screen_blanked = Some(blank);
+                    let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                }
+            }
+
             Json(json!({ "ok": true, "pod_id": id, "blank": blank }))
         }
         None => Json(json!({ "error": format!("Pod {} not connected", id) })),
@@ -944,6 +955,8 @@ mod pod_status_summary_tests {
                     game_state: None,
                     current_game: None,
                     installed_games: Vec::new(),
+                    screen_blanked: None,
+                    ffb_preset: None,
                 });
             }
         }
