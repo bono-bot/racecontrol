@@ -206,7 +206,7 @@ pub struct AcConditions {
 }
 
 fn default_driver() -> String { "Driver".to_string() }
-fn default_skin() -> String { "00_default".to_string() }
+fn default_skin() -> String { String::new() }
 fn default_transmission() -> String { "manual".to_string() }
 fn default_ffb() -> String { "medium".to_string() }
 fn default_duration() -> u32 { 60 }
@@ -234,8 +234,51 @@ pub struct LaunchDiagnostics {
 }
 
 /// Runs the full AC launch sequence. Blocks for ~10 seconds.
+/// Ensure all required AC config files exist with safe defaults.
+/// Called before every launch. Only creates files that are missing —
+/// existing user-configured files are never overwritten.
+fn bootstrap_ac_config() -> Result<()> {
+    let cfg_dir = dirs_next::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+        .join("Assetto Corsa")
+        .join("cfg");
+
+    std::fs::create_dir_all(&cfg_dir)?;
+
+    // gui.ini — CSP kiosk mode (FORCE_START skips main menu)
+    let gui_path = cfg_dir.join("gui.ini");
+    if !gui_path.exists() {
+        std::fs::write(&gui_path, "[SETTINGS]\nFORCE_START=1\nHIDE_MAIN_MENU=1\n")?;
+        tracing::info!("Bootstrap: created gui.ini (FORCE_START=1)");
+    }
+
+    // video.ini — display settings (1080p fullscreen, reasonable quality)
+    let video_path = cfg_dir.join("video.ini");
+    if !video_path.exists() {
+        std::fs::write(&video_path, concat!(
+            "[VIDEO]\n",
+            "FULLSCREEN=1\nWIDTH=1920\nHEIGHT=1080\nREFRESH=60\n",
+            "VSYNC=1\nAASAMPLES=2\nANISOTROPIC=8\n",
+            "SHADOW_MAP_SIZE=2048\nWORLD_DETAIL=1\nSMOKE=1\n",
+        ))?;
+        tracing::info!("Bootstrap: created video.ini (1080p fullscreen)");
+    }
+
+    // controls.ini — FFB defaults (medium gain)
+    let controls_path = cfg_dir.join("controls.ini");
+    if !controls_path.exists() {
+        std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\n")?;
+        tracing::info!("Bootstrap: created controls.ini (FFB gain=70)");
+    }
+
+    Ok(())
+}
+
 pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     tracing::info!("AC launch: {} @ {} for {}", params.car, params.track, params.driver);
+
+    // Step 0: Ensure all config files exist (self-healing bootstrap)
+    bootstrap_ac_config()?;
 
     // Step 1: Kill existing AC
     tracing::info!("[1/4] Killing existing AC...");
