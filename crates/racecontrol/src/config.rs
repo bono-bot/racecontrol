@@ -23,7 +23,24 @@ pub struct Config {
     pub watchdog: WatchdogConfig,
     #[serde(default)]
     pub bono: BonoConfig,
+    #[serde(default)]
+    pub gmail: GmailConfig,
 }
+
+/// Gmail API config for sending notification emails (track record beaten, etc.)
+/// Uses OAuth2 refresh_token flow — no external script needed.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct GmailConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub refresh_token: Option<String>,
+    #[serde(default = "default_gmail_from")]
+    pub from_email: String,
+}
+
+fn default_gmail_from() -> String { "james@racingpoint.in".to_string() }
 
 #[derive(Debug, Deserialize)]
 pub struct VenueConfig {
@@ -339,6 +356,7 @@ impl Config {
             auth: AuthConfig::default(),
             watchdog: WatchdogConfig::default(),
             bono: BonoConfig::default(),
+            gmail: GmailConfig::default(),
         }
     }
 

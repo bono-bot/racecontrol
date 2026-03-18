@@ -209,8 +209,9 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
             let track = lap.track.clone();
             let car = lap.car.clone();
             let new_time_ms = lap.lap_time_ms as i64;
-            let email_script = state.config.watchdog.email_script_path.clone();
             let new_holder = new_holder_name.clone();
+            let http = state.http_client.clone();
+            let gmail = state.config.gmail.clone();
 
             // Format times as M:SS.mmm
             let old_display = format_lap_time(old_time_ms);
@@ -230,35 +231,16 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
 
             // Fire-and-forget: notification failure must not affect lap persistence
             tokio::spawn(async move {
-                let result = tokio::process::Command::new("node")
-                    .arg(&email_script)
-                    .arg(&prev_email)
-                    .arg(&subject)
-                    .arg(&body)
-                    .kill_on_drop(true)
-                    .output()
-                    .await;
-
-                match result {
-                    Ok(output) if output.status.success() => {
-                        tracing::info!(
-                            "Track record notification sent to {} for {}/{}",
-                            prev_email, track, car
-                        );
-                    }
-                    Ok(output) => {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        tracing::warn!(
-                            "Track record notification failed for {}/{}: {}",
-                            track, car, stderr
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to spawn track record notification for {}/{}: {}",
-                            track, car, e
-                        );
-                    }
+                if let Err(e) = send_gmail(&http, &gmail, &prev_email, &subject, &body).await {
+                    tracing::warn!(
+                        "Track record notification failed for {}/{}: {}",
+                        track, car, e
+                    );
+                } else {
+                    tracing::info!(
+                        "Track record notification sent to {} for {}/{}",
+                        prev_email, track, car
+                    );
                 }
             });
         } else if prev_record.is_some() {
@@ -466,6 +448,80 @@ pub async fn recalculate_event_positions(pool: &sqlx::SqlitePool, event_id: &str
         "[events] Recalculated positions for event {} ({} entries, leader: {}ms)",
         event_id, entries.len(), leader_ms
     );
+}
+
+// ─── Gmail API (native, no external script) ──────────────────────────────────
+
+use crate::config::GmailConfig;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
+async fn send_gmail(
+    http: &reqwest::Client,
+    gmail: &GmailConfig,
+    to: &str,
+    subject: &str,
+    body: &str,
+) -> Result<(), String> {
+    if !gmail.enabled {
+        return Err("Gmail not enabled in config".into());
+    }
+    let client_id = gmail.client_id.as_deref().ok_or("gmail.client_id missing")?;
+    let client_secret = gmail.client_secret.as_deref().ok_or("gmail.client_secret missing")?;
+    let refresh_token = gmail.refresh_token.as_deref().ok_or("gmail.refresh_token missing")?;
+
+    // Step 1: Exchange refresh_token for access_token
+    let token_resp = http
+        .post("https://oauth2.googleapis.com/token")
+        .form(&[
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("refresh_token", refresh_token),
+            ("grant_type", "refresh_token"),
+        ])
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("Token request failed: {}", e))?;
+
+    if !token_resp.status().is_success() {
+        let status = token_resp.status();
+        let body = token_resp.text().await.unwrap_or_default();
+        return Err(format!("Token refresh failed ({}): {}", status, body));
+    }
+
+    let token_json: serde_json::Value = token_resp
+        .json()
+        .await
+        .map_err(|e| format!("Token parse failed: {}", e))?;
+    let access_token = token_json["access_token"]
+        .as_str()
+        .ok_or("No access_token in response")?;
+
+    // Step 2: Build RFC 2822 message and base64url encode
+    let from = &gmail.from_email;
+    let raw_message = format!(
+        "From: {}\r\nTo: {}\r\nSubject: {}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}",
+        from, to, subject, body
+    );
+    let encoded = URL_SAFE_NO_PAD.encode(raw_message.as_bytes());
+
+    // Step 3: Send via Gmail API
+    let send_resp = http
+        .post("https://gmail.googleapis.com/gmail/v1/users/me/messages/send")
+        .bearer_auth(access_token)
+        .json(&serde_json::json!({ "raw": encoded }))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("Gmail send failed: {}", e))?;
+
+    if !send_resp.status().is_success() {
+        let status = send_resp.status();
+        let body = send_resp.text().await.unwrap_or_default();
+        return Err(format!("Gmail send failed ({}): {}", status, body));
+    }
+
+    Ok(())
 }
 
 // ─── F1 Scoring constants ─────────────────────────────────────────────────────

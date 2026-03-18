@@ -45,6 +45,9 @@ rand = { workspace = true }
 # AI/HTTP client
 reqwest = { version = "0.12", features = ["json"] }
 
+# Base64 encoding (Gmail API message encoding)
+base64 = "0.22"
+
 # URL encoding (for Evolution API instance names)
 urlencoding = "2"
 

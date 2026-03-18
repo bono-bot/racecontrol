@@ -63,6 +63,16 @@ results_channel = "race-results"
 enabled = false
 contact = "+917981264279"
 
+# ─── Gmail API (track record notifications) ──────────────────────────────────
+# Set credentials in deployed config (C:\RacingPoint\racecontrol.toml on .23)
+# Do NOT commit real credentials — GitHub push protection will block.
+[gmail]
+enabled = false
+# client_id = "your-google-oauth-client-id"
+# client_secret = "your-google-oauth-client-secret"
+# refresh_token = "your-google-oauth-refresh-token"
+from_email = "james@racingpoint.in"
+
 # ─── Bono Relay (Tailscale mesh — Phase 27) ──────────────────────────────────
 # Requires Tailscale to be installed and connected on both server and Bono's VPS.
 # Set enabled = true after: (1) running scripts/deploy-tailscale.ps1, (2) confirming
