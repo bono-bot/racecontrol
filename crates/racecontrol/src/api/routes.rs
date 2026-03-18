@@ -2993,7 +2993,102 @@ async fn launch_game(
 
     match game_launcher::handle_dashboard_command(&state, cmd).await {
         Ok(()) => Json(json!({ "ok": true })),
+        Err(e) if e.contains("No agent connected") => {
+            // No local pod — try relaying to venue via Tailscale bono_relay
+            relay_game_launch_to_venue(&state, pod_id, sim_type_str, &body).await
+        }
         Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+/// Relay a game launch command to venue server via Tailscale bono_relay.
+/// Called when cloud has no local agent connected for the target pod.
+async fn relay_game_launch_to_venue(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    sim_type_str: &str,
+    body: &Value,
+) -> Json<Value> {
+    let bono = &state.config.bono;
+    if !bono.enabled {
+        return Json(json!({ "ok": false, "error": "No local agent and venue relay not configured" }));
+    }
+
+    let relay_ip = match &bono.tailscale_bind_ip {
+        Some(ip) => ip.clone(),
+        None => return Json(json!({ "ok": false, "error": "No venue Tailscale IP configured" })),
+    };
+    let relay_secret = bono.relay_secret.as_deref().unwrap_or("");
+    let relay_url = format!("http://{}:{}/relay/command", relay_ip, bono.relay_port);
+
+    // Resolve pod_id to pod_number for the relay command
+    let pod_number = {
+        let pods = state.pods.read().await;
+        pods.values()
+            .find(|p| p.id == pod_id)
+            .map(|p| p.number)
+    };
+
+    let pod_number = match pod_number {
+        Some(n) => n,
+        None => {
+            // Try parsing pod_id as "pod-N" format
+            pod_id.strip_prefix("pod-")
+                .and_then(|n| n.parse::<u32>().ok())
+                .unwrap_or(0)
+        }
+    };
+
+    if pod_number == 0 {
+        return Json(json!({ "ok": false, "error": format!("Cannot resolve pod_id '{}' to pod number", pod_id) }));
+    }
+
+    let track = body.get("launch_args")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        .and_then(|v| v.get("track").and_then(|t| t.as_str()).map(|s| s.to_string()));
+    let car = body.get("launch_args")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        .and_then(|v| v.get("car").and_then(|c| c.as_str()).map(|s| s.to_string()));
+
+    let relay_cmd = json!({
+        "type": "launch_game",
+        "data": {
+            "pod_number": pod_number,
+            "game": sim_type_str,
+            "track": track,
+            "car": car
+        }
+    });
+
+    tracing::info!(
+        "Relaying game launch to venue: pod_number={}, game={}, relay_url={}",
+        pod_number, sim_type_str, relay_url
+    );
+
+    match state.http_client
+        .post(&relay_url)
+        .header("X-Relay-Secret", relay_secret)
+        .json(&relay_cmd)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let body: Value = resp.json().await.unwrap_or_default();
+            Json(json!({ "ok": true, "relayed": true, "venue_response": body }))
+        }
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            tracing::warn!("Venue relay returned {}: {}", status, body);
+            Json(json!({ "ok": false, "error": format!("Venue relay returned {}: {}", status, body) }))
+        }
+        Err(e) => {
+            tracing::error!("Venue relay request failed: {}", e);
+            Json(json!({ "ok": false, "error": format!("Cannot reach venue: {}", e) }))
+        }
     }
 }
 
@@ -6680,6 +6775,35 @@ async fn sync_changes(
                         settings[key] = json!(value);
                     }
                     result["kiosk_settings"] = settings;
+                }
+            }
+            "auth_tokens" => {
+                // Only sync pending/unexpired tokens — venue needs these for kiosk PIN validation
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'pod_id', pod_id, 'driver_id', driver_id,
+                        'pricing_tier_id', pricing_tier_id, 'auth_type', auth_type,
+                        'token', token, 'status', status,
+                        'custom_price_paise', custom_price_paise,
+                        'custom_duration_minutes', custom_duration_minutes,
+                        'experience_id', experience_id,
+                        'custom_launch_args', custom_launch_args,
+                        'created_at', created_at, 'expires_at', expires_at
+                    ) FROM auth_tokens
+                    WHERE status = 'pending' AND expires_at > datetime('now')
+                    ORDER BY created_at ASC
+                    LIMIT ?",
+                )
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["auth_tokens"] = json!(items);
                 }
             }
             _ => {}

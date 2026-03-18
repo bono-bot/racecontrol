@@ -19,6 +19,8 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
+use crate::game_launcher;
+use rc_common::protocol::DashboardCommand;
 
 // ─── Event Types ─────────────────────────────────────────────────────────────
 
@@ -165,20 +167,92 @@ pub async fn handle_command(
                 car = ?car,
                 "Bono relay: LaunchGame — forwarding to pod via game_launcher"
             );
-            // TODO Phase 28: wire to game_launcher::launch_game_on_pod()
-            // For Phase 27, log and acknowledge — the relay channel is established
-            (StatusCode::OK, axum::Json(serde_json::json!({
-                "status": "queued",
-                "pod_number": pod_number,
-                "note": "game_launcher integration in Phase 28"
-            }))).into_response()
+
+            // Resolve pod_number to pod_id
+            let pod_id = {
+                let pods = state.pods.read().await;
+                pods.values()
+                    .find(|p| p.number == pod_number)
+                    .map(|p| p.id.clone())
+            };
+
+            let pod_id = match pod_id {
+                Some(id) => id,
+                None => {
+                    return (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({
+                        "error": format!("No pod with number {} connected", pod_number)
+                    }))).into_response();
+                }
+            };
+
+            // Build launch_args JSON from track/car if provided
+            let launch_args = if track.is_some() || car.is_some() {
+                let mut args = serde_json::json!({});
+                if let Some(t) = &track { args["track"] = serde_json::json!(t); }
+                if let Some(c) = &car { args["car"] = serde_json::json!(c); }
+                Some(args.to_string())
+            } else {
+                None
+            };
+
+            let sim_type: rc_common::types::SimType = match serde_json::from_value(
+                serde_json::Value::String(game.clone()),
+            ) {
+                Ok(st) => st,
+                Err(_) => {
+                    return (StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({
+                        "error": format!("Unknown game/sim_type: {}", game)
+                    }))).into_response();
+                }
+            };
+
+            let cmd = DashboardCommand::LaunchGame {
+                pod_id: pod_id.clone(),
+                sim_type,
+                launch_args,
+            };
+
+            match game_launcher::handle_dashboard_command(&state, cmd).await {
+                Ok(()) => (StatusCode::OK, axum::Json(serde_json::json!({
+                    "status": "launched",
+                    "pod_number": pod_number,
+                    "pod_id": pod_id
+                }))).into_response(),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
+                    "error": e
+                }))).into_response(),
+            }
         }
         RelayCommand::StopGame { pod_number } => {
             tracing::info!(pod_number, "Bono relay: StopGame");
-            (StatusCode::OK, axum::Json(serde_json::json!({
-                "status": "queued",
-                "pod_number": pod_number
-            }))).into_response()
+
+            let pod_id = {
+                let pods = state.pods.read().await;
+                pods.values()
+                    .find(|p| p.number == pod_number)
+                    .map(|p| p.id.clone())
+            };
+
+            let pod_id = match pod_id {
+                Some(id) => id,
+                None => {
+                    return (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({
+                        "error": format!("No pod with number {} connected", pod_number)
+                    }))).into_response();
+                }
+            };
+
+            let cmd = DashboardCommand::StopGame { pod_id: pod_id.clone() };
+            match game_launcher::handle_dashboard_command(&state, cmd).await {
+                Ok(()) => (StatusCode::OK, axum::Json(serde_json::json!({
+                    "status": "stopped",
+                    "pod_number": pod_number,
+                    "pod_id": pod_id
+                }))).into_response(),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
+                    "error": e
+                }))).into_response(),
+            }
         }
         RelayCommand::GetStatus { pod_number } => {
             let pods = state.pods.read().await;

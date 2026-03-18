@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use crate::state::AppState;
 
-const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings";
+const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens";
 
 /// Relay sync interval in seconds (fast — localhost only).
 const RELAY_INTERVAL_SECS: u64 = 2;
@@ -597,6 +597,17 @@ async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Resul
         }
     }
 
+    // Upsert auth_tokens (PIN/QR codes created on cloud, consumed at venue kiosk)
+    if let Some(tokens) = body.get("auth_tokens").and_then(|v| v.as_array()) {
+        for token in tokens {
+            if let Err(e) = upsert_auth_token(state, token).await {
+                tracing::warn!("Failed to upsert auth_token: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
     // Update sync timestamp
     let fallback_ts = chrono::Utc::now().to_rfc3339();
     let synced_at = body
@@ -1077,6 +1088,39 @@ async fn upsert_pricing_rule(state: &Arc<AppState>, rule: &Value) -> anyhow::Res
     .bind(rule.get("multiplier").and_then(|v| v.as_f64()).unwrap_or(1.0))
     .bind(rule.get("flat_adjustment_paise").and_then(|v| v.as_i64()).unwrap_or(0))
     .bind(rule.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
+    .execute(&state.db)
+    .await?;
+
+    Ok(())
+}
+
+/// Upsert a single auth_token from cloud → venue.
+/// Only inserts pending tokens; skips if token already exists locally (prevents overwriting consumed state).
+async fn upsert_auth_token(state: &Arc<AppState>, token: &Value) -> anyhow::Result<()> {
+    let id = token
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Auth token missing id"))?;
+
+    // Only insert if not already present — never overwrite local status
+    // (venue may have already consumed/expired the token)
+    sqlx::query(
+        "INSERT OR IGNORE INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, custom_price_paise, custom_duration_minutes, experience_id, custom_launch_args, created_at, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+    )
+    .bind(id)
+    .bind(token.get("pod_id").and_then(|v| v.as_str()).unwrap_or(""))
+    .bind(token.get("driver_id").and_then(|v| v.as_str()).unwrap_or(""))
+    .bind(token.get("pricing_tier_id").and_then(|v| v.as_str()).unwrap_or(""))
+    .bind(token.get("auth_type").and_then(|v| v.as_str()).unwrap_or("pin"))
+    .bind(token.get("token").and_then(|v| v.as_str()).unwrap_or(""))
+    .bind(token.get("status").and_then(|v| v.as_str()).unwrap_or("pending"))
+    .bind(token.get("custom_price_paise").and_then(|v| v.as_i64()))
+    .bind(token.get("custom_duration_minutes").and_then(|v| v.as_i64()))
+    .bind(token.get("experience_id").and_then(|v| v.as_str()))
+    .bind(token.get("custom_launch_args").and_then(|v| v.as_str()))
+    .bind(token.get("created_at").and_then(|v| v.as_str()))
+    .bind(token.get("expires_at").and_then(|v| v.as_str()).unwrap_or(""))
     .execute(&state.db)
     .await?;
 
