@@ -307,6 +307,54 @@ const ALLOWED_PROCESSES: &[&str] = &[
 
     // Racing Point internal
     "rc-sentry.exe",              // Backup remote exec service
+
+    // AMD Radeon Software (all AMD pods)
+    "amdrssrcext.exe",             // AMD Radeon Settings extension
+
+    // Adobe Creative Cloud (Pod 6 has CC installed)
+    "creative cloud helper.exe",   // Adobe CC helper
+    "coresync.exe",                // Adobe CoreSync
+    "adobe desktop service.exe",   // Adobe Desktop Service
+    "armsvc.exe",                  // Adobe ARM update service
+
+    // Windows system processes (seen on multiple pods)
+    "aggregatorhost.exe",          // Windows Aggregator Host
+    "crossdeviceresume.exe",       // Windows cross-device resume
+    "appactions.exe",              // Windows app actions
+    "wmiapsrv.exe",                // WMI Performance Adapter
+    "notepad.exe",                 // Notepad (Windows Store version)
+    "mqsvc.exe",                   // Message Queuing service
+    "widgetboard.exe",             // Windows Widgets board
+    "finddevice.exe",              // Find My Device
+    "gameinputredistservice.exe",  // Microsoft GameInput
+
+    // Ollama (Pod 8 has local LLM)
+    "ollama app.exe",              // Ollama desktop app
+
+    // VSD Craft (sim rig diagnostics — Pods 3,7,8)
+    "vsd craft.exe",               // VSD Craft
+
+    // Garage61 (sim management — Pods 3,7)
+    "garage61-agent.exe",          // Garage61 agent
+    "garage61-launcher.exe",       // Garage61 launcher
+
+    // Pico Connect / Streaming Service (Pod 7 — VR)
+    "capture_server.exe",          // Pico Connect capture
+    "ps_service_launcher.exe",     // Pico streaming launcher
+    "ps_server.exe",               // Pico streaming server
+
+    // NVIDIA extras (Pod 7)
+    "nvsmartmaxapp64.exe",         // NVIDIA Smart Max Audio
+    "nvsmartmaxapp.exe",           // NVIDIA Smart Max Audio (32-bit)
+
+    // Bluetooth (Pod 7)
+    "bluetooth audio keepalive.exe", // BT Audio Keepalive
+
+    // Gigabyte (Pod 3)
+    "rpmdaemon.exe",               // Gigabyte Smart Backup
+
+    // VNM Config (Pod 3 — startup item)
+    "vnmconfig.exe",               // VNM network config
 ];
 
 /// Kiosk mode manager.
