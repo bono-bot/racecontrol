@@ -3,6 +3,7 @@
 *.db
 *.db-wal
 *.db-shm
+node_modules/
 web/node_modules
 web/.next
 pwa/node_modules
@@ -29,3 +30,7 @@ __pycache__/
 # Kiosk
 kiosk/node_modules
 kiosk/.next
+
+# Playwright
+playwright-report/
+test-results/
