@@ -208,7 +208,7 @@ export default function CustomerLanding() {
           >
             Staff Login
           </Link>
-          <div className="flex items-center gap-2">
+          <div data-testid="ws-status" className="flex items-center gap-2">
             <span
               className={`w-2.5 h-2.5 rounded-full ${
                 connected ? "bg-green-500 pulse-dot" : "bg-red-500"
@@ -222,7 +222,7 @@ export default function CustomerLanding() {
       </header>
 
       {/* Pod Grid — 4x2 */}
-      <main className="flex-1 p-4 overflow-hidden">
+      <main data-testid="pod-grid" className="flex-1 p-4 overflow-hidden">
         <div className="grid grid-cols-4 grid-rows-2 gap-3 h-full">
           {podSlots.map((pod, idx) => {
             const podNum = idx + 1;
@@ -285,6 +285,7 @@ export default function CustomerLanding() {
             return (
               <button
                 key={pod.id}
+                data-testid={`pod-card-${pod.number}`}
                 onClick={() => {
                   setSelectedPodId(pod.id);
                   setPinStep("numpad");
@@ -313,6 +314,7 @@ export default function CustomerLanding() {
       <footer className="flex items-center justify-center gap-6 py-3 border-t border-rp-border bg-rp-card">
         <Link
           href="/book"
+          data-testid="book-session-btn"
           className="px-6 py-2 bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded-lg text-sm transition-colors"
         >
           Book a Session
@@ -522,6 +524,7 @@ function PinModal({
 
   return (
     <div
+      data-testid="pin-modal"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === e.currentTarget && step === "numpad") onClose();

@@ -268,19 +268,20 @@ export function SetupWizard({
             </>
           )}
         </div>
-        <h3 className="text-lg font-bold text-white mt-1">{STEP_TITLES[step] || step}</h3>
+        <h3 data-testid="wizard-step-title" className="text-lg font-bold text-white mt-1">{STEP_TITLES[step] || step}</h3>
       </div>
 
       {/* Step Content */}
       <div className="flex-1 overflow-y-auto p-5">
         {/* ─── REGISTER DRIVER ──────────────────────────────────── */}
         {step === "register_driver" && (
-          <div className="space-y-4">
+          <div data-testid="step-register-driver" className="space-y-4">
             <div>
               <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">
                 Search Existing Driver
               </label>
               <input
+                data-testid="driver-search"
                 type="text"
                 placeholder="Name or phone..."
                 value={searchQuery}
@@ -295,6 +296,7 @@ export function SetupWizard({
                     return (
                       <button
                         key={d.id}
+                        data-testid={`driver-result-${d.id}`}
                         onClick={() => handleSelectDriver(d)}
                         className="w-full text-left px-3 py-2 hover:bg-rp-red/10 text-sm flex items-center justify-between"
                       >
@@ -320,6 +322,7 @@ export function SetupWizard({
 
             <div className="space-y-3">
               <input
+                data-testid="new-driver-name"
                 type="text"
                 placeholder="Driver name *"
                 value={driverName}
@@ -334,6 +337,7 @@ export function SetupWizard({
                 className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
               />
               <button
+                data-testid="create-driver-btn"
                 onClick={handleCreateDriver}
                 disabled={!driverName.trim()}
                 className="w-full py-2.5 bg-rp-red hover:bg-rp-red-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded text-sm transition-colors"
@@ -346,10 +350,11 @@ export function SetupWizard({
 
         {/* ─── SELECT PLAN ──────────────────────────────────────── */}
         {step === "select_plan" && (
-          <div className="space-y-2">
+          <div data-testid="step-select-plan" className="space-y-2">
             {tiers.filter(t => !t.is_trial || !ws.selectedDriver?.has_used_trial).map((tier) => (
               <button
                 key={tier.id}
+                data-testid={`tier-option-${tier.id}`}
                 onClick={() => handleSelectTier(tier)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-rp-surface border border-rp-border rounded hover:border-rp-red/50 transition-colors"
               >
@@ -367,10 +372,11 @@ export function SetupWizard({
 
         {/* ─── SELECT GAME ──────────────────────────────────────── */}
         {step === "select_game" && (
-          <div className="grid grid-cols-2 gap-3">
+          <div data-testid="step-select-game" className="grid grid-cols-2 gap-3">
             {GAMES.map((g) => (
               <button
                 key={g.id}
+                data-testid={`game-option-${g.id}`}
                 disabled={!g.enabled}
                 onClick={() => handleSelectGame(g.id)}
                 className={`p-5 rounded-xl border-2 text-center transition-all ${
@@ -388,7 +394,7 @@ export function SetupWizard({
 
         {/* ─── SESSION SPLITS (AC only) ────────────────────────── */}
         {step === "session_splits" && (
-          <div className="space-y-4">
+          <div data-testid="step-session-splits" className="space-y-4">
             <p className="text-sm text-rp-grey">
               Split your {ws.selectedTier?.duration_minutes}-minute session into shorter sub-sessions.
               The game restarts between each split.
@@ -397,6 +403,7 @@ export function SetupWizard({
               {splitOptions.map((opt) => (
                 <button
                   key={opt.count}
+                  data-testid={`split-option-${opt.count}`}
                   onClick={() => handleSelectSplit(opt.count, opt.duration_minutes)}
                   className={`w-full flex items-center justify-between px-4 py-3 bg-rp-surface border rounded transition-colors ${
                     ws.splitCount === opt.count
@@ -433,8 +440,9 @@ export function SetupWizard({
 
         {/* ─── PLAYER MODE ──────────────────────────────────────── */}
         {step === "player_mode" && (
-          <div className="grid grid-cols-2 gap-4">
+          <div data-testid="step-player-mode" className="grid grid-cols-2 gap-4">
             <button
+              data-testid="player-mode-single"
               onClick={() => handleSelectPlayerMode("single")}
               className="p-6 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
             >
@@ -445,6 +453,7 @@ export function SetupWizard({
               <p className="text-xs text-rp-grey mt-1">Practice &amp; hot laps</p>
             </button>
             <button
+              data-testid="player-mode-multi"
               onClick={() => handleSelectPlayerMode("multi")}
               className="p-6 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
             >
@@ -459,7 +468,7 @@ export function SetupWizard({
 
         {/* ─── SESSION TYPE ─────────────────────────────────────── */}
         {step === "session_type" && (
-          <div className="space-y-3">
+          <div data-testid="step-session-type" className="space-y-3">
             {([
               { type: "practice" as const, label: "Practice", desc: "Free driving, no AI, no timer", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
               { type: "hotlap" as const, label: "Hotlap", desc: "Timed laps -- set the fastest time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
@@ -469,6 +478,7 @@ export function SetupWizard({
             ]).map(({ type, label, desc, icon }) => (
               <button
                 key={type}
+                data-testid={`session-type-${type}`}
                 onClick={() => handleSelectSessionType(type)}
                 className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl border-2 transition-all text-left ${
                   ws.sessionType === type
@@ -490,7 +500,7 @@ export function SetupWizard({
 
         {/* ─── AI CONFIG ────────────────────────────────────────── */}
         {step === "ai_config" && (
-          <div className="space-y-6">
+          <div data-testid="step-ai-config" className="space-y-6">
             {/* AI Toggle */}
             <div className="flex items-center justify-between px-4 py-3 bg-rp-surface border border-rp-border rounded-xl">
               <div>
@@ -498,6 +508,7 @@ export function SetupWizard({
                 <p className="text-xs text-rp-grey">Race against computer-controlled drivers</p>
               </div>
               <button
+                data-testid="ai-toggle"
                 onClick={() => setField("aiEnabled", !ws.aiEnabled)}
                 className={`w-12 h-6 rounded-full transition-colors ${ws.aiEnabled ? "bg-rp-red" : "bg-zinc-700"}`}
               >
@@ -514,6 +525,7 @@ export function SetupWizard({
                     {(["easy", "medium", "hard"] as const).map((level) => (
                       <button
                         key={level}
+                        data-testid={`ai-difficulty-${level}`}
                         onClick={() => setField("aiDifficulty", level)}
                         className={`p-4 rounded-xl border-2 text-center transition-all ${
                           ws.aiDifficulty === level
@@ -533,6 +545,7 @@ export function SetupWizard({
                     Number of AI: <span className="text-rp-red">{ws.aiCount}</span>
                   </h4>
                   <input
+                    data-testid="ai-count-slider"
                     type="range"
                     min={1}
                     max={20}
@@ -550,6 +563,7 @@ export function SetupWizard({
 
             {/* Next button */}
             <button
+              data-testid="ai-config-next"
               onClick={goNext}
               className="w-full py-3 bg-rp-red hover:bg-rp-red-hover text-white font-bold rounded-lg transition-colors"
             >
@@ -560,7 +574,7 @@ export function SetupWizard({
 
         {/* ─── MULTIPLAYER LOBBY ────────────────────────────────── */}
         {step === "multiplayer_lobby" && (
-          <div className="space-y-6">
+          <div data-testid="step-multiplayer-lobby" className="space-y-6">
             {/* Create or Join toggle */}
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -669,11 +683,12 @@ export function SetupWizard({
           // Filter experiences by selected game
           const gameExperiences = experiences.filter((e) => e.game === ws.selectedGame);
           return (
-          <div className="space-y-4">
+          <div data-testid="step-select-experience" className="space-y-4">
             {/* Mode toggle — only show Custom option for AC (has track/car catalog) */}
             {isAc && (
             <div className="flex gap-2">
               <button
+                data-testid="experience-mode-preset"
                 onClick={() => setField("experienceMode", "preset")}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
                   ws.experienceMode === "preset"
@@ -684,6 +699,7 @@ export function SetupWizard({
                 Preset Experiences
               </button>
               <button
+                data-testid="experience-mode-custom"
                 onClick={() => {
                   setField("experienceMode", "custom");
                   goToStep("select_track");
@@ -703,13 +719,14 @@ export function SetupWizard({
             )}
 
             {/* Experience list — filtered by selected game */}
-            <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+            <div data-testid="experience-list" className="space-y-2 max-h-[50vh] overflow-y-auto">
               {gameExperiences.length === 0 ? (
                 <p className="text-sm text-rp-grey text-center py-8">No experiences configured for {GAME_LABELS[ws.selectedGame] || ws.selectedGame}</p>
               ) : (
                 gameExperiences.map((exp) => (
                   <button
                     key={exp.id}
+                    data-testid={`experience-option-${exp.id}`}
                     onClick={() => handleSelectExperience(exp)}
                     className="w-full flex items-center gap-3 px-4 py-3 bg-rp-surface border border-rp-border rounded hover:border-rp-red/50 transition-colors text-left"
                   >
@@ -745,8 +762,9 @@ export function SetupWizard({
 
         {/* ─── SELECT TRACK ─────────────────────────────────────── */}
         {step === "select_track" && (
-          <div className="space-y-4">
+          <div data-testid="step-select-track" className="space-y-4">
             <input
+              data-testid="track-search"
               type="text"
               value={trackSearch}
               onChange={(e) => setTrackSearch(e.target.value)}
@@ -772,6 +790,7 @@ export function SetupWizard({
               {filteredTracks.map((t) => (
                 <button
                   key={t.id}
+                  data-testid={`track-option-${t.id}`}
                   onClick={() => handleSelectTrack(t)}
                   className={`p-3 rounded-lg border text-left transition-all ${
                     ws.selectedTrack?.id === t.id
@@ -792,8 +811,9 @@ export function SetupWizard({
 
         {/* ─── SELECT CAR ───────────────────────────────────────── */}
         {step === "select_car" && (
-          <div className="space-y-4">
+          <div data-testid="step-select-car" className="space-y-4">
             <input
+              data-testid="car-search"
               type="text"
               value={carSearch}
               onChange={(e) => setCarSearch(e.target.value)}
@@ -819,6 +839,7 @@ export function SetupWizard({
               {filteredCars.map((c) => (
                 <button
                   key={c.id}
+                  data-testid={`car-option-${c.id}`}
                   onClick={() => handleSelectCar(c)}
                   className={`p-3 rounded-lg border text-left transition-all ${
                     ws.selectedCar?.id === c.id
@@ -839,7 +860,7 @@ export function SetupWizard({
 
         {/* ─── DRIVING SETTINGS ─────────────────────────────────── */}
         {step === "driving_settings" && (
-          <div className="space-y-6">
+          <div data-testid="step-driving-settings" className="space-y-6">
             {/* Difficulty */}
             <div>
               <h4 className="text-sm font-semibold text-white mb-3">Difficulty</h4>
@@ -847,6 +868,7 @@ export function SetupWizard({
                 {Object.entries(DIFFICULTY_PRESETS).map(([key, preset]) => (
                   <button
                     key={key}
+                    data-testid={`difficulty-${key}`}
                     onClick={() => setField("drivingDifficulty", key)}
                     className={`p-4 rounded-xl border-2 text-center transition-all ${
                       ws.drivingDifficulty === key
@@ -871,6 +893,7 @@ export function SetupWizard({
                 ] as const).map(({ key, label, desc }) => (
                   <button
                     key={key}
+                    data-testid={`transmission-${key}`}
                     onClick={() => setField("transmission", key)}
                     className={`p-4 rounded-xl border-2 text-center transition-all ${
                       ws.transmission === key
@@ -896,6 +919,7 @@ export function SetupWizard({
                 ] as const).map(({ key, label, desc }) => (
                   <button
                     key={key}
+                    data-testid={`ffb-${key}`}
                     onClick={() => setField("ffb", key)}
                     className={`p-4 rounded-xl border-2 text-center transition-all ${
                       ws.ffb === key
@@ -911,6 +935,7 @@ export function SetupWizard({
             </div>
 
             <button
+              data-testid="driving-settings-next"
               onClick={goNext}
               className="w-full py-3 bg-rp-red hover:bg-rp-red-hover text-white font-bold rounded-lg transition-colors"
             >
@@ -921,7 +946,7 @@ export function SetupWizard({
 
         {/* ─── REVIEW & LAUNCH ──────────────────────────────────── */}
         {step === "review" && (
-          <div className="space-y-4">
+          <div data-testid="step-review" className="space-y-4">
             <div className="bg-rp-surface border border-rp-border rounded-xl p-5 space-y-3">
               <ReviewRow label="Pod" value={`Rig ${podNumber}`} />
               <ReviewRow label="Driver" value={ws.selectedDriver?.name || ""} />
@@ -957,6 +982,7 @@ export function SetupWizard({
             </div>
 
             <button
+              data-testid="launch-btn"
               onClick={handleLaunch}
               className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors"
             >
@@ -970,6 +996,7 @@ export function SetupWizard({
       {!isFirstStep && step !== "review" && (
         <div className="px-5 py-3 border-t border-rp-border shrink-0">
           <button
+            data-testid="wizard-back-btn"
             onClick={() => { if (!goBack()) onCancel(); }}
             className="px-4 py-2 border border-rp-border rounded-lg text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors"
           >
@@ -980,6 +1007,7 @@ export function SetupWizard({
       {step === "review" && (
         <div className="px-5 py-3 border-t border-rp-border shrink-0">
           <button
+            data-testid="wizard-back-btn"
             onClick={() => goBack()}
             className="px-4 py-2 border border-rp-border rounded-lg text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors"
           >
