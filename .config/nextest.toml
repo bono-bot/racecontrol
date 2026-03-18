@@ -1,0 +1,11 @@
+# .config/nextest.toml
+# cargo-nextest configuration for RaceControl workspace.
+# Per-process test isolation is nextest's default — no explicit setting needed.
+# Each test binary runs in its own subprocess, preventing billing state leakage.
+
+[profile.default]
+retries = { backoff = "fixed", count = 2, delay = "1s" }
+slow-timeout = { period = "60s" }
+
+[profile.default.junit]
+path = "test-results/nextest.xml"
