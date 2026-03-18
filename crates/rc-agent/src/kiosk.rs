@@ -284,6 +284,20 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "updater.exe",                 // Chrome/app updater
     "onedrivestandaloneupdater.exe", // OneDrive updater
     "microsoftedgeupdate.exe",     // Edge updater
+
+    // Logitech peripherals
+    "logi_lamparray_service.exe",  // Logitech LED/lighting
+
+    // Windows Start menu
+    "microsoftstartfeedprovider.exe", // Start menu feed
+
+    // Tailscale GUI (tailscaled.exe already listed above)
+    "tailscale.exe",
+
+    // Other Windows system processes seen in logs
+    "onedrive.exe",                // OneDrive sync
+    "copilot.exe",                 // Windows Copilot
+    "storedesktopextension.exe",   // Microsoft Store
 ];
 
 /// Kiosk mode manager.
