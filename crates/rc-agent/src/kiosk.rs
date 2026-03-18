@@ -136,6 +136,8 @@ const ALLOWED_PROCESSES: &[&str] = &[
     // RaceControl services
     "rc-agent.exe",
     "rc-agent",
+    "rc-sentry.exe",
+    "rc-sentry",
     "pod-agent.exe",
     "pod-agent",
 
