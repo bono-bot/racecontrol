@@ -88,7 +88,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 41: Test Foundation** - Shared shell library, pod IP map, Playwright config, and cargo-nextest configured — the skeleton every other test script sources (completed 2026-03-18)
 - [x] **Phase 42: Kiosk Source Prep + Browser Smoke** - data-testid attributes added to kiosk wizard components, pre-test cleanup fixture built, page smoke tests confirm all routes load in a real browser with no SSR/JS errors (completed 2026-03-18)
 - [x] **Phase 43: Wizard Flows + API Pipeline Tests** - All 5 sim wizard flows tested per-step in Playwright, API pipeline tests for billing lifecycle and game state, per-game launch validation with PID check, Steam dialog dismissal (completed 2026-03-18)
-- [ ] **Phase 44: Deploy Verification + Master Script** - Deploy verify script (binary swap, port conflict, agent reconnect), fleet health validation, run-all.sh phase-gated orchestrator, AI debugger error routing
+- [x] **Phase 44: Deploy Verification + Master Script** - Deploy verify script (binary swap, port conflict, agent reconnect), fleet health validation, run-all.sh phase-gated orchestrator, AI debugger error routing (completed 2026-03-18)
 - [ ] **Phase 45: CLOSE_WAIT Fix + Connection Hygiene** - Fix remote_ops HTTP server socket leak causing 100-134 CLOSE_WAIT sockets on 5/8 pods, fix fleet_health.rs client connection reuse, add SO_REUSEADDR to UDP sockets, mark all sockets non-inheritable, separate health endpoint from exec slot pool
 - [ ] **Phase 46: Crash Safety + Panic Hook** - Install std::panic::set_hook() to zero FFB + show error lock screen + log crash before exit, check all server port bindings at startup (remote_ops :8090, lock screen :18923, overlay :18925), FFB zero retry logic (3x attempts with escalation), startup health verification message to server
 - [ ] **Phase 47: Local LLM Fleet Deployment** - Ollama + qwen3:0.6b + rp-debug model installed and verified on all 8 pods, rc-agent TOML pointing to localhost:11434, ai_debugger falls back to local model before OpenRouter, self_monitor uses local Ollama for CLOSE_WAIT diagnosis instead of striking out after 5min
@@ -357,7 +357,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 41. Test Foundation | v7.0 | Complete    | 2026-03-18 | 2026-03-19 |
 | 42. Kiosk Source Prep + Browser Smoke | 2/2 | Complete    | 2026-03-18 | - |
 | 43. Wizard Flows + API Pipeline Tests | 2/2 | Complete    | 2026-03-18 | - |
-| 44. Deploy Verification + Master Script | 1/2 | In Progress|  | - |
+| 44. Deploy Verification + Master Script | 2/2 | Complete   | 2026-03-18 | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | v8.0 | 0/? | Not started | - |
 | 46. Crash Safety + Panic Hook | v8.0 | 0/? | Not started | - |
 | 47. Local LLM Fleet Deployment | v8.0 | 0/? | In progress | - |
