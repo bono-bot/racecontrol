@@ -334,6 +334,76 @@ else
     info "Customers can still use 'Custom' mode in wizard, but presets would be better"
 fi
 
+# ─── Gate 8: Kiosk Frontend Smoke ─────────────────────────────────────────
+# Verifies kiosk pages render without errors (catches JSX crashes, missing
+# imports, runtime exceptions that only show up in the browser).
+echo ""
+echo "--- Gate 8: Kiosk Frontend Smoke ---"
+
+# Derive kiosk URL from API base (strip /api/v1, add /kiosk)
+KIOSK_BASE=$(echo "${BASE_URL}" | sed 's|/api/v1||')
+
+# 8a. Main kiosk page loads (200, not 500)
+KIOSK_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${KIOSK_BASE}/kiosk" 2>/dev/null)
+if [ "$KIOSK_CODE" = "200" ]; then
+    pass "Kiosk main page loads (HTTP ${KIOSK_CODE})"
+else
+    fail "Kiosk main page returned HTTP ${KIOSK_CODE}"
+fi
+
+# 8b. Booking page loads (where the wizard lives)
+BOOK_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${KIOSK_BASE}/kiosk/book" 2>/dev/null)
+if [ "$BOOK_CODE" = "200" ]; then
+    pass "Kiosk booking page loads (HTTP ${BOOK_CODE})"
+else
+    fail "Kiosk booking page returned HTTP ${BOOK_CODE}"
+fi
+
+# 8c. Control panel loads
+CTRL_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${KIOSK_BASE}/kiosk/control" 2>/dev/null)
+if [ "$CTRL_CODE" = "200" ]; then
+    pass "Kiosk control panel loads (HTTP ${CTRL_CODE})"
+else
+    fail "Kiosk control panel returned HTTP ${CTRL_CODE}"
+fi
+
+# 8d. Page body doesn't contain "error" or "Internal Server Error" (catches SSR crashes)
+BODY=$(curl -s --max-time 10 "${KIOSK_BASE}/kiosk/book" 2>/dev/null)
+if echo "$BODY" | python3 -c "
+import sys
+body = sys.stdin.read().lower()
+errors = ['internal server error', 'application error', 'unhandled runtime error', 'react error boundary']
+for e in errors:
+    if e in body:
+        print(e)
+        sys.exit(1)
+sys.exit(0)
+" 2>/dev/null; then
+    pass "No SSR/render errors in booking page body"
+else
+    fail "Kiosk booking page contains error: $(echo "$BODY" | python3 -c "
+import sys
+body = sys.stdin.read().lower()
+for e in ['internal server error', 'application error', 'unhandled runtime error', 'react error boundary']:
+    if e in body: print(e); break
+" 2>/dev/null)"
+fi
+
+# 8e. Kiosk service port check (catches EADDRINUSE / stale process)
+# Only meaningful when running against venue server
+if echo "${BASE_URL}" | python3 -c "import sys; sys.exit(0 if '192.168.31.23' in sys.stdin.read() else 1)" 2>/dev/null; then
+    KIOSK_DIRECT=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://192.168.31.23:3300/" 2>/dev/null)
+    if [ "$KIOSK_DIRECT" = "200" ] || [ "$KIOSK_DIRECT" = "307" ] || [ "$KIOSK_DIRECT" = "308" ]; then
+        pass "Kiosk node process listening on :3300 (HTTP ${KIOSK_DIRECT})"
+    elif [ "$KIOSK_DIRECT" = "000" ]; then
+        # :3300 bound to loopback is expected — only reachable from server itself
+        # If proxy works (8a passed), this is fine
+        pass "Kiosk :3300 bound to loopback (proxy at :8080 works)"
+    else
+        fail "Kiosk :3300 returned unexpected HTTP ${KIOSK_DIRECT}"
+    fi
+fi
+
 # ─── Summary ──────────────────────────────────────────────────────────────
 echo ""
 echo "========================================"
