@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: ready_to_plan
-stopped_at: Phase 36 Plan 01 — blocked at Task 1 (BIOS AMD-V disabled, WSL2 cannot install)
-last_updated: "2026-03-17T06:38:38.239Z"
+stopped_at: Completed 260318-wkg-01 (web dashboard watchdog)
+last_updated: "2026-03-18T18:05:37.885Z"
 last_activity: 2026-03-17 — v6.0 roadmap created, Phases 36–40
 progress:
   total_phases: 5
@@ -73,6 +73,7 @@ Progress: [░░░░░░░░░░] 0%
 - Salt cannot launch GUI applications (Session 0 isolation) — WebSocket channel unchanged for game launch, billing, lock screen
 - salt_exec.rs uses existing reqwest client — no new Cargo dependencies
 - [Phase 36-wsl2-infrastructure]: BIOS AMD-V (SVM Mode) must be enabled before WSL2 can install on Ryzen 7 5800X — VirtualizationFirmwareEnabled=False confirmed
+- [Phase 260318-wkg]: Web dashboard watchdog uses HKLM Run key + PowerShell loop (not scheduled task) for auto-start reliability
 
 ### Pending Todos
 
@@ -88,7 +89,7 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-17T06:38:38.236Z
-Stopped at: Phase 36 Plan 01 — blocked at Task 1 (BIOS AMD-V disabled, WSL2 cannot install)
+Last session: 2026-03-18T18:05:33.061Z
+Stopped at: Completed 260318-wkg-01 (web dashboard watchdog)
 Resume file: None
 Next action: `/gsd:plan-phase 36`
