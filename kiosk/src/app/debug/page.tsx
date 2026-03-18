@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { KioskHeader } from "@/components/KioskHeader";
@@ -216,6 +216,8 @@ export default function DebugPage() {
 
   if (!staffName) return null;
 
+  // Note: ServerLogViewer is defined below as a standalone component
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -407,6 +409,9 @@ export default function DebugPage() {
               </div>
             )}
           </div>
+
+          {/* ─── Server Logs (collapsible) ─────────────────────── */}
+          <ServerLogViewer />
 
           {/* ─── Diagnostics Section (collapsible) ───────────────── */}
           <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl max-h-[40%] overflow-y-auto">
@@ -600,6 +605,172 @@ export default function DebugPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Server Log Viewer ──────────────────────────────────────────────────────
+
+const LOG_LEVEL_COLORS: Record<string, string> = {
+  ERROR: "text-red-400",
+  WARN: "text-amber-400",
+  INFO: "text-zinc-300",
+  DEBUG: "text-zinc-500",
+  TRACE: "text-zinc-600",
+};
+
+function classifyLogLevel(line: string): string {
+  if (line.includes(" ERROR ")) return "ERROR";
+  if (line.includes(" WARN ")) return "WARN";
+  if (line.includes(" DEBUG ")) return "DEBUG";
+  if (line.includes(" TRACE ")) return "TRACE";
+  return "INFO";
+}
+
+type LogFilter = "ALL" | "ERROR" | "WARN" | "INFO";
+
+function ServerLogViewer() {
+  const [open, setOpen] = useState(false);
+  const [lines, setLines] = useState<string[]>([]);
+  const [total, setTotal] = useState(0);
+  const [filter, setFilter] = useState<LogFilter>("ALL");
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const fetchLogs = useCallback(async () => {
+    if (!open) return;
+    setLoading(true);
+    try {
+      const level = filter === "ALL" ? undefined : filter;
+      const res = await api.serverLogs(500, level);
+      setLines(res.lines || []);
+      setTotal(res.total || 0);
+    } catch {
+      // silent — logs panel is secondary
+    } finally {
+      setLoading(false);
+    }
+  }, [open, filter]);
+
+  useEffect(() => {
+    fetchLogs();
+    if (!open) return;
+    const iv = setInterval(fetchLogs, 3000);
+    return () => clearInterval(iv);
+  }, [fetchLogs, open]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [lines, autoScroll]);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 40);
+  };
+
+  const errorCount = lines.filter((l) => l.includes(" ERROR ")).length;
+  const warnCount = lines.filter((l) => l.includes(" WARN ")).length;
+
+  return (
+    <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between p-3 text-left"
+      >
+        <div className="flex items-center gap-3">
+          <h2 className="text-xs font-semibold text-rp-grey uppercase tracking-wider">
+            Server Logs
+          </h2>
+          {!open && errorCount > 0 && (
+            <span className="bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              {errorCount} ERR
+            </span>
+          )}
+          {!open && warnCount > 0 && (
+            <span className="bg-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              {warnCount} WARN
+            </span>
+          )}
+          {!open && lines.length > 0 && (
+            <span className="text-[10px] text-zinc-600">{total} total lines</span>
+          )}
+        </div>
+        <svg
+          className={`w-4 h-4 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {/* Filter buttons */}
+          <div className="flex items-center gap-2">
+            {(["ALL", "ERROR", "WARN", "INFO"] as LogFilter[]).map((lvl) => (
+              <button
+                key={lvl}
+                onClick={() => setFilter(lvl)}
+                className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${
+                  filter === lvl
+                    ? lvl === "ERROR"
+                      ? "bg-red-600/30 text-red-400 border border-red-600/50"
+                      : lvl === "WARN"
+                      ? "bg-amber-600/30 text-amber-400 border border-amber-600/50"
+                      : "bg-zinc-600/30 text-white border border-zinc-500/50"
+                    : "text-zinc-500 border border-rp-border hover:text-white"
+                }`}
+              >
+                {lvl}
+              </button>
+            ))}
+            <span className="text-[10px] text-zinc-600 ml-auto">
+              {lines.length} lines {loading && "..."}
+            </span>
+            {!autoScroll && (
+              <button
+                onClick={() => {
+                  setAutoScroll(true);
+                  if (scrollRef.current)
+                    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                }}
+                className="text-[10px] text-rp-red border border-rp-red/50 px-2 py-0.5 rounded hover:bg-rp-red/10"
+              >
+                Scroll to bottom
+              </button>
+            )}
+          </div>
+
+          {/* Log content */}
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="bg-rp-black border border-rp-border rounded-lg p-2 font-mono text-[11px] leading-relaxed overflow-y-auto max-h-[300px] min-h-[120px]"
+          >
+            {lines.length === 0 ? (
+              <div className="text-zinc-600 text-center py-8">
+                {loading ? "Loading logs..." : "No log entries yet"}
+              </div>
+            ) : (
+              lines.map((line, i) => {
+                const level = classifyLogLevel(line);
+                return (
+                  <div key={i} className={`${LOG_LEVEL_COLORS[level]} whitespace-pre-wrap break-all`}>
+                    {line}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

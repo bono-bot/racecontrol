@@ -222,6 +222,12 @@ export const api = {
   podActivity: (podId: string, limit = 100) =>
     fetchApi<PodActivityEntry[]>(`/pods/${podId}/activity?limit=${limit}`),
 
+  // Server Logs
+  serverLogs: (lines = 200, level?: string) =>
+    fetchApi<{ lines: string[]; file: string | null; total: number; filtered: number }>(
+      `/logs?lines=${lines}${level ? `&level=${level}` : ""}`
+    ),
+
   // Debug System
   debugActivity: (hours?: number) =>
     fetchApi<DebugActivityData>(`/debug/activity${hours ? `?hours=${hours}` : ""}`),

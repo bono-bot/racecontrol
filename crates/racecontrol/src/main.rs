@@ -89,7 +89,15 @@ async fn jwt_error_to_401(
     axum::response::Response::from_parts(parts, body)
 }
 
-/// Reverse proxy: forwards /kiosk* and /_next/* to the local Next.js kiosk on port 3300.
+/// Web dashboard paths that get proxied to the staff dashboard on port 3200.
+const WEB_DASHBOARD_PATHS: &[&str] = &[
+    "/billing", "/presenter", "/leaderboards", "/drivers", "/pods",
+    "/telemetry", "/games", "/ai", "/sessions", "/bookings",
+    "/events", "/settings", "/ac-lan", "/results",
+];
+
+/// Reverse proxy: forwards /kiosk* and /_next/* to the local Next.js kiosk on port 3300,
+/// and web dashboard paths to the staff dashboard on port 3200.
 /// This bypasses Windows Smart App Control which blocks node.exe from accepting network connections.
 async fn kiosk_proxy(
     State(state): State<Arc<AppState>>,
@@ -99,12 +107,20 @@ async fn kiosk_proxy(
         .map(|pq| pq.as_str())
         .unwrap_or("/");
 
-    // Only proxy kiosk-related paths
-    if !path_and_query.starts_with("/kiosk") && !path_and_query.starts_with("/_next") {
+    // Route to the correct backend based on path:
+    // - /kiosk* (including /kiosk/_next/*) → kiosk on port 3300
+    // - /_next/* (bare, no /kiosk prefix) → web dashboard on port 3200
+    // - Dashboard pages (/billing, /presenter, etc.) → web dashboard on port 3200
+    let is_kiosk = path_and_query.starts_with("/kiosk");
+    let is_dashboard = path_and_query.starts_with("/_next")
+        || WEB_DASHBOARD_PATHS.iter().any(|p| path_and_query.starts_with(p));
+
+    if !is_kiosk && !is_dashboard {
         return (StatusCode::NOT_FOUND, "Not found").into_response();
     }
 
-    let url = format!("http://127.0.0.1:3300{}", path_and_query);
+    let port = if is_kiosk { 3300 } else { 3200 };
+    let url = format!("http://127.0.0.1:{}{}", port, path_and_query);
     let method = req.method().clone();
 
     // Forward select headers (skip host, connection, etc.)
@@ -149,19 +165,33 @@ async fn kiosk_proxy(
             builder.body(axum::body::Body::from(body)).unwrap().into_response()
         }
         Err(e) => {
-            tracing::warn!("Kiosk proxy error: {e}");
-            (StatusCode::BAD_GATEWAY, "Kiosk unavailable").into_response()
+            tracing::warn!("Proxy error: {e}");
+            (StatusCode::BAD_GATEWAY, "Backend unavailable").into_response()
         }
     }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info".into()),
+    // Initialize tracing — dual output: stdout + rolling log file
+    let log_dir = std::path::Path::new("logs");
+    std::fs::create_dir_all(log_dir).ok();
+    let file_appender = tracing_appender::rolling::daily(log_dir, "racecontrol.log");
+    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info".into());
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer().with_target(false))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .with_ansi(false)
+                .with_writer(non_blocking_file),
         )
         .init();
 

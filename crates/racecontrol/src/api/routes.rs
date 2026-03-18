@@ -174,6 +174,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
         .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
         .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
+        // POS lockdown
+        .route("/pos/lockdown", get(get_pos_lockdown).post(set_pos_lockdown))
         .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
         // AI Chat
         .route("/ai/chat", post(ai_chat))
@@ -277,6 +279,8 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/debug/incidents", get(list_debug_incidents).post(create_debug_incident))
         .route("/debug/incidents/{id}", put(update_debug_incident))
         .route("/debug/diagnose", post(debug_diagnose))
+        // Server logs
+        .route("/logs", get(get_server_logs))
         // Bot (WhatsApp bot — terminal_secret auth)
         .route("/bot/lookup", get(bot_lookup))
         .route("/bot/pricing", get(bot_pricing))
@@ -6182,6 +6186,44 @@ async fn update_kiosk_settings(
     Json(json!({ "ok": true, "updated": updated }))
 }
 
+// ─── POS Lockdown ─────────────────────────────────────────────────────────
+
+/// GET /pos/lockdown — returns current lockdown state for POS polling script
+async fn get_pos_lockdown(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let locked = sqlx::query_scalar::<_, String>(
+        "SELECT value FROM kiosk_settings WHERE key = 'pos_lockdown'",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "true".to_string());
+
+    Json(json!({ "locked": locked == "true" }))
+}
+
+/// POST /pos/lockdown — toggle lockdown state from admin dashboard
+async fn set_pos_lockdown(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let locked = body.get("locked").and_then(|v| v.as_bool()).unwrap_or(true);
+    let val = if locked { "true" } else { "false" };
+
+    let result = sqlx::query(
+        "INSERT INTO kiosk_settings (key, value) VALUES ('pos_lockdown', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(val)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => Json(json!({ "ok": true, "locked": locked })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
 // ─── Cloud Action Queue Endpoints ─────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -10952,6 +10994,75 @@ async fn pod_activity(
     })).collect();
 
     Json(json!(entries))
+}
+
+// ─── Server Logs ─────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct LogsQuery {
+    lines: Option<usize>,
+    level: Option<String>,
+}
+
+// GET /logs — Tail the racecontrol log file
+async fn get_server_logs(Query(q): Query<LogsQuery>) -> Json<Value> {
+    let max_lines = q.lines.unwrap_or(200).min(2000);
+    let level_filter = q.level.as_deref().unwrap_or("");
+
+    // Find the most recent log file in ./logs/
+    let log_dir = std::path::Path::new("logs");
+    let log_file = match std::fs::read_dir(log_dir) {
+        Ok(entries) => {
+            let mut files: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.starts_with("racecontrol.log"))
+                        .unwrap_or(false)
+                })
+                .collect();
+            files.sort_by_key(|e| std::cmp::Reverse(e.metadata().and_then(|m| m.modified()).ok()));
+            files.first().map(|e| e.path())
+        }
+        Err(_) => None,
+    };
+
+    let path = match log_file {
+        Some(p) => p,
+        None => return Json(json!({ "lines": [], "file": null, "total": 0 })),
+    };
+
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => return Json(json!({ "error": format!("Failed to read log: {}", e) })),
+    };
+
+    let all_lines: Vec<&str> = content.lines().collect();
+
+    // Filter by level if requested
+    let filtered: Vec<&str> = if level_filter.is_empty() {
+        all_lines.clone()
+    } else {
+        let upper = level_filter.to_uppercase();
+        all_lines
+            .iter()
+            .filter(|line| line.to_uppercase().contains(&upper))
+            .copied()
+            .collect()
+    };
+
+    // Take last N lines
+    let start = filtered.len().saturating_sub(max_lines);
+    let tail: Vec<&str> = filtered[start..].to_vec();
+
+    Json(json!({
+        "lines": tail,
+        "file": path.file_name().and_then(|n| n.to_str()),
+        "total": all_lines.len(),
+        "filtered": filtered.len(),
+    }))
 }
 
 // ─── Debug System ────────────────────────────────────────────────────────
