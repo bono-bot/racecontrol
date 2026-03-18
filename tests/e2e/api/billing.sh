@@ -75,7 +75,7 @@ else
     if echo "$BILL_ERR" | grep -qi "already has an active"; then
         pass "Billing already active on ${POD_ID} (idempotent)"
         # Try to extract session ID from active sessions for later use
-        ACTIVE_RESP=$(curl -s --max-time 10 "${BASE_URL}/billing/sessions/active" 2>/dev/null)
+        ACTIVE_RESP=$(curl -s --max-time 10 "${BASE_URL}/billing/active" 2>/dev/null)
         SESSION_ID=$(echo "$ACTIVE_RESP" | python3 -c "
 import sys, json
 try:
@@ -98,7 +98,7 @@ fi
 # ─── Gate 3: Verify active session appears ───────────────────────────────
 echo ""
 echo "--- Gate 3: Verify Active Session ---"
-ACTIVE=$(curl -s --max-time 10 "${BASE_URL}/billing/sessions/active" 2>/dev/null)
+ACTIVE=$(curl -s --max-time 10 "${BASE_URL}/billing/active" 2>/dev/null)
 POD_IN_ACTIVE=$(echo "$ACTIVE" | python3 -c "
 import sys, json
 try:
@@ -159,7 +159,7 @@ for attempt in 1 2 3; do
     if [ "$attempt" -gt 1 ]; then
         sleep 2
     fi
-    ACTIVE_CHECK=$(curl -s --max-time 10 "${BASE_URL}/billing/sessions/active" 2>/dev/null)
+    ACTIVE_CHECK=$(curl -s --max-time 10 "${BASE_URL}/billing/active" 2>/dev/null)
     STILL_ACTIVE=$(echo "$ACTIVE_CHECK" | python3 -c "
 import sys, json
 try:
