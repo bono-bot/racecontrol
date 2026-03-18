@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed .planning/phases/43-wizard-flows-api-pipeline-tests/43-02-PLAN.md
-last_updated: "2026-03-18T23:39:59.978Z"
-last_activity: "2026-03-18 — Plan 43-02 complete: billing lifecycle + per-game launch API tests (API-01 through API-05)"
+stopped_at: Completed .planning/phases/44-deploy-verification-master-script/44-01-PLAN.md
+last_updated: "2026-03-19T13:32:30.000Z"
+last_activity: "2026-03-19 — Plan 44-01 complete: deploy verification master script (DEPL-01/02/04)"
 progress:
   total_phases: 14
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 7
-  percent: 88
+  completed_phases: 4
+  total_plans: 9
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 
 ## Current Position
 
-Phase: 43 of 44 (Wizard Flows + API Pipeline Tests)
-Plan: 2 of 2 (complete)
-Status: Phase 43 Plan 02 complete — billing.sh + launch.sh API tests created
-Last activity: 2026-03-18 — Plan 43-02 complete: billing lifecycle + per-game launch API tests (API-01 through API-05)
+Phase: 44 of 44 (Deploy Verification Master Script)
+Plan: 1 of 1 (complete)
+Status: Phase 44 Plan 01 complete — deploy verification master script created
+Last activity: 2026-03-19 — Plan 44-01 complete: deploy verification master script (DEPL-01/02/04)
 
-Progress: [████████░░] 88%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress: [████████░░] 88%
 | 42-02 | 2 min | 1 | 4 |
 | 43-01 | 1 min | 1 | 1 |
 | 43-02 | 2 min | 2 | 2 |
+| 44-01 | 2 min | 1 | 1 |
 
 **Recent Trend:** On track
 
@@ -97,6 +98,10 @@ Progress: [████████░░] 88%
 - [Phase 43-02]: Launching state accepted as API-03 pass — Steam games take 30-90s to reach Running, matches game-launch.sh Gate 6
 - [Phase 43-02]: forza_horizon_5 IS in GAMES_TO_TEST; forza (Motorsport) excluded (enabled:false in constants.ts)
 - [Phase 43-02]: capture_error_screenshot fires only on launch failure to reduce noise; Steam dialog dismiss fires after every accepted launch
+- [Phase 44-01]: fleet/health fetched once and reused for Gates 5/6/7 — avoids 3 redundant 10s HTTP calls per verify run
+- [Phase 44-01]: build_id absent from fleet/health is skip() not fail() — older rc-agent versions predate the field; absence alone does not indicate deploy failure
+- [Phase 44-01]: Gate 3 EADDRINUSE detection polls :3300 up to 30s with 5s intervals — Node.js startup can take 10-20s after deploy restart
+- [Phase 44-01]: log_to_ai_debugger() format is [YYYY-MM-DD HH:MM:SS] GATE: name | FAILURE: msg — one line per failure, plain text, suitable for AI debugger parsing
 
 ### Pending Todos
 
@@ -112,7 +117,7 @@ Progress: [████████░░] 88%
 
 ## Session Continuity
 
-Last session: 2026-03-18T23:15:00.000Z
-Stopped at: Completed .planning/phases/43-wizard-flows-api-pipeline-tests/43-02-PLAN.md
+Last session: 2026-03-19T13:32:30.000Z
+Stopped at: Completed .planning/phases/44-deploy-verification-master-script/44-01-PLAN.md
 Resume file: None
-Next action: Execute Phase 44 (run-all.sh integration)
+Next action: Phase 44 complete — all phases complete for v7.0 E2E Test Suite milestone

@@ -35,10 +35,10 @@
 
 ### Deploy & Orchestration
 
-- [ ] **DEPL-01**: Deploy verification — binary swap check, port conflict detection (EADDRINUSE), service restart health
-- [ ] **DEPL-02**: Fleet health validation — all 8 pods WS connected, correct build_id, installed_games match config
+- [x] **DEPL-01**: Deploy verification — binary swap check, port conflict detection (EADDRINUSE), service restart health
+- [x] **DEPL-02**: Fleet health validation — all 8 pods WS connected, correct build_id, installed_games match config
 - [ ] **DEPL-03**: Master `run-all.sh` — phase-gated orchestrator with exit code collection and summary report
-- [ ] **DEPL-04**: AI debugger error logging — route test failures and error screenshots to AI debugger for automated analysis
+- [x] **DEPL-04**: AI debugger error logging — route test failures and error screenshots to AI debugger for automated analysis
 
 ## Future Requirements
 
@@ -81,10 +81,10 @@
 | API-03 | Phase 43 | Complete |
 | API-04 | Phase 43 | Complete |
 | API-05 | Phase 43 | Complete |
-| DEPL-01 | Phase 44 | Pending |
-| DEPL-02 | Phase 44 | Pending |
+| DEPL-01 | Phase 44 | Complete |
+| DEPL-02 | Phase 44 | Complete |
 | DEPL-03 | Phase 44 | Pending |
-| DEPL-04 | Phase 44 | Pending |
+| DEPL-04 | Phase 44 | Complete |
 
 **Coverage:**
 - v7.0 requirements: 23 total

@@ -357,7 +357,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 41. Test Foundation | v7.0 | Complete    | 2026-03-18 | 2026-03-19 |
 | 42. Kiosk Source Prep + Browser Smoke | 2/2 | Complete    | 2026-03-18 | - |
 | 43. Wizard Flows + API Pipeline Tests | 2/2 | Complete    | 2026-03-18 | - |
-| 44. Deploy Verification + Master Script | v7.0 | 0/2 | Not started | - |
+| 44. Deploy Verification + Master Script | 1/2 | In Progress|  | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | v8.0 | 0/? | Not started | - |
 | 46. Crash Safety + Panic Hook | v8.0 | 0/? | Not started | - |
 | 47. Local LLM Fleet Deployment | v8.0 | 0/? | In progress | - |
