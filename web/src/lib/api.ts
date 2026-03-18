@@ -177,6 +177,14 @@ export const api = {
   acTracks: () => fetchApi<{ tracks: AcTrack[] }>("/ac/content/tracks"),
   acCars: () => fetchApi<{ cars: AcCar[] }>("/ac/content/cars"),
 
+  // POS Lockdown
+  getPosLockdown: () => fetchApi<{ locked: boolean }>("/pos/lockdown"),
+  setPosLockdown: (locked: boolean) =>
+    fetchApi<{ ok: boolean; locked: boolean }>("/pos/lockdown", {
+      method: "POST",
+      body: JSON.stringify({ locked }),
+    }),
+
   // AI Chat
   aiChat: (message: string, history: { role: string; content: string }[]) =>
     fetchApi<{ reply?: string; model?: string; error?: string }>("/ai/chat", {
