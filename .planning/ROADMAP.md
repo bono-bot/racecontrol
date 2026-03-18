@@ -68,6 +68,10 @@ Key: billing_rates DB table + non-retroactive additive algorithm + in-memory rat
 
 **Milestone Goal:** Comprehensive end-to-end test coverage for the full kiosk→server→agent→game launch pipeline — Playwright browser tests for all 5 sim wizard flows, curl-based API pipeline tests for billing/launch/game-state lifecycle, deploy verification for binary swap and port conflict detection, and a single master `run-all.sh` entry point reusable for future services (POS, Admin Dashboard).
 
+### v8.0 RC Bot Autonomy (Phases 45–49)
+
+**Milestone Goal:** Raise rc-agent autonomy from 6/10 to 8/10 — fix the CLOSE_WAIT socket leak causing 5/8 pods to self-relaunch every 5 minutes, install panic hooks for FFB safety on crash, deploy local Ollama (qwen3:0.6b + rp-debug model) to all 8 pods so AI diagnosis is instant and offline-capable, add dynamic server-fetched kiosk allowlist to eliminate the #1 manual intervention, auto-end orphaned billing sessions, and auto-reset pods after session end.
+
 ## Phases
 
 **Phase Numbering:**
@@ -85,6 +89,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 42: Kiosk Source Prep + Browser Smoke** - data-testid attributes added to kiosk wizard components, pre-test cleanup fixture built, page smoke tests confirm all routes load in a real browser with no SSR/JS errors
 - [ ] **Phase 43: Wizard Flows + API Pipeline Tests** - All 5 sim wizard flows tested per-step in Playwright, API pipeline tests for billing lifecycle and game state, per-game launch validation with PID check, Steam dialog dismissal
 - [ ] **Phase 44: Deploy Verification + Master Script** - Deploy verify script (binary swap, port conflict, agent reconnect), fleet health validation, run-all.sh phase-gated orchestrator, AI debugger error routing
+- [ ] **Phase 45: CLOSE_WAIT Fix + Connection Hygiene** - Fix remote_ops HTTP server socket leak causing 100-134 CLOSE_WAIT sockets on 5/8 pods, fix fleet_health.rs client connection reuse, add SO_REUSEADDR to UDP sockets, mark all sockets non-inheritable, separate health endpoint from exec slot pool
+- [ ] **Phase 46: Crash Safety + Panic Hook** - Install std::panic::set_hook() to zero FFB + show error lock screen + log crash before exit, check all server port bindings at startup (remote_ops :8090, lock screen :18923, overlay :18925), FFB zero retry logic (3x attempts with escalation), startup health verification message to server
+- [ ] **Phase 47: Local LLM Fleet Deployment** - Ollama + qwen3:0.6b + rp-debug model installed and verified on all 8 pods, rc-agent TOML pointing to localhost:11434, ai_debugger falls back to local model before OpenRouter, self_monitor uses local Ollama for CLOSE_WAIT diagnosis instead of striking out after 5min
+- [ ] **Phase 48: Dynamic Kiosk Allowlist** - Server endpoint GET /api/v1/config/kiosk-allowlist, admin panel UI for adding/removing allowed processes, rc-agent fetches allowlist on startup + every 5 min, merges with hardcoded baseline, eliminates the #1 most frequent manual intervention (6+ incidents of false lockdowns requiring code change + rebuild + redeploy)
+- [ ] **Phase 49: Session Lifecycle Autonomy** - Auto-end orphaned billing sessions after configurable threshold (TOML: auto_end_orphan_session_secs), auto-reset pod to idle 30s after session end, game crash pauses billing with auto-resume on relaunch (max 2 retries before auto-end), fast WS reconnect path (skip relaunch if reconnect succeeds within 30s)
 
 ## Phase Details
 
@@ -177,7 +186,11 @@ Plans:
   2. `lib/pod-map.sh` is sourced once and all 8 pod IPs (192.168.31.x) are available as variables to any script in the suite — no more hardcoded IPs scattered across scripts
   3. `npx playwright test --list` from `tests/e2e/` shows discovered spec files and the Playwright config reports `workers: 1`, `fullyParallel: false`, and `baseURL` set from `RC_BASE_URL` — Playwright is installed and configured correctly
   4. `cargo nextest run -p racecontrol-crate` exits 0 with per-process test isolation active — cargo-nextest is configured and Rust crate tests pass under it
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 41-01-PLAN.md — Shared shell library (lib/common.sh, lib/pod-map.sh) + refactor existing scripts (FOUND-01, FOUND-02)
+- [ ] 41-02-PLAN.md — Playwright install + config + cargo-nextest install + config (FOUND-03, FOUND-05)
 
 ### Phase 42: Kiosk Source Prep + Browser Smoke
 **Goal**: The kiosk wizard components have `data-testid` attributes on every interactive element (game selector, track selector, car selector, wizard step indicators, next/back buttons), a pre-test cleanup fixture stops stale games and ends stale billing before each run, and the browser smoke spec confirms every kiosk route returns 200 in a real Chromium instance with no SSR errors, no React error boundaries, and no uncaught JS exceptions
@@ -214,10 +227,72 @@ Plans:
   4. Test failures and error screenshots captured during the run are passed to the AI debugger error log — the `DEPL-04` routing is wired and a test failure produces an entry in the AI debugger input
 **Plans**: TBD
 
+### Phase 45: CLOSE_WAIT Fix + Connection Hygiene
+**Goal**: Eliminate the CLOSE_WAIT socket leak on port 8090 that causes 5/8 pods to accumulate 100-134 stuck sockets and trigger unnecessary self-relaunches every ~5 minutes — fix the remote_ops axum server to properly close HTTP connections, fix fleet_health.rs to reuse a shared reqwest client, add SO_REUSEADDR to all UDP game telemetry sockets, mark UDP sockets non-inheritable (matching ea30ca3 treatment for :8090), and increase exec slots from 4→8 or separate health checks from exec pool
+**Depends on**: None (can proceed independently)
+**Requirements**: CONN-HYG-01 through CONN-HYG-05
+**Success Criteria** (what must be TRUE):
+  1. After 30 minutes of normal fleet_health polling, no pod has >5 CLOSE_WAIT sockets on :8090 — leak is eliminated
+  2. Pod self-relaunches from CLOSE_WAIT strike counter drop to zero across 8-hour monitoring window
+  3. After rc-agent self-relaunch, all 5 UDP ports bind successfully (no error 10048) — SO_REUSEADDR applied
+  4. fleet_health.rs uses a single shared reqwest::Client with connection pooling — no per-request clients
+  5. Health endpoint requests never return 429 (slot exhaustion) — separated from exec pool or pool expanded
+**Plans**: TBD
+
+### Phase 46: Crash Safety + Panic Hook
+**Goal**: rc-agent never leaves a pod in an unsafe state after a crash — custom panic hook zeroes FFB and shows error lock screen, all server port bindings are checked at startup with clear error messages on failure, FFB zero retries 3 times before escalating, and a BootVerification message is sent to the server after all subsystems initialize
+**Depends on**: None (can proceed independently)
+**Requirements**: SAFETY-01 through SAFETY-05
+**Success Criteria** (what must be TRUE):
+  1. A simulated panic in rc-agent (test mode) results in FFB zeroed, "System Error" shown on lock screen, crash logged to rc-bot-events.log, and clean process exit — no orphaned game processes
+  2. If port 18923 (lock screen) or 8090 (remote ops) is already in use, rc-agent logs a clear error and exits within 5s — no silent failure
+  3. FFB zero failure on first attempt triggers 2 retries at 100ms intervals and logs the final result — verified by test
+  4. Server receives BootVerification message within 30s of rc-agent startup showing: WS connected, lock screen port bound, remote ops port bound, HID status, UDP port status
+  5. `cargo test -p rc-agent-crate` passes with all new safety tests green
+**Plans**: TBD
+
+### Phase 47: Local LLM Fleet Deployment
+**Goal**: Every pod runs Ollama locally with the rp-debug model (qwen3:0.6b base, Racing Point system prompt), rc-agent queries localhost:11434 for AI diagnosis instead of reaching across the network, self_monitor uses local Ollama for immediate CLOSE_WAIT diagnosis, and pattern memory seed is pre-loaded with the 7 deterministic fix patterns for instant replay
+**Depends on**: Phase 45 (CLOSE_WAIT fix — so local Ollama diagnosis is meaningful)
+**Requirements**: LLM-01 through LLM-04
+**Success Criteria** (what must be TRUE):
+  1. `ollama list` on all 8 pods returns `rp-debug:latest` (522 MB, qwen3:0.6b base)
+  2. rc-agent TOML on all pods has `ollama_url = "http://127.0.0.1:11434"` and `ollama_model = "rp-debug"`
+  3. `curl http://localhost:11434/api/generate -d '{"model":"rp-debug","prompt":"diagnose: AC crashed"}' ` returns a valid diagnosis on every pod — no network dependency
+  4. debug-memory.json on each pod is pre-seeded with the 7 deterministic fix patterns (success_count=1) — instant replay from first boot
+  5. self_monitor.rs queries local Ollama and receives RESTART/OK within 5s (vs previous 30s timeout to James .27)
+**Plans**: TBD
+
+### Phase 48: Dynamic Kiosk Allowlist
+**Goal**: Staff can add allowed processes via the admin panel instead of requiring code changes + rebuild + redeploy to all 8 pods — server stores allowlist in DB, serves it via API, rc-agent fetches it on startup and every 5 minutes, merges with hardcoded baseline, and new processes are warn-then-allow with server approval via WebSocket
+**Depends on**: None (can proceed independently)
+**Requirements**: ALLOW-01 through ALLOW-05
+**Success Criteria** (what must be TRUE):
+  1. `GET /api/v1/config/kiosk-allowlist` returns the merged allowlist (hardcoded + DB additions)
+  2. Admin panel has a "Kiosk Allowlist" section where staff can add/remove process names
+  3. rc-agent picks up a newly added process within 5 minutes without restart or redeploy
+  4. A process not on the allowlist triggers a "warn" log (not a kill) and sends approval request to server — warn-then-allow not kill-first
+  5. No false lockdowns occur when a Windows system process (Windows Update, Defender SmartScreen, etc.) runs on any pod
+**Plans**: TBD
+
+### Phase 49: Session Lifecycle Autonomy
+**Goal**: rc-agent autonomously handles session end-of-life — auto-ends orphaned billing after configurable timeout, resets pod to idle after session, pauses billing on game crash with auto-resume, and fast-reconnects WebSocket without full relaunch when server blips
+**Depends on**: Phase 46 (crash safety must be in place before autonomous billing actions)
+**Requirements**: SESSION-01 through SESSION-04
+**Success Criteria** (what must be TRUE):
+  1. After billing_active=true with no game_pid for 5 minutes (configurable via `auto_end_orphan_session_secs`), rc-agent auto-ends session via server API — no human intervention needed
+  2. 30 seconds after session end, pod automatically returns to PinEntry/ScreenBlanked state — no "Session Complete!" stuck forever
+  3. On game crash (CRASH-01), billing is paused within 5s. If game relaunches successfully, billing resumes. After 2 failed relaunches, session auto-ends.
+  4. When WebSocket drops, if reconnect succeeds within 30s, no self-relaunch occurs — existing state preserved
+  5. Orphaned session auto-end triggers a notification to the server for staff visibility
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44
+Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44 → 45 → 46 → 47 → 48 → 49
+
+Note: v8.0 phases 45–49 have minimal dependencies and can begin in parallel with v7.0 E2E tests. Phases 45 (CLOSE_WAIT) and 46 (Panic Hook) have no dependencies. Phase 47 (LLM Fleet) depends on 45. Phase 48 (Dynamic Allowlist) has no dependencies. Phase 49 (Session Lifecycle) depends on 46.
 
 Note: Phase 36 (WSL2 Infrastructure) is the non-negotiable critical path — the mirrored networking and Hyper-V firewall must be verified from an actual pod before any minion is installed or any Rust code is written. Phase 37 (Pod 8 Canary) validates the networking with a real minion and rewrites install.bat — this template is reused in Phase 40. Phase 38 (salt_exec.rs) must compile and be tested against live Pod 8 before any module is considered migrated. Phase 39 (remote_ops.rs Removal) requires characterization tests before any deletion — Refactor Second standing rule. Phase 40 (Fleet Rollout) is the irreversible step; no billing session should be interrupted.
 
@@ -266,7 +341,12 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 38. salt_exec.rs + Server Module Migration | v6.0 | 0/3 | Not started | - |
 | 39. remote_ops.rs Removal | v6.0 | 0/3 | Not started | - |
 | 40. Fleet Rollout | v6.0 | 0/2 | Not started | - |
-| 41. Test Foundation | v7.0 | 0/? | Not started | - |
+| 41. Test Foundation | v7.0 | 0/2 | Not started | - |
 | 42. Kiosk Source Prep + Browser Smoke | v7.0 | 0/? | Not started | - |
 | 43. Wizard Flows + API Pipeline Tests | v7.0 | 0/? | Not started | - |
 | 44. Deploy Verification + Master Script | v7.0 | 0/? | Not started | - |
+| 45. CLOSE_WAIT Fix + Connection Hygiene | v8.0 | 0/? | Not started | - |
+| 46. Crash Safety + Panic Hook | v8.0 | 0/? | Not started | - |
+| 47. Local LLM Fleet Deployment | v8.0 | 0/? | In progress | - |
+| 48. Dynamic Kiosk Allowlist | v8.0 | 0/? | Not started | - |
+| 49. Session Lifecycle Autonomy | v8.0 | 0/? | Not started | - |
