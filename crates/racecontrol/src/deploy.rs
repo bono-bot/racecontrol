@@ -175,8 +175,8 @@ steam_app_id = 2440510
 use_steam = true
 
 [games.iracing]
-exe_path = "C:\\Program Files (x86)\\iRacing\\iRacingSim64DX11.exe"
-use_steam = false
+steam_app_id = 266410
+use_steam = true
 
 [ai_debugger]
 enabled = true
