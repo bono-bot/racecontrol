@@ -245,6 +245,45 @@ const ALLOWED_PROCESSES: &[&str] = &[
     "gamingservices.exe",
     "gamingservicesnet.exe",
     "shellhost.exe",
+
+    // Windows Defender / Security
+    "msmpeng.exe",                 // Antimalware Service Executable
+    "nissrv.exe",                  // Network Inspection Service
+    "mpdefendercoreservice.exe",   // Defender Core Service
+    "smartscreen.exe",             // SmartScreen filter
+    "securityhealthhost.exe",      // Security Health Host
+
+    // Windows Update & Maintenance
+    "trustedinstaller.exe",        // Windows Module Installer
+    "tiworker.exe",                // Windows Update worker
+    "mousocoreworker.exe",         // Update orchestrator
+    "sppsvc.exe",                  // Software Protection Platform
+    "wuauclt.exe",                 // Windows Update client
+
+    // Windows System Services
+    "searchprotocolhost.exe",      // Windows Search
+    "searchfilterhost.exe",        // Windows Search filter
+    "midisrv.exe",                 // MIDI service
+    "useroobebroker.exe",          // Windows OOBE broker
+    "phoneexperiencehost.exe",     // Phone Link
+    "secure system",               // Windows kernel process
+
+    // Windows Shell & UX
+    "openconsole.exe",             // Windows Terminal console
+    "windowsterminal.exe",         // Windows Terminal
+    "widgets.exe",                 // Windows Widgets
+    "widgetservice.exe",           // Widgets service
+    "applicationframehost.exe",    // UWP app frame host
+
+    // Microsoft Office
+    "officeclicktorun.exe",        // Office Click-to-Run
+    "sdxhelper.exe",               // Office SDX helper
+    "m365copilot.exe",             // Microsoft 365 Copilot
+
+    // Updaters
+    "updater.exe",                 // Chrome/app updater
+    "onedrivestandaloneupdater.exe", // OneDrive updater
+    "microsoftedgeupdate.exe",     // Edge updater
 ];
 
 /// Kiosk mode manager.
