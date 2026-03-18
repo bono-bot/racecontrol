@@ -27,11 +27,11 @@
 
 ### API & Launch
 
-- [ ] **API-01**: Billing gates — reject launch without billing, create/end session, timer sync
-- [ ] **API-02**: Per-game launch — launch each installed game (AC, F1 25, EVO, Rally, iRacing), verify PID or Launching state
-- [ ] **API-03**: Game state lifecycle — Idle→Launching→Running→Stop→Idle, timeout at 60s, auto-relaunch on crash
-- [ ] **API-04**: Steam dialog auto-dismiss — close "Support Message" windows via WM_CLOSE during launch tests
-- [ ] **API-05**: Error window screenshot — capture screenshots of unexpected popup/error windows on pods for AI debugger analysis
+- [x] **API-01**: Billing gates — reject launch without billing, create/end session, timer sync
+- [x] **API-02**: Per-game launch — launch each installed game (AC, F1 25, EVO, Rally, iRacing), verify PID or Launching state
+- [x] **API-03**: Game state lifecycle — Idle→Launching→Running→Stop→Idle, timeout at 60s, auto-relaunch on crash
+- [x] **API-04**: Steam dialog auto-dismiss — close "Support Message" windows via WM_CLOSE during launch tests
+- [x] **API-05**: Error window screenshot — capture screenshots of unexpected popup/error windows on pods for AI debugger analysis
 
 ### Deploy & Orchestration
 
@@ -76,11 +76,11 @@
 | BROW-04 | Phase 43 | Complete |
 | BROW-05 | Phase 43 | Complete |
 | BROW-06 | Phase 43 | Complete |
-| API-01 | Phase 43 | Pending |
-| API-02 | Phase 43 | Pending |
-| API-03 | Phase 43 | Pending |
-| API-04 | Phase 43 | Pending |
-| API-05 | Phase 43 | Pending |
+| API-01 | Phase 43 | Complete |
+| API-02 | Phase 43 | Complete |
+| API-03 | Phase 43 | Complete |
+| API-04 | Phase 43 | Complete |
+| API-05 | Phase 43 | Complete |
 | DEPL-01 | Phase 44 | Pending |
 | DEPL-02 | Phase 44 | Pending |
 | DEPL-03 | Phase 44 | Pending |

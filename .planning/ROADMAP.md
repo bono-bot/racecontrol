@@ -87,7 +87,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 40: Fleet Rollout** - Salt minion deployed to all 8 pods + server via updated install.bat, all keys accepted, salt '*' test.ping returns 9 True, deploy workflow fully migrated to Salt
 - [x] **Phase 41: Test Foundation** - Shared shell library, pod IP map, Playwright config, and cargo-nextest configured — the skeleton every other test script sources (completed 2026-03-18)
 - [x] **Phase 42: Kiosk Source Prep + Browser Smoke** - data-testid attributes added to kiosk wizard components, pre-test cleanup fixture built, page smoke tests confirm all routes load in a real browser with no SSR/JS errors (completed 2026-03-18)
-- [ ] **Phase 43: Wizard Flows + API Pipeline Tests** - All 5 sim wizard flows tested per-step in Playwright, API pipeline tests for billing lifecycle and game state, per-game launch validation with PID check, Steam dialog dismissal
+- [x] **Phase 43: Wizard Flows + API Pipeline Tests** - All 5 sim wizard flows tested per-step in Playwright, API pipeline tests for billing lifecycle and game state, per-game launch validation with PID check, Steam dialog dismissal (completed 2026-03-18)
 - [ ] **Phase 44: Deploy Verification + Master Script** - Deploy verify script (binary swap, port conflict, agent reconnect), fleet health validation, run-all.sh phase-gated orchestrator, AI debugger error routing
 - [ ] **Phase 45: CLOSE_WAIT Fix + Connection Hygiene** - Fix remote_ops HTTP server socket leak causing 100-134 CLOSE_WAIT sockets on 5/8 pods, fix fleet_health.rs client connection reuse, add SO_REUSEADDR to UDP sockets, mark all sockets non-inheritable, separate health endpoint from exec slot pool
 - [ ] **Phase 46: Crash Safety + Panic Hook** - Install std::panic::set_hook() to zero FFB + show error lock screen + log crash before exit, check all server port bindings at startup (remote_ops :8090, lock screen :18923, overlay :18925), FFB zero retry logic (3x attempts with escalation), startup health verification message to server
@@ -352,7 +352,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 40. Fleet Rollout | v6.0 | 0/2 | Not started | - |
 | 41. Test Foundation | v7.0 | Complete    | 2026-03-18 | 2026-03-19 |
 | 42. Kiosk Source Prep + Browser Smoke | 2/2 | Complete    | 2026-03-18 | - |
-| 43. Wizard Flows + API Pipeline Tests | 1/2 | In Progress|  | - |
+| 43. Wizard Flows + API Pipeline Tests | 2/2 | Complete   | 2026-03-18 | - |
 | 44. Deploy Verification + Master Script | v7.0 | 0/? | Not started | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | v8.0 | 0/? | Not started | - |
 | 46. Crash Safety + Panic Hook | v8.0 | 0/? | Not started | - |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed .planning/phases/43-wizard-flows-api-pipeline-tests/43-01-PLAN.md
-last_updated: "2026-03-18T23:14:47.437Z"
-last_activity: "2026-03-18 — Plan 42-02 complete: cleanup fixture + 4-test smoke suite (3 routes + keyboard nav)"
+stopped_at: Completed .planning/phases/43-wizard-flows-api-pipeline-tests/43-02-PLAN.md
+last_updated: "2026-03-18T23:15:00.000Z"
+last_activity: "2026-03-18 — Plan 43-02 complete: billing lifecycle + per-game launch API tests (API-01 through API-05)"
 progress:
   total_phases: 14
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
-  percent: 83
+  completed_plans: 7
+  percent: 88
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 
 ## Current Position
 
-Phase: 42 of 44 (Kiosk Source Prep + Browser Smoke)
+Phase: 43 of 44 (Wizard Flows + API Pipeline Tests)
 Plan: 2 of 2 (complete)
-Status: Phase 42 complete — Plans 42-01 and 42-02 done
-Last activity: 2026-03-18 — Plan 42-02 complete: cleanup fixture + 4-test smoke suite (3 routes + keyboard nav)
+Status: Phase 43 Plan 02 complete — billing.sh + launch.sh API tests created
+Last activity: 2026-03-18 — Plan 43-02 complete: billing lifecycle + per-game launch API tests (API-01 through API-05)
 
-Progress: [████████░░] 83%
+Progress: [████████░░] 88%
 
 ## Performance Metrics
 
@@ -45,11 +45,12 @@ Progress: [████████░░] 83%
 | 41-02 | 7 min | 2 | 6 |
 | 42-01 | 10 min | 2 | 3 |
 | 42-02 | 2 min | 1 | 4 |
+| 43-01 | 1 min | 1 | 1 |
+| 43-02 | 2 min | 2 | 2 |
 
 **Recent Trend:** On track
 
 *Updated after each plan completion*
-| Phase 43 P01 | 1 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,10 @@ Progress: [████████░░] 83%
 - [Phase 43]: AC wizard BROW-02 tests preset path only (default experienceMode=preset) — custom track/car path separate concern
 - [Phase 43]: session_splits and driving_settings steps use 3s isVisible guards — test survives different tier configs on live server
 - [Phase 43]: Experience DB guards: empty experience list is non-fatal — step rendered without experiences is acceptable behavior
+- [Phase 43-02]: Remote exec port is 8091 — MEMORY.md says 8090 but game-launch.sh line 224 uses 8091; script evidence wins
+- [Phase 43-02]: Launching state accepted as API-03 pass — Steam games take 30-90s to reach Running, matches game-launch.sh Gate 6
+- [Phase 43-02]: forza_horizon_5 IS in GAMES_TO_TEST; forza (Motorsport) excluded (enabled:false in constants.ts)
+- [Phase 43-02]: capture_error_screenshot fires only on launch failure to reduce noise; Steam dialog dismiss fires after every accepted launch
 
 ### Pending Todos
 
@@ -107,7 +112,7 @@ Progress: [████████░░] 83%
 
 ## Session Continuity
 
-Last session: 2026-03-18T23:14:47.434Z
-Stopped at: Completed .planning/phases/43-wizard-flows-api-pipeline-tests/43-01-PLAN.md
+Last session: 2026-03-18T23:15:00.000Z
+Stopped at: Completed .planning/phases/43-wizard-flows-api-pipeline-tests/43-02-PLAN.md
 Resume file: None
-Next action: Execute Phase 43 (wizard specs)
+Next action: Execute Phase 44 (run-all.sh integration)
