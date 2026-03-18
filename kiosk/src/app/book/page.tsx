@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useSetupWizard } from "@/hooks/useSetupWizard";
 import type { PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType, KioskMultiplayerAssignment } from "@/lib/types";
+import { DIFFICULTY_PRESETS, GAMES, GAME_LABELS, CLASS_COLORS } from "@/lib/constants";
 
 // ─── Phase Definitions ──────────────────────────────────────────────────────
 
@@ -14,41 +15,6 @@ type Phase = "phone" | "otp" | "wizard" | "booking" | "success" | "error";
 
 const AUTO_RETURN_MS = 30_000;
 const INACTIVITY_MS = 120_000;
-
-const DIFFICULTY_PRESETS: Record<string, { label: string; desc: string }> = {
-  easy: { label: "Easy", desc: "ABS, TC, Stability, Ideal Line" },
-  medium: { label: "Medium", desc: "ABS, TC only" },
-  hard: { label: "Hard", desc: "No assists" },
-};
-
-const GAMES = [
-  { id: "assetto_corsa", name: "Assetto Corsa", enabled: true },
-  { id: "assetto_corsa_evo", name: "AC EVO", enabled: true },
-  { id: "assetto_corsa_rally", name: "AC Rally", enabled: true },
-  { id: "f1_25", name: "F1 25", enabled: true },
-  { id: "iracing", name: "iRacing", enabled: true },
-  { id: "le_mans_ultimate", name: "Le Mans Ultimate", enabled: true },
-  { id: "forza", name: "Forza Motorsport", enabled: false },
-  { id: "forza_horizon_5", name: "Forza Horizon 5", enabled: true },
-];
-
-const GAME_LABELS: Record<string, string> = {
-  assetto_corsa: "Assetto Corsa",
-  assetto_corsa_evo: "AC EVO",
-  assetto_corsa_rally: "AC Rally",
-  f1_25: "F1 25",
-  iracing: "iRacing",
-  le_mans_ultimate: "Le Mans Ultimate",
-  forza: "Forza Motorsport",
-  forza_horizon_5: "Forza Horizon 5",
-};
-
-const CLASS_COLORS: Record<string, string> = {
-  A: "bg-rp-red text-white",
-  B: "bg-orange-500 text-white",
-  C: "bg-amber-500 text-black",
-  D: "bg-green-500 text-white",
-};
 
 const STEP_TITLES: Record<string, string> = {
   select_plan: "Select Plan",
@@ -64,14 +30,29 @@ const STEP_TITLES: Record<string, string> = {
   review: "Review & Book",
 };
 
-// ─── Main Booking Page ──────────────────────────────────────────────────────
+// ─── Suspense Wrapper (required for useSearchParams in Next.js) ─────────────
 
 export default function BookingPage() {
+  return (
+    <Suspense fallback={<div className="h-screen w-screen bg-rp-black" />}>
+      <BookingPageInner />
+    </Suspense>
+  );
+}
+
+// ─── Main Booking Page ──────────────────────────────────────────────────────
+
+function BookingPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const wizard = useSetupWizard();
 
+  // ─── Staff mode detection ────────────────────────────────────────────
+  const isStaffMode = searchParams.get("staff") === "true";
+  const staffPodId = searchParams.get("pod") || "";
+
   // ─── Auth state ────────────────────────────────────────────────────────
-  const [phase, setPhase] = useState<Phase>("phone");
+  const [phase, setPhase] = useState<Phase>(isStaffMode ? "phone" : "phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [authToken, setAuthToken] = useState("");
@@ -118,23 +99,25 @@ export default function BookingPage() {
 
   // ─── Auto-return timers ────────────────────────────────────────────────
 
-  // Success screen auto-returns to walk-in
+  const returnPath = isStaffMode ? "/control" : "/";
+
+  // Success screen auto-returns
   useEffect(() => {
     if (phase !== "success") return;
-    const timer = setTimeout(() => router.push("/"), AUTO_RETURN_MS);
+    const timer = setTimeout(() => router.push(returnPath), AUTO_RETURN_MS);
     return () => clearTimeout(timer);
-  }, [phase, router]);
+  }, [phase, router, returnPath]);
 
   // Inactivity auto-returns during phone/otp entry
   useEffect(() => {
     if (phase !== "phone" && phase !== "otp") return;
     const interval = setInterval(() => {
       if (Date.now() - lastActivity > INACTIVITY_MS) {
-        router.push("/");
+        router.push(returnPath);
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [phase, lastActivity, router]);
+  }, [phase, lastActivity, router, returnPath]);
 
   // ─── Filtered tracks/cars ──────────────────────────────────────────────
 
@@ -357,23 +340,59 @@ export default function BookingPage() {
 
   function handleWizardBack() {
     const ws = wizard.state;
-    // If on the first wizard step (select_plan), go back to phone auth
+    // If on the first wizard step (select_plan), go back to phone auth or control
     if (ws.currentStep === "select_plan") {
-      setPhase("phone");
-      setPhone("");
-      setOtp("");
-      setAuthToken("");
-      wizard.reset();
-      setPodCount(2);
-      setMultiAssignments([]);
-      setMultiExperienceName("");
+      if (isStaffMode && authToken === "staff-walkin") {
+        // Walk-in staff: go back to phone screen (where they can choose walk-in again or enter phone)
+        setPhase("phone");
+        setAuthToken("");
+        setDriverName("");
+        setDriverId("");
+        wizard.reset();
+        setPodCount(2);
+        setMultiAssignments([]);
+        setMultiExperienceName("");
+      } else {
+        setPhase("phone");
+        setPhone("");
+        setOtp("");
+        setAuthToken("");
+        wizard.reset();
+        setPodCount(2);
+        setMultiAssignments([]);
+        setMultiExperienceName("");
+      }
       return;
     }
     wizard.goBack();
   }
 
   function handleCancel() {
-    router.push("/");
+    router.push(returnPath);
+  }
+
+  // ─── Staff walk-in (anonymous) handler ──────────────────────────────
+  function handleStaffWalkIn() {
+    setDriverName("Walk-in");
+    setDriverId("");
+    setAuthToken("staff-walkin");
+    wizard.setField("selectedDriver", {
+      id: "walkin",
+      name: "Walk-in",
+      total_laps: 0,
+      total_time_ms: 0,
+    });
+    setPhase("wizard");
+    // Log anonymous walk-in notification via debug incident (shows in activity feed)
+    fetch(`${typeof window !== "undefined" ? `http://${window.location.hostname}:8080` : "http://localhost:8080"}/api/v1/debug/incidents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pod_id: staffPodId || null,
+        description: "Staff walk-in booking initiated (no customer phone registered)",
+        category: "billing",
+      }),
+    }).catch(() => {});
   }
 
   const ws = wizard.state;
@@ -387,8 +406,15 @@ export default function BookingPage() {
       <div className="h-screen w-screen overflow-hidden bg-rp-black flex flex-col items-center justify-center px-8" onClick={touch}>
         {/* Header */}
         <div className="text-center mb-8">
+          {isStaffMode && staffPodId && (
+            <p className="text-rp-red text-sm font-semibold uppercase tracking-wider mb-2">
+              Staff Mode &mdash; {staffPodId.replace("_", " ").toUpperCase()}
+            </p>
+          )}
           <h1 className="text-3xl font-bold text-white mb-2">Book a Session</h1>
-          <p className="text-rp-grey">Enter your registered phone number</p>
+          <p className="text-rp-grey">
+            {isStaffMode ? "Enter customer phone or skip for walk-in" : "Enter your registered phone number"}
+          </p>
         </div>
 
         {/* Phone display */}
@@ -441,12 +467,22 @@ export default function BookingPage() {
           {loading ? "Sending..." : "Send OTP"}
         </button>
 
+        {/* Staff walk-in option */}
+        {isStaffMode && (
+          <button
+            onClick={handleStaffWalkIn}
+            className="mt-3 w-full max-w-sm py-4 bg-amber-600/20 border border-amber-600 text-amber-400 font-bold text-lg rounded-xl hover:bg-amber-600 hover:text-white transition-colors"
+          >
+            Walk-in (No Phone)
+          </button>
+        )}
+
         {/* Cancel */}
         <button
           onClick={handleCancel}
           className="mt-4 text-rp-grey text-sm hover:text-white transition-colors"
         >
-          Cancel
+          {isStaffMode ? "Back to Control" : "Cancel"}
         </button>
       </div>
     );

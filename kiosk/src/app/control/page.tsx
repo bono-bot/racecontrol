@@ -190,11 +190,24 @@ export default function ControlPage() {
           const warning = billingWarnings.find((w) => w.podId === pod.id);
           const isOnline = pod.status !== "offline" && pod.status !== "disabled";
 
+          const isIdle = pod.status === "idle" && !billing && !authToken;
+
           return (
             <div key={pod.id} className="flex flex-col min-h-0">
               {/* Cell header */}
               <div className="flex items-center justify-between px-2 py-1 bg-rp-card border border-rp-border border-b-0 rounded-t-lg">
-                <span className="text-xs font-bold text-white">Pod {pod.number}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white">Pod {pod.number}</span>
+                  {/* Book/Launch — shown when pod is idle and online */}
+                  {isOnline && isIdle && (
+                    <button
+                      onClick={() => router.push(`/book?pod=${pod.id}&staff=true`)}
+                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rp-red/20 text-rp-red border border-rp-red/50 hover:bg-rp-red hover:text-white transition-colors"
+                    >
+                      Book
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center gap-1">
                   {/* Power On (WOL) — shown when offline/disabled */}
                   {!isOnline && (

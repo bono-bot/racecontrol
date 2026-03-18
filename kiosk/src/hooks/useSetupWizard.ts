@@ -12,6 +12,7 @@ import type {
   Driver,
   PricingTier,
 } from "@/lib/types";
+import { DIFFICULTY_PRESETS } from "@/lib/constants";
 
 export interface WizardState {
   currentStep: SetupStep;
@@ -73,11 +74,10 @@ const INITIAL_STATE: WizardState = {
   serverPassword: "",
 };
 
-const DIFFICULTY_AIDS: Record<string, Record<string, number>> = {
-  easy: { abs: 1, tc: 1, stability: 1, autoclutch: 1, ideal_line: 1 },
-  medium: { abs: 1, tc: 1, stability: 0, autoclutch: 1, ideal_line: 0 },
-  hard: { abs: 0, tc: 0, stability: 0, autoclutch: 0, ideal_line: 0 },
-};
+// Derive aids map from shared DIFFICULTY_PRESETS
+const DIFFICULTY_AIDS: Record<string, Record<string, number>> = Object.fromEntries(
+  Object.entries(DIFFICULTY_PRESETS).map(([k, v]) => [k, v.aids])
+);
 
 // Step flow for single player
 const SINGLE_FLOW: SetupStep[] = [

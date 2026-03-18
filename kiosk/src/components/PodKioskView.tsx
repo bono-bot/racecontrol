@@ -13,6 +13,7 @@ import type {
   KioskExperience,
   BillingWarning,
 } from "@/lib/types";
+import { GAME_LABELS, CLASS_COLORS } from "@/lib/constants";
 
 function formatLapTimeShort(ms: number): string {
   if (ms <= 0) return "--:--.---";
@@ -21,26 +22,6 @@ function formatLapTimeShort(ms: number): string {
   const secs = (totalSecs % 60).toFixed(3);
   return `${mins}:${parseFloat(secs) < 10 ? "0" : ""}${secs}`;
 }
-
-// ─── Re-export for consistent styling across files ──────────────────────────
-
-export const GAME_LABELS: Record<string, string> = {
-  assetto_corsa: "Assetto Corsa",
-  assetto_corsa_evo: "AC EVO",
-  assetto_corsa_rally: "AC Rally",
-  f1_25: "F1 25",
-  iracing: "iRacing",
-  le_mans_ultimate: "Le Mans Ultimate",
-  forza: "Forza Motorsport",
-  forza_horizon_5: "Forza Horizon 5",
-};
-
-export const CLASS_COLORS: Record<string, string> = {
-  A: "bg-rp-red text-white",
-  B: "bg-orange-500 text-white",
-  C: "bg-amber-500 text-black",
-  D: "bg-green-500 text-white",
-};
 
 // ─── State Derivation ───────────────────────────────────────────────────────
 
@@ -172,14 +153,23 @@ function IdleView({
   isStandalone: boolean;
   onSelectExperience?: (id: string) => void;
 }) {
+  const [gameFilter, setGameFilter] = useState<string>("all");
+
   // Empty or missing = show all (backward compat with old agents)
   const hasGameData = installedGames && installedGames.length > 0;
 
   const isAvailable = (exp: KioskExperience) =>
     !hasGameData || installedGames.includes(exp.game);
 
-  // Available first, unavailable last
-  const sorted = [...experiences].sort((a, b) => {
+  // Unique games for filter tabs
+  const gameTabs = ["all", ...new Set(experiences.map((e) => e.game))];
+
+  // Filter by selected game, then sort available-first
+  const filtered = gameFilter === "all"
+    ? experiences
+    : experiences.filter((e) => e.game === gameFilter);
+
+  const sorted = [...filtered].sort((a, b) => {
     const aOk = isAvailable(a) ? 0 : 1;
     const bOk = isAvailable(b) ? 0 : 1;
     return aOk - bOk || a.sort_order - b.sort_order;
@@ -195,8 +185,29 @@ function IdleView({
         Select Experience
       </h2>
 
+      {/* Game filter tabs */}
+      {gameTabs.length > 2 && (
+        <div className={`flex gap-1 flex-wrap ${isStandalone ? "mb-4" : "mb-1.5"}`}>
+          {gameTabs.map((game) => (
+            <button
+              key={game}
+              onClick={() => setGameFilter(game)}
+              className={`rounded-full border transition-colors ${
+                isStandalone ? "px-4 py-1.5 text-xs" : "px-2 py-0.5 text-[9px]"
+              } ${
+                gameFilter === game
+                  ? "border-rp-red text-rp-red bg-rp-red/10"
+                  : "border-rp-border text-rp-grey hover:text-white"
+              }`}
+            >
+              {game === "all" ? "All" : GAME_LABELS[game] || game}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className={`flex-1 overflow-y-auto ${isStandalone ? "space-y-3" : "space-y-1"}`}>
-        {experiences.length === 0 ? (
+        {sorted.length === 0 ? (
           <p className={`text-rp-grey ${isStandalone ? "text-lg" : "text-[10px]"}`}>
             No experiences available
           </p>
@@ -245,9 +256,14 @@ function IdleView({
                 </div>
                 <div className="text-right shrink-0">
                   {available ? (
-                    <p className={`text-rp-grey ${isStandalone ? "text-sm" : "text-[9px]"}`}>
-                      {exp.duration_minutes}min
-                    </p>
+                    <>
+                      <p className={`text-rp-grey ${isStandalone ? "text-sm" : "text-[9px]"}`}>
+                        {exp.duration_minutes}min
+                      </p>
+                      <p className={`text-rp-grey capitalize ${isStandalone ? "text-xs" : "text-[8px]"}`}>
+                        {exp.start_type}
+                      </p>
+                    </>
                   ) : (
                     <p className={`text-zinc-600 italic ${isStandalone ? "text-xs" : "text-[8px]"}`}>
                       Not installed
