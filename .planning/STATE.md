@@ -43,7 +43,7 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 Phase: 36 of 40 (WSL2 Infrastructure)
 Plan: 0 of 2 in current phase
 Status: Ready to plan
-Last activity: 2026-03-18 - Completed quick task 260318-wkg: Web dashboard + racecontrol watchdog
+Last activity: 2026-03-18 - Completed quick task 260318-xbn: Kiosk watchdog
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -92,6 +92,7 @@ Progress: [░░░░░░░░░░] 0%
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260318-wkg | Web dashboard + racecontrol watchdog (auto-restart on crash, HKLM Run key) | 2026-03-18 | 95c0d10 | [260318-wkg](./quick/260318-wkg-research-and-fix-node-js-web-dashboard-p/) |
+| 260318-xbn | Kiosk watchdog (same pattern applied to port 3300) | 2026-03-18 | — | [260318-xbn](./quick/260318-xbn-apply-watchdog-pattern-to-kiosk-node-js-/) |
 
 ## Session Continuity
 
