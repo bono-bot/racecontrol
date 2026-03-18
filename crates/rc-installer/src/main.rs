@@ -1004,6 +1004,7 @@ fn extract_tailscale_self_ip(json: &str) -> Option<String> {
 
 fn start_rc_agent(src: &Path, dest: &Path) -> Result<(), String> {
     let binary = dest.join("rc-agent.exe");
+    let start_bat = dest.join("start-rcagent.bat");
 
     // Final sanity: binary must exist right before start
     if !binary.exists() {
@@ -1014,20 +1015,34 @@ fn start_rc_agent(src: &Path, dest: &Path) -> Result<(), String> {
     let _ = fs::remove_file(dest.join("rc-agent.log"));
     let _ = fs::remove_file(dest.join("rc-agent-stderr.txt"));
 
-    // ── Attempt 1: Direct launch ─────────────────────────────
-    info("Starting rc-agent (attempt 1/2)...");
-    Command::new(&binary)
-        .current_dir(dest)
-        .creation_flags(DETACHED_PROCESS)
-        .spawn()
-        .map_err(|e| format!("Cannot spawn rc-agent: {}", e))?;
+    // Kill any lingering rc-agent (installer Step 3 should have done this, but be safe)
+    let _ = run("taskkill", &["/F", "/IM", "rc-agent.exe"]);
+    thread::sleep(Duration::from_secs(3));
 
-    info("Waiting 10 seconds for startup...");
-    thread::sleep(Duration::from_secs(10));
+    // ── Attempt 1: Via start-rcagent.bat (preferred) ─────────
+    // start-rcagent.bat handles: firewall, swap rc-agent-new.exe, launch via PowerShell
+    if start_bat.exists() {
+        info("Starting rc-agent via start-rcagent.bat (attempt 1/2)...");
+        Command::new("cmd")
+            .args(["/C", &start_bat.to_string_lossy()])
+            .current_dir(dest)
+            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("Cannot spawn start-rcagent.bat: {}", e))?;
+    } else {
+        info("start-rcagent.bat not found — launching rc-agent.exe directly (attempt 1/2)...");
+        Command::new(&binary)
+            .current_dir(dest)
+            .creation_flags(DETACHED_PROCESS)
+            .spawn()
+            .map_err(|e| format!("Cannot spawn rc-agent: {}", e))?;
+    }
+
+    info("Waiting 15 seconds for startup...");
+    thread::sleep(Duration::from_secs(15));
 
     if is_process_running("rc-agent.exe") {
         ok("rc-agent process is alive");
-        // Give HTTP server a few more seconds to bind port 8090
         wait_for_http(dest);
         return Ok(());
     }
@@ -1050,18 +1065,21 @@ fn start_rc_agent(src: &Path, dest: &Path) -> Result<(), String> {
     // Dump any log output from first attempt
     dump_diagnostics(dest, "first attempt");
 
-    // ── Attempt 2: Via cmd wrapper to capture stderr ─────────
+    // ── Attempt 2: PowerShell hidden launch (bypasses cmd.exe kiosk kill) ──
     let _ = fs::remove_file(dest.join("rc-agent.log"));
-    info("Starting rc-agent (attempt 2/2) with stderr capture...");
+    info("Starting rc-agent via PowerShell (attempt 2/2)...");
 
-    let _ = Command::new("cmd")
-        .args(["/C", "rc-agent.exe 2>rc-agent-stderr.txt"])
-        .current_dir(dest)
-        .creation_flags(DETACHED_PROCESS)
+    let _ = Command::new("powershell")
+        .args([
+            "-NoProfile", "-WindowStyle", "Hidden", "-Command",
+            &format!("Start-Process '{}' -WorkingDirectory '{}'",
+                binary.to_string_lossy(), dest.to_string_lossy())
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 
-    info("Waiting 10 seconds...");
-    thread::sleep(Duration::from_secs(10));
+    info("Waiting 15 seconds...");
+    thread::sleep(Duration::from_secs(15));
 
     if is_process_running("rc-agent.exe") {
         ok("rc-agent started on second attempt");
@@ -1083,6 +1101,7 @@ fn start_rc_agent(src: &Path, dest: &Path) -> Result<(), String> {
     info("  2. Config file invalid (check rc-agent.toml)");
     info("  3. Port 8090 in use by another process");
     info("  4. Missing DLL (check stderr above)");
+    info("  5. Kiosk killed the launch process — try rebooting the pod");
 
     Err("rc-agent failed to start after 2 attempts".into())
 }
