@@ -123,10 +123,30 @@ export function useSetupWizard() {
   const getFlow = useCallback((): SetupStep[] => {
     const flow = state.playerMode === "multi" ? [...MULTI_FLOW] : [...SINGLE_FLOW];
     let filtered = flow;
-    // Skip session_splits for non-AC games or if tier duration < 20 min (no valid splits)
     const isAc = state.selectedGame === "assetto_corsa";
+
+    // Non-AC games: skip all AC-specific steps (session_type, ai_config, track/car
+    // selection, driving_settings). These games handle config internally — the kiosk
+    // just picks a preset experience (duration) and launches via Steam.
+    if (!isAc) {
+      const acOnlySteps: SetupStep[] = [
+        "session_splits",
+        "player_mode",
+        "session_type",
+        "ai_config",
+        "multiplayer_lobby",
+        "select_track",
+        "select_car",
+        "driving_settings",
+      ];
+      // Flow: register_driver → select_plan → select_game → select_experience → review
+      return filtered.filter((s) => !acOnlySteps.includes(s));
+    }
+
+    // AC-specific flow below
+    // Skip session_splits if tier duration < 20 min (no valid splits)
     const duration = state.selectedTier?.duration_minutes ?? 0;
-    if (!isAc || duration < 20) {
+    if (duration < 20) {
       filtered = filtered.filter((s) => s !== "session_splits");
     }
     // If experience mode is "preset", skip select_track and select_car
@@ -158,8 +178,20 @@ export function useSetupWizard() {
   }, []);
 
   const buildLaunchArgs = useCallback((): string => {
-    const aids = DIFFICULTY_AIDS[state.drivingDifficulty] || DIFFICULTY_AIDS.easy;
+    const isAc = state.selectedGame === "assetto_corsa";
     const isMulti = state.playerMode === "multi";
+
+    // Non-AC games: minimal launch args — game handles config internally
+    if (!isAc) {
+      return JSON.stringify({
+        game: state.selectedGame,
+        driver: state.selectedDriver?.name || "",
+        game_mode: "single",
+      });
+    }
+
+    // AC: full launch args with track, car, assists, AI, etc.
+    const aids = DIFFICULTY_AIDS[state.drivingDifficulty] || DIFFICULTY_AIDS.easy;
 
     const args: Record<string, unknown> = {
       car: state.selectedExperience?.car || state.selectedCar?.id || "",
@@ -172,7 +204,6 @@ export function useSetupWizard() {
       game_mode: isMulti ? "multi" : "single",
       aids,
       conditions: { damage: 0 },
-      // New fields
       session_type: state.sessionType,
       ai_enabled: state.aiEnabled,
       ai_difficulty: state.aiDifficulty,

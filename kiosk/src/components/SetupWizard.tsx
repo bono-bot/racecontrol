@@ -227,7 +227,9 @@ export function SetupWizard({
 
   function handleSelectExperience(exp: KioskExperience) {
     setField("selectedExperience", exp);
-    goToStep("driving_settings");
+    // Non-AC games skip driving_settings — go straight to review
+    const isAc = ws.selectedGame === "assetto_corsa";
+    goToStep(isAc ? "driving_settings" : "review");
   }
 
   function handleSelectTrack(track: CatalogItem) {
@@ -662,9 +664,14 @@ export function SetupWizard({
         )}
 
         {/* ─── SELECT EXPERIENCE (preset) ───────────────────────── */}
-        {step === "select_experience" && (
+        {step === "select_experience" && (() => {
+          const isAc = ws.selectedGame === "assetto_corsa";
+          // Filter experiences by selected game
+          const gameExperiences = experiences.filter((e) => e.game === ws.selectedGame);
+          return (
           <div className="space-y-4">
-            {/* Mode toggle */}
+            {/* Mode toggle — only show Custom option for AC (has track/car catalog) */}
+            {isAc && (
             <div className="flex gap-2">
               <button
                 onClick={() => setField("experienceMode", "preset")}
@@ -686,13 +693,21 @@ export function SetupWizard({
                 Custom (Track + Car)
               </button>
             </div>
+            )}
 
-            {/* Experience list */}
+            {/* Non-AC: show hint that game handles config internally */}
+            {!isAc && (
+              <p className="text-xs text-rp-grey text-center">
+                Choose a duration below. Track, car, and settings are configured in-game.
+              </p>
+            )}
+
+            {/* Experience list — filtered by selected game */}
             <div className="space-y-2 max-h-[50vh] overflow-y-auto">
-              {experiences.length === 0 ? (
-                <p className="text-sm text-rp-grey text-center py-8">No experiences configured</p>
+              {gameExperiences.length === 0 ? (
+                <p className="text-sm text-rp-grey text-center py-8">No experiences configured for {GAME_LABELS[ws.selectedGame] || ws.selectedGame}</p>
               ) : (
-                experiences.map((exp) => (
+                gameExperiences.map((exp) => (
                   <button
                     key={exp.id}
                     onClick={() => handleSelectExperience(exp)}
@@ -709,13 +724,15 @@ export function SetupWizard({
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-white truncate">{exp.name}</p>
+                      {isAc && (
                       <p className="text-xs text-rp-grey truncate">
                         {exp.track} &middot; {exp.car}
                       </p>
+                      )}
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-xs text-rp-grey">
-                        {GAME_LABELS[exp.game] || exp.game}
+                        {exp.duration_minutes}min
                       </p>
                     </div>
                   </button>
@@ -723,7 +740,8 @@ export function SetupWizard({
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ─── SELECT TRACK ─────────────────────────────────────── */}
         {step === "select_track" && (
