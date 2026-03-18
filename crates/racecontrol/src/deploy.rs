@@ -155,7 +155,7 @@ steam_app_id = 244210
 use_steam = true
 
 [games.f1_25]
-steam_app_id = 2488620
+steam_app_id = 3059520
 use_steam = true
 
 [games.le_mans_ultimate]

@@ -483,10 +483,10 @@ mod tests {
             exe_path: None,
             working_dir: None,
             args: None,
-            steam_app_id: Some(2488620),
+            steam_app_id: Some(3059520),
             use_steam: true,
         };
-        assert_eq!(config.steam_app_id, Some(2488620));
+        assert_eq!(config.steam_app_id, Some(3059520));
         assert!(config.use_steam);
     }
 }
