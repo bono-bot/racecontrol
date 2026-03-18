@@ -1,223 +1,228 @@
 # Project Research Summary
 
-**Project:** RaceControl v6.0 — Salt Fleet Management (replacing pod-agent/remote_ops.rs with SaltStack)
-**Domain:** Infrastructure migration — SaltStack fleet management for 8-node Windows 11 gaming pod fleet via WSL2 Ubuntu master
-**Researched:** 2026-03-17
-**Confidence:** MEDIUM-HIGH
+**Project:** RaceControl v7.0 — Comprehensive E2E Test Suite
+**Domain:** Multi-layer test runner — Playwright browser automation + curl API pipeline + self-healing shell runner + deploy verification for a Rust/Axum + Next.js 16 kiosk on Windows
+**Researched:** 2026-03-19 IST
+**Confidence:** HIGH
 
 ## Executive Summary
 
-RaceControl v6.0 replaces the custom HTTP endpoint (port 8090, `remote_ops.rs`) with SaltStack for all fleet management operations — binary deployment, service restart, remote command execution, and health checking. The recommended approach is a WSL2 Ubuntu master on James's machine (.27) running SaltStack 3008 LTS with mirrored networking mode, and Windows salt-minion 3008 installed on all 8 gaming pods plus the server (.23). Mirrored networking is non-negotiable: default WSL2 NAT mode gives the Ubuntu instance a 172.x.x.x IP that pods on 192.168.31.x cannot reach, while mirrored mode makes WSL2 inherit the Windows host's LAN IP (192.168.31.27) so pods connect directly. No portproxy scripts, no IP drift.
+RaceControl v7.0 adds a comprehensive E2E test suite to a production venue system. The current test infrastructure (three shell scripts using curl and Python) validates API endpoints and game-launch gates but is blind to browser-level failures: React render crashes, wizard step regressions, and SSR errors all produce HTTP 200 responses that slip past every existing test. The recommended approach is a two-layer suite — Playwright browser tests for the Next.js kiosk UI, curl-based shell scripts for API pipeline checks — unified under a single master entry point (`tests/e2e/run-all.sh`) with a phase-gated sequential runner that aborts on preflight failure. The recommended Playwright version is 1.58.2 using bundled Chromium (not msedge, which has a documented 30-second hang after headed tests), with `cargo nextest` replacing `cargo test` for Rust crate tests to gain per-process isolation and auto-retry.
 
-The migration scope is precisely bounded. Salt replaces only the `remote_ops.rs` HTTP exec path and the Python HTTP server + curl deploy pipeline. It does not touch the WebSocket connection (game state, billing, lock screen), UDP heartbeat, or any application logic — those channels have sub-second latency requirements that Salt's ZeroMQ cannot match. The integration seam on the Rust side is a new `salt_exec.rs` module that calls the `salt-api` REST interface via the existing `reqwest` client — no new Cargo dependencies. racecontrol modules (`deploy.rs`, `fleet_health.rs`, `pod_monitor.rs`, `pod_healer.rs`) are modified to call `salt_exec` instead of the old HTTP endpoint.
+The most important design decision is maintaining a strict boundary between what Playwright owns (browser UI flows, SSR error detection, per-game wizard step assertions) and what shell scripts own (port checks, binary verification, rc-agent remote_ops calls, deploy sequencing). Blurring this boundary — either by mocking the backend in browser tests or using Playwright for pure HTTP assertions that curl handles faster — produces a slower, less trustworthy suite. Every pitfall in this research was discovered during real test development in this session, not hypothetically: wrong API endpoint for ws_connected, AC wizard steps rendering for non-AC games, Steam dialog blocking F1 25 launch, EADDRINUSE after kiosk restart, and stale game trackers poisoning subsequent runs.
 
-The highest-risk pitfalls are all WSL2 networking: NAT mode blocking Salt ports, a Hyper-V firewall layer that activates independently of Windows Defender (and silently drops packets even after mirrored mode is enabled), and the known Salt bug where `service.restart salt-minion` stops the Windows service but never restarts it. The recommended build order is infrastructure-first: get the WSL2 master working and verified from Pod 8 before writing a single line of Rust, then migrate server-side modules one at a time with Pod 8 as the canary, and only delete `remote_ops.rs` after every caller has been migrated.
+The highest-risk area is the per-game launch validation phase (Phase 3). Steam games using EA Anti-Cheat ship with a different launcher app ID than the store page (F1 25: launch ID `3059520` vs store ID `2805550`), Steam dialogs block first-run launches silently, and game state can get stuck in `Stopping` when the agent restarts mid-cleanup. These are not edge cases — they are the normal operational environment of the venue. Pre-test cleanup fixtures and stale-state detection must be built before any stateful test is written.
 
 ## Key Findings
 
 ### Recommended Stack
 
-SaltStack 3008 LTS is the only correct version for a new deployment. STS 3007 hits EOL 2026-03-31 (this month). 3006 LTS is legacy. The salt-master runs in WSL2 Ubuntu 24.04 using the official Salt bootstrap script. The salt-minion uses the EXE installer format (not MSI — the MSI was used in 3006 era) with silent install flags `/S /master=192.168.31.27 /minion-name=pod1`. All networking uses WSL2 mirrored mode, which requires Windows 11 22H2+ (James's machine is confirmed compatible) and a one-time Hyper-V firewall rule.
+Playwright is the correct and only reasonable choice for browser automation in this monorepo. Cypress cannot test the racecontrol Axum API in the same test session as the kiosk UI. Jest + Puppeteer is two packages doing what Playwright does in one. The `@playwright/test` package (not the lower-level `playwright` package) provides the test runner, fixtures, API request context, trace capture, and retry logic as a unified framework.
 
 **Core technologies:**
-- SaltStack 3008 LTS (salt-master in WSL2 Ubuntu 24.04): Fleet orchestration — only current LTS, 2-year support to ~2027
-- WSL2 mirrored networking (Windows 11 22H2+): Eliminates NAT portproxy fragility — WSL2 shares LAN IP 192.168.31.27 directly
-- Salt Minion 3008.x-Py3-AMD64 EXE: Windows agent on all 9 nodes — bundles its own Python via relenv, no host Python required
-- `salt.modules.cmd`: Remote shell execution — replaces `/exec` HTTP endpoint
-- `salt.modules.win_service`: Windows service management — replaces `sc.exe` workarounds in pod_monitor.rs
-- `salt.modules.cp`: File distribution from master to minions — replaces Python HTTP server + curl pipeline
-- `salt-api` (rest_cherrypy, port 8000): REST interface allowing racecontrol to call Salt via reqwest without subprocess or WSL2 boundary crossing
+- `@playwright/test` 1.58.2: Browser automation + API testing — single framework for both UI and HTTP assertions, current release (Jan 2026)
+- Playwright bundled Chromium (not `msedge` channel): Kiosk testing — avoids the documented 30s hang-after-headed-test bug in the msedge channel; headed mode blocked anyway in Session 0
+- Bash shell runner (`tests/e2e/*.sh`): API pipeline + deploy verification — owns everything a browser cannot: port checks, PID verification, rc-agent remote_ops, binary swap validation
+- `cargo nextest` 0.9.x: Rust crate test runner — per-process isolation prevents billing state leakage between tests; 3x faster parallel execution; auto-retry on flaky tests
+- TypeScript 5.9.3 (reuse kiosk existing): Type-safe Playwright config and spec files — no new TS version needed
 
 **Critical version requirements:**
-- Salt 3008 LTS (not 3007 — EOL March 2026, not 3006 — legacy)
-- Windows 11 22H2 build 22621+ for mirrored networking
-- EXE installer format (not MSI) for 3007/3008 on Windows
+- Node.js 20+ required for `@playwright/test` 1.58.2 — verify on server before installation
+- `workers: 1` and `fullyParallel: false` are mandatory in playwright.config.ts — game launch tests mutate live pod state and collide if parallelized
+- `reuseExistingServer: true` mandatory — venue server has kiosk already running on :3300; Playwright must attach, not restart it
 
 ### Expected Features
 
-The migration is a direct capability-for-capability replacement of the custom HTTP exec layer. The MVP is: master running, all 9 minions connected and keys accepted, `cmd.run` verified, `cp.get_file` verified, `service.restart` verified, `remote_ops.rs` deleted from codebase.
+The existing suite (smoke.sh, game-launch.sh, cross-process.sh) covers API status codes and launch gate sequencing but has zero browser coverage. v7.0 adds the missing browser layer and unifies everything under a single entry point.
 
-**Must have (table stakes — MVP, v6.0 cannot ship without these):**
-- WSL2 Salt master with mirrored networking, verified from actual pod (not just from .27)
-- Salt minion on all 8 pods + server, keys accepted, `salt 'pod*' test.ping` returns 8 True responses
-- Explicit minion ID convention: `pod1`–`pod8` + `server` (set at install time, never auto-generated from hostname)
-- `cmd.run` remote execution — replaces `/exec` HTTP endpoint
-- `cp.get_file` binary distribution — replaces Python HTTP server + curl pipeline
-- `service.restart` / `service.stop` for rc-agent Windows service management
-- `remote_ops.rs` deleted from rc-agent codebase
-- `install.bat` slimmed: remove pod-agent kill, :8090 firewall rule, add salt-minion EXE bootstrap
+**Must have (table stakes — suite is unreliable without these):**
+- Pre-test state cleanup fixture — stale games or billing sessions from prior runs corrupt subsequent tests; must run before every stateful test
+- Playwright kiosk wizard browser tests — curl cannot detect React rendering errors or wizard step transitions; only a real browser catches these
+- Per-step wizard assertions per game type — HTTP 200 on `/kiosk/book` does not validate wizard reaches "review"; each of the 11 wizard steps must be explicitly asserted
+- Staff mode wizard test (`?staff=true&pod=pod-8`) — untested path today; skips phone/OTP entirely
+- SSR pageerror detection — `page.on('pageerror')` catches uncaught JS exceptions that produce HTTP 200 + broken page
+- Per-game SimType coverage (AC, F1 25, EVO, Rally, iRacing) — wizard path forks at `select_game`; each fork must be independently exercised
+- Idempotent teardown — `afterEach` stops game + ends billing session regardless of test outcome
+- Single master entry point `run-all.sh` — unified pass/fail exit code for pre-deploy verification
+- Configurable `RC_BASE_URL` in all tests — runs against both localhost (dev) and 192.168.31.23 (venue) without code changes
 
-**Should have (valuable, add after MVP validation):**
-- Custom grains for pod identity (`pod_number`, `role`, `venue`) — enables grain-based targeting
-- Nodegroup aliases in master config (`pods: 'pod*'`) — CLI ergonomics
-- `state.apply` for idempotent rc-agent state enforcement — replaces manual install.bat steps
-- `test=True` dry-run habit before fleet-wide state application
-- Rolling deploy with `--batch-size 1` formalized from ad-hoc canary convention
+**Should have (competitive — improve test quality beyond pass/fail):**
+- Self-healing pre-test runner — auto-kills stale games, restarts disconnected agents, clears stuck billing; eliminates 80% of spurious failures
+- Playwright trace-on-failure (`trace: 'on-first-retry'`) — full DOM + network timeline on failure; zero overhead on passing tests
+- Per-game launch validation with PID check — verifies game process started on pod, not just that API returned `ok:true`
+- Deploy verification script — records binary size before/after, polls `/health`, verifies `/fleet/health` shows agents reconnected
+- Flaky test log — tests needing retries emit to `flaky-log.txt` for investigation; not silently passed
+- Steam dialog detection (timeout-based) — flag `Launching` state persisting >60s as "Steam dialog likely blocking"
 
-**Defer to v7+:**
-- `salt-run manage.status` exposed in staff dashboard (medium complexity, requires salt-api or SSH from racecontrol)
-- Compound targeting for A/B config tests across fleet halves
-- Pillar per-pod config (useful only when state files are complex enough to need templating)
+**Defer to v7.x+:**
+- Test result JSON artifact for dashboard widget — future integration, not MVP
+- Inactivity timer test (`page.clock.fastForward`) — real venue failure mode but medium complexity
+- Auth token API test (staff terminal PIN) — security path coverage, low complexity but not blocking launch
+- CI integration (cloud runner) — requires off-LAN runner; venue-only for v7.0
 
-**Anti-features — do not build:**
-- Salt beacons + reactors for pod monitoring: Salt latency is seconds, WebSocket monitoring is milliseconds — two competing systems with worse performance
-- Salt schedule on Windows minions: confirmed bug (#19277), cron/when schedules silently fail on Windows
-- Salt `cmd.run` to launch GUI applications: Session 0 isolation prevents any GUI interaction from Salt commands
-- `state.highstate` on a schedule: risk of partial application interrupting live sessions
+**Do not build (anti-features):**
+- Mocking racecontrol API in Playwright tests — defeats the purpose of E2E testing; real integration bugs become invisible
+- Shared billing session state across test files — creates test ordering dependencies; each test must own its session lifecycle
+- Visual regression (screenshot diffing) — kiosk UI changes frequently with brand updates; constant false positives
+- Parallel launch tests across multiple pods — disrupts live customer sessions; Pod 8 is the sole test target
+- Continuous E2E runs every 5 minutes — tests are pre-deploy verification, not production monitoring
 
 ### Architecture Approach
 
-The architecture places Salt as a parallel fleet operations channel alongside the existing WebSocket real-time channel. WebSocket handles all game state, billing, and lock screen events (sub-second requirement). Salt handles deploy, restart, health check, and diagnostic exec (batch operations, 200-500ms latency acceptable). The integration seam is `salt_exec.rs` — a new Rust module on the server that calls `salt-api` REST via `reqwest` (already in Cargo.toml). All four modules that currently call port 8090 (deploy.rs, fleet_health.rs, pod_monitor.rs, pod_healer.rs) are updated to call `salt_exec` instead. Only one module is deleted from rc-agent: `remote_ops.rs`.
+The suite follows a phase-gated sequential architecture: four phases run in order under `run-all.sh`, with Phase 1 (Preflight) as a hard gate — failure aborts the run immediately. Shell scripts own HTTP-level API verification via `lib/common.sh` (shared `pass`/`fail`/`skip` functions) and `lib/pod-map.sh` (single source of truth for pod IP mapping). Playwright owns the browser layer with two projects: `chromium` for kiosk UI tests and `api` for `page.request` HTTP assertions that need cookie/session sharing. Phase 4 (Deploy Verification) uses rc-sentry :8091 as its remote exec channel — intentionally independent of racecontrol and rc-agent so it remains available even when those services are being restarted mid-test.
 
 **Major components:**
-1. `salt-master` + `salt-api` (WSL2 Ubuntu .27): Fleet command hub — receives commands from salt_exec.rs via HTTP REST, forwards via ZeroMQ to minions
-2. `salt-minion` (Windows service, all 9 nodes): Outbound-only agent — connects to master:4505, receives commands, no inbound firewall rules needed on pods
-3. `salt_exec.rs` (NEW, racecontrol): Salt REST API client — `cmd_run`, `cp_get_file`, `ping`, `ping_all`, `service_restart`; uses existing reqwest client; token stored in racecontrol.toml `[salt]` section
-4. `deploy.rs` (MODIFY): Replace HTTP steps with `salt_exec` calls; preserve `do-swap.bat` self-swap pattern (Windows OS constraint: cannot replace running binary)
-5. `fleet_health.rs` (MODIFY): Replace HTTP probes with `salt_exec.ping_all()`; rename `http_reachable` to `minion_reachable`
-6. `pod_monitor.rs` (MODIFY): Replace `exec_on_pod_via_http()` with `salt_exec.service_restart()`; WatchdogState FSM unchanged
-7. `pod_healer.rs` (MODIFY): Replace `exec_on_pod()` HTTP helper with `salt_exec.cmd_run()`; all diagnostic parse logic unchanged
-8. `remote_ops.rs` (DELETE from rc-agent): Eliminated entirely after all callers migrated
+1. `run-all.sh` — Master orchestrator: runs all 4 phases, collects exit codes, writes `results/summary.json`, exits with total failure count
+2. `lib/common.sh` + `lib/pod-map.sh` — Shared shell library: eliminates the copy-paste of `pass/fail/skip` and pod IP map currently duplicated across all three existing shell scripts
+3. `api/` shell scripts — Phase 2: curl-based API tests for billing lifecycle, game state, SimType parsing, launch pipeline (game-launch.sh migrated here)
+4. `playwright/kiosk/` + `playwright/api/` specs — Phase 3: browser tests (wizard flows, SSR detection) and request-only API assertions
+5. `lib/playwright.config.ts` — Single Playwright config: `workers: 1`, `retries: 1`, `trace: 'on-first-retry'`, `reuseExistingServer: true`, `baseURL` from `RC_BASE_URL`
+6. `deploy/verify.sh` — Phase 4: binary swap, port conflict detection, service restart idempotency via rc-sentry :8091
 
-**Key patterns:**
-- Salt REST API via salt-api as integration seam (no subprocess, no WSL2 boundary issues, structured JSON response)
-- Preserve `do-swap.bat` for binary self-update (Salt cannot atomically replace a running binary — Windows OS constraint)
-- Static grain metadata only (`pod_number`, `venue`, `role`) — never real-time state (grains are cached, only refresh on minion restart)
+**Build order (strict — later items depend on earlier):**
+1. `lib/common.sh`, `lib/pod-map.sh` (no dependencies)
+2. Refactor existing smoke.sh, cross-process.sh to source lib/common.sh
+3. `api/` phase scripts (depend on lib/common.sh, lib/pod-map.sh)
+4. `lib/playwright.config.ts`
+5. `playwright/kiosk/smoke.spec.ts`, `wizard.spec.ts`, `playwright/api/billing.spec.ts`
+6. `deploy/verify.sh` (depends on rc-sentry confirmed on pods)
+7. `run-all.sh` (depends on all above)
 
 ### Critical Pitfalls
 
-1. **WSL2 NAT makes Salt ports unreachable from LAN** — Default WSL2 gives a 172.x.x.x IP. Pods on 192.168.31.x cannot reach master. Enable mirrored networking (`networkingMode=mirrored` in `.wslconfig`) before deploying any minion. Verify with `Test-NetConnection 192.168.31.27 -Port 4505` from an actual pod.
+All 7 pitfalls below were observed as real failures during v7.0 test development on 2026-03-19 — not hypothetical risks.
 
-2. **Hyper-V firewall silently blocks inbound to WSL2 even after mirrored mode is enabled** — A separate Hyper-V firewall layer (added in WSL 2.0.9+) has `DefaultInboundAction: Block`. Windows Defender firewall rules do not affect it. Fix: `Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow` in elevated PowerShell. Failure looks identical to the NAT pitfall.
+1. **API tests pass while browser crashes (JSX render errors)** — curl returns HTTP 200 even when React crashes rendering the page. Avoid: add `page.on('pageerror')` in all Playwright browser tests; never treat API 200 as proof the kiosk renders correctly. Phase 1 must add browser smoke before any API test is considered sufficient.
 
-3. **Salt minion service cannot restart itself on Windows** — `service.restart salt-minion` stops the service but never starts it again (confirmed bug #65577). Fix: configure Windows Service Recovery on each pod during install: `sc failure salt-minion reset= 60 actions= restart/5000/restart/10000/restart/30000`.
+2. **Wrong endpoint for ws_connected (`/pods` vs `/fleet/health`)** — `ws_connected` is in `FleetPodHealth` struct (returned by `/api/v1/fleet/health`), NOT in the pod list from `/api/v1/pods`. Any test using `/pods` for connectivity checks always shows agents as disconnected. Avoid: enforce the endpoint split with a comment in every connectivity-checking test.
 
-4. **Windows Defender quarantines salt-minion binaries after install** — Installer returns exit code 0 but Defender asynchronously quarantines Python and ZeroMQ binaries 5–15 seconds later. Fix: add exclusions for `C:\Program Files\Salt Project\Salt` and `C:\ProgramData\Salt Project\Salt` *before* running the installer. Verify with `sc query salt-minion` 30 seconds after install.
+3. **Steam dialogs block game launch silently** — A "Support Message" or "Product Update" dialog appears before the game process, causing rc-agent to time out waiting for the PID. Avoid: run the first launch manually on a fresh pod reboot; configure Steam offline mode on pods; add pre-launch dialog-dismissal step.
 
-5. **`cp.get_file` silently succeeds without transferring the file** — Salt returns True even when the destination directory does not exist. Always precede with `file.makedirs` and follow with `file.file_exists` verification. Never accept the `cp.get_file` return value alone as proof of transfer.
+4. **Wrong Steam app ID (store ID vs EA Anti-Cheat launcher ID)** — F1 25 store ID is `2805550`; actual launch ID is `3059520` (EA Anti-Cheat bootstrapper). Using the store ID silently opens a Steam page instead of launching the game. Avoid: maintain `GAME_IDS.md` mapping store ID → launch ID; verify by running `steam://rungameid/{id}` manually.
 
-6. **Minion ID auto-generated from Windows hostname** — Gaming pods have generic OEM hostnames; two pods imaged from the same base get duplicate IDs. Fix: always set `id: pod{N}` explicitly in minion config before first service start. Ship per-pod `salt-minion-pod{1-8}.conf` files in the deploy kit.
+5. **EADDRINUSE after kiosk deploy** — Killing the kiosk process leaves port 3300 in CLOSE_WAIT/TIME_WAIT; the new process fails to bind. Avoid: poll port-free status (up to 30s) before starting the new process; use `pm2 delete` + restart cycle rather than `pm2 restart`.
 
-7. **Deleting `remote_ops.rs` without auditing AppState initialization** — Rust compiler catches type errors, not runtime initialization dependencies. A field only populated by `remote_ops.rs` compiles fine but panics at runtime. Fix: grep all `remote_ops` references, audit AppState fields, write characterization tests covering the WebSocket path (billing lifecycle, game launch, lock screen) before deletion, canary deploy to Pod 8 and run a full billing session before fleet rollout.
+6. **Stale game tracker stuck in `Stopping` state** — If rc-agent restarts mid-cleanup, the in-memory game state resets but the server holds a stale `Stopping` entry. The next test's double-launch guard blocks indefinitely. Avoid: pre-flight cleanup must handle `Stopping` state explicitly; add `afterEach` teardown that verifies `/games/active` returns empty.
+
+7. **AC wizard steps appear for non-AC games** — The `isAc` check in `useSetupWizard.ts` controls which steps appear. A bug or game ID rename can cause `select_track`/`select_car` to appear for F1 25. This is invisible to API tests. Avoid: Playwright wizard test must assert exact step sequence per game type, explicitly verifying AC-specific steps do NOT appear for Steam games.
 
 ## Implications for Roadmap
 
-The build order is dictated by a hard infrastructure prerequisite: the WSL2 Salt master must be verified from an actual pod before any Rust code is written. Server-side modules migrate one at a time using Pod 8 as the canary throughout. `remote_ops.rs` is deleted last, only after every caller is migrated.
+Based on research, suggested phase structure with 4 phases:
 
-### Phase 1: WSL2 Infrastructure and Master Setup
+### Phase 1: Foundation + Browser Smoke
 
-**Rationale:** Everything depends on the master being reachable from pods. This is pure infrastructure — no Rust code. Attempting any code change before WSL2 networking is verified is wasted effort. DHCP reservations for all 8 pods must also be set here, because DHCP drift kills ZeroMQ connections silently.
-**Delivers:** WSL2 Ubuntu 24.04 with salt-master 3008 and salt-api running, mirrored networking active, Hyper-V firewall open, Windows Defender firewall rules for :4505/:4506/:8000, DHCP reservations for all 8 pod MACs in router.
-**Addresses:** Pitfalls 1, 2, 3 (all WSL2 networking), Pitfall 11 (DHCP drift)
-**Verification gate:** `Test-NetConnection 192.168.31.27 -Port 4505` from Pod 8 returns `TcpTestSucceeded: True`
-**Research flag: skip.** All configuration is explicitly documented in STACK.md and ARCHITECTURE.md with exact commands. No unknowns.
+**Rationale:** Shared library must exist before any script can source it. The browser smoke layer (detecting JSX crashes) is the single highest-value addition given that all current tests are curl-based — it addresses Pitfall 1 immediately and enables the wizard tests in Phase 2. The kiosk wizard also requires `data-testid` attributes on UI elements that may not exist today; confirming this early prevents a mid-phase blocker.
 
-### Phase 2: Salt Minion Bootstrap on Pod 8 (Canary)
+**Delivers:** `lib/common.sh`, `lib/pod-map.sh`, refactored smoke.sh + cross-process.sh, `playwright.config.ts`, `playwright/kiosk/smoke.spec.ts` (SSR error detection + all routes return 200 in real browser), staff mode Playwright fixture.
 
-**Rationale:** Validate WSL2 networking with a real minion before touching any Rust code or deploying to the fleet. This phase also rewrites `install.bat` and configures Windows Service recovery — done once on Pod 8, then replicated across the fleet in Phase 5.
-**Delivers:** Salt minion 3008 installed on Pod 8 with explicit `id: pod8`, Defender exclusions pre-applied, `sc failure` recovery configured, key accepted, `salt 'pod8' test.ping` returns True. Updated `install.bat` with salt-minion bootstrap replacing pod-agent section.
-**Addresses:** Pitfalls 4 (Defender quarantine), 5 (minion self-restart), 6 (minion ID from hostname), 8 (install.bat strips rc-agent firewall rules)
-**Verification gate:** `salt 'pod8' cmd.run 'whoami'` returns successfully; `sc qfailure salt-minion` shows restart actions.
-**Research flag: skip.** All install commands, config paths, and Defender exclusion patterns are explicitly documented in STACK.md and PITFALLS.md.
+**Addresses from FEATURES.md:** Pre-test state cleanup fixture, SSR pageerror detection, configurable `RC_BASE_URL`, Playwright installed and configured.
 
-### Phase 3: `salt_exec.rs` and Server-Side Module Migration
+**Avoids from PITFALLS.md:** Pitfall 1 (JSX crashes invisible to curl), Pitfall 7 (wizard step correctness — smoke confirms page loads before wizard tests begin).
 
-**Rationale:** `salt_exec.rs` is the foundation that all four server-side modules import. It must compile and be tested against live Pod 8 before any module rewrite. Modules migrate in safety order: fleet_health (read-only, lowest risk) → pod_healer (diagnostic only) → pod_monitor (restarts, higher risk) → deploy (most complex, multi-step with rollback).
-**Delivers:** `salt_exec.rs` with `cmd_run`, `cp_get_file`, `ping`, `ping_all`, `service_restart`; `[salt]` section in racecontrol.toml and config.rs; `SaltClient` in AppState; rewrites of fleet_health.rs, pod_healer.rs, pod_monitor.rs, deploy.rs; `http_reachable` renamed to `minion_reachable`; `build_id` moved to StartupReport in rc-common protocol.
-**Avoids:** Pitfall 9 (backslash paths in Salt states — forward slashes convention established before any state is written), Pitfall 10 (`cp.get_file` silent failure — `file.file_exists` verification added to deploy flow)
-**Verification gate:** All four modified modules compile; `salt 'pod8' test.ping` via salt_exec.rs returns true; deploy end-to-end to Pod 8 succeeds with rollback tested.
-**Research flag: needs attention for `cp.get_file` reliability.** ARCHITECTURE.md documents a known ZeroMQ bug with `cp.get_file` for cross-VLAN scenarios and recommends using the existing curl-from-HTTP-server pattern for binary transfer. Decision needed: whether to use `salt cp.get_file` or keep the HTTP server for the binary download step and use Salt only for the trigger command. Both approaches are documented — make the call before coding `deploy.rs`.
+**Research flag:** Standard patterns — Playwright setup is well-documented; no additional phase research needed.
 
-### Phase 4: Remove `remote_ops.rs` from rc-agent
+---
 
-**Rationale:** Only delete after every caller on the server side is migrated and verified. Deletion is a Rust compile gate that confirms no remaining references. Canary to Pod 8 before fleet rollout.
-**Delivers:** `remote_ops.rs` deleted, `remote_ops::start(8090)` call removed from `main.rs`, :8090 firewall open removed from `firewall.rs`, `cargo build` clean, rc-agent deployed to Pod 8 with full billing lifecycle verified.
-**Avoids:** Pitfall 7 (AppState initialization audit — grep all references, write characterization tests, canary deploy with billing lifecycle test before fleet rollout)
-**Verification gate:** Full billing lifecycle (session start, game launch, billing tick, session end, lock screen) confirmed on Pod 8 with no panics before fleet rollout.
-**Research flag: needs characterization tests first.** Per the "Refactor Second" standing rule: write characterization tests covering the WebSocket path (billing lifecycle, game launch, lock screen) before deleting remote_ops.rs. The compiler will not catch runtime initialization failures.
+### Phase 2: API Pipeline Tests + Shared Fixtures
 
-### Phase 5: Fleet Rollout
+**Rationale:** The `api/` shell scripts and the pre-test cleanup fixture must exist before any stateful test (game launch, billing lifecycle) can run safely. game-launch.sh must be migrated to `api/launch.sh` and extended with the shared library before Phase 3 adds more stateful tests that depend on clean pod state.
 
-**Rationale:** Once Pod 8 is verified clean (no remote_ops.rs, Salt minion connected, billing lifecycle working), replicate to all 7 remaining pods and the server using the updated install.bat. Key acceptance for all nodes. Fleet-wide verification.
-**Delivers:** Salt minion on all 8 pods + server, all keys accepted, `salt '*' test.ping` returns 9 True responses, fleet health dashboard shows all pods `minion_reachable: true`, port 8090 firewall rule removed from all pods.
-**Avoids:** Pitfall 12 (duplicate minion IDs — per-pod config files already in deploy kit from Phase 2)
-**Verification gate:** `salt 'pod*' test.ping` returns 8 True; `salt 'server' test.ping` True; fleet health API shows all 8 pods minion_reachable; no active billing sessions interrupted during rollout.
-**Research flag: skip.** Standard Salt fleet deployment using verified install.bat from Phase 2.
+**Delivers:** `api/billing.sh`, `api/simtype.sh`, `api/game-state.sh`, `api/launch.sh` (migrated game-launch.sh), pre-test cleanup fixture, stale game tracker detection + force-clear, `/fleet/health` endpoint documentation enforced in all connectivity checks.
+
+**Addresses from FEATURES.md:** Pre-test cleanup fixture (P1), per-game SimType coverage via API, idempotent teardown.
+
+**Avoids from PITFALLS.md:** Pitfall 2 (wrong endpoint for ws_connected), Pitfall 6 (stale game tracker in Stopping state).
+
+**Research flag:** Standard patterns — curl API test patterns well-established; no research needed.
+
+---
+
+### Phase 3: Per-Game Wizard Tests + Launch Validation
+
+**Rationale:** This is the highest-complexity and highest-value phase. Wizard tests require the kiosk to be running and Phase 1 smoke to be passing. Launch validation requires clean pod state (Phase 2 pre-flight) and verified Steam app IDs (requires manual pre-work). The AC wizard step ordering bug (Pitfall 7) can only be caught here. Steam-related pitfalls (Pitfalls 3 and 4) are only exercised here.
+
+**Delivers:** `playwright/kiosk/wizard.spec.ts` (all 5 sim types, per-step assertions, AC-specific steps verified absent for non-AC), staff wizard test, per-game launch validation with PID polling (Pod 8), `GAME_IDS.md` documenting store vs launch IDs, Steam dialog pre-dismissal step.
+
+**Addresses from FEATURES.md:** Kiosk wizard smoke (all games) P1, staff mode wizard test P1, per-game launch validation with PID check P1, Steam dialog detection P2.
+
+**Avoids from PITFALLS.md:** Pitfall 3 (Steam dialogs), Pitfall 4 (wrong Steam app IDs), Pitfall 7 (AC wizard steps for non-AC games).
+
+**Research flag:** NEEDS deeper research/validation — Steam app IDs must be verified manually for each game before specs are written; rc-sentry :8091 availability on pods must be confirmed; `data-testid` attribute presence in kiosk UI must be checked before wizard specs are scoped.
+
+---
+
+### Phase 4: Deploy Verification + Master Entry Point
+
+**Rationale:** Deploy verification modifies running services (kills racecontrol, swaps binaries) and needs all other phases to be stable first — a failed deploy test that leaves services in a bad state is a worse outcome than no deploy test at all. `run-all.sh` ties everything together and can only be written once all phase scripts are finalized.
+
+**Delivers:** `deploy/verify.sh` (binary swap, EADDRINUSE protection, port-free poll loop, agent reconnect check via `/fleet/health`), `run-all.sh` (phase-gated orchestrator, results/summary.json), Playwright HTML report configuration, total failure count exit code.
+
+**Addresses from FEATURES.md:** Deploy verification script P1, master entry point run-all.sh P1, Playwright HTML report P1.
+
+**Avoids from PITFALLS.md:** Pitfall 5 (EADDRINUSE after kiosk deploy — port-free polling added to verify.sh), Pitfall 2 (fleet/health used for agent reconnect check in deploy verification).
+
+**Research flag:** Standard patterns — deploy verification is well-understood; rc-sentry usage pattern already established in codebase.
+
+---
 
 ### Phase Ordering Rationale
 
-- Infrastructure before code: The WSL2 master networking is the single critical-path dependency. All Rust work is blocked until Phase 1 and 2 are verified from an actual pod.
-- Server-side migration before agent deletion: Deleting `remote_ops.rs` while any server module still calls it produces a compile error; migrating callers first makes deletion a clean final step.
-- Pod 8 canary discipline throughout: Every phase that deploys to pods deploys to Pod 8 first and verifies the billing lifecycle before touching the other 7 pods.
-- Safety ordering for server modules: fleet_health (read-only) → pod_healer (diagnostic) → pod_monitor (restarts) → deploy (most complex) — highest-risk module last.
+- Shared library first: all shell scripts source `lib/common.sh` — it must exist before any script is written or refactored
+- Browser smoke before wizard tests: confirms Playwright is installed correctly and kiosk is reachable; wizard tests have stricter prerequisites
+- API fixtures before launch tests: clean pod state is a prerequisite for any stateful test; pre-flight cleanup must be proven before game launch tests depend on it
+- Deploy verification last: safest order for a test that intentionally disrupts running services
+- `run-all.sh` after all phases: cannot wire together phases that do not yet exist
 
 ### Research Flags
 
-Phases needing deeper investigation before coding begins:
-
-- **Phase 3 — `cp.get_file` vs curl-for-binaries decision:** ARCHITECTURE.md documents a known ZeroMQ bug where `cp.get_file` silently fails in some cross-VLAN scenarios and recommends keeping the curl-from-HTTP-server pattern for binary files. Decide which approach to use for `deploy.rs` before writing the module. The choice affects whether the Python HTTP server stays or goes entirely.
-
-- **Phase 4 — AppState initialization audit:** Before writing characterization tests, read `remote_ops.rs` in full and grep all `AppState` fields it writes at startup. Confirm each field has an alternative initializer. This audit determines the scope of characterization test work needed.
+Phases needing `/gsd:research-phase` during planning:
+- **Phase 3:** Steam app IDs for EA Anti-Cheat wrapped games require manual verification on the pod before writing specs. `data-testid` attribute presence in kiosk components must be audited against the actual Next.js source. rc-sentry :8091 must be confirmed deployed on all pods before Phase 4 is scoped.
 
 Phases with standard patterns (skip research-phase):
-
-- **Phase 1:** All commands explicitly documented in STACK.md and ARCHITECTURE.md with verified sources. No unknowns.
-- **Phase 2:** Install commands, Defender exclusion paths, `sc failure` syntax, grains config paths all documented in STACK.md and PITFALLS.md.
-- **Phase 5:** Standard `install.bat` fleet deployment. Pod 8 is the validated template.
+- **Phase 1:** Playwright setup, config, and browser smoke are thoroughly documented in official Playwright docs; no unknowns.
+- **Phase 2:** curl API testing patterns are established; the main work is refactoring and migrating existing scripts, not solving novel problems.
+- **Phase 4:** Deploy verification shell pattern is standard; `run-all.sh` orchestration is straightforward once phase scripts exist.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Official Salt docs, Broadcom KB, Microsoft WSL docs all verified. Version lifecycle (3007 EOL this month, 3008 LTS) is authoritative. WSL2 mirrored mode requirements are confirmed for James's Windows 11 build. |
-| Features | MEDIUM-HIGH | Salt official docs + GitHub issues verify capabilities. Known Windows-specific bugs (#19277 scheduler, #65577 service restart, #4834 Session 0 isolation) are confirmed. WSL2-as-master is an unusual setup — no end-to-end guides exist but all individual components are documented. |
-| Architecture | HIGH | Existing codebase read directly (remote_ops.rs, deploy.rs, fleet_health.rs, pod_monitor.rs, pod_healer.rs, state.rs, config.rs, main.rs). All caller sites and AppState fields inventoried from source. Salt/WSL2 networking verified against official docs. |
-| Pitfalls | HIGH | 12 pitfalls documented with official source references. WSL2 NAT/Hyper-V pitfalls from Microsoft docs and community guides. Salt Windows bugs from confirmed GitHub issues (2014–2024). cp.get_file silent failure from Salt mailing list + GitHub. Path separator from Salt issue tracker. |
+| Stack | HIGH | All recommendations sourced from official Playwright docs (1.58.2), official Next.js docs, official cargo-nextest docs. Version requirements verified against npm registry. |
+| Features | HIGH | Feature list derived from existing codebase (smoke.sh, game-launch.sh, cross-process.sh, kiosk/src/app/book/page.tsx) read directly, plus official Playwright best practices docs. |
+| Architecture | HIGH | Architecture grounded in the actual existing file structure read from the repo. Component boundaries derived from how the existing scripts already work, not from generic patterns. |
+| Pitfalls | HIGH | All 7 pitfalls were observed as real failures during this session's test development. Zero speculative bugs — each has a corresponding real failure and a documented recovery. |
 
-**Overall confidence: MEDIUM-HIGH**
+**Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **cp.get_file reliability for binary files:** ARCHITECTURE.md notes a ZeroMQ bug with cp.get_file in some network scenarios and recommends the existing curl-from-HTTP-server pattern. The exact scope of this bug on the venue LAN (same VLAN, not cross-VLAN) is unclear. Test cp.get_file with a test binary on Pod 8 in Phase 2 before committing to it in Phase 3 for deploy.rs.
+- **`data-testid` attributes in kiosk UI:** wizard.spec.ts requires selector hooks on kiosk components (`sim-select`, `track-select`, `wizard-step` indicator). These must be added to the Next.js kiosk source if they do not exist today. Audit kiosk/src/app/book/ before committing to wizard spec scope.
 
-- **Grains config path on Windows 3008 minions:** ARCHITECTURE.md flags known ambiguity between `C:\salt\grains` (legacy) and `C:\ProgramData\Salt Project\Salt\conf\grains` (newer path, issue #63024). Verify actual path on Pod 8 after minion install with `salt 'pod8' grains.get pod_number`. Do not hard-code paths in deploy kit until verified.
+- **rc-sentry :8091 on all pods:** deploy/verify.sh uses rc-sentry as the remote exec channel for deploy verification. If rc-sentry is not deployed on pods, Phase 4 has no remote exec channel during service restarts. Confirm deployment status before scoping Phase 4.
 
-- **salt-api token rotation plan:** The salt-api token stored in racecontrol.toml is a long-lived credential. Phase 3 must include a note in racecontrol.toml that this token needs rotation when racecontrol is redeployed. No implementation gap, but the operational procedure needs to be documented before Phase 3 ships.
+- **Steam dialog dismissal method:** Research identified the problem (Steam dialogs block first-run launches) and general approaches (AutoHotkey, PowerShell UIAutomation, Steam offline mode) but the specific solution for this venue's Steam configuration is not yet confirmed. This needs one manual test run on Pod 8 to confirm dialog behavior and determine the right dismissal approach.
 
-- **`remote_ops.rs` AppState field inventory:** This audit must happen before Phase 4 characterization test work begins. Unknown scope until `remote_ops.rs` is fully read and all `AppState` mutation sites are identified.
+- **Kiosk URL routing (proxy vs direct):** Research notes that kiosk is accessible both at `:3300` (direct Next.js) and via racecontrol proxy at `:8080/kiosk`. Tests should use the proxy path for consistency with venue access, but this routing must be verified working before locking in the `baseURL` in playwright.config.ts.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-
-- [Salt Windows Install Guide](https://docs.saltproject.io/salt/install-guide/en/latest/topics/install-by-operating-system/windows.html) — installer options, config paths, silent install params
-- [Salt Version Support Lifecycle](https://docs.saltproject.io/salt/install-guide/en/latest/topics/salt-version-support-lifecycle.html) — LTS vs STS model, 3007 EOL 2026-03-31
-- [Salt Firewall Guide](https://docs.saltproject.io/en/3007/topics/tutorials/firewall.html) — ports 4505/4506, minion-outbound-only model
-- [Broadcom Port Requirements KB](https://knowledge.broadcom.com/external/article/403589/port-requirements-for-saltminionsaltmast.html) — confirms 4505/4506 TCP on master only
-- [Microsoft WSL Networking](https://learn.microsoft.com/en-us/windows/wsl/networking) — mirrored mode, NAT limitations, Hyper-V firewall
-- [salt.modules.win_service](https://docs.saltproject.io/en/latest/ref/modules/all/salt.modules.win_service.html) — Windows service management
-- [salt.modules.cp](https://docs.saltproject.io/en/latest/ref/modules/all/salt.modules.cp.html) — file distribution
-- [Salt Bootstrap Script](https://github.com/saltstack/salt-bootstrap) — Ubuntu 24.04 + 3008 stable install
-- [rest_cherrypy docs](https://docs.saltproject.io/en/latest/ref/netapi/all/salt.netapi.rest_cherrypy.html) — salt-api HTTP REST
-- [Broadcom Minion Config Location KB](https://knowledge.broadcom.com/external/article/379823/location-of-minion-config-files-on-windo.html) — confirmed config paths on Windows
-- Direct source reads (2026-03-17): `remote_ops.rs`, `deploy.rs`, `fleet_health.rs`, `pod_monitor.rs`, `pod_healer.rs`, `state.rs`, `config.rs`, `main.rs` (rc-agent), `firewall.rs`, `.planning/PROJECT.md`
+- Playwright official docs (playwright.dev) — versions, configuration, retries, reporters, browsers, API testing, best practices
+- npm registry (`@playwright/test@1.58.2`) — version confirmed current, install instructions
+- Next.js official docs (nextjs.org) — `webServer` config, `reuseExistingServer`, basePath behavior
+- cargo-nextest official docs (nexte.st) — process isolation model, retry, JUnit XML
+- Existing codebase (read directly 2026-03-19): `tests/e2e/smoke.sh`, `tests/e2e/game-launch.sh`, `tests/e2e/cross-process.sh`, `kiosk/src/app/book/page.tsx`, `kiosk/next.config.ts`, `crates/racecontrol/src/api/routes.rs`, `crates/rc-sentry/src/main.rs`, `fleet_health.rs`, `deploy.rs`, `game_process.rs`
 
 ### Secondary (MEDIUM confidence)
+- BrowserStack: Playwright Best Practices 2026, Flaky Tests in Playwright
+- Evil Martians: Flaky tests relief (chronic CI retry patterns)
+- Thunders AI: Modern E2E Test Architecture Patterns
+- WebSearch: Playwright 1.58 features, Next.js 16 webServer config
 
-- [GitHub #19277: Windows minion cron/when schedules fail silently](https://github.com/saltstack/salt/issues/19277) — confirmed Salt scheduler bug on Windows
-- [GitHub #65577: salt-minion service restart stops but doesn't start](https://github.com/saltstack/salt/issues/65577) — confirmed 2024 Windows service restart bug
-- [GitHub #4834: Session 0 isolation prevents GUI interaction](https://github.com/saltstack/salt/issues/4834) — confirmed architectural limitation
-- [GitHub #16340: cmd.run runas not implemented on Windows](https://github.com/saltstack/salt/issues/16340) — confirmed
-- [GitHub #63024: grains path ambiguity on Windows minions](https://github.com/saltstack/salt/issues/63024) — path issue, needs verification on Pod 8
-- [WSL mirrored mode practical guide](https://informatecdigital.com/en/wsl2-advanced-guide-to-network-configuration-and-nat-and-mirrored-modes/) — Hyper-V firewall rule, .wslconfig setup
-- [Salt cp.get_file ZMQ issue (salt-users mailing list)](https://groups.google.com/g/salt-users/c/rtjniGu1UPM) — cross-scenario failure; use file.managed or cmd.run curl instead
-- [GitHub: WSL2 NIC mirrored mode multicast bug #10535](https://github.com/microsoft/WSL/issues/10535) — confirms unicast TCP (Salt ZMQ) unaffected
-
-### Tertiary (context)
-
-- [endoflife.date/salt](https://endoflife.date/salt) — lifecycle dates consistent with official docs
-- MEMORY.md — pod MAC addresses, subnet 192.168.31.x, James's machine .27, DHCP drift history (server .51→.23→.4→.23)
+### Tertiary (LOW confidence / validate during implementation)
+- Steam dialog dismissal approaches (AutoHotkey, PowerShell UIAutomation) — not yet tested in this venue's configuration; requires manual verification on Pod 8
 
 ---
-*Research completed: 2026-03-17 IST*
+*Research completed: 2026-03-19 IST*
 *Ready for roadmap: yes*
