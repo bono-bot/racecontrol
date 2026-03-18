@@ -43,7 +43,7 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 Phase: 36 of 40 (WSL2 Infrastructure)
 Plan: 0 of 2 in current phase
 Status: Ready to plan
-Last activity: 2026-03-17 — v6.0 roadmap created, Phases 36–40
+Last activity: 2026-03-18 - Completed quick task 260318-wkg: Web dashboard + racecontrol watchdog
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -86,6 +86,12 @@ Progress: [░░░░░░░░░░] 0%
 - Phase 36 gate: if mirrored networking + Hyper-V firewall cannot be verified from Pod 8 (Test-NetConnection port 4505), all downstream phases are blocked — no Rust code should be written until this gate passes
 - Phase 39 gate: remote_ops.rs AppState field inventory must be done before characterization test scope is known — read remote_ops.rs in full and grep AppState mutations before starting 39-01-PLAN.md
 - BIOS AMD-V disabled on Ryzen 7 5800X — WSL2 cannot install. Enable SVM Mode in BIOS. .wslconfig already created and ready.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260318-wkg | Web dashboard + racecontrol watchdog (auto-restart on crash, HKLM Run key) | 2026-03-18 | 95c0d10 | [260318-wkg](./quick/260318-wkg-research-and-fix-node-js-web-dashboard-p/) |
 
 ## Session Continuity
 
