@@ -149,17 +149,23 @@ fi
 echo ""
 echo "--- Gate 4: Pod Agent Connectivity ---"
 
-PODS=$(curl -s --max-time 10 "${BASE_URL}/pods" 2>/dev/null)
-POD_CONNECTED=$(echo "$PODS" | python3 -c "
+# Use /fleet/health which has the real ws_connected status (not /pods which lacks it)
+FLEET=$(curl -s --max-time 10 "${BASE_URL}/fleet/health" 2>/dev/null)
+POD_CONNECTED=$(echo "$FLEET" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    pods = data if isinstance(data, list) else data.get('pods', [])
+    pods = data.get('pods', [])
+    # Match by pod_id or pod_number
     for p in pods:
-        pid = p.get('id', p.get('pod_id', ''))
-        ws = p.get('ws_connected', p.get('connected', False))
-        if pid == '${POD_ID}' and ws:
-            print('CONNECTED')
+        pid = p.get('pod_id', '')
+        pnum = 'pod_' + str(p.get('pod_number', 0))
+        pnum2 = 'pod-' + str(p.get('pod_number', 0))
+        if pid == '${POD_ID}' or pnum == '${POD_ID}' or pnum2 == '${POD_ID}':
+            if p.get('ws_connected', False):
+                print('CONNECTED')
+            else:
+                print('DISCONNECTED')
             break
     else:
         print('DISCONNECTED')
