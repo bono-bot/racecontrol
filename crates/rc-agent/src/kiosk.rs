@@ -355,6 +355,28 @@ const ALLOWED_PROCESSES: &[&str] = &[
 
     // VNM Config (Pod 3 — startup item)
     "vnmconfig.exe",               // VNM network config
+
+    // OneDrive sync service (all pods — triggers lockdown if missing)
+    "onedrive.sync.service.exe",   // OneDrive background sync
+
+    // Windows Cross-Device (Pod 1)
+    "crossdeviceservice.exe",      // Windows cross-device service
+
+    // SSH Agent (Pod 1 — Tailscale/OpenSSH)
+    "ssh-agent.exe",               // OpenSSH authentication agent
+
+    // GoPro (Pod 1)
+    "gopro webcam.exe",            // GoPro Webcam utility
+
+    // Adobe Creative Cloud (Pod 6 — additional procs)
+    "adobeipcbroker.exe",          // Adobe IPC Broker
+    "adobeupdateservice.exe",      // Adobe Update Service
+    "creative cloud.exe",          // Adobe Creative Cloud main
+    "ccxprocess.exe",              // Adobe CC Experience
+
+    // Xbox / Edge Game Assist (Pod 8)
+    "edgegameassist.exe",          // Edge Game Assist overlay
+    "xboxpcappft.exe",             // Xbox PC app
 ];
 
 /// Kiosk mode manager.
