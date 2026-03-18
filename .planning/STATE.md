@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: in_progress
-stopped_at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-01-PLAN.md
-last_updated: "2026-03-19T00:22:44.000Z"
-last_activity: "2026-03-19 — Plan 42-01 complete: 97 data-testid attributes added to kiosk wizard components"
+status: executing
+stopped_at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-02-PLAN.md
+last_updated: "2026-03-18T22:29:16.331Z"
+last_activity: "2026-03-18 — Plan 42-02 complete: cleanup fixture + 4-test smoke suite (3 routes + keyboard nav)"
 progress:
   total_phases: 14
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 28
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
+  percent: 83
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 ## Current Position
 
 Phase: 42 of 44 (Kiosk Source Prep + Browser Smoke)
-Plan: 1 of 3 (complete)
-Status: Phase 42 in progress — Plan 42-01 done, ready for 42-02 (smoke spec)
-Last activity: 2026-03-19 — Plan 42-01 complete: 97 data-testid attributes added to kiosk wizard components
+Plan: 2 of 2 (complete)
+Status: Phase 42 complete — Plans 42-01 and 42-02 done
+Last activity: 2026-03-18 — Plan 42-02 complete: cleanup fixture + 4-test smoke suite (3 routes + keyboard nav)
 
-Progress: [██░░░░░░░░] 25%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -44,6 +44,7 @@ Progress: [██░░░░░░░░] 25%
 | 41-01 | 3 min | 2 | 5 |
 | 41-02 | 7 min | 2 | 6 |
 | 42-01 | 10 min | 2 | 3 |
+| 42-02 | 2 min | 1 | 4 |
 
 **Recent Trend:** On track
 
@@ -84,6 +85,9 @@ Progress: [██░░░░░░░░] 25%
 - data-testid naming is consistent between book/page.tsx and SetupWizard.tsx for shared step names (step-select-game, step-select-plan, etc.) — Phase 43 specs work against both paths
 - wizard-back-btn applies to both back button instances in SetupWizard.tsx footer (non-review and review conditional blocks both use same testid)
 - pin-modal placed on PinModal component's outer fixed div inside the component function body (not on render call site in CustomerLanding)
+- [Phase 42]: jsErrors array scoped to module level (not testInfo metadata) — simpler than testInfo cast approach; workers:1 means no concurrency issue
+- [Phase 42]: outputDir set to ./tests/e2e/results/ — collocates screenshots with test source, not at repo root test-results/
+- [Phase 42]: Keyboard nav test accepts either advanced or stayed on plan step — only asserts Tab/Enter cause no JS errors as regression guard
 
 ### Pending Todos
 
@@ -99,7 +103,7 @@ Progress: [██░░░░░░░░] 25%
 
 ## Session Continuity
 
-Last session: 2026-03-19
-Stopped at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-01-PLAN.md
+Last session: 2026-03-18T22:29:16.328Z
+Stopped at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-02-PLAN.md
 Resume file: None
-Next action: Execute Phase 42 Plan 02 (browser smoke spec)
+Next action: Execute Phase 43 (wizard specs)

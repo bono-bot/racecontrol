@@ -10,20 +10,20 @@
 - [x] **FOUND-01**: Shared shell library (`lib/common.sh`) with pass/fail/skip/info helpers and exit code tracking
 - [x] **FOUND-02**: Shared pod IP map (`lib/pod-map.sh`) with all 8 pod IPs, used by all test scripts
 - [x] **FOUND-03**: Playwright installed with `playwright.config.ts` — bundled Chromium, `reuseExistingServer`, sequential workers
-- [ ] **FOUND-04**: Pre-test cleanup fixture — stop stale games, end billing, restart stuck agents before each test run
+- [x] **FOUND-04**: Pre-test cleanup fixture — stop stale games, end billing, restart stuck agents before each test run
 - [x] **FOUND-05**: cargo-nextest configured for Rust crate tests with per-process isolation and built-in retries
 - [x] **FOUND-06**: data-testid attributes added to kiosk wizard components for reliable Playwright selectors
-- [ ] **FOUND-07**: UI user navigation simulation — keyboard navigation (Tab, Enter, Escape), touch/click targets, scroll behavior
+- [x] **FOUND-07**: UI user navigation simulation — keyboard navigation (Tab, Enter, Escape), touch/click targets, scroll behavior
 
 ### Browser Tests
 
-- [ ] **BROW-01**: Kiosk page smoke — all pages load (200), no SSR errors, no React error boundaries
+- [x] **BROW-01**: Kiosk page smoke — all pages load (200), no SSR errors, no React error boundaries
 - [ ] **BROW-02**: AC wizard flow — full 13-step flow with track/car selection, AI config, driving settings
 - [ ] **BROW-03**: Non-AC wizard flow — simplified 5-step flow (game → experience → review) for F1 25, EVO, Rally, iRacing
 - [ ] **BROW-04**: Staff mode booking — `?staff=true&pod=pod-8` bypass path tested end-to-end
 - [ ] **BROW-05**: Experience filtering — only selected game's experiences appear, Custom button hidden for non-AC
 - [ ] **BROW-06**: UI navigation — page transitions, back/forward, step indicators update correctly
-- [ ] **BROW-07**: Screenshot on failure — capture screenshot + DOM snapshot when any browser test fails for debugging
+- [x] **BROW-07**: Screenshot on failure — capture screenshot + DOM snapshot when any browser test fails for debugging
 
 ### API & Launch
 
@@ -66,11 +66,11 @@
 | FOUND-02 | Phase 41 | Complete |
 | FOUND-03 | Phase 41 | Complete |
 | FOUND-05 | Phase 41 | Complete |
-| FOUND-04 | Phase 42 | Pending |
+| FOUND-04 | Phase 42 | Complete |
 | FOUND-06 | Phase 42 | Complete |
-| FOUND-07 | Phase 42 | Pending |
-| BROW-01 | Phase 42 | Pending |
-| BROW-07 | Phase 42 | Pending |
+| FOUND-07 | Phase 42 | Complete |
+| BROW-01 | Phase 42 | Complete |
+| BROW-07 | Phase 42 | Complete |
 | BROW-02 | Phase 43 | Pending |
 | BROW-03 | Phase 43 | Pending |
 | BROW-04 | Phase 43 | Pending |
