@@ -34,6 +34,7 @@ use rc_common::watchdog::EscalatingBackoff;
 use crate::wol;
 
 const POD_AGENT_PORT: u16 = 8090;
+const RC_SENTRY_PORT: u16 = 8091;
 const POD_AGENT_TIMEOUT_MS: u64 = 3000;
 const WOL_COOLDOWN_SECS: i64 = 300; // 5 minutes between WoL attempts
 
@@ -436,8 +437,87 @@ async fn check_all_pods(
             }
             _ => {
                 loc.pod_agent_reachable = false;
+
+                // Fallback: try rc-sentry (:8091) to restart rc-agent
+                let sentry_url = format!("http://{}:{}/exec", pod.ip_address, RC_SENTRY_PORT);
+                let sentry_cmd = r#"C:\RacingPoint\start-rcagent.bat"#;
+                let sentry_result = state
+                    .http_client
+                    .post(&sentry_url)
+                    .json(&serde_json::json!({ "cmd": sentry_cmd }))
+                    .timeout(Duration::from_millis(10000))
+                    .send()
+                    .await;
+
+                match sentry_result {
+                    Ok(resp) if resp.status().is_success() => {
+                        tracing::info!(
+                            "Pod {} rc-agent restarted via rc-sentry (port 8090 was down)",
+                            pod.id,
+                        );
+                        log_pod_activity(
+                            state,
+                            &pod.id,
+                            "race_engineer",
+                            "Agent Restarted (sentry)",
+                            "rc-agent restarted via rc-sentry fallback",
+                            "race_engineer",
+                        );
+
+                        // Record attempt and spawn verification
+                        let (attempt, cooldown_duration, exhausted) = {
+                            let mut backoffs = state.pod_backoffs.write().await;
+                            let backoff = backoffs.entry(pod.id.clone()).or_insert_with(EscalatingBackoff::new);
+                            backoff.record_attempt(now);
+                            (backoff.attempt(), backoff.current_cooldown(), backoff.exhausted())
+                        };
+
+                        {
+                            let mut wd_states = state.pod_watchdog_states.write().await;
+                            wd_states.insert(pod.id.clone(), WatchdogState::Restarting {
+                                attempt,
+                                started_at: now,
+                            });
+                        }
+
+                        let label = backoff_label(cooldown_duration);
+                        let _ = state.dashboard_tx.send(DashboardEvent::PodRestarting {
+                            pod_id: pod.id.clone(),
+                            attempt,
+                            max_attempts: 4,
+                            backoff_label: label,
+                        });
+
+                        let verify_state = Arc::clone(state);
+                        let verify_pod_id = pod.id.clone();
+                        let verify_pod_ip = pod.ip_address.clone();
+                        let verify_last_seen = pod.last_seen;
+                        tokio::spawn(async move {
+                            verify_restart(verify_state, verify_pod_id, verify_pod_ip, verify_last_seen).await;
+                        });
+
+                        if exhausted {
+                            let body = EmailAlerter::format_alert_body(
+                                &pod.id,
+                                "Max escalation reached via sentry fallback",
+                                "Max Escalation (sentry)",
+                                attempt,
+                                cooldown_duration.as_secs(),
+                                pod.last_seen,
+                                "Manual intervention required",
+                            );
+                            let subject = format!("[RaceControl] Pod {} -- Max Escalation EXHAUSTED", pod.id);
+                            state.email_alerter.write().await.send_alert(&pod.id, &subject, &body).await;
+                        }
+
+                        continue; // Skip the FULLY UNREACHABLE path
+                    }
+                    _ => {}
+                }
+
+                // If rc-sentry also failed, pod is truly unreachable
                 tracing::error!(
-                    "Pod {} FULLY UNREACHABLE (both agents down)",
+                    "Pod {} FULLY UNREACHABLE (rc-agent :8090 + rc-sentry :8091 both down)",
                     pod.id,
                 );
                 log_pod_activity(
@@ -445,7 +525,7 @@ async fn check_all_pods(
                     &pod.id,
                     "race_engineer",
                     "Pod Unreachable",
-                    "Both agents down",
+                    "Both rc-agent and rc-sentry down",
                     "race_engineer",
                 );
 
