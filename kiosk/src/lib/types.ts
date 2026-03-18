@@ -48,6 +48,7 @@ export interface Pod {
   billing_session_id?: string;
   game_state?: GameState;
   current_game?: string;
+  installed_games?: string[];
 }
 
 // ─── Telemetry ────────────────────────────────────────────────────────────

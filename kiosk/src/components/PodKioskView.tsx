@@ -106,6 +106,7 @@ export function PodKioskView({
       {state === "idle" && (
         <IdleView
           experiences={experiences}
+          installedGames={pod.installed_games}
           isStandalone={isStandalone}
           onSelectExperience={onSelectExperience}
         />
@@ -162,13 +163,28 @@ function DisabledView({ isStandalone }: { isStandalone: boolean }) {
 
 function IdleView({
   experiences,
+  installedGames,
   isStandalone,
   onSelectExperience,
 }: {
   experiences: KioskExperience[];
+  installedGames?: string[];
   isStandalone: boolean;
   onSelectExperience?: (id: string) => void;
 }) {
+  // Empty or missing = show all (backward compat with old agents)
+  const hasGameData = installedGames && installedGames.length > 0;
+
+  const isAvailable = (exp: KioskExperience) =>
+    !hasGameData || installedGames.includes(exp.game);
+
+  // Available first, unavailable last
+  const sorted = [...experiences].sort((a, b) => {
+    const aOk = isAvailable(a) ? 0 : 1;
+    const bOk = isAvailable(b) ? 0 : 1;
+    return aOk - bOk || a.sort_order - b.sort_order;
+  });
+
   return (
     <div className={`flex-1 flex flex-col ${isStandalone ? "p-8" : "p-2"} overflow-hidden`}>
       <h2
@@ -185,46 +201,62 @@ function IdleView({
             No experiences available
           </p>
         ) : (
-          experiences.map((exp) => (
-            <button
-              key={exp.id}
-              onClick={() => onSelectExperience?.(exp.id)}
-              className={`w-full flex items-center gap-2 border border-rp-border rounded transition-colors text-left hover:border-rp-red/50 bg-rp-surface ${
-                isStandalone ? "px-5 py-4 gap-4" : "px-2 py-1.5"
-              }`}
-            >
-              {exp.car_class && (
-                <span
-                  className={`flex items-center justify-center rounded font-bold ${
-                    CLASS_COLORS[exp.car_class] || "bg-zinc-600 text-white"
-                  } ${isStandalone ? "w-10 h-10 text-sm" : "w-5 h-5 text-[9px]"}`}
-                >
-                  {exp.car_class}
-                </span>
-              )}
-              <div className="flex-1 min-w-0">
-                <p
-                  className={`font-semibold text-white truncate ${
-                    isStandalone ? "text-lg" : "text-[11px]"
-                  }`}
-                >
-                  {exp.name}
-                </p>
-                <p
-                  className={`text-rp-grey truncate ${
-                    isStandalone ? "text-sm" : "text-[9px]"
-                  }`}
-                >
-                  {exp.track} &middot; {exp.car}
-                </p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className={`text-rp-grey ${isStandalone ? "text-sm" : "text-[9px]"}`}>
-                  {exp.duration_minutes}min
-                </p>
-              </div>
-            </button>
-          ))
+          sorted.map((exp) => {
+            const available = isAvailable(exp);
+            return (
+              <button
+                key={exp.id}
+                onClick={() => available && onSelectExperience?.(exp.id)}
+                disabled={!available}
+                className={`w-full flex items-center gap-2 border rounded transition-colors text-left ${
+                  isStandalone ? "px-5 py-4 gap-4" : "px-2 py-1.5"
+                } ${
+                  available
+                    ? "border-rp-border hover:border-rp-red/50 bg-rp-surface cursor-pointer"
+                    : "border-rp-border/30 bg-rp-surface/30 cursor-not-allowed opacity-40"
+                }`}
+              >
+                {exp.car_class && (
+                  <span
+                    className={`flex items-center justify-center rounded font-bold ${
+                      available
+                        ? CLASS_COLORS[exp.car_class] || "bg-zinc-600 text-white"
+                        : "bg-zinc-800 text-zinc-500"
+                    } ${isStandalone ? "w-10 h-10 text-sm" : "w-5 h-5 text-[9px]"}`}
+                  >
+                    {exp.car_class}
+                  </span>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p
+                    className={`font-semibold truncate ${
+                      available ? "text-white" : "text-zinc-600"
+                    } ${isStandalone ? "text-lg" : "text-[11px]"}`}
+                  >
+                    {exp.name}
+                  </p>
+                  <p
+                    className={`truncate ${
+                      available ? "text-rp-grey" : "text-zinc-700"
+                    } ${isStandalone ? "text-sm" : "text-[9px]"}`}
+                  >
+                    {exp.track} &middot; {exp.car}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  {available ? (
+                    <p className={`text-rp-grey ${isStandalone ? "text-sm" : "text-[9px]"}`}>
+                      {exp.duration_minutes}min
+                    </p>
+                  ) : (
+                    <p className={`text-zinc-600 italic ${isStandalone ? "text-xs" : "text-[8px]"}`}>
+                      Not installed
+                    </p>
+                  )}
+                </div>
+              </button>
+            );
+          })
         )}
       </div>
     </div>
