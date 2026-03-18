@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: executing
+status: completed
 stopped_at: Completed .planning/phases/42-kiosk-source-prep-browser-smoke/42-02-PLAN.md
-last_updated: "2026-03-18T22:29:16.331Z"
+last_updated: "2026-03-18T22:48:47.250Z"
 last_activity: "2026-03-18 — Plan 42-02 complete: cleanup fixture + 4-test smoke suite (3 routes + keyboard nav)"
 progress:
   total_phases: 14
   completed_phases: 2
   total_plans: 6
-  completed_plans: 6
+  completed_plans: 5
   percent: 83
 ---
 
