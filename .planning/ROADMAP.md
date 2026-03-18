@@ -219,7 +219,11 @@ Plans:
   3. The experience filtering spec confirms that selecting F1 25 shows only F1 25 experiences and the Custom button is absent from the DOM — per-game filtering works correctly
   4. `api/billing.sh` exits 0 — a billing session is created, the launch gate rejects a launch request without an active session, the session timer ticks, and the session is ended cleanly
   5. `api/launch.sh` exits 0 for each installed sim — each game reaches `Launching` state with a PID returned or a confirmed `Launching` state within 60s; game state cycles through Idle→Launching→Running→Idle; Steam dialog dismissal via WM_CLOSE is attempted and logged
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 43-01-PLAN.md — Playwright wizard spec: AC flow, non-AC flow, staff mode, experience filtering, UI navigation (BROW-02, BROW-03, BROW-04, BROW-05, BROW-06)
+- [ ] 43-02-PLAN.md — Shell API scripts: billing lifecycle + per-game launch with state polling, Steam dismiss, error screenshot (API-01, API-02, API-03, API-04, API-05)
 
 ### Phase 44: Deploy Verification + Master Script
 **Goal**: A single `run-all.sh` entry point runs all test phases in sequence, aborts on preflight failure, collects exit codes from each phase, writes a `results/summary.json`, and exits with the total failure count — making it usable as a pre-deploy gate; deploy verification confirms binary swap, detects EADDRINUSE after kiosk restart, and validates all 8 pods reconnect after a rolling restart
@@ -348,7 +352,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 40. Fleet Rollout | v6.0 | 0/2 | Not started | - |
 | 41. Test Foundation | v7.0 | Complete    | 2026-03-18 | 2026-03-19 |
 | 42. Kiosk Source Prep + Browser Smoke | 2/2 | Complete    | 2026-03-18 | - |
-| 43. Wizard Flows + API Pipeline Tests | v7.0 | 0/? | Not started | - |
+| 43. Wizard Flows + API Pipeline Tests | v7.0 | 0/2 | Not started | - |
 | 44. Deploy Verification + Master Script | v7.0 | 0/? | Not started | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | v8.0 | 0/? | Not started | - |
 | 46. Crash Safety + Panic Hook | v8.0 | 0/? | Not started | - |
