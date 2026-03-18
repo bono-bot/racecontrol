@@ -750,4 +750,220 @@ mod tests {
             err
         );
     }
+
+    // ── F1 25: Characterization tests — identical server-side behavior ────────
+
+    #[tokio::test]
+    async fn test_f1_25_launch_rejected_no_billing() {
+        let state = make_state().await;
+
+        let result = launch_game(&state, "pod_8", SimType::F125, None).await;
+
+        assert!(result.is_err(), "F1 25 launch should fail without billing");
+        assert!(
+            result.unwrap_err().contains("no active billing"),
+            "Should reject with billing error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_f1_25_launch_passes_billing_gate() {
+        let state = make_state().await;
+
+        {
+            let timer = BillingTimer::dummy("pod_8");
+            state
+                .billing
+                .active_timers
+                .write()
+                .await
+                .insert("pod_8".to_string(), timer);
+        }
+
+        let result = launch_game(&state, "pod_8", SimType::F125, None).await;
+
+        // Will fail downstream (no agent sender) — but must NOT fail on billing
+        if let Err(ref err) = result {
+            assert!(
+                !err.contains("no active billing"),
+                "F1 25 should pass billing gate, got: {}",
+                err
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_f1_25_double_launch_blocked() {
+        let state = make_state().await;
+
+        {
+            let timer = BillingTimer::dummy("pod_8");
+            state
+                .billing
+                .active_timers
+                .write()
+                .await
+                .insert("pod_8".to_string(), timer);
+        }
+
+        // Insert a running F1 25 game
+        {
+            state
+                .game_launcher
+                .active_games
+                .write()
+                .await
+                .insert(
+                    "pod_8".to_string(),
+                    GameTracker {
+                        pod_id: "pod_8".to_string(),
+                        sim_type: SimType::F125,
+                        game_state: GameState::Running,
+                        pid: Some(5678),
+                        launched_at: Some(Utc::now()),
+                        error_message: None,
+                        launch_args: None,
+                        auto_relaunch_count: 0,
+                    },
+                );
+        }
+
+        let result = launch_game(&state, "pod_8", SimType::F125, None).await;
+
+        assert!(result.is_err(), "Should block double-launch for F1 25");
+        assert!(
+            result.unwrap_err().contains("already has a game active"),
+            "Should mention game already active"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_f1_25_launch_with_args_passes_billing() {
+        let state = make_state().await;
+
+        {
+            let timer = BillingTimer::dummy("pod_8");
+            state
+                .billing
+                .active_timers
+                .write()
+                .await
+                .insert("pod_8".to_string(), timer);
+        }
+
+        // Simulate the launch_args JSON the kiosk wizard would send
+        let launch_args = serde_json::json!({
+            "game": "f1_25",
+            "game_mode": "single",
+            "session_type": "practice",
+            "difficulty": "medium",
+            "transmission": "auto",
+            "ffb": "medium",
+            "aids": { "abs": 1, "tc": 1 },
+            "conditions": { "damage": 0 }
+        })
+        .to_string();
+
+        let result = launch_game(
+            &state,
+            "pod_8",
+            SimType::F125,
+            Some(launch_args),
+        )
+        .await;
+
+        // Passes billing + validation gates, fails at agent sender (expected)
+        if let Err(ref err) = result {
+            assert!(
+                !err.contains("no active billing"),
+                "F1 25 with args should pass billing, got: {}",
+                err
+            );
+        }
+
+        // GameTracker should exist in Launching or Error state
+        let games = state.game_launcher.active_games.read().await;
+        assert!(
+            games.contains_key("pod_8"),
+            "GameTracker should be created for pod_8"
+        );
+        let tracker = games.get("pod_8").unwrap();
+        assert_eq!(tracker.sim_type, SimType::F125);
+        assert!(
+            tracker.launch_args.is_some(),
+            "launch_args should be stored for relaunch"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_game_state_update_f1_25_running() {
+        let state = make_state().await;
+
+        // Simulate agent reporting F1 25 running
+        let info = GameLaunchInfo {
+            pod_id: "pod_8".to_string(),
+            sim_type: SimType::F125,
+            game_state: GameState::Running,
+            pid: Some(9999),
+            launched_at: Some(Utc::now()),
+            error_message: None,
+            diagnostics: None,
+        };
+
+        handle_game_state_update(&state, info).await;
+
+        // Tracker should be created
+        let games = state.game_launcher.active_games.read().await;
+        assert!(games.contains_key("pod_8"));
+        let tracker = games.get("pod_8").unwrap();
+        assert_eq!(tracker.game_state, GameState::Running);
+        assert_eq!(tracker.pid, Some(9999));
+    }
+
+    #[tokio::test]
+    async fn test_game_state_update_f1_25_idle_removes_tracker() {
+        let state = make_state().await;
+
+        // Pre-insert a tracker
+        {
+            state
+                .game_launcher
+                .active_games
+                .write()
+                .await
+                .insert(
+                    "pod_8".to_string(),
+                    GameTracker {
+                        pod_id: "pod_8".to_string(),
+                        sim_type: SimType::F125,
+                        game_state: GameState::Running,
+                        pid: Some(9999),
+                        launched_at: Some(Utc::now()),
+                        error_message: None,
+                        launch_args: None,
+                        auto_relaunch_count: 0,
+                    },
+                );
+        }
+
+        // Agent reports game stopped
+        let info = GameLaunchInfo {
+            pod_id: "pod_8".to_string(),
+            sim_type: SimType::F125,
+            game_state: GameState::Idle,
+            pid: None,
+            launched_at: None,
+            error_message: None,
+            diagnostics: None,
+        };
+
+        handle_game_state_update(&state, info).await;
+
+        // Tracker should be removed
+        let games = state.game_launcher.active_games.read().await;
+        assert!(
+            !games.contains_key("pod_8"),
+            "Idle state should remove tracker"
+        );
+    }
 }

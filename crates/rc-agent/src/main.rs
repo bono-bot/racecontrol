@@ -1661,7 +1661,8 @@ async fn main() -> Result<()> {
                                             }
                                         }
                                     } else {
-                                        // Generic launch for other sims
+                                        // Generic launch for other sims (F1 25, iRacing, LMU, Forza, AC Evo/Rally)
+                                        // Mirrors AC lifecycle: heartbeat → splash → launch_state → launch → monitor
                                         let base_config = match launch_sim {
                                             SimType::AssettoCorsa => &config.games.assetto_corsa,
                                             SimType::AssettoCorsaEvo => &config.games.assetto_corsa_evo,
@@ -1676,29 +1677,86 @@ async fn main() -> Result<()> {
                                         if let Some(args) = launch_args {
                                             game_config.args = Some(args);
                                         }
+
+                                        // 1. Update heartbeat status (was missing — pod appeared idle during launch)
+                                        heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        heartbeat_status.game_id.store(match launch_sim {
+                                            SimType::AssettoCorsa => 1,
+                                            SimType::F125 => 2,
+                                            SimType::IRacing => 3,
+                                            SimType::LeMansUltimate => 4,
+                                            SimType::Forza => 5,
+                                            SimType::AssettoCorsaEvo => 6,
+                                            SimType::AssettoCorsaRally => 7,
+                                            SimType::ForzaHorizon5 => 8,
+                                        }, std::sync::atomic::Ordering::Relaxed);
+
+                                        // 2. Show branded splash screen (was missing — blank screen during load)
+                                        let splash_name = current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
+                                        lock_screen.show_launch_splash(splash_name);
+
+                                        // 3. Arm launch timeout (was missing — BILL-01 3-min timeout didn't work)
+                                        launch_state = LaunchState::WaitingForLive {
+                                            launched_at: std::time::Instant::now(),
+                                            attempt: 1,
+                                        };
+
+                                        // 4. Notify failure monitor (was missing — self-monitor couldn't detect stuck launches)
+                                        let _ = failure_monitor_tx.send_modify(|s| {
+                                            s.launch_started_at = Some(std::time::Instant::now());
+                                        });
+
+                                        // 5. Send Launching state to server
+                                        let launching_info = GameLaunchInfo {
+                                            pod_id: pod_id.clone(),
+                                            sim_type: launch_sim,
+                                            game_state: GameState::Launching,
+                                            pid: None,
+                                            launched_at: Some(Utc::now()),
+                                            error_message: None,
+                                            diagnostics: None,
+                                        };
+                                        let msg = AgentMessage::GameStateUpdate(launching_info);
+                                        let json_str = serde_json::to_string(&msg)?;
+                                        let _ = ws_tx.send(Message::Text(json_str.into())).await;
+
+                                        // 6. Launch the game
                                         match game_process::GameProcess::launch(&game_config, launch_sim) {
                                             Ok(gp) => {
-                                                let info = GameLaunchInfo {
-                                                    pod_id: pod_id.clone(),
-                                                    sim_type: launch_sim,
-                                                    game_state: GameState::Launching,
-                                                    pid: gp.pid,
-                                                    launched_at: Some(Utc::now()),
-                                                    error_message: None,
-                                                    diagnostics: None,
-                                                };
+                                                tracing::info!("Generic sim {:?} launched (pid: {:?})", launch_sim, gp.pid);
                                                 // Site 4b: game_process gained PID after generic sim launch
                                                 let gp_pid = gp.pid;
                                                 game_process = Some(gp);
                                                 let _ = failure_monitor_tx.send_modify(|s| {
                                                     s.game_pid = gp_pid;
                                                 });
-                                                let msg = AgentMessage::GameStateUpdate(info);
-                                                let json_str = serde_json::to_string(&msg)?;
-                                                let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                                                // For direct-exe launches (pid known), report Running immediately.
+                                                // For Steam launches (pid=None), game_check_interval will scan + transition.
+                                                if let Some(pid) = gp_pid {
+                                                    let info = GameLaunchInfo {
+                                                        pod_id: pod_id.clone(),
+                                                        sim_type: launch_sim,
+                                                        game_state: GameState::Running,
+                                                        pid: Some(pid),
+                                                        launched_at: Some(Utc::now()),
+                                                        error_message: None,
+                                                        diagnostics: None,
+                                                    };
+                                                    let msg = AgentMessage::GameStateUpdate(info);
+                                                    let json_str = serde_json::to_string(&msg)?;
+                                                    let _ = ws_tx.send(Message::Text(json_str.into())).await;
+                                                }
+                                                // Steam launches: game_check_interval (2s tick) will find PID via
+                                                // find_game_pid() and send Running state — no extra code needed here.
                                             }
                                             Err(e) => {
                                                 tracing::error!("Failed to launch {:?}: {}", launch_sim, e);
+                                                heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                                                heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
+                                                launch_state = LaunchState::Idle;
+                                                let _ = failure_monitor_tx.send_modify(|s| {
+                                                    s.launch_started_at = None;
+                                                });
                                                 let info = GameLaunchInfo {
                                                     pod_id: pod_id.clone(),
                                                     sim_type: launch_sim,

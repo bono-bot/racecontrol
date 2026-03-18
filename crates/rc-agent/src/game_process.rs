@@ -444,4 +444,49 @@ mod tests {
         assert!(names.contains(&"AssettoCorsa2.exe"));
         assert!(names.contains(&"AC2-Win64-Shipping.exe"));
     }
+
+    // ── F1 25 characterization tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_process_names_f1_25() {
+        let names = process_names(SimType::F125);
+        assert_eq!(names, &["F1_25.exe"]);
+    }
+
+    #[test]
+    fn test_game_exe_config_steam_launch_requires_app_id() {
+        // With use_steam=true but no app_id or exe_path → should fail
+        let config = GameExeConfig {
+            exe_path: None,
+            working_dir: None,
+            args: None,
+            steam_app_id: None,
+            use_steam: true,
+        };
+        let result = GameProcess::launch(&config, SimType::F125);
+        assert!(result.is_err(), "Should fail without steam_app_id or exe_path");
+    }
+
+    #[test]
+    fn test_game_exe_config_default_is_empty() {
+        let config = GameExeConfig::default();
+        assert!(config.exe_path.is_none());
+        assert!(config.steam_app_id.is_none());
+        assert!(!config.use_steam);
+        assert!(config.args.is_none());
+    }
+
+    #[test]
+    fn test_game_exe_config_f1_25_steam() {
+        // Characterize the expected F1 25 config shape
+        let config = GameExeConfig {
+            exe_path: None,
+            working_dir: None,
+            args: None,
+            steam_app_id: Some(2488620),
+            use_steam: true,
+        };
+        assert_eq!(config.steam_app_id, Some(2488620));
+        assert!(config.use_steam);
+    }
 }
