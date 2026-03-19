@@ -107,6 +107,7 @@ pub fn start_probe_loop(state: Arc<AppState>) {
         let probe_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(3))
             .connect_timeout(Duration::from_secs(3))
+            .pool_max_idle_per_host(0)
             .build()
             .expect("Failed to build fleet probe HTTP client");
 
