@@ -46,11 +46,13 @@ PREFLIGHT_EXIT=0
 API_EXIT=0
 BROWSER_EXIT=0
 DEPLOY_EXIT=0
+FLEET_HEALTH_EXIT=0
 
 PREFLIGHT_STATUS="SKIP"
 API_STATUS="SKIP"
 BROWSER_STATUS="SKIP"
 DEPLOY_STATUS="SKIP"
+FLEET_HEALTH_STATUS="SKIP"
 
 TOTAL_FAIL=0
 
@@ -161,6 +163,22 @@ elif [ "$SKIP_DEPLOY" = "true" ]; then
     echo "  Phase: deploy -- SKIPPED (--skip-deploy)"
 fi
 
+# ─── Phase 5: Fleet Health (final gate -- Phase 50 self-test on all pods) ────
+if [ "$PREFLIGHT_STATUS" = "PASS" ] && [ "$SKIP_DEPLOY" = "false" ]; then
+    run_phase "fleet-health" bash "$SCRIPT_DIR/fleet/pod-health.sh"
+    FLEET_HEALTH_EXIT="${PIPESTATUS[0]}"
+    TOTAL_FAIL=$((TOTAL_FAIL + FLEET_HEALTH_EXIT))
+    if [ "$FLEET_HEALTH_EXIT" -eq 0 ]; then
+        FLEET_HEALTH_STATUS="PASS"
+    else
+        FLEET_HEALTH_STATUS="FAIL"
+    fi
+else
+    FLEET_HEALTH_STATUS="SKIP"
+    echo ""
+    echo "  Phase: fleet-health -- SKIPPED"
+fi
+
 # ─── Summary Table ───────────────────────────────────────────────────────────
 echo ""
 echo "============================================================"
@@ -173,6 +191,7 @@ printf "  %-20s %s\n" "Preflight" "$PREFLIGHT_STATUS"
 printf "  %-20s %s\n" "API Tests" "$API_STATUS"
 printf "  %-20s %s\n" "Browser Tests" "$BROWSER_STATUS"
 printf "  %-20s %s\n" "Deploy Verify" "$DEPLOY_STATUS"
+printf "  %-20s %s\n" "Fleet Health" "$FLEET_HEALTH_STATUS"
 echo ""
 echo "  Total failures: ${TOTAL_FAIL}"
 echo "  Results dir:    ${RESULTS_DIR}"
@@ -190,7 +209,8 @@ summary = {
         'preflight': {'status': '${PREFLIGHT_STATUS}', 'exit_code': ${PREFLIGHT_EXIT}},
         'api': {'status': '${API_STATUS}', 'exit_code': ${API_EXIT}},
         'browser': {'status': '${BROWSER_STATUS}', 'exit_code': ${BROWSER_EXIT}},
-        'deploy': {'status': '${DEPLOY_STATUS}', 'exit_code': ${DEPLOY_EXIT}}
+        'deploy': {'status': '${DEPLOY_STATUS}', 'exit_code': ${DEPLOY_EXIT}},
+        'fleet_health': {'status': '${FLEET_HEALTH_STATUS}', 'exit_code': ${FLEET_HEALTH_EXIT}}
     },
     'total_fail': ${TOTAL_FAIL}
 }
