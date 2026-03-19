@@ -1981,6 +1981,28 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Kiosk Allowlist (Phase 48) ───────────────────────────────────────────
+    // Staff-added process names that rc-agent should allow through the kiosk
+    // lock screen. The hardcoded baseline (~70 entries) lives in rc-agent;
+    // this table holds only admin-managed additions.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS kiosk_allowlist (
+            id TEXT PRIMARY KEY,
+            process_name TEXT NOT NULL UNIQUE,
+            added_by TEXT NOT NULL DEFAULT 'staff',
+            notes TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_kiosk_allowlist_name ON kiosk_allowlist(process_name)",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

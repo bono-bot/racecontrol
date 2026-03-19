@@ -174,6 +174,9 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
         .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
         .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
+        // Kiosk Allowlist (admin-configurable process additions)
+        .route("/config/kiosk-allowlist", get(list_kiosk_allowlist).post(add_kiosk_allowlist_entry))
+        .route("/config/kiosk-allowlist/:name", axum::routing::delete(delete_kiosk_allowlist_entry))
         // POS lockdown
         .route("/pos/lockdown", get(get_pos_lockdown).post(set_pos_lockdown))
         .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
@@ -12735,6 +12738,145 @@ async fn link_group_session_to_event(
         Ok(r) if r.rows_affected() == 0 => Json(json!({ "error": "Group session not found" })),
         Ok(_) => Json(json!({ "status": "linked" })),
         Err(e) => Json(json!({ "error": format!("Failed to link session: {}", e) })),
+    }
+}
+
+// ─── Kiosk Allowlist (Phase 48 — ALLOW-01/02/05) ────────────────────────────
+//
+// Well-known system processes that staff might accidentally try to add.
+// This is a UX guard only — the authoritative ~70-entry baseline lives in
+// rc-agent's ALLOWED_PROCESSES constant and is never modified here.
+const BASELINE_PROCESSES: &[&str] = &[
+    "svchost.exe",
+    "csrss.exe",
+    "explorer.exe",
+    "lsass.exe",
+    "winlogon.exe",
+    "services.exe",
+    "smss.exe",
+    "taskmgr.exe",
+    "spoolsv.exe",
+    "dwm.exe",
+    "wininit.exe",
+    "conhost.exe",
+    "ntoskrnl.exe",
+    "system",
+];
+
+async fn list_kiosk_allowlist(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, String)>(
+        "SELECT id, process_name, added_by, notes, created_at
+         FROM kiosk_allowlist ORDER BY process_name ASC",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(entries) => {
+            let list: Vec<Value> = entries
+                .iter()
+                .map(|r| {
+                    json!({
+                        "id": r.0,
+                        "process_name": r.1,
+                        "added_by": r.2,
+                        "notes": r.3,
+                        "created_at": r.4,
+                    })
+                })
+                .collect();
+            Json(json!({
+                "allowlist": list,
+                "hardcoded_count": 70,
+            }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn add_kiosk_allowlist_entry(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> (axum::http::StatusCode, Json<Value>) {
+    let process_name = match body.get("process_name").and_then(|v| v.as_str()) {
+        Some(n) if !n.trim().is_empty() => n.trim().to_string(),
+        _ => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "process_name is required" })),
+            );
+        }
+    };
+    let notes = body.get("notes").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let added_by = body.get("added_by").and_then(|v| v.as_str()).unwrap_or("staff").to_string();
+
+    // UX guard: check if it matches the well-known baseline
+    let lower = process_name.to_lowercase();
+    for baseline in BASELINE_PROCESSES {
+        if lower == *baseline {
+            return (
+                axum::http::StatusCode::OK,
+                Json(json!({
+                    "status": "already_in_baseline",
+                    "message": format!(
+                        "'{}' is already in the hardcoded baseline allowlist — no action needed",
+                        process_name
+                    ),
+                })),
+            );
+        }
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let result = sqlx::query(
+        "INSERT OR IGNORE INTO kiosk_allowlist (id, process_name, added_by, notes)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(&process_name)
+    .bind(&added_by)
+    .bind(&notes)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() == 0 => {
+            // UNIQUE constraint — already exists
+            (
+                axum::http::StatusCode::OK,
+                Json(json!({
+                    "status": "already_exists",
+                    "message": format!("'{}' is already in the staff allowlist", process_name),
+                })),
+            )
+        }
+        Ok(_) => (
+            axum::http::StatusCode::CREATED,
+            Json(json!({ "id": id, "process_name": process_name })),
+        ),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        ),
+    }
+}
+
+async fn delete_kiosk_allowlist_entry(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> axum::http::StatusCode {
+    match sqlx::query(
+        "DELETE FROM kiosk_allowlist WHERE LOWER(process_name) = LOWER(?)",
+    )
+    .bind(&name)
+    .execute(&state.db)
+    .await
+    {
+        Ok(_) => axum::http::StatusCode::NO_CONTENT,
+        Err(e) => {
+            tracing::error!("delete_kiosk_allowlist_entry error for '{}': {}", name, e);
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        }
     }
 }
 
