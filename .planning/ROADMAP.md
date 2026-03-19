@@ -268,7 +268,11 @@ Plans:
   4. Server receives BootVerification message within 30s of rc-agent startup showing: WS connected, lock screen port bound, remote ops port bound, HID status, UDP port status
   5. `cargo test -p rc-agent-crate` passes with all new safety tests green
   6. `bash tests/e2e/fleet/startup-verify.sh` passes — E2E verification that BootVerification arrives on all pods after rolling restart
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 46-01-PLAN.md — FFB zero retry + StartupReport protocol extension + server-side fleet health update (SAFETY-03, SAFETY-04, SAFETY-05)
+- [ ] 46-02-PLAN.md — Panic hook + port-bind signaling + BootVerification wiring + startup-verify.sh E2E (SAFETY-01, SAFETY-02, SAFETY-04, SAFETY-05)
 
 ### Phase 47: Local LLM Fleet Deployment
 **Goal**: Every pod runs Ollama locally with the rp-debug model (qwen3:0.6b base, Racing Point system prompt), rc-agent queries localhost:11434 for AI diagnosis with Windows Event Viewer + rc-bot-events.log fed as context (PodErrorContext), Ollama timeout reduced to 30s, and pattern memory pre-seeded with 7 deterministic fix patterns
@@ -367,7 +371,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 43. Wizard Flows + API Pipeline Tests | 2/2 | Complete    | 2026-03-18 | - |
 | 44. Deploy Verification + Master Script | 2/2 | Complete   | 2026-03-18 | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | 2/2 | Complete   | 2026-03-19 | - |
-| 46. Crash Safety + Panic Hook | v8.0 | 0/? | Not started | - |
+| 46. Crash Safety + Panic Hook | v8.0 | 0/2 | Not started | - |
 | 47. Local LLM Fleet Deployment | v8.0 | 0/? | In progress | - |
 | 48. Dynamic Kiosk Allowlist | v8.0 | 0/? | Not started | - |
 | 49. Session Lifecycle Autonomy | v8.0 | 0/? | Not started | - |
