@@ -40,6 +40,17 @@
 - [x] **DEPL-03**: Master `run-all.sh` — phase-gated orchestrator with exit code collection and summary report
 - [x] **DEPL-04**: AI debugger error logging — route test failures and error screenshots to AI debugger for automated analysis
 
+## v8.0 Requirements (Phase 50: LLM Self-Test + Fleet Health)
+
+### Self-Test Probes
+
+- **SELFTEST-01**: self_test.rs module with 18 deterministic probes (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam) — each probe returns pass/fail/skip with detail string, 10s timeout per probe
+- **SELFTEST-02**: Local LLM verdict generation — feed all 18 probe results to rp-debug model, return HEALTHY/DEGRADED/CRITICAL with correlation analysis linking related failures and auto-fix recommendations
+- **SELFTEST-03**: Server endpoint `GET /api/v1/pods/{id}/self-test` — triggers self-test on target pod via WebSocket command, returns full probe results + LLM verdict within 30s
+- **SELFTEST-04**: Expanded auto-fix patterns 8-14 in ai_debugger.rs — DirectX (shader cache clear + device reset), memory (process trim), DLL (sfc scan), Steam (restart), performance (power plan), network (adapter reset)
+- **SELFTEST-05**: E2E test `tests/e2e/fleet/pod-health.sh` — trigger self-test on all 8 pods via API, assert all HEALTHY, wired into run-all.sh as final phase gate
+- **SELFTEST-06**: Self-test runs at rc-agent startup (post-boot verification) and on-demand via server command — startup results included in BootVerification message
+
 ## Future Requirements
 
 ### v7.x (after core suite validated)
@@ -86,11 +97,19 @@
 | DEPL-03 | Phase 44 | Complete |
 | DEPL-04 | Phase 44 | Complete |
 
+| SELFTEST-01 | Phase 50 | Pending |
+| SELFTEST-02 | Phase 50 | Pending |
+| SELFTEST-03 | Phase 50 | Pending |
+| SELFTEST-04 | Phase 50 | Complete |
+| SELFTEST-05 | Phase 50 | Pending |
+| SELFTEST-06 | Phase 50 | Pending |
+
 **Coverage:**
-- v7.0 requirements: 23 total
-- Mapped to phases: 23
+- v7.0 requirements: 23 total (all complete)
+- v8.0 requirements: 6 total (Phase 50)
+- Mapped to phases: 29
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-19*
-*Last updated: 2026-03-19 — traceability mapped to phases 41–44*
+*Last updated: 2026-03-19 — traceability mapped to phases 41–44, 50*

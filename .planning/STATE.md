@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 48-02-PLAN.md
-last_updated: "2026-03-19T02:32:11.836Z"
+stopped_at: Completed 50-02-PLAN.md
+last_updated: "2026-03-19T03:23:18.065Z"
 last_activity: "2026-03-19 — Plan 46-01 complete: zero_force_with_retry + StartupReport boot verification fields (SAFETY-03/04/05)"
 progress:
   total_phases: 15
   completed_phases: 8
-  total_plans: 18
-  completed_plans: 17
+  total_plans: 23
+  completed_plans: 18
   percent: 89
 ---
 
@@ -62,6 +62,7 @@ Progress: [█████████░] 89%
 | Phase 47 P01 | 4 | 2 tasks | 3 files |
 | Phase 48 P01 | 18 | 2 tasks | 4 files |
 | Phase 48 P02 | 564 | 2 tasks | 3 files |
+| Phase 50 P02 | 5 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,9 @@ Progress: [█████████░] 89%
 - [Phase 48]: server_allowlist is 4th additive layer — never replaces hardcoded baseline (ALLOW-05)
 - [Phase 48]: classify_process defaults to Ask on LLM failure — never auto-kills on uncertainty (ALLOW-04)
 - [Phase 48]: allowlist_poll_loop fires first tick immediately at startup (ALLOW-03)
+- [Phase 50-02]: hidden_cmd() used for all new fix functions — ensures CREATE_NO_WINDOW on pods
+- [Phase 50-02]: fix_memory_pressure uses non-destructive working set trim — protected list enforced at PowerShell query level
+- [Phase 50-02]: fix_dll_repair uses spawn() not output() — sfc /scannow takes 5-15 min, blocking would stall rc-agent
 
 ### Pending Todos
 
@@ -149,7 +153,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T02:32:11.832Z
-Stopped at: Completed 48-02-PLAN.md
+Last session: 2026-03-19T03:23:18.061Z
+Stopped at: Completed 50-02-PLAN.md
 Resume file: None
 Next action: Phase 46 Plan 02 — panic hook + port-bind signaling (wires real values into StartupReport)

@@ -322,8 +322,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 49-01-PLAN.md — Protocol + schema + orphan auto-end + idle PinEntry + blank_timer target (SESSION-01, SESSION-02)
-- [ ] 49-02-PLAN.md — Crash recovery state machine + WS grace window + E2E test (SESSION-03, SESSION-04)
+- [ ] 49-01-PLAN.md ï¿½ Protocol + schema + orphan auto-end + idle PinEntry + blank_timer target (SESSION-01, SESSION-02)
+- [ ] 49-02-PLAN.md ï¿½ Crash recovery state machine + WS grace window + E2E test (SESSION-03, SESSION-04)
 
 ### Phase 50: LLM Self-Test + Fleet Health
 **Goal**: rc-agent runs 18 deterministic self-test probes at startup and on-demand (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam), feeds results to local LLM for a HEALTHY/DEGRADED/CRITICAL verdict with correlation analysis and auto-fix recommendations, server exposes /api/v1/pods/{id}/self-test endpoint for fleet-wide health checks, and auto-fix patterns 8-14 are wired into ai_debugger.rs (DirectX reset, shader cache clear, memory pressure, DLL repair, Steam restart, performance throttle, network adapter reset)
@@ -406,4 +406,4 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 47. Local LLM Fleet Deployment | 2/2 | Complete   | 2026-03-19 | - |
 | 48. Dynamic Kiosk Allowlist | 2/2 | Complete   | 2026-03-19 | - |
 | 49. Session Lifecycle Autonomy | v8.0 | 0/2 | Planning complete | - |
-| 50. LLM Self-Test + Fleet Health | v8.0 | 0/3 | Planning complete | - |
+| 50. LLM Self-Test + Fleet Health | 1/3 | In Progress|  | - |
