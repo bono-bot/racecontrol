@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 48-01-PLAN.md
-last_updated: "2026-03-19T02:18:15.661Z"
+stopped_at: Phase 49 UI-SPEC approved
+last_updated: "2026-03-19T02:27:52.331Z"
 last_activity: "2026-03-19 — Plan 46-01 complete: zero_force_with_retry + StartupReport boot verification fields (SAFETY-03/04/05)"
 progress:
-  total_phases: 14
+  total_phases: 15
   completed_phases: 7
   total_plans: 18
   completed_plans: 16
@@ -145,7 +145,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T02:18:15.657Z
-Stopped at: Completed 48-01-PLAN.md
-Resume file: None
+Last session: 2026-03-19T02:27:52.327Z
+Stopped at: Phase 49 UI-SPEC approved
+Resume file: .planning/phases/49-session-lifecycle-autonomy/49-UI-SPEC.md
 Next action: Phase 46 Plan 02 — panic hook + port-bind signaling (wires real values into StartupReport)
