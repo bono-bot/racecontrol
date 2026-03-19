@@ -214,7 +214,14 @@ pub async fn analyze_crash(
     }
 
     // ── No memory match — query AI ──────────────────────────────────────────
-    let prompt = build_prompt(&sim_type, &error_context, &snapshot);
+    // Collect error logs (blocking I/O — file reads + PowerShell calls)
+    let error_ctx = tokio::task::spawn_blocking(PodErrorContext::collect)
+        .await
+        .unwrap_or_default();
+    tracing::info!("[rc-bot] Error context: {} bot events, {} win errors, {} CLOSE_WAIT",
+        error_ctx.recent_bot_events.len(), error_ctx.windows_app_errors.len(), error_ctx.close_wait_count);
+
+    let prompt = build_prompt(&sim_type, &error_context, &snapshot, &error_ctx);
     tracing::debug!("[rc-bot] Prompt length: {} chars", prompt.len());
 
     // Try Ollama first (local, fast, no internet needed)
@@ -266,7 +273,123 @@ pub async fn analyze_crash(
     }
 }
 
-fn build_prompt(sim_type: &SimType, error_context: &str, snapshot: &PodStateSnapshot) -> String {
+/// Error context collected from system logs at crash time.
+/// Fed to the LLM alongside the PodStateSnapshot for richer diagnosis.
+#[derive(Debug, Clone, Default)]
+pub struct PodErrorContext {
+    /// Last N lines from rc-bot-events.log (self-monitor events)
+    pub recent_bot_events: Vec<String>,
+    /// Recent Windows Event Viewer Application errors (condensed)
+    pub windows_app_errors: Vec<String>,
+    /// Current CLOSE_WAIT socket count on :8090
+    pub close_wait_count: u32,
+    /// Known crash patterns from debug-memory.json (last 5)
+    pub known_patterns: Vec<String>,
+}
+
+impl PodErrorContext {
+    /// Collect error context from local system logs.
+    /// Runs as blocking I/O — call from spawn_blocking.
+    pub fn collect() -> Self {
+        let mut ctx = Self::default();
+
+        // 1. Last 15 lines of rc-bot-events.log
+        if let Ok(data) = std::fs::read_to_string(r"C:\RacingPoint\rc-bot-events.log") {
+            ctx.recent_bot_events = data
+                .lines()
+                .rev()
+                .take(15)
+                .map(|l| l.to_string())
+                .collect::<Vec<_>>();
+            ctx.recent_bot_events.reverse();
+        }
+
+        // 2. Windows Event Viewer — last 10 Application errors (condensed)
+        if let Ok(output) = hidden_cmd("powershell")
+            .args([
+                "-NoProfile", "-Command",
+                "Get-WinEvent -FilterHashtable @{LogName='Application';Level=2} \
+                 -MaxEvents 10 -ErrorAction SilentlyContinue | \
+                 ForEach-Object { \"[$($_.TimeCreated.ToString('HH:mm:ss'))] \
+                 $($_.ProviderName): $($_.Message.Split(\"`n\")[0].Trim())\" }",
+            ])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            ctx.windows_app_errors = text
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .take(10)
+                .map(|l| l.trim().to_string())
+                .collect();
+        }
+
+        // 3. CLOSE_WAIT count on :8090
+        if let Ok(output) = hidden_cmd("powershell")
+            .args([
+                "-NoProfile", "-Command",
+                "(Get-NetTCPConnection -State CloseWait -ErrorAction SilentlyContinue | \
+                 Where-Object { $_.LocalPort -eq 8090 }).Count",
+            ])
+            .output()
+        {
+            let count_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            ctx.close_wait_count = count_str.parse().unwrap_or(0);
+        }
+
+        // 4. Known patterns from debug-memory (last 5)
+        let memory = DebugMemory::load();
+        ctx.known_patterns = memory.incidents
+            .iter()
+            .rev()
+            .take(5)
+            .map(|i| format!("{} → {} (×{})", i.pattern_key, i.fix_type, i.success_count))
+            .collect();
+
+        ctx
+    }
+
+    /// Format as compact text for the LLM prompt (budget: ~800 tokens).
+    fn to_prompt_section(&self) -> String {
+        let mut sections = Vec::new();
+
+        if !self.recent_bot_events.is_empty() {
+            sections.push(format!(
+                "RC-BOT EVENTS (recent):\n{}",
+                self.recent_bot_events.join("\n")
+            ));
+        }
+
+        if !self.windows_app_errors.is_empty() {
+            sections.push(format!(
+                "WINDOWS APPLICATION ERRORS:\n{}",
+                self.windows_app_errors.join("\n")
+            ));
+        }
+
+        if self.close_wait_count > 0 {
+            sections.push(format!(
+                "NETWORK: {} CLOSE_WAIT sockets on :8090",
+                self.close_wait_count
+            ));
+        }
+
+        if !self.known_patterns.is_empty() {
+            sections.push(format!(
+                "KNOWN CRASH PATTERNS:\n{}",
+                self.known_patterns.join("\n")
+            ));
+        }
+
+        if sections.is_empty() {
+            "No recent errors in logs.".to_string()
+        } else {
+            sections.join("\n\n")
+        }
+    }
+}
+
+fn build_prompt(sim_type: &SimType, error_context: &str, snapshot: &PodStateSnapshot, error_ctx: &PodErrorContext) -> String {
     format!(
         "You are James, the AI operations assistant for RacingPoint eSports. \
         A game crash occurred and you need to diagnose the issue.\n\n\
@@ -282,15 +405,24 @@ fn build_prompt(sim_type: &SimType, error_context: &str, snapshot: &PodStateSnap
         - Wheelbase connected: {}\n\
         - WebSocket connected: {}\n\
         - Agent uptime: {}s\n\n\
+        ERROR LOGS:\n{}\n\n\
         SYSTEM CONTEXT:\n\
-        - 8 pods on subnet 192.168.31.x, server at .51:8080\n\
+        - 8 pods on subnet 192.168.31.x, server at .23:8080\n\
         - Wheelbases: Conspit Ares 8Nm (OpenFFBoard VID:0x1209 PID:0xFFB0)\n\
         - Games: AC (acs.exe, UDP 9996), F1 (F1_25.exe, 20777), iRacing (6789), LMU (5555), Forza (5300)\n\
         - Protected processes: rc-agent, pod-agent, ConspitLink2.0, explorer, dwm, csrss\n\
         - AC launch: acs.exe directly, AUTOSPAWN=1, CSP FORCE_START=1\n\
         - ConspitLink2.0 is managed by a separate watchdog (do NOT suggest restarting it)\n\n\
+        DIAGNOSTIC KEYWORDS (use when relevant — they trigger automatic fixes):\n\
+        - \"CLOSE_WAIT\" or \"zombie\" or \"stale socket\" → socket cleanup\n\
+        - \"WerFault\" or \"error dialog\" → kill error dialogs\n\
+        - \"game frozen\" + \"relaunch\" → kill frozen game\n\
+        - \"launch timeout\" → kill Content Manager\n\
+        - \"wheelbase\" + \"usb reset\" → reset FFB\n\
+        - \"relaunch\" + \"game\" → kill stale game\n\
+        - \"disk space\" or \"temp files\" → clean temp\n\n\
         Provide a concise, actionable diagnosis (under 200 words). \
-        Focus on the most likely cause and specific fix commands.",
+        Correlate the error logs with the crash. Use diagnostic keywords when a fix applies.",
         sim_type,
         error_context,
         snapshot.pod_id,
@@ -302,6 +434,7 @@ fn build_prompt(sim_type: &SimType, error_context: &str, snapshot: &PodStateSnap
         snapshot.wheelbase_connected,
         snapshot.ws_connected,
         snapshot.uptime_seconds,
+        error_ctx.to_prompt_section(),
     )
 }
 
@@ -595,7 +728,7 @@ async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<St
             "prompt": prompt,
             "stream": false,
         }))
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(30))
         .send()
         .await?;
 
@@ -659,11 +792,13 @@ mod tests {
             uptime_seconds: 3600,
             ..Default::default()
         };
-        let prompt = build_prompt(&SimType::AssettoCorsa, "exit code -1", &snapshot);
+        let error_ctx = PodErrorContext::default();
+        let prompt = build_prompt(&SimType::AssettoCorsa, "exit code -1", &snapshot, &error_ctx);
         assert!(prompt.contains("Pod #3"));
         assert!(prompt.contains("Billing active: true"));
         assert!(prompt.contains("1234"));
         assert!(prompt.contains("3600s"));
+        assert!(prompt.contains("ERROR LOGS"));
         assert!(prompt.contains("RacingPoint"));
     }
 
@@ -984,5 +1119,149 @@ mod tests {
         // This forces "game frozen" arm to appear BEFORE the generic "relaunch" arm in try_auto_fix
         assert_eq!(result.unwrap().fix_type, "fix_frozen_game",
             "game frozen must dispatch to fix_frozen_game, not kill_stale_game");
+    }
+
+    // ─── Phase 50 Plan 02: Auto-fix patterns 8-14 ────────────────────────────
+
+    fn default_snapshot() -> PodStateSnapshot {
+        PodStateSnapshot {
+            pod_id: "pod_8".to_string(),
+            pod_number: 8,
+            ..Default::default()
+        }
+    }
+
+    // Pattern 8+9: DirectX / shader cache
+    #[test]
+    fn test_fix_pattern_directx_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("DirectX error on shader compile", &snap);
+        assert!(result.is_some(), "DirectX keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "directx_shader_cache");
+    }
+
+    #[test]
+    fn test_fix_pattern_d3d_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("d3d device lost after crash", &snap);
+        assert!(result.is_some(), "d3d keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "directx_shader_cache");
+    }
+
+    #[test]
+    fn test_fix_pattern_shader_cache_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("shader cache corrupted — please restart", &snap);
+        assert!(result.is_some(), "shader cache keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "directx_shader_cache");
+    }
+
+    #[test]
+    fn test_fix_pattern_gpu_driver_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("gpu driver crash detected during render", &snap);
+        assert!(result.is_some(), "gpu driver keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "directx_shader_cache");
+    }
+
+    // Pattern 10: Memory pressure
+    #[test]
+    fn test_fix_pattern_out_of_memory_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("out of memory error — process aborted", &snap);
+        assert!(result.is_some(), "out of memory keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "memory_pressure");
+    }
+
+    #[test]
+    fn test_fix_pattern_memory_leak_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("memory leak detected in F1_25.exe", &snap);
+        assert!(result.is_some(), "memory leak keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "memory_pressure");
+    }
+
+    // Pattern 11: DLL repair
+    #[test]
+    fn test_fix_pattern_dll_missing_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("dll missing vcruntime140.dll required", &snap);
+        assert!(result.is_some(), "dll missing keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "dll_repair");
+    }
+
+    #[test]
+    fn test_fix_pattern_dll_not_found_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("dll not found xinput1_4.dll", &snap);
+        assert!(result.is_some(), "dll not found keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "dll_repair");
+    }
+
+    // Pattern 12: Steam restart
+    #[test]
+    fn test_fix_pattern_steam_update_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("Steam update downloading stuck at 99%", &snap);
+        assert!(result.is_some(), "steam+update keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "steam_restart");
+    }
+
+    #[test]
+    fn test_fix_pattern_steam_downloading_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("Steam is downloading content — launch blocked", &snap);
+        assert!(result.is_some(), "steam+downloading keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "steam_restart");
+    }
+
+    // Pattern 13: Performance throttle
+    #[test]
+    fn test_fix_pattern_low_fps_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("low fps during race — check power plan", &snap);
+        assert!(result.is_some(), "low fps keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "performance_throttle");
+    }
+
+    #[test]
+    fn test_fix_pattern_frame_drops_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("frame drops in AC every corner", &snap);
+        assert!(result.is_some(), "frame drops keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "performance_throttle");
+    }
+
+    #[test]
+    fn test_fix_pattern_stuttering_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("stuttering gameplay detected in iRacing", &snap);
+        assert!(result.is_some(), "stuttering keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "performance_throttle");
+    }
+
+    // Pattern 14: Network adapter reset
+    #[test]
+    fn test_fix_pattern_network_timeout_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("network timeout connecting to server at 192.168.31.23", &snap);
+        assert!(result.is_some(), "network timeout keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "network_adapter_reset");
+    }
+
+    #[test]
+    fn test_fix_pattern_connection_refused_keyword() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("connection refused on port 8080", &snap);
+        assert!(result.is_some(), "connection refused keyword must dispatch");
+        assert_eq!(result.unwrap().fix_type, "network_adapter_reset");
+    }
+
+    // False-positive guard: unrecognized text must return None
+    #[test]
+    fn test_fix_pattern_no_false_positive() {
+        let snap = default_snapshot();
+        let result = try_auto_fix("unrecognized error message xyz — please investigate", &snap);
+        assert!(result.is_none(), "unknown text must not match any fix pattern");
     }
 }
