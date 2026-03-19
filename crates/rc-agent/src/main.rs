@@ -706,6 +706,11 @@ async fn main() -> Result<()> {
                     if heal_result.registry_repaired { r.push("registry_key".to_string()); }
                     r
                 },
+                // Phase 46: boot verification fields — populated in Plan 02
+                lock_screen_port_bound: false,
+                remote_ops_port_bound: false,
+                hid_detected: false,
+                udp_ports_bound: vec![],
             };
             if let Ok(json) = serde_json::to_string(&startup_report) {
                 if ws_tx.send(Message::Text(json.into())).await.is_ok() {

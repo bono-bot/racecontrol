@@ -508,16 +508,29 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 tracing::warn!("No pending request for request_id={}", request_id);
                             }
                         }
-                        AgentMessage::StartupReport { pod_id, version, uptime_secs, config_hash, crash_recovery, repairs } => {
+                        AgentMessage::StartupReport {
+                            pod_id, version, uptime_secs, config_hash,
+                            crash_recovery, repairs,
+                            lock_screen_port_bound, remote_ops_port_bound,
+                            hid_detected, udp_ports_bound,
+                        } => {
                             tracing::info!(
-                                "Pod {} startup report: version={}, uptime={}s, config_hash={}, crash_recovery={}, repairs={:?}",
-                                pod_id, version, uptime_secs, config_hash, crash_recovery, repairs
+                                "Pod {} startup report: version={}, uptime={}s, config_hash={}, crash_recovery={}, repairs={:?}, \
+                                 lock_screen={}, remote_ops={}, hid={}, udp_ports={:?}",
+                                pod_id, version, uptime_secs, config_hash, crash_recovery, repairs,
+                                lock_screen_port_bound, remote_ops_port_bound, hid_detected, udp_ports_bound
                             );
                             if *crash_recovery {
                                 tracing::warn!("Pod {} recovered from a crash!", pod_id);
                             }
                             if !repairs.is_empty() {
                                 tracing::warn!("Pod {} self-healed: {:?}", pod_id, repairs);
+                            }
+                            if !lock_screen_port_bound {
+                                tracing::warn!("Pod {} BOOT WARNING: lock screen port 18923 NOT bound!", pod_id);
+                            }
+                            if !remote_ops_port_bound {
+                                tracing::warn!("Pod {} BOOT WARNING: remote ops port 8090 NOT bound!", pod_id);
                             }
                             log_pod_activity(
                                 &state,
@@ -528,11 +541,15 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                     version, uptime_secs, config_hash, crash_recovery, repairs),
                                 "agent",
                             );
-                            // Store version + uptime for fleet health dashboard.
+                            // Store version + uptime + boot verification for fleet health dashboard.
                             {
                                 let mut fleet = state.pod_fleet_health.write().await;
                                 let store = fleet.entry(pod_id.clone()).or_default();
-                                crate::fleet_health::store_startup_report(store, version, *uptime_secs, *crash_recovery);
+                                crate::fleet_health::store_startup_report(
+                                    store, version, *uptime_secs, *crash_recovery,
+                                    *lock_screen_port_bound, *remote_ops_port_bound,
+                                    *hid_detected, udp_ports_bound,
+                                );
                             }
                         }
                         AgentMessage::HardwareFailure { pod_id, reason, detail } => {

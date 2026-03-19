@@ -41,6 +41,14 @@ pub struct FleetHealthStore {
     /// Whether the agent recovered from a crash on this boot.
     /// Cleared on disconnect.
     pub crash_recovery: Option<bool>,
+    /// Phase 46: Whether the lock screen HTTP server (:18923) bound on last startup.
+    pub lock_screen_port_bound: Option<bool>,
+    /// Phase 46: Whether the remote ops HTTP server (:8090) bound on last startup.
+    pub remote_ops_port_bound: Option<bool>,
+    /// Phase 46: Whether the OpenFFBoard HID device was detected on last startup.
+    pub hid_detected: Option<bool>,
+    /// Phase 46: UDP telemetry ports that bound successfully on last startup.
+    pub udp_ports_bound: Option<Vec<u16>>,
 }
 
 /// API response shape for a single pod in GET /api/v1/fleet/health.
@@ -66,20 +74,28 @@ pub struct PodFleetStatus {
 
 /// Called from the WS StartupReport handler.
 ///
-/// Updates `version`, `agent_started_at` (computed as now - uptime_secs), and
-/// `crash_recovery` in the store. Does NOT touch `http_reachable` — that is
-/// probe-driven.
+/// Updates `version`, `agent_started_at` (computed as now - uptime_secs),
+/// `crash_recovery`, and Phase 46 boot verification fields in the store.
+/// Does NOT touch `http_reachable` — that is probe-driven.
 pub fn store_startup_report(
     store: &mut FleetHealthStore,
     version: &str,
     uptime_secs: u64,
     crash_recovery: bool,
+    lock_screen_port_bound: bool,
+    remote_ops_port_bound: bool,
+    hid_detected: bool,
+    udp_ports_bound: &[u16],
 ) {
     store.version = Some(version.to_string());
     store.agent_started_at = Some(
         Utc::now() - chrono::Duration::seconds(uptime_secs as i64),
     );
     store.crash_recovery = Some(crash_recovery);
+    store.lock_screen_port_bound = Some(lock_screen_port_bound);
+    store.remote_ops_port_bound = Some(remote_ops_port_bound);
+    store.hid_detected = Some(hid_detected);
+    store.udp_ports_bound = Some(udp_ports_bound.to_vec());
 }
 
 /// Called from both the graceful Disconnect handler and the ungraceful socket-drop cleanup.
@@ -92,6 +108,10 @@ pub fn clear_on_disconnect(store: &mut FleetHealthStore) {
     store.build_id = None;
     store.agent_started_at = None;
     store.crash_recovery = None;
+    store.lock_screen_port_bound = None;
+    store.remote_ops_port_bound = None;
+    store.hid_detected = None;
+    store.udp_ports_bound = None;
 }
 
 /// Spawns the background HTTP probe loop.
@@ -292,7 +312,7 @@ mod tests {
     #[test]
     fn fleet_health_store_startup_report_sets_version() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 3600, false);
+        store_startup_report(&mut store, "0.5.2", 3600, false, false, false, false, &[]);
         assert_eq!(store.version, Some("0.5.2".to_string()));
     }
 
@@ -300,7 +320,7 @@ mod tests {
     fn fleet_health_store_startup_report_computes_agent_started_at() {
         let before = Utc::now();
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 100, false);
+        store_startup_report(&mut store, "0.5.2", 100, false, false, false, false, &[]);
         let after = Utc::now();
 
         let started = store.agent_started_at.expect("agent_started_at should be set");
@@ -316,11 +336,11 @@ mod tests {
     #[test]
     fn fleet_health_store_startup_report_sets_crash_recovery() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 0, true);
+        store_startup_report(&mut store, "0.5.2", 0, true, false, false, false, &[]);
         assert_eq!(store.crash_recovery, Some(true));
 
         let mut store2 = FleetHealthStore::default();
-        store_startup_report(&mut store2, "0.5.2", 0, false);
+        store_startup_report(&mut store2, "0.5.2", 0, false, false, false, false, &[]);
         assert_eq!(store2.crash_recovery, Some(false));
     }
 
@@ -328,7 +348,7 @@ mod tests {
     fn fleet_health_store_startup_report_does_not_clear_http_reachable() {
         let mut store = FleetHealthStore::default();
         store.http_reachable = true;
-        store_startup_report(&mut store, "0.5.2", 0, false);
+        store_startup_report(&mut store, "0.5.2", 0, false, false, false, false, &[]);
         assert!(store.http_reachable, "http_reachable must not be modified by store_startup_report");
     }
 
@@ -337,7 +357,7 @@ mod tests {
     #[test]
     fn fleet_health_clear_on_disconnect_clears_version_and_started_at() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 100, true);
+        store_startup_report(&mut store, "0.5.2", 100, true, false, false, false, &[]);
 
         // Verify preconditions
         assert!(store.version.is_some());
@@ -356,7 +376,7 @@ mod tests {
         let mut store = FleetHealthStore::default();
         store.http_reachable = true;
         store.last_http_check = Some(Utc::now());
-        store_startup_report(&mut store, "0.5.2", 100, false);
+        store_startup_report(&mut store, "0.5.2", 100, false, false, false, false, &[]);
 
         clear_on_disconnect(&mut store);
 
@@ -383,7 +403,7 @@ mod tests {
     #[test]
     fn fleet_health_version_from_store_is_propagated() {
         let mut store = FleetHealthStore::default();
-        store_startup_report(&mut store, "0.5.2", 0, false);
+        store_startup_report(&mut store, "0.5.2", 0, false, false, false, false, &[]);
         // Verify the store correctly holds the version for handler use
         assert_eq!(store.version.as_deref(), Some("0.5.2"));
     }
@@ -449,5 +469,23 @@ mod tests {
             .unwrap_or(false);
 
         assert!(!ws_connected, "dropped receiver should give ws_connected=false");
+    }
+
+    // ── Phase 46: boot verification fields ───────────────────────────────────
+
+    #[test]
+    fn fleet_health_store_startup_report_stores_boot_verification() {
+        let mut store = FleetHealthStore::default();
+        store_startup_report(&mut store, "0.6.0", 10, false, true, true, true, &[9996, 20777]);
+        assert_eq!(store.lock_screen_port_bound, Some(true));
+        assert_eq!(store.remote_ops_port_bound, Some(true));
+        assert_eq!(store.hid_detected, Some(true));
+        assert_eq!(store.udp_ports_bound, Some(vec![9996, 20777]));
+
+        clear_on_disconnect(&mut store);
+        assert_eq!(store.lock_screen_port_bound, None);
+        assert_eq!(store.remote_ops_port_bound, None);
+        assert_eq!(store.hid_detected, None);
+        assert_eq!(store.udp_ports_bound, None);
     }
 }
