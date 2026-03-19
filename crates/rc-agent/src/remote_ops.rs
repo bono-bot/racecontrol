@@ -19,7 +19,8 @@
 use axum::{
     Router,
     extract::Query,
-    http::StatusCode,
+    http::{StatusCode, header, HeaderValue},
+    middleware,
     response::{IntoResponse, Json},
     routing::{get, post},
 };
@@ -44,11 +45,26 @@ const DETACHED_PROCESS: u32 = 0x00000008;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_ID: &str = env!("GIT_HASH");
-const MAX_CONCURRENT_EXECS: usize = 4;
+const MAX_CONCURRENT_EXECS: usize = 8;
 const DEFAULT_EXEC_TIMEOUT_MS: u64 = 10_000;
 
 static EXEC_SEMAPHORE: Semaphore = Semaphore::const_new(MAX_CONCURRENT_EXECS);
 static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// Middleware that adds `Connection: close` to every response.
+/// Prevents keep-alive socket accumulation (CLOSE_WAIT flood) caused by
+/// racecontrol's fleet_health polling hitting :8090 repeatedly.
+async fn connection_close_layer(
+    req: axum::extract::Request,
+    next: middleware::Next,
+) -> impl IntoResponse {
+    let mut resp = next.run(req).await;
+    resp.headers_mut().insert(
+        header::CONNECTION,
+        HeaderValue::from_static("close"),
+    );
+    resp
+}
 
 /// Start the remote ops HTTP server on the given port.
 /// Spawns an async task — returns immediately.
@@ -67,7 +83,8 @@ pub fn start(port: u16) {
             .route("/write", post(write_file))
             .route("/screenshot", get(screenshot))
             .route("/cursor", get(cursor_position))
-            .route("/input", post(send_input));
+            .route("/input", post(send_input))
+            .layer(middleware::from_fn(connection_close_layer));
 
         let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
 
@@ -930,7 +947,7 @@ mod tests {
             error_msg
         );
         assert!(
-            error_msg.contains("4 max"),
+            error_msg.contains("8 max"),
             "429 message must state the limit, got: {}",
             error_msg
         );
