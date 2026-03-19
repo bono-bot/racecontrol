@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Phase 49 context gathered
-last_updated: "2026-03-19T02:09:32.011Z"
+stopped_at: Completed 48-01-PLAN.md
+last_updated: "2026-03-19T02:18:15.661Z"
 last_activity: "2026-03-19 — Plan 46-01 complete: zero_force_with_retry + StartupReport boot verification fields (SAFETY-03/04/05)"
 progress:
   total_phases: 14
   completed_phases: 7
   total_plans: 18
-  completed_plans: 15
+  completed_plans: 16
   percent: 89
 ---
 
@@ -60,6 +60,7 @@ Progress: [█████████░] 89%
 | Phase 46 P02 | 6 | 2 tasks | 4 files |
 | Phase 47 P02 | 1 | 1 tasks | 1 files |
 | Phase 47 P01 | 4 | 2 tasks | 3 files |
+| Phase 48 P01 | 18 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,8 @@ Progress: [█████████░] 89%
 - [Phase 47]: Gate 2 runs even when Gate 1 fails — richer diagnostics on partial LLM deployments
 - [Phase 47]: Layered timeouts: outer curl 15s, exec timeout_ms 10000, inner Ollama curl 8s — prevents hangs on unresponsive pods
 - [Phase 47]: deploy-staging/Modelfile uses FROM qwen3:0.6b; Modelfile DIAGNOSTIC KEYWORDS must stay in sync with try_auto_fix() string checks; seed-debug-memory.sh uses python3 for JSON payload construction to avoid bash quoting pitfalls; patterns 8-14 in Modelfile are informational only, Phase 50 will wire auto-fix code
+- [Phase 48]: BASELINE_PROCESSES const slice of 14 common system process names as UX guard — authoritative 70+ baseline lives in rc-agent, not DB
+- [Phase 48]: INSERT OR IGNORE on kiosk_allowlist process_name UNIQUE; DELETE returns 204 idempotently; hardcoded_count: 70 is informational
 
 ### Pending Todos
 
@@ -142,7 +145,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T02:09:32.008Z
-Stopped at: Phase 49 context gathered
-Resume file: .planning/phases/49-session-lifecycle-autonomy/49-CONTEXT.md
+Last session: 2026-03-19T02:18:15.657Z
+Stopped at: Completed 48-01-PLAN.md
+Resume file: None
 Next action: Phase 46 Plan 02 — panic hook + port-bind signaling (wires real values into StartupReport)
