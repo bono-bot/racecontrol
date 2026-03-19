@@ -513,6 +513,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             crash_recovery, repairs,
                             lock_screen_port_bound, remote_ops_port_bound,
                             hid_detected, udp_ports_bound,
+                            ..
                         } => {
                             tracing::info!(
                                 "Pod {} startup report: version={}, uptime={}s, config_hash={}, crash_recovery={}, repairs={:?}, \
@@ -673,6 +674,14 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "[billing] Pod {} session {} billing resumed",
                                 pod_id, billing_session_id
                             );
+                        }
+                        // Phase 50: Agent returns self-test probe results.
+                        AgentMessage::SelfTestResult { pod_id, request_id, report } => {
+                            tracing::info!(
+                                "[self-test] Pod {} returned self-test results for request_id={}",
+                                pod_id, request_id
+                            );
+                            let _ = report; // Phase 50 Plan 02 will wire routing to dashboard
                         }
                     }
                 }
