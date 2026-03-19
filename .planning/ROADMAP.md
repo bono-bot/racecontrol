@@ -92,7 +92,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 45: CLOSE_WAIT Fix + Connection Hygiene** - Fix remote_ops HTTP server socket leak causing 100-134 CLOSE_WAIT sockets on 5/8 pods, fix fleet_health.rs client connection reuse, add SO_REUSEADDR to UDP sockets, mark all sockets non-inheritable, separate health endpoint from exec slot pool. **E2E (v7.0):** Add `tests/e2e/fleet/close-wait.sh` sourcing lib/common.sh + lib/pod-map.sh — verify CLOSE_WAIT count <5 on all pods after 30min soak, verify no 429 slot exhaustion on /health (completed 2026-03-19)
 - [x] **Phase 46: Crash Safety + Panic Hook** - Install std::panic::set_hook() to zero FFB + show error lock screen + log crash before exit, check all server port bindings at startup (remote_ops :8090, lock screen :18923, overlay :18925), FFB zero retry logic (3x attempts with escalation), startup health verification message to server. **E2E (v7.0):** Add `tests/e2e/fleet/startup-verify.sh` — after agent restart, verify BootVerification message received by server within 30s, all ports bound, correct build_id (completed 2026-03-19)
 - [x] **Phase 47: Local LLM Fleet Deployment** - Ollama + qwen3:0.6b + rp-debug model installed and verified on all 8 pods, rc-agent TOML pointing to localhost:11434, ai_debugger feeds Windows Event Viewer + rc-bot-events.log to LLM (PodErrorContext), Ollama timeout 120s→30s. **E2E (v7.0):** Add `tests/e2e/fleet/ollama-health.sh` — verify `curl localhost:11434/api/tags` returns rp-debug on all 8 pods, verify `ollama generate` returns valid response <5s on each pod (completed 2026-03-19)
-- [ ] **Phase 48: Dynamic Kiosk Allowlist** - Server endpoint GET /api/v1/config/kiosk-allowlist, admin panel UI for adding/removing allowed processes, rc-agent fetches allowlist on startup + every 5 min, merges with hardcoded baseline, LLM-based process classifier for unknown processes (ALLOW/BLOCK/ASK). **E2E (v7.0):** Add `tests/e2e/api/kiosk-allowlist.sh` — curl CRUD on allowlist API, verify rc-agent picks up new process within 5min, Playwright test for admin panel UI
+- [x] **Phase 48: Dynamic Kiosk Allowlist** - Server endpoint GET /api/v1/config/kiosk-allowlist, admin panel UI for adding/removing allowed processes, rc-agent fetches allowlist on startup + every 5 min, merges with hardcoded baseline, LLM-based process classifier for unknown processes (ALLOW/BLOCK/ASK). **E2E (v7.0):** Add `tests/e2e/api/kiosk-allowlist.sh` — curl CRUD on allowlist API, verify rc-agent picks up new process within 5min, Playwright test for admin panel UI (completed 2026-03-19)
 - [ ] **Phase 49: Session Lifecycle Autonomy** - Auto-end orphaned billing sessions after configurable threshold (TOML: auto_end_orphan_session_secs), auto-reset pod to idle 30s after session end, game crash pauses billing with auto-resume on relaunch (max 2 retries before auto-end), fast WS reconnect path (skip relaunch if reconnect succeeds within 30s). **E2E (v7.0):** Add `tests/e2e/api/session-lifecycle.sh` — create billing session, verify auto-end after timeout, verify pod reset to idle, verify billing pause on simulated crash
 - [ ] **Phase 50: LLM Self-Test + Fleet Health** - self_test.rs with 18 deterministic probes (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam), local LLM verdict (HEALTHY/DEGRADED/CRITICAL) with correlation and auto-fix recommendations, server /api/v1/pods/{id}/self-test endpoint, expanded auto-fix patterns 8-14 (DirectX, shader cache, memory, DLL, Steam, performance, network). **E2E (v7.0):** Add `tests/e2e/fleet/pod-health.sh` — trigger self-test on all 8 pods via API, assert all HEALTHY, wire into run-all.sh as final phase gate
 
@@ -320,6 +320,19 @@ Plans:
   6. `bash tests/e2e/api/session-lifecycle.sh` passes — billing create → orphan timeout → auto-end → pod reset verified via API
 **Plans**: TBD
 
+### Phase 50: LLM Self-Test + Fleet Health
+**Goal**: rc-agent runs 18 deterministic self-test probes at startup and on-demand (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam), feeds results to local LLM for a HEALTHY/DEGRADED/CRITICAL verdict with correlation analysis and auto-fix recommendations, server exposes /api/v1/pods/{id}/self-test endpoint for fleet-wide health checks, and auto-fix patterns 8-14 are wired into ai_debugger.rs (DirectX reset, shader cache clear, memory pressure, DLL repair, Steam restart, performance throttle, network adapter reset)
+**Depends on**: Phase 46 (panic hook for safe error handling) + Phase 47 (local LLM for verdict generation). Uses v7.0 E2E: lib/common.sh, lib/pod-map.sh, run-all.sh
+**Requirements**: SELFTEST-01 through SELFTEST-06
+**Success Criteria** (what must be TRUE):
+  1. `self_test.rs` runs all 18 probes and returns a JSON result with probe name, status (pass/fail/skip), and detail string for each — no probe panics or hangs (10s timeout per probe)
+  2. Local LLM (rp-debug) receives all 18 probe results and returns a structured verdict: HEALTHY (all pass), DEGRADED (non-critical failures), or CRITICAL (WS/lock screen/billing failures) with correlation analysis linking related probe failures
+  3. `GET /api/v1/pods/{id}/self-test` triggers self-test on the target pod via WebSocket command, returns the full probe results + LLM verdict within 30s
+  4. Auto-fix patterns 8-14 are implemented in ai_debugger.rs and triggered by corresponding probe failures: DirectX (shader cache clear + device reset), memory (process trim), DLL (sfc scan), Steam (restart), performance (power plan), network (adapter reset)
+  5. `cargo test -p rc-agent-crate` passes with all self-test probe tests green
+  6. `bash tests/e2e/fleet/pod-health.sh` passes — triggers self-test on all 8 pods via API, asserts all HEALTHY, wired into run-all.sh as final phase gate
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
@@ -381,6 +394,6 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 45. CLOSE_WAIT Fix + Connection Hygiene | 2/2 | Complete   | 2026-03-19 | - |
 | 46. Crash Safety + Panic Hook | 2/2 | Complete   | 2026-03-19 | - |
 | 47. Local LLM Fleet Deployment | 2/2 | Complete   | 2026-03-19 | - |
-| 48. Dynamic Kiosk Allowlist | 1/2 | In Progress|  | - |
+| 48. Dynamic Kiosk Allowlist | 2/2 | Complete   | 2026-03-19 | - |
 | 49. Session Lifecycle Autonomy | v8.0 | 0/? | Not started | - |
 | 50. LLM Self-Test + E2E Integration | v8.0 | 0/? | Not started | - |
