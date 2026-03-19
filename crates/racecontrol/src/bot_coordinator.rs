@@ -208,6 +208,7 @@ pub async fn handle_multiplayer_failure(
         state,
         &resolved_session_id,
         BillingSessionStatus::EndedEarly,
+        None,
     )
     .await;
     tracing::info!(
@@ -264,6 +265,7 @@ pub async fn handle_multiplayer_failure(
                 state,
                 &gsid,
                 BillingSessionStatus::EndedEarly,
+                None,
             )
             .await;
             tracing::info!(
@@ -327,7 +329,7 @@ async fn recover_stuck_session(state: &Arc<AppState>, pod_id: &str) {
 
     // end_billing_session_public() sends StopGame, SessionEnded, debits wallet, broadcasts dashboard
     let ended =
-        end_billing_session_public(state, &session_id, BillingSessionStatus::EndedEarly).await;
+        end_billing_session_public(state, &session_id, BillingSessionStatus::EndedEarly, None).await;
     if ended {
         tracing::info!(
             "[bot-coord] Stuck session {} ended for pod={}",

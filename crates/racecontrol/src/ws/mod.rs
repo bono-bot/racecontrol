@@ -641,6 +641,39 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "rc-bot",
                             );
                         }
+                        // SESSION-01: Agent auto-ended an orphaned billing session.
+                        // The HTTP end was already attempted by the agent (billing_guard.rs).
+                        // Log for audit trail; server-side billing state already cleaned up by
+                        // the HTTP call to /api/v1/billing/{id}/end from the agent.
+                        AgentMessage::SessionAutoEnded { pod_id, billing_session_id, reason } => {
+                            tracing::warn!(
+                                "[session-auto-end] Pod {} session {} auto-ended by agent: {}",
+                                pod_id, billing_session_id, reason
+                            );
+                            log_pod_activity(
+                                &state,
+                                &pod_id,
+                                "billing",
+                                "Session Auto-Ended",
+                                &format!("session={} reason={}", billing_session_id, reason),
+                                "rc-agent",
+                            );
+                        }
+                        // SESSION-03: Billing paused during crash recovery.
+                        // Informational — the server is not involved in pausing; agent manages it.
+                        AgentMessage::BillingPaused { pod_id, billing_session_id } => {
+                            tracing::info!(
+                                "[billing] Pod {} session {} billing paused (crash recovery)",
+                                pod_id, billing_session_id
+                            );
+                        }
+                        // SESSION-03: Billing resumed after successful game relaunch.
+                        AgentMessage::BillingResumed { pod_id, billing_session_id } => {
+                            tracing::info!(
+                                "[billing] Pod {} session {} billing resumed",
+                                pod_id, billing_session_id
+                            );
+                        }
                     }
                 }
                 Err(e) => {

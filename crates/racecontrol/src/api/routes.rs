@@ -2371,7 +2371,7 @@ async fn stop_billing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    let found = billing::end_billing_session_public(&state, &id, rc_common::types::BillingSessionStatus::EndedEarly).await;
+    let found = billing::end_billing_session_public(&state, &id, rc_common::types::BillingSessionStatus::EndedEarly, None).await;
     if found {
         Json(json!({ "ok": true }))
     } else {
@@ -5720,7 +5720,7 @@ async fn customer_end_reservation(
                 }
             }
 
-            billing::end_billing_session_public(&state, &session_id, rc_common::types::BillingSessionStatus::EndedEarly).await;
+            billing::end_billing_session_public(&state, &session_id, rc_common::types::BillingSessionStatus::EndedEarly, None).await;
         }
     }
 

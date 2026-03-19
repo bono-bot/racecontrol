@@ -172,6 +172,27 @@ pub enum AgentMessage {
         pod_id: String,
         reason: String,
     },
+
+    /// Agent auto-ended an orphaned billing session (SESSION-01).
+    /// Fired when billing_active=true + game_pid=None for >= auto_end_orphan_session_secs.
+    SessionAutoEnded {
+        pod_id: String,
+        billing_session_id: String,
+        /// "orphan_timeout" or "crash_limit"
+        reason: String,
+    },
+
+    /// Agent paused billing during crash recovery (SESSION-03).
+    BillingPaused {
+        pod_id: String,
+        billing_session_id: String,
+    },
+
+    /// Agent resumed billing after successful game relaunch (SESSION-03).
+    BillingResumed {
+        pod_id: String,
+        billing_session_id: String,
+    },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -2007,6 +2028,72 @@ mod tests {
             assert_eq!(session_id, Some("sess-mp-456".to_string()));
         } else {
             panic!("Wrong variant for session_id=Some");
+        }
+    }
+
+    // ── Phase 49 Plan 01: Session lifecycle autonomy protocol tests ────────
+
+    #[test]
+    fn test_session_auto_ended_roundtrip() {
+        let msg = AgentMessage::SessionAutoEnded {
+            pod_id: "pod_1".to_string(),
+            billing_session_id: "sess-abc".to_string(),
+            reason: "orphan_timeout".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        // Verify serde rename_all = "snake_case" applies
+        assert!(json.contains("\"type\":\"session_auto_ended\""),
+            "Expected 'session_auto_ended' type tag in: {}", json);
+        assert!(json.contains("\"pod_id\":\"pod_1\""));
+        assert!(json.contains("\"billing_session_id\":\"sess-abc\""));
+        assert!(json.contains("\"reason\":\"orphan_timeout\""));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::SessionAutoEnded { pod_id, billing_session_id, reason } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(billing_session_id, "sess-abc");
+            assert_eq!(reason, "orphan_timeout");
+        } else {
+            panic!("Wrong variant after roundtrip: expected SessionAutoEnded");
+        }
+    }
+
+    #[test]
+    fn test_billing_paused_roundtrip() {
+        let msg = AgentMessage::BillingPaused {
+            pod_id: "pod_1".to_string(),
+            billing_session_id: "sess-abc".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"billing_paused\""),
+            "Expected 'billing_paused' type tag in: {}", json);
+        assert!(json.contains("\"pod_id\":\"pod_1\""));
+        assert!(json.contains("\"billing_session_id\":\"sess-abc\""));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::BillingPaused { pod_id, billing_session_id } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(billing_session_id, "sess-abc");
+        } else {
+            panic!("Wrong variant after roundtrip: expected BillingPaused");
+        }
+    }
+
+    #[test]
+    fn test_billing_resumed_roundtrip() {
+        let msg = AgentMessage::BillingResumed {
+            pod_id: "pod_1".to_string(),
+            billing_session_id: "sess-abc".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"billing_resumed\""),
+            "Expected 'billing_resumed' type tag in: {}", json);
+        assert!(json.contains("\"pod_id\":\"pod_1\""));
+        assert!(json.contains("\"billing_session_id\":\"sess-abc\""));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::BillingResumed { pod_id, billing_session_id } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(billing_session_id, "sess-abc");
+        } else {
+            panic!("Wrong variant after roundtrip: expected BillingResumed");
         }
     }
 }

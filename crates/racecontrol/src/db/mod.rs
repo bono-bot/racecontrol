@@ -2003,6 +2003,12 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Session lifecycle autonomy (Phase 49) ────────────────────────────────
+    // end_reason: "manual", "orphan_timeout", "crash_limit" — why the session ended
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN end_reason TEXT")
+        .execute(pool)
+        .await;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

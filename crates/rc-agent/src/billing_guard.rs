@@ -114,6 +114,8 @@ mod tests {
             hid_connected: false,
             last_udp_secs_ago: None,
             launch_started_at: None,
+            billing_paused: false,
+            active_billing_session_id: None,
         }
     }
 

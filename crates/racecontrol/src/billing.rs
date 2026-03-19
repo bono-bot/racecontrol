@@ -1836,8 +1836,19 @@ pub async fn end_billing_session_public(
     state: &Arc<AppState>,
     session_id: &str,
     end_status: BillingSessionStatus,
+    end_reason: Option<&str>,
 ) -> bool {
-    end_billing_session(state, session_id, end_status).await
+    let ended = end_billing_session(state, session_id, end_status).await;
+    if ended {
+        if let Some(reason) = end_reason {
+            let _ = sqlx::query("UPDATE billing_sessions SET end_reason = ? WHERE id = ?")
+                .bind(reason)
+                .bind(session_id)
+                .execute(&state.db)
+                .await;
+        }
+    }
+    ended
 }
 
 async fn end_billing_session(

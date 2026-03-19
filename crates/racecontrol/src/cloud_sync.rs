@@ -320,7 +320,8 @@ async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, b
             'wallet_debit_paise', wallet_debit_paise,
             'discount_paise', discount_paise, 'coupon_id', coupon_id,
             'original_price_paise', original_price_paise, 'discount_reason', discount_reason,
-            'pause_count', pause_count, 'total_paused_seconds', total_paused_seconds, 'refund_paise', refund_paise
+            'pause_count', pause_count, 'total_paused_seconds', total_paused_seconds, 'refund_paise', refund_paise,
+            'end_reason', end_reason
         ) FROM billing_sessions WHERE created_at > ? OR ended_at > ?
         ORDER BY created_at ASC LIMIT 500",
     )
@@ -1136,7 +1137,7 @@ mod tests {
 
         sqlx::query(
             "CREATE TABLE billing_sessions (
-                id TEXT PRIMARY KEY, driver_id TEXT, pod_id TEXT, pricing_tier_id TEXT,
+                id TEXT PRIMARY KEY, driver_id TEXT, pod_id TEXT, pricing_tier_id TEXT, end_reason TEXT,
                 allocated_seconds INTEGER, driving_seconds INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'pending', custom_price_paise INTEGER, notes TEXT,
                 started_at TEXT, ended_at TEXT, created_at TEXT,
@@ -1150,8 +1151,8 @@ mod tests {
         ).execute(&pool).await.unwrap();
 
         sqlx::query(
-            "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, created_at, pause_count, total_paused_seconds, refund_paise)
-             VALUES ('s1', 'd1', 'p1', 'tier1', 1800, 'Completed', '2026-01-01T00:00:00', 3, 120, 5000)"
+            "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, created_at, pause_count, total_paused_seconds, refund_paise, end_reason)
+             VALUES ('s1', 'd1', 'p1', 'tier1', 1800, 'Completed', '2026-01-01T00:00:00', 3, 120, 5000, 'orphan_timeout')"
         ).execute(&pool).await.unwrap();
 
         let rows = sqlx::query_as::<_, (String,)>(
@@ -1166,7 +1167,8 @@ mod tests {
                 'wallet_debit_paise', wallet_debit_paise,
                 'discount_paise', discount_paise, 'coupon_id', coupon_id,
                 'original_price_paise', original_price_paise, 'discount_reason', discount_reason,
-                'pause_count', pause_count, 'total_paused_seconds', total_paused_seconds, 'refund_paise', refund_paise
+                'pause_count', pause_count, 'total_paused_seconds', total_paused_seconds, 'refund_paise', refund_paise,
+                'end_reason', end_reason
             ) FROM billing_sessions WHERE created_at > '2025-01-01' ORDER BY created_at ASC LIMIT 500"
         ).fetch_all(&pool).await.unwrap();
 
@@ -1177,6 +1179,7 @@ mod tests {
         assert_eq!(val["refund_paise"], 5000);
         assert_eq!(val["id"], "s1");
         assert_eq!(val["status"], "Completed");
+        assert_eq!(val["end_reason"], "orphan_timeout", "end_reason must be included in billing_sessions push payload");
     }
 
     /// Verify billing_events push query produces correct JSON

@@ -52,6 +52,12 @@ pub struct FailureMonitorState {
     /// Current driving state from the detector (None = not yet received).
     /// Read by billing_guard.rs (Wave 1) for idle drift detection (BILL-03).
     pub driving_state: Option<DrivingState>,
+    /// Whether billing is paused during crash recovery (SESSION-03).
+    /// When true, billing_guard suppresses BILL-02/BILL-03 anomalies and orphan auto-end.
+    pub billing_paused: bool,
+    /// Active billing session ID (set by main.rs on BillingStarted, cleared on SessionEnded).
+    /// Used by billing_guard for orphan auto-end HTTP call (SESSION-01).
+    pub active_billing_session_id: Option<String>,
 }
 
 impl Default for FailureMonitorState {
@@ -64,6 +70,8 @@ impl Default for FailureMonitorState {
             billing_active: false,
             recovery_in_progress: false,
             driving_state: None,
+            billing_paused: false,
+            active_billing_session_id: None,
         }
     }
 }
@@ -419,6 +427,8 @@ mod tests {
         assert!(!s.billing_active);
         assert!(!s.recovery_in_progress);
         assert!(s.driving_state.is_none(), "driving_state must default to None");
+        assert!(!s.billing_paused, "billing_paused must default to false");
+        assert!(s.active_billing_session_id.is_none(), "active_billing_session_id must default to None");
     }
 
     #[test]
