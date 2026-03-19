@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: verifying
-stopped_at: Completed .planning/phases/45-close-wait-fix-connection-hygiene/45-01-PLAN.md
-last_updated: "2026-03-19T00:30:36.233Z"
+stopped_at: Completed .planning/phases/45-close-wait-fix-connection-hygiene/45-02-PLAN.md
+last_updated: "2026-03-19T00:35:46.566Z"
 last_activity: "2026-03-19 — Plan 44-01 complete: deploy verification master script (DEPL-01/02/04)"
 progress:
   total_phases: 14
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
   percent: 89
 ---
 
@@ -54,6 +54,8 @@ Progress: [█████████░] 89%
 *Updated after each plan completion*
 | Phase 44-deploy-verification-master-script P02 | 5 | 1 tasks | 1 files |
 | Phase 45-close-wait-fix-connection-hygiene P01 | 15 | 2 tasks | 3 files |
+| Phase 45 P02 | 525640 | 1 tasks | 2 files |
+| Phase 45 P02 | 8 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -108,6 +110,8 @@ Progress: [█████████░] 89%
 - [Phase 45]: bind_udp_reusable() mirrors the existing TCP pattern in remote_ops.rs — socket2 + SetHandleInformation approach
 - [Phase 45]: MAX_CONCURRENT_EXECS 4->8: parallel deploys to 8 pods hit the old limit causing 429 errors during fleet operations
 - [Phase 45]: Connection: close header set via axum middleware (not per-handler) to guarantee every response closes the connection
+- [Phase 45]: pool_max_idle_per_host(0) on probe_client is belt-and-suspenders alongside server-side Connection: close — both ends actively close TCP after each probe
+- [Phase 45]: THRESHOLD=5 matches self_monitor.rs internal threshold — consistent alerting boundary across runtime and test suite
 
 ### Pending Todos
 
@@ -123,7 +127,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T00:30:36.230Z
-Stopped at: Completed .planning/phases/45-close-wait-fix-connection-hygiene/45-01-PLAN.md
+Last session: 2026-03-19T00:35:46.563Z
+Stopped at: Completed .planning/phases/45-close-wait-fix-connection-hygiene/45-02-PLAN.md
 Resume file: None
 Next action: Phase 44 complete — all phases complete for v7.0 E2E Test Suite milestone
