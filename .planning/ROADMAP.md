@@ -336,7 +336,12 @@ Plans:
   4. Auto-fix patterns 8-14 are implemented in ai_debugger.rs and triggered by corresponding probe failures: DirectX (shader cache clear + device reset), memory (process trim), DLL (sfc scan), Steam (restart), performance (power plan), network (adapter reset)
   5. `cargo test -p rc-agent-crate` passes with all self-test probe tests green
   6. `bash tests/e2e/fleet/pod-health.sh` passes — triggers self-test on all 8 pods via API, asserts all HEALTHY, wired into run-all.sh as final phase gate
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 50-01-PLAN.md — self_test.rs 18 probes + LLM verdict + protocol extensions + startup integration (SELFTEST-01, SELFTEST-02, SELFTEST-06)
+- [ ] 50-02-PLAN.md — Auto-fix patterns 8-14 in ai_debugger.rs (SELFTEST-04)
+- [ ] 50-03-PLAN.md — Server endpoint + WS plumbing + agent handler + pod-health.sh E2E + run-all.sh integration (SELFTEST-03, SELFTEST-05)
 
 ## Progress
 
@@ -401,4 +406,4 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 47. Local LLM Fleet Deployment | 2/2 | Complete   | 2026-03-19 | - |
 | 48. Dynamic Kiosk Allowlist | 2/2 | Complete   | 2026-03-19 | - |
 | 49. Session Lifecycle Autonomy | v8.0 | 0/2 | Planning complete | - |
-| 50. LLM Self-Test + E2E Integration | v8.0 | 0/? | Not started | - |
+| 50. LLM Self-Test + Fleet Health | v8.0 | 0/3 | Planning complete | - |
