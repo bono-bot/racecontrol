@@ -14,6 +14,7 @@ mod overlay;
 mod remote_ops;
 mod self_heal;
 mod self_monitor;
+mod self_test;
 mod sims;
 mod startup_log;
 mod udp_heartbeat;
@@ -805,6 +806,26 @@ async fn main() -> Result<()> {
         }
     };
 
+    // ─── Phase 50: Startup Self-Test ────────────────────────────────────────
+    // Run after all ports are bound. Uses deterministic verdict (no LLM at startup
+    // — Ollama call would be too slow and may block the WS reconnect loop).
+    let startup_self_test_report = self_test::run_all_probes(
+        heartbeat_status.clone(),
+        &config.ai_debugger.ollama_url,
+    ).await;
+    let startup_verdict = self_test::deterministic_verdict(&startup_self_test_report.probes);
+    let startup_self_test_verdict: Option<String> = Some(format!("{:?}", startup_verdict.level).to_uppercase());
+    let startup_probe_failures: u8 = startup_self_test_report.probes
+        .iter()
+        .filter(|p| p.status == self_test::ProbeStatus::Fail)
+        .count()
+        .min(255) as u8;
+    tracing::info!(
+        "Startup self-test: verdict={:?} failures={}",
+        startup_verdict.level,
+        startup_probe_failures
+    );
+
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
     // (lock screen, kiosk, HID/UDP monitors, game process) persists across
@@ -891,6 +912,9 @@ async fn main() -> Result<()> {
                 remote_ops_port_bound: remote_ops_bound,
                 hid_detected,
                 udp_ports_bound: config.telemetry_ports.ports.clone(),
+                // Phase 50: Startup self-test verdict
+                startup_self_test_verdict: startup_self_test_verdict.clone(),
+                startup_probe_failures,
             };
             if let Ok(json) = serde_json::to_string(&startup_report) {
                 if ws_tx.send(Message::Text(json.into())).await.is_ok() {
