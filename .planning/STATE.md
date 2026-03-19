@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 49-01-PLAN.md
-last_updated: "2026-03-19T03:23:00.000Z"
-last_activity: "2026-03-19 — Plan 49-01 complete: SESSION-01 orphan auto-end + SESSION-02 idle PinEntry reset"
+stopped_at: Completed 50-01-PLAN.md
+last_updated: "2026-03-19T03:25:00.000Z"
+last_activity: "2026-03-19 — Plan 50-01 complete: self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult (SELFTEST-01/02/06)"
 progress:
   total_phases: 15
   completed_phases: 8
   total_plans: 23
-  completed_plans: 19
-  percent: 83
+  completed_plans: 20
+  percent: 87
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 
 ## Current Position
 
-Phase: 49 (Session Lifecycle Autonomy)
-Plan: 1 of 2 (complete)
-Status: Phase 49 Plan 01 complete — SESSION-01 orphan auto-end + SESSION-02 idle PinEntry reset
-Last activity: 2026-03-19 — Plan 49-01 complete: SESSION-01 orphan auto-end + SESSION-02 idle PinEntry reset
+Phase: 50 (LLM Self-Test Fleet Health)
+Plan: 1 of 1 (complete)
+Status: Phase 50 Plan 01 complete — self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult
+Last activity: 2026-03-19 — Plan 50-01 complete: self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult (SELFTEST-01/02/06)
 
 Progress: [█████████░] 89%
 
@@ -63,6 +63,7 @@ Progress: [█████████░] 89%
 | Phase 48 P01 | 18 | 2 tasks | 4 files |
 | Phase 48 P02 | 564 | 2 tasks | 3 files |
 | Phase 50 P02 | 5 | 1 tasks | 1 files |
+| Phase 50 P01 | 8 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,10 @@ Progress: [█████████░] 89%
 - [Phase 50-02]: hidden_cmd() used for all new fix functions — ensures CREATE_NO_WINDOW on pods
 - [Phase 50-02]: fix_memory_pressure uses non-destructive working set trim — protected list enforced at PowerShell query level
 - [Phase 50-02]: fix_dll_repair uses spawn() not output() — sfc /scannow takes 5-15 min, blocking would stall rc-agent
+- [Phase 50-01]: startup self-test uses deterministic_verdict not LLM — Ollama call at startup too slow, blocks WS reconnect loop
+- [Phase 50-01]: SelfTestResult.report is serde_json::Value — avoids rc-common depending on rc-agent self_test types
+- [Phase 50-01]: 22 probes run via tokio::join! (parameterized TCP/UDP functions called per-port) rather than exactly 18 unique functions
+- [Phase 50-01]: probe_udp_port_from_netstat_output extracted as pure testable function — no OS calls in tests
 
 ### Pending Todos
 
@@ -157,7 +162,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T03:23:00.000Z
-Stopped at: Completed 49-01-PLAN.md
+Last session: 2026-03-19T03:25:00.000Z
+Stopped at: Completed 50-01-PLAN.md
 Resume file: None
 Next action: Phase 49 Plan 02 — SESSION-03 billing pause/resume during crash recovery

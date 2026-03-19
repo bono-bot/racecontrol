@@ -97,12 +97,12 @@
 | DEPL-03 | Phase 44 | Complete |
 | DEPL-04 | Phase 44 | Complete |
 
-| SELFTEST-01 | Phase 50 | Pending |
-| SELFTEST-02 | Phase 50 | Pending |
+| SELFTEST-01 | Phase 50 | Complete |
+| SELFTEST-02 | Phase 50 | Complete |
 | SELFTEST-03 | Phase 50 | Pending |
 | SELFTEST-04 | Phase 50 | Complete |
 | SELFTEST-05 | Phase 50 | Pending |
-| SELFTEST-06 | Phase 50 | Pending |
+| SELFTEST-06 | Phase 50 | Complete |
 
 **Coverage:**
 - v7.0 requirements: 23 total (all complete)
