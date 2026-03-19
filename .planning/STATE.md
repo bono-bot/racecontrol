@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: verifying
-stopped_at: Completed .planning/phases/45-close-wait-fix-connection-hygiene/45-02-PLAN.md
-last_updated: "2026-03-19T00:35:46.566Z"
-last_activity: "2026-03-19 — Plan 44-01 complete: deploy verification master script (DEPL-01/02/04)"
+status: completed
+stopped_at: Completed .planning/phases/46-crash-safety-panic-hook/46-02-PLAN.md
+last_updated: "2026-03-19T01:25:10.678Z"
+last_activity: "2026-03-19 — Plan 46-01 complete: zero_force_with_retry + StartupReport boot verification fields (SAFETY-03/04/05)"
 progress:
   total_phases: 14
-  completed_phases: 5
-  total_plans: 12
-  completed_plans: 11
+  completed_phases: 6
+  total_plans: 14
+  completed_plans: 13
   percent: 89
 ---
 
@@ -57,6 +57,7 @@ Progress: [█████████░] 89%
 | Phase 45 P02 | 525640 | 1 tasks | 2 files |
 | Phase 45 P02 | 8 | 1 tasks | 2 files |
 | Phase 46 P01 | 18 | 2 tasks | 5 files |
+| Phase 46 P02 | 6 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,8 @@ Progress: [█████████░] 89%
 - [Phase 46-01]: StartupReport extended with 4 #[serde(default)] fields — backward compat without version negotiation
 - [Phase 46-01]: rc-agent main.rs StartupReport uses false defaults for Phase 46 fields — Plan 02 wires real port-bind results
 - [Phase 46-01]: Backward compat test JSON uses {"type":"startup_report","data":{...}} — adjacently-tagged serde format
+- [Phase 46]: Panic hook uses try_lock not lock to update lock screen state — avoids deadlock if panic occurs while state mutex is held by another task
+- [Phase 46]: remote_ops start_checked() started early so 30s retry window runs concurrently with FFB/HID init; await deferred to just before WS reconnect loop
 
 ### Pending Todos
 
@@ -133,7 +136,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T06:18:00.000Z
-Stopped at: Completed .planning/phases/46-crash-safety-panic-hook/46-01-PLAN.md
+Last session: 2026-03-19T01:25:10.674Z
+Stopped at: Completed .planning/phases/46-crash-safety-panic-hook/46-02-PLAN.md
 Resume file: None
 Next action: Phase 46 Plan 02 — panic hook + port-bind signaling (wires real values into StartupReport)
