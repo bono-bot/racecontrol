@@ -92,7 +92,7 @@ echo "--- Gate 2: Binary size check on canary pod (DEPL-01) ---"
 
 BINARY_RESP=$(curl -s --max-time 10 -X POST "http://${POD_IP}:8091/exec" \
     -H "Content-Type: application/json" \
-    -d "{\"cmd\": \"dir C:/RacingPoint/rc-agent.exe\"}" 2>/dev/null || echo "")
+    -d "{\"cmd\": \"powershell -Command (Get-Item C:/RacingPoint/rc-agent.exe).Length\"}" 2>/dev/null || echo "")
 
 BINARY_SIZE=$(echo "$BINARY_RESP" | python3 -c "
 import sys, json, re
