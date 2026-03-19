@@ -284,7 +284,11 @@ Plans:
   3. ai_debugger.rs includes PodErrorContext (rc-bot-events.log + Windows Event Viewer + CLOSE_WAIT count + known patterns) in every LLM prompt — DONE (coded 2026-03-19)
   4. debug-memory.json on each pod is pre-seeded with the 7 deterministic fix patterns (success_count=1) — instant replay from first boot
   5. `bash tests/e2e/fleet/ollama-health.sh` passes — E2E verification that rp-debug model responds <5s on all 8 pods
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 47-01-PLAN.md — Modelfile expansion (14 keywords) + seed-debug-memory.sh (7 patterns) (LLM-03, LLM-04)
+- [ ] 47-02-PLAN.md — ollama-health.sh E2E test: model presence + response time <5s (LLM-01, LLM-02)
 
 ### Phase 48: Dynamic Kiosk Allowlist
 **Goal**: Staff can add allowed processes via the admin panel instead of requiring code changes + rebuild + redeploy to all 8 pods — server stores allowlist in DB, serves it via API, rc-agent fetches it on startup and every 5 minutes, merges with hardcoded baseline, and local LLM classifies unknown processes as ALLOW/BLOCK/ASK
@@ -372,7 +376,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 44. Deploy Verification + Master Script | 2/2 | Complete   | 2026-03-18 | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | 2/2 | Complete   | 2026-03-19 | - |
 | 46. Crash Safety + Panic Hook | 2/2 | Complete   | 2026-03-19 | - |
-| 47. Local LLM Fleet Deployment | v8.0 | 0/? | In progress | - |
+| 47. Local LLM Fleet Deployment | v8.0 | 0/2 | In progress | - |
 | 48. Dynamic Kiosk Allowlist | v8.0 | 0/? | Not started | - |
 | 49. Session Lifecycle Autonomy | v8.0 | 0/? | Not started | - |
 | 50. LLM Self-Test + E2E Integration | v8.0 | 0/? | Not started | - |
