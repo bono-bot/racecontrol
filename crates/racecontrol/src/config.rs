@@ -387,7 +387,7 @@ fn default_pod_count() -> u32 { 16 }
 fn default_true() -> bool { true }
 fn default_color() -> String { "#E10600".to_string() }
 fn default_theme() -> String { "dark".to_string() }
-fn default_acserver_path() -> String { "/opt/ac-server/acServer".to_string() }
+fn default_acserver_path() -> String { "C:/RacingPoint/ac-server/acServer.exe".to_string() }
 fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }
 fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to_string() }
 fn default_pin_expiry() -> u64 { 600 }

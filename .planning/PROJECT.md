@@ -166,6 +166,12 @@ Customers see their lap times, compete on leaderboards, and compare telemetry â€
 | Lock screen before game kill | Prevents desktop flash during session end | Shipped v1.0 |
 | Registry-based pod lockdown | Survives rc-agent restarts, one-time apply | Shipped v1.0 |
 
+## Planned: v8.0 RC Bot Autonomy (Phases 45â€“49)
+
+**Goal:** Raise rc-agent autonomy from 6/10 to 8/10. Fix live CLOSE_WAIT socket leak (5/8 pods), install crash safety (panic hook + FFB zero), deploy local LLM to all pods, add dynamic kiosk allowlist (eliminates #1 manual intervention), auto-end orphaned sessions, auto-reset pods after billing. Can proceed in parallel with v7.0.
+
+**Evidence:** Audit of git log (80+ commits), live pod logs (CLOSE_WAIT on pods 1/2/3/6/8, 3 fleet-wide WS disconnects, Pod 8 port binding conflicts), and code analysis (no panic hook, 6 unhandled startup failures, billing guard sends alerts but never acts).
+
 ## Future Milestone Candidates
 
 - HUD overlay with live sector times and telemetry

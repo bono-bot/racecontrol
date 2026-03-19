@@ -104,6 +104,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/ac/session/stop", post(stop_ac_session))
         .route("/ac/session/active", get(active_ac_session))
         .route("/ac/sessions", get(list_ac_sessions))
+        .route("/ac/sessions/{id}/leaderboard", get(ac_session_leaderboard))
         .route("/ac/session/{session_id}/continuous", post(ac_server_set_continuous))
         .route("/ac/session/retry-pod", post(ac_session_retry_pod))
         .route("/ac/session/update-config", post(ac_session_update_config))
@@ -3578,6 +3579,148 @@ async fn list_ac_sessions(
                 })
                 .collect();
             Json(json!({ "sessions": list }))
+        }
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+/// AC Session Leaderboard — returns drivers ranked by best lap within an AC server session.
+/// Finds all laps recorded on the session's pods during its active time window.
+async fn ac_session_leaderboard(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    // 1. Get the AC session record
+    let session = sqlx::query_as::<_, (String, Option<String>, String, Option<String>, Option<String>, Option<String>, String)>(
+        "SELECT id, config_json, status, pod_ids, started_at, ended_at, created_at FROM ac_sessions WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let session = match session {
+        Ok(Some(s)) => s,
+        Ok(None) => return Json(json!({ "error": "AC session not found" })),
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    let (_id, config_json, status, pod_ids_str, started_at, ended_at, created_at) = session;
+
+    // Parse config to get track/car info
+    let track = config_json.as_deref()
+        .and_then(|cj| serde_json::from_str::<Value>(cj).ok())
+        .and_then(|v| v.get("track").and_then(|t| t.as_str().map(String::from)));
+
+    // Parse pod_ids (comma-separated or JSON array)
+    let pod_ids: Vec<String> = pod_ids_str
+        .as_deref()
+        .map(|s| {
+            // Try JSON array first, fall back to comma-separated
+            serde_json::from_str::<Vec<String>>(s)
+                .unwrap_or_else(|_| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        })
+        .unwrap_or_default();
+
+    if pod_ids.is_empty() {
+        return Json(json!({
+            "session_id": id, "status": status, "track": track,
+            "started_at": started_at, "ended_at": ended_at, "created_at": created_at,
+            "leaderboard": [], "total_laps": 0
+        }));
+    }
+
+    // 2. Query laps on these pods during the session window
+    let start_time = started_at.as_deref().unwrap_or(created_at.as_str());
+    let end_time = ended_at.as_deref().unwrap_or("9999-12-31T23:59:59");
+
+    // Use a CTE: find each driver's best lap, then join back for sectors.
+    // The subquery LIMIT 1 ensures deterministic results when a driver has
+    // multiple laps tied at the same best time.
+    let placeholders = pod_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "WITH session_laps AS (
+           SELECT l.id, l.driver_id, l.car, l.track, l.lap_time_ms,
+                  l.sector1_ms, l.sector2_ms, l.sector3_ms, l.pod_id
+           FROM laps l
+           WHERE l.pod_id IN ({placeholders})
+             AND l.created_at >= ?
+             AND l.created_at <= ?
+             AND l.valid = 1
+             AND l.lap_time_ms > 0
+         ),
+         driver_best AS (
+           SELECT driver_id, MIN(lap_time_ms) as best_lap_ms, COUNT(*) as lap_count
+           FROM session_laps
+           GROUP BY driver_id
+         ),
+         best_rows AS (
+           SELECT db.driver_id, db.best_lap_ms, db.lap_count,
+                  sl.car, sl.track,
+                  sl.sector1_ms, sl.sector2_ms, sl.sector3_ms, sl.pod_id,
+                  ROW_NUMBER() OVER (PARTITION BY db.driver_id ORDER BY sl.id) AS rn
+           FROM driver_best db
+           JOIN session_laps sl ON sl.driver_id = db.driver_id
+                                AND sl.lap_time_ms = db.best_lap_ms
+         )
+         SELECT br.driver_id, d.name AS driver_name,
+                br.car, br.track, br.best_lap_ms, br.lap_count,
+                br.sector1_ms, br.sector2_ms, br.sector3_ms
+         FROM best_rows br
+         JOIN drivers d ON br.driver_id = d.id
+         WHERE br.rn = 1
+         ORDER BY br.best_lap_ms ASC
+         LIMIT 50"
+    );
+
+    let mut q = sqlx::query(&sql);
+    for pid in &pod_ids {
+        q = q.bind(pid.as_str());
+    }
+    q = q.bind(start_time).bind(end_time);
+
+    use sqlx::Row;
+    let rows = q.fetch_all(&state.db).await;
+
+    match rows {
+        Ok(rows) => {
+            let mut leaderboard: Vec<Value> = Vec::new();
+            let mut best_time: Option<i64> = None;
+
+            for (i, row) in rows.iter().enumerate() {
+                let lap_ms: i64 = row.get("best_lap_ms");
+                let gap_ms = best_time.map(|bt| lap_ms - bt);
+                if best_time.is_none() {
+                    best_time = Some(lap_ms);
+                }
+
+                leaderboard.push(json!({
+                    "position": i + 1,
+                    "driver_id": row.get::<String, _>("driver_id"),
+                    "driver": row.get::<String, _>("driver_name"),
+                    "car": row.get::<String, _>("car"),
+                    "track": row.get::<String, _>("track"),
+                    "best_lap_ms": lap_ms,
+                    "lap_count": row.get::<i64, _>("lap_count"),
+                    "sector1_ms": row.try_get::<Option<i64>, _>("sector1_ms").unwrap_or(None),
+                    "sector2_ms": row.try_get::<Option<i64>, _>("sector2_ms").unwrap_or(None),
+                    "sector3_ms": row.try_get::<Option<i64>, _>("sector3_ms").unwrap_or(None),
+                    "gap_ms": gap_ms,
+                }));
+            }
+
+            let total_laps: i64 = leaderboard.iter().map(|e| e["lap_count"].as_i64().unwrap_or(0)).sum();
+
+            Json(json!({
+                "session_id": id,
+                "status": status,
+                "track": track,
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "created_at": created_at,
+                "pod_ids": pod_ids,
+                "leaderboard": leaderboard,
+                "total_laps": total_laps,
+            }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
