@@ -265,6 +265,49 @@ async fn handle_ws_exec(request_id: String, cmd: String, timeout_ms: u64) -> rc_
     }
 }
 
+/// Fetch the staff-managed allowlist from racecontrol (GET /api/v1/config/kiosk-allowlist).
+/// Returns a list of lowercase process names on success, or an error if unreachable.
+async fn fetch_server_allowlist(client: &reqwest::Client, base_url: &str) -> anyhow::Result<Vec<String>> {
+    let resp = client
+        .get(&format!("{}/api/v1/config/kiosk-allowlist", base_url))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await?;
+    let body: serde_json::Value = resp.json().await?;
+    let names = body["allowlist"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| e["process_name"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(names)
+}
+
+/// Poll the server allowlist every ALLOWLIST_REFRESH_SECS.
+///
+/// First tick fires immediately (at startup) so kiosk enforcement on first scan
+/// already includes staff-added entries. Fetch failures are WARN-level and non-fatal —
+/// the hardcoded ALLOWED_PROCESSES baseline continues enforcing.
+async fn allowlist_poll_loop(core_http_url: String, client: reqwest::Client) {
+    let mut interval = tokio::time::interval(Duration::from_secs(kiosk::ALLOWLIST_REFRESH_SECS));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        match fetch_server_allowlist(&client, &core_http_url).await {
+            Ok(names) => {
+                let count = names.len();
+                kiosk::set_server_allowlist(names);
+                tracing::info!("[allowlist] Updated: {} entries from server", count);
+            }
+            Err(e) => {
+                tracing::warn!("[allowlist] Fetch failed (will retry in 5 min): {}", e);
+            }
+        }
+    }
+}
+
 /// Guard against recursive panics in the hook
 static PANIC_HOOK_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Lock screen state handle — set after LockScreenManager is created, used by panic hook
@@ -699,6 +742,26 @@ async fn main() -> Result<()> {
         pod_id.clone(),
     );
     tracing::info!("Billing guard started");
+
+    // ─── Server Allowlist Poll Loop (dynamic kiosk allowlist) ─────────────────
+    // Derive HTTP base URL from WebSocket URL: ws://host:port/path → http://host:port
+    // First poll fires immediately (interval first tick) so kiosk enforcement on first
+    // scan already includes staff-added entries. Non-fatal on fetch failure.
+    {
+        let core_http_url = config.core.url
+            .replace("ws://", "http://")
+            .replace("wss://", "https://")
+            .split("/ws/")
+            .next()
+            .unwrap_or("http://127.0.0.1:8080")
+            .to_string();
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        tokio::spawn(allowlist_poll_loop(core_http_url, http_client));
+        tracing::info!("Allowlist poll loop started (refresh every {}s)", kiosk::ALLOWLIST_REFRESH_SECS);
+    }
 
     // SAFETY-02: Wait for remote ops bind result — exit on failure.
     // Started early (before FFB/HID init) so the 30s retry window runs concurrently.
@@ -1233,7 +1296,7 @@ async fn main() -> Result<()> {
                     let kiosk_msg_tx = ws_exec_result_tx.clone();
                     let lockdown_flag = kiosk.lockdown.clone();
                     let lockdown_reason = kiosk.lockdown_reason.clone();
-                    tokio::task::spawn_blocking(move || {
+                    let enforce_handle = tokio::task::spawn_blocking(move || {
                         let result = crate::kiosk::KioskManager::enforce_process_whitelist_blocking(allowed);
 
                         // Send approval requests to server
@@ -1266,7 +1329,50 @@ async fn main() -> Result<()> {
                             };
                             let _ = kiosk_msg_tx.try_send(msg);
                         }
+
+                        result.pending_classifications
                     });
+
+                    // Fire LLM classification for newly-seen unknown processes (non-blocking)
+                    if let Ok(classifications) = enforce_handle.await {
+                        for classification in classifications {
+                            let ollama_url = config.ai_debugger.ollama_url.clone();
+                            let ollama_model = config.ai_debugger.ollama_model.clone();
+                            let pod_id_c = pod_id.clone();
+                            let kiosk_msg_tx_c = ws_exec_result_tx.clone();
+                            tokio::spawn(async move {
+                                let verdict = kiosk::classify_process(
+                                    &ollama_url,
+                                    &ollama_model,
+                                    &classification.process_name,
+                                    &classification.exe_path,
+                                ).await;
+                                tracing::info!(
+                                    "[kiosk-llm] Verdict for '{}': {:?}",
+                                    classification.process_name, verdict
+                                );
+                                match verdict {
+                                    kiosk::ProcessVerdict::Allow => {
+                                        kiosk::KioskManager::approve_process(&classification.process_name);
+                                        // Send to server for persistence
+                                        let msg = rc_common::protocol::AgentMessage::ProcessApprovalRequest {
+                                            pod_id: pod_id_c,
+                                            process_name: classification.process_name,
+                                            exe_path: classification.exe_path,
+                                            sighting_count: 0, // LLM-approved
+                                        };
+                                        let _ = kiosk_msg_tx_c.try_send(msg);
+                                    }
+                                    kiosk::ProcessVerdict::Block => {
+                                        kiosk::KioskManager::reject_process(&classification.process_name);
+                                    }
+                                    kiosk::ProcessVerdict::Ask => {
+                                        // Already in temp_allowlist — existing approval flow handles this
+                                    }
+                                }
+                            });
+                        }
+                    }
                 }
             }
             // Re-enforce overlay TOPMOST + clean desktop + Conspit watchdog every 10s

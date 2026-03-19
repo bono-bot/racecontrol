@@ -6,9 +6,13 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use sysinfo::System;
 use tracing;
+use serde_json;
+
+/// How often (seconds) rc-agent polls the server for the dynamic allowlist.
+pub const ALLOWLIST_REFRESH_SECS: u64 = 300; // 5 minutes
 
 /// Number of times an unknown process must be seen before rc-bot acts.
 /// First N-1 sightings are logged as WARN only.
@@ -43,6 +47,21 @@ fn learned_allowlist() -> &'static Mutex<HashSet<String>> {
     })
 }
 
+/// Server-fetched allowlist — processes staff added via admin panel, refreshed every 5 minutes.
+/// Starts empty; populated by `set_server_allowlist()` called from `allowlist_poll_loop`.
+fn server_allowlist() -> &'static Mutex<HashSet<String>> {
+    static SERVER: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    SERVER.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Update the in-memory server allowlist from names fetched from the racecontrol API.
+/// Called by `allowlist_poll_loop` in main.rs every 5 minutes.
+pub fn set_server_allowlist(names: Vec<String>) {
+    if let Ok(mut set) = server_allowlist().lock() {
+        *set = names.into_iter().map(|s| s.to_lowercase()).collect();
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TempAllowEntry {
     pub exe_path: String,
@@ -58,6 +77,8 @@ pub struct EnforceResult {
     pub pending_approvals: Vec<PendingApproval>,
     /// Processes whose TTL expired without approval — kiosk should lock down.
     pub expired_processes: Vec<String>,
+    /// Newly-seen unknown processes that need LLM classification before kill action.
+    pub pending_classifications: Vec<PendingClassification>,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +86,21 @@ pub struct PendingApproval {
     pub process_name: String,
     pub exe_path: String,
     pub sighting_count: u32,
+}
+
+/// A newly-seen unknown process waiting for LLM verdict (ALLOW/BLOCK/ASK).
+#[derive(Clone, Debug)]
+pub struct PendingClassification {
+    pub process_name: String,
+    pub exe_path: String,
+}
+
+/// LLM verdict for an unknown process.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProcessVerdict {
+    Allow,
+    Block,
+    Ask,
 }
 
 fn load_learned_allowlist() -> Option<HashSet<String>> {
@@ -534,7 +570,7 @@ impl KioskManager {
         true // caller should trigger lockdown
     }
 
-    /// Build the full allowed process set (static + dynamic + learned + temp).
+    /// Build the full allowed process set (static + dynamic + learned + server + temp).
     pub fn allowed_set_snapshot(&self) -> HashSet<String> {
         let mut set: HashSet<String> = ALLOWED_PROCESSES
             .iter()
@@ -545,6 +581,11 @@ impl KioskManager {
         // Add learned allowlist
         if let Ok(learned) = learned_allowlist().lock() {
             set.extend(learned.iter().cloned());
+        }
+
+        // Add server-fetched allowlist (staff-managed via admin panel)
+        if let Ok(server) = server_allowlist().lock() {
+            set.extend(server.iter().cloned());
         }
 
         // Add temporarily allowed processes (within TTL)
@@ -637,8 +678,13 @@ impl KioskManager {
                     });
                     result.pending_approvals.push(PendingApproval {
                         process_name: name.clone(),
-                        exe_path,
+                        exe_path: exe_path.clone(),
                         sighting_count: count,
+                    });
+                    // Queue for LLM classification — async caller fires classify_process
+                    result.pending_classifications.push(PendingClassification {
+                        process_name: name.clone(),
+                        exe_path,
                     });
                 }
             }
@@ -669,6 +715,88 @@ impl KioskManager {
         }
 
         result
+    }
+}
+
+// ─── LLM Process Classification ────────────────────────────────────────────
+
+/// Classify an unknown process using the local Ollama LLM.
+///
+/// Returns `ProcessVerdict::Allow` if the process is safe (e.g., Windows system, GPU driver),
+/// `ProcessVerdict::Block` if it is clearly malicious or unauthorized,
+/// or `ProcessVerdict::Ask` (default on failure/ambiguity) which continues the
+/// existing temp-allow + server approval flow.
+///
+/// This function must be called from an async context (tokio::spawn) — never blocks.
+pub async fn classify_process(
+    ollama_url: &str,
+    ollama_model: &str,
+    process_name: &str,
+    exe_path: &str,
+) -> ProcessVerdict {
+    let prompt = format!(
+        "You are a Windows process security classifier for a sim racing venue kiosk. \
+        Classify this process: name='{}', path='{}'. \
+        Rules: Windows system processes (svchost, csrss, lsass, services, smss, wininit, winlogon, dwm, explorer, taskhostw, RuntimeBroker, fontdrvhost, SearchHost, StartMenuExperienceHost, ShellExperienceHost, TextInputHost), \
+        GPU drivers (nvidia, amd, radeon, intel), audio services (audiodg, RtkAuduService), \
+        Realtek, Gigabyte/AORUS, NVIDIA (nvcontainer, nvidia-smi), AMD, Tailscale, RustDesk, Steam, \
+        game launchers, Content Manager = ALLOW. \
+        Unknown browser helpers, random updaters, unknown installers = ASK. \
+        Keyloggers, screen capture tools, remote access not from allowlist = BLOCK. \
+        Reply with exactly one word: ALLOW, BLOCK, or ASK.",
+        process_name, exe_path
+    );
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("[kiosk-llm] Failed to build HTTP client for '{}': {}", process_name, e);
+            return ProcessVerdict::Ask;
+        }
+    };
+
+    let result = client
+        .post(&format!("{}/api/generate", ollama_url))
+        .json(&serde_json::json!({
+            "model": ollama_model,
+            "prompt": prompt,
+            "stream": false
+        }))
+        .send()
+        .await;
+
+    match result {
+        Ok(resp) => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let response_text = body["response"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_uppercase();
+                // Extract verdict: BLOCK checked first (most critical), then ALLOW, then ASK
+                if response_text.contains("BLOCK") {
+                    ProcessVerdict::Block
+                } else if response_text.contains("ALLOW") {
+                    ProcessVerdict::Allow
+                } else if response_text.contains("ASK") {
+                    ProcessVerdict::Ask
+                } else {
+                    tracing::warn!(
+                        "[kiosk-llm] Unparseable LLM response for '{}': {}",
+                        process_name, response_text
+                    );
+                    ProcessVerdict::Ask // Default to ASK if unclear — never auto-kill
+                }
+            } else {
+                ProcessVerdict::Ask
+            }
+        }
+        Err(e) => {
+            tracing::warn!("[kiosk-llm] Ollama query failed for '{}': {}", process_name, e);
+            ProcessVerdict::Ask // Default to ASK on failure — never auto-kill
+        }
     }
 }
 
