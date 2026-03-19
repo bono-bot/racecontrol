@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 50-03-PLAN.md
-last_updated: "2026-03-19T03:41:16.415Z"
+stopped_at: Completed 49-02-PLAN.md
+last_updated: "2026-03-19T03:41:59.703Z"
 last_activity: "2026-03-19 — Plan 50-01 complete: self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult (SELFTEST-01/02/06)"
 progress:
   total_phases: 15
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 23
-  completed_plans: 21
+  completed_plans: 22
   percent: 89
 ---
 
@@ -65,6 +65,7 @@ Progress: [█████████░] 89%
 | Phase 50 P02 | 5 | 1 tasks | 1 files |
 | Phase 50 P01 | 8 | 2 tasks | 3 files |
 | Phase 50 P03 | 25 | 2 tasks | 6 files |
+| Phase 49 P02 | 12 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,8 @@ Progress: [█████████░] 89%
 - [Phase 50]: pending_self_tests stores (pod_id, tx) tuple — pod_id needed for disconnect cleanup via retain pattern
 - [Phase 50]: RunSelfTest result sent via ws_exec_result_tx channel (not ws_tx) — SplitSink is not Clone
 - [Phase 50]: Fleet Health gate skipped when --skip-deploy passed — same condition as Phase 4 Deploy Verification
+- [Phase 49]: CrashRecoveryState timer embedded in enum variant (not a separate armed bool) — eliminates split state, cleaner tokio::select! polling
+- [Phase 49]: WS 30s grace window uses ws_disconnected_at: Option<Instant> with get_or_insert_with — billing+game continue during WiFi blips, Disconnected screen suppressed for first 30s
 
 ### Pending Todos
 
@@ -166,7 +169,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T03:41:16.411Z
-Stopped at: Completed 50-03-PLAN.md
+Last session: 2026-03-19T03:41:59.699Z
+Stopped at: Completed 49-02-PLAN.md
 Resume file: None
 Next action: Phase 49 Plan 02 — SESSION-03 billing pause/resume during crash recovery
