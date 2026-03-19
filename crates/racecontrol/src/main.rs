@@ -166,9 +166,74 @@ async fn kiosk_proxy(
         }
         Err(e) => {
             tracing::warn!("Proxy error: {e}");
-            (StatusCode::BAD_GATEWAY, "Backend unavailable").into_response()
+            let service = if is_kiosk { "Kiosk" } else { "Dashboard" };
+            axum::response::Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .header("content-type", "text/html; charset=utf-8")
+                .body(axum::body::Body::from(backend_unavailable_page(service, port)))
+                .unwrap()
+                .into_response()
         }
     }
+}
+
+/// Branded error page shown when the kiosk or dashboard backend is unreachable.
+/// Auto-reloads every 5 seconds so it recovers automatically once the service starts.
+fn backend_unavailable_page(service: &str, port: u16) -> String {
+    format!(r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Racing Point — {service} Unavailable</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{
+    background: linear-gradient(135deg, #1A1A1A 0%, #222222 50%, #1A1A1A 100%);
+    color: #fff;
+    font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}}
+@keyframes spin {{
+    0%   {{ transform: rotate(0deg); }}
+    100% {{ transform: rotate(360deg); }}
+}}
+@keyframes pulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.5; }}
+}}
+</style>
+</head>
+<body>
+<div style="text-align:center">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" width="220" height="64" role="img" aria-label="Racing Point" style="margin-bottom:40px">
+  <rect x="0" y="4" width="8" height="8" fill="#E10600"/>
+  <rect x="8" y="4" width="8" height="8" fill="#ffffff" opacity="0.15"/>
+  <rect x="0" y="12" width="8" height="8" fill="#ffffff" opacity="0.15"/>
+  <rect x="8" y="12" width="8" height="8" fill="#E10600"/>
+  <text x="24" y="36" font-family="Montserrat,Segoe UI,system-ui,sans-serif" font-weight="800" font-size="26" letter-spacing="4" fill="#E10600">RACING</text>
+  <text x="24" y="58" font-family="Montserrat,Segoe UI,system-ui,sans-serif" font-weight="300" font-size="18" letter-spacing="6" fill="#ffffff" opacity="0.85">POINT</text>
+</svg>
+<div style="font-size:1.6em;font-weight:700;color:#E10600;margin-bottom:16px;letter-spacing:2px">{service} STARTING UP</div>
+<div style="font-size:1em;color:#888;margin-bottom:8px">The {service} service on port {port} is not ready yet.</div>
+<div style="font-size:0.9em;color:#5A5A5A;margin-bottom:40px">This page will automatically retry.</div>
+<div style="display:inline-block;width:48px;height:48px;border:4px solid #333;border-top-color:#E10600;border-radius:50%;animation:spin 0.9s linear infinite"></div>
+<div style="margin-top:40px;font-size:0.75em;color:#333;animation:pulse 2s infinite">Retrying in <span id="cd">5</span>s</div>
+</div>
+<script>
+var s=5,el=document.getElementById('cd');
+setInterval(function(){{ s--; if(s<=0){{ location.reload(); }} else {{ el.textContent=s; }} }},1000);
+</script>
+</body>
+</html>"##, service = service, port = port)
 }
 
 #[tokio::main]
@@ -427,4 +492,40 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_unavailable_page_is_html() {
+        let html = backend_unavailable_page("Kiosk", 3300);
+        assert!(html.contains("<!DOCTYPE html>"), "must be a full HTML page");
+    }
+
+    #[test]
+    fn backend_unavailable_page_has_branding() {
+        let html = backend_unavailable_page("Dashboard", 3200);
+        assert!(html.contains("#E10600"), "must contain Racing Point red");
+        assert!(html.contains("RACING"), "must contain RACING wordmark");
+        assert!(html.contains("POINT"), "must contain POINT wordmark");
+    }
+
+    #[test]
+    fn backend_unavailable_page_has_auto_retry() {
+        let html = backend_unavailable_page("Kiosk", 3300);
+        assert!(html.contains("location.reload"), "must auto-reload");
+    }
+
+    #[test]
+    fn backend_unavailable_page_shows_service_name() {
+        let kiosk = backend_unavailable_page("Kiosk", 3300);
+        assert!(kiosk.contains("Kiosk STARTING UP"), "must show Kiosk service name");
+        assert!(kiosk.contains("3300"), "must show kiosk port");
+
+        let dash = backend_unavailable_page("Dashboard", 3200);
+        assert!(dash.contains("Dashboard STARTING UP"), "must show Dashboard service name");
+        assert!(dash.contains("3200"), "must show dashboard port");
+    }
 }

@@ -122,7 +122,11 @@ if [ "$PREFLIGHT_STATUS" = "PASS" ]; then
     run_phase "api-launch-pergame" bash "$SCRIPT_DIR/api/launch.sh"
     PERGAME_EXIT="${PIPESTATUS[0]}"
 
-    API_EXIT=$((BILLING_EXIT + LAUNCH_EXIT + PERGAME_EXIT))
+    # Phase 2d: Proxy error page (branded 502 when kiosk/dashboard is down)
+    run_phase "api-proxy-error" bash "$SCRIPT_DIR/api/proxy-error.sh"
+    PROXY_ERROR_EXIT="${PIPESTATUS[0]}"
+
+    API_EXIT=$((BILLING_EXIT + LAUNCH_EXIT + PERGAME_EXIT + PROXY_ERROR_EXIT))
     TOTAL_FAIL=$((TOTAL_FAIL + API_EXIT))
     if [ "$API_EXIT" -eq 0 ]; then
         API_STATUS="PASS"
