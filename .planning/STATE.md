@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 50-02-PLAN.md
-last_updated: "2026-03-19T03:23:18.065Z"
-last_activity: "2026-03-19 — Plan 46-01 complete: zero_force_with_retry + StartupReport boot verification fields (SAFETY-03/04/05)"
+stopped_at: Completed 49-01-PLAN.md
+last_updated: "2026-03-19T03:23:00.000Z"
+last_activity: "2026-03-19 — Plan 49-01 complete: SESSION-01 orphan auto-end + SESSION-02 idle PinEntry reset"
 progress:
   total_phases: 15
   completed_phases: 8
   total_plans: 23
-  completed_plans: 18
-  percent: 89
+  completed_plans: 19
+  percent: 83
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 
 ## Current Position
 
-Phase: 46 (Crash Safety / Panic Hook)
+Phase: 49 (Session Lifecycle Autonomy)
 Plan: 1 of 2 (complete)
-Status: Phase 46 Plan 01 complete — FFB retry + StartupReport protocol extension
-Last activity: 2026-03-19 — Plan 46-01 complete: zero_force_with_retry + StartupReport boot verification fields (SAFETY-03/04/05)
+Status: Phase 49 Plan 01 complete — SESSION-01 orphan auto-end + SESSION-02 idle PinEntry reset
+Last activity: 2026-03-19 — Plan 49-01 complete: SESSION-01 orphan auto-end + SESSION-02 idle PinEntry reset
 
 Progress: [█████████░] 89%
 
@@ -135,6 +135,10 @@ Progress: [█████████░] 89%
 - [Phase 48]: server_allowlist is 4th additive layer — never replaces hardcoded baseline (ALLOW-05)
 - [Phase 48]: classify_process defaults to Ask on LLM failure — never auto-kills on uncertainty (ALLOW-04)
 - [Phase 48]: allowlist_poll_loop fires first tick immediately at startup (ALLOW-03)
+- [Phase 49-01]: auto_end_orphan_session_secs in AgentConfig (serde default 300s) — per-pod configurable without code rebuild
+- [Phase 49-01]: SESSION-01 orphan check shares game_gone_since timer with BILL-02 — two-tier escalation from 60s alert to 300s auto-end
+- [Phase 49-01]: SessionAutoEnded WS message sent regardless of HTTP retry outcome — server notified even if billing state is stale
+- [Phase 49-01]: show_blank_screen() kept ONLY for disconnect cleanup — all post-session and post-crash paths use show_idle_pin_entry()
 - [Phase 50-02]: hidden_cmd() used for all new fix functions — ensures CREATE_NO_WINDOW on pods
 - [Phase 50-02]: fix_memory_pressure uses non-destructive working set trim — protected list enforced at PowerShell query level
 - [Phase 50-02]: fix_dll_repair uses spawn() not output() — sfc /scannow takes 5-15 min, blocking would stall rc-agent
@@ -153,7 +157,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T03:23:18.061Z
-Stopped at: Completed 50-02-PLAN.md
+Last session: 2026-03-19T03:23:00.000Z
+Stopped at: Completed 49-01-PLAN.md
 Resume file: None
-Next action: Phase 46 Plan 02 — panic hook + port-bind signaling (wires real values into StartupReport)
+Next action: Phase 49 Plan 02 — SESSION-03 billing pause/resume during crash recovery
