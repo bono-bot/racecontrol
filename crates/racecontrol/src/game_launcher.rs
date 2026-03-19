@@ -865,16 +865,12 @@ mod tests {
                 .insert("pod_8".to_string(), timer);
         }
 
-        // Simulate the launch_args JSON the kiosk wizard would send
+        // Simulate the launch_args JSON the kiosk wizard sends for non-AC games
+        // (useSetupWizard.ts:185-191 — only game, driver, game_mode)
         let launch_args = serde_json::json!({
             "game": "f1_25",
-            "game_mode": "single",
-            "session_type": "practice",
-            "difficulty": "medium",
-            "transmission": "auto",
-            "ffb": "medium",
-            "aids": { "abs": 1, "tc": 1 },
-            "conditions": { "damage": 0 }
+            "driver": "Test Driver",
+            "game_mode": "single"
         })
         .to_string();
 

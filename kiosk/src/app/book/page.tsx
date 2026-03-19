@@ -1017,10 +1017,10 @@ function BookingPageInner() {
               </div>
 
               <div data-testid="experience-list" className="space-y-3 max-h-[60vh] overflow-y-auto">
-                {experiences.length === 0 ? (
+                {experiences.filter((e) => e.game === ws.selectedGame).length === 0 ? (
                   <p className="text-sm text-rp-grey text-center py-8">No experiences configured</p>
                 ) : (
-                  experiences.map((exp) => (
+                  experiences.filter((e) => e.game === ws.selectedGame).map((exp) => (
                     <button
                       key={exp.id}
                       data-testid={`experience-option-${exp.id}`}
