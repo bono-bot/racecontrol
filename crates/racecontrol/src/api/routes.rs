@@ -177,7 +177,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
         // Kiosk Allowlist (admin-configurable process additions)
         .route("/config/kiosk-allowlist", get(list_kiosk_allowlist).post(add_kiosk_allowlist_entry))
-        .route("/config/kiosk-allowlist/:name", axum::routing::delete(delete_kiosk_allowlist_entry))
+        .route("/config/kiosk-allowlist/{name}", axum::routing::delete(delete_kiosk_allowlist_entry))
         // POS lockdown
         .route("/pos/lockdown", get(get_pos_lockdown).post(set_pos_lockdown))
         .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
@@ -760,10 +760,11 @@ async fn pod_self_test(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
 
-    // 1. Get the WS sender for this pod
+    // 1. Get the WS sender for this pod (try both pod-N and pod_N formats)
+    let alt_id = if pod_id.contains('-') { pod_id.replace('-', "_") } else { pod_id.replace('_', "-") };
     let sender = {
         let senders = state.agent_senders.read().await;
-        senders.get(&pod_id).cloned()
+        senders.get(&pod_id).or_else(|| senders.get(&alt_id)).cloned()
     };
     let Some(sender) = sender else {
         return (
