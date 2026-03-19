@@ -104,33 +104,60 @@ struct GamesConfig {
     forza_horizon_5: GameExeConfig,
 }
 
-/// Detect which games are installed on this pod based on GamesConfig.
-/// A game is considered "installed" if it has an exe_path or steam_app_id configured.
+/// Detect which games are actually installed on this pod.
+/// Checks both TOML config (exe_path/steam_app_id) AND verifies the game exists on disk
+/// via Steam appmanifest files. A game must be configured AND present on disk.
 /// AC (original) is always included — it's the default game on every pod.
 fn detect_installed_games(games: &GamesConfig) -> Vec<SimType> {
     let mut installed = vec![SimType::AssettoCorsa]; // AC always available (Content Manager)
-    if games.f1_25.exe_path.is_some() || games.f1_25.steam_app_id.is_some() {
-        installed.push(SimType::F125);
+
+    let candidates: &[(&GameExeConfig, SimType)] = &[
+        (&games.f1_25, SimType::F125),
+        (&games.iracing, SimType::IRacing),
+        (&games.forza, SimType::Forza),
+        (&games.le_mans_ultimate, SimType::LeMansUltimate),
+        (&games.assetto_corsa_evo, SimType::AssettoCorsaEvo),
+        (&games.assetto_corsa_rally, SimType::AssettoCorsaRally),
+        (&games.forza_horizon_5, SimType::ForzaHorizon5),
+    ];
+
+    for (config, sim_type) in candidates {
+        let configured = config.exe_path.is_some() || config.steam_app_id.is_some();
+        if !configured {
+            continue;
+        }
+
+        // If exe_path is set, check if the file exists on disk
+        if let Some(ref path) = config.exe_path {
+            if std::path::Path::new(path).exists() {
+                installed.push(*sim_type);
+                continue;
+            }
+        }
+
+        // If steam_app_id is set, check for appmanifest_{id}.acf in Steam
+        if let Some(app_id) = config.steam_app_id {
+            if is_steam_app_installed(app_id) {
+                installed.push(*sim_type);
+            } else {
+                tracing::info!(
+                    "Game {:?} configured (app_id={}) but not installed on disk — skipping",
+                    sim_type, app_id
+                );
+            }
+        }
     }
-    if games.iracing.exe_path.is_some() || games.iracing.steam_app_id.is_some() {
-        installed.push(SimType::IRacing);
-    }
-    if games.forza.exe_path.is_some() || games.forza.steam_app_id.is_some() {
-        installed.push(SimType::Forza);
-    }
-    if games.le_mans_ultimate.exe_path.is_some() || games.le_mans_ultimate.steam_app_id.is_some() {
-        installed.push(SimType::LeMansUltimate);
-    }
-    if games.assetto_corsa_evo.exe_path.is_some() || games.assetto_corsa_evo.steam_app_id.is_some() {
-        installed.push(SimType::AssettoCorsaEvo);
-    }
-    if games.assetto_corsa_rally.exe_path.is_some() || games.assetto_corsa_rally.steam_app_id.is_some() {
-        installed.push(SimType::AssettoCorsaRally);
-    }
-    if games.forza_horizon_5.exe_path.is_some() || games.forza_horizon_5.steam_app_id.is_some() {
-        installed.push(SimType::ForzaHorizon5);
-    }
+
     installed
+}
+
+/// Check if a Steam app is installed by looking for its appmanifest file.
+fn is_steam_app_installed(app_id: u32) -> bool {
+    let manifest = format!(
+        r"C:\Program Files (x86)\Steam\steamapps\appmanifest_{}.acf",
+        app_id
+    );
+    std::path::Path::new(&manifest).exists()
 }
 
 #[derive(Debug, Deserialize)]
@@ -3216,35 +3243,7 @@ mod tests {
         assert_eq!(reconnect_delay_for_attempt(100), Duration::from_secs(30));
     }
 
-    // ─── installed games tests (merged) ──────────────────────────────────
-
-    #[test]
-    fn test_installed_games_detection_new_games() {
-        // Configure AC Rally and FH5 with steam_app_id
-        let mut games = GamesConfig::default();
-        games.assetto_corsa_rally = GameExeConfig {
-            steam_app_id: Some(3917090),
-            use_steam: true,
-            ..Default::default()
-        };
-        games.forza_horizon_5 = GameExeConfig {
-            steam_app_id: Some(1551360),
-            use_steam: true,
-            ..Default::default()
-        };
-        let installed = detect_installed_games(&games);
-        // AC is always included
-        assert!(installed.contains(&SimType::AssettoCorsa));
-        // New games should be detected
-        assert!(
-            installed.contains(&SimType::AssettoCorsaRally),
-            "AC Rally not detected with steam_app_id"
-        );
-        assert!(
-            installed.contains(&SimType::ForzaHorizon5),
-            "FH5 not detected with steam_app_id"
-        );
-    }
+    // ─── installed games tests ─────────────────────────────────────────
 
     #[test]
     fn test_installed_games_empty_config_only_ac() {
@@ -3255,38 +3254,50 @@ mod tests {
     }
 
     #[test]
-    fn test_installed_games_detection_exe_path() {
-        // Test that exe_path also triggers detection
+    fn test_installed_games_configured_but_not_on_disk() {
+        // steam_app_id set but no manifest on disk → should NOT be detected
         let mut games = GamesConfig::default();
-        games.assetto_corsa_rally = GameExeConfig {
-            exe_path: Some("C:\\Games\\acr.exe".to_string()),
-            ..Default::default()
-        };
+        games.f1_25 = GameExeConfig { steam_app_id: Some(9999999), ..Default::default() };
+        games.iracing = GameExeConfig { steam_app_id: Some(9999998), ..Default::default() };
         let installed = detect_installed_games(&games);
-        assert!(installed.contains(&SimType::AssettoCorsaRally));
+        // Only AC — fake app_ids have no manifest files
+        assert_eq!(installed, vec![SimType::AssettoCorsa],
+            "Games with steam_app_id but no disk manifest should not appear");
     }
 
     #[test]
-    fn test_installed_games_all_configured() {
-        // All games configured — should detect all 8
+    fn test_installed_games_exe_path_not_on_disk() {
+        // exe_path set but file does not exist → fall through to steam check (also fails)
         let mut games = GamesConfig::default();
-        games.f1_25 = GameExeConfig { steam_app_id: Some(3059520), ..Default::default() };
-        games.iracing = GameExeConfig { steam_app_id: Some(266410), ..Default::default() };
-        games.forza = GameExeConfig { steam_app_id: Some(2440510), ..Default::default() };
-        games.le_mans_ultimate = GameExeConfig { steam_app_id: Some(2399420), ..Default::default() };
-        games.assetto_corsa_evo = GameExeConfig { steam_app_id: Some(3058630), ..Default::default() };
-        games.assetto_corsa_rally = GameExeConfig { steam_app_id: Some(3917090), ..Default::default() };
-        games.forza_horizon_5 = GameExeConfig { steam_app_id: Some(1551360), ..Default::default() };
+        games.assetto_corsa_rally = GameExeConfig {
+            exe_path: Some("C:\\NonExistent\\fake_game.exe".to_string()),
+            ..Default::default()
+        };
         let installed = detect_installed_games(&games);
-        assert_eq!(installed.len(), 8, "Expected all 8 SimType variants to be detected");
-        assert!(installed.contains(&SimType::AssettoCorsa));
-        assert!(installed.contains(&SimType::F125));
-        assert!(installed.contains(&SimType::IRacing));
-        assert!(installed.contains(&SimType::Forza));
-        assert!(installed.contains(&SimType::LeMansUltimate));
-        assert!(installed.contains(&SimType::AssettoCorsaEvo));
-        assert!(installed.contains(&SimType::AssettoCorsaRally));
-        assert!(installed.contains(&SimType::ForzaHorizon5));
+        assert!(!installed.contains(&SimType::AssettoCorsaRally),
+            "exe_path pointing to nonexistent file should not detect game");
+    }
+
+    #[test]
+    fn test_installed_games_exe_path_exists_on_disk() {
+        // exe_path pointing to a real file → should be detected
+        let tmp = std::env::temp_dir().join("test_game_detect.exe");
+        std::fs::write(&tmp, b"fake").unwrap();
+        let mut games = GamesConfig::default();
+        games.forza_horizon_5 = GameExeConfig {
+            exe_path: Some(tmp.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+        let installed = detect_installed_games(&games);
+        assert!(installed.contains(&SimType::ForzaHorizon5),
+            "exe_path pointing to real file should detect game");
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_is_steam_app_installed_nonexistent() {
+        // Fake app_id should not have a manifest
+        assert!(!is_steam_app_installed(9999999));
     }
 
     // ─── SESSION-03: CrashRecoveryState tests ─────────────────────────────
