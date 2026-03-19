@@ -107,6 +107,18 @@ pub enum AgentMessage {
         config_hash: String,
         crash_recovery: bool,
         repairs: Vec<String>,
+        /// Phase 46: lock screen HTTP server (:18923) bound successfully
+        #[serde(default)]
+        lock_screen_port_bound: bool,
+        /// Phase 46: remote ops HTTP server (:8090) bound successfully
+        #[serde(default)]
+        remote_ops_port_bound: bool,
+        /// Phase 46: OpenFFBoard HID device detected at startup
+        #[serde(default)]
+        hid_detected: bool,
+        /// Phase 46: UDP telemetry ports successfully bound
+        #[serde(default)]
+        udp_ports_bound: Vec<u16>,
     },
 
     /// Agent detected a hardware failure (USB disconnect, FFB fault)
@@ -1781,6 +1793,10 @@ mod tests {
             config_hash: "abc123".to_string(),
             crash_recovery: false,
             repairs: vec!["config".to_string()],
+            lock_screen_port_bound: false,
+            remote_ops_port_bound: false,
+            hid_detected: false,
+            udp_ports_bound: vec![],
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("startup_report"), "JSON must contain 'startup_report', got: {}", json);
@@ -1807,12 +1823,72 @@ mod tests {
             config_hash: "def456".to_string(),
             crash_recovery: true,
             repairs: vec![],
+            lock_screen_port_bound: false,
+            remote_ops_port_bound: false,
+            hid_detected: false,
+            udp_ports_bound: vec![],
         };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
         if let AgentMessage::StartupReport { crash_recovery, repairs, .. } = parsed {
             assert!(crash_recovery);
             assert!(repairs.is_empty());
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_startup_report_boot_verification_roundtrip() {
+        let msg = AgentMessage::StartupReport {
+            pod_id: "pod_8".to_string(),
+            version: "0.6.0".to_string(),
+            uptime_secs: 12,
+            config_hash: "abc123".to_string(),
+            crash_recovery: false,
+            repairs: vec![],
+            lock_screen_port_bound: true,
+            remote_ops_port_bound: true,
+            hid_detected: true,
+            udp_ports_bound: vec![9996, 20777, 5300],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("lock_screen_port_bound"));
+        assert!(json.contains("hid_detected"));
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::StartupReport {
+            lock_screen_port_bound,
+            remote_ops_port_bound,
+            hid_detected,
+            udp_ports_bound,
+            ..
+        } = parsed {
+            assert!(lock_screen_port_bound);
+            assert!(remote_ops_port_bound);
+            assert!(hid_detected);
+            assert_eq!(udp_ports_bound, vec![9996, 20777, 5300]);
+        } else {
+            panic!("Wrong variant after roundtrip");
+        }
+    }
+
+    #[test]
+    fn test_startup_report_backward_compat_missing_new_fields() {
+        // Simulate old agent sending StartupReport without Phase 46 fields
+        // Format: {"type":"startup_report","data":{...}} (adjacently tagged)
+        let old_json = r#"{"type":"startup_report","data":{"pod_id":"pod_3","version":"0.5.2","uptime_secs":5,"config_hash":"abc","crash_recovery":false,"repairs":[]}}"#;
+        let parsed: AgentMessage = serde_json::from_str(old_json).unwrap();
+        if let AgentMessage::StartupReport {
+            lock_screen_port_bound,
+            remote_ops_port_bound,
+            hid_detected,
+            udp_ports_bound,
+            ..
+        } = parsed {
+            assert!(!lock_screen_port_bound, "missing field should default to false");
+            assert!(!remote_ops_port_bound, "missing field should default to false");
+            assert!(!hid_detected, "missing field should default to false");
+            assert!(udp_ports_bound.is_empty(), "missing field should default to empty vec");
         } else {
             panic!("Wrong variant");
         }

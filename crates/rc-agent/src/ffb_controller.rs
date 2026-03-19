@@ -77,6 +77,35 @@ impl FfbController {
         Ok(true)
     }
 
+    /// Zero wheelbase torque with retry logic. Retries `attempts` times with
+    /// `delay_ms` between attempts on HID write failure (Err). Device-not-found
+    /// (Ok(false)) is not retried — it's a permanent condition.
+    ///
+    /// Safe to call from panic hook (sync, no async, no allocator dependency).
+    pub fn zero_force_with_retry(&self, attempts: u8, delay_ms: u64) -> bool {
+        for i in 1..=attempts {
+            match self.zero_force() {
+                Ok(true) => {
+                    tracing::info!("FFB zero succeeded on attempt {}", i);
+                    return true;
+                }
+                Ok(false) => {
+                    // Device not found — not retryable
+                    tracing::debug!("FFB zero: device not found (attempt {})", i);
+                    return false;
+                }
+                Err(e) => {
+                    tracing::warn!("FFB zero attempt {}/{} failed: {}", i, attempts, e);
+                    if i < attempts {
+                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                    }
+                }
+            }
+        }
+        tracing::error!("FFB zero failed after {} attempts — wheelbase may retain torque", attempts);
+        false
+    }
+
     /// Open the OpenFFBoard vendor HID interface (usage page 0xFF00).
     ///
     /// Enumerates all HID devices matching VID/PID and selects the one
@@ -236,6 +265,15 @@ mod tests {
         let result = ctrl.zero_force();
         // Should not panic — either Ok(false) if no device, or Ok(true)/Err if device present
         assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_zero_force_with_retry_no_device() {
+        // On dev machines without a wheelbase, should return false without retrying
+        let ctrl = FfbController::new(0x1209, 0xFFB0);
+        let result = ctrl.zero_force_with_retry(3, 100);
+        // Should return false (device not found) without 3x delay
+        assert!(!result);
     }
 
     #[test]
