@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 
 ## Current Position
 
-Phase: 44 of 44 (Deploy Verification Master Script)
-Plan: 1 of 1 (complete)
-Status: Phase 44 Plan 01 complete — deploy verification master script created
-Last activity: 2026-03-19 — Plan 44-01 complete: deploy verification master script (DEPL-01/02/04)
+Phase: 46 (Crash Safety / Panic Hook)
+Plan: 1 of 2 (complete)
+Status: Phase 46 Plan 01 complete — FFB retry + StartupReport protocol extension
+Last activity: 2026-03-19 — Plan 46-01 complete: zero_force_with_retry + StartupReport boot verification fields (SAFETY-03/04/05)
 
 Progress: [█████████░] 89%
 
@@ -56,6 +56,7 @@ Progress: [█████████░] 89%
 | Phase 45-close-wait-fix-connection-hygiene P01 | 15 | 2 tasks | 3 files |
 | Phase 45 P02 | 525640 | 1 tasks | 2 files |
 | Phase 45 P02 | 8 | 1 tasks | 2 files |
+| Phase 46 P01 | 18 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,11 @@ Progress: [█████████░] 89%
 - [Phase 45]: Connection: close header set via axum middleware (not per-handler) to guarantee every response closes the connection
 - [Phase 45]: pool_max_idle_per_host(0) on probe_client is belt-and-suspenders alongside server-side Connection: close — both ends actively close TCP after each probe
 - [Phase 45]: THRESHOLD=5 matches self_monitor.rs internal threshold — consistent alerting boundary across runtime and test suite
+- [Phase 46-01]: zero_force_with_retry uses thread::sleep not tokio::sleep — sync-safe for panic hook use
+- [Phase 46-01]: Ok(false) from zero_force = device not found, permanent, not retried; Err = HID write error, retried
+- [Phase 46-01]: StartupReport extended with 4 #[serde(default)] fields — backward compat without version negotiation
+- [Phase 46-01]: rc-agent main.rs StartupReport uses false defaults for Phase 46 fields — Plan 02 wires real port-bind results
+- [Phase 46-01]: Backward compat test JSON uses {"type":"startup_report","data":{...}} — adjacently-tagged serde format
 
 ### Pending Todos
 
@@ -127,7 +133,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T00:35:46.563Z
-Stopped at: Completed .planning/phases/45-close-wait-fix-connection-hygiene/45-02-PLAN.md
+Last session: 2026-03-19T06:18:00.000Z
+Stopped at: Completed .planning/phases/46-crash-safety-panic-hook/46-01-PLAN.md
 Resume file: None
-Next action: Phase 44 complete — all phases complete for v7.0 E2E Test Suite milestone
+Next action: Phase 46 Plan 02 — panic hook + port-bind signaling (wires real values into StartupReport)
