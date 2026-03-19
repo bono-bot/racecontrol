@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed .planning/phases/46-crash-safety-panic-hook/46-02-PLAN.md
-last_updated: "2026-03-19T01:25:10.678Z"
+stopped_at: Completed .planning/phases/47-local-llm-fleet-deployment/47-02-PLAN.md
+last_updated: "2026-03-19T01:40:59.593Z"
 last_activity: "2026-03-19 — Plan 46-01 complete: zero_force_with_retry + StartupReport boot verification fields (SAFETY-03/04/05)"
 progress:
   total_phases: 14
   completed_phases: 6
-  total_plans: 14
-  completed_plans: 13
+  total_plans: 16
+  completed_plans: 14
   percent: 89
 ---
 
@@ -58,6 +58,7 @@ Progress: [█████████░] 89%
 | Phase 45 P02 | 8 | 1 tasks | 2 files |
 | Phase 46 P01 | 18 | 2 tasks | 5 files |
 | Phase 46 P02 | 6 | 2 tasks | 4 files |
+| Phase 47 P02 | 1 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,9 @@ Progress: [█████████░] 89%
 - [Phase 46-01]: Backward compat test JSON uses {"type":"startup_report","data":{...}} — adjacently-tagged serde format
 - [Phase 46]: Panic hook uses try_lock not lock to update lock screen state — avoids deadlock if panic occurs while state mutex is held by another task
 - [Phase 46]: remote_ops start_checked() started early so 30s retry window runs concurrently with FFB/HID init; await deferred to just before WS reconnect loop
+- [Phase 47]: Wall-clock timing (date +%s%3N) for latency gates — simpler than powershell Stopwatch, matches close-wait.sh style
+- [Phase 47]: Gate 2 runs even when Gate 1 fails — richer diagnostics on partial LLM deployments
+- [Phase 47]: Layered timeouts: outer curl 15s, exec timeout_ms 10000, inner Ollama curl 8s — prevents hangs on unresponsive pods
 
 ### Pending Todos
 
@@ -136,7 +140,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T01:25:10.674Z
-Stopped at: Completed .planning/phases/46-crash-safety-panic-hook/46-02-PLAN.md
+Last session: 2026-03-19T01:40:59.589Z
+Stopped at: Completed .planning/phases/47-local-llm-fleet-deployment/47-02-PLAN.md
 Resume file: None
 Next action: Phase 46 Plan 02 — panic hook + port-bind signaling (wires real values into StartupReport)

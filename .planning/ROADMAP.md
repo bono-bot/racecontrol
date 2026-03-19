@@ -376,7 +376,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 44. Deploy Verification + Master Script | 2/2 | Complete   | 2026-03-18 | - |
 | 45. CLOSE_WAIT Fix + Connection Hygiene | 2/2 | Complete   | 2026-03-19 | - |
 | 46. Crash Safety + Panic Hook | 2/2 | Complete   | 2026-03-19 | - |
-| 47. Local LLM Fleet Deployment | v8.0 | 0/2 | In progress | - |
+| 47. Local LLM Fleet Deployment | 1/2 | In Progress|  | - |
 | 48. Dynamic Kiosk Allowlist | v8.0 | 0/? | Not started | - |
 | 49. Session Lifecycle Autonomy | v8.0 | 0/? | Not started | - |
 | 50. LLM Self-Test + E2E Integration | v8.0 | 0/? | Not started | - |
