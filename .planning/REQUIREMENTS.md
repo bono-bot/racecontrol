@@ -99,9 +99,9 @@
 
 | SELFTEST-01 | Phase 50 | Complete |
 | SELFTEST-02 | Phase 50 | Complete |
-| SELFTEST-03 | Phase 50 | Pending |
+| SELFTEST-03 | Phase 50 | Complete |
 | SELFTEST-04 | Phase 50 | Complete |
-| SELFTEST-05 | Phase 50 | Pending |
+| SELFTEST-05 | Phase 50 | Complete |
 | SELFTEST-06 | Phase 50 | Complete |
 
 **Coverage:**

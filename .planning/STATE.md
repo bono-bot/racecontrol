@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 50-01-PLAN.md
-last_updated: "2026-03-19T03:25:00.000Z"
+stopped_at: Completed 50-03-PLAN.md
+last_updated: "2026-03-19T03:41:16.415Z"
 last_activity: "2026-03-19 — Plan 50-01 complete: self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult (SELFTEST-01/02/06)"
 progress:
   total_phases: 15
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 23
-  completed_plans: 20
-  percent: 87
+  completed_plans: 21
+  percent: 89
 ---
 
 # Project State
@@ -64,6 +64,7 @@ Progress: [█████████░] 89%
 | Phase 48 P02 | 564 | 2 tasks | 3 files |
 | Phase 50 P02 | 5 | 1 tasks | 1 files |
 | Phase 50 P01 | 8 | 2 tasks | 3 files |
+| Phase 50 P03 | 25 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,9 @@ Progress: [█████████░] 89%
 - [Phase 50-01]: SelfTestResult.report is serde_json::Value — avoids rc-common depending on rc-agent self_test types
 - [Phase 50-01]: 22 probes run via tokio::join! (parameterized TCP/UDP functions called per-port) rather than exactly 18 unique functions
 - [Phase 50-01]: probe_udp_port_from_netstat_output extracted as pure testable function — no OS calls in tests
+- [Phase 50]: pending_self_tests stores (pod_id, tx) tuple — pod_id needed for disconnect cleanup via retain pattern
+- [Phase 50]: RunSelfTest result sent via ws_exec_result_tx channel (not ws_tx) — SplitSink is not Clone
+- [Phase 50]: Fleet Health gate skipped when --skip-deploy passed — same condition as Phase 4 Deploy Verification
 
 ### Pending Todos
 
@@ -162,7 +166,7 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-19T03:25:00.000Z
-Stopped at: Completed 50-01-PLAN.md
+Last session: 2026-03-19T03:41:16.411Z
+Stopped at: Completed 50-03-PLAN.md
 Resume file: None
 Next action: Phase 49 Plan 02 — SESSION-03 billing pause/resume during crash recovery
