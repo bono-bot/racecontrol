@@ -119,6 +119,12 @@ pub enum AgentMessage {
         /// Phase 46: UDP telemetry ports successfully bound
         #[serde(default)]
         udp_ports_bound: Vec<u16>,
+        /// Phase 50: Startup self-test verdict (HEALTHY/DEGRADED/CRITICAL). None if not yet implemented.
+        #[serde(default)]
+        startup_self_test_verdict: Option<String>,
+        /// Phase 50: Number of failed probes at startup (0 = all pass)
+        #[serde(default)]
+        startup_probe_failures: u8,
     },
 
     /// Agent detected a hardware failure (USB disconnect, FFB fault)
@@ -192,6 +198,14 @@ pub enum AgentMessage {
     BillingResumed {
         pod_id: String,
         billing_session_id: String,
+    },
+
+    /// Phase 50: Agent returns self-test probe results (response to RunSelfTest)
+    SelfTestResult {
+        pod_id: String,
+        request_id: String,
+        /// Serialized SelfTestReport — avoids protocol crate needing self_test types
+        report: serde_json::Value,
     },
 }
 
@@ -376,6 +390,11 @@ pub enum CoreToAgentMessage {
     /// Reject a temporarily-allowed process (kill it + lock kiosk with staff message)
     RejectProcess {
         process_name: String,
+    },
+
+    /// Phase 50: Command agent to run all self-test probes and return results via SelfTestResult
+    RunSelfTest {
+        request_id: String,
     },
 }
 
@@ -1818,6 +1837,8 @@ mod tests {
             remote_ops_port_bound: false,
             hid_detected: false,
             udp_ports_bound: vec![],
+            startup_self_test_verdict: None,
+            startup_probe_failures: 0,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("startup_report"), "JSON must contain 'startup_report', got: {}", json);
@@ -1848,6 +1869,8 @@ mod tests {
             remote_ops_port_bound: false,
             hid_detected: false,
             udp_ports_bound: vec![],
+            startup_self_test_verdict: None,
+            startup_probe_failures: 0,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
@@ -1872,6 +1895,8 @@ mod tests {
             remote_ops_port_bound: true,
             hid_detected: true,
             udp_ports_bound: vec![9996, 20777, 5300],
+            startup_self_test_verdict: None,
+            startup_probe_failures: 0,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("lock_screen_port_bound"));
@@ -2094,6 +2119,103 @@ mod tests {
             assert_eq!(billing_session_id, "sess-abc");
         } else {
             panic!("Wrong variant after roundtrip: expected BillingResumed");
+        }
+    }
+
+    // ── Phase 50 Plan 01: Self-test protocol roundtrip tests ──────────────
+
+    #[test]
+    fn test_run_self_test_roundtrip() {
+        let msg = CoreToAgentMessage::RunSelfTest {
+            request_id: "st-001".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(
+            json.contains("run_self_test"),
+            "Expected 'run_self_test' type tag in: {}",
+            json
+        );
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::RunSelfTest { request_id } = parsed {
+            assert_eq!(request_id, "st-001");
+        } else {
+            panic!("Wrong variant after roundtrip: expected RunSelfTest");
+        }
+    }
+
+    #[test]
+    fn test_self_test_result_roundtrip() {
+        let msg = AgentMessage::SelfTestResult {
+            pod_id: "pod-8".to_string(),
+            request_id: "st-001".to_string(),
+            report: serde_json::json!({
+                "probes": [],
+                "verdict": null,
+                "timestamp": "2026-03-19T00:00:00Z"
+            }),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(
+            json.contains("self_test_result"),
+            "Expected 'self_test_result' type tag in: {}",
+            json
+        );
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::SelfTestResult { pod_id, request_id, report } = parsed {
+            assert_eq!(pod_id, "pod-8");
+            assert_eq!(request_id, "st-001");
+            assert_eq!(report["timestamp"], "2026-03-19T00:00:00Z");
+        } else {
+            panic!("Wrong variant after roundtrip: expected SelfTestResult");
+        }
+    }
+
+    #[test]
+    fn test_startup_report_phase50_backward_compat() {
+        // Old JSON without Phase 50 fields must deserialize with None/0 defaults
+        let old_json = r#"{"type":"startup_report","data":{"pod_id":"pod_3","version":"0.5.2","uptime_secs":5,"config_hash":"abc","crash_recovery":false,"repairs":[]}}"#;
+        let parsed: AgentMessage = serde_json::from_str(old_json).unwrap();
+        if let AgentMessage::StartupReport {
+            startup_self_test_verdict,
+            startup_probe_failures,
+            pod_id,
+            ..
+        } = parsed {
+            assert_eq!(pod_id, "pod_3");
+            assert!(startup_self_test_verdict.is_none(), "Expected None for missing field");
+            assert_eq!(startup_probe_failures, 0, "Expected 0 for missing field");
+        } else {
+            panic!("Wrong variant after roundtrip: expected StartupReport");
+        }
+    }
+
+    #[test]
+    fn test_startup_report_phase50_with_verdict() {
+        let msg = AgentMessage::StartupReport {
+            pod_id: "pod_8".to_string(),
+            version: "0.5.3".to_string(),
+            uptime_secs: 10,
+            config_hash: "deadbeef".to_string(),
+            crash_recovery: false,
+            repairs: vec![],
+            lock_screen_port_bound: true,
+            remote_ops_port_bound: true,
+            hid_detected: true,
+            udp_ports_bound: vec![9996],
+            startup_self_test_verdict: Some("HEALTHY".to_string()),
+            startup_probe_failures: 0,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::StartupReport {
+            startup_self_test_verdict,
+            startup_probe_failures,
+            ..
+        } = parsed {
+            assert_eq!(startup_self_test_verdict, Some("HEALTHY".to_string()));
+            assert_eq!(startup_probe_failures, 0);
+        } else {
+            panic!("Wrong variant after roundtrip: expected StartupReport");
         }
     }
 }
