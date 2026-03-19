@@ -69,15 +69,23 @@ screen is fullscreen Edge kiosk — outer padding 32px, inner card padding 24px.
 
 ### Lock Screen HTML (Rust-rendered, embedded CSS in lock_screen.rs)
 
+Two weights only: 400 (regular) and 700 (bold). Heading weight moved from
+600 to 700 to eliminate the third weight tier (checker fix — Option A applied).
+
 | Role | Size | Weight | Line Height | Notes |
 |------|------|--------|-------------|-------|
 | Body | 16px | 400 | 1.5 | Status messages, driver name |
 | Label | 14px | 400 | 1.4 | Secondary info (tier, time) |
-| Heading | 24px | 600 | 1.2 | Primary state label ("Game crashed") |
+| Heading | 24px | 700 | 1.2 | Primary state label ("Game crashed", "Ready") |
 | Display | 48px | 700 | 1.0 | Countdown timer digits only |
 
+Heading at 24px/700 reads bold enough at that size. Display at 48px/700 is
+visually justified by the size gap (24px difference) — the two weights are
+differentiated by size, not weight variation. All new lock screen states
+(crash recovery, auto-end, idle PinEntry) must match these sizes.
+
 Source: Existing lock screen HTML patterns in lock_screen.rs (PinEntry,
-SessionSummary). New states (crash recovery, auto-end) must match these sizes.
+SessionSummary).
 
 ### Win32 Overlay (GDI text in overlay.rs)
 
@@ -138,9 +146,13 @@ These are full-screen states rendered by the Rust HTTP server.
 
 #### Idle PinEntry (new show_idle_pin_entry() helper — SESSION-02)
 
+The Heading "Ready" is the primary focal point of the idle PinEntry state.
+It is rendered at 24px/700 in #FFFFFF, centered on the card, and is the
+first text element the customer reads when approaching the rig.
+
 | Element | Copy |
 |---------|------|
-| Heading | "Ready" |
+| Heading (primary focal point) | "Ready" |
 | Subheading | "Scan the QR code on this rig to begin your session" |
 | Small text below | "Or ask staff to assign a session" |
 
@@ -264,6 +276,10 @@ No third-party registries. No new npm packages. No new Cargo dependencies.
 5. end_reason badge in KioskPodCard is additive only. Do not restructure
    the existing card layout. Render as a small pill (same style as existing
    warning badge) positioned below the session status line.
+
+6. Typography enforcement: lock screen CSS must declare exactly two
+   font-weight values — 400 and 700. No 600 (semibold) values anywhere in
+   the embedded HTML/CSS string. Heading elements use font-weight: 700.
 
 ---
 
