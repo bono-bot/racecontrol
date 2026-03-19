@@ -138,6 +138,10 @@ pub struct AppState {
     /// Populated by ws_exec_on_pod(), resolved by ExecResult handler in ws/mod.rs.
     /// Cleaned up on agent disconnect (entries prefixed with pod_id).
     pub pending_ws_execs: RwLock<HashMap<String, tokio::sync::oneshot::Sender<WsExecResult>>>,
+    /// Phase 50: Pending self-test responses: request_id -> (pod_id, oneshot sender).
+    /// Populated by pod_self_test handler, resolved by SelfTestResult in ws/mod.rs.
+    /// Cleaned up on agent disconnect (entries matching pod_id).
+    pub pending_self_tests: RwLock<HashMap<String, (String, tokio::sync::oneshot::Sender<serde_json::Value>)>>,
     /// Shared relay availability flag — written by cloud_sync (with hysteresis),
     /// read by action_queue. Avoids duplicate health-check loops.
     pub relay_available: AtomicBool,
@@ -192,6 +196,7 @@ impl AppState {
             pending_deploys: RwLock::new(HashMap::new()),
             assist_cache: RwLock::new(HashMap::new()),
             pending_ws_execs: RwLock::new(HashMap::new()),
+            pending_self_tests: RwLock::new(HashMap::new()),
             relay_available: AtomicBool::new(false),
             pod_fleet_health: RwLock::new(HashMap::new()),
         }

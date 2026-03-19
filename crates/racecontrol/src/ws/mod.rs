@@ -681,7 +681,12 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 "[self-test] Pod {} returned self-test results for request_id={}",
                                 pod_id, request_id
                             );
-                            let _ = report; // Phase 50 Plan 02 will wire routing to dashboard
+                            let mut pending = state.pending_self_tests.write().await;
+                            if let Some((_pod_id, tx)) = pending.remove(request_id.as_str()) {
+                                let _ = tx.send(report.clone());
+                            } else {
+                                tracing::warn!("[self-test] Received SelfTestResult for unknown request_id: {}", request_id);
+                            }
                         }
                     }
                 }
@@ -729,6 +734,17 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                 }
                 if !stale_keys.is_empty() {
                     tracing::info!("Cleaned {} pending WS command(s) for disconnected {}", stale_keys.len(), pod_id);
+                }
+            }
+
+            // Clean up pending self-tests for disconnected pod
+            {
+                let mut pending = state.pending_self_tests.write().await;
+                let before = pending.len();
+                pending.retain(|_req_id, (pid, _tx)| pid != pod_id);
+                let removed = before - pending.len();
+                if removed > 0 {
+                    tracing::info!("Cleaned {} pending self-test(s) for disconnected {}", removed, pod_id);
                 }
             }
 

@@ -48,6 +48,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/pods/restart-all", post(restart_all_pods))
         .route("/pods/lockdown-all", post(lockdown_all_pods))
         .route("/pods/{id}/exec", post(ws_exec_pod))
+        .route("/pods/{id}/self-test", get(pod_self_test))
         // Drivers
         .route("/drivers", get(list_drivers).post(create_driver))
         .route("/drivers/{id}", get(get_driver))
@@ -748,6 +749,59 @@ async fn ws_exec_pod(
             Json(json!({ "success": success, "stdout": stdout, "stderr": stderr }))
         }
         Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+/// Phase 50: GET /pods/{id}/self-test — Trigger self-test on a pod via WS, return probe results + LLM verdict.
+/// Timeout: 30s (probes run ~10s, LLM verdict adds ~5s).
+async fn pod_self_test(
+    State(state): State<Arc<AppState>>,
+    Path(pod_id): Path<String>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    // 1. Get the WS sender for this pod
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        senders.get(&pod_id).cloned()
+    };
+    let Some(sender) = sender else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("pod {} not connected", pod_id)})),
+        ).into_response();
+    };
+
+    // 2. Register a one-shot channel for the response
+    let request_id = format!("selftest-{}", uuid::Uuid::new_v4());
+    let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();
+    {
+        let mut pending = state.pending_self_tests.write().await;
+        pending.insert(request_id.clone(), (pod_id.clone(), tx));
+    }
+
+    // 3. Send RunSelfTest command
+    if sender.send(CoreToAgentMessage::RunSelfTest { request_id: request_id.clone() }).await.is_err() {
+        let mut pending = state.pending_self_tests.write().await;
+        pending.remove(&request_id);
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "failed to send command to agent"})),
+        ).into_response();
+    }
+
+    // 4. Await response with 30s timeout
+    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(report)) => Json(report).into_response(),
+        Ok(Err(_)) => {
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "response channel dropped"}))).into_response()
+        }
+        Err(_) => {
+            // Clean up timed-out entry
+            let mut pending = state.pending_self_tests.write().await;
+            pending.remove(&request_id);
+            (axum::http::StatusCode::GATEWAY_TIMEOUT, Json(json!({"error": "self-test timed out after 30s"}))).into_response()
+        }
     }
 }
 
