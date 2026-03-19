@@ -92,7 +92,7 @@ echo "--- Gate 2: Binary size check on canary pod (DEPL-01) ---"
 
 BINARY_RESP=$(curl -s --max-time 10 -X POST "http://${POD_IP}:8091/exec" \
     -H "Content-Type: application/json" \
-    -d '{"cmd": "powershell -NonInteractive -Command \"(Get-Item '\''C:/RacingPoint/rc-agent.exe'\'').Length\""}' 2>/dev/null || echo "")
+    -d "{\"cmd\": \"dir C:/RacingPoint/rc-agent.exe\"}" 2>/dev/null || echo "")
 
 BINARY_SIZE=$(echo "$BINARY_RESP" | python3 -c "
 import sys, json, re
@@ -122,10 +122,11 @@ echo ""
 echo "--- Gate 3: Port conflict detection — kiosk :3300 (DEPL-01) ---"
 
 KIOSK_PORT_OK=false
-KIOSK_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${SERVER_IP}:3300/" 2>/dev/null || echo "000")
+# Kiosk binds to 127.0.0.1:3300 (loopback only) — check via racecontrol proxy at :8080/kiosk
+KIOSK_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${SERVER_IP}:8080/kiosk" 2>/dev/null || echo "000")
 
 if [ "$KIOSK_CODE" = "200" ] || [ "$KIOSK_CODE" = "307" ] || [ "$KIOSK_CODE" = "308" ]; then
-    pass "Kiosk :3300 is serving (HTTP ${KIOSK_CODE})"
+    pass "Kiosk serving via :8080/kiosk proxy (HTTP ${KIOSK_CODE})"
     KIOSK_PORT_OK=true
 elif [ "$KIOSK_CODE" = "000" ]; then
     info "Kiosk :3300 not responding (HTTP 000) — checking if port is stuck (EADDRINUSE detection)"
