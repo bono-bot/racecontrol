@@ -11,6 +11,7 @@
 
 use std::os::windows::process::CommandExt;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -162,20 +163,32 @@ fn count_close_wait_on_8090() -> usize {
         .count()
 }
 
+/// Shared reqwest client for Ollama queries — initialized once, reused forever.
+/// Avoids per-call client construction overhead and connection pool thrashing.
+static OLLAMA_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn ollama_client() -> &'static reqwest::Client {
+    OLLAMA_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("ollama HTTP client build failed")
+    })
+}
+
 /// Query local Ollama for a short health decision. 30s timeout.
 async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
     #[derive(Deserialize)]
     struct OllamaResp {
         response: String,
     }
-    let resp = reqwest::Client::new()
+    let resp = ollama_client()
         .post(format!("{}/api/generate", url))
         .json(&serde_json::json!({
             "model": model,
             "prompt": prompt,
             "stream": false,
         }))
-        .timeout(Duration::from_secs(30))
         .send()
         .await?
         .json::<OllamaResp>()

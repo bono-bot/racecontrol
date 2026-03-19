@@ -2413,24 +2413,51 @@ async fn run_hid_monitor(
     }
 }
 
+/// Create a UDP socket with SO_REUSEADDR and non-inheritable handle.
+/// Mirrors the TCP pattern in remote_ops.rs for :8090.
+/// On Windows, non-inheritable prevents cmd.exe children from holding the port open
+/// after rc-agent exits (which would cause error 10048 on self-relaunch).
+fn bind_udp_reusable(port: u16) -> Option<tokio::net::UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+
+    let raw = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).ok()?;
+    raw.set_reuse_address(true).ok()?;
+    raw.set_nonblocking(true).ok()?;
+    let addr: std::net::SocketAddr = format!("0.0.0.0:{}", port).parse().ok()?;
+    raw.bind(&addr.into()).ok()?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        use winapi::um::handleapi::SetHandleInformation;
+        const HANDLE_FLAG_INHERIT: u32 = 0x00000001;
+        let sock_handle = raw.as_raw_socket() as usize;
+        let ok = unsafe { SetHandleInformation(sock_handle as *mut _, HANDLE_FLAG_INHERIT, 0) };
+        if ok == 0 {
+            tracing::warn!("UDP port {}: SetHandleInformation failed", port);
+        }
+    }
+
+    let std_sock: std::net::UdpSocket = raw.into();
+    tokio::net::UdpSocket::from_std(std_sock).ok()
+}
+
 /// UDP telemetry port monitor — listens on multiple game telemetry ports.
 /// If any data arrives on any port, signals that a game is actively outputting telemetry.
 async fn run_udp_monitor(ports: Vec<u16>, signal_tx: mpsc::Sender<DetectorSignal>) {
-    use tokio::net::UdpSocket;
-
     // Spawn a listener task per port — each sends UdpActive signals independently
     for port in ports {
         let tx = signal_tx.clone();
         tokio::spawn(async move {
-            let sock = match UdpSocket::bind(format!("0.0.0.0:{}", port)).await {
-                Ok(s) => {
-                    tracing::info!("Listening for game telemetry on UDP port {}", port);
+            let sock = match bind_udp_reusable(port) {
+                Some(s) => {
+                    tracing::info!("Listening for game telemetry on UDP port {} (SO_REUSEADDR)", port);
                     s
                 }
-                Err(e) => {
+                None => {
                     tracing::warn!(
-                        "Could not bind UDP port {}: {} (game may already be using it)",
-                        port, e
+                        "Could not bind UDP port {} with SO_REUSEADDR (game may already be using it)",
+                        port
                     );
                     return;
                 }
