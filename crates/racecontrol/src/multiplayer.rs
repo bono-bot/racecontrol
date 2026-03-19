@@ -217,7 +217,7 @@ pub async fn book_multiplayer(
         state,
         host_id,
         price_paise,
-        "multiplayer_booking",
+        "debit_session",
         Some(&group_session_id),
         Some(&format!("Multiplayer session: {}", experience_name)),
     )
@@ -398,7 +398,7 @@ pub async fn accept_group_invite(
         state,
         driver_id,
         price_paise,
-        "multiplayer_booking",
+        "debit_session",
         Some(group_session_id),
         Some("Multiplayer session invite accepted"),
     )
@@ -623,8 +623,17 @@ pub async fn on_member_validated(
             .await
             .map_err(|e| format!("DB error: {}", e))?;
 
-        // Auto-start AC LAN session
-        let _ = start_ac_lan_for_group(state, group_session_id).await;
+        // Auto-start AC LAN session — propagate errors so callers know launch failed
+        if let Err(e) = start_ac_lan_for_group(state, group_session_id).await {
+            tracing::error!("AC LAN launch failed for group {}: {}", group_session_id, e);
+            // Mark session as failed so dashboard/API reflects the error
+            let _ = sqlx::query(
+                "UPDATE group_sessions SET status = 'ac_launch_failed' WHERE id = ?",
+            )
+            .bind(group_session_id)
+            .execute(&state.db)
+            .await;
+        }
     } else {
         // Show "Waiting for friends..." on the validated member's pod
         let pod_id: Option<(Option<String>,)> = sqlx::query_as(
@@ -745,7 +754,7 @@ pub async fn atomic_multi_debit(
             state,
             driver_id,
             price_paise,
-            "multiplayer_booking",
+            "debit_session",
             Some(reference_id),
             Some(notes),
         )
@@ -926,8 +935,20 @@ pub async fn staff_book_multiplayer(
         .map_err(|e| format!("DB error: {}", e))?;
     }
 
-    // Start AC LAN or launch individual games
-    let _ = start_ac_lan_for_group(state, &group_session_id).await;
+    // Start AC LAN or launch individual games — surface errors to caller
+    if let Err(e) = start_ac_lan_for_group(state, &group_session_id).await {
+        tracing::error!("AC LAN launch failed for staff group {}: {}", group_session_id, e);
+        // Mark session as failed
+        let _ = sqlx::query(
+            "UPDATE group_sessions SET status = 'ac_launch_failed' WHERE id = ?",
+        )
+        .bind(&group_session_id)
+        .execute(&state.db)
+        .await;
+        // Don't return error — booking succeeded, billing was charged.
+        // The error is recorded in session status for the dashboard.
+        // Staff can retry or refund.
+    }
 
     // Build and return response
     let info = build_group_session_info(state, &group_session_id).await?;
@@ -1550,7 +1571,7 @@ pub async fn book_multiplayer_kiosk(
         state,
         host_id,
         total_price,
-        "multiplayer_kiosk",
+        "debit_session",
         None,
         Some(&format!("Kiosk multiplayer: {} x {} pods", experience_name, pod_count)),
     )
