@@ -151,6 +151,48 @@ impl LockScreenManager {
         });
     }
 
+    /// Start the lock screen HTTP server and return a oneshot receiver that
+    /// resolves with Ok(port) on successful bind or Err(message) on failure.
+    /// This replaces the fire-and-forget `start_server()` for the main lock screen
+    /// (the early lock screen still uses `start_server()` since bind failure there
+    /// is non-fatal — we just need a branded error page).
+    pub fn start_server_checked(&self) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let state = self.state.clone();
+        let event_tx = self.event_tx.clone();
+        let port = self.port;
+        let wallpaper_url = self.wallpaper_url.clone();
+        tokio::spawn(async move {
+            let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+            let socket = match tokio::net::TcpSocket::new_v4() {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = tx.send(Err(format!("lock screen socket create failed: {}", e)));
+                    return;
+                }
+            };
+            let _ = socket.set_reuseaddr(true);
+            if let Err(e) = socket.bind(addr) {
+                let _ = tx.send(Err(format!("lock screen port {} bind failed: {}", port, e)));
+                return;
+            }
+            let listener = match socket.listen(128) {
+                Ok(l) => {
+                    tracing::info!("Lock screen server listening on http://127.0.0.1:{}", port);
+                    let _ = tx.send(Ok(port));
+                    l
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(format!("lock screen port {} listen failed: {}", port, e)));
+                    return;
+                }
+            };
+            // Run the accept loop with pre-bound listener
+            serve_with_listener(listener, state, event_tx, wallpaper_url).await;
+        });
+        rx
+    }
+
     /// Wait until the local HTTP server is ready to accept connections (port 18923 bound).
     ///
     /// Polls `127.0.0.1:{port}` with a 100ms connect timeout, retrying every 50ms.
@@ -665,7 +707,16 @@ async fn serve_lock_screen(
             return;
         }
     };
+    serve_with_listener(listener, state, event_tx, wallpaper_url).await;
+}
 
+/// Accept loop shared between `serve_lock_screen` and `start_server_checked`.
+async fn serve_with_listener(
+    listener: tokio::net::TcpListener,
+    state: Arc<Mutex<LockScreenState>>,
+    event_tx: mpsc::Sender<LockScreenEvent>,
+    wallpaper_url: Arc<Mutex<Option<String>>>,
+) {
     loop {
         let (mut stream, _) = match listener.accept().await {
             Ok(conn) => conn,

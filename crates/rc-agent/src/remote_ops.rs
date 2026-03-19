@@ -163,6 +163,110 @@ pub fn start(port: u16) {
     });
 }
 
+/// Start remote ops HTTP server and return a oneshot receiver with the bind result.
+/// The existing retry loop (10 attempts, 3s each) is preserved for CLOSE_WAIT recovery,
+/// but the result is signaled back to main() so bind failures are observable.
+pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    START_TIME.get_or_init(Instant::now);
+
+    tokio::spawn(async move {
+        let app = Router::new()
+            .route("/ping", get(ping))
+            .route("/health", get(health))
+            .route("/info", get(info))
+            .route("/files", get(list_files))
+            .route("/file", get(read_file))
+            .route("/exec", post(exec_command))
+            .route("/mkdir", post(make_dir))
+            .route("/write", post(write_file))
+            .route("/screenshot", get(screenshot))
+            .route("/cursor", get(cursor_position))
+            .route("/input", post(send_input))
+            .layer(middleware::from_fn(connection_close_layer));
+
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+
+        // Same retry loop as start() — signal result on first success or final failure
+        let listener = {
+            let mut bound = None;
+            for attempt in 1..=10u32 {
+                let sock = match socket2::Socket::new(
+                    socket2::Domain::IPV4,
+                    socket2::Type::STREAM,
+                    Some(socket2::Protocol::TCP),
+                ) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("Failed to create socket: {}", e);
+                        let _ = tx.send(Err(format!("remote ops socket create failed: {}", e)));
+                        return;
+                    }
+                };
+                let _ = sock.set_reuse_address(true);
+                let _ = sock.set_nonblocking(true);
+                match sock.bind(&addr.into()) {
+                    Ok(()) => {
+                        let _ = sock.listen(128);
+                        let std_listener: std::net::TcpListener = sock.into();
+                        match tokio::net::TcpListener::from_std(std_listener) {
+                            Ok(l) => {
+                                tracing::info!("Remote ops server listening on http://{}", addr);
+                                bound = Some(l);
+                                break;
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to convert listener (attempt {}): {}", attempt, e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Port {} busy (attempt {}/10): {} — retrying in 3s",
+                            port, attempt, e
+                        );
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                    }
+                }
+            }
+            match bound {
+                Some(l) => {
+                    let _ = tx.send(Ok(port));
+                    l
+                }
+                None => {
+                    let msg = format!("remote ops port {} bind failed after 10 attempts (30s)", port);
+                    tracing::error!("{}", msg);
+                    let _ = tx.send(Err(msg));
+                    return;
+                }
+            }
+        };
+
+        // Mark the listening socket non-inheritable so cmd.exe spawned by
+        // exec_command() cannot keep :8090 alive as a CLOSE_WAIT zombie after
+        // rc-agent exits (which would prevent the new instance from rebinding).
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawSocket;
+            use winapi::um::handleapi::SetHandleInformation;
+            const HANDLE_FLAG_INHERIT: u32 = 0x00000001;
+            let raw = listener.as_raw_socket() as usize;
+            let ok = unsafe { SetHandleInformation(raw as *mut _, HANDLE_FLAG_INHERIT, 0) };
+            if ok == 0 {
+                tracing::warn!("[remote_ops] SetHandleInformation failed — cmd.exe may inherit :8090 socket");
+            } else {
+                tracing::debug!("[remote_ops] Listening socket marked non-inheritable");
+            }
+        }
+
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::error!("Remote ops server error: {}", e);
+        }
+    });
+    rx
+}
+
 // ─── Endpoints ──────────────────────────────────────────────────────────────
 
 async fn ping() -> &'static str {

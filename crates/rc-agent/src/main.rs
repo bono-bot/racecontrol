@@ -18,6 +18,8 @@ mod sims;
 mod startup_log;
 mod udp_heartbeat;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -263,8 +265,61 @@ async fn handle_ws_exec(request_id: String, cmd: String, timeout_ms: u64) -> rc_
     }
 }
 
+/// Guard against recursive panics in the hook
+static PANIC_HOOK_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Lock screen state handle — set after LockScreenManager is created, used by panic hook
+static PANIC_LOCK_STATE: OnceLock<std::sync::Arc<std::sync::Mutex<lock_screen::LockScreenState>>> = OnceLock::new();
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // SAFETY-01: Panic hook — zero FFB + log crash + show error lock screen + exit
+    // Must be installed BEFORE any other init so even config-load panics are caught.
+    // The hook is sync-only: no async, no allocator-dependent code, try_lock not lock.
+    let ffb_vid: u16 = 0x1209;  // Conspit Ares OpenFFBoard defaults
+    let ffb_pid: u16 = 0xFFB0;
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // Guard: only run once if somehow called recursively
+        if PANIC_HOOK_ACTIVE.swap(true, Ordering::SeqCst) {
+            std::process::exit(1);
+        }
+
+        // 1. Log to stderr (always safe)
+        eprintln!("[rc-agent PANIC] {:?}", panic_info);
+
+        // 2. Append to rc-bot-events.log (sync file write, safe)
+        {
+            use std::io::Write;
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(r"C:\RacingPoint\rc-bot-events.log")
+                .and_then(|mut f| {
+                    writeln!(f, "[{}] [PANIC] rc-agent crashed: {:?}",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        panic_info)
+                });
+        }
+
+        // 3. Zero FFB — the critical safety action (SAFETY-03 retry logic)
+        let ffb = ffb_controller::FfbController::new(ffb_vid, ffb_pid);
+        ffb.zero_force_with_retry(3, 100);
+
+        // 4. Update lock screen to show error (use try_lock to avoid deadlock)
+        if let Some(state_handle) = PANIC_LOCK_STATE.get() {
+            if let Ok(mut state) = state_handle.try_lock() {
+                *state = lock_screen::LockScreenState::ConfigError {
+                    message: "System Error — Please Contact Staff".to_string(),
+                };
+            }
+        }
+
+        // 5. Small delay to let the HTTP server serve the error page
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // 6. Exit cleanly — no stack unwinding from here
+        std::process::exit(1);
+    }));
+
     // Single-instance guard: prevent zombie rc-agent processes
     #[cfg(windows)]
     let _mutex_guard = {
@@ -426,8 +481,9 @@ async fn main() -> Result<()> {
     startup_log::write_phase("firewall", "");
 
     // Remote ops HTTP server (merged pod-agent) — port 8090
-    remote_ops::start(8090);
-    tracing::info!("Remote ops server started on port 8090");
+    // SAFETY-02: start_checked returns a oneshot so bind failures are observable.
+    // We start it early so the retry loop (up to 30s) runs concurrently with other init.
+    let remote_ops_rx = remote_ops::start_checked(8090);
     startup_log::write_phase("http_server", "port=8090");
 
     // Set up driving detector (USB HID + UDP)
@@ -445,17 +501,14 @@ async fn main() -> Result<()> {
         config.wheelbase.product_id,
     ));
 
-    // FFB-03: Zero force on startup — recover from any prior unclean exit
-    {
+    // FFB-03: Zero force on startup with retry — recover from any prior unclean exit
+    // hid_detected = true if device found and command succeeded (used in BootVerification)
+    let hid_detected = {
         let ffb_startup = ffb.clone();
         tokio::task::spawn_blocking(move || {
-            match ffb_startup.zero_force() {
-                Ok(true) => tracing::info!("Startup: wheelbase FFB zeroed (safety)"),
-                Ok(false) => tracing::debug!("Startup: wheelbase not found — FFB zero skipped"),
-                Err(e) => tracing::warn!("Startup: FFB zero failed: {} — continuing", e),
-            }
-        });
-    }
+            ffb_startup.zero_force_with_retry(3, 100)
+        }).await.unwrap_or(false)
+    };
 
     // Channel for detector signals from HID/UDP tasks
     let (signal_tx, mut signal_rx) = mpsc::channel::<DetectorSignal>(256);
@@ -536,12 +589,34 @@ async fn main() -> Result<()> {
     // Always start the lock screen server so customers can enter PINs
     let (lock_event_tx, mut lock_event_rx) = mpsc::channel::<LockScreenEvent>(16);
     let mut lock_screen = LockScreenManager::new(lock_event_tx);
-    lock_screen.start_server();
-    tracing::info!("Lock screen server started on port 18923");
+    // SAFETY-02: Use start_server_checked so bind failure is observable (not silent)
+    let lock_screen_rx = lock_screen.start_server_checked();
 
-    // LOCK-01: Wait for HTTP server to accept connections before launching browser.
-    // Eliminates ERR_CONNECTION_REFUSED race where Edge opens before port 18923 is bound.
-    lock_screen.wait_for_self_ready().await;
+    // Register lock screen state with panic hook so it can show error on crash
+    let _ = PANIC_LOCK_STATE.set(lock_screen.state_handle());
+
+    // SAFETY-02: Wait for lock screen bind result — exit on failure
+    let lock_screen_bound = match tokio::time::timeout(
+        Duration::from_secs(5),
+        lock_screen_rx,
+    ).await {
+        Ok(Ok(Ok(port))) => {
+            tracing::info!("Lock screen server bound on port {}", port);
+            true
+        }
+        Ok(Ok(Err(e))) => {
+            tracing::error!("FATAL: Lock screen bind failed: {}", e);
+            std::process::exit(1);
+        }
+        Ok(Err(_)) => {
+            tracing::error!("FATAL: Lock screen bind result channel dropped");
+            std::process::exit(1);
+        }
+        Err(_) => {
+            tracing::error!("FATAL: Lock screen bind timed out after 5s");
+            std::process::exit(1);
+        }
+    };
 
     // LOCK-02: Show branded startup page immediately — customers see Racing Point
     // branding while rc-agent connects to racecontrol, not a blank screen or idle message.
@@ -571,7 +646,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(8)).await;
             tokio::task::spawn_blocking(move || {
-                ffb_startup_cleanup.zero_force().ok();
+                ffb_startup_cleanup.zero_force_with_retry(3, 100);
                 ac_launcher::enforce_safe_state();
             });
             tracing::info!("Startup: safe state enforced — pod clean for first customer");
@@ -624,6 +699,30 @@ async fn main() -> Result<()> {
         pod_id.clone(),
     );
     tracing::info!("Billing guard started");
+
+    // SAFETY-02: Wait for remote ops bind result — exit on failure.
+    // Started early (before FFB/HID init) so the 30s retry window runs concurrently.
+    let remote_ops_bound = match tokio::time::timeout(
+        Duration::from_secs(35), // 10 attempts * 3s + margin
+        remote_ops_rx,
+    ).await {
+        Ok(Ok(Ok(port))) => {
+            tracing::info!("Remote ops server bound on port {}", port);
+            true
+        }
+        Ok(Ok(Err(e))) => {
+            tracing::error!("FATAL: Remote ops bind failed: {}", e);
+            std::process::exit(1);
+        }
+        Ok(Err(_)) => {
+            tracing::error!("FATAL: Remote ops bind result channel dropped");
+            std::process::exit(1);
+        }
+        Err(_) => {
+            tracing::error!("FATAL: Remote ops bind timed out after 35s");
+            std::process::exit(1);
+        }
+    };
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
@@ -706,11 +805,11 @@ async fn main() -> Result<()> {
                     if heal_result.registry_repaired { r.push("registry_key".to_string()); }
                     r
                 },
-                // Phase 46: boot verification fields — populated in Plan 02
-                lock_screen_port_bound: false,
-                remote_ops_port_bound: false,
-                hid_detected: false,
-                udp_ports_bound: vec![],
+                // Phase 46 SAFETY-04: boot verification fields — wired in Plan 02
+                lock_screen_port_bound: lock_screen_bound,
+                remote_ops_port_bound: remote_ops_bound,
+                hid_detected,
+                udp_ports_bound: config.telemetry_ports.ports.clone(),
             };
             if let Ok(json) = serde_json::to_string(&startup_report) {
                 if ws_tx.send(Message::Text(json.into())).await.is_ok() {
