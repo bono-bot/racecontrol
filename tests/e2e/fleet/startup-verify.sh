@@ -13,13 +13,13 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 source "$SCRIPT_DIR/../lib/common.sh"
 source "$SCRIPT_DIR/../lib/pod-map.sh"
 
-SERVER_URL="${RC_BASE_URL:-http://192.168.31.23:8080}"
+SERVER_URL="${RC_BASE_URL:-http://192.168.31.23:8080/api/v1}"
 
 info "Pod Startup Verification (Phase 46: Crash Safety)"
 echo ""
 
 # Fetch fleet health once (reuse for all pods -- avoid redundant HTTP calls)
-FLEET_HEALTH=$(curl -s --max-time 10 "${SERVER_URL}/api/v1/fleet/health" 2>/dev/null)
+FLEET_HEALTH=$(curl -s --max-time 10 "${SERVER_URL}/fleet/health" 2>/dev/null)
 if [ -z "$FLEET_HEALTH" ]; then
     fail "Could not reach server fleet/health endpoint at ${SERVER_URL}"
     summary_exit

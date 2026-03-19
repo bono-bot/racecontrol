@@ -14,7 +14,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 source "$SCRIPT_DIR/../lib/common.sh"
 source "$SCRIPT_DIR/../lib/pod-map.sh"
 
-SERVER_URL="${RC_BASE_URL:-http://192.168.31.23:8080}/api/v1"
+SERVER_URL="${RC_BASE_URL:-http://192.168.31.23:8080/api/v1}"
 SELFTEST_TIMEOUT=35
 
 info "Fleet Pod Self-Test (Phase 50: LLM Self-Test + Fleet Health)"

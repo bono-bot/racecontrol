@@ -91,9 +91,15 @@ async fn launch_game(
     }
 
     // LIFE-02: Reject launch if no active billing session
+    // Try both pod-N and pod_N formats for billing lookup
+    let billing_alt_id = if pod_id.contains('-') {
+        pod_id.replace('-', "_")
+    } else {
+        pod_id.replace('_', "-")
+    };
     {
         let timers = state.billing.active_timers.read().await;
-        if !timers.contains_key(pod_id) {
+        if !timers.contains_key(pod_id) && !timers.contains_key(&billing_alt_id) {
             tracing::warn!("Launch rejected for pod {}: no active billing session", pod_id);
             return Err(format!("Pod {} has no active billing session", pod_id));
         }
@@ -102,7 +108,7 @@ async fn launch_game(
     // LIFE-04: Check if a game is currently launching or running (avoid double-launch)
     {
         let games = state.game_launcher.active_games.read().await;
-        if let Some(tracker) = games.get(pod_id) {
+        if let Some(tracker) = games.get(pod_id).or_else(|| games.get(&billing_alt_id)) {
             if matches!(tracker.game_state, GameState::Launching | GameState::Running) {
                 return Err(format!("Pod {} already has a game active", pod_id));
             }
@@ -133,8 +139,14 @@ async fn launch_game(
         .insert(pod_id.to_string(), tracker);
 
     // Send command to agent
+    // Try both pod-N and pod_N formats (agents register with underscore, API may receive hyphen)
     let senders = state.agent_senders.read().await;
-    if let Some(tx) = senders.get(pod_id) {
+    let alt_id = if pod_id.contains('-') {
+        pod_id.replace('-', "_")
+    } else {
+        pod_id.replace('_', "-")
+    };
+    if let Some(tx) = senders.get(pod_id).or_else(|| senders.get(&alt_id)) {
         let cmd = CoreToAgentMessage::LaunchGame {
             sim_type,
             launch_args,
@@ -211,9 +223,10 @@ pub async fn relaunch_game(
         }
     }
 
-    // Send LaunchGame to agent
+    // Send LaunchGame to agent (try both pod-N and pod_N formats)
     let senders = state.agent_senders.read().await;
-    let tx = senders.get(pod_id).ok_or("Pod not connected")?;
+    let relaunch_alt = if pod_id.contains('-') { pod_id.replace('-', "_") } else { pod_id.replace('_', "-") };
+    let tx = senders.get(pod_id).or_else(|| senders.get(&relaunch_alt)).ok_or("Pod not connected")?;
     tx.send(CoreToAgentMessage::LaunchGame {
         sim_type,
         launch_args,
@@ -253,9 +266,10 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
     if let Some(info) = info {
         log_pod_activity(state, pod_id, "game", "Game Stopping", "", "core");
 
-        // Send command to agent
+        // Send command to agent (try both pod-N and pod_N formats)
         let senders = state.agent_senders.read().await;
-        if let Some(tx) = senders.get(pod_id) {
+        let stop_alt = if pod_id.contains('-') { pod_id.replace('-', "_") } else { pod_id.replace('_', "-") };
+        if let Some(tx) = senders.get(pod_id).or_else(|| senders.get(&stop_alt)) {
             if let Err(e) = tx.send(CoreToAgentMessage::StopGame).await {
                 tracing::error!("Failed to send StopGame to pod {}: {}", pod_id, e);
             }
