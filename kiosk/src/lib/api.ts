@@ -358,4 +358,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ pod_id, experience_id }),
     }),
+
+  // Kiosk Allowlist
+  listKioskAllowlist: () =>
+    fetchApi<{ allowlist: { id: string; process_name: string; added_by: string; notes: string | null; created_at: string }[]; hardcoded_count: number }>("/config/kiosk-allowlist"),
+
+  addKioskAllowlistEntry: (processName: string, notes?: string) =>
+    fetchApi<{ id?: string; process_name?: string; status?: string; message?: string }>("/config/kiosk-allowlist", {
+      method: "POST",
+      body: JSON.stringify({ process_name: processName, notes }),
+    }),
+
+  deleteKioskAllowlistEntry: (processName: string) =>
+    fetchApi<void>(`/config/kiosk-allowlist/${encodeURIComponent(processName)}`, {
+      method: "DELETE",
+    }),
 };

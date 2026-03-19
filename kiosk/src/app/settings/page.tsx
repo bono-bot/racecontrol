@@ -10,6 +10,9 @@ export default function SettingsPage() {
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
   const [settings, setSettings] = useState<KioskSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [allowlist, setAllowlist] = useState<{id: string; process_name: string; added_by: string; notes: string | null; created_at: string}[]>([]);
+  const [hardcodedCount, setHardcodedCount] = useState<number>(70);
+  const [newProcessName, setNewProcessName] = useState("");
   const { deployStates, sendDeployRolling } = useKioskSocket();
 
   useEffect(() => {
@@ -18,12 +21,15 @@ export default function SettingsPage() {
 
   async function loadData() {
     try {
-      const [expRes, setRes] = await Promise.all([
+      const [expRes, setRes, allowlistRes] = await Promise.all([
         api.listExperiences(),
         api.getSettings(),
+        api.listKioskAllowlist(),
       ]);
       setExperiences(expRes.experiences || []);
       setSettings(setRes.settings || null);
+      setAllowlist(allowlistRes.allowlist || []);
+      setHardcodedCount(allowlistRes.hardcoded_count ?? 70);
     } catch (e) {
       console.error("Failed to load settings:", e);
     } finally {
@@ -39,6 +45,33 @@ export default function SettingsPage() {
   async function handleDeleteExperience(id: string) {
     await api.deleteExperience(id);
     setExperiences((prev) => prev.filter((e) => e.id !== id));
+  }
+
+  async function handleAddAllowlistEntry() {
+    const name = newProcessName.trim();
+    if (!name) return;
+    try {
+      const res = await api.addKioskAllowlistEntry(name);
+      if (res.status === "already_in_baseline" || res.status === "already_exists") {
+        alert(res.message || `'${name}' is already in the allowlist`);
+      } else {
+        const allowlistRes = await api.listKioskAllowlist();
+        setAllowlist(allowlistRes.allowlist || []);
+        setHardcodedCount(allowlistRes.hardcoded_count ?? 70);
+      }
+    } catch (e) {
+      console.error("Failed to add allowlist entry:", e);
+    }
+    setNewProcessName("");
+  }
+
+  async function handleDeleteAllowlistEntry(processName: string) {
+    try {
+      await api.deleteKioskAllowlistEntry(processName);
+      setAllowlist((prev) => prev.filter((e) => e.process_name !== processName));
+    } catch (e) {
+      console.error("Failed to delete allowlist entry:", e);
+    }
   }
 
   if (loading) {
@@ -161,6 +194,61 @@ export default function SettingsPage() {
                 </div>
                 <button
                   onClick={() => handleDeleteExperience(exp.id)}
+                  className="px-3 py-1 text-xs border border-rp-border text-rp-grey hover:text-rp-red hover:border-rp-red/50 rounded transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Kiosk Allowlist */}
+        <section>
+          <div className="flex items-center justify-between mb-4 border-b border-rp-border pb-2">
+            <h2 className="text-lg font-semibold">Kiosk Allowlist</h2>
+            <span className="text-xs text-rp-grey">{allowlist.length} staff-added &middot; {hardcodedCount} baseline</span>
+          </div>
+          <p className="text-xs text-rp-grey mb-4">
+            Add process names that the kiosk lock screen should allow. The ~{hardcodedCount} baseline entries (game clients, system processes) are built in to rc-agent and cannot be removed here.
+          </p>
+          {/* Add entry row */}
+          <div className="flex gap-2 mb-4">
+            <input
+              type="text"
+              value={newProcessName}
+              onChange={(e) => setNewProcessName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAddAllowlistEntry()}
+              placeholder="e.g. myapp.exe"
+              className="flex-1 px-3 py-2 bg-rp-card border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
+            />
+            <button
+              onClick={handleAddAllowlistEntry}
+              className="bg-rp-red hover:bg-red-700 text-white text-sm px-4 py-2 rounded transition-colors"
+            >
+              Add
+            </button>
+          </div>
+          {/* Staff-added entries */}
+          <div className="space-y-2">
+            {allowlist.length === 0 && (
+              <p className="text-xs text-rp-grey py-2">No staff-added entries. Use the field above to add a process name.</p>
+            )}
+            {allowlist.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex items-center justify-between bg-rp-card border border-rp-border rounded px-4 py-3"
+              >
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-white">{entry.process_name}</p>
+                  <p className="text-xs text-rp-grey">
+                    Added by {entry.added_by}
+                    {entry.notes && ` · ${entry.notes}`}
+                    {" · "}{new Date(entry.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDeleteAllowlistEntry(entry.process_name)}
                   className="px-3 py-1 text-xs border border-rp-border text-rp-grey hover:text-rp-red hover:border-rp-red/50 rounded transition-colors"
                 >
                   Remove
