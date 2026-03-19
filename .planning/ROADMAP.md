@@ -301,7 +301,11 @@ Plans:
   4. Unknown process triggers local LLM classification (ALLOW/BLOCK/ASK) — no kill without classification
   5. No false lockdowns occur when a Windows system process runs on any pod
   6. `bash tests/e2e/api/kiosk-allowlist.sh` passes — CRUD test on allowlist API + `npx playwright test allowlist.spec.ts` for admin panel
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 48-01-PLAN.md — Server-side kiosk_allowlist DB table + CRUD API endpoints + admin panel UI (ALLOW-01, ALLOW-02, ALLOW-05)
+- [ ] 48-02-PLAN.md — rc-agent server-fetched allowlist poll + LLM process classifier + E2E test script (ALLOW-03, ALLOW-04, ALLOW-05)
 
 ### Phase 49: Session Lifecycle Autonomy
 **Goal**: rc-agent autonomously handles session end-of-life — auto-ends orphaned billing after configurable timeout, resets pod to idle after session, pauses billing on game crash with auto-resume, and fast-reconnects WebSocket without full relaunch when server blips
