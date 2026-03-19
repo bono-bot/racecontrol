@@ -93,7 +93,7 @@ async fn jwt_error_to_401(
 const WEB_DASHBOARD_PATHS: &[&str] = &[
     "/billing", "/presenter", "/leaderboards", "/drivers", "/pods",
     "/telemetry", "/games", "/ai", "/sessions", "/bookings",
-    "/events", "/settings", "/ac-lan", "/results",
+    "/events", "/settings", "/ac-lan", "/ac-sessions", "/results",
 ];
 
 /// Reverse proxy: forwards /kiosk* and /_next/* to the local Next.js kiosk on port 3300,
@@ -141,40 +141,58 @@ async fn kiosk_proxy(
         Err(_) => return (StatusCode::BAD_REQUEST, "Body too large").into_response(),
     };
 
-    let resp = state.http_client
-        .request(method, &url)
-        .headers(proxy_headers)
-        .body(body_bytes)
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await;
+    // Retry up to 3 times with 1s backoff to absorb backend startup delay.
+    // This eliminates the 502 error page during the typical 3-5s Node.js boot window.
+    let mut last_err = String::new();
+    for attempt in 0..3u8 {
+        let req_method = method.clone();
+        let req_headers = proxy_headers.clone();
+        let req_body = body_bytes.clone();
 
-    match resp {
-        Ok(r) => {
-            let status = StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-            let mut builder = axum::response::Response::builder().status(status);
-            for (key, val) in r.headers() {
-                let k = key.as_str();
-                // Skip hop-by-hop headers that conflict with the final response
-                if k == "transfer-encoding" || k == "connection" || k == "keep-alive" {
-                    continue;
+        let resp = state.http_client
+            .request(req_method, &url)
+            .headers(req_headers)
+            .body(req_body)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => {
+                let status = StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+                let mut builder = axum::response::Response::builder().status(status);
+                for (key, val) in r.headers() {
+                    let k = key.as_str();
+                    if k == "transfer-encoding" || k == "connection" || k == "keep-alive" {
+                        continue;
+                    }
+                    builder = builder.header(k, val.as_bytes());
                 }
-                builder = builder.header(k, val.as_bytes());
+                let body = r.bytes().await.unwrap_or_default();
+                if attempt > 0 {
+                    tracing::info!("Proxy succeeded on attempt {} for {}", attempt + 1, url);
+                }
+                return builder.body(axum::body::Body::from(body)).unwrap().into_response();
             }
-            let body = r.bytes().await.unwrap_or_default();
-            builder.body(axum::body::Body::from(body)).unwrap().into_response()
-        }
-        Err(e) => {
-            tracing::warn!("Proxy error: {e}");
-            let service = if is_kiosk { "Kiosk" } else { "Dashboard" };
-            axum::response::Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .header("content-type", "text/html; charset=utf-8")
-                .body(axum::body::Body::from(backend_unavailable_page(service, port)))
-                .unwrap()
-                .into_response()
+            Err(e) => {
+                last_err = format!("{e}");
+                if attempt < 2 {
+                    tracing::info!("Proxy attempt {} failed for {}, retrying in 1s: {e}", attempt + 1, url);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
         }
     }
+
+    // All 3 retries exhausted — show branded error page
+    tracing::warn!("Proxy failed after 3 attempts for {}: {}", url, last_err);
+    let service = if is_kiosk { "Kiosk" } else { "Dashboard" };
+    axum::response::Response::builder()
+        .status(StatusCode::BAD_GATEWAY)
+        .header("content-type", "text/html; charset=utf-8")
+        .body(axum::body::Body::from(backend_unavailable_page(service, port)))
+        .unwrap()
+        .into_response()
 }
 
 /// Branded error page shown when the kiosk or dashboard backend is unreachable.
