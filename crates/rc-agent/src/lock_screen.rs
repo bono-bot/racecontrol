@@ -263,6 +263,23 @@ impl LockScreenManager {
         self.launch_browser();
     }
 
+    /// Show the idle PinEntry screen — pod is ready for next customer.
+    /// Used after session end (SESSION-02) and orphan auto-end (SESSION-01).
+    /// Renders a clean "Ready" screen without requiring a booking token.
+    pub fn show_idle_pin_entry(&mut self) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::PinEntry {
+                token_id: String::new(),
+                driver_name: String::new(),
+                pricing_tier_name: String::new(),
+                allocated_seconds: 0,
+                pin_error: None,
+            };
+        }
+        self.launch_browser();
+    }
+
     /// Show PIN validation error on lock screen (wrong PIN feedback).
     pub fn show_pin_error(&self, reason: &str) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -960,6 +977,17 @@ fn render_idle_page(wallpaper_url: Option<&str>) -> String {
 }
 
 fn render_pin_page(driver_name: &str, pricing_tier_name: &str, allocated_seconds: u32, pin_error: Option<&str>, wallpaper_url: Option<&str>) -> String {
+    // SESSION-02: If driver_name is empty AND allocated_seconds is 0, show the idle "Ready" screen.
+    // This is the post-session idle state — pod is ready for next customer.
+    if driver_name.is_empty() && allocated_seconds == 0 {
+        let idle_content = r#"<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:40px;">
+  <div style="font-family:'Montserrat',sans-serif;font-size:24px;font-weight:700;color:#FFFFFF;margin-bottom:16px;">Ready</div>
+  <div style="font-family:'Montserrat',sans-serif;font-size:16px;font-weight:400;color:#CCCCCC;margin-bottom:12px;">Scan the QR code on this rig to begin your session</div>
+  <div style="font-family:'Montserrat',sans-serif;font-size:14px;font-weight:400;color:#5A5A5A;">Or ask staff to assign a session</div>
+</div>"#;
+        return page_shell_with_bg("Ready - Racing Point", idle_content, wallpaper_url);
+    }
+
     let minutes = allocated_seconds / 60;
     let error_html = if let Some(_err) = pin_error {
         format!(r#"<div style="color:#ff4444;font-size:18px;margin-bottom:16px;font-weight:bold">Invalid PIN — try again</div>"#)
@@ -1564,6 +1592,58 @@ mod tests {
             !html.contains("location.reload"),
             "Session summary page must NOT contain location.reload — results stay on screen indefinitely (SESS-03)"
         );
+    }
+
+    // ─── Phase 49 Plan 01: Idle PinEntry (SESSION-02) ─────────────────────────
+
+    #[test]
+    fn idle_pin_entry_state_has_empty_fields() {
+        // show_idle_pin_entry() sets PinEntry with empty token_id, driver_name, pricing_tier_name, 0 allocated_seconds
+        let state = LockScreenState::PinEntry {
+            token_id: String::new(),
+            driver_name: String::new(),
+            pricing_tier_name: String::new(),
+            allocated_seconds: 0,
+            pin_error: None,
+        };
+        if let LockScreenState::PinEntry { token_id, driver_name, allocated_seconds, .. } = &state {
+            assert!(token_id.is_empty(), "idle PinEntry token_id must be empty");
+            assert!(driver_name.is_empty(), "idle PinEntry driver_name must be empty");
+            assert_eq!(*allocated_seconds, 0, "idle PinEntry allocated_seconds must be 0");
+        } else {
+            panic!("Expected PinEntry state");
+        }
+    }
+
+    #[test]
+    fn idle_pin_entry_health_ok() {
+        // PinEntry state (even idle) returns health "ok" — pod is functional
+        let state = LockScreenState::PinEntry {
+            token_id: String::new(),
+            driver_name: String::new(),
+            pricing_tier_name: String::new(),
+            allocated_seconds: 0,
+            pin_error: None,
+        };
+        assert_eq!(health_response_body(&state), r#"{"status":"ok"}"#,
+            "Idle PinEntry state must return health 'ok'");
+    }
+
+    #[test]
+    fn idle_pin_entry_renders_ready_heading() {
+        // When driver_name is empty and allocated_seconds=0, render_pin_page shows "Ready" heading
+        let state = LockScreenState::PinEntry {
+            token_id: String::new(),
+            driver_name: String::new(),
+            pricing_tier_name: String::new(),
+            allocated_seconds: 0,
+            pin_error: None,
+        };
+        let html = render_page_public(&state);
+        assert!(html.contains("Ready"),
+            "Idle PinEntry must contain 'Ready' heading, got: {}", &html[..html.len().min(500)]);
+        assert!(html.contains("Scan the QR code") || html.contains("QR"),
+            "Idle PinEntry must mention QR code scanning");
     }
 }
 

@@ -60,7 +60,14 @@ struct AgentConfig {
     ai_debugger: AiDebuggerConfig,
     #[serde(default)]
     kiosk: KioskConfig,
+    /// Orphan billing auto-end timeout in seconds (SESSION-01).
+    /// If billing is active but no game PID detected for this duration, session auto-ends.
+    /// Configurable via TOML, default 300s (5 minutes).
+    #[serde(default = "default_auto_end_orphan_session_secs")]
+    auto_end_orphan_session_secs: u64,
 }
+
+pub fn default_auto_end_orphan_session_secs() -> u64 { 300 }
 
 #[derive(Debug, Deserialize)]
 struct KioskConfig {
@@ -736,12 +743,23 @@ async fn main() -> Result<()> {
 
     // ─── Billing Guard (stuck session + idle drift detection) ────────────────
     // Site billing_guard: spawn billing anomaly detection task (shares watch receiver)
+    // Derive HTTP base URL from WebSocket URL: ws://host:port/ws/agent → http://host:port/api/v1
+    let core_http_base = config.core.url
+        .replace("ws://", "http://")
+        .replace("wss://", "https://")
+        .split("/ws")
+        .next()
+        .unwrap_or("http://127.0.0.1:8080")
+        .to_string()
+        + "/api/v1";
     billing_guard::spawn(
         failure_monitor_tx.subscribe(),
         ws_exec_result_tx.clone(),
         pod_id.clone(),
+        core_http_base,
+        config.auto_end_orphan_session_secs,
     );
-    tracing::info!("Billing guard started");
+    tracing::info!("Billing guard started (orphan_timeout={}s)", config.auto_end_orphan_session_secs);
 
     // ─── Server Allowlist Poll Loop (dynamic kiosk allowlist) ─────────────────
     // Derive HTTP base URL from WebSocket URL: ws://host:port/path → http://host:port
@@ -1211,7 +1229,7 @@ async fn main() -> Result<()> {
                                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                 tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
-                                lock_screen.show_blank_screen();
+                                lock_screen.show_idle_pin_entry();
                             }
                         }
                     }
@@ -1388,14 +1406,14 @@ async fn main() -> Result<()> {
                     });
                 }
             }
-            // Auto-blank after session summary (15s delay) — only if no billing active
+            // Auto-show idle PinEntry after session summary (30s delay) — only if no billing active
             _ = &mut blank_timer, if blank_timer_armed => {
                 blank_timer_armed = false;
                 if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
-                    tracing::info!("Skipping auto-blank — billing is active");
+                    tracing::info!("Skipping idle PinEntry reset — billing is active");
                 } else {
-                    tracing::info!("Auto-blanking screen after session summary");
-                    lock_screen.show_blank_screen();
+                    tracing::info!("Resetting to idle PinEntry after session summary (SESSION-02)");
+                    lock_screen.show_idle_pin_entry();
                     // Final cleanup pass — FFB zero first (awaited), then safe state
                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
@@ -1417,13 +1435,15 @@ async fn main() -> Result<()> {
                 let _ = failure_monitor_tx.send_modify(|s| {
                     s.launch_started_at = None;
                     s.billing_active = false;
+                    s.active_billing_session_id = None;
+                    s.billing_paused = false;
                     s.recovery_in_progress = false;
                 });
                 // SAFETY: Zero FFB FIRST (awaited), before any game cleanup
                 { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
                 tokio::time::sleep(Duration::from_millis(500)).await;
-                // STEP 1: Show lock screen (covers desktop before game cleanup)
-                lock_screen.show_blank_screen();
+                // STEP 1: Show idle PinEntry (SESSION-02: post-crash reset to Ready state)
+                lock_screen.show_idle_pin_entry();
                 // STEP 2: Report FFB status
                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
@@ -1507,9 +1527,11 @@ async fn main() -> Result<()> {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
                                     heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
                                     blank_timer_armed = false; // cancel any pending auto-blank
-                                    // Site 6: BillingStarted — set billing_active in failure_monitor
+                                    // Site 6: BillingStarted — set billing_active + session_id in failure_monitor
+                                    let billing_session_id_clone = billing_session_id.clone();
                                     let _ = failure_monitor_tx.send_modify(|s| {
                                         s.billing_active = true;
+                                        s.active_billing_session_id = Some(billing_session_id_clone);
                                     });
                                     // Cache driver_name for use in LaunchGame splash screen
                                     current_driver_name = Some(driver_name.clone());
@@ -1554,9 +1576,11 @@ async fn main() -> Result<()> {
                                     last_ac_status = None;
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
-                                    // Site 6+3d: BillingStopped — clear billing and launch state in failure_monitor
+                                    // Site 6+3d: BillingStopped — clear billing, session_id, and launch state in failure_monitor
                                     let _ = failure_monitor_tx.send_modify(|s| {
                                         s.billing_active = false;
+                                        s.active_billing_session_id = None;
+                                        s.billing_paused = false;
                                         s.launch_started_at = None;
                                     });
                                     // SAFETY: Zero FFB BEFORE anything else (awaited)
@@ -1591,9 +1615,11 @@ async fn main() -> Result<()> {
                                     last_ac_status = None;
                                     ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
-                                    // Site 7: SessionEnded — clear billing, launch, and recovery state in failure_monitor
+                                    // Site 7: SessionEnded — clear billing, session_id, launch, and recovery state in failure_monitor
                                     let _ = failure_monitor_tx.send_modify(|s| {
                                         s.billing_active = false;
+                                        s.active_billing_session_id = None;
+                                        s.billing_paused = false;
                                         s.launch_started_at = None;
                                         s.recovery_in_progress = false;
                                     });
@@ -1622,8 +1648,8 @@ async fn main() -> Result<()> {
                                     // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
                                     tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
                                     current_driver_name = None;
-                                    // LIFE-03: auto-return to idle after 15s session summary display
-                                    blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(15));
+                                    // SESSION-02: auto-return to idle PinEntry after 30s session summary display
+                                    blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(30));
                                     blank_timer_armed = true;
                                 }
                                 rc_common::protocol::CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
@@ -2361,10 +2387,10 @@ async fn main() -> Result<()> {
                                 rc_common::protocol::CoreToAgentMessage::ApproveProcess { process_name } => {
                                     tracing::info!("Server APPROVED process: {}", process_name);
                                     crate::kiosk::KioskManager::approve_process(&process_name);
-                                    // Clear lockdown if it was triggered by this process
+                                    // Clear lockdown if it was triggered by this process — reset to idle PinEntry
                                     if kiosk.is_locked_down() {
                                         kiosk.exit_lockdown();
-                                        lock_screen.show_blank_screen();
+                                        lock_screen.show_idle_pin_entry();
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::RejectProcess { process_name } => {
@@ -2725,6 +2751,7 @@ mod tests {
             games: GamesConfig::default(),
             ai_debugger: AiDebuggerConfig::default(),
             kiosk: KioskConfig::default(),
+            auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
         }
     }
 
