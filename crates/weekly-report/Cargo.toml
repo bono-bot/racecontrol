@@ -1,0 +1,16 @@
+[package]
+name = "weekly-report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "weekly-report"
+path = "src/main.rs"
+
+[dependencies]
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+tokio = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = "0.10"
