@@ -24,6 +24,7 @@ use axum::{
     response::{IntoResponse, Json},
     routing::{get, post},
 };
+use subtle::ConstantTimeEq;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -66,15 +67,45 @@ async fn connection_close_layer(
     resp
 }
 
+/// Middleware: require X-Service-Key header on protected routes.
+/// When RCAGENT_SERVICE_KEY is empty or unset, all requests pass through
+/// (permissive mode for safe rollout). Uses constant-time comparison to
+/// prevent timing side-channel attacks.
+async fn require_service_key(
+    req: axum::extract::Request,
+    next: middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let expected = std::env::var("RCAGENT_SERVICE_KEY").unwrap_or_default();
+
+    // Permissive mode: no key configured = allow all
+    if expected.is_empty() {
+        return Ok(next.run(req).await);
+    }
+
+    let provided = req.headers()
+        .get("x-service-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    // Constant-time comparison to prevent timing attacks
+    if expected.as_bytes().ct_eq(provided.as_bytes()).into() {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
 /// Start the remote ops HTTP server on the given port.
 /// Spawns an async task — returns immediately.
 pub fn start(port: u16) {
     START_TIME.get_or_init(Instant::now);
 
     tokio::spawn(async move {
-        let app = Router::new()
+        let public_routes = Router::new()
             .route("/ping", get(ping))
-            .route("/health", get(health))
+            .route("/health", get(health));
+
+        let protected_routes = Router::new()
             .route("/info", get(info))
             .route("/files", get(list_files))
             .route("/file", get(read_file))
@@ -84,6 +115,10 @@ pub fn start(port: u16) {
             .route("/screenshot", get(screenshot))
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
+            .layer(middleware::from_fn(require_service_key));
+
+        let app = public_routes
+            .merge(protected_routes)
             .layer(middleware::from_fn(connection_close_layer));
 
         let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
@@ -171,9 +206,11 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
     START_TIME.get_or_init(Instant::now);
 
     tokio::spawn(async move {
-        let app = Router::new()
+        let public_routes = Router::new()
             .route("/ping", get(ping))
-            .route("/health", get(health))
+            .route("/health", get(health));
+
+        let protected_routes = Router::new()
             .route("/info", get(info))
             .route("/files", get(list_files))
             .route("/file", get(read_file))
@@ -183,6 +220,10 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
             .route("/screenshot", get(screenshot))
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
+            .layer(middleware::from_fn(require_service_key));
+
+        let app = public_routes
+            .merge(protected_routes)
             .layer(middleware::from_fn(connection_close_layer));
 
         let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
@@ -895,7 +936,9 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_router() -> Router {
-        Router::new().route("/exec", post(exec_command))
+        Router::new()
+            .route("/exec", post(exec_command))
+            .layer(axum::middleware::from_fn(require_service_key))
     }
 
     async fn exec_post(app: Router, body: serde_json::Value) -> (u16, serde_json::Value) {
