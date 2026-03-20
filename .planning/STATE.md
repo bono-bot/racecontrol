@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: "Completed 52-01 Tasks 1+2, checkpoint:human-action at Task 3 (OAuth re-auth)"
-last_updated: "2026-03-20T06:42:42.295Z"
+stopped_at: Completed 52-02-PLAN.md
+last_updated: "2026-03-20T06:50:31.165Z"
 last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 progress:
   total_phases: 21
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 27
-  completed_plans: 25
+  completed_plans: 26
   percent: 0
 ---
 
@@ -82,6 +82,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase 49 P02 | 12 | 2 tasks | 2 files |
 | Phase 51 P01 | 193 | 2 tasks | 2 files |
 | Phase 52-mcp-servers P01 | 4 | 2 tasks | 6 files |
+| Phase 52-mcp-servers P02 | 3 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -187,6 +188,9 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - [Phase 52-01]: createRequire CJS bridge pattern copied exactly from racingpoint-mcp-gmail — proven approach for ESM servers using CJS google libs
 - [Phase 52-01]: GOOGLE_REFRESH_TOKEN set to PLACEHOLDER_REAUTH_NEEDED in settings.json — will be updated after OAuth re-auth in Task 3
 - [Phase 52-01]: Same CLIENT_ID and CLIENT_SECRET as Gmail/Drive entries — all 4 Google MCP servers share one OAuth app
+- [Phase 52-mcp-servers]: rc-ops-mcp runs on James's machine (.27) not on server — avoids exposing server REST API externally
+- [Phase 52-mcp-servers]: Native fetch() only in rc-ops-mcp — Node 22 built-in, no axios/node-fetch dependency
+- [Phase 52-mcp-servers]: Per-pod exec via /pods/{id}/exec (NOT /fleet/exec which does not exist) — 10 tools cover all priority racecontrol endpoints
 
 ### Pending Todos
 
@@ -202,7 +206,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T06:42:42.292Z
-Stopped at: Completed 52-01 Tasks 1+2, checkpoint:human-action at Task 3 (OAuth re-auth)
+Last session: 2026-03-20T06:50:31.161Z
+Stopped at: Completed 52-02-PLAN.md
 Resume file: None
 Next action: Phase 51 Plan 01 — CLAUDE.md with project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order)

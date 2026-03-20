@@ -20,7 +20,7 @@ Requirements for tooling & automation milestone. Each maps to roadmap phases.
 - [x] **MCP-01**: Claude Code can read Gmail messages via Google Workspace MCP using existing racingpoint-google OAuth
 - [x] **MCP-02**: Claude Code can read and write Google Sheets via the same MCP server
 - [x] **MCP-03**: Claude Code can read Google Calendar events via the same MCP server
-- [ ] **MCP-04**: Claude Code can query racecontrol REST API (/fleet/health, /sessions, /billing, /laps) via a custom rc-ops-mcp server running on James's machine
+- [x] **MCP-04**: Claude Code can query racecontrol REST API (/fleet/health, /sessions, /billing, /laps) via a custom rc-ops-mcp server running on James's machine
 
 ### Deployment Automation
 
@@ -85,7 +85,7 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 | MCP-01 | Phase 52 | Complete |
 | MCP-02 | Phase 52 | Complete |
 | MCP-03 | Phase 52 | Complete |
-| MCP-04 | Phase 52 | Pending |
+| MCP-04 | Phase 52 | Complete |
 | DEPLOY-01 | Phase 53 | Pending |
 | DEPLOY-02 | Phase 53 | Pending |
 | DEPLOY-03 | Phase 53 | Pending |
