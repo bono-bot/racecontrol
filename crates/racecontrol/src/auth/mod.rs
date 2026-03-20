@@ -415,7 +415,12 @@ pub async fn validate_pin(
         }
     }
 
-    // Atomically find and consume pending token (prevents double-spend race condition)
+    // SESS-03: Begin transaction for atomic token consumption + billing deferral + finalization.
+    // If any step fails, the entire token state change rolls back automatically.
+    let mut tx = state.db.begin().await
+        .map_err(|e| format!("Transaction start failed: {}", e))?;
+
+    // Atomically find and consume pending token within transaction (prevents double-spend race condition)
     let row = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
         "UPDATE auth_tokens SET status = 'consuming'
          WHERE id = (
@@ -428,7 +433,7 @@ pub async fn validate_pin(
     )
     .bind(&pod_id)
     .bind(&pin)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| format!("DB error: {}", e))?;
 
@@ -436,6 +441,8 @@ pub async fn validate_pin(
     let row = match row {
         Some(r) => r,
         None => {
+            // Rollback the (empty) transaction before returning
+            tx.rollback().await.ok();
             // PIN-01: increment customer failure counter for this pod
             {
                 let mut failures = state.customer_pin_failures.write().await;
@@ -494,26 +501,29 @@ pub async fn validate_pin(
     )
     .await
     {
-        // Rollback: revert token from 'consuming' back to 'pending'
-        let _ = sqlx::query("UPDATE auth_tokens SET status = 'pending' WHERE id = ? AND status = 'consuming'")
-            .bind(&token_id)
-            .execute(&state.db)
-            .await;
-        tracing::error!("Defer billing failed for token {}, rolled back to pending: {}", token_id, e);
+        // SESS-03: Transaction rollback atomically reverts token from 'consuming' back to 'pending'
+        tx.rollback().await.ok();
+        tracing::error!("Defer billing failed for token {}, transaction rolled back: {}", token_id, e);
         return Err(e);
     }
 
-    // Finalize token as consumed (billing_session_id is deferred placeholder)
+    // Finalize token as consumed within the same transaction
     if let Err(e) = sqlx::query(
         "UPDATE auth_tokens SET status = 'consumed', billing_session_id = ?, consumed_at = datetime('now') WHERE id = ?",
     )
     .bind(&billing_session_id)
     .bind(&token_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     {
-        tracing::error!("Failed to mark token {} as consumed: {}", token_id, e);
+        tx.rollback().await.ok();
+        tracing::error!("Failed to mark token {} as consumed, rolling back: {}", token_id, e);
+        return Err(format!("Token finalization failed: {}", e));
     }
+
+    // SESS-03: Commit the transaction — token consumption is now atomic
+    tx.commit().await
+        .map_err(|e| format!("Transaction commit failed: {}", e))?;
 
     // Get driver name for assistance screen
     let driver_name: String = sqlx::query_scalar("SELECT name FROM drivers WHERE id = ?")
@@ -1772,5 +1782,327 @@ mod tests {
         let _ = staff_count; // acknowledge unused variable
         assert!(!staff_locked, "staff must always be able to unlock");
         assert_eq!(customer.get("pod_1"), Some(&5), "customer IS locked at 5");
+    }
+
+    // ─── SESS-02: Single-use token (consumed token cannot be reused) ────
+
+    /// SESS-02: A consumed token cannot be consumed again.
+    /// The UPDATE...WHERE status='pending' atomically prevents double-consumption.
+    #[tokio::test]
+    async fn consumed_token_cannot_be_reused() {
+        let pool = sqlx::SqlitePool::connect(":memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+
+        sqlx::query(
+            "CREATE TABLE auth_tokens (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                driver_id TEXT NOT NULL,
+                pricing_tier_id TEXT NOT NULL,
+                auth_type TEXT NOT NULL,
+                token TEXT NOT NULL,
+                status TEXT NOT NULL,
+                custom_price_paise INTEGER,
+                custom_duration_minutes INTEGER,
+                experience_id TEXT,
+                custom_launch_args TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                billing_session_id TEXT,
+                consumed_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a pending token
+        sqlx::query(
+            "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, created_at, expires_at)
+             VALUES ('tok-1', 'pod_1', 'drv-1', 'tier-1', 'pin', '1234', 'pending', datetime('now'), datetime('now', '+10 minutes'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // First consumption: should succeed
+        let first = sqlx::query_as::<_, (String,)>(
+            "UPDATE auth_tokens SET status = 'consuming'
+             WHERE id = (
+                 SELECT id FROM auth_tokens
+                 WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
+                   AND expires_at > datetime('now')
+                 LIMIT 1
+             ) AND status = 'pending'
+             RETURNING id",
+        )
+        .bind("pod_1")
+        .bind("1234")
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+
+        assert!(first.is_some(), "First consumption must succeed");
+
+        // Mark as consumed (simulating the full flow)
+        sqlx::query("UPDATE auth_tokens SET status = 'consumed' WHERE id = 'tok-1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Second consumption attempt: must fail (token is consumed, not pending)
+        let second = sqlx::query_as::<_, (String,)>(
+            "UPDATE auth_tokens SET status = 'consuming'
+             WHERE id = (
+                 SELECT id FROM auth_tokens
+                 WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
+                   AND expires_at > datetime('now')
+                 LIMIT 1
+             ) AND status = 'pending'
+             RETURNING id",
+        )
+        .bind("pod_1")
+        .bind("1234")
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+
+        assert!(
+            second.is_none(),
+            "Second consumption must fail -- consumed token cannot be reused (SESS-02)"
+        );
+
+        pool.close().await;
+    }
+
+    /// SESS-02: A token in 'consuming' state cannot be consumed again.
+    /// Prevents race condition where two concurrent requests try to consume the same token.
+    #[tokio::test]
+    async fn consuming_token_cannot_be_double_consumed() {
+        let pool = sqlx::SqlitePool::connect(":memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+
+        sqlx::query(
+            "CREATE TABLE auth_tokens (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                driver_id TEXT NOT NULL,
+                pricing_tier_id TEXT NOT NULL,
+                auth_type TEXT NOT NULL,
+                token TEXT NOT NULL,
+                status TEXT NOT NULL,
+                custom_price_paise INTEGER,
+                custom_duration_minutes INTEGER,
+                experience_id TEXT,
+                custom_launch_args TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                billing_session_id TEXT,
+                consumed_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a token already in 'consuming' state (simulating a concurrent request)
+        sqlx::query(
+            "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, created_at, expires_at)
+             VALUES ('tok-2', 'pod_1', 'drv-1', 'tier-1', 'pin', '5678', 'consuming', datetime('now'), datetime('now', '+10 minutes'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Attempt to consume: must fail (status is 'consuming', not 'pending')
+        let result = sqlx::query_as::<_, (String,)>(
+            "UPDATE auth_tokens SET status = 'consuming'
+             WHERE id = (
+                 SELECT id FROM auth_tokens
+                 WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
+                   AND expires_at > datetime('now')
+                 LIMIT 1
+             ) AND status = 'pending'
+             RETURNING id",
+        )
+        .bind("pod_1")
+        .bind("5678")
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+
+        assert!(
+            result.is_none(),
+            "Token in 'consuming' state must not be consumable (race protection)"
+        );
+
+        pool.close().await;
+    }
+
+    // ─── SESS-03: Atomic token consumption + billing transition ──────
+
+    /// SESS-03: Token status transitions happen atomically via DB transaction.
+    /// If billing deferral fails, token rolls back from 'consuming' to 'pending'.
+    #[tokio::test]
+    async fn billing_transaction_rollback_reverts_token() {
+        let pool = sqlx::SqlitePool::connect(":memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+
+        sqlx::query(
+            "CREATE TABLE auth_tokens (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                driver_id TEXT NOT NULL,
+                pricing_tier_id TEXT NOT NULL,
+                auth_type TEXT NOT NULL,
+                token TEXT NOT NULL,
+                status TEXT NOT NULL,
+                custom_price_paise INTEGER,
+                custom_duration_minutes INTEGER,
+                experience_id TEXT,
+                custom_launch_args TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                billing_session_id TEXT,
+                consumed_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a pending token
+        sqlx::query(
+            "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, created_at, expires_at)
+             VALUES ('tok-3', 'pod_1', 'drv-1', 'tier-1', 'pin', '4321', 'pending', datetime('now'), datetime('now', '+10 minutes'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Start a transaction
+        let mut tx = pool.begin().await.unwrap();
+
+        // Step 1: Consume token within transaction
+        let row = sqlx::query_as::<_, (String,)>(
+            "UPDATE auth_tokens SET status = 'consuming'
+             WHERE id = (
+                 SELECT id FROM auth_tokens
+                 WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
+                   AND expires_at > datetime('now')
+                 LIMIT 1
+             ) AND status = 'pending'
+             RETURNING id",
+        )
+        .bind("pod_1")
+        .bind("4321")
+        .fetch_optional(&mut *tx)
+        .await
+        .unwrap();
+
+        assert!(row.is_some(), "Token consumption within tx should succeed");
+
+        // Step 2: Simulate billing failure -- rollback the transaction
+        tx.rollback().await.unwrap();
+
+        // Verify token reverted to 'pending' after rollback
+        let status: (String,) = sqlx::query_as("SELECT status FROM auth_tokens WHERE id = 'tok-3'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            status.0, "pending",
+            "Token must revert to 'pending' after transaction rollback (SESS-03)"
+        );
+
+        pool.close().await;
+    }
+
+    /// SESS-03: Successful transaction commits both token consumption and finalization.
+    #[tokio::test]
+    async fn billing_transaction_commit_finalizes_token() {
+        let pool = sqlx::SqlitePool::connect(":memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+
+        sqlx::query(
+            "CREATE TABLE auth_tokens (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                driver_id TEXT NOT NULL,
+                pricing_tier_id TEXT NOT NULL,
+                auth_type TEXT NOT NULL,
+                token TEXT NOT NULL,
+                status TEXT NOT NULL,
+                custom_price_paise INTEGER,
+                custom_duration_minutes INTEGER,
+                experience_id TEXT,
+                custom_launch_args TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                billing_session_id TEXT,
+                consumed_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a pending token
+        sqlx::query(
+            "INSERT INTO auth_tokens (id, pod_id, driver_id, pricing_tier_id, auth_type, token, status, created_at, expires_at)
+             VALUES ('tok-4', 'pod_1', 'drv-1', 'tier-1', 'pin', '9876', 'pending', datetime('now'), datetime('now', '+10 minutes'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Start a transaction
+        let mut tx = pool.begin().await.unwrap();
+
+        // Step 1: Consume token
+        let _row = sqlx::query_as::<_, (String,)>(
+            "UPDATE auth_tokens SET status = 'consuming'
+             WHERE id = (
+                 SELECT id FROM auth_tokens
+                 WHERE pod_id = ? AND token = ? AND auth_type = 'pin' AND status = 'pending'
+                   AND expires_at > datetime('now')
+                 LIMIT 1
+             ) AND status = 'pending'
+             RETURNING id",
+        )
+        .bind("pod_1")
+        .bind("9876")
+        .fetch_optional(&mut *tx)
+        .await
+        .unwrap();
+
+        // Step 2: Finalize token as consumed
+        sqlx::query(
+            "UPDATE auth_tokens SET status = 'consumed', billing_session_id = 'billing-123', consumed_at = datetime('now') WHERE id = 'tok-4'",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+        // Step 3: Commit
+        tx.commit().await.unwrap();
+
+        // Verify token is consumed
+        let status: (String,) = sqlx::query_as("SELECT status FROM auth_tokens WHERE id = 'tok-4'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            status.0, "consumed",
+            "Token must be 'consumed' after successful transaction commit (SESS-03)"
+        );
+
+        pool.close().await;
     }
 }
