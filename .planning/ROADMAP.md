@@ -134,7 +134,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Fix stuck-rotation safety bug, unlock all Conspit Link 2.0 features (per-game FFB presets, auto game switching, telemetry dashboards, shift lights, RGB), and automate fleet-wide config management via rc-agent.
 
-- [ ] **Phase 57: Session-End Safety** - Fix stuck-rotation bug: close ConspitLink before HID commands, use fxm.reset + axis.idlespring (not estop), gradual force ramp, auto-restart ConspitLink after
+- [x] **Phase 57: Session-End Safety** - Fix stuck-rotation bug: close ConspitLink before HID commands, use fxm.reset + axis.idlespring (not estop), gradual force ramp, auto-restart ConspitLink after
 - [ ] **Phase 58: ConspitLink Process Hardening** - Harden watchdog with crash-count tracking, graceful restart (never taskkill /F), config backup + JSON integrity verification, minimize survives restarts
 - [ ] **Phase 59: Auto-Switch Configuration** - Fix broken auto game detection by placing Global.json at C:\RacingPoint\ (runtime path), update GameToBaseConfig.json mappings to venue presets
 - [ ] **Phase 60: Pre-Launch Profile Loading** - rc-agent pre-loads correct preset BEFORE game launch (not relying solely on ConspitLink auto-detect), safe fallback for unrecognized games
@@ -491,9 +491,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 57-01-PLAN.md — HID commands: fxm_reset + idlespring + power cap constant + Clone derive + unit tests (SAFE-02, SAFE-03, SAFE-04, SAFE-05)
-- [ ] 57-02-PLAN.md — safe_session_end orchestrator: close ConspitLink + HID sequence + wire 10 call sites in main.rs (SAFE-01, SAFE-06, SAFE-07)
-- [ ] 57-03-PLAN.md — Startup power cap + manual hardware verification on canary pod (SAFE-01, SAFE-04)
+- [x] 57-01-PLAN.md — HID commands: fxm_reset + idlespring + power cap constant + Clone derive + unit tests (SAFE-02, SAFE-03, SAFE-04, SAFE-05)
+- [x] 57-02-PLAN.md — safe_session_end orchestrator: close ConspitLink + HID sequence + wire 10 call sites in main.rs (SAFE-01, SAFE-06, SAFE-07)
+- [x] 57-03-PLAN.md — Startup power cap + manual hardware verification on canary pod (SAFE-01, SAFE-04)
 
 ### Phase 58: ConspitLink Process Hardening
 **Goal**: ConspitLink stays running reliably across all sessions with crash recovery, config integrity, and kiosk compliance
