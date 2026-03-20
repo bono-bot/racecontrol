@@ -1015,7 +1015,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 72. rc-sentry Endpoint Expansion + Integration Tests | v11.0 | 0/? | Not started | - |
 | 73. Critical Business Tests | v11.0 | 0/? | Not started | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
-| 75. Security Audit & Foundations | v12.0 | 0/? | Not started | - |
+| 75. Security Audit & Foundations | 1/2 | In Progress|  | - |
 | 76. API Authentication & Admin Protection | v12.0 | 0/? | Not started | - |
 | 77. Transport Security | v12.0 | 0/? | Not started | - |
 | 78. Kiosk & Session Hardening | v12.0 | 0/? | Not started | - |

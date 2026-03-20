@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: planning
-stopped_at: Completed 71-01-PLAN.md
-last_updated: "2026-03-20T12:01:42.417Z"
-last_activity: 2026-03-20 -- v11.0 roadmap created, 4 phases (71-74), 21 requirements mapped
+status: executing
+stopped_at: Completed 75-01-PLAN.md
+last_updated: "2026-03-20T12:20:00.000Z"
+last_activity: "2026-03-20 -- 75-01 complete: security audit document with endpoint inventory, PII map, auth state"
 progress:
   total_phases: 45
-  completed_phases: 16
+  completed_phases: 17
   total_plans: 50
-  completed_plans: 43
-  percent: 91
+  completed_plans: 45
+  percent: 88
 ---
 
 # Project State
@@ -21,22 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v11.0 Agent & Sentry Hardening -- Phase 71 ready to plan
+**Current focus:** v12.0 Security Audit & Hardening -- Phase 75 Plan 01 complete
 
 ## Current Position
 
-Phase: 71 of 74 (rc-common Foundation + rc-sentry Core Hardening)
+Phase: 75 of 80 (Security Audit Foundations)
 Plan: 01 complete, next: 02
 Status: In progress
-Last activity: 2026-03-20 -- 71-01 complete: rc-common exec module + rc-sentry tokio isolation verified
+Last activity: 2026-03-20 -- 75-01 complete: security audit document with endpoint inventory, PII map, auth state
 
-Progress: [█████████░] 88% (43/49 plans complete)
+Progress: [█████████░] 90% (45/50 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | In progress (1/N plans done) |
+| 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Complete (2/2 plans done) |
 | 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Not started |
 | 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Not started |
 | 74 | rc-agent Decomposition | DECOMP-01..04 | Not started |
@@ -74,6 +74,10 @@ Progress: [█████████░] 88% (43/49 plans complete)
 - SHARD-04 (partial TCP read fix) added to Phase 71 -- correctness issue distinct from timeout/truncation, flagged by research
 - 71-01: wait-timeout = 0.2 for stdlib-only child process timeout; tokio optional dep with feature gate prevents rc-sentry contamination (SHARED-01..03 complete)
 - 71-01: Truncation on Vec<u8> before String::from_utf8_lossy to prevent char boundary panics in exec.rs
+- 75-01: 269 racecontrol routes classified into 5 tiers; 172 staff/admin routes have zero auth (CRITICAL); OTP plaintext in logs elevated to CRITICAL
+- 75-01: rc-agent /exec and rc-sentry TCP flagged CRITICAL -- arbitrary command execution with zero auth on LAN
+- 71-02: SlotGuard Drop impl ensures EXEC_SLOTS decremented even on panic -- prevents 429 lockout (SHARD-01..05 complete)
+- 71-02: THREAD_COUNTER separate from EXEC_SLOTS -- EXEC_SLOTS=live connections, THREAD_COUNTER=monotonic spawn IDs
 
 ### Blockers/Concerns
 
@@ -90,7 +94,7 @@ Progress: [█████████░] 88% (43/49 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T12:01:42.413Z
-Stopped at: Completed 71-01-PLAN.md
+Last session: 2026-03-20T12:20:00.000Z
+Stopped at: Completed 75-01-PLAN.md
 Resume file: None
-Next action: Phase 71 Plan 02 -- run `/gsd:execute-phase 71`
+Next action: Phase 75 Plan 02 -- run `/gsd:execute-phase 75`
