@@ -296,3 +296,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 16:17 IST | James | dc9fbf5 | feat(56-01): add WhatsApp P0 alerter module with AlertingConfig and SQLite tables |
 | 2026-03-20 16:17 IST | James | 309e218 | feat(56-01): convert error_rate mpsc to broadcast + wire whatsapp_alerter in main.rs |
 | 2026-03-20 16:17 IST | James | b642e98 | docs(56-01): complete WhatsApp P0 alerter plan — SUMMARY, STATE, ROADMAP updated |
+| 2026-03-20 17:01 IST | James | `pending` | chore(66-02): verify rc-agent :8090 exec via Tailscale 100.71.226.83 + LAN 192.168.31.23 — both paths confirmed, server hostname returned |
