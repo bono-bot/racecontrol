@@ -743,7 +743,7 @@ async fn main() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(8)).await;
             tokio::task::spawn_blocking(move || {
                 ffb_startup_cleanup.zero_force_with_retry(3, 100);
-                ac_launcher::enforce_safe_state();
+                ac_launcher::enforce_safe_state(false);
             });
             tracing::info!("Startup: safe state enforced — pod clean for first customer");
         });
@@ -1342,7 +1342,7 @@ async fn main() -> Result<()> {
                                 { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
                                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                                tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
                                 lock_screen.show_idle_pin_entry();
                             }
                         }
@@ -1532,7 +1532,7 @@ async fn main() -> Result<()> {
                     { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
                 }
             }
             // SESSION-03: Crash recovery state machine timer
@@ -1708,7 +1708,7 @@ async fn main() -> Result<()> {
                                 game_process = None;
                             }
                             if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
                             current_driver_name = None;
                             last_ac_status = None;
                             ac_status_stable_since = None;
@@ -1849,7 +1849,7 @@ async fn main() -> Result<()> {
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                     // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
                                     current_driver_name = None;
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SessionEnded {
@@ -1897,7 +1897,7 @@ async fn main() -> Result<()> {
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                     // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
                                     current_driver_name = None;
                                     // SESSION-02: auto-return to idle PinEntry after 30s session summary display
                                     blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(30));
@@ -2376,7 +2376,7 @@ async fn main() -> Result<()> {
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                     // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {
                                     tracing::info!("Assistance screen for {}: {}", driver_name, message);
@@ -2727,7 +2727,7 @@ async fn main() -> Result<()> {
                 game_process = None;
             }
             if let Some(ref mut adp) = adapter { adp.disconnect(); }
-            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
             lock_screen.show_blank_screen();
         } else {
             // SESSION-04: Billing active — apply 30s grace window before showing Disconnected

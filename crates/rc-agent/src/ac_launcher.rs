@@ -15,7 +15,7 @@ use crate::lock_screen;
 /// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
 /// Used for background utilities (taskkill, tasklist, powershell, cmd, reg).
 /// Do NOT use for game launches or browser launches that need visible windows.
-fn hidden_cmd(program: &str) -> Command {
+pub(crate) fn hidden_cmd(program: &str) -> Command {
     let mut cmd = Command::new(program);
     #[cfg(windows)]
     {
@@ -1314,7 +1314,7 @@ fn build_cm_log_paths() -> Vec<std::path::PathBuf> {
 }
 
 /// Check if a process is currently running by image name.
-fn is_process_running(name: &str) -> bool {
+pub(crate) fn is_process_running(name: &str) -> bool {
     hidden_cmd("tasklist")
         .args(["/FI", &format!("IMAGENAME eq {}", name), "/FO", "CSV", "/NH"])
         .output()
@@ -1329,7 +1329,7 @@ fn is_process_running(name: &str) -> bool {
 /// Force-minimize ConspitLink window using Windows API (WPF ignores start /min).
 /// Tries multiple window title patterns since the WPF title may differ from the
 /// process name, then falls back to PowerShell process enumeration.
-fn minimize_conspit_window() {
+pub(crate) fn minimize_conspit_window() {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
@@ -1583,7 +1583,7 @@ pub fn cleanup_after_session() {
 /// - Game crashes and core doesn't respond within the timeout
 /// - Reconnecting after a network disconnect (when no billing active)
 /// - On startup
-pub fn enforce_safe_state() {
+pub fn enforce_safe_state(skip_conspit_restart: bool) {
     tracing::info!("[safe-state] Enforcing default safe state...");
 
     // 1. Kill ALL known game processes
@@ -1608,7 +1608,10 @@ pub fn enforce_safe_state() {
     tracing::info!("[safe-state] Dismissed error dialogs and system popups");
 
     // 3. Ensure Conspit Link is alive (it's the wheelbase driver — always needed)
-    ensure_conspit_link_running();
+    //    Skip when safe_session_end() already manages the ConspitLink lifecycle.
+    if !skip_conspit_restart {
+        ensure_conspit_link_running();
+    }
 
     // 4. Minimize background windows + bring lock screen to foreground
     minimize_background_windows();

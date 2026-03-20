@@ -303,6 +303,181 @@ impl FfbController {
     }
 }
 
+// ─── ConspitLink Process Management + Session-End Orchestrator ──────────────
+
+/// Close ConspitLink gracefully via WM_CLOSE and wait for process exit.
+///
+/// Tries multiple window title variants (WPF title may differ from process name).
+/// Returns true if ConspitLink exits within the timeout, or was not running.
+/// Returns false if it's still running after the timeout (P-20 risk accepted).
+pub fn close_conspit_link(timeout: std::time::Duration) -> bool {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+
+        fn wide(s: &str) -> Vec<u16> {
+            OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+        }
+
+        let titles = [
+            "Conspit Link 2.0",
+            "ConspitLink2.0",
+            "Conspit Link",
+            "ConspitLink",
+        ];
+        let mut sent = false;
+        for title in &titles {
+            unsafe {
+                let title_wide = wide(title);
+                let hwnd = winapi::um::winuser::FindWindowW(std::ptr::null(), title_wide.as_ptr());
+                if !hwnd.is_null() {
+                    winapi::um::winuser::PostMessageW(
+                        hwnd,
+                        winapi::um::winuser::WM_CLOSE,
+                        0,
+                        0,
+                    );
+                    tracing::info!("Sent WM_CLOSE to ConspitLink via \"{}\"", title);
+                    sent = true;
+                    break;
+                }
+            }
+        }
+
+        if !sent {
+            tracing::debug!("ConspitLink window not found — may not be running");
+            return true; // Not running = already "closed"
+        }
+
+        // Poll for process exit
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            if !crate::ac_launcher::is_process_running("ConspitLink2.0.exe") {
+                tracing::info!(
+                    "ConspitLink exited after WM_CLOSE ({}ms)",
+                    start.elapsed().as_millis()
+                );
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+
+        tracing::warn!(
+            "ConspitLink still running after {}s WM_CLOSE timeout",
+            timeout.as_secs()
+        );
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = timeout;
+        true
+    }
+}
+
+/// Restart ConspitLink unconditionally (does NOT check if already running).
+///
+/// Launches the executable, waits 4s, then minimizes the window.
+/// After 5s, verifies `C:\RacingPoint\Global.json` is valid JSON.
+pub fn restart_conspit_link() {
+    #[cfg(windows)]
+    {
+        let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
+        if !std::path::Path::new(conspit_path).exists() {
+            tracing::debug!("ConspitLink not installed at {} — skipping restart", conspit_path);
+            return;
+        }
+
+        match crate::ac_launcher::hidden_cmd("cmd")
+            .args(["/c", "start", "", conspit_path])
+            .spawn()
+        {
+            Ok(_) => {
+                tracing::info!("ConspitLink restarted, will minimize in 4s...");
+                // Spawn thread: wait for ConspitLink to initialize, then minimize
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(4));
+                    crate::ac_launcher::minimize_conspit_window();
+                });
+                // Spawn thread: wait 5s, then verify Global.json integrity
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let json_path = r"C:\RacingPoint\Global.json";
+                    match std::fs::read_to_string(json_path) {
+                        Ok(contents) => {
+                            match serde_json::from_str::<serde_json::Value>(&contents) {
+                                Ok(_) => tracing::info!(
+                                    "ConspitLink Global.json integrity check passed"
+                                ),
+                                Err(e) => tracing::warn!(
+                                    "ConspitLink Global.json parse error: {} — config may be corrupted",
+                                    e
+                                ),
+                            }
+                        }
+                        Err(e) => tracing::warn!(
+                            "Could not read {} for integrity check: {}",
+                            json_path, e
+                        ),
+                    }
+                });
+            }
+            Err(e) => tracing::error!("Failed to restart ConspitLink: {}", e),
+        }
+    }
+}
+
+/// Routine session-end safety sequence.
+///
+/// Blocks for ~2-3s normally (up to ~5.5s if ConspitLink does not close quickly).
+/// NOT suitable for panic hook — use `zero_force_with_retry()` for ESTOP instead.
+///
+/// Sequence:
+/// 1. Close ConspitLink (WM_CLOSE, 5s timeout, skip on failure)
+/// 2. fxm.reset (clear orphaned DirectInput effects)
+/// 3. Ramp idlespring from 0 to 2000 over 500ms (5 steps)
+/// 4. Restart ConspitLink (fire-and-forget background thread)
+pub async fn safe_session_end(ffb: &FfbController) {
+    // Step 1: Close ConspitLink (sync, in spawn_blocking)
+    let closed = tokio::task::spawn_blocking(|| {
+        close_conspit_link(std::time::Duration::from_secs(5))
+    })
+    .await
+    .unwrap_or(false);
+
+    if !closed {
+        tracing::warn!(
+            "ConspitLink did not close within 5s -- proceeding with HID commands (P-20 risk accepted)"
+        );
+    }
+
+    // Step 2: fxm.reset + idlespring ramp (sync, in spawn_blocking)
+    let ffb_clone = ffb.clone();
+    tokio::task::spawn_blocking(move || {
+        // Clear all orphaned DirectInput effects
+        if let Err(e) = ffb_clone.fxm_reset() {
+            tracing::warn!("fxm.reset failed: {} -- continuing with idlespring", e);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Ramp idlespring: 5 steps over 500ms (100ms between steps)
+        let target: i64 = 2000;
+        for step in 1..=5 {
+            let value = (target * step) / 5;
+            let _ = ffb_clone.set_idle_spring(value);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    })
+    .await
+    .ok();
+
+    // Step 3: Restart ConspitLink (fire and forget — do NOT .await)
+    tokio::task::spawn_blocking(|| restart_conspit_link());
+
+    tracing::info!("Session-end safety sequence complete -- wheel centering with idlespring");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
