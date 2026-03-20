@@ -4,14 +4,14 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: executing
 stopped_at: Completed 73-01-PLAN.md
-last_updated: "2026-03-20T13:26:57.060Z"
-last_activity: "2026-03-20 -- 76-04 complete: rate limiting on auth endpoints + atomic token consumption"
+last_updated: "2026-03-20T13:29:55.443Z"
+last_activity: "2026-03-20 -- 73-01 complete: FfbBackend trait seam + mockall tests (TEST-03)"
 progress:
   total_phases: 45
   completed_phases: 22
   total_plans: 62
   completed_plans: 57
-  percent: 90
+  percent: 92
 ---
 
 # Project State
