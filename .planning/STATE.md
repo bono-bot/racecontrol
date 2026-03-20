@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 76 of 80 (API Authentication & Admin Protection)
-Plan: 03 of 6 complete
+Plan: 01 complete (also 03 complete; 02 pending)
 Status: In progress
-Last activity: 2026-03-20 -- 76-03 complete: service key middleware on rc-agent protected routes
+Last activity: 2026-03-20 -- 76-01 complete: staff JWT middleware + 4-tier route split with permissive auth
 
-Progress: [█████████░] 94% (48/50 plans complete)
+Progress: [█████████░] 94% (49/50 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -91,6 +91,9 @@ Progress: [█████████░] 94% (48/50 plans complete)
 - Phase 74 select! decomposition: enumerate all 14 mutable shared variables before first extraction step -- assign each to ConnectionState (inner loop) or ReconnectState (outer loop)
 - v6.0 (Phases 36-40) still blocked on BIOS AMD-V -- does not affect v11.0
 - 66-05: exec round-trip (INFRA-03) pending Bono deployment -- Bono notified via INBOX.md commits 3e4091a + 35cea4f, will self-verify once Bono pulls + restarts pm2
+- 76-01: Permissive mode for initial staff JWT deploy -- logs unauthenticated requests without rejecting (expand-migrate-contract pattern)
+- 76-01: StaffClaims uses role="staff" field -- customer JWTs lacking role field are auto-rejected by deserialization
+- 76-01: api_routes() split into 4 tiers (public/customer/staff/service) with state parameter for middleware
 
 ### Pending Todos
 
@@ -101,7 +104,7 @@ Progress: [█████████░] 94% (48/50 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T12:58:34.342Z
-Stopped at: Completed 72-01-PLAN.md
+Last session: 2026-03-20T18:28:30Z
+Stopped at: Completed 76-01-PLAN.md
 Resume file: None
-Next action: Continue Phase 76 -- plan 04 next
+Next action: Continue Phase 76 -- plan 02 next (staff login endpoint)

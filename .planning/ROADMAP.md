@@ -857,9 +857,9 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
-- [ ] 76-01-PLAN.md -- Route classification + staff JWT middleware (AUTH-01,02,03, SESS-01)
+- [x] 76-01-PLAN.md -- Route classification + staff JWT middleware (AUTH-01,02,03, SESS-01)
 - [ ] 76-02-PLAN.md -- Admin login + argon2 PIN hashing (ADMIN-01,02)
-- [ ] 76-03-PLAN.md -- rc-agent service key auth (AUTH-06)
+- [x] 76-03-PLAN.md -- rc-agent service key auth (AUTH-06)
 - [ ] 76-04-PLAN.md -- Rate limiting + bot wallet check + session integrity (AUTH-04,05, SESS-02,03)
 - [ ] 76-05-PLAN.md -- Dashboard frontend PIN gate + idle timeout (ADMIN-01,03)
 - [ ] 76-06-PLAN.md -- Switch permissive to strict JWT enforcement (AUTH-01,02,03, SESS-01)
