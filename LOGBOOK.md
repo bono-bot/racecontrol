@@ -270,3 +270,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 12 07:16 IST | James | `7996122` | fix: revise plan 02-01 based on checker feedback |
 | 2026-03-20 11:30 IST | James | `4af3f5b` | feat(51-01): create CLAUDE.md — 179-line Racing Point context file (all 8 pod IPs/MACs, crate names, deploy rules, 4-tier debug, standing rules, brand identity) |
 | 2026-03-20 11:30 IST | James | `d19b916` | docs(51-01): SUMMARY + STATE/ROADMAP/REQUIREMENTS updated — SKILL-01 complete |
+| 2026-03-20 11:53 IST | James | `d1fd50b` | docs(52): research Phase 52 MCP Servers — Gmail fix, Sheets/Calendar scaffold, rc-ops-mcp API surface |
