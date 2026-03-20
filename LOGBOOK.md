@@ -317,3 +317,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 18:50 IST | James | e7366cb | feat(67-02): add VenueConfigSnapshot to AppState and config_snapshot to sync_push |
 | 2026-03-20 18:50 IST | James | f5a9a71 | test(67-02): unit tests for config_snapshot parsing -- 3 tests pass |
 | 2026-03-20 18:51 IST | James | b8a738b | docs(67-02): complete config-sync cloud-receive plan -- SUMMARY, STATE, ROADMAP, REQUIREMENTS |
+| 2026-03-20 18:56 IST | James | 1887334 | feat(73-01): add FfbBackend trait seam + mockall mock tests (TEST-03) |
+| 2026-03-20 18:57 IST | James | f0cb55f | docs(73-01): complete FfbBackend trait seam plan -- SUMMARY, STATE, ROADMAP, REQUIREMENTS |
