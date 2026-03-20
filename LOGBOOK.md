@@ -314,3 +314,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 18:38 IST | James | a3b2cdc | feat(67-01): config watcher -- poll + SHA-256 change detection + sanitized snapshot |
 | 2026-03-20 18:38 IST | James | 406628b | feat(67-01): wire ConfigWatcher into james/index.js for config sync |
 | 2026-03-20 18:39 IST | James | 5b9aa74 | docs(67-01): complete config-sync plan 1 -- watcher + sanitizer SUMMARY, STATE, ROADMAP, REQUIREMENTS |
+| 2026-03-20 18:50 IST | James | e7366cb | feat(67-02): add VenueConfigSnapshot to AppState and config_snapshot to sync_push |
+| 2026-03-20 18:50 IST | James | f5a9a71 | test(67-02): unit tests for config_snapshot parsing -- 3 tests pass |
+| 2026-03-20 18:51 IST | James | b8a738b | docs(67-02): complete config-sync cloud-receive plan -- SUMMARY, STATE, ROADMAP, REQUIREMENTS |
