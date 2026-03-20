@@ -70,6 +70,17 @@ Key: persistent WS with PSK auth, auto-reconnect with queue flush, Claude watchd
 </details>
 
 <details>
+<summary>Comms Link v2.0 — Reliable AI-to-AI Communication — 6 phases, 14 plans (Shipped 2026-03-20)</summary>
+
+Repo origin: comms-link | Archive: archive/comms-link-v2.0/
+
+Phases: Protocol Foundation → Process Supervisor → Reliable Delivery Wiring → Remote Execution → Observability → Graceful Degradation
+
+Key: ACK protocol with sequence numbers + WAL-backed message queue; mid-session process supervisor + Task Scheduler watchdog-of-watchdog; bidirectional task routing with correlation IDs; 13-command remote execution with 3-tier approval (auto/notify/approve); MetricsCollector + /relay/metrics endpoint; REALTIME > EMAIL_FALLBACK > OFFLINE_QUEUE graceful degradation. 437 tests, 34 requirements.
+
+</details>
+
+<details>
 <summary>AC Launcher v1.0 — Full AC Launch Experience — 9 phases, 20 plans (Shipped 2026-03-14)</summary>
 
 Repo origin: ac-launcher | Archive: archive/ac-launcher-v1.0/
