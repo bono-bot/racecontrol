@@ -359,6 +359,32 @@ impl Default for BonoConfig {
     }
 }
 
+/// Resolve JWT signing secret: env var > config value > auto-generate.
+/// The dangerous default "racingpoint-jwt-change-me-in-production" is treated as unset.
+fn resolve_jwt_secret(config_value: &str) -> String {
+    // 1. Environment variable takes priority
+    if let Ok(key) = std::env::var("RACECONTROL_JWT_SECRET") {
+        if !key.is_empty() {
+            tracing::info!("Using JWT secret from RACECONTROL_JWT_SECRET env var");
+            return key;
+        }
+    }
+    // 2. Config file value (if not the dangerous default and not empty)
+    if config_value != "racingpoint-jwt-change-me-in-production" && !config_value.is_empty() {
+        return config_value.to_string();
+    }
+    // 3. Generate random 256-bit key
+    use rand::Rng;
+    let key_bytes: [u8; 32] = rand::thread_rng().r#gen();
+    let hex_key: String = key_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    tracing::warn!(
+        "No JWT secret configured — generated random key. \
+         Tokens will be invalidated on restart. \
+         Set RACECONTROL_JWT_SECRET env var for persistence."
+    );
+    hex_key
+}
+
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -426,6 +452,41 @@ impl Config {
             tracing::info!("Overriding anthropic_api_key from ANTHROPIC_API_KEY env var");
             self.ai_debugger.anthropic_api_key = Some(key);
         }
+
+        // --- Secret env var overrides (AUDIT-03) ---
+        // JWT secret is handled specially via resolve_jwt_secret (supports auto-generation)
+        self.auth.jwt_secret = resolve_jwt_secret(&self.auth.jwt_secret);
+
+        if let Ok(val) = std::env::var("RACECONTROL_TERMINAL_SECRET") {
+            if !val.is_empty() {
+                tracing::info!("Overriding terminal_secret from RACECONTROL_TERMINAL_SECRET env var");
+                self.cloud.terminal_secret = Some(val);
+            }
+        }
+        if let Ok(val) = std::env::var("RACECONTROL_RELAY_SECRET") {
+            if !val.is_empty() {
+                tracing::info!("Overriding relay_secret from RACECONTROL_RELAY_SECRET env var");
+                self.bono.relay_secret = Some(val);
+            }
+        }
+        if let Ok(val) = std::env::var("RACECONTROL_EVOLUTION_API_KEY") {
+            if !val.is_empty() {
+                tracing::info!("Overriding evolution_api_key from RACECONTROL_EVOLUTION_API_KEY env var");
+                self.auth.evolution_api_key = Some(val);
+            }
+        }
+        if let Ok(val) = std::env::var("RACECONTROL_GMAIL_CLIENT_SECRET") {
+            if !val.is_empty() {
+                tracing::info!("Overriding gmail.client_secret from RACECONTROL_GMAIL_CLIENT_SECRET env var");
+                self.gmail.client_secret = Some(val);
+            }
+        }
+        if let Ok(val) = std::env::var("RACECONTROL_GMAIL_REFRESH_TOKEN") {
+            if !val.is_empty() {
+                tracing::info!("Overriding gmail.refresh_token from RACECONTROL_GMAIL_REFRESH_TOKEN env var");
+                self.gmail.refresh_token = Some(val);
+            }
+        }
     }
 }
 
@@ -462,6 +523,153 @@ fn default_email_venue_cooldown() -> i64 { 300 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // SAFETY: These tests mutate environment variables which is inherently unsafe
+    // in multi-threaded contexts. We run with --test-threads=1 to serialize execution.
+
+    #[test]
+    fn jwt_secret_from_env_var() {
+        unsafe { std::env::set_var("RACECONTROL_JWT_SECRET", "env-secret-123"); }
+        let result = resolve_jwt_secret("config-value");
+        assert_eq!(result, "env-secret-123");
+        unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+    }
+
+    #[test]
+    fn jwt_secret_from_config_when_no_env() {
+        unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+        let result = resolve_jwt_secret("my-custom-secret");
+        assert_eq!(result, "my-custom-secret");
+    }
+
+    #[test]
+    fn jwt_secret_rejects_dangerous_default() {
+        unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+        let result = resolve_jwt_secret("racingpoint-jwt-change-me-in-production");
+        assert_ne!(result, "racingpoint-jwt-change-me-in-production");
+        assert_eq!(result.len(), 64); // 32 bytes * 2 hex chars
+    }
+
+    #[test]
+    fn jwt_secret_auto_generates_on_empty() {
+        unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+        let result = resolve_jwt_secret("");
+        assert_eq!(result.len(), 64);
+        // Verify it's valid hex
+        assert!(result.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn jwt_secret_auto_generate_is_random() {
+        unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+        let key1 = resolve_jwt_secret("");
+        let key2 = resolve_jwt_secret("");
+        assert_ne!(key1, key2, "Two auto-generated keys must differ");
+    }
+
+    #[test]
+    fn env_var_overrides_terminal_secret() {
+        unsafe { std::env::set_var("RACECONTROL_TERMINAL_SECRET", "term-secret-abc"); }
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+"#;
+        let mut config: Config = toml::from_str(toml_str).expect("parse");
+        config.apply_env_overrides();
+        assert_eq!(config.cloud.terminal_secret.as_deref(), Some("term-secret-abc"));
+        unsafe { std::env::remove_var("RACECONTROL_TERMINAL_SECRET"); }
+    }
+
+    #[test]
+    fn env_var_overrides_relay_secret() {
+        unsafe { std::env::set_var("RACECONTROL_RELAY_SECRET", "relay-secret-xyz"); }
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+"#;
+        let mut config: Config = toml::from_str(toml_str).expect("parse");
+        config.apply_env_overrides();
+        assert_eq!(config.bono.relay_secret.as_deref(), Some("relay-secret-xyz"));
+        unsafe { std::env::remove_var("RACECONTROL_RELAY_SECRET"); }
+    }
+
+    #[test]
+    fn env_var_overrides_evolution_api_key() {
+        unsafe { std::env::set_var("RACECONTROL_EVOLUTION_API_KEY", "evo-key-123"); }
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+"#;
+        let mut config: Config = toml::from_str(toml_str).expect("parse");
+        config.apply_env_overrides();
+        assert_eq!(config.auth.evolution_api_key.as_deref(), Some("evo-key-123"));
+        unsafe { std::env::remove_var("RACECONTROL_EVOLUTION_API_KEY"); }
+    }
+
+    #[test]
+    fn env_var_overrides_gmail_secrets() {
+        unsafe {
+            std::env::set_var("RACECONTROL_GMAIL_CLIENT_SECRET", "gmail-cs");
+            std::env::set_var("RACECONTROL_GMAIL_REFRESH_TOKEN", "gmail-rt");
+        }
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+"#;
+        let mut config: Config = toml::from_str(toml_str).expect("parse");
+        config.apply_env_overrides();
+        assert_eq!(config.gmail.client_secret.as_deref(), Some("gmail-cs"));
+        assert_eq!(config.gmail.refresh_token.as_deref(), Some("gmail-rt"));
+        unsafe {
+            std::env::remove_var("RACECONTROL_GMAIL_CLIENT_SECRET");
+            std::env::remove_var("RACECONTROL_GMAIL_REFRESH_TOKEN");
+        }
+    }
+
+    #[test]
+    fn config_fallback_preserved_when_no_env_vars() {
+        // Clear all secret env vars
+        unsafe {
+            std::env::remove_var("RACECONTROL_JWT_SECRET");
+            std::env::remove_var("RACECONTROL_TERMINAL_SECRET");
+            std::env::remove_var("RACECONTROL_RELAY_SECRET");
+            std::env::remove_var("RACECONTROL_EVOLUTION_API_KEY");
+            std::env::remove_var("RACECONTROL_GMAIL_CLIENT_SECRET");
+            std::env::remove_var("RACECONTROL_GMAIL_REFRESH_TOKEN");
+        }
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+[cloud]
+terminal_secret = "from-config"
+[bono]
+relay_secret = "from-config-relay"
+[auth]
+jwt_secret = "custom-jwt-from-config"
+evolution_api_key = "evo-from-config"
+[gmail]
+client_secret = "gmail-from-config"
+refresh_token = "gmail-rt-from-config"
+"#;
+        let mut config: Config = toml::from_str(toml_str).expect("parse");
+        config.apply_env_overrides();
+        assert_eq!(config.auth.jwt_secret, "custom-jwt-from-config");
+        assert_eq!(config.cloud.terminal_secret.as_deref(), Some("from-config"));
+        assert_eq!(config.bono.relay_secret.as_deref(), Some("from-config-relay"));
+        assert_eq!(config.auth.evolution_api_key.as_deref(), Some("evo-from-config"));
+        assert_eq!(config.gmail.client_secret.as_deref(), Some("gmail-from-config"));
+        assert_eq!(config.gmail.refresh_token.as_deref(), Some("gmail-rt-from-config"));
+    }
 
     #[test]
     fn watchdog_config_deserializes_with_defaults() {
