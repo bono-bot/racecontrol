@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: Completed 56-01-PLAN.md (WhatsApp P0 alerter)
-last_updated: "2026-03-20T10:48:48.175Z"
+stopped_at: Completed 56-02-PLAN.md (weekly report crate)
+last_updated: "2026-03-20T10:55:17.702Z"
 last_activity: 2026-03-20 — Milestone v11.0 Agent & Sentry Hardening started
 progress:
   total_phases: 35
-  completed_phases: 15
+  completed_phases: 16
   total_plans: 44
-  completed_plans: 38
+  completed_plans: 39
   percent: 86
 ---
 
@@ -144,6 +144,7 @@ Progress: [░░░░░░░░░░] 0% (0/5 phases)
 | Phase 55 P01 | 815 | 1 tasks | 2 files |
 | Phase 66-infrastructure-foundations P03 | 2 | 1 tasks | 3 files |
 | Phase 56 P01 | 494 | 2 tasks | 8 files |
+| Phase 56 P02 | 3 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -291,6 +292,7 @@ Progress: [░░░░░░░░░░] 0% (0/5 phases)
 - [Phase 56]: broadcast::channel replaces mpsc for error rate alerts -- enables both email and WhatsApp alerters to subscribe independently
 - [Phase 56]: P0State is internal to whatsapp_alerter (not shared with AppState) -- keeps alert state isolated
 - [Phase 56]: 2-second debounce on PodOffline before counting online pods -- absorbs cascading disconnects
+- [Phase 56]: sqlx 0.8 (matching racecontrol) instead of plan's 0.7; edition.workspace=true; chrono-tz 0.10 for IST; read-only SQLite mode=ro
 
 ### Pending Todos
 
@@ -307,7 +309,7 @@ Progress: [░░░░░░░░░░] 0% (0/5 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T10:48:48.170Z
-Stopped at: Completed 56-01-PLAN.md (WhatsApp P0 alerter)
+Last session: 2026-03-20T10:55:17.697Z
+Stopped at: Completed 56-02-PLAN.md (weekly report crate)
 Resume file: None
 Next action: Phase 66 — Infrastructure Foundations (DHCP reservation + Tailscale exec verification)
