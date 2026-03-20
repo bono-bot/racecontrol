@@ -254,12 +254,43 @@ setInterval(function(){{ s--; if(s<=0){{ location.reload(); }} else {{ el.textCo
 </html>"##, service = service, port = port)
 }
 
+fn cleanup_old_logs(log_dir: &std::path::Path) {
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(30 * 24 * 3600))
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+    if let Ok(entries) = std::fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.ends_with(".jsonl") || name.contains(".jsonl.") || name.ends_with(".log") {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if modified < cutoff {
+                            if std::fs::remove_file(&path).is_ok() {
+                                eprintln!("Cleaned old log: {}", path.display());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing — dual output: stdout + rolling log file
+    // Initialize tracing — dual output: stdout (text) + rolling JSON log file
+    use tracing_appender::rolling::{RollingFileAppender, Rotation};
     let log_dir = std::path::Path::new("logs");
     std::fs::create_dir_all(log_dir).ok();
-    let file_appender = tracing_appender::rolling::daily(log_dir, "racecontrol.log");
+    cleanup_old_logs(log_dir);
+
+    let file_appender = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("racecontrol-")
+        .filename_suffix("jsonl")
+        .build(log_dir)
+        .expect("failed to build rolling file appender");
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -269,10 +300,11 @@ async fn main() -> anyhow::Result<()> {
     use tracing_subscriber::util::SubscriberInitExt;
     tracing_subscriber::registry()
         .with(env_filter)
-        .with(tracing_subscriber::fmt::layer().with_target(false))
+        .with(tracing_subscriber::fmt::layer().with_target(true))
         .with(
             tracing_subscriber::fmt::layer()
-                .with_target(false)
+                .json()
+                .with_target(true)
                 .with_ansi(false)
                 .with_writer(non_blocking_file),
         )
