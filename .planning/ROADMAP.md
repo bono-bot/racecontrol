@@ -204,7 +204,8 @@ Make server .23 IP permanently stable, establish reliable James↔Server↔Bono 
 Harden rc-sentry into a reliable fallback operations tool, extract shared exec patterns into rc-common, write characterization tests before decomposing rc-agent main.rs, and add unit/integration tests for critical safety paths.
 
 - [x] **Phase 71: rc-common Foundation + rc-sentry Core Hardening** - rc-common exec.rs feature-gated (sync/async), rc-sentry timeout enforcement, output truncation, concurrency cap, partial TCP read fix, structured logging (completed 2026-03-20)
-- [x] **Phase 72: rc-sentry Endpoint Expansion + Integration Tests** - /health, /version, /files, /processes endpoints; endpoint integration tests for all routes (completed 2026-03-20)
+- [x] **Phase 72: rc-sentry Endpoint Expansion + Integration Tests** - /health, /version, /files, /processes endpoints; endpoint integration tests for all routes
+ (completed 2026-03-20)
 - [x] **Phase 73: Critical Business Tests** - billing_guard and failure_monitor unit tests before any refactoring; FfbBackend trait seam for FFB controller tests (completed 2026-03-20)
 - [ ] **Phase 74: rc-agent Decomposition** - config.rs, app_state.rs, ws_handler.rs, event_loop.rs extracted from main.rs in strict risk order
 
@@ -875,12 +876,10 @@ Plans:
   3. Cloud endpoints (racingpoint.cloud) serve valid Let's Encrypt TLS certificates
   4. Pods can be migrated one-by-one from HTTP to HTTPS via dual-port support (8080 HTTP + 8443 HTTPS)
   5. Security response headers (CSP, X-Frame-Options, X-Content-Type-Options, HSTS) are present on all HTML responses
-**Plans**: TBD
-
+**Plans**: 2 plans
 Plans:
-- [ ] 77-01: TBD
-- [ ] 77-02: TBD
-- [ ] 77-03: TBD
+- [ ] 77-01-PLAN.md — TLS cert generation module, ServerConfig extension, rcgen + axum-server deps (TLS-02, TLS-04)
+- [ ] 77-02-PLAN.md — Dual-port HTTPS wiring, security headers, CORS update, kiosk API_BASE fix, TLS-03 Bono coordination (TLS-01, TLS-03, TLS-04, KIOSK-06)
 
 ### Phase 78: Kiosk & Session Hardening
 **Goal**: A customer sitting at a pod cannot escape the kiosk, access other users' data, or keep a session running after payment expires
