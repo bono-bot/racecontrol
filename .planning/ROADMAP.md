@@ -429,11 +429,11 @@ Plans:
   1. After a cold reboot of James's machine, the staging HTTP server (deploy-staging/) and webterm (port 9999) are running within 60 seconds without James opening any terminal — autostart confirmed
   2. Running the post-deploy verify script outputs: binary size changed (before vs after bytes), /api/v1/fleet/health returns HTTP 200, and all 8 agents show ws_connected:true — exits non-zero on any failure
   3. The deploy script deploys to Pod 8 first, waits for verify to pass, then prints a confirmation prompt and refuses to proceed to all pods until James explicitly approves — canary gate is enforced, not advisory
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 53-01-PLAN.md — Autostart: HKLM Run key or Task Scheduler entries for deploy-staging HTTP server + webterm.py (DEPLOY-01)
-- [ ] 53-02-PLAN.md — Post-deploy verify script: binary size check + /health poll + fleet reconnect check + canary-first gate with approval prompt (DEPLOY-02, DEPLOY-03)
+- [ ] 53-01-PLAN.md — Task Scheduler ONLOGON autostart for staging HTTP :9998 + webterm :9999 + auto-start.sh test (DEPLOY-01)
+- [ ] 53-02-PLAN.md — /rp:deploy-fleet skill: canary Pod 8 + verify.sh + approval gate + sequential fleet deploy (DEPLOY-02, DEPLOY-03)
 
 ### Phase 54: Structured Logging + Error Rate Alerting
 **Goal**: racecontrol and rc-agent write structured JSON logs to daily-rotating files so incidents can be investigated with jq; racecontrol watches its own error rate and emails James and Uday when it exceeds a configurable threshold
