@@ -113,6 +113,17 @@ Key: 5 difficulty tiers, billing synced to in-game start, safety presets enforce
 
 </details>
 
+<details>
+<summary>Ops Toolkit v1.0 — Fleet Management CLI — 5 phases, Phase 1 complete (In Progress, started 2026-03-17)</summary>
+
+Repo origin: deploy-staging (ops.bat + ops.conf.bat)
+
+Phases: Foundation & Safety (done) → Health & Status → Pod Deploy & Operations → Server Operations → Build & Polish
+
+Key: Single ops.bat entry point replacing 310 scattered scripts; centralized config (ops.conf.bat); safety blocklist prevents pod binary execution on James; dual-mode (menu + CLI); 27 requirements across foundation, pod ops, server ops, and build automation.
+
+</details>
+
 ## Current Milestone
 
 ### v6.0 Salt Fleet Management (Phases 36–40)

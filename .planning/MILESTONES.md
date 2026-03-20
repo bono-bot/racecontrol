@@ -114,6 +114,25 @@
 - Wallet log page with Transaction ID column
 - Server-side proxy /api/rc/[...path] for rc-core API calls
 
+## Ops Toolkit v1.0 — Fleet Management CLI (In Progress, started 2026-03-17)
+
+**Phases:** 5 planned, 1 complete (Phase 1: Foundation & Safety)
+**Repo origin:** deploy-staging (ops.bat + ops.conf.bat)
+**Requirements:** 27 (FNDN-01..06, PDOP-01..11, SVOP-01..06, BUILD-01..04)
+
+**Key accomplishments (Phase 1):**
+- ops.bat interactive menu + CLI mode dual entry point
+- ops.conf.bat centralizes all pod IPs, server IP, paths, ports — zero hardcoded values
+- Safety blocklist prevents running pod binaries on James's machine
+- CRLF enforcement, delayed expansion, hostname-based safety guard
+- Stub routing for all Phase 2-5 commands (incremental build-out)
+
+**Remaining:**
+- Phase 2: Health & Status — read-only fleet visibility
+- Phase 3: Pod Deploy & Operations — deploy, restart, canary, screenshot
+- Phase 4: Server Operations — racecontrol, kiosk, pod-agent service management
+- Phase 5: Build & Polish — cargo build automation, colored output
+
 ## AC Launcher v1.0 — Full AC Launch Experience (Shipped: 2026-03-14)
 
 **Phases completed:** 9 phases, 20 plans (100%)
