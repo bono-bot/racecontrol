@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: executing
-stopped_at: Completed 67-02-PLAN.md
-last_updated: "2026-03-20T13:20:07Z"
-last_activity: "2026-03-20 -- 67-02 complete: VenueConfigSnapshot + config_snapshot handler in sync_push"
+stopped_at: Completed 73-01-PLAN.md
+last_updated: "2026-03-20T13:26:57.060Z"
+last_activity: "2026-03-20 -- 76-04 complete: rate limiting on auth endpoints + atomic token consumption"
 progress:
   total_phases: 45
   completed_phases: 22
   total_plans: 62
-  completed_plans: 55
+  completed_plans: 57
   percent: 90
 ---
 
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 76 of 80 (API Authentication & Admin Protection)
-Plan: 04 complete (also 01, 02, 03 complete; 05 next)
+Phase: 73 of 80 (Critical Business Tests)
+Plan: 01 complete; 02 next
 Status: In progress
-Last activity: 2026-03-20 -- 76-04 complete: rate limiting on auth endpoints + atomic token consumption
+Last activity: 2026-03-20 -- 73-01 complete: FfbBackend trait seam + mockall tests (TEST-03)
 
-Progress: [█████████░] 90% (56/62 plans complete)
+Progress: [█████████░] 92% (57/62 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -38,7 +38,7 @@ Progress: [█████████░] 90% (56/62 plans complete)
 |-------|------|--------------|--------|
 | 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Complete (2/2 plans done) |
 | 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Complete (2/2 plans done) |
-| 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Not started |
+| 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | In progress (1/? plans done) |
 | 74 | rc-agent Decomposition | DECOMP-01..04 | Not started |
 
 **Phase 71:** rc-common exec.rs with feature gate (SHARED) + rc-sentry timeout, truncation, concurrency cap, partial read fix, structured logging (SHARD). No rc-agent changes. Verify `cargo tree -p rc-sentry` shows no tokio after every rc-common change.
@@ -92,6 +92,7 @@ Progress: [█████████░] 90% (56/62 plans complete)
 - 76-02: argon2 0.5 with Argon2id default params for admin PIN hashing; spawn_blocking for CPU-heavy verification; 503 when no hash configured; 12h JWT expiry (shift-length limit)
 - 76-04: tower_governor 0.8 with PeerIpKeyExtractor for per-IP rate limiting; into_make_service_with_connect_info for ConnectInfo; SQLx transaction wraps validate_pin token lifecycle
 - 76-04: Bot wallet check (AUTH-05) already existed; billing is deferred (in-memory), not DB -- TOCTOU mitigated by optimistic locking
+- 73-01: FfbBackend trait uses FfbController::method(self) fully-qualified delegation to avoid infinite recursion when trait and inherent method names match; mockall mock tests added inside existing test module; tokio test-util added to dev-deps to fix pre-existing billing_guard compilation (TEST-03 complete)
 
 ### Blockers/Concerns
 
@@ -112,7 +113,7 @@ Progress: [█████████░] 90% (56/62 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:23:50Z
-Stopped at: Completed 76-04-PLAN.md
+Last session: 2026-03-20T13:26:57.055Z
+Stopped at: Completed 73-01-PLAN.md
 Resume file: None
 Next action: Continue Phase 76 -- API Authentication & Admin Protection (plan 04 next)
