@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 66-05-PLAN.md
-last_updated: "2026-03-20T12:27:00.762Z"
-last_activity: "2026-03-20 -- 75-02 complete: env var overrides for 6 secrets + JWT key auto-generation"
+stopped_at: Completed 76-03-PLAN.md
+last_updated: "2026-03-20T12:55:56Z"
+last_activity: "2026-03-20 -- 76-03 complete: service key middleware on rc-agent protected routes"
 progress:
   total_phases: 45
   completed_phases: 19
   total_plans: 50
-  completed_plans: 47
-  percent: 92
+  completed_plans: 48
+  percent: 94
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v12.0 Security Audit & Hardening -- Phase 75 complete (2/2 plans)
+**Current focus:** v12.0 Security Audit & Hardening -- Phase 76 in progress (3/6 plans complete)
 
 ## Current Position
 
-Phase: 75 of 80 (Security Audit Foundations)
-Plan: 02 complete (phase done)
-Status: Phase complete
-Last activity: 2026-03-20 -- 75-02 complete: env var overrides for 6 secrets + JWT key auto-generation
+Phase: 76 of 80 (API Authentication & Admin Protection)
+Plan: 03 of 6 complete
+Status: In progress
+Last activity: 2026-03-20 -- 76-03 complete: service key middleware on rc-agent protected routes
 
-Progress: [█████████░] 92% (46/50 plans complete)
+Progress: [█████████░] 94% (48/50 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -80,6 +80,7 @@ Progress: [█████████░] 92% (46/50 plans complete)
 - 71-02: THREAD_COUNTER separate from EXEC_SLOTS -- EXEC_SLOTS=live connections, THREAD_COUNTER=monotonic spawn IDs
 - 75-02: rand 0.8 thread_rng().r#gen() for JWT key gen (gen is Rust 2024 reserved keyword); RACECONTROL_* env var naming for all secrets
 - 75-02: default_jwt_secret() kept for serde backward compat; resolve_jwt_secret() catches dangerous default at runtime
+- 76-03: subtle crate for constant-time service key comparison on rc-agent; permissive mode when RCAGENT_SERVICE_KEY unset; /ping and /health remain public
 - 66-05: INFRA-01 complete via static IP alone -- TP-Link EX220 firmware bug (Error 5024) persists ARP entries in NVRAM across reboots, permanently blocking DHCP reservation for server .23; reservation is "won't fix" for this router model, add if factory-reset or replaced
 - 66-05: Bono deployment (exec round-trip) deferred async via INBOX.md; INFRA-03 code complete on both sides, live verification pending Bono pm2 restart
 
@@ -99,7 +100,7 @@ Progress: [█████████░] 92% (46/50 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T12:20:22.172Z
-Stopped at: Completed 66-05-PLAN.md
+Last session: 2026-03-20T12:55:56Z
+Stopped at: Completed 76-03-PLAN.md
 Resume file: None
-Next action: Phase 75 complete -- next phase TBD
+Next action: Continue Phase 76 -- plan 04 next
