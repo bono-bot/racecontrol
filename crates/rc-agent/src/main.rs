@@ -642,6 +642,18 @@ async fn main() -> Result<()> {
         }).await.unwrap_or(false)
     };
 
+    // SAFE-04: Cap venue power at 80% (9.6Nm on 12Nm, 6.4Nm on 8Nm)
+    {
+        let ffb_cap = ffb.clone();
+        tokio::task::spawn_blocking(move || {
+            match ffb_cap.set_gain(80) {
+                Ok(true) => tracing::info!("FFB: venue power cap set to 80%"),
+                Ok(false) => tracing::debug!("FFB: no wheelbase found — power cap skipped"),
+                Err(e) => tracing::warn!("FFB: failed to set power cap: {}", e),
+            }
+        }).await.ok();
+    }
+
     // Channel for detector signals from HID/UDP tasks
     let (signal_tx, mut signal_rx) = mpsc::channel::<DetectorSignal>(256);
 
