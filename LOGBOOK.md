@@ -303,3 +303,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 17:30 IST | James | 075414e | feat(71-01): add rc-common exec module with ExecResult, run_cmd_sync, run_cmd_async, 5 unit tests |
 | 2026-03-20 17:31 IST | James | dc99840 | feat(71-01): wire rc-common into rc-sentry, zero tokio in cargo tree (SHARED-01..03) |
 | 2026-03-20 17:31 IST | James | c197515 | docs(71-01): complete rc-common exec module plan — SUMMARY, STATE, ROADMAP updated |
+| 2026-03-20 17:44 IST | James | b8a43b9 | feat(71-02): harden rc-sentry — timeout via run_cmd_sync, SlotGuard/429, Content-Length TCP read loop, tracing (SHARD-01..05) |
+| 2026-03-20 17:45 IST | James | c45aac7 | docs(71-02): complete rc-sentry core hardening plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
