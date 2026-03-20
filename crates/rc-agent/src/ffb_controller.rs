@@ -71,6 +71,17 @@ pub struct FfbController {
     pid: u16,
 }
 
+/// Trait seam for FFB commands — abstracts HID write surface for testing.
+/// Production: FfbController implements via hidapi.
+/// Tests: mockall generates MockTestBackend.
+pub trait FfbBackend: Send + Sync {
+    fn zero_force(&self) -> Result<bool, String>;
+    fn zero_force_with_retry(&self, attempts: u8, delay_ms: u64) -> bool;
+    fn set_gain(&self, percent: u8) -> Result<bool, String>;
+    fn fxm_reset(&self) -> Result<bool, String>;
+    fn set_idle_spring(&self, value: i64) -> Result<bool, String>;
+}
+
 impl FfbController {
     /// Create a new FFB controller for the given VID/PID.
     /// Does NOT open the device yet — that happens lazily on each command.
@@ -321,6 +332,24 @@ impl FfbController {
             .write(&buf)
             .map(|_| ())
             .map_err(|e| format!("HID write failed: {}", e))
+    }
+}
+
+impl FfbBackend for FfbController {
+    fn zero_force(&self) -> Result<bool, String> {
+        FfbController::zero_force(self)
+    }
+    fn zero_force_with_retry(&self, attempts: u8, delay_ms: u64) -> bool {
+        FfbController::zero_force_with_retry(self, attempts, delay_ms)
+    }
+    fn set_gain(&self, percent: u8) -> Result<bool, String> {
+        FfbController::set_gain(self, percent)
+    }
+    fn fxm_reset(&self) -> Result<bool, String> {
+        FfbController::fxm_reset(self)
+    }
+    fn set_idle_spring(&self, value: i64) -> Result<bool, String> {
+        FfbController::set_idle_spring(self, value)
     }
 }
 
@@ -989,5 +1018,95 @@ mod tests {
 
         // Reset
         SESSION_END_IN_PROGRESS.store(false, Ordering::Release);
+    }
+
+    // ─── FfbBackend Mock Tests ────────────────────────────────────────────────
+
+    use mockall::mock;
+
+    mock! {
+        pub TestBackend {}
+        impl FfbBackend for TestBackend {
+            fn zero_force(&self) -> Result<bool, String>;
+            fn zero_force_with_retry(&self, attempts: u8, delay_ms: u64) -> bool;
+            fn set_gain(&self, percent: u8) -> Result<bool, String>;
+            fn fxm_reset(&self) -> Result<bool, String>;
+            fn set_idle_spring(&self, value: i64) -> Result<bool, String>;
+        }
+    }
+
+    #[test]
+    fn ffb_zero_force_success() {
+        let mut mock = MockTestBackend::new();
+        mock.expect_zero_force()
+            .returning(|| Ok(true))
+            .times(1);
+        assert_eq!(mock.zero_force(), Ok(true));
+    }
+
+    #[test]
+    fn ffb_zero_force_device_absent() {
+        let mut mock = MockTestBackend::new();
+        mock.expect_zero_force()
+            .returning(|| Ok(false))
+            .times(1);
+        assert_eq!(mock.zero_force(), Ok(false));
+    }
+
+    #[test]
+    fn ffb_zero_force_hid_error() {
+        let mut mock = MockTestBackend::new();
+        mock.expect_zero_force()
+            .returning(|| Err("HID write failed: device busy".to_string()))
+            .times(1);
+        assert!(mock.zero_force().is_err());
+    }
+
+    #[test]
+    fn ffb_zero_force_with_retry_succeeds_first_attempt() {
+        let mut mock = MockTestBackend::new();
+        mock.expect_zero_force_with_retry()
+            .withf(|attempts, delay_ms| *attempts == 3 && *delay_ms == 100)
+            .returning(|_, _| true)
+            .times(1);
+        assert!(mock.zero_force_with_retry(3, 100));
+    }
+
+    #[test]
+    fn ffb_zero_force_with_retry_all_attempts_fail() {
+        let mut mock = MockTestBackend::new();
+        mock.expect_zero_force_with_retry()
+            .returning(|_, _| false)
+            .times(1);
+        assert!(!mock.zero_force_with_retry(3, 100));
+    }
+
+    #[test]
+    fn ffb_set_gain_sends_valid_percent() {
+        let mut mock = MockTestBackend::new();
+        mock.expect_set_gain()
+            .withf(|p| *p == 80)
+            .returning(|_| Ok(true))
+            .times(1);
+        assert_eq!(mock.set_gain(80), Ok(true));
+    }
+
+    #[test]
+    fn ffb_fxm_reset_clears_effects() {
+        let mut mock = MockTestBackend::new();
+        mock.expect_fxm_reset()
+            .returning(|| Ok(true))
+            .times(1);
+        assert_eq!(mock.fxm_reset(), Ok(true));
+    }
+
+    #[test]
+    fn ffb_set_idle_spring_sends_value() {
+        let mut mock = MockTestBackend::new();
+        mock.expect_set_idle_spring()
+            .withf(|v| *v == 1000)
+            .returning(|_| Ok(true))
+            .times(1);
+        assert_eq!(mock.set_idle_spring(1000), Ok(true));
     }
 }
