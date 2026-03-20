@@ -300,3 +300,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 17:28 IST | James | cb177a1 | feat(66-04): add POST /relay/exec/send endpoint for James->Bono exec_request |
 | 2026-03-20 17:28 IST | James | 35cea4f | comms: notify Bono of 66-04 exec/send endpoint |
 | 2026-03-20 17:28 IST | James | fe2c042 | docs(66-04): complete exec/send relay endpoint plan — SUMMARY, STATE, ROADMAP updated |
+| 2026-03-20 17:30 IST | James | 075414e | feat(71-01): add rc-common exec module with ExecResult, run_cmd_sync, run_cmd_async, 5 unit tests |
+| 2026-03-20 17:31 IST | James | dc99840 | feat(71-01): wire rc-common into rc-sentry, zero tokio in cargo tree (SHARED-01..03) |
+| 2026-03-20 17:31 IST | James | c197515 | docs(71-01): complete rc-common exec module plan — SUMMARY, STATE, ROADMAP updated |
