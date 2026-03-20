@@ -4,7 +4,7 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 73-02-PLAN.md
-last_updated: "2026-03-20T13:43:15.971Z"
+last_updated: "2026-03-20T13:43:57.737Z"
 last_activity: "2026-03-20 -- 76-06 complete: strict JWT enforcement on 172 staff routes (AUTH-01, AUTH-02, AUTH-03, SESS-01)"
 progress:
   total_phases: 45

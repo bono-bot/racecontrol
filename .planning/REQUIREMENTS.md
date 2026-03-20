@@ -48,8 +48,8 @@ Requirements for rc-sentry hardening, rc-agent decomposition, shared extraction,
 
 ### Testing
 
-- [ ] **TEST-01**: billing_guard unit tests cover stuck session detection (BILL-02) and idle drift (BILL-03)
-- [ ] **TEST-02**: failure_monitor unit tests cover game freeze (CRASH-01) and launch timeout (CRASH-02)
+- [x] **TEST-01**: billing_guard unit tests cover stuck session detection (BILL-02) and idle drift (BILL-03)
+- [x] **TEST-02**: failure_monitor unit tests cover game freeze (CRASH-01) and launch timeout (CRASH-02)
 - [x] **TEST-03**: ffb_controller tests via FfbBackend trait seam (no real HID access in tests)
 - [x] **TEST-04**: rc-sentry endpoint integration tests (/ping, /exec, /health, /version, /files, /processes)
 
@@ -103,8 +103,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SHARED-01 | Phase 71 | Complete |
 | SHARED-02 | Phase 71 | Complete |
 | SHARED-03 | Phase 71 | Complete |
-| TEST-01 | Phase 73 | Pending |
-| TEST-02 | Phase 73 | Pending |
+| TEST-01 | Phase 73 | Complete |
+| TEST-02 | Phase 73 | Complete |
 | TEST-03 | Phase 73 | Complete |
 | TEST-04 | Phase 72 | Complete |
 
