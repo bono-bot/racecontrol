@@ -3,6 +3,16 @@
 **Defined:** 2026-03-20
 **Core Value:** Customers see their lap times, compete on leaderboards, and compare telemetry
 
+## v10.0 Requirements
+
+Requirements for connectivity, config sync, and failover redundancy.
+
+### Config Sync
+
+- [ ] **SYNC-01**: racecontrol.toml changes on server .23 are detected via SHA-256 hash comparison and pushed to Bono via comms-link sync_push within 60s
+- [ ] **SYNC-02**: Config payload is sanitized before push -- allowlist-only (venue/pods/branding), no credentials (jwt_secret, terminal_secret, relay_secret), no local Windows paths
+- [ ] **SYNC-03**: Cloud racecontrol receives config_snapshot in /sync/push and stores venue/pods/branding in AppState.venue_config (TOML-based config only -- billing rates and game catalog are DB-based and already synced via cloud_sync.rs SYNC_TABLES)
+
 ## v11.0 Requirements
 
 Requirements for rc-sentry hardening, rc-agent decomposition, shared extraction, and test coverage.
@@ -73,6 +83,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| SYNC-01 | Phase 67 | Pending |
+| SYNC-02 | Phase 67 | Pending |
+| SYNC-03 | Phase 67 | Pending |
 | SHARD-01 | Phase 71 | Complete |
 | SHARD-02 | Phase 71 | Complete |
 | SHARD-03 | Phase 71 | Complete |
@@ -96,10 +109,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-04 | Phase 72 | Pending |
 
 **Coverage:**
+- v10.0 requirements: 3 total
+- v10.0 mapped to phases: 3
 - v11.0 requirements: 21 total
-- Mapped to phases: 21
+- v11.0 mapped to phases: 21
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 -- traceability filled after roadmap creation (phases 71-74)*
+*Last updated: 2026-03-20 -- added SYNC-01/02/03 for Phase 67 config sync*

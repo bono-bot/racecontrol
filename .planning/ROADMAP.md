@@ -171,7 +171,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 52: MCP Servers** - Google Workspace MCP (Gmail, Sheets, Calendar) and rc-ops-mcp (racecontrol REST API) wired into Claude Code (completed 2026-03-20)
 - [x] **Phase 53: Deployment Automation** - Staging HTTP server and webterm auto-start on boot, post-deploy verify script, canary-first gate enforced (completed 2026-03-20)
 - [x] **Phase 54: Structured Logging + Error Rate Alerting** - racecontrol and rc-agent emit structured JSON logs with daily rotation; error-rate email alerting (completed 2026-03-20)
-- [x] **Phase 55: Netdata Fleet Deploy** - Netdata agent on server (.23) and all 8 pods via rc-agent :8090 exec, live system metrics dashboards (completed 2026-03-20)
+- [x] **Phase 55: Netdata Fleet Deploy** - Netdata agent on server (.23) and all 8 pods via rc-agent :8090 exec, live system metrics dashboards
+ (completed 2026-03-20)
 - [x] **Phase 56: WhatsApp Alerting + Weekly Report** - P0 events trigger WhatsApp to Uday; weekly automated email report with sessions, uptime %, credits, incidents (completed 2026-03-20)
 
 ## v10.0 Conspit Link — Full Capability Unlock
@@ -191,7 +192,8 @@ Fix stuck-rotation safety bug, unlock all Conspit Link 2.0 features (per-game FF
 
 Make server .23 IP permanently stable, establish reliable James↔Server↔Bono remote exec paths, sync venue config to cloud, and deliver automatic pod failover to Bono's VPS when .23 goes down — with self-healing failback when .23 recovers.
 
-- [x] **Phase 66: Infrastructure Foundations** - DHCP reservation pins server .23 to MAC 10-FF-E0-80-B1-A7; James can exec on .23 via rc-agent :8090 over Tailscale and on Bono VPS via comms-link exec_request (completed 2026-03-20)
+- [ ] **Phase 67: Config Sync** - racecontrol.toml changes detected by SHA-256 hash, sanitized (credentials/paths stripped), and pushed to Bono via comms-link sync_push; Bono applies TOML-based config (venue/pods/branding) to cloud racecontrol. Billing rates and game catalog already synced via DB-level cloud_sync.
+ (completed 2026-03-20)
 - [ ] **Phase 67: Config Sync** - racecontrol.toml changes detected by sha2 hash, sanitized, and pushed to Bono via comms-link sync_push; Bono applies config to cloud racecontrol
 - [ ] **Phase 68: Pod SwitchController** - rc-agent CoreConfig gains failover_url; WS reconnect loop uses Arc<RwLock<String>> for runtime URL switching; SwitchController AgentMessage triggers switch without restart; self_monitor suppression guard prevents relaunch during intentional failover
 - [ ] **Phase 69: Health Monitor & Failover Orchestration** - James probes .23 every 5s; 3-down/2-up hysteresis + 60s minimum outage window gates auto-failover; James sends task_request to Bono to activate cloud primary; racecontrol broadcasts SwitchController to all pods; pods confirm .23 unreachable before switching; Uday notified via email + WhatsApp
@@ -699,18 +701,18 @@ Plans:
 - [ ] 66-05-PLAN.md — Infrastructure verification checkpoint: router + Bono deploy + round-trip (INFRA-01, INFRA-03, gap closure)
 
 ### Phase 67: Config Sync
-**Goal**: Venue configuration (pod definitions, billing rates, game catalog) is mirrored to Bono's cloud racecontrol so failover has a current config to run on
+**Goal**: TOML-based venue configuration (pod definitions, branding, venue metadata) from racecontrol.toml is mirrored to Bono's cloud racecontrol so failover has a current config to run on. Note: billing rates and game catalog are DB-based and already synced via cloud_sync.rs SYNC_TABLES -- this phase covers TOML config only.
 **Depends on**: Phase 66
 **Requirements**: SYNC-01, SYNC-02, SYNC-03
 **Success Criteria** (what must be TRUE):
-  1. After editing racecontrol.toml on .23, James observes a sync_push message in comms-link within 60s containing the updated config diff
-  2. The pushed config payload contains no credentials, passwords, or local Windows paths — only pod definitions, billing rates, and game catalog
-  3. Bono's cloud racecontrol reflects the same billing rates and pod count as the local venue config within 5 minutes of a local change
+  1. After editing racecontrol.toml on .23, James observes a sync_push message in comms-link within 60s containing the updated config snapshot
+  2. The pushed config payload contains no credentials, passwords, or local Windows paths -- only venue metadata, pod definitions, and branding
+  3. Bono's cloud racecontrol stores the received venue/pods/branding snapshot in AppState.venue_config within 5 minutes of a local change
 **Plans**: 2 plans
 
 Plans:
-- [ ] 67-01-PLAN.md — James-side config watcher + sanitizer (SYNC-01, SYNC-02)
-- [ ] 67-02-PLAN.md — Cloud racecontrol config_snapshot handler (SYNC-03)
+- [ ] 67-01-PLAN.md -- James-side config watcher + sanitizer (SYNC-01, SYNC-02)
+- [ ] 67-02-PLAN.md -- Cloud racecontrol config_snapshot handler (SYNC-03)
 
 ### Phase 68: Pod SwitchController
 **Goal**: Any rc-agent pod can switch its WebSocket target from .23 to Bono's VPS and back at runtime without a process restart, and self_monitor will not fight the intentional switch
