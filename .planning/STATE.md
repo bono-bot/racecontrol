@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: planning
-stopped_at: Completed 66-04-PLAN.md
-last_updated: "2026-03-20T11:58:56.929Z"
+stopped_at: Completed 71-01-PLAN.md
+last_updated: "2026-03-20T12:01:42.417Z"
 last_activity: 2026-03-20 -- v11.0 roadmap created, 4 phases (71-74), 21 requirements mapped
 progress:
   total_phases: 45
   completed_phases: 16
-  total_plans: 48
-  completed_plans: 42
+  total_plans: 50
+  completed_plans: 43
   percent: 91
 ---
 
@@ -26,17 +26,17 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 71 of 74 (rc-common Foundation + rc-sentry Core Hardening)
-Plan: -- (not yet planned)
-Status: Ready to plan
-Last activity: 2026-03-20 -- v11.0 roadmap created, 4 phases (71-74), 21 requirements mapped
+Plan: 01 complete, next: 02
+Status: In progress
+Last activity: 2026-03-20 -- 71-01 complete: rc-common exec module + rc-sentry tokio isolation verified
 
-Progress: [█████████░] 91% (40/44 plans complete)
+Progress: [█████████░] 88% (43/49 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Not started |
+| 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | In progress (1/N plans done) |
 | 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Not started |
 | 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Not started |
 | 74 | rc-agent Decomposition | DECOMP-01..04 | Not started |
@@ -72,6 +72,8 @@ Progress: [█████████░] 91% (40/44 plans complete)
 - Phase 73 (tests) precedes Phase 74 (decomposition) -- Refactor Second is a non-negotiable standing rule
 - FfbBackend trait is the correct approach over #[cfg(test)] stubs -- cleaner seam, decided before writing any FFB tests
 - SHARD-04 (partial TCP read fix) added to Phase 71 -- correctness issue distinct from timeout/truncation, flagged by research
+- 71-01: wait-timeout = 0.2 for stdlib-only child process timeout; tokio optional dep with feature gate prevents rc-sentry contamination (SHARED-01..03 complete)
+- 71-01: Truncation on Vec<u8> before String::from_utf8_lossy to prevent char boundary panics in exec.rs
 
 ### Blockers/Concerns
 
@@ -88,7 +90,7 @@ Progress: [█████████░] 91% (40/44 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T11:58:56.924Z
-Stopped at: Completed 66-04-PLAN.md
+Last session: 2026-03-20T12:01:42.413Z
+Stopped at: Completed 71-01-PLAN.md
 Resume file: None
-Next action: Phase 71 -- run `/gsd:plan-phase 71`
+Next action: Phase 71 Plan 02 -- run `/gsd:execute-phase 71`

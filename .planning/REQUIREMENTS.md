@@ -32,9 +32,9 @@ Requirements for rc-sentry hardening, rc-agent decomposition, shared extraction,
 
 ### Shared Extraction
 
-- [ ] **SHARED-01**: rc-common exposes run_cmd_sync (thread + timeout) for rc-sentry and sync contexts
-- [ ] **SHARED-02**: rc-common exposes run_cmd_async (tokio, feature-gated) for rc-agent
-- [ ] **SHARED-03**: rc-sentry uses rc-common run_cmd_sync without pulling in tokio (verified via cargo tree)
+- [x] **SHARED-01**: rc-common exposes run_cmd_sync (thread + timeout) for rc-sentry and sync contexts
+- [x] **SHARED-02**: rc-common exposes run_cmd_async (tokio, feature-gated) for rc-agent
+- [x] **SHARED-03**: rc-sentry uses rc-common run_cmd_sync without pulling in tokio (verified via cargo tree)
 
 ### Testing
 
@@ -87,9 +87,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DECOMP-02 | Phase 74 | Pending |
 | DECOMP-03 | Phase 74 | Pending |
 | DECOMP-04 | Phase 74 | Pending |
-| SHARED-01 | Phase 71 | Pending |
-| SHARED-02 | Phase 71 | Pending |
-| SHARED-03 | Phase 71 | Pending |
+| SHARED-01 | Phase 71 | Complete |
+| SHARED-02 | Phase 71 | Complete |
+| SHARED-03 | Phase 71 | Complete |
 | TEST-01 | Phase 73 | Pending |
 | TEST-02 | Phase 73 | Pending |
 | TEST-03 | Phase 73 | Pending |
