@@ -1,36 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
-status: completed
-stopped_at: Completed 49-02-PLAN.md
-last_updated: "2026-03-19T03:48:40.682Z"
-last_activity: "2026-03-19 — Plan 50-01 complete: self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult (SELFTEST-01/02/06)"
+milestone: v9.0
+milestone_name: Tooling & Automation Research
+status: active
+stopped_at: null
+last_updated: "2026-03-20T00:00:00.000Z"
+last_activity: "2026-03-20 — Milestone v9.0 started"
 progress:
-  total_phases: 15
-  completed_phases: 10
-  total_plans: 23
-  completed_plans: 22
-  percent: 89
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-19)
+See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v7.0 E2E Test Suite — Phase 41: Test Foundation (ready to plan)
+**Current focus:** v9.0 Tooling & Automation Research — defining requirements
 
 ## Current Position
 
-Phase: 50 (LLM Self-Test Fleet Health)
-Plan: 1 of 1 (complete)
-Status: Phase 50 Plan 01 complete — self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult
-Last activity: 2026-03-19 — Plan 50-01 complete: self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult (SELFTEST-01/02/06)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-20 — Milestone v9.0 started
 
-Progress: [█████████░] 89%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
