@@ -833,11 +833,11 @@ Plans:
   3. JWT signing key and all secrets load from environment variables, not from racecontrol.toml
   4. A cryptographically random JWT key is auto-generated on first run if no key is set
   5. CORS, HTTPS, and auth state is documented for every service (racecontrol, rc-agent, kiosk, dashboard, cloud)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 75-01: TBD
-- [ ] 75-02: TBD
+- [ ] 75-01-PLAN.md -- Security audit document (endpoint inventory, PII map, CORS/HTTPS/auth state)
+- [ ] 75-02-PLAN.md -- Secrets env var migration + JWT key auto-generation
 
 ### Phase 76: API Authentication & Admin Protection
 **Goal**: No unauthenticated request can manipulate billing, start sessions, or access the admin panel
