@@ -319,3 +319,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 18:51 IST | James | b8a738b | docs(67-02): complete config-sync cloud-receive plan -- SUMMARY, STATE, ROADMAP, REQUIREMENTS |
 | 2026-03-20 18:56 IST | James | 1887334 | feat(73-01): add FfbBackend trait seam + mockall mock tests (TEST-03) |
 | 2026-03-20 18:57 IST | James | f0cb55f | docs(73-01): complete FfbBackend trait seam plan -- SUMMARY, STATE, ROADMAP, REQUIREMENTS |
+| 2026-03-20 19:03 IST | James | bc2cfc9 | test(73-02): add timer+channel tests for BILL-02/BILL-03 (TEST-01) -- 6 async tests, tokio::time::Instant |
+| 2026-03-20 19:04 IST | James | 076f905 | test(73-02): add requirement-named tests for CRASH-01/CRASH-02 (TEST-02) -- 6 condition tests |
+| 2026-03-20 19:20 IST | James | 6e51331 | docs(73-02): complete critical business tests plan -- SUMMARY, STATE, ROADMAP |
