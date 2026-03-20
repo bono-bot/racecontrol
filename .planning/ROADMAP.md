@@ -458,11 +458,11 @@ Plans:
   1. Navigating to http://192.168.31.23:19999 in James's browser shows the Netdata dashboard for the racecontrol server with live CPU, RAM, disk, and network charts updating in real time
   2. Navigating to http://192.168.31.89:19999 (Pod 1) shows a Netdata dashboard — all 8 pods have Netdata running after fleet deploy via rc-agent :8090 exec
   3. The Netdata install on each pod completed via rc-agent remote exec confirmed by exec log showing successful install command per pod — no pendrive needed
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
-- [ ] 55-01-PLAN.md — Netdata on server .23: install + configure + verify dashboard at :19999 (MON-04)
-- [ ] 55-02-PLAN.md — Netdata fleet deploy: install script via rc-agent :8090 exec to all 8 pods; verify :19999 on each pod (MON-05)
+- [ ] 55-01-PLAN.md — Download MSI + deploy script + verification script + server install (MON-04)
+- [ ] 55-02-PLAN.md — Canary Pod 8 + fleet rollout Pods 1-7 via rc-agent :8090 exec (MON-05)
 
 ### Phase 56: WhatsApp Alerting + Weekly Report
 **Goal**: Uday receives a WhatsApp message within 60 seconds of a P0 event and a recovery notification when it clears; every Monday morning an email lands in Uday's inbox summarizing the previous week's fleet performance
