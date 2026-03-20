@@ -171,7 +171,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 52: MCP Servers** - Google Workspace MCP (Gmail, Sheets, Calendar) and rc-ops-mcp (racecontrol REST API) wired into Claude Code (completed 2026-03-20)
 - [x] **Phase 53: Deployment Automation** - Staging HTTP server and webterm auto-start on boot, post-deploy verify script, canary-first gate enforced (completed 2026-03-20)
 - [x] **Phase 54: Structured Logging + Error Rate Alerting** - racecontrol and rc-agent emit structured JSON logs with daily rotation; error-rate email alerting (completed 2026-03-20)
-- [ ] **Phase 55: Netdata Fleet Deploy** - Netdata agent on server (.23) and all 8 pods via rc-agent :8090 exec, live system metrics dashboards
+- [x] **Phase 55: Netdata Fleet Deploy** - Netdata agent on server (.23) and all 8 pods via rc-agent :8090 exec, live system metrics dashboards (completed 2026-03-20)
 - [x] **Phase 56: WhatsApp Alerting + Weekly Report** - P0 events trigger WhatsApp to Uday; weekly automated email report with sessions, uptime %, credits, incidents (completed 2026-03-20)
 
 ## v10.0 Conspit Link — Full Capability Unlock
@@ -877,7 +877,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 52. MCP Servers | 2/2 | Complete    | 2026-03-20 | - |
 | 53. Deployment Automation | 2/2 | Complete    | 2026-03-20 | - |
 | 54. Structured Logging + Error Rate Alerting | 3/3 | Complete    | 2026-03-20 | - |
-| 55. Netdata Fleet Deploy | 1/2 | In Progress|  | - |
+| 55. Netdata Fleet Deploy | 1/2 | Complete    | 2026-03-20 | - |
 | 56. WhatsApp Alerting + Weekly Report | 2/2 | Complete    | 2026-03-20 | - |
 | 57. Session-End Safety | 2/3 | Complete    | 2026-03-20 | - |
 | 58. ConspitLink Process Hardening | 1/2 | In Progress|  | - |
