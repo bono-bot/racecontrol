@@ -97,13 +97,52 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated during roadmap creation) | | |
+| AUDIT-01 | Phase 75 | Pending |
+| AUDIT-02 | Phase 75 | Pending |
+| AUDIT-03 | Phase 75 | Pending |
+| AUDIT-04 | Phase 75 | Pending |
+| AUDIT-05 | Phase 75 | Pending |
+| AUTH-01 | Phase 76 | Pending |
+| AUTH-02 | Phase 76 | Pending |
+| AUTH-03 | Phase 76 | Pending |
+| AUTH-04 | Phase 76 | Pending |
+| AUTH-05 | Phase 76 | Pending |
+| AUTH-06 | Phase 76 | Pending |
+| AUTH-07 | Phase 80 | Pending |
+| ADMIN-01 | Phase 76 | Pending |
+| ADMIN-02 | Phase 76 | Pending |
+| ADMIN-03 | Phase 76 | Pending |
+| ADMIN-04 | Phase 80 | Pending |
+| ADMIN-05 | Phase 80 | Pending |
+| ADMIN-06 | Phase 80 | Pending |
+| SESS-01 | Phase 76 | Pending |
+| SESS-02 | Phase 76 | Pending |
+| SESS-03 | Phase 76 | Pending |
+| SESS-04 | Phase 78 | Pending |
+| SESS-05 | Phase 78 | Pending |
+| TLS-01 | Phase 77 | Pending |
+| TLS-02 | Phase 77 | Pending |
+| TLS-03 | Phase 77 | Pending |
+| TLS-04 | Phase 77 | Pending |
+| KIOSK-01 | Phase 78 | Pending |
+| KIOSK-02 | Phase 78 | Pending |
+| KIOSK-03 | Phase 78 | Pending |
+| KIOSK-04 | Phase 78 | Pending |
+| KIOSK-05 | Phase 78 | Pending |
+| KIOSK-06 | Phase 77 | Pending |
+| KIOSK-07 | Phase 78 | Pending |
+| DATA-01 | Phase 79 | Pending |
+| DATA-02 | Phase 79 | Pending |
+| DATA-03 | Phase 79 | Pending |
+| DATA-04 | Phase 79 | Pending |
+| DATA-05 | Phase 79 | Pending |
+| DATA-06 | Phase 79 | Pending |
 
 **Coverage:**
-- v1 requirements: 33 total
-- Mapped to phases: 0
-- Unmapped: 33
+- v1 requirements: 40 total
+- Mapped to phases: 40
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after initial definition*
+*Last updated: 2026-03-20 after roadmap creation*
