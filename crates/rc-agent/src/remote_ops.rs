@@ -1001,9 +1001,16 @@ mod tests {
     }
 
     fn test_router_full() -> Router {
-        Router::new()
+        let public_routes = Router::new()
+            .route("/ping", get(ping))
+            .route("/health", get(health));
+
+        let protected_routes = Router::new()
             .route("/exec", post(exec_command))
-            .route("/health", get(health))
+            .route("/info", get(info))
+            .layer(axum::middleware::from_fn(require_service_key));
+
+        public_routes.merge(protected_routes)
     }
 
     async fn health_get(app: Router) -> (u16, serde_json::Value) {
@@ -1055,5 +1062,121 @@ mod tests {
             "429 message must state the limit, got: {}",
             error_msg
         );
+    }
+
+    // ─── Service Key Tests ───────────────────────────────────────────────────
+
+    async fn ping_get(app: Router) -> u16 {
+        let req = axum::http::Request::builder()
+            .method("GET")
+            .uri("/ping")
+            .body(Body::empty())
+            .unwrap();
+        app.oneshot(req).await.unwrap().status().as_u16()
+    }
+
+    async fn exec_post_with_key(app: Router, body: serde_json::Value, key: Option<&str>) -> (u16, serde_json::Value) {
+        let mut builder = axum::http::Request::builder()
+            .method("POST")
+            .uri("/exec")
+            .header("content-type", "application/json");
+        if let Some(k) = key {
+            builder = builder.header("x-service-key", k);
+        }
+        let req = builder
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        let status = resp.status().as_u16();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        // 401 returns empty body, not JSON
+        if bytes.is_empty() {
+            return (status, serde_json::json!({}));
+        }
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::json!({}));
+        (status, json)
+    }
+
+    async fn info_get_with_key(app: Router, key: Option<&str>) -> u16 {
+        let mut builder = axum::http::Request::builder()
+            .method("GET")
+            .uri("/info");
+        if let Some(k) = key {
+            builder = builder.header("x-service-key", k);
+        }
+        let req = builder.body(Body::empty()).unwrap();
+        app.oneshot(req).await.unwrap().status().as_u16()
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_service_key_ping_no_key_returns_200() {
+        unsafe { std::env::set_var("RCAGENT_SERVICE_KEY", "test-secret-key"); }
+        START_TIME.get_or_init(Instant::now);
+        let app = test_router_full();
+        let status = ping_get(app).await;
+        unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
+        assert_eq!(status, 200, "/ping must return 200 without any key");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_service_key_health_no_key_returns_200() {
+        unsafe { std::env::set_var("RCAGENT_SERVICE_KEY", "test-secret-key"); }
+        START_TIME.get_or_init(Instant::now);
+        let app = test_router_full();
+        let (status, _) = health_get(app).await;
+        unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
+        assert_eq!(status, 200, "/health must return 200 without any key");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_service_key_exec_no_header_returns_401() {
+        unsafe { std::env::set_var("RCAGENT_SERVICE_KEY", "test-secret-key"); }
+        let app = test_router_full();
+        let (status, _) = exec_post_with_key(app, serde_json::json!({"cmd": "echo hi", "timeout_ms": 5000}), None).await;
+        unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
+        assert_eq!(status, 401, "/exec without header must return 401 when key is set");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_service_key_exec_wrong_key_returns_401() {
+        unsafe { std::env::set_var("RCAGENT_SERVICE_KEY", "test-secret-key"); }
+        let app = test_router_full();
+        let (status, _) = exec_post_with_key(app, serde_json::json!({"cmd": "echo hi", "timeout_ms": 5000}), Some("wrong-key")).await;
+        unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
+        assert_eq!(status, 401, "/exec with wrong key must return 401");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_service_key_exec_correct_key_returns_200() {
+        unsafe { std::env::set_var("RCAGENT_SERVICE_KEY", "test-secret-key"); }
+        let app = test_router_full();
+        let (status, json) = exec_post_with_key(app, serde_json::json!({"cmd": "echo hi", "timeout_ms": 10000}), Some("test-secret-key")).await;
+        unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
+        assert_eq!(status, 200, "/exec with correct key must return 200, got: {:?}", json);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_service_key_permissive_mode_no_key_set() {
+        unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
+        let app = test_router_full();
+        let (status, json) = exec_post_with_key(app, serde_json::json!({"cmd": "echo permissive", "timeout_ms": 10000}), None).await;
+        assert_eq!(status, 200, "/exec must return 200 in permissive mode (no key set), got: {:?}", json);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_service_key_info_no_header_returns_401() {
+        unsafe { std::env::set_var("RCAGENT_SERVICE_KEY", "test-secret-key"); }
+        let app = test_router_full();
+        let status = info_get_with_key(app, None).await;
+        unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
+        assert_eq!(status, 401, "/info without header must return 401 when key is set");
     }
 }

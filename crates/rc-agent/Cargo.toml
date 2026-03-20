@@ -45,6 +45,9 @@ reqwest = { version = "0.12", features = ["json"] }
 # Remote ops HTTP server (merged pod-agent)
 axum = "0.8"
 
+# Constant-time secret comparison for service key auth
+subtle = "2.6"
+
 # QR code generation for lock screen
 qrcode = "0.13"
 
