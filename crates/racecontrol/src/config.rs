@@ -61,6 +61,15 @@ pub struct ServerConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    /// HTTPS port. When set, enables TLS listener alongside HTTP.
+    #[serde(default)]
+    pub tls_port: Option<u16>,
+    /// Path to TLS certificate PEM file. Auto-generated if missing.
+    #[serde(default)]
+    pub cert_path: Option<String>,
+    /// Path to TLS private key PEM file. Auto-generated if missing.
+    #[serde(default)]
+    pub key_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -425,6 +434,9 @@ impl Config {
             server: ServerConfig {
                 host: default_host(),
                 port: default_port(),
+                tls_port: None,
+                cert_path: None,
+                key_path: None,
             },
             database: DatabaseConfig {
                 path: default_db_path(),
@@ -681,6 +693,37 @@ refresh_token = "gmail-rt-from-config"
         assert_eq!(config.auth.evolution_api_key.as_deref(), Some("evo-from-config"));
         assert_eq!(config.gmail.client_secret.as_deref(), Some("gmail-from-config"));
         assert_eq!(config.gmail.refresh_token.as_deref(), Some("gmail-rt-from-config"));
+    }
+
+    #[test]
+    fn server_config_tls_port_deserializes() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+tls_port = 8443
+cert_path = "/tmp/cert.pem"
+key_path = "/tmp/key.pem"
+[database]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("parse with tls_port");
+        assert_eq!(config.server.tls_port, Some(8443));
+        assert_eq!(config.server.cert_path.as_deref(), Some("/tmp/cert.pem"));
+        assert_eq!(config.server.key_path.as_deref(), Some("/tmp/key.pem"));
+    }
+
+    #[test]
+    fn server_config_tls_port_defaults_to_none() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("parse without tls_port");
+        assert!(config.server.tls_port.is_none());
+        assert!(config.server.cert_path.is_none());
+        assert!(config.server.key_path.is_none());
     }
 
     #[test]

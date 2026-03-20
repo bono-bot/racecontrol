@@ -61,3 +61,8 @@ socket2 = "0.5"
 http-body-util = "0.1"
 tower_governor = "0.8"
 governor = "0.10"
+
+# TLS termination
+axum-server = { version = "0.8", features = ["tls-rustls"] }
+rcgen = "0.14"
+tower-helmet = "0.3"

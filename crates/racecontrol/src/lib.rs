@@ -36,4 +36,5 @@ pub mod wallet;
 pub mod whatsapp_alerter;
 pub mod udp_heartbeat;
 pub mod wol;
+pub mod tls;
 pub mod ws;
