@@ -36,16 +36,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v12.0 Security Audit & Hardening -- Phase 76 complete (6/6 plans done)
+**Current focus:** v12.0 Security Audit & Hardening -- Phase 77 Transport Security (1/2 plans done)
 
 ## Current Position
 
-Phase: 68 of 80 (Pod SwitchController)
+Phase: 77 of 80 (Transport Security)
 Plan: 01 of 02 complete
-Status: Plan 68-01 complete
-Last activity: 2026-03-20 -- 68-01 complete: SwitchController protocol variant, failover_url config, HeartbeatStatus.last_switch_ms (FAIL-01, FAIL-03, FAIL-04)
+Status: Plan 77-01 complete
+Last activity: 2026-03-20 -- 77-01 complete: TLS foundation with rcgen cert gen, RustlsConfig loader, ServerConfig extension (TLS-02, TLS-04)
 
-Progress: [█████████░] 91% (61/67 plans complete)
+Progress: [█████████░] 91% (62/67 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -112,6 +112,7 @@ Progress: [█████████░] 91% (61/67 plans complete)
 - 76-05: JWT in localStorage with client-side expiry check; AuthGate skips /login pathname to avoid redirect loop; fetchApi auto-clears token + redirects on 401; useIdleTimeout listens to 5 event types with passive listeners (ADMIN-01, ADMIN-03 complete)
 - 76-06: One-line swap from require_staff_jwt_permissive to require_staff_jwt on staff sub-router; contract step of expand-migrate-contract; kept permissive variant for rollback (AUTH-01, AUTH-02, AUTH-03, SESS-01 complete)
 - 68-01: SwitchController placed after RunSelfTest — additive variant, no enum reorder; failover_url: Option<String> with serde(default) for zero-friction backward compat; last_switch_ms: AtomicU64 on HeartbeatStatus for Plan 02 runtime wiring (FAIL-01, FAIL-03, FAIL-04 data contracts complete)
+- 77-01: rcgen 0.14 generate_simple_self_signed takes Vec<String> with auto IP detection (not SanType enum); CertifiedKey has signing_key (not key_pair); backward-compat ServerConfig with Option fields (TLS-02, TLS-04)
 
 ### Blockers/Concerns
 
@@ -132,7 +133,7 @@ Progress: [█████████░] 91% (61/67 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T14:02:05.649Z
-Stopped at: Completed 68-01-PLAN.md
+Last session: 2026-03-20T14:13:04Z
+Stopped at: Completed 77-01-PLAN.md
 Resume file: None
-Next action: Phase 73 complete (TEST-01, TEST-02, TEST-03 all done) -- start Phase 74 rc-agent Decomposition (DECOMP-01..04)
+Next action: Start 77-02 -- dual-port wiring (HTTPS 8443 listener + security headers)
