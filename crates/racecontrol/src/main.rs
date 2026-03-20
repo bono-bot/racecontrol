@@ -9,8 +9,10 @@ use std::time::Duration;
 use tower_http::cors::{CorsLayer, AllowOrigin};
 use axum::http::{HeaderValue, Method, StatusCode};
 use tower_http::trace::TraceLayer;
+use tower_helmet::HelmetLayer;
 
 use racecontrol_crate::config::Config;
+use racecontrol_crate::tls;
 use racecontrol_crate::error_rate::{ErrorCountLayer, ErrorRateConfig, error_rate_alerter_task};
 use racecontrol_crate::state::AppState;
 use racecontrol_crate::{
@@ -254,6 +256,47 @@ setInterval(function(){{ s--; if(s<=0){{ location.reload(); }} else {{ el.textCo
 </script>
 </body>
 </html>"##, service = service, port = port)
+}
+
+/// Build security headers middleware via tower-helmet.
+///
+/// Sets CSP, X-Frame-Options (DENY), X-Content-Type-Options (nosniff),
+/// and HSTS with a short max-age (300s / 5 minutes) for initial deploy safety.
+/// The short HSTS avoids browser lockout during testing — increase after 1 week stable.
+fn security_headers_layer() -> HelmetLayer {
+    use tower_helmet::header::{
+        ContentSecurityPolicy, StrictTransportSecurity, XFrameOptions,
+    };
+
+    let mut directives = std::collections::HashMap::new();
+    directives.insert("default-src", vec!["'self'"]);
+    directives.insert("script-src", vec!["'self'"]);
+    directives.insert("style-src", vec!["'self'", "'unsafe-inline'"]);
+    directives.insert("img-src", vec!["'self'", "data:"]);
+    directives.insert("connect-src", vec!["'self'", "ws:", "wss:"]);
+    directives.insert("frame-ancestors", vec!["'none'"]);
+    directives.insert("base-uri", vec!["'self'"]);
+    directives.insert("form-action", vec!["'self'"]);
+
+    let csp = ContentSecurityPolicy {
+        use_defaults: false,
+        directives,
+        report_only: false,
+    };
+
+    let hsts = StrictTransportSecurity {
+        max_age: Duration::from_secs(300), // 5 min — safe for testing
+        include_subdomains: true,
+        preload: false,
+    };
+
+    let mut layer = HelmetLayer::blank();
+    layer
+        .enable(csp)
+        .enable(XFrameOptions::Deny)
+        .enable(tower_helmet::header::XContentTypeOptions::default())
+        .enable(hsts);
+    layer
 }
 
 fn cleanup_old_logs(log_dir: &std::path::Path) {
@@ -553,32 +596,60 @@ async fn main() -> anyhow::Result<()> {
         // Reverse proxy: kiosk UI + Next.js assets → localhost:3300
         .fallback(kiosk_proxy)
         .layer(axum_mw::from_fn(jwt_error_to_401))
+        .layer(security_headers_layer())
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
                     let origin = origin.to_str().unwrap_or("");
                     origin.starts_with("http://localhost:")
+                        || origin.starts_with("https://localhost:")
                         || origin.starts_with("http://127.0.0.1:")
+                        || origin.starts_with("https://127.0.0.1:")
                         || origin.starts_with("http://192.168.31.")
+                        || origin.starts_with("https://192.168.31.")
                         || origin.starts_with("http://kiosk.rp")
-                        || origin.contains("racingpoint.cloud")
+                        || origin.starts_with("https://kiosk.rp")
+                        || origin == "https://app.racingpoint.cloud"
                 }))
                 .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE, Method::OPTIONS])
                 .allow_headers(tower_http::cors::Any)
                 .allow_credentials(false)
         )
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state.clone());
 
-    // Start server
+    // Start HTTP server
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-    tracing::info!("RaceControl listening on http://{}", bind_addr);
-    tracing::info!("Dashboard:   http://{}/", bind_addr);
-    tracing::info!("API:         http://{}/api/v1/health", bind_addr);
-    tracing::info!("Agent WS:    ws://{}/ws/agent", bind_addr);
+    tracing::info!("RaceControl HTTP on http://{}", bind_addr);
+    tracing::info!("Dashboard:    http://{}/", bind_addr);
+    tracing::info!("API:          http://{}/api/v1/health", bind_addr);
+    tracing::info!("Agent WS:     ws://{}/ws/agent", bind_addr);
     tracing::info!("Dashboard WS: ws://{}/ws/dashboard", bind_addr);
     tracing::info!("AI WS:        ws://{}/ws/ai", bind_addr);
 
+    // Start HTTPS server (if tls_port configured)
+    if let Some(tls_port) = state.config.server.tls_port {
+        let tls_config = tls::load_or_generate_rustls_config(
+            &state.config.server.host,
+            state.config.server.cert_path.as_deref(),
+            state.config.server.key_path.as_deref(),
+        ).await?;
+        let https_addr: std::net::SocketAddr = format!("{}:{}", state.config.server.host, tls_port)
+            .parse()
+            .expect("invalid tls_port address");
+        let https_app = app.clone();
+        tracing::info!("RaceControl HTTPS on https://{}", https_addr);
+        tokio::spawn(async move {
+            if let Err(e) = axum_server::bind_rustls(https_addr, tls_config)
+                .serve(https_app.into_make_service())
+                .await
+            {
+                tracing::error!("HTTPS listener failed: {}", e);
+            }
+        });
+    }
+
+    // HTTP listener (blocking — keeps main alive)
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
