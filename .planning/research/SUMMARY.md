@@ -1,197 +1,218 @@
 # Project Research Summary
 
-**Project:** Racing Point Operations — v10.0 Connectivity & Redundancy
-**Domain:** Venue ops infrastructure — DHCP stability, health monitoring, config sync, auto-failover, and failback for a Rust/Axum + rc-agent sim racing venue
-**Researched:** 2026-03-20 IST
+**Project:** v11.0 Agent and Sentry Hardening
+**Domain:** Rust daemon hardening — rc-sentry timeout/concurrency, rc-agent decomposition, rc-common extraction, test infrastructure
+**Researched:** 2026-03-20
 **Confidence:** HIGH
 
 ## Executive Summary
 
-v10.0 Connectivity & Redundancy solves a single operational problem: the venue has no automated recovery when the local server (.23) goes down. The current architecture has all pods hardwired to a single WebSocket URL, no external health observer, and a server IP that drifts nightly due to an unconfigured DHCP reservation. The root cause of most weekly ops incidents — IP drift, manual recovery, Uday having to wake James — is addressable with targeted infrastructure changes and one new Rust crate (`sha2`). The Bono VPS already runs a compatible racecontrol instance with Tailscale mesh connectivity to all pods, making this a wiring problem, not a greenfield build.
+This milestone hardens two production daemons running across an 8-pod sim-racing fleet. rc-sentry (155-line stdlib HTTP server on port 8091) has three silent correctness failures: `timeout_ms` is parsed but never enforced, output is never truncated, and threads are spawned without a concurrency cap. These are not theoretical — a single long-running `dir /s` command will block the sentry thread indefinitely and a concurrent fleet-wide health poll can spawn unbounded OS threads. rc-agent (port 8090) is architecturally sound but its 3,400-line `main.rs` is approaching an unmaintainable mass; its two highest-risk subsystems (billing_guard, failure_monitor) have no unit tests despite controlling revenue and autonomous healing behavior.
 
-The recommended approach is strictly dependency-ordered across six phases: (1) fix the DHCP reservation so the health monitor watches a stable address, (2) implement config sync so the cloud failover target has current venue settings, (3) add the `SwitchController` message to rc-agent so pods can be redirected at runtime without a restart, (4) build the failover controller server-side, (5) deploy the standalone `server-monitor` binary on James's workstation to automate detection and triggering, and (6) handle failback data reconciliation. Each phase delivers testable, independently verifiable functionality. Nothing is built against an untested dependency.
+The recommended approach is a strict two-phase sequence: harden rc-sentry and write critical tests first, then decompose rc-agent. rc-common gains two shared primitives (exec helper, HTTP utils) that both callers benefit from — but must be feature-gated to preserve rc-sentry's stdlib-only constraint. The key architectural invariant throughout is that rc-sentry must never take a tokio dependency: its value as a fallback tool derives entirely from being independent of rc-agent's failure modes. Any temptation to "just add axum" to simplify timeout logic must be resisted.
 
-The critical risks are not architectural — they are operational. Tailscale SSH server does not work on Windows (confirmed via GitHub issue #14942), so the remote exec path must use rc-agent remote_ops :8090 over Tailscale IP instead. The health monitor threshold must be calibrated high enough to survive normal AC game launches (3-4s CPU spikes) without triggering false-positive failovers that disrupt live sessions. Split-brain billing — two servers simultaneously billing the same session — is the highest-severity failure mode and requires pod-side health confirmation (not just James's view) before any failover is declared.
+The top risk is the rc-agent main.rs decomposition breaking the `select!` event loop, which coordinates 10+ concurrent tasks with shared mutable state across tightly coupled arms. The standing rule applies without exception: characterization tests first, verify green, then refactor one module at a time in compilation order. The recovery path for a bad decomposition (git revert + pendrive deploy) is expensive; the prevention (incremental extraction with tests) is not.
+
+---
 
 ## Key Findings
 
 ### Recommended Stack
 
-See `.planning/research/STACK.md` for full details, code patterns, and alternative rationale.
+The dependency delta for this milestone is intentionally minimal: 2 new crates total. `wait-timeout 0.2` adds `ChildExt::wait_timeout(Duration)` for rc-sentry's blocking process execution — it calls `WaitForSingleObject` under the hood, requires no async runtime, and is the only correct stdlib-compatible solution for the timeout problem. `mockall 0.13` goes in rc-agent dev-dependencies only, enabling trait-based mocking of the reqwest HTTP client in billing_guard tests without spinning up a real server.
 
-Only one net-new Cargo dependency is added for the entire milestone: `sha2 = "0.10"` for config file change detection. Every other capability is satisfied by existing crates (`reqwest`, `tokio::sync::watch`, `tokio::process::Command`, `serde_json`) or by infrastructure configuration (DHCP reservation, OpenSSH if available). The constraint "no new language runtimes" is satisfied — everything stays Rust + the existing Node.js `send_email.js` pattern.
+Everything else is already in the workspace: tracing/tracing-subscriber (rc-sentry structured logging), tokio (rc-agent async exec), sysinfo 0.33 (rc-sentry /processes endpoint), serial_test 3, tempfile 3, tower 0.5, and http-body-util 0.1 for test infrastructure. The workspace already pays the compile cost for these — adding them to rc-sentry's Cargo.toml resolves the same locked versions at zero additional cost.
 
 **Core technologies:**
-- `sha2 0.10.8` (RustCrypto): config file hash for change detection before pushing to Bono — the sole new dependency
-- `tokio::sync::watch` (existing): broadcast failover URL changes from the health probe task to the WS reconnect loop in rc-agent — lock-free, zero new crate
-- `reqwest 0.12` (existing): HTTP health probes every 5-10s from James .27 to server .23; reused in both `server-monitor` and `failover_monitor`
-- `tokio::process::Command` (existing): shell-out to `send_email.js` for failover alerts; same pattern as existing `watchdog.rs`
-- TP-Link router DHCP reservation (web UI): pin server .23 to MAC `10:FF:E0:80:B1:A7` — zero code, one-time router config
-- OpenSSH or rc-agent :8090 (existing): remote exec path to server for automated restart; OpenSSH is preferred but has a documented component store failure on this machine — rc-agent :8090 is the fallback
+- `wait-timeout 0.2`: child process timeout for rc-sentry — only stdlib-compatible solution on Windows
+- `AtomicUsize` (stdlib): concurrency cap for rc-sentry — no external crate needed for a cap-and-reject pattern
+- `tracing` + `tracing-subscriber` (workspace): structured logging for rc-sentry — already paid for
+- `mockall 0.13` (dev-only): HTTP trait mocking for billing_guard tests — MSRV 1.77, project at 1.93.1
+- `sysinfo 0.33` (workspace version): process listing for rc-sentry /processes — same locked version as rc-agent
 
 ### Expected Features
 
-See `.planning/research/FEATURES.md` for the full prioritization matrix and dependency graph.
+**Must have (table stakes — Phase 1):**
+- rc-sentry timeout enforcement — `_timeout_ms` is silently ignored; hung threads accumulate
+- rc-sentry output truncation — no cap; `dir /s C:\` floods the response buffer
+- rc-sentry concurrency limit — unbounded `thread::spawn` per connection; must be co-implemented with timeout (same threading design)
+- rc-sentry structured logging — `eprintln!()` only; no timestamps, no levels, no pod context
+- rc-sentry /health endpoint — operators need to confirm sentry is alive when rc-agent is down
+- rc-sentry /version endpoint — operators need to confirm which binary is deployed; requires build.rs for GIT_HASH
+- Unit tests for billing_guard.rs — controls BILL-02/03/SESSION-01; wrong = lost revenue or trapped sessions
+- Unit tests for failure_monitor.rs — drives autonomous healing; wrong = undetected game freezes
 
-**Must have (v10.0 MVP — launch together):**
-- DHCP reservation for server .23 (MAC 10-FF-E0-80-B1-A7) — prevents IP drift that invalidates all other features; 30-minute router UI task
-- Server health monitor on James .27 — HTTP poll `/health` every 5s, DOWN after 3 consecutive failures, UP after 2 consecutive successes; uses `reqwest`, no new deps
-- Config sync (racecontrol.toml → Bono VPS) — push sanitized venue config on startup and on file change so cloud failover target knows pod definitions and billing rates
-- `core.fallback_url` in rc-agent TOML + `SwitchController` AgentMessage — pods can switch WS target at runtime without restart; deploy to Pod 8 canary first
-- Failover trigger + Uday email notification — when health monitor declares .23 DOWN and Bono VPS is healthy, signal pods to switch; email Uday
-- Failback trigger + Uday email notification — when .23 recovers, signal pods back to primary WS URL; email Uday
+**Should have (Phase 2):**
+- rc-agent config.rs extraction — pure data structs + validation functions; lowest refactor risk, enables clean unit tests
+- rc-agent state_machine.rs extraction — LaunchState/CrashRecoveryState enums; depends on config.rs first
+- rc-sentry /files endpoint — fallback binary verification when rc-agent is down
+- rc-sentry /processes endpoint — fallback process health check when rc-agent is down
+- rc-common exec helper — eliminates drift between remote_ops.rs and ws_exec handler
+- rc-sentry endpoint tests — TcpStream-based integration tests on ephemeral port
 
-**Should have (v10.x Phase 2 — add after MVP validated):**
-- Tailscale SSH to server (via OpenSSH MSI if component store repair succeeds) — remote restart capability for James without physical access
-- Split-brain prevention — Bono enters read-only billing mode when .23 sends "I am primary" signal; requires remote exec to server
-- Grace period for active sessions — snapshot lap/session state before URL switch to prevent lost laps during mid-session failover
-- WhatsApp failover alerts (Evolution API, existing) — mirror email alerts; faster notification for Uday
+**Defer (v12.0+):**
+- FFB safety unit tests — hardware mock design non-trivial; defer unless FFB incidents occur
+- rc-agent ws_handler.rs extraction — timing-sensitive WS reconnect loop; only after simpler extractions prove safe
+- rc-agent event_loop.rs full extraction — highest regression risk; select! dispatch must not be touched until everything else is proven stable
 
-**Defer (v10.x+):**
-- Failover health dashboard — admin panel widget; email notifications cover the operational need at MVP
-- Automatic recovery test drill — weekly simulated outage; too risky until MVP is proven stable in production
-- Island mode (no connectivity) — pods accept local sessions without billing when both .23 and cloud are unreachable; significant complexity, rare scenario
-
-**Explicitly avoid:**
-- DNS-based failover — Windows DNS caching makes propagation 90-120s minimum; direct IP switching in rc-agent gives <15s
-- Active-active dual-server — requires distributed consensus on top of SQLite; the existing UUID mismatch in cloud_sync already proves this is architecturally mismatched
-- Tailscale SSH server on Windows — not supported (Tailscale GitHub #14942); use Tailscale for IP routing only, exec via rc-agent :8090 or OpenSSH
-- Continuous config sync every 30s — config changes weekly at most; push event-driven on startup and file mtime change, not every loop tick
-- Full racecontrol.toml sync to cloud — must strip all credentials (JWT secret, API keys, db path) before transmission; `ConfigSnapshot` struct is the correct abstraction
+**Anti-features (do not build):**
+- tokio/axum in rc-sentry — doubles binary size, eliminates independent-failure-mode property
+- Shared reqwest client in rc-common — pulls tokio into rc-common, contaminates rc-sentry
+- Big-bang main.rs rewrite — no regression safety net, behavioral regressions only surface under live conditions
+- Full hardware test coverage — ffb, HID, firewall paths are hardware-bound; 100% coverage goal stalls milestone
 
 ### Architecture Approach
 
-See `.planning/research/ARCHITECTURE.md` for full data flow diagrams, build order, and anti-pattern analysis.
+The workspace has a clean three-tier structure: rc-common (shared types, lib-only), rc-agent (pod daemon, tokio/axum, port 8090), rc-sentry (pod fallback, stdlib, port 8091). v11.0 adds two shared primitives to rc-common — `exec.rs` with sync and async exec paths feature-gated behind `async-exec`, and `http_util.rs` for raw HTTP response formatting. The feature gate is the critical design decision: rc-sentry imports rc-common without `async-exec`, preserving its zero-async-runtime constraint. rc-agent imports rc-common with `features = ["async-exec"]` to get the tokio-based path. This boundary must be established before any code moves into rc-common.
 
-The architecture adds four new components to the existing system with minimal modification to existing files. The core pattern is: an external health observer (James .27) watches the server from outside the failure domain; pods receive `SwitchController` AgentMessages over their existing WS channel to redirect their connections at runtime; Bono's VPS receives config snapshots and pod connections during failover using the existing ws/agent WebSocket protocol with no changes to the shared rc-common protocol beyond one new enum variant.
+**Major components and changes:**
+1. `rc-common/src/exec.rs` (new) — `ExecRequest`, `ExecResult`, `run_cmd_sync` (always compiled), `run_cmd_async` (feature-gated); both callers converge on the same truncation threshold and timeout logic
+2. `rc-common/src/http_util.rs` (new) — `json_response()`, `plain_response()`, `cors_ok()` for rc-sentry's raw TCP HTTP responses
+3. `rc-sentry/src/main.rs` (hardened) — `OnceLock<Instant>` for start time, `AtomicUsize` for active connections, `recv_timeout` for exec timeout, 4 new endpoints, structured log per request
+4. `rc-agent/src/config.rs` (extracted) — all `*Config` structs + `load_config()` + `validate_config()`; pure data, testable in isolation
+5. `rc-agent/src/app_state.rs` (extracted) — `AppState`, `LaunchState`, `CrashRecoveryState`; depends on config.rs
+6. `rc-agent/src/ws_handler.rs` (extracted) — WS connect/reconnect outer loop; depends on config + app_state
+7. `rc-agent/tests/` (new) — billing_guard, failure_monitor tests; use existing watch channel injection pattern
 
-**Major components:**
-1. `server-monitor` (new Rust binary on James .27) — polls `.23:8080/health` every 10s, drives FSM (Healthy→Failover→Recovering→Healthy), triggers failover/failback commands, notifies Uday via email/WhatsApp
-2. `failover_controller.rs` (new module in racecontrol) — broadcasts `SwitchController` to all WS-connected pods; rc-sentry :8091 fallback for disconnected pods; registered as `POST /api/v1/admin/failover` and `POST /api/v1/admin/failback`
-3. `SwitchController` variant in `CoreToAgentMessage` (rc-common) — `{ new_url: String, reason: String, write_override: bool }` — pods update their in-memory active URL and write a durable override file (`C:\RacingPoint\rc-agent-active-url.txt`) that survives rc-agent restarts
-4. `ConfigSnapshot` + config export endpoint (racecontrol on .23) — sanitized venue config (pod definitions, billing rates, no secrets) pushed to Bono on startup and on mtime change via extended `bono_relay.rs`
-
-**Key build order constraint:** DHCP reservation must be verified stable (server survives overnight reboot at .23) before any Rust code is written for phases 2+. The health monitor watching a drifting IP is worse than no health monitor.
+Build order is leaves-to-roots: rc-common first, then rc-sentry (independent of rc-agent), then rc-agent decomposition (highest risk, done last).
 
 ### Critical Pitfalls
 
-See `.planning/research/PITFALLS.md` for full recovery strategies, integration gotchas, and the "Looks Done But Isn't" verification checklist.
+1. **timeout_ms parsed but never enforced in rc-sentry** — `_` prefix suppresses the warning; a hung `xcopy` blocks the thread indefinitely. Fix: spawn child thread + `channel.recv_timeout(Duration::from_millis(timeout_ms))`. Must NOT use tokio.
 
-1. **Tailscale SSH server not supported on Windows** — Tailscale SSH is Linux/macOS only (GitHub #14942). The v10.0 plan references "remote exec via Tailscale SSH" — this must be re-planned. Use rc-agent remote_ops :8090 over Tailscale IP for automated exec, or OpenSSH MSI (not `Add-WindowsCapability` which already failed) for interactive shell. Test on the actual server before designing any phase around SSH. No planning assumption should depend on `tailscale ssh` working on .23.
+2. **rc-sentry thread-per-connection with no concurrency cap** — fleet health poller + deploy script + manual curl = unbounded threads, each consuming ~1MB stack on Windows. Fix: `AtomicUsize` semaphore before spawn, reject with HTTP 429 at configured limit. Must be co-implemented with timeout (same threading change).
 
-2. **DHCP reservation assigned to the old MAC** — The server's NIC changed from `BC:FC:E7:2C:F2:CE` to `10:FF:E0:80:B1:A7` on 2026-03-17. Any existing DHCP reservation uses the old MAC and will never match. Verify the current MAC on the server with `ipconfig /all` before touching the router. After creating the reservation, force `ipconfig /release && ipconfig /renew` and then reboot to confirm .23 sticks. Also configure a static IP on the NIC as belt-and-suspenders — DHCP reservation alone has known consumer router bugs where active leases are not overridden.
+3. **rc-agent select! loop decomposition breaking borrow checker** — 10+ select! arms share ~14 mutable local variables (`game_process`, `launch_state`, `crash_recovery`, etc.). Naive function extraction fails E0502/E0505. Fix: extract ALL shared state into `ConnectionState` struct, pass `&mut ConnectionState` to extracted handlers; never use `Arc<Mutex<T>>` for variables that were previously local — introduces lock contention in async hot path.
 
-3. **Split-brain dual billing during failover** — If James's network path to .23 fails (switch port fault, cable issue) but pods can still reach .23 directly, James declares a false outage and commands all pods to switch to cloud. Both servers bill the same active sessions. This is the highest-severity failure mode: billing is double-charged or credits are lost. Mitigation: require at least one pod's own LAN probe to confirm .23 unreachability before triggering fleet-wide failover. James's health check is a necessary but not sufficient condition.
+4. **rc-common extraction contaminating rc-sentry with tokio** — adding `async fn` or `tokio` to rc-common without feature gating causes rc-sentry's linker to pull in the async runtime. Fix: define `[features] async-exec = ["dep:tokio"]` in rc-common BEFORE moving any code; always run `cargo build --bin rc-sentry` after every rc-common change.
 
-4. **False-positive health check during AC game launch** — AC session spawn is CPU-intensive (3-4s). If the health check timeout is 2s and the threshold is 2 failures, a normal game launch triggers failover. Minimum outage duration for trigger must be 60s continuous; health probe timeout must be 5-10s, not 2s. The existing `WS_DEAD_SECS = 300` in `self_monitor.rs` already accounts for slow boots — health monitor thresholds must be at least as tolerant.
+5. **Tests triggering real HID/FFB hardware** — `FfbController::new(0x1209, 0xFFB0)` in a test on James's workstation (no wheelbase connected) fails with USB error; on a pod it silently sends a zero-torque command to live hardware. Fix: `FfbBackend` trait with `HidBackend` (production) and `NullBackend` (tests), or `#[cfg(test)]` early-return guards; never call `FfbController` methods directly in tests without this seam.
 
-5. **rc-agent dual-connect during failback** — If failback opens a new WS to .23 before the cloud WS is explicitly closed, both servers send commands simultaneously. This causes double-execution of billing END events and phantom lock screen engagements. The connection state machine in rc-agent must have an explicit `DISCONNECTING` state with awaited close before any new connection is opened.
+---
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+Based on combined research, the natural phase structure follows the build-order dependency graph and risk gradient.
 
-### Phase 1: Infrastructure Foundation
-**Rationale:** All of v10.0 depends on the server having a stable IP and James having a remote exec path. Neither requires Rust code. These are prerequisites that can be validated in isolation before any development begins. DHCP drift is the root cause of the current weekly ops burden — fixing it first eliminates a failure mode that would corrupt all subsequent testing.
-**Delivers:** Server .23 permanently assigned to IP 192.168.31.23 (DHCP reservation + static NIC fallback); remote exec path confirmed (rc-agent :8090 over Tailscale IP, and/or OpenSSH if component store repair succeeds)
-**Addresses:** Table stakes "stable server IP" and "remote exec" features from FEATURES.md
-**Avoids:** DHCP wrong-MAC pitfall (Pitfall 2), Tailscale SSH on Windows pitfall (Pitfall 1)
-**Verification gate:** Reboot server overnight, confirm it gets .23 in the morning. Run `curl http://192.168.31.23:8080/health` from James .27. Phase does not proceed to code until this passes.
+### Phase 1: rc-sentry Hardening + Critical Business Tests
 
-### Phase 2: Config Sync
-**Rationale:** Config sync is purely additive (push-only from .23 to Bono VPS) with zero failover risk. Building it first validates the James↔Bono communication channel under zero operational pressure. If config sync has problems (auth failures, schema mismatches, Bono-side storage), better to discover them here than during an actual failover event.
-**Delivers:** `ConfigSnapshot` type in rc-common; `GET /api/v1/config/export` endpoint on racecontrol; `config_pusher.rs` task that hashes racecontrol.toml (sha2) and pushes to Bono on startup and on mtime change; Bono VPS stores snapshot; cloud racecontrol knows pod count, pod numbers, billing rates
-**Uses:** `sha2 0.10.8` (sole new Cargo dependency for all of v10.0), `reqwest` (existing), `bono_relay.rs` extension (existing)
-**Implements:** config export endpoint and config_pusher.rs architecture components
-**Avoids:** Config sync overwrites outage changes pitfall (Pitfall 6 — add `config_updated_at` timestamp from the start); syncing secrets to cloud (ConfigSnapshot struct excludes credentials by design)
+**Rationale:** rc-sentry has three live correctness failures (timeout, truncation, unbounded threads) that can manifest at any time during fleet operations. The billing_guard and failure_monitor have no tests despite controlling revenue and autonomous healing — they are the highest business risk in the codebase. Both are achievable with no refactoring risk. Phase 1 should be completable and deployed before any refactoring work begins.
 
-### Phase 3: Pod SwitchController
-**Rationale:** The `SwitchController` AgentMessage is the core mechanism that makes failover zero-downtime for active sessions. It touches rc-agent's WS reconnect loop — the most sensitive code in the system. Must be built and validated in isolation (Pod 8 canary) before any automated trigger can use it. If this phase reveals unexpected complexity in the reconnect loop, it does not affect config sync or health monitoring phases.
-**Delivers:** `SwitchController` variant in `CoreToAgentMessage`; rc-agent reconnect loop reads from `Arc<RwLock<String>>` (not startup-cached URL); `SwitchController` handler writes durable override file (`rc-agent-active-url.txt`); `self_monitor.rs` suppresses relaunch for 5min after switch; Pod 8 canary validated
-**Uses:** `tokio::sync::RwLock` (existing), `CoreToAgentMessage` enum extension (rc-common)
-**Implements:** in-memory URL switch with TOML durability pattern (Pattern 1 from ARCHITECTURE.md)
-**Avoids:** rc-agent dual-connect pitfall (Pitfall 5 — explicit DISCONNECTING state before new connection); self_monitor relaunch loop risk (WS dead→relaunch→reconnect to dead .23→loop)
+**Delivers:** A hardened fallback daemon with verified behavior under load; test coverage on the two highest-risk subsystems; deployable to Pod 8 for canary verification.
 
-### Phase 4: Failover Controller
-**Rationale:** The failover controller server-side provides manual trigger capability before any automated detection is connected. Manual testing (trigger failover from James's terminal, verify all 8 pods switch to cloud WS) is a necessary confidence-building step before automation. A manual trigger that fails reveals integration bugs in a controlled way; automated false-positive triggers cause customer disruption.
-**Delivers:** `failover_controller.rs` module in racecontrol; `POST /api/v1/admin/failover` and `POST /api/v1/admin/failback` endpoints (X-Admin-Secret auth); broadcast SwitchController to all connected pods; rc-sentry :8091 fallback for pods not WS-connected; manual failover test confirmed end-to-end
-**Implements:** Failover controller architecture component, incremental pod switching pattern (Pattern 4 — Pod 8 first, 30s delay, then fleet)
-**Avoids:** Split-brain during manual test (only one operator initiating, no simultaneous cloud and local billing)
+**Addresses:**
+- rc-sentry timeout enforcement (P1)
+- rc-sentry output truncation (P1)
+- rc-sentry concurrency limit (P1, co-implemented with timeout)
+- rc-sentry structured logging (P1)
+- rc-sentry /health endpoint (P1)
+- rc-sentry /version endpoint + build.rs (P1)
+- Unit tests for billing_guard.rs (P1)
+- Unit tests for failure_monitor.rs (P1)
 
-### Phase 5: Health Monitor Automation
-**Rationale:** The `server-monitor` binary on James .27 is the final step that makes failover fully automatic. It depends on Phases 3 and 4 both being proven correct — the trigger mechanism must be reliable before it is automated. First automated test: kill racecontrol on .23 and confirm server-monitor triggers failover within 90s without operator intervention.
-**Delivers:** New `crates/server-monitor` Rust binary; 5s health probe loop; FSM (Healthy→Failover→Recovering→Healthy); calls Bono VPS `POST /api/v1/admin/failover` when .23 DOWN + Bono UP confirmed; email notification via `send_email.js`; state persisted to `~/.local/server-monitor.state.json` for crash recovery
-**Uses:** `reqwest` (existing), `tokio::time::interval` (existing), `send_email.js` shell-out pattern (existing)
-**Avoids:** False-positive failover pitfall (Pitfall 4 — minimum 60s continuous outage, 5-10s probe timeout, time-gated suppression 01:00-03:00 for Windows Update window); health check pitfall "heartbeat piggybacked on WS" (FEATURES.md anti-feature)
+**Avoids:** Do not add tokio to rc-sentry (destroys independent-failure-mode property). Do not add /files or /processes before timeout + concurrency cap is in place (new endpoints expose longer-running commands). Do not start rc-agent decomposition until Phase 1 is green.
 
-### Phase 6: Failback and Data Reconciliation
-**Rationale:** Failback is more complex than failover because it requires data integrity — sessions that ran on cloud during the outage must merge back to local without double-billing or phantom session states. The sync-before-accept gate (server refuses rc-agent connections until cloud_sync pull completes) is the most important correctness constraint in the entire milestone.
-**Delivers:** Sync-before-accept startup gate in racecontrol (WS listener opens only after cloud_sync pull completes); session state reconciliation on first pod reconnect after failback (compare in-memory state vs synced DB); cloud sessions marked as "failover-mode" for merge tracking; Uday notification on failback; all-pod-reconnected confirmation check
-**Avoids:** Failback stale session state pitfall (Pitfall 7); cloud_sync passive sync timing gap for sessions created during outage; dual billing on failed reconciliation
+---
+
+### Phase 2: rc-common Extraction + rc-sentry Endpoint Expansion
+
+**Rationale:** Once rc-sentry is hardened and tests are green, rc-common gains the shared exec primitive and HTTP utilities. This phase is safe to do before rc-agent decomposition because rc-common changes compile independently. The new rc-sentry endpoints (/files, /processes) complete the fallback tool's capabilities for incident response.
+
+**Delivers:** Single source of truth for exec timeout/truncation logic; rc-sentry becomes a capable fallback with process and file visibility; rc-common feature gating established for all future shared code.
+
+**Uses:**
+- `wait-timeout 0.2` in rc-common (sync exec path)
+- `sysinfo 0.33` in rc-sentry (process listing)
+- Cargo feature gate `async-exec` in rc-common
+
+**Implements:** rc-common exec.rs + http_util.rs; rc-sentry /files + /processes + endpoint integration tests
+
+**Critical gate:** Run `cargo build --bin rc-sentry` explicitly after every rc-common change. The `cargo test -p rc-common` command does not catch rc-sentry contamination.
+
+---
+
+### Phase 3: rc-agent Decomposition
+
+**Rationale:** Highest regression risk in the milestone. Protected by characterization tests written in this phase before any structural change. Extraction proceeds in strict risk order: config (pure data, no runtime effects) → app_state (pure construction, no channels) → ws_handler (WS lifecycle) → event_loop (select! dispatch, deferred). The panic hook and startup sequence stay in main.rs regardless.
+
+**Delivers:** rc-agent main.rs reduced from ~3,400 lines to ~150 lines; four new testable modules; clean module boundaries for future feature development.
+
+**Uses:**
+- `mockall 0.13` in rc-agent dev-dependencies (billing_guard HTTP isolation)
+- rc-common exec helper (async path) to remove duplication in remote_ops.rs
+
+**Implements:** config.rs, app_state.rs, ws_handler.rs extraction (event_loop.rs deferred to v12.0)
+
+**Avoids:** No `Arc<Mutex<T>>` for previously-local select! variables. No big-bang rewrite. event_loop.rs extraction explicitly deferred — the select! dispatch body is not touched in this phase.
+
+---
 
 ### Phase Ordering Rationale
 
-- Phase 1 is a hard prerequisite for all subsequent phases. A drifting server IP makes health monitoring non-deterministic and failover testing unreliable. Nothing else starts until Phase 1 verification passes.
-- Phases 2 and 3 can be developed in parallel by different sessions — they have no shared code. Phase 2 touches racecontrol and bono_relay; Phase 3 touches rc-agent and rc-common. They share only the `ConfigSnapshot` type in rc-common which can be stubbed.
-- Phase 4 requires Phase 3 complete (pods must support SwitchController before the controller can broadcast it).
-- Phase 5 requires Phase 4 complete (failover endpoint must exist before server-monitor calls it).
-- Phase 6 requires Phase 5 complete (failback is triggered by server-monitor, and reconciliation logic must handle sessions created during an automated failover scenario).
-- This ordering follows the architecture build order from ARCHITECTURE.md exactly, which was derived from code dependency analysis.
+- Phase 1 before Phase 2: rc-sentry hardening is a prerequisite for safe endpoint expansion. A /files endpoint on an un-rate-limited, no-timeout sentry is a reliability liability.
+- Phase 2 before Phase 3: rc-common extraction is independent of rc-agent. Establishing the feature gate boundary and validating `cargo build --bin rc-sentry` clean before any rc-agent code moves is the correct order.
+- Phase 3 last: rc-agent decomposition carries the highest regression risk. It must be protected by Phase 1's test infrastructure before it starts. A bad extraction is recovered by `git revert` + pendrive deploy — expensive. Prevention via incremental extraction is not.
+- rc-sentry and rc-agent development can proceed in parallel within Phase 3 (they share only rc-common, not each other).
 
 ### Research Flags
 
-Phases needing deeper research or explicit verification during planning:
+Phases with standard patterns (research-phase not needed):
+- **Phase 1 — rc-sentry hardening:** well-documented stdlib patterns; thread + channel timeout, AtomicUsize semaphore, OnceLock uptime are all established std patterns with no ambiguity.
+- **Phase 1 — billing_guard tests:** watch channel injection already designed; mockall automock is well-documented; the test seam exists in the current spawn() signature.
+- **Phase 2 — rc-common extraction:** Cargo feature gating for conditional tokio dependency is documented; the exec API design is fully specified in ARCHITECTURE.md.
 
-- **Phase 1 (Remote Exec):** OpenSSH on server .23 has a documented component store failure. Before any planning assumes OpenSSH, run `winget install Microsoft.OpenSSH.Beta` on the server and confirm it succeeds. If it fails, the remote exec path is rc-agent :8090 (already deployed on server per MEMORY.md). The plan must be explicit about which path it depends on.
-- **Phase 3 (SwitchController):** rc-agent reconnect loop is complex (`reconnect_delay_for_attempt()` backoff, `self_monitor.rs` relaunch interaction). The architecture research identified a specific loop risk (relaunch→reconnect to dead .23→WS dead→relaunch loop). The implementation plan must explicitly address this interaction and include a test that confirms the loop does not occur.
-- **Phase 6 (Failback Reconciliation):** The session sync direction "cloud → local for sessions created during failover" is not currently implemented in `cloud_sync.rs`. The planning session must determine whether this extends the existing SYNC_TABLES mechanism or requires a new dedicated reconciliation endpoint on Bono's VPS. This is the highest architectural uncertainty in the milestone.
+Phases likely needing targeted research during planning:
+- **Phase 3 — select! decomposition:** the EventLoopArgs struct boundary needs careful design before extraction. The 14 mutable shared variables and their ownership across 10+ select! arms need a concrete mapping before a line of code changes. Recommend a planning step that enumerates all captured variables and assigns each to `ConnectionState` (inner loop) or `ReconnectState` (outer loop) before implementation begins.
+- **Phase 3 — FFB backend trait:** if FFB safety tests are pulled into this phase, the `FfbBackend` trait design needs upfront agreement. The `#[cfg(test)]` stub approach is simpler but produces fragile tests; the trait approach is cleaner but requires a signature change to `FfbController`. Decide before writing any FFB tests.
 
-Phases with standard patterns (skip research-phase):
-
-- **Phase 1 (DHCP):** TP-Link DHCP reservation procedure is documented in the official FAQ. MAC verification via `ipconfig /all` is standard. No research needed — this is a router UI change with a clear verification step.
-- **Phase 2 (Config Sync):** `sha2` integration is trivial (compute hash, POST if different). Bono relay extension follows the existing `X-Relay-Secret` auth pattern exactly. No research needed.
-- **Phase 4 (Failover Controller):** Axum route registration and WebSocket broadcast to connected pods follows existing patterns in racecontrol (see `pod_monitor.rs`, `main.rs` router setup). No research needed.
-- **Phase 5 (Server Monitor):** Probe loop with hysteresis is a standard async Rust pattern already used in `cloud_sync.rs` (`RELAY_DOWN_THRESHOLD=3`, `RELAY_UP_THRESHOLD=2`). The FSM is documented in full in ARCHITECTURE.md. No research needed beyond validating the failover endpoint address before writing the trigger call.
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Only new dependency is `sha2` (393M downloads, RustCrypto ecosystem). All other capabilities use existing crates verified in the codebase. Single uncertainty: OpenSSH component store repair on server — but rc-agent :8090 is a confirmed fallback. |
-| Features | HIGH | Feature set derived from concrete operational gaps (DHCP drift history, no health observer, no fallback URL). MVP scope is minimal and tightly bounded. The FEATURES.md dependency graph is internally consistent. |
-| Architecture | HIGH | All integration points verified by reading actual source files (bono_relay.rs, cloud_sync.rs, self_monitor.rs, rc-agent/main.rs, rc-common/protocol.rs). The loop risk in Phase 3 is identified and documented — not a gap, but a design constraint to address. |
-| Pitfalls | HIGH | Every critical pitfall is derived from a documented past failure on this exact hardware or a confirmed external source (Tailscale GitHub issue). No hypothetical risks — all concrete. |
+| Stack | HIGH | All recommendations verified against crates.io, docs.rs, and direct Cargo.lock inspection. Dependency delta is minimal (2 new crates). No speculative additions. |
+| Features | HIGH | Based on direct codebase analysis of all affected files. `_timeout_ms` unused variable confirmed at line 78. No tests for billing_guard/failure_monitor confirmed by grep. Feature dependencies are code-verified. |
+| Architecture | HIGH | Build order, module boundaries, channel ownership, and data flow all derived from direct source inspection of 155-line rc-sentry and 3,400-line rc-agent. Feature-gate design for rc-common is technically sound. |
+| Pitfalls | HIGH | Every pitfall is grounded in observed code structure. No speculation. Recovery strategies are operationally realistic (pendrive deploy path confirmed in CLAUDE.md). |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **OpenSSH availability on server .23:** `Add-WindowsCapability` already failed once (MEMORY.md). The alternative (`winget install Microsoft.OpenSSH.Beta` or offline MSI) has not been tested. Treat remote exec via OpenSSH as unconfirmed until verified on the server. Phase 1 must include a "confirm exec path" step with an explicit go/no-go on OpenSSH before any automated recovery design assumes it is available.
-- **Pod Tailscale IPs for failover URL:** The failover WS URL for Bono's VPS uses Bono's Tailscale IP (100.x.x.x). This IP must be confirmed before updating any rc-agent TOML config — Tailscale IPs are stable per device but must be looked up from the Tailscale admin console or `tailscale ip` on Bono's VPS.
-- **Failback session reconciliation scope:** `cloud_sync.rs` SYNC_TABLES includes billing_rates, drivers, wallets — but NOT session events (sessions that started and ended on cloud during failover). The implementation must define whether to extend SYNC_TABLES or add a dedicated reconciliation push from Bono. This decision affects both the cloud_sync schema and the Bono-side API surface.
-- **Split-brain prevention mechanism:** The research recommends pod-side health confirmation before fleet-wide failover. The exact implementation (pod reports its own LAN probe result to server-monitor, or server-monitor polls each pod's :8090 as a secondary signal) was not specified. This must be resolved during Phase 5 planning before writing the failover trigger logic.
+- **billing_guard HTTP mock seam:** The orphan session end call (`attempt_orphan_end`) currently calls `reqwest::Client::post()` directly without an injectable seam. Before writing billing_guard tests, decide between: (a) wrap reqwest behind a trait + mockall automock, or (b) extract `attempt_orphan_end` as a callback parameter to `billing_guard::spawn()`. Option (b) is simpler and avoids trait boilerplate. This decision should be made during Phase 1 planning, not mid-implementation.
+
+- **failure_monitor try_auto_fix stub approach:** `try_auto_fix` calls the Ollama endpoint. The `#[cfg(test)] mod ai_debugger_stub` approach works but shadows the real module in tests. If `failure_monitor::spawn()` is later refactored to accept a `fix_fn` callback, the test approach improves. Acceptable to start with the cfg(test) stub in Phase 1 and refactor if needed.
+
+- **rc-sentry partial TCP read:** PITFALLS.md documents that the single `stream.read(&mut buf)` call can return partial data for bodies >~1KB. This is a correctness issue distinct from the timeout/truncation work. The fix (~30 lines) should be included in Phase 1 hardening, not deferred. It is not currently listed as a P1 feature in FEATURES.md — roadmapper should flag it.
+
+- **event_loop.rs deferred scope:** The select! dispatch body (lines ~800-2800 in main.rs) is explicitly deferred to v12.0. The roadmap should make this boundary explicit — Phase 3 extractions stop at the ws_handler outer structure and do not enter the select! arms.
+
+---
 
 ## Sources
 
-### Primary (HIGH confidence)
-- Existing codebase read directly (2026-03-20 IST): `bono_relay.rs`, `cloud_sync.rs`, `self_monitor.rs`, `config.rs`, `state.rs`, `rc-agent/main.rs`, `rc-common/protocol.rs`, `rc-sentry/main.rs`, `pod_monitor.rs`
-- [Tailscale SSH GitHub issue #14942](https://github.com/tailscale/tailscale/issues/14942) — Tailscale SSH server not supported on Windows (confirmed by Tailscale team)
-- [sha2 crates.io](https://crates.io/crates/sha2) — 0.10.8 current stable, RustCrypto ecosystem, 393M downloads
-- [tokio::sync::watch docs.rs](https://docs.rs/tokio/latest/tokio/sync/watch/index.html) — lock-free broadcast pattern for frequently-read, rarely-written values
-- [Microsoft Learn: OpenSSH for Windows](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) — `Add-WindowsCapability` install path, alternative `winget` option
-- [TP-Link DHCP Address Reservation FAQ](https://www.tp-link.com/us/support/faq/182/) — reservation procedure and active lease behavior
-- [Tailscale High Availability Docs](https://tailscale.com/kb/1115/high-availability) — failover timing ~15s, threshold calibration
-- [AWS ELB Health Check Concepts](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/target-group-health-checks.html) — interval/threshold patterns for health check design
-- MEMORY.md — server MAC change history, DHCP drift timeline, OpenSSH component store failure, Tailscale Phase 27 status, VPS address
+### Primary (HIGH confidence — direct source inspection)
+- `crates/rc-sentry/src/main.rs` (full file, 155 lines) — timeout_ms unused at line 78, unbounded thread spawn, no output truncation confirmed
+- `crates/rc-agent/src/main.rs` (lines 1-1165) — 3,400 lines confirmed, LaunchState/CrashRecoveryState present, panic hook at lines 396-438
+- `crates/rc-agent/src/remote_ops.rs` — truncation at 65,536 bytes, Semaphore 8-slot pattern
+- `crates/rc-agent/src/billing_guard.rs` — BILL-02/03/SESSION-01 state machine, no tests present
+- `crates/rc-agent/src/failure_monitor.rs` — CRASH-01/02/USB-01 detection, no tests present
+- `crates/rc-agent/src/ffb_controller.rs` — VID:0x1209 PID:0xFFB0, no FfbBackend trait, no test seam
+- `crates/rc-sentry/Cargo.toml` — deps: serde, serde_json, toml only; no tokio confirmed
+- `crates/rc-agent/Cargo.toml` — sysinfo 0.33, axum 0.8, reqwest 0.12, serial_test 3, tempfile 3, tower 0.5 confirmed
+- `crates/rc-common/src/lib.rs` — current modules: types, protocol, udp_protocol, watchdog, ai_names
+- `.planning/PROJECT.md` — v11.0 requirements list
 
-### Secondary (MEDIUM confidence)
-- [IBM DNS Failover Limitations](https://www.ibm.com/think/topics/dns-failover) — Windows DNS caching makes DNS-based failover unsuitable for LAN
-- [StarWind Split-Brain Prevention](https://www.starwindsoftware.com/blog/whats-split-brain-and-how-to-avoid-it/) — heartbeat-based split-brain detection patterns
-- [OneUptime Rust Health Check Endpoints (2026)](https://oneuptime.com/blog/post/2026-01-25-health-check-endpoints-dependencies-rust/view) — dependency-aware /health endpoint patterns
-- [HAProxy Health Check Tutorial](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/reliability/health-checks/) — 3-5s intervals, 2-3 failure threshold calibration
+### Secondary (HIGH confidence — external verification)
+- crates.io/crates/wait-timeout — version 0.2, Windows WaitForSingleObject impl confirmed
+- crates.io/crates/mockall — version 0.13.1, MSRV 1.77, 84M downloads confirmed
+- docs.rs/tracing — tracing does not require tokio; set_global_default() covers std::thread threads
+- std::sync::atomic documentation — AtomicUsize cap-and-reject is the standard stdlib pattern
 
-### Tertiary (LOW confidence)
-- TP-Link Community forums — DHCP reservation ignored for active leases (consumer router behavior; not officially documented but confirmed in practice)
+### Tertiary (context)
+- CLAUDE.md standing rules — "Refactor Second" rule, deployment rules, pendrive recovery path
+- PROJECT.md v11.0 — active requirements confirmed to match research scope
 
 ---
 *Research completed: 2026-03-20 IST*
