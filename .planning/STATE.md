@@ -4,7 +4,7 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
 stopped_at: Completed 56-02-PLAN.md (weekly report crate)
-last_updated: "2026-03-20T10:55:17.702Z"
+last_updated: "2026-03-20T11:04:08.542Z"
 last_activity: 2026-03-20 — Milestone v11.0 Agent & Sentry Hardening started
 progress:
   total_phases: 35
