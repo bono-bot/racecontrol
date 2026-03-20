@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 77-01-PLAN.md
+last_updated: "2026-03-20T14:18:04.350Z"
+last_activity: "2026-03-20 -- 77-01 complete: TLS foundation with rcgen cert gen, RustlsConfig loader, ServerConfig extension (TLS-02, TLS-04)"
+progress:
+  total_phases: 45
+  completed_phases: 25
+  total_plans: 70
+  completed_plans: 63
+  percent: 90
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Completed 68-01-PLAN.md
 last_updated: "2026-03-20T14:02:05.654Z"
 last_activity: "2026-03-20 -- 76-06 complete: strict JWT enforcement on 172 staff routes (AUTH-01, AUTH-02, AUTH-03, SESS-01)"
 progress:
-  total_phases: 45
+  [█████████░] 90%
   completed_phases: 24
   total_plans: 67
   completed_plans: 61
@@ -112,6 +128,7 @@ Progress: [█████████░] 91% (62/67 plans complete)
 - 76-05: JWT in localStorage with client-side expiry check; AuthGate skips /login pathname to avoid redirect loop; fetchApi auto-clears token + redirects on 401; useIdleTimeout listens to 5 event types with passive listeners (ADMIN-01, ADMIN-03 complete)
 - 76-06: One-line swap from require_staff_jwt_permissive to require_staff_jwt on staff sub-router; contract step of expand-migrate-contract; kept permissive variant for rollback (AUTH-01, AUTH-02, AUTH-03, SESS-01 complete)
 - 68-01: SwitchController placed after RunSelfTest — additive variant, no enum reorder; failover_url: Option<String> with serde(default) for zero-friction backward compat; last_switch_ms: AtomicU64 on HeartbeatStatus for Plan 02 runtime wiring (FAIL-01, FAIL-03, FAIL-04 data contracts complete)
+- 68-02: active_url Arc<RwLock<String>> read inside outer reconnect loop on each iteration — picks up new URL from SwitchController without restart; strict URL allowlist (primary+failover only); log_event made pub for cross-module SWITCH event recording; switch_grace_active = last_switch_ms != 0 && since_switch_ms < 60_000 (FAIL-02, FAIL-03, FAIL-04 runtime wiring complete)
 - 77-01: rcgen 0.14 generate_simple_self_signed takes Vec<String> with auto IP detection (not SanType enum); CertifiedKey has signing_key (not key_pair); backward-compat ServerConfig with Option fields (TLS-02, TLS-04)
 
 ### Blockers/Concerns

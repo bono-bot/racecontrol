@@ -324,3 +324,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 19:20 IST | James | 6e51331 | docs(73-02): complete critical business tests plan -- SUMMARY, STATE, ROADMAP |
 | 2026-03-20 19:30 IST | James | cccd7c9 | feat(68-01): add SwitchController variant to CoreToAgentMessage + serde round-trip test |
 | 2026-03-20 19:30 IST | James | c26f939 | feat(68-01): add failover_url to CoreConfig, last_switch_ms to HeartbeatStatus, 4 unit tests |
+| 2026-03-20 19:37 IST | James | b4dde24 | feat(68-02): wire Arc<RwLock<String>> active_url into reconnect loop + SwitchController handler |
+| 2026-03-20 19:38 IST | James | 766b1da | feat(68-02): add last_switch_ms guard to self_monitor WS-dead relaunch check + 3 unit tests |
