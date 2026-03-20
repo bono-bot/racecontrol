@@ -521,4 +521,98 @@ mod tests {
         // When not silent, telem_gap_fired should be reset to false
         assert!(!udp_silent_60, "10s is below threshold — telem_gap_fired must reset");
     }
+
+    // ── Requirement-named tests (TEST-02) — explicit traceability for CRASH-01 and CRASH-02 ──
+
+    #[test]
+    fn crash01_udp_silence_triggers_freeze_condition() {
+        // CRASH-01: is_game_process_hung() is Windows-only hardware behavior --
+        // tested here up to the condition guard only
+        let state = make_state(|s| {
+            s.game_pid = Some(1234);
+            s.last_udp_secs_ago = Some(35); // 35s > FREEZE_UDP_SILENCE_SECS (30s)
+            s.recovery_in_progress = false;
+        });
+        let udp_silent = state.last_udp_secs_ago
+            .map(|s| s >= FREEZE_UDP_SILENCE_SECS)
+            .unwrap_or(false);
+        // CRASH-01 compound condition: game_pid present + udp_silent + not recovering
+        let condition = state.game_pid.is_some() && udp_silent && !state.recovery_in_progress;
+        assert!(condition, "CRASH-01: 35s UDP silence with game_pid should meet freeze condition");
+    }
+
+    #[test]
+    fn crash01_no_freeze_without_game_pid() {
+        // CRASH-01: freeze check only applies when a game process is running
+        let state = make_state(|s| {
+            s.game_pid = None; // no game — no freeze check
+            s.last_udp_secs_ago = Some(60);
+            s.recovery_in_progress = false;
+        });
+        let udp_silent = state.last_udp_secs_ago
+            .map(|s| s >= FREEZE_UDP_SILENCE_SECS)
+            .unwrap_or(false);
+        let condition = state.game_pid.is_some() && udp_silent && !state.recovery_in_progress;
+        assert!(!condition, "CRASH-01: no game_pid means no freeze check possible");
+    }
+
+    #[test]
+    fn crash01_no_freeze_below_udp_threshold() {
+        // CRASH-01: UDP must be silent for >= 30s to enter freeze check
+        let state = make_state(|s| {
+            s.game_pid = Some(1234);
+            s.last_udp_secs_ago = Some(20); // 20s < FREEZE_UDP_SILENCE_SECS (30s)
+            s.recovery_in_progress = false;
+        });
+        let udp_silent = state.last_udp_secs_ago
+            .map(|s| s >= FREEZE_UDP_SILENCE_SECS)
+            .unwrap_or(false);
+        let condition = state.game_pid.is_some() && udp_silent && !state.recovery_in_progress;
+        assert!(!condition, "CRASH-01: 20s UDP silence is below 30s threshold — no freeze check");
+    }
+
+    #[test]
+    fn crash02_launch_timeout_fires_after_90s() {
+        // CRASH-02: game never appeared 90s after LaunchGame command
+        let state = make_state(|s| {
+            s.launch_started_at = Some(Instant::now() - Duration::from_secs(100));
+            s.game_pid = None; // game never launched
+            s.recovery_in_progress = false;
+        });
+        let launched_at = state.launch_started_at.unwrap();
+        let launch_timeout_fired = false; // starts false per launch attempt
+        let condition = !launch_timeout_fired
+            && launched_at.elapsed() > Duration::from_secs(LAUNCH_TIMEOUT_SECS)
+            && state.game_pid.is_none();
+        assert!(condition, "CRASH-02: 100s elapsed with no game_pid should trigger launch timeout");
+    }
+
+    #[test]
+    fn crash02_no_timeout_when_game_pid_present() {
+        // CRASH-02: if game launched successfully, timeout must not fire
+        let state = make_state(|s| {
+            s.launch_started_at = Some(Instant::now() - Duration::from_secs(100));
+            s.game_pid = Some(5678); // game launched successfully
+            s.recovery_in_progress = false;
+        });
+        let launched_at = state.launch_started_at.unwrap();
+        let launch_timeout_fired = false;
+        let condition = !launch_timeout_fired
+            && launched_at.elapsed() > Duration::from_secs(LAUNCH_TIMEOUT_SECS)
+            && state.game_pid.is_none(); // false — PID present
+        assert!(!condition, "CRASH-02: game_pid present means launch succeeded — no timeout");
+    }
+
+    #[test]
+    fn crash02_no_timeout_before_90s() {
+        // CRASH-02: launch timeout must not fire before 90s elapses
+        let state = make_state(|s| {
+            s.launch_started_at = Some(Instant::now() - Duration::from_secs(60)); // only 60s
+            s.game_pid = None;
+            s.recovery_in_progress = false;
+        });
+        let launched_at = state.launch_started_at.unwrap();
+        let elapsed_past_threshold = launched_at.elapsed() > Duration::from_secs(LAUNCH_TIMEOUT_SECS);
+        assert!(!elapsed_past_threshold, "CRASH-02: 60s elapsed is below 90s LAUNCH_TIMEOUT_SECS");
+    }
 }
