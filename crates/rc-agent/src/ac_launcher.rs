@@ -1379,7 +1379,7 @@ pub(crate) fn minimize_conspit_window() {
     }
 }
 
-/// Check if Conspit Link is running; if not, restart it and minimize after a delay.
+/// Check if Conspit Link is running; if not, delegate to hardened restart.
 /// Called periodically from the main loop as a crash watchdog.
 pub fn ensure_conspit_link_running() {
     let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
@@ -1387,25 +1387,18 @@ pub fn ensure_conspit_link_running() {
         return; // Not installed on this pod
     }
 
+    // Skip if safe_session_end() is currently managing CL lifecycle
+    if crate::ffb_controller::SESSION_END_IN_PROGRESS.load(std::sync::atomic::Ordering::Acquire) {
+        tracing::debug!("Skipping CL watchdog — session-end in progress");
+        return;
+    }
+
     if is_process_running("ConspitLink2.0.exe") {
         return; // Already running, nothing to do
     }
 
-    tracing::warn!("Conspit Link not running — restarting (crash recovery)...");
-    match hidden_cmd("cmd")
-        .args(["/c", "start", "", conspit_path])
-        .spawn()
-    {
-        Ok(_) => {
-            tracing::info!("Conspit Link restarted, will minimize in 4s (non-blocking)...");
-            // Spawn a thread to wait and minimize — don't block the main loop
-            std::thread::spawn(|| {
-                std::thread::sleep(std::time::Duration::from_secs(4));
-                minimize_conspit_window();
-            });
-        }
-        Err(e) => tracing::error!("Failed to restart Conspit Link: {}", e),
-    }
+    tracing::warn!("Conspit Link not running — delegating to hardened restart (crash recovery)...");
+    crate::ffb_controller::restart_conspit_link_hardened(true);
 }
 
 /// Write apps preset to enable sector times and essential HUD elements.
