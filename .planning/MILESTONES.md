@@ -85,6 +85,35 @@
 - LOGBOOK.md bidirectional sync with atomic writes, conflict detection, and ack-based content tracking
 - Daily coordination: HealthAccumulator snapshots, IST-windowed daily summary scheduler, pod status HTTP fetch, FAILSAFE retirement
 
+## Cloud Services v1.0 — Bots & API Gateway (Shipped: 2026-03-07)
+
+**Commits:** 9 across 4 repos | **Owner:** Bono (VPS)
+**Repos:** racingpoint-api-gateway, racingpoint-whatsapp-bot, racingpoint-discord-bot, racingpoint-google
+
+**Key accomplishments:**
+- API Gateway (Express.js): bookings, customers, calendar, proxy routes merging bot data with racecontrol REST API
+- WhatsApp bot: automated session booking with Google Calendar, Claude API migration, 2-min direct mode fallback, RaceControl session booking for registered customers
+- Discord bot: modal form booking with Google Calendar integration
+- Google shared services: Calendar attendees support, Gmail replyEmail, OAuth token refresh utility
+- James-Bono instant comms link + brainstorm daemon v2 + comms cron scripts (predecessor to comms-link repo)
+
+## Admin Dashboard v1.0 — Staff Operations Panel (Shipped: 2026-03-08)
+
+**Commits:** 14 | **Owner:** Bono (VPS) + James (remote pushes)
+**Repo:** racingpoint-admin (Next.js/TypeScript)
+
+**Key accomplishments:**
+- Full admin dashboard: cafe, inventory, sales, purchases, finance modules
+- Receipt scanner + bank statement matching + analytics
+- Waivers page with signature viewing (Google Sheets integration)
+- HR section + hiring nav + marketing admin pages
+- Racing Point brand identity rebrand (Racing Red #E10600)
+- Docker support + admin chat wired directly to rc-core
+- Kiosk control page: per-pod screen blanking toggles, health check
+- Sessions page with staff attribution + daily summary
+- Wallet log page with Transaction ID column
+- Server-side proxy /api/rc/[...path] for rc-core API calls
+
 ## AC Launcher v1.0 — Full AC Launch Experience (Shipped: 2026-03-14)
 
 **Phases completed:** 9 phases, 20 plans (100%)

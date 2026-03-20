@@ -59,6 +59,28 @@ Key: billing_rates DB table + non-retroactive additive algorithm + in-memory rat
 </details>
 
 <details>
+<summary>Cloud Services v1.0 — Bots & API Gateway — 9 commits, 4 repos (Shipped 2026-03-07, Bono)</summary>
+
+Repos: racingpoint-api-gateway, racingpoint-whatsapp-bot, racingpoint-discord-bot, racingpoint-google
+
+Features: Express.js API gateway merging bot data + racecontrol + Calendar; WhatsApp bot with automated booking + Claude API + direct mode fallback; Discord bot with modal booking; Google shared services (Calendar attendees, Gmail reply, OAuth refresh).
+
+No GSD phases — retroactively catalogued from commit history.
+
+</details>
+
+<details>
+<summary>Admin Dashboard v1.0 — Staff Operations Panel — 14 commits (Shipped 2026-03-08, Bono + James)</summary>
+
+Repo: racingpoint-admin (Next.js/TypeScript)
+
+Features: Full admin dashboard (cafe, inventory, sales, purchases, finance); receipt scanner + bank statement matching; waivers with signature viewing; HR + hiring + marketing pages; Racing Point rebrand; Docker support; kiosk control with per-pod blanking; sessions with staff attribution; wallet log; server-side rc-core proxy.
+
+No GSD phases — retroactively catalogued from commit history.
+
+</details>
+
+<details>
 <summary>Comms Link v1.0 — James-Bono Communication — 8 phases, 14 plans (Shipped 2026-03-12)</summary>
 
 Repo origin: comms-link | Archive: archive/comms-link-v1.0/
