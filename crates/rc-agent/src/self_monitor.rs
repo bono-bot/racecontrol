@@ -127,7 +127,7 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
 /// Append a timestamped entry to the rc-bot event log.
 /// Rotates (truncates) the file when it exceeds MAX_LOG_BYTES.
-fn log_event(event: &str) {
+pub fn log_event(event: &str) {
     use std::fs::OpenOptions;
     use std::io::Write;
 

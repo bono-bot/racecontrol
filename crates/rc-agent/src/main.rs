@@ -27,7 +27,7 @@ use anyhow::Result;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use driving_detector::{
@@ -930,12 +930,19 @@ async fn main() -> Result<()> {
     // Billing, game, and overlay keep running during the grace window.
     let mut ws_disconnected_at: Option<std::time::Instant> = None;
 
+    // Phase 68: Runtime URL switching via SwitchController
+    let active_url: std::sync::Arc<RwLock<String>> =
+        std::sync::Arc::new(RwLock::new(config.core.url.clone()));
+    let primary_url: String = config.core.url.clone();
+    let failover_url: Option<String> = config.core.failover_url.clone();
+
     loop {
-        // Connect to core server
-        tracing::info!("Connecting to RaceControl core at {}...", config.core.url);
+        // Connect to core server — read active_url on each iteration (Phase 68: runtime switching)
+        let url = active_url.read().await.clone();
+        tracing::info!("Connecting to RaceControl core at {}...", url);
         let ws_result = tokio::time::timeout(
             Duration::from_secs(10),
-            connect_async(&config.core.url),
+            connect_async(&url),
         ).await;
 
         let (ws_stream, _) = match ws_result {
@@ -2731,6 +2738,34 @@ async fn main() -> Result<()> {
                                         };
                                         let _ = result_tx.send(msg).await;
                                     });
+                                }
+                                rc_common::protocol::CoreToAgentMessage::SwitchController { target_url } => {
+                                    // Phase 68: Runtime URL switching
+                                    let is_primary = target_url == primary_url;
+                                    let is_failover = failover_url.as_ref().map_or(false, |f| target_url == *f);
+
+                                    if !is_primary && !is_failover {
+                                        tracing::warn!(
+                                            "[switch] Rejected SwitchController — target_url {:?} does not match primary ({:?}) or failover ({:?})",
+                                            target_url, primary_url, failover_url
+                                        );
+                                    } else {
+                                        tracing::info!("[switch] SwitchController received: switching to {}", target_url);
+                                        *active_url.write().await = target_url.clone();
+
+                                        // Record switch time so self_monitor suppresses relaunch for 60s
+                                        let now_ms = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_millis() as u64;
+                                        heartbeat_status.last_switch_ms.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+
+                                        self_monitor::log_event(&format!("SWITCH: target={}", target_url));
+
+                                        // Send WS Close frame before breaking (avoid ungraceful disconnect)
+                                        let _ = ws_tx.send(tokio_tungstenite::tungstenite::Message::Close(None)).await;
+                                        break; // → outer reconnect loop picks up new URL
+                                    }
                                 }
                                 other => {
                                     tracing::warn!("Unhandled CoreToAgentMessage: {:?}", other);
