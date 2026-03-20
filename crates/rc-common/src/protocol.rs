@@ -396,6 +396,13 @@ pub enum CoreToAgentMessage {
     RunSelfTest {
         request_id: String,
     },
+
+    /// Phase 68: Command agent to switch its WebSocket target URL at runtime.
+    /// Agent reconnects to target_url on the next reconnect iteration without restarting.
+    /// self_monitor will suppress WS-dead relaunch for 60s after receiving this.
+    SwitchController {
+        target_url: String,
+    },
 }
 
 fn default_exec_timeout_ms() -> u64 {
@@ -2216,6 +2223,23 @@ mod tests {
             assert_eq!(startup_probe_failures, 0);
         } else {
             panic!("Wrong variant after roundtrip: expected StartupReport");
+        }
+    }
+
+    #[test]
+    fn switch_controller_serde_round_trip() {
+        let msg = CoreToAgentMessage::SwitchController {
+            target_url: "ws://100.70.177.44:8080/ws/agent".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("switch_controller"), "JSON: {}", json);
+        assert!(json.contains("target_url"), "JSON: {}", json);
+        let deserialized: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            CoreToAgentMessage::SwitchController { target_url } => {
+                assert_eq!(target_url, "ws://100.70.177.44:8080/ws/agent");
+            }
+            other => panic!("Expected SwitchController, got {:?}", other),
         }
     }
 }
