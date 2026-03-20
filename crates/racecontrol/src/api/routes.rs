@@ -13859,3 +13859,46 @@ mod watchdog_crash_report_tests {
         assert_eq!(status, StatusCode::OK);
     }
 }
+
+#[cfg(test)]
+mod config_snapshot_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_parse_full_config_snapshot() {
+        let payload = json!({
+            "venue": {"name": "TestVenue", "location": "TestCity", "timezone": "UTC"},
+            "pods": {"count": 4, "discovery": true, "healer_enabled": false, "healer_interval_secs": 60},
+            "branding": {"primary_color": "#FF0000", "theme": "light"},
+            "_meta": {"source": "test", "pushed_at": 1234567890u64, "hash": "abc123"}
+        });
+        let snap = parse_config_snapshot(&payload);
+        assert_eq!(snap.venue_name, "TestVenue");
+        assert_eq!(snap.pod_count, 4);
+        assert_eq!(snap.branding_primary_color, "#FF0000");
+        assert_eq!(snap.config_hash, "abc123");
+    }
+
+    #[test]
+    fn test_parse_config_snapshot_defaults() {
+        let payload = json!({});
+        let snap = parse_config_snapshot(&payload);
+        assert_eq!(snap.venue_name, "RacingPoint");
+        assert_eq!(snap.pod_count, 0);
+        assert_eq!(snap.venue_timezone, "Asia/Kolkata");
+    }
+
+    #[test]
+    fn test_venue_config_snapshot_serde_roundtrip() {
+        let snap = VenueConfigSnapshot {
+            venue_name: "Test".to_string(),
+            pod_count: 8,
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&snap).unwrap();
+        let deserialized: VenueConfigSnapshot = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.venue_name, "Test");
+        assert_eq!(deserialized.pod_count, 8);
+    }
+}
