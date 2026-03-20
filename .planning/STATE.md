@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: executing
-stopped_at: Completed 76-02-PLAN.md
-last_updated: "2026-03-20T13:08:26.370Z"
-last_activity: "2026-03-20 -- 76-02 complete: admin PIN-to-JWT login with argon2id verification"
+stopped_at: Completed 67-02-PLAN.md
+last_updated: "2026-03-20T13:20:07Z"
+last_activity: "2026-03-20 -- 67-02 complete: VenueConfigSnapshot + config_snapshot handler in sync_push"
 progress:
   total_phases: 45
-  completed_phases: 21
-  total_plans: 60
-  completed_plans: 54
+  completed_phases: 22
+  total_plans: 62
+  completed_plans: 55
   percent: 90
 ---
 
@@ -30,7 +30,7 @@ Plan: 02 complete (also 01, 03 complete; 04 next)
 Status: In progress
 Last activity: 2026-03-20 -- 76-02 complete: admin PIN-to-JWT login with argon2id verification
 
-Progress: [█████████░] 90% (54/60 plans complete)
+Progress: [█████████░] 89% (55/62 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -86,6 +86,9 @@ Progress: [█████████░] 90% (54/60 plans complete)
 - 72-02: inline #[cfg(test)] module with incoming().take(N) for clean thread exit; ephemeral ports via 127.0.0.1:0; all 7 tests pass with zero tokio contamination (TEST-04 complete)
 - 66-05: Bono deployment (exec round-trip) deferred async via INBOX.md; INFRA-03 code complete on both sides, live verification pending Bono pm2 restart
 - 67-01: Allowlist approach for sanitizer (only venue/pods/branding) -- never denylist; httpPost used for relay/sync POST for consistency; RACECONTROL_TOML_PATH env var for configurable path (SYNC-01, SYNC-02 complete)
+- 67-02: parse_config_snapshot extracted as pub(crate) fn for testability -- sync_push calls it rather than inlining (SYNC-03 complete)
+- 67-02: config_snapshot uses total += 1 (single record semantics, not per-field) -- consistent with other upserts
+- 67-02: Structured tracing on config_snapshot receipt: venue name, pod count, hash prefix (first 8 chars)
 - 76-02: argon2 0.5 with Argon2id default params for admin PIN hashing; spawn_blocking for CPU-heavy verification; 503 when no hash configured; 12h JWT expiry (shift-length limit)
 
 ### Blockers/Concerns
@@ -107,7 +110,7 @@ Progress: [█████████░] 90% (54/60 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:08:26.365Z
-Stopped at: Completed 76-02-PLAN.md
+Last session: 2026-03-20T13:20:07Z
+Stopped at: Completed 67-02-PLAN.md
 Resume file: None
-Next action: Continue Phase 73 -- Critical Business Tests (TEST-01, TEST-02, TEST-03)
+Next action: Continue Phase 76 -- API Authentication & Admin Protection (plan 04 next)

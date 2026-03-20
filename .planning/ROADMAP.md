@@ -192,7 +192,7 @@ Fix stuck-rotation safety bug, unlock all Conspit Link 2.0 features (per-game FF
 
 Make server .23 IP permanently stable, establish reliable James↔Server↔Bono remote exec paths, sync venue config to cloud, and deliver automatic pod failover to Bono's VPS when .23 goes down — with self-healing failback when .23 recovers.
 
-- [ ] **Phase 67: Config Sync** - racecontrol.toml changes detected by SHA-256 hash, sanitized (credentials/paths stripped), and pushed to Bono via comms-link sync_push; Bono applies TOML-based config (venue/pods/branding) to cloud racecontrol. Billing rates and game catalog already synced via DB-level cloud_sync.
+- [x] **Phase 67: Config Sync** - racecontrol.toml changes detected by SHA-256 hash, sanitized (credentials/paths stripped), and pushed to Bono via comms-link sync_push; Bono applies TOML-based config (venue/pods/branding) to cloud racecontrol. Billing rates and game catalog already synced via DB-level cloud_sync. (completed 2026-03-20)
  (completed 2026-03-20)
 - [ ] **Phase 67: Config Sync** - racecontrol.toml changes detected by sha2 hash, sanitized, and pushed to Bono via comms-link sync_push; Bono applies config to cloud racecontrol
 - [ ] **Phase 68: Pod SwitchController** - rc-agent CoreConfig gains failover_url; WS reconnect loop uses Arc<RwLock<String>> for runtime URL switching; SwitchController AgentMessage triggers switch without restart; self_monitor suppression guard prevents relaunch during intentional failover
@@ -1011,7 +1011,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 64. Telemetry Dashboards | v10.0 | 0/? | Not started | - |
 | 65. Shift Lights & RGB Lighting | v10.0 | 0/? | Not started | - |
 | 66. Infrastructure Foundations | 5/5 | Complete    | 2026-03-20 | - |
-| 67. Config Sync | 1/2 | In Progress|  | - |
+| 67. Config Sync | 2/2 | Complete   | 2026-03-20 | - |
 | 68. Pod SwitchController | v10.0-CR | 0/? | Not started | - |
 | 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
 | 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |
