@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: executing
-stopped_at: Completed 75-01-PLAN.md
-last_updated: "2026-03-20T12:20:00.000Z"
-last_activity: "2026-03-20 -- 75-01 complete: security audit document with endpoint inventory, PII map, auth state"
+stopped_at: Completed 75-02-PLAN.md
+last_updated: "2026-03-20T12:17:06.000Z"
+last_activity: "2026-03-20 -- 75-02 complete: env var overrides for 6 secrets + JWT key auto-generation"
 progress:
   total_phases: 45
-  completed_phases: 17
+  completed_phases: 18
   total_plans: 50
-  completed_plans: 45
-  percent: 88
+  completed_plans: 46
+  percent: 90
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v12.0 Security Audit & Hardening -- Phase 75 Plan 01 complete
+**Current focus:** v12.0 Security Audit & Hardening -- Phase 75 complete (2/2 plans)
 
 ## Current Position
 
 Phase: 75 of 80 (Security Audit Foundations)
-Plan: 01 complete, next: 02
-Status: In progress
-Last activity: 2026-03-20 -- 75-01 complete: security audit document with endpoint inventory, PII map, auth state
+Plan: 02 complete (phase done)
+Status: Phase complete
+Last activity: 2026-03-20 -- 75-02 complete: env var overrides for 6 secrets + JWT key auto-generation
 
-Progress: [█████████░] 90% (45/50 plans complete)
+Progress: [█████████░] 92% (46/50 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -78,6 +78,8 @@ Progress: [█████████░] 90% (45/50 plans complete)
 - 75-01: rc-agent /exec and rc-sentry TCP flagged CRITICAL -- arbitrary command execution with zero auth on LAN
 - 71-02: SlotGuard Drop impl ensures EXEC_SLOTS decremented even on panic -- prevents 429 lockout (SHARD-01..05 complete)
 - 71-02: THREAD_COUNTER separate from EXEC_SLOTS -- EXEC_SLOTS=live connections, THREAD_COUNTER=monotonic spawn IDs
+- 75-02: rand 0.8 thread_rng().r#gen() for JWT key gen (gen is Rust 2024 reserved keyword); RACECONTROL_* env var naming for all secrets
+- 75-02: default_jwt_secret() kept for serde backward compat; resolve_jwt_secret() catches dangerous default at runtime
 
 ### Blockers/Concerns
 
@@ -94,7 +96,7 @@ Progress: [█████████░] 90% (45/50 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T12:20:00.000Z
-Stopped at: Completed 75-01-PLAN.md
+Last session: 2026-03-20T12:17:06.000Z
+Stopped at: Completed 75-02-PLAN.md
 Resume file: None
-Next action: Phase 75 Plan 02 -- run `/gsd:execute-phase 75`
+Next action: Phase 75 complete -- next phase TBD
