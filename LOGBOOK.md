@@ -326,3 +326,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 19:30 IST | James | c26f939 | feat(68-01): add failover_url to CoreConfig, last_switch_ms to HeartbeatStatus, 4 unit tests |
 | 2026-03-20 19:37 IST | James | b4dde24 | feat(68-02): wire Arc<RwLock<String>> active_url into reconnect loop + SwitchController handler |
 | 2026-03-20 19:38 IST | James | 766b1da | feat(68-02): add last_switch_ms guard to self_monitor WS-dead relaunch check + 3 unit tests |
+| 2026-03-20 19:50 IST | James | cde40a7 | feat(77-02): wire HTTPS listener, security headers, CORS update in main.rs |
+| 2026-03-20 19:50 IST | James | e165e7b | feat(77-02): protocol-aware kiosk API_BASE -- no mixed content on HTTPS |
