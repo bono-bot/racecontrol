@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: Completed 58-01-PLAN.md
-last_updated: "2026-03-20T09:35:38.469Z"
+stopped_at: "Completed 55-01 Task 1; waiting at checkpoint:human-action for server .23 Netdata install"
+last_updated: "2026-03-20T09:42:06.065Z"
 last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 progress:
   total_phases: 30
   completed_phases: 15
   total_plans: 39
-  completed_plans: 35
+  completed_plans: 36
   percent: 0
 ---
 
@@ -112,6 +112,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase 54-structured-logging-error-rate-alerting P02 | 12 | 1 tasks | 1 files |
 | Phase 54-structured-logging-error-rate-alerting P03 | 6 | 2 tasks | 4 files |
 | Phase 58 P01 | 286 | 1 tasks | 1 files |
+| Phase 55 P01 | 815 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -240,6 +241,9 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - [Phase 58]: backup_conspit_configs() validates JSON before overwriting .bak -- prevents corrupt backup chain (Pitfall 2)
 - [Phase 58]: Crash count increments only on watchdog path (is_crash_recovery=true), not session-end restarts
 - [Phase 58]: Testable _impl(Option<&Path>) pattern for filesystem functions with hardcoded production paths
+- [Phase 55]: msiexec timeout_ms=180000 critical — default 10s exec timeout kills Netdata install mid-run
+- [Phase 55]: Netdata dashboard UI locked on free tier for Windows nodes — use /api/v1/info as canonical health check, not browser dashboard
+- [Phase 55]: netdata.msi excluded from git (154MB binary artifact) — downloaded fresh each deploy from staging :9998
 
 ### Pending Todos
 
@@ -255,7 +259,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T09:35:38.465Z
-Stopped at: Completed 58-01-PLAN.md
+Last session: 2026-03-20T09:42:06.061Z
+Stopped at: Completed 55-01 Task 1; waiting at checkpoint:human-action for server .23 Netdata install
 Resume file: None
 Next action: Phase 58 — ConspitLink Process Hardening (or deploy Phase 57 to fleet)

@@ -289,3 +289,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 14:21 IST | James | `73a1bbb` | feat(54-03): ErrorCountLayer with sliding window VecDeque, mpsc bridge to async alerter task, 4 unit tests |
 | 2026-03-20 14:27 IST | James | `47293b2` | feat(54-03): MonitoringConfig in config.rs + ErrorCountLayer wired into tracing registry in main.rs |
 | 2026-03-20 14:28 IST | James | `123ffd5` | docs(54-03): complete error rate alerting plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS (MON-03) updated |
+| 2026-03-20 15:00 IST | James | `17e7b95` | feat(55-01): add Netdata fleet E2E verification script (netdata-fleet.sh checks all 9 hosts :19999/api/v1/info) |
