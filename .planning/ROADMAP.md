@@ -755,11 +755,11 @@ Plans:
   3. rc-sentry rejects a 5th concurrent exec request with HTTP 429 -- unbounded thread spawning is capped at 4
   4. rc-sentry log output shows structured tracing lines with timestamps and levels instead of raw eprintln -- observable in the terminal when rc-sentry starts
   5. A command producing >64KB output is truncated to 64KB before the response is sent -- no buffer overflow on large dir /s outputs
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 71-01: TBD
-- [ ] 71-02: TBD
+- [ ] 71-01-PLAN.md -- rc-common exec.rs with feature-gated run_cmd_sync/run_cmd_async + tokio isolation verification
+- [ ] 71-02-PLAN.md -- rc-sentry hardening: timeout, truncation, concurrency cap, TCP read fix, tracing
 
 ### Phase 72: rc-sentry Endpoint Expansion + Integration Tests
 **Goal**: rc-sentry becomes a complete fallback operations tool with process visibility, file inspection, and health confirmation -- all endpoints covered by integration tests running against an ephemeral port
