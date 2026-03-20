@@ -123,7 +123,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 49: Session Lifecycle Autonomy** - Auto-end orphaned billing sessions after configurable threshold (TOML: auto_end_orphan_session_secs), auto-reset pod to idle 30s after session end, game crash pauses billing with auto-resume on relaunch (max 2 retries before auto-end), fast WS reconnect path (skip relaunch if reconnect succeeds within 30s). **E2E (v7.0):** Add `tests/e2e/api/session-lifecycle.sh` — create billing session, verify auto-end after timeout, verify pod reset to idle, verify billing pause on simulated crash (completed 2026-03-19)
 - [x] **Phase 50: LLM Self-Test + Fleet Health** - self_test.rs with 18 deterministic probes (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam), local LLM verdict (HEALTHY/DEGRADED/CRITICAL) with correlation and auto-fix recommendations, server /api/v1/pods/{id}/self-test endpoint, expanded auto-fix patterns 8-14 (DirectX, shader cache, memory, DLL, Steam, performance, network). **E2E (v7.0):** Add `tests/e2e/fleet/pod-health.sh` — trigger self-test on all 8 pods via API, assert all HEALTHY, wire into run-all.sh as final phase gate (completed 2026-03-19)
 
-- [ ] **Phase 51: CLAUDE.md + Custom Skills** - Project context file + 5 slash commands so Claude auto-loads venue context and James can trigger structured workflows from any session
+- [x] **Phase 51: CLAUDE.md + Custom Skills** - Project context file + 5 slash commands so Claude auto-loads venue context and James can trigger structured workflows from any session (completed 2026-03-20)
 - [ ] **Phase 52: MCP Servers** - Google Workspace MCP (Gmail, Sheets, Calendar) and rc-ops-mcp (racecontrol REST API) wired into Claude Code
 - [ ] **Phase 53: Deployment Automation** - Staging HTTP server and webterm auto-start on boot, post-deploy verify script, canary-first gate enforced
 - [ ] **Phase 54: Structured Logging + Error Rate Alerting** - racecontrol and rc-agent emit structured JSON logs with daily rotation; error-rate email alerting
@@ -528,7 +528,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 48. Dynamic Kiosk Allowlist | 2/2 | Complete   | 2026-03-19 | - |
 | 49. Session Lifecycle Autonomy | 2/2 | Complete    | 2026-03-19 | - |
 | 50. LLM Self-Test + Fleet Health | 3/3 | Complete    | 2026-03-19 | - |
-| 51. CLAUDE.md + Custom Skills | 1/2 | In Progress|  | - |
+| 51. CLAUDE.md + Custom Skills | 2/2 | Complete   | 2026-03-20 | - |
 | 52. MCP Servers | v9.0 | 0/2 | Not started | - |
 | 53. Deployment Automation | v9.0 | 0/2 | Not started | - |
 | 54. Structured Logging + Error Rate Alerting | v9.0 | 0/3 | Not started | - |
