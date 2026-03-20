@@ -6,16 +6,22 @@
 
 The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls, E2E test coverage, and 8/10 bot autonomy. 51+ phases shipped across 9 milestones.
 
-## Current Milestone: v9.0 Tooling & Automation Research
+## Current Milestone: v10.0 Connectivity & Redundancy
 
-**Goal:** Research and evaluate tools, skills, and plugins to improve Racing Point Operations — Claude Code skills, MCP servers, deployment automation, and monitoring/alerting integrations that could streamline venue ops, pod management, deployment, and customer experience.
+**Goal:** Make James (.27) ↔ Server (.23) connectivity bulletproof and give Bono (cloud VPS) full failover capability so the venue keeps running even when the local server goes down.
 
 **Target features:**
-- Evaluate Claude Code custom skills and automation hooks for Racing Point workflows
-- Research MCP servers for Google Workspace, monitoring, and venue operations
-- Investigate deployment tools (Ansible, custom scripts, fleet automation) to replace pendrive workflow
-- Evaluate monitoring and alerting stack (Grafana, Prometheus, uptime, structured logging)
-- Produce actionable recommendations with adoption plan and priority ranking
+- Fix server .23 DHCP drift permanently (static IP or MAC reservation)
+- Establish remote exec from James (.27) to Server (.23) via Tailscale SSH
+- James health-monitors server .23 continuously (auto-detect outages)
+- Config sync: push venue racecontrol config to Bono so cloud mirrors local
+- Auto-failover: pods switch to Bono's VPS via Tailscale when .23 goes down
+- Uday notified on failover events (email/WhatsApp)
+- Failback: pods auto-switch back to .23 when it recovers
+
+## Paused Milestone: v9.0 Tooling & Automation Research
+
+**Goal:** Research and evaluate tools, skills, and plugins to improve Racing Point Operations.
 
 ## Paused Milestone: v6.0 Salt Fleet Management
 
@@ -117,7 +123,17 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Session lifecycle autonomy (orphan auto-end, crash recovery, fast reconnect)
 - ✓ LLM self-test with 22 probes + deterministic verdict + auto-fix patterns 8-14
 
-### Active (v9.0)
+### Active (v10.0)
+
+- [ ] Fix server .23 DHCP drift permanently
+- [ ] Establish remote exec from James to Server via Tailscale SSH
+- [ ] James health-monitors server .23 continuously
+- [ ] Config sync: venue racecontrol config pushed to Bono
+- [ ] Auto-failover: pods switch to Bono when .23 goes down
+- [ ] Failover notifications to Uday
+- [ ] Failback: pods return to .23 when it recovers
+
+### Paused (v9.0)
 
 - [ ] Evaluate Claude Code custom skills and automation hooks
 - [ ] Research MCP servers for Google Workspace, monitoring, venue ops
@@ -203,4 +219,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-20 after milestone v9.0 Tooling & Automation Research started*
+*Last updated: 2026-03-20 after milestone v10.0 Connectivity & Redundancy started*
