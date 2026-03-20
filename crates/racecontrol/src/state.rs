@@ -77,6 +77,25 @@ pub struct WsExecResult {
     pub stderr: String,
 }
 
+/// Venue config snapshot received from James via comms-link sync_push.
+/// Stores the latest sanitized config from the on-premise server.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct VenueConfigSnapshot {
+    pub venue_name: String,
+    pub venue_location: String,
+    pub venue_timezone: String,
+    pub pod_count: u64,
+    pub pod_discovery: bool,
+    pub pod_healer_enabled: bool,
+    pub pod_healer_interval_secs: u64,
+    pub branding_primary_color: String,
+    pub branding_theme: String,
+    pub source: String,
+    pub pushed_at: u64,
+    pub config_hash: String,
+    pub received_at: chrono::DateTime<chrono::Utc>,
+}
+
 pub struct AppState {
     pub config: Config,
     pub db: SqlitePool,
@@ -148,6 +167,9 @@ pub struct AppState {
     /// Per-pod fleet health state: version, agent_started_at, http_reachable.
     /// Written by WS StartupReport/Disconnect handlers and background probe loop.
     pub pod_fleet_health: RwLock<HashMap<String, FleetHealthStore>>,
+    /// Latest venue config snapshot from on-premise server (via comms-link sync_push).
+    /// None until first config_snapshot received.
+    pub venue_config: RwLock<Option<VenueConfigSnapshot>>,
 }
 
 impl AppState {
@@ -199,6 +221,7 @@ impl AppState {
             pending_self_tests: RwLock::new(HashMap::new()),
             relay_available: AtomicBool::new(false),
             pod_fleet_health: RwLock::new(HashMap::new()),
+            venue_config: RwLock::new(None),
         }
     }
 

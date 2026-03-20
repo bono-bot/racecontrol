@@ -7583,6 +7583,19 @@ async fn sync_push(
         tracing::info!("Sync push: {} billing events", events.len());
     }
 
+    // Apply venue config snapshot from James
+    if let Some(config_snap) = body.get("config_snapshot") {
+        let snapshot = parse_config_snapshot(config_snap);
+        tracing::info!(
+            venue = %snapshot.venue_name,
+            pods = snapshot.pod_count,
+            hash = %snapshot.config_hash.get(..8).unwrap_or(&snapshot.config_hash),
+            "Config sync: received venue config snapshot"
+        );
+        *state.venue_config.write().await = Some(snapshot);
+        total += 1;
+    }
+
     tracing::info!("Sync push: upserted {} records", total);
     Json(json!({ "ok": true, "upserted": total }))
 }
