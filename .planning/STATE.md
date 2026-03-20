@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: "Completed 53-02-PLAN.md — /rp:deploy-fleet skill created"
-last_updated: "2026-03-20T08:03:40.223Z"
+stopped_at: Completed 53-01-PLAN.md
+last_updated: "2026-03-20T08:09:25.670Z"
 last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 progress:
   total_phases: 30
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 29
-  completed_plans: 27
+  completed_plans: 28
   percent: 0
 ---
 
@@ -104,6 +104,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase 52-mcp-servers P01 | 4 | 2 tasks | 6 files |
 | Phase 52-mcp-servers P02 | 3 | 2 tasks | 3 files |
 | Phase 53-deployment-automation P02 | 2 | 1 tasks | 1 files |
+| Phase 53-deployment-automation P01 | 513 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -215,6 +216,8 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - [Phase 53-02]: Use deploy_pod.py (NOT deploy-all-pods.py) — avoids hardcoded TARGET_SIZE that must be updated per build
 - [Phase 53-02]: Sequential pod deploy (not parallel) — prevents RCAGENT_SELF_RESTART race conditions across pods
 - [Phase 53-02]: Approval gate accepts y/yes/go/proceed only — any ambiguity cancels fleet rollout
+- [Phase 53-01]: ONLOGON trigger (not ONSTART/SYSTEM) used for both tasks — matches CommsLink-Watchdog pattern; Python HTTP servers require user session
+- [Phase 53-01]: Task Scheduler registration requires admin — used Start-Process RunAs elevation; schtasks /create with ONLOGON always needs UAC on non-admin sessions
 
 ### Pending Todos
 
@@ -230,7 +233,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T08:03:40.219Z
-Stopped at: Completed 53-02-PLAN.md — /rp:deploy-fleet skill created
+Last session: 2026-03-20T08:09:25.666Z
+Stopped at: Completed 53-01-PLAN.md
 Resume file: None
 Next action: Phase 51 Plan 01 — CLAUDE.md with project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order)
