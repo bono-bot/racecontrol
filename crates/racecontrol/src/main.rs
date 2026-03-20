@@ -3,6 +3,7 @@ use axum::routing::get;
 use axum::middleware as axum_mw;
 use axum::extract::State;
 use axum::response::IntoResponse;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::{CorsLayer, AllowOrigin};
@@ -578,7 +579,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Dashboard WS: ws://{}/ws/dashboard", bind_addr);
     tracing::info!("AI WS:        ws://{}/ws/ai", bind_addr);
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
 }

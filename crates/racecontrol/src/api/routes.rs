@@ -21,23 +21,38 @@ use crate::multiplayer;
 use crate::pod_reservation;
 use crate::scheduler;
 use crate::wallet;
-use crate::state::AppState;
+use crate::state::{AppState, VenueConfigSnapshot};
 use crate::wol;
 use rc_common::types::*;
 use rc_common::protocol::{CloudAction, CoreToAgentMessage, DashboardEvent};
 
-/// Top-level API router: merges 4 tiered sub-routers.
+/// Top-level API router: merges 5 tiered sub-routers.
 ///
-/// - `public_routes()` -- no auth required (health, venue, public leaderboards, customer login/register)
+/// - `auth_rate_limited_routes()` -- rate-limited auth endpoints (5 req/min per IP)
+/// - `public_routes()` -- no auth required (health, venue, public leaderboards, customer register)
 /// - `customer_routes()` -- customer JWT checked in-handler via extract_driver_id()
 /// - `staff_routes(state)` -- staff/admin routes with permissive JWT middleware (logs warnings)
 /// - `service_routes()` -- service routes (sync, actions, terminal, bot) with in-handler auth
 pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
+        .merge(auth_rate_limited_routes())
         .merge(public_routes())
         .merge(customer_routes())
         .merge(staff_routes(state))
         .merge(service_routes())
+}
+
+// ─── Rate-limited auth endpoints (5 req/min per IP via tower_governor) ───
+
+fn auth_rate_limited_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/customer/login", post(customer_login))
+        .route("/customer/verify-otp", post(customer_verify_otp))
+        .route("/auth/validate-pin", post(validate_pin))
+        .route("/auth/kiosk/validate-pin", post(kiosk_validate_pin))
+        .route("/staff/validate-pin", post(staff_validate_pin))
+        .route("/auth/admin-login", post(auth::admin::admin_login))
+        .layer(auth::rate_limit::auth_rate_limit_layer())
 }
 
 // ─── Tier 1: Public (no auth) ────────────────────────────────────────────
@@ -47,8 +62,6 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/health", get(health))
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
         .route("/venue", get(venue_info))
-        .route("/customer/login", post(customer_login))
-        .route("/customer/verify-otp", post(customer_verify_otp))
         .route("/customer/register", post(customer_register))
         .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
         // Public leaderboards, events, championships (no auth)
@@ -223,8 +236,6 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/auth/pending", get(pending_auth_tokens))
         .route("/auth/pending/{pod_id}", get(pending_auth_token_for_pod))
         .route("/auth/start-now", post(start_now))
-        .route("/auth/validate-pin", post(validate_pin))
-        .route("/auth/kiosk/validate-pin", post(kiosk_validate_pin))
         .route("/auth/validate-qr", post(validate_qr))
         // Wallet (staff-facing)
         .route("/wallet/transactions", get(all_wallet_transactions))
@@ -261,7 +272,6 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Activity
         .route("/activity", get(global_activity))
         // Staff
-        .route("/staff/validate-pin", post(staff_validate_pin))
         .route("/staff", get(list_staff).post(create_staff))
         // Employee
         .route("/employee/daily-pin", get(employee_daily_pin))
@@ -7101,6 +7111,38 @@ async fn sync_changes(
 
     result["synced_at"] = json!(chrono::Utc::now().to_rfc3339());
     Json(result)
+}
+
+/// Parse a config_snapshot JSON value into a VenueConfigSnapshot.
+/// Extracted for testability -- used by sync_push handler.
+pub(crate) fn parse_config_snapshot(config_snap: &serde_json::Value) -> VenueConfigSnapshot {
+    VenueConfigSnapshot {
+        venue_name: config_snap.pointer("/venue/name")
+            .and_then(|v| v.as_str()).unwrap_or("RacingPoint").to_string(),
+        venue_location: config_snap.pointer("/venue/location")
+            .and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        venue_timezone: config_snap.pointer("/venue/timezone")
+            .and_then(|v| v.as_str()).unwrap_or("Asia/Kolkata").to_string(),
+        pod_count: config_snap.pointer("/pods/count")
+            .and_then(|v| v.as_u64()).unwrap_or(0),
+        pod_discovery: config_snap.pointer("/pods/discovery")
+            .and_then(|v| v.as_bool()).unwrap_or(false),
+        pod_healer_enabled: config_snap.pointer("/pods/healer_enabled")
+            .and_then(|v| v.as_bool()).unwrap_or(false),
+        pod_healer_interval_secs: config_snap.pointer("/pods/healer_interval_secs")
+            .and_then(|v| v.as_u64()).unwrap_or(120),
+        branding_primary_color: config_snap.pointer("/branding/primary_color")
+            .and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        branding_theme: config_snap.pointer("/branding/theme")
+            .and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        source: config_snap.pointer("/_meta/source")
+            .and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
+        pushed_at: config_snap.pointer("/_meta/pushed_at")
+            .and_then(|v| v.as_u64()).unwrap_or(0),
+        config_hash: config_snap.pointer("/_meta/hash")
+            .and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        received_at: chrono::Utc::now(),
+    }
 }
 
 /// POST /sync/push — venue pushes data to cloud
