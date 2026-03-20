@@ -851,14 +851,13 @@ Plans:
   5. A Discord/WhatsApp bot command to start a session checks wallet balance before launching -- zero-balance users are rejected
   6. Pod agent endpoints (8090/8091) reject requests without valid HMAC signatures
   7. Session launch atomically deducts balance and creates billing record -- no race condition can produce a free session
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 76-01: TBD
-- [ ] 76-02: TBD
-- [ ] 76-03: TBD
-- [ ] 76-04: TBD
-- [ ] 76-05: TBD
+- [ ] 76-01-PLAN.md -- Route classification + staff JWT middleware (AUTH-01,02,03, SESS-01)
+- [ ] 76-02-PLAN.md -- Admin login + argon2 PIN hashing (ADMIN-01,02,03)
+- [ ] 76-03-PLAN.md -- rc-agent service key auth (AUTH-06)
+- [ ] 76-04-PLAN.md -- Rate limiting + bot wallet check + session integrity (AUTH-04,05, SESS-02,03)
 
 ### Phase 77: Transport Security
 **Goal**: All browser-to-server traffic (PWA and admin dashboard) is encrypted in transit
