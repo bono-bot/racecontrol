@@ -204,7 +204,7 @@ Make server .23 IP permanently stable, establish reliable James↔Server↔Bono 
 Harden rc-sentry into a reliable fallback operations tool, extract shared exec patterns into rc-common, write characterization tests before decomposing rc-agent main.rs, and add unit/integration tests for critical safety paths.
 
 - [x] **Phase 71: rc-common Foundation + rc-sentry Core Hardening** - rc-common exec.rs feature-gated (sync/async), rc-sentry timeout enforcement, output truncation, concurrency cap, partial TCP read fix, structured logging (completed 2026-03-20)
-- [ ] **Phase 72: rc-sentry Endpoint Expansion + Integration Tests** - /health, /version, /files, /processes endpoints; endpoint integration tests for all routes
+- [x] **Phase 72: rc-sentry Endpoint Expansion + Integration Tests** - /health, /version, /files, /processes endpoints; endpoint integration tests for all routes (completed 2026-03-20)
 - [ ] **Phase 73: Critical Business Tests** - billing_guard and failure_monitor unit tests before any refactoring; FfbBackend trait seam for FFB controller tests
 - [ ] **Phase 74: rc-agent Decomposition** - config.rs, app_state.rs, ws_handler.rs, event_loop.rs extracted from main.rs in strict risk order
 
@@ -1016,7 +1016,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
 | 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |
 | 71. rc-common Foundation + rc-sentry Core Hardening | 2/2 | Complete    | 2026-03-20 | - |
-| 72. rc-sentry Endpoint Expansion + Integration Tests | 1/2 | In Progress|  | - |
+| 72. rc-sentry Endpoint Expansion + Integration Tests | 2/2 | Complete   | 2026-03-20 | - |
 | 73. Critical Business Tests | v11.0 | 0/? | Not started | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |

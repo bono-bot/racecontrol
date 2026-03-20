@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: executing
-stopped_at: Completed 72-01-PLAN.md
-last_updated: "2026-03-20T12:58:34.346Z"
-last_activity: "2026-03-20 -- 76-03 complete: service key middleware on rc-agent protected routes"
+stopped_at: Completed 72-02-PLAN.md
+last_updated: "2026-03-20T13:04:00Z"
+last_activity: "2026-03-20 -- 72-02 complete: 7 integration tests for all rc-sentry endpoints (TEST-04 complete)"
 progress:
   total_phases: 45
-  completed_phases: 20
+  completed_phases: 21
   total_plans: 60
-  completed_plans: 50
-  percent: 94
+  completed_plans: 52
+  percent: 87
 ---
 
 # Project State
@@ -37,7 +37,7 @@ Progress: [█████████░] 94% (49/50 plans complete)
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Complete (2/2 plans done) |
-| 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | In Progress (1/2 plans done) |
+| 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Complete (2/2 plans done) |
 | 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Not started |
 | 74 | rc-agent Decomposition | DECOMP-01..04 | Not started |
 
@@ -83,6 +83,7 @@ Progress: [█████████░] 94% (49/50 plans complete)
 - 76-03: subtle crate for constant-time service key comparison on rc-agent; permissive mode when RCAGENT_SERVICE_KEY unset; /ping and /health remain public
 - 66-05: INFRA-01 complete via static IP alone -- TP-Link EX220 firmware bug (Error 5024) persists ARP entries in NVRAM across reboots, permanently blocking DHCP reservation for server .23; reservation is "won't fix" for this router model, add if factory-reset or replaced
 - 72-01: build.rs copied from rc-agent for GIT_HASH embedding; winapi 0.3 consoleapi-only for SetConsoleCtrlHandler; non-blocking accept loop polls SHUTDOWN_REQUESTED every 10ms for graceful drain (SEXP-01..04, SHARD-06 complete)
+- 72-02: inline #[cfg(test)] module with incoming().take(N) for clean thread exit; ephemeral ports via 127.0.0.1:0; all 7 tests pass with zero tokio contamination (TEST-04 complete)
 - 66-05: Bono deployment (exec round-trip) deferred async via INBOX.md; INFRA-03 code complete on both sides, live verification pending Bono pm2 restart
 
 ### Blockers/Concerns
@@ -104,7 +105,7 @@ Progress: [█████████░] 94% (49/50 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T18:28:30Z
-Stopped at: Completed 76-01-PLAN.md
+Last session: 2026-03-20T13:04:00Z
+Stopped at: Completed 72-02-PLAN.md
 Resume file: None
-Next action: Continue Phase 76 -- plan 02 next (staff login endpoint)
+Next action: Continue Phase 73 -- Critical Business Tests (TEST-01, TEST-02, TEST-03)
