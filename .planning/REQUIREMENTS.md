@@ -24,14 +24,14 @@ Requirements for rc-sentry hardening, rc-agent decomposition, shared extraction,
 - [x] **SHARD-03**: rc-sentry limits concurrent exec requests to 4 (rejects with HTTP 429 when full)
 - [x] **SHARD-04**: rc-sentry fixes partial TCP read bug (loops until full HTTP body received)
 - [x] **SHARD-05**: rc-sentry uses structured logging via tracing (replaces eprintln)
-- [ ] **SHARD-06**: rc-sentry handles graceful shutdown on SIGTERM/Ctrl+C (drains active connections)
+- [x] **SHARD-06**: rc-sentry handles graceful shutdown on SIGTERM/Ctrl+C (drains active connections)
 
 ### Sentry Expansion
 
-- [ ] **SEXP-01**: rc-sentry exposes GET /health returning uptime, version, concurrent exec slots, hostname
-- [ ] **SEXP-02**: rc-sentry exposes GET /version returning binary version and git commit hash
-- [ ] **SEXP-03**: rc-sentry exposes GET /files?path=... returning directory listing or file contents
-- [ ] **SEXP-04**: rc-sentry exposes GET /processes returning list of running processes with PID, name, memory
+- [x] **SEXP-01**: rc-sentry exposes GET /health returning uptime, version, concurrent exec slots, hostname
+- [x] **SEXP-02**: rc-sentry exposes GET /version returning binary version and git commit hash
+- [x] **SEXP-03**: rc-sentry exposes GET /files?path=... returning directory listing or file contents
+- [x] **SEXP-04**: rc-sentry exposes GET /processes returning list of running processes with PID, name, memory
 
 ### Agent Decomposition
 
@@ -91,11 +91,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SHARD-03 | Phase 71 | Complete |
 | SHARD-04 | Phase 71 | Complete |
 | SHARD-05 | Phase 71 | Complete |
-| SHARD-06 | Phase 72 | Pending |
-| SEXP-01 | Phase 72 | Pending |
-| SEXP-02 | Phase 72 | Pending |
-| SEXP-03 | Phase 72 | Pending |
-| SEXP-04 | Phase 72 | Pending |
+| SHARD-06 | Phase 72 | Complete |
+| SEXP-01 | Phase 72 | Complete |
+| SEXP-02 | Phase 72 | Complete |
+| SEXP-03 | Phase 72 | Complete |
+| SEXP-04 | Phase 72 | Complete |
 | DECOMP-01 | Phase 74 | Pending |
 | DECOMP-02 | Phase 74 | Pending |
 | DECOMP-03 | Phase 74 | Pending |

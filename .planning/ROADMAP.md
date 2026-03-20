@@ -1016,7 +1016,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
 | 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |
 | 71. rc-common Foundation + rc-sentry Core Hardening | 2/2 | Complete    | 2026-03-20 | - |
-| 72. rc-sentry Endpoint Expansion + Integration Tests | v11.0 | 0/? | Not started | - |
+| 72. rc-sentry Endpoint Expansion + Integration Tests | 1/2 | In Progress|  | - |
 | 73. Critical Business Tests | v11.0 | 0/? | Not started | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
