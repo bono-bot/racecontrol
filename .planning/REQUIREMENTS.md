@@ -1,115 +1,107 @@
-# Requirements: RaceControl v7.0 E2E Test Suite
+# Requirements: Racing Point Operations — v9.0 Tooling & Automation
 
-**Defined:** 2026-03-19
-**Core Value:** Comprehensive, self-healing E2E test coverage for the full kiosk→server→agent→game launch pipeline
+**Defined:** 2026-03-20
+**Core Value:** Customers see their lap times, compete on leaderboards, and compare telemetry
 
-## v7.0 Requirements
+## v9.0 Requirements
 
-### Foundation
+Requirements for tooling & automation milestone. Each maps to roadmap phases.
 
-- [x] **FOUND-01**: Shared shell library (`lib/common.sh`) with pass/fail/skip/info helpers and exit code tracking
-- [x] **FOUND-02**: Shared pod IP map (`lib/pod-map.sh`) with all 8 pod IPs, used by all test scripts
-- [x] **FOUND-03**: Playwright installed with `playwright.config.ts` — bundled Chromium, `reuseExistingServer`, sequential workers
-- [x] **FOUND-04**: Pre-test cleanup fixture — stop stale games, end billing, restart stuck agents before each test run
-- [x] **FOUND-05**: cargo-nextest configured for Rust crate tests with per-process isolation and built-in retries
-- [x] **FOUND-06**: data-testid attributes added to kiosk wizard components for reliable Playwright selectors
-- [x] **FOUND-07**: UI user navigation simulation — keyboard navigation (Tab, Enter, Escape), touch/click targets, scroll behavior
+### Claude Code Skills
 
-### Browser Tests
+- [ ] **SKILL-01**: James's Claude Code sessions auto-load Racing Point project context (pod IPs, crate names, naming conventions, constraints) from a project-level CLAUDE.md
+- [ ] **SKILL-02**: James can invoke `/rp:deploy` to build rc-agent and stage the binary for pod deployment, with `disable-model-invocation: true`
+- [ ] **SKILL-03**: James can invoke `/rp:deploy-server` to build racecontrol, stop the old process, swap the binary, and verify :8080 comes back
+- [ ] **SKILL-04**: James can invoke `/rp:pod-status <pod>` to query any pod's rc-agent status via dynamic IP injection
+- [ ] **SKILL-05**: James can invoke `/rp:incident <description>` to get structured incident response following the 4-tier debug order
 
-- [x] **BROW-01**: Kiosk page smoke — all pages load (200), no SSR errors, no React error boundaries
-- [x] **BROW-02**: AC wizard flow — full 13-step flow with track/car selection, AI config, driving settings
-- [x] **BROW-03**: Non-AC wizard flow — simplified 5-step flow (game → experience → review) for F1 25, EVO, Rally, iRacing
-- [x] **BROW-04**: Staff mode booking — `?staff=true&pod=pod-8` bypass path tested end-to-end
-- [x] **BROW-05**: Experience filtering — only selected game's experiences appear, Custom button hidden for non-AC
-- [x] **BROW-06**: UI navigation — page transitions, back/forward, step indicators update correctly
-- [x] **BROW-07**: Screenshot on failure — capture screenshot + DOM snapshot when any browser test fails for debugging
+### MCP Servers
 
-### API & Launch
+- [ ] **MCP-01**: Claude Code can read Gmail messages via Google Workspace MCP using existing racingpoint-google OAuth
+- [ ] **MCP-02**: Claude Code can read and write Google Sheets via the same MCP server
+- [ ] **MCP-03**: Claude Code can read Google Calendar events via the same MCP server
+- [ ] **MCP-04**: Claude Code can query racecontrol REST API (/fleet/health, /sessions, /billing, /laps) via a custom rc-ops-mcp server running on James's machine
 
-- [x] **API-01**: Billing gates — reject launch without billing, create/end session, timer sync
-- [x] **API-02**: Per-game launch — launch each installed game (AC, F1 25, EVO, Rally, iRacing), verify PID or Launching state
-- [x] **API-03**: Game state lifecycle — Idle→Launching→Running→Stop→Idle, timeout at 60s, auto-relaunch on crash
-- [x] **API-04**: Steam dialog auto-dismiss — close "Support Message" windows via WM_CLOSE during launch tests
-- [x] **API-05**: Error window screenshot — capture screenshots of unexpected popup/error windows on pods for AI debugger analysis
+### Deployment Automation
 
-### Deploy & Orchestration
+- [ ] **DEPLOY-01**: Staging HTTP server and webterm auto-start on James's machine boot via HKLM Run key or Task Scheduler
+- [ ] **DEPLOY-02**: Post-deploy verification script checks binary size, polls /health, and confirms agent reconnection on /fleet/health
+- [ ] **DEPLOY-03**: Deploy script enforces canary-first (Pod 8) with explicit human approval before fleet rollout
 
-- [x] **DEPL-01**: Deploy verification — binary swap check, port conflict detection (EADDRINUSE), service restart health
-- [x] **DEPL-02**: Fleet health validation — all 8 pods WS connected, correct build_id, installed_games match config
-- [x] **DEPL-03**: Master `run-all.sh` — phase-gated orchestrator with exit code collection and summary report
-- [x] **DEPL-04**: AI debugger error logging — route test failures and error screenshots to AI debugger for automated analysis
+### Monitoring & Alerting
 
-## v8.0 Requirements (Phase 50: LLM Self-Test + Fleet Health)
+- [ ] **MON-01**: racecontrol emits structured JSON logs via tracing-subscriber with daily file rotation
+- [ ] **MON-02**: rc-agent emits structured JSON logs via tracing-subscriber with daily file rotation
+- [ ] **MON-03**: racecontrol triggers email alert when error rate exceeds N errors in M minutes (configurable threshold)
+- [ ] **MON-04**: Netdata agent installed on racecontrol server (.23) collecting system metrics (CPU, RAM, disk, network)
+- [ ] **MON-05**: Netdata agent installed on all 8 pods collecting system metrics, deployed via rc-agent :8090 exec
+- [ ] **MON-06**: WhatsApp notification sent to Uday for P0 severity events (all pods offline, billing crash) via existing racingpoint-whatsapp-bot
+- [ ] **MON-07**: Weekly fleet uptime report emailed to Uday (total sessions, pod uptime %, revenue in credits, incidents)
 
-### Self-Test Probes
+## v9.x Future Requirements
 
-- **SELFTEST-01**: self_test.rs module with 18 deterministic probes (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam) — each probe returns pass/fail/skip with detail string, 10s timeout per probe
-- **SELFTEST-02**: Local LLM verdict generation — feed all 18 probe results to rp-debug model, return HEALTHY/DEGRADED/CRITICAL with correlation analysis linking related failures and auto-fix recommendations
-- **SELFTEST-03**: Server endpoint `GET /api/v1/pods/{id}/self-test` — triggers self-test on target pod via WebSocket command, returns full probe results + LLM verdict within 30s
-- **SELFTEST-04**: Expanded auto-fix patterns 8-14 in ai_debugger.rs — DirectX (shader cache clear + device reset), memory (process trim), DLL (sfc scan), Steam (restart), performance (power plan), network (adapter reset)
-- **SELFTEST-05**: E2E test `tests/e2e/fleet/pod-health.sh` — trigger self-test on all 8 pods via API, assert all HEALTHY, wired into run-all.sh as final phase gate
-- **SELFTEST-06**: Self-test runs at rc-agent startup (post-boot verification) and on-demand via server command — startup results included in BootVerification message
+Deferred to after v9.0 validation. Tracked but not in current roadmap.
 
-## Future Requirements
+### Skills & Hooks (Phase 2)
 
-### v7.x (after core suite validated)
+- **SKILL-06**: `/rp:logbook` skill appends timestamped IST incident entries to LOGBOOK
+- **SKILL-07**: `/rp:fleet-health` skill summarizes all pod states from /fleet/health
+- **SKILL-08**: `/rp:new-pod-config <pod>` skill generates rc-agent-pod{N}.toml from template
+- **HOOK-01**: SessionStart hook re-injects Racing Point context after context compaction
+- **HOOK-02**: PostToolUse hook auto-notifies Bono via comms-link INBOX.md after git commits
 
-- **FLAKY-01**: Flaky test detection — track pass/fail history, flag inconsistent tests
-- **TIMER-01**: Inactivity timer test — verify billing pauses when AC STATUS=PAUSE
-- **AUTH-01**: Auth token lifecycle test — validate JWT expiry, refresh, and session persistence
-- **PERF-01**: Performance benchmarks — page load times, API response times under load
+### Deployment (Gated)
+
+- **DEPLOY-04**: Ansible fleet management after WinRM/SSH validated on Pod 8
+
+### Monitoring (Extended)
+
+- **MON-08**: Prometheus /metrics endpoint in racecontrol for custom dashboards
+- **MON-09**: Grafana dashboards (only if Netdata auto-dashboards insufficient)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Visual regression screenshots | Kiosk UI changes too frequently — maintenance overhead exceeds value |
-| Full API mocking | Tests must run against live venue infrastructure, not simulated |
-| Mobile/responsive testing | Kiosk runs fullscreen on fixed displays — no mobile viewport needed |
-| Load/stress testing | Venue has exactly 8 pods — concurrency is fixed, not variable |
+| SaltStack (v6.0) | Blocked at BIOS AMD-V, WSL2 portproxy failure. Do not re-invest. |
+| ELK/OpenSearch | 4GB+ RAM overhead unjustified for 8 pods. `jq` on JSON files sufficient. |
+| OpenTelemetry distributed tracing | Overkill for LAN venue. Structured logs with session_id/pod_id correlation sufficient. |
+| Cloud monitoring (Datadog, New Relic) | $100-500/month unjustified. Netdata self-hosted is free and keeps data on-site. |
+| Docker containers on pods | Session 1 GUI + USB hardware access incompatible with containers. |
+| MCP for Dahua cameras | No vision pipeline for RTSP streams. Use NVR web dashboard. |
+| MCP for pod Ollama instances | Pod LLMs are autonomous debuggers, not orchestrated from James. |
+| One giant "Master" skill | Exceeds skill character budget. Separate focused skills instead. |
+| Fully automated no-approval deploys | Bad deploy crashes all pods. Human approval gate before fleet rollout is intentional. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 41 | Complete |
-| FOUND-02 | Phase 41 | Complete |
-| FOUND-03 | Phase 41 | Complete |
-| FOUND-05 | Phase 41 | Complete |
-| FOUND-04 | Phase 42 | Complete |
-| FOUND-06 | Phase 42 | Complete |
-| FOUND-07 | Phase 42 | Complete |
-| BROW-01 | Phase 42 | Complete |
-| BROW-07 | Phase 42 | Complete |
-| BROW-02 | Phase 43 | Complete |
-| BROW-03 | Phase 43 | Complete |
-| BROW-04 | Phase 43 | Complete |
-| BROW-05 | Phase 43 | Complete |
-| BROW-06 | Phase 43 | Complete |
-| API-01 | Phase 43 | Complete |
-| API-02 | Phase 43 | Complete |
-| API-03 | Phase 43 | Complete |
-| API-04 | Phase 43 | Complete |
-| API-05 | Phase 43 | Complete |
-| DEPL-01 | Phase 44 | Complete |
-| DEPL-02 | Phase 44 | Complete |
-| DEPL-03 | Phase 44 | Complete |
-| DEPL-04 | Phase 44 | Complete |
-
-| SELFTEST-01 | Phase 50 | Complete |
-| SELFTEST-02 | Phase 50 | Complete |
-| SELFTEST-03 | Phase 50 | Complete |
-| SELFTEST-04 | Phase 50 | Complete |
-| SELFTEST-05 | Phase 50 | Complete |
-| SELFTEST-06 | Phase 50 | Complete |
+| SKILL-01 | — | Pending |
+| SKILL-02 | — | Pending |
+| SKILL-03 | — | Pending |
+| SKILL-04 | — | Pending |
+| SKILL-05 | — | Pending |
+| MCP-01 | — | Pending |
+| MCP-02 | — | Pending |
+| MCP-03 | — | Pending |
+| MCP-04 | — | Pending |
+| DEPLOY-01 | — | Pending |
+| DEPLOY-02 | — | Pending |
+| DEPLOY-03 | — | Pending |
+| MON-01 | — | Pending |
+| MON-02 | — | Pending |
+| MON-03 | — | Pending |
+| MON-04 | — | Pending |
+| MON-05 | — | Pending |
+| MON-06 | — | Pending |
+| MON-07 | — | Pending |
 
 **Coverage:**
-- v7.0 requirements: 23 total (all complete)
-- v8.0 requirements: 6 total (Phase 50)
-- Mapped to phases: 29
-- Unmapped: 0
+- v9.0 requirements: 19 total
+- Mapped to phases: 0
+- Unmapped: 19
 
 ---
-*Requirements defined: 2026-03-19*
-*Last updated: 2026-03-19 — traceability mapped to phases 41–44, 50*
+*Requirements defined: 2026-03-20*
+*Last updated: 2026-03-20 after initial definition*

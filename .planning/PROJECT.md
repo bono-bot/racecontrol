@@ -19,9 +19,9 @@ The pod management stack is reliable: self-healing, branded screens, stable URLs
 - Uday notified on failover events (email/WhatsApp)
 - Failback: pods auto-switch back to .23 when it recovers
 
-## Paused Milestone: v9.0 Tooling & Automation Research
+## Active Milestone: v9.0 Tooling & Automation Research
 
-**Goal:** Research and evaluate tools, skills, and plugins to improve Racing Point Operations.
+**Goal:** Research and evaluate tools, skills, and plugins to improve Racing Point Operations â€” Claude Code skills, MCP servers, deployment automation, and monitoring/alerting.
 
 ## Paused Milestone: v6.0 Salt Fleet Management
 
@@ -133,7 +133,7 @@ Customers see their lap times, compete on leaderboards, and compare telemetry â€
 - [ ] Failover notifications to Uday
 - [ ] Failback: pods return to .23 when it recovers
 
-### Paused (v9.0)
+### Active (v9.0)
 
 - [ ] Evaluate Claude Code custom skills and automation hooks
 - [ ] Research MCP servers for Google Workspace, monitoring, venue ops

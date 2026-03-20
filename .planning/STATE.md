@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v10.0
-milestone_name: Connectivity & Redundancy
+milestone: v9.0
+milestone_name: Tooling & Automation Research
 status: active
 stopped_at: null
 last_updated: "2026-03-20T00:00:00.000Z"
-last_activity: "2026-03-20 — Milestone v10.0 started"
+last_activity: "2026-03-20 — Milestone v9.0 unpaused, research complete, defining requirements"
 progress:
   total_phases: 0
   completed_phases: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v10.0 Connectivity & Redundancy — defining requirements
+**Current focus:** v9.0 Tooling & Automation Research — defining requirements
 
 ## Current Position
 
 Phase: Not started (defining requirements)
 Plan: —
 Status: Defining requirements
-Last activity: 2026-03-20 — Milestone v10.0 started
+Last activity: 2026-03-20 — Milestone v9.0 unpaused, defining requirements
 
 Progress: [░░░░░░░░░░] 0%
 
