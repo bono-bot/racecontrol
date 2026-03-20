@@ -52,7 +52,7 @@ base64 = "0.22"
 urlencoding = "2"
 
 # IST timezone conversion
-chrono-tz = "0.9"
+chrono-tz = "0.10"
 
 # Server ops (remote command execution)
 sysinfo = "0.33"
