@@ -1020,7 +1020,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 73. Critical Business Tests | v11.0 | 0/? | Not started | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
-| 76. API Authentication & Admin Protection | 1/6 | In Progress|  | - |
+| 76. API Authentication & Admin Protection | 3/6 | In Progress|  | - |
 | 77. Transport Security | v12.0 | 0/? | Not started | - |
 | 78. Kiosk & Session Hardening | v12.0 | 0/? | Not started | - |
 | 79. Data Protection | v12.0 | 0/? | Not started | - |

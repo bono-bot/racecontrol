@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: executing
-stopped_at: Completed 67-01-PLAN.md
-last_updated: "2026-03-20T13:07:52.140Z"
+stopped_at: Completed 76-02-PLAN.md
+last_updated: "2026-03-20T13:08:26.370Z"
 last_activity: "2026-03-20 -- 76-02 complete: admin PIN-to-JWT login with argon2id verification"
 progress:
   total_phases: 45
@@ -86,6 +86,7 @@ Progress: [█████████░] 90% (54/60 plans complete)
 - 72-02: inline #[cfg(test)] module with incoming().take(N) for clean thread exit; ephemeral ports via 127.0.0.1:0; all 7 tests pass with zero tokio contamination (TEST-04 complete)
 - 66-05: Bono deployment (exec round-trip) deferred async via INBOX.md; INFRA-03 code complete on both sides, live verification pending Bono pm2 restart
 - 67-01: Allowlist approach for sanitizer (only venue/pods/branding) -- never denylist; httpPost used for relay/sync POST for consistency; RACECONTROL_TOML_PATH env var for configurable path (SYNC-01, SYNC-02 complete)
+- 76-02: argon2 0.5 with Argon2id default params for admin PIN hashing; spawn_blocking for CPU-heavy verification; 503 when no hash configured; 12h JWT expiry (shift-length limit)
 
 ### Blockers/Concerns
 
@@ -106,7 +107,7 @@ Progress: [█████████░] 90% (54/60 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:06:56.153Z
-Stopped at: Completed 67-01-PLAN.md
+Last session: 2026-03-20T13:08:26.365Z
+Stopped at: Completed 76-02-PLAN.md
 Resume file: None
 Next action: Continue Phase 73 -- Critical Business Tests (TEST-01, TEST-02, TEST-03)
