@@ -37,14 +37,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v10.0 Connectivity & Redundancy — Phase 66: Infrastructure Foundations
+**Current focus:** v11.0 Agent & Sentry Hardening — defining requirements
 
 ## Current Position
 
-Phase: 66 — Infrastructure Foundations
-Plan: Not started
-Status: Roadmap ready, awaiting plan-phase
-Last activity: 2026-03-20 — v10.0 Connectivity & Redundancy roadmap created, 5 phases (66-70), 22 requirements mapped
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-20 — Milestone v11.0 Agent & Sentry Hardening started
 
 Progress: [░░░░░░░░░░] 0% (0/5 phases)
 

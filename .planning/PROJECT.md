@@ -6,18 +6,20 @@
 
 The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls, E2E test coverage, and 8/10 bot autonomy. 51+ phases shipped across 9 milestones.
 
-## Current Milestone: v10.0 Connectivity & Redundancy
+## Current Milestone: v11.0 Agent & Sentry Hardening
 
-**Goal:** Make James (.27) ↔ Server (.23) connectivity bulletproof and give Bono (cloud VPS) full failover capability so the venue keeps running even when the local server goes down.
+**Goal:** Harden rc-sentry into a reliable fallback operations tool, decompose rc-agent's 3,400-line main.rs into focused modules, extract shared exec/HTTP patterns into rc-common, and add unit/integration tests for critical safety paths.
 
 **Target features:**
-- Fix server .23 DHCP drift permanently (static IP or MAC reservation)
-- Establish remote exec from James (.27) to Server (.23) via Tailscale SSH
-- James health-monitors server .23 continuously (auto-detect outages)
-- Config sync: push venue racecontrol config to Bono so cloud mirrors local
-- Auto-failover: pods switch to Bono's VPS via Tailscale when .23 goes down
-- Uday notified on failover events (email/WhatsApp)
-- Failback: pods auto-switch back to .23 when it recovers
+- rc-sentry hardening: enforce timeout_ms, output truncation, concurrency limits, structured logging
+- rc-agent main.rs decomposition: extract state machine, WS handler, config, and event loop into separate modules
+- rc-sentry feature expansion: /health, /version, /files, /processes endpoints as fallback when rc-agent is down
+- Shared extraction: common exec/HTTP patterns between rc-agent remote_ops and rc-sentry into rc-common
+- Testing: unit/integration tests for billing guard, failure monitor, FFB safety, sentry endpoints
+
+## Active Milestone: v10.0 Connectivity & Redundancy
+
+**Goal:** Make James (.27) ↔ Server (.23) connectivity bulletproof and give Bono (cloud VPS) full failover capability so the venue keeps running even when the local server goes down.
 
 ## Active Milestone: v9.0 Tooling & Automation Research
 
@@ -123,6 +125,16 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Session lifecycle autonomy (orphan auto-end, crash recovery, fast reconnect)
 - ✓ LLM self-test with 22 probes + deterministic verdict + auto-fix patterns 8-14
 
+### Active (v11.0)
+
+- [ ] rc-sentry enforces command timeout and output truncation
+- [ ] rc-sentry has concurrency limits and structured logging
+- [ ] rc-sentry exposes /health, /version, /files, /processes endpoints
+- [ ] rc-agent main.rs decomposed into focused modules (<500 lines each)
+- [ ] Common exec/HTTP patterns extracted to rc-common
+- [ ] Unit/integration tests for billing guard, failure monitor, FFB safety
+- [ ] rc-sentry endpoint tests
+
 ### Active (v10.0)
 
 - [ ] Fix server .23 DHCP drift permanently
@@ -219,4 +231,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-20 after milestone v10.0 Connectivity & Redundancy started*
+*Last updated: 2026-03-20 after milestone v11.0 Agent & Sentry Hardening started*
