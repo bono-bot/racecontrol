@@ -67,6 +67,15 @@
 - Lap validity filter + per-track floor (Monza/Silverstone/Spa) + `review_required` flag; customer/staff PIN counters structurally separated; TELEM-01 email alert + MULTI-01 ordered teardown (Phase 26)
 - Tailscale mesh installed on all pods + `bono_relay.rs` bidirectional event/command relay to Bono's VPS on port 8099 (Phase 27)
 
+## v5.5 Billing Credits (Shipped: 2026-03-17)
+
+**Phases completed:** 3 phases (33–35)
+
+**Key accomplishments:**
+- billing_rates DB table with non-retroactive additive algorithm + in-memory rate cache
+- Four CRUD endpoints for staff rate management
+- Every user-facing screen replaced rupees with credits
+
 ---
 
 ## Comms Link v1.0 — James-Bono Communication (Shipped: 2026-03-12)
@@ -84,6 +93,23 @@
 - Alert system: fixed-window cooldown suppression, email fallback to both usingh and bono, WhatsApp via Evolution API
 - LOGBOOK.md bidirectional sync with atomic writes, conflict detection, and ack-based content tracking
 - Daily coordination: HealthAccumulator snapshots, IST-windowed daily summary scheduler, pod status HTTP fetch, FAILSAFE retirement
+
+## Comms Link v2.0 — Reliable AI-to-AI Communication (Shipped: 2026-03-20)
+
+**Phases completed:** 6 phases (9–14), 14 plans, 34 requirements, 437 tests
+**Repo origin:** comms-link (merged into unified .planning/)
+**Archive:** archive/comms-link-v2.0/
+
+**Key accomplishments:**
+- ACK protocol with monotonic sequence numbers + exponential backoff retries (3 max)
+- WAL-backed message queue — messages survive process crash, replay on restart
+- DeduplicatorCache (1000 IDs, 1hr TTL) prevents double-processing on reconnect
+- Process supervisor with health check polling, PID lockfile, Task Scheduler watchdog-of-watchdog
+- Bidirectional task routing with correlation IDs + configurable timeout (5min default)
+- 13-command remote execution with 3-tier approval (auto/notify/approve), array-args only, sanitized env
+- MetricsCollector + GET /relay/metrics endpoint (uptime, reconnects, ACK latency, queue depth)
+- ConnectionMode state machine: REALTIME > EMAIL_FALLBACK > OFFLINE_QUEUE graceful degradation
+- INBOX.md demoted to human-readable audit log — no code reads it programmatically
 
 ## Cloud Services v1.0 — Bots & API Gateway (Shipped: 2026-03-07)
 
