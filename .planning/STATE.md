@@ -3,11 +3,42 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 77-02-PLAN.md
+last_updated: "2026-03-20T14:23:07.575Z"
+last_activity: "2026-03-20 -- 77-02 complete: dual-port HTTPS 8443 + tower-helmet security headers + protocol-aware kiosk API_BASE (TLS-01, TLS-03, TLS-04, KIOSK-06)"
+progress:
+  total_phases: 45
+  completed_phases: 26
+  total_plans: 70
+  completed_plans: 64
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 77-01-PLAN.md
+last_updated: "2026-03-20T14:22:16.463Z"
+last_activity: "2026-03-20 -- 77-01 complete: TLS foundation with rcgen cert gen, RustlsConfig loader, ServerConfig extension (TLS-02, TLS-04)"
+progress:
+  total_phases: 45
+  completed_phases: 26
+  total_plans: 70
+  completed_plans: 64
+  percent: 91
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Completed 77-01-PLAN.md
 last_updated: "2026-03-20T14:18:04.350Z"
 last_activity: "2026-03-20 -- 77-01 complete: TLS foundation with rcgen cert gen, RustlsConfig loader, ServerConfig extension (TLS-02, TLS-04)"
 progress:
-  total_phases: 45
+  [█████████░] 91%
   completed_phases: 25
   total_plans: 70
   completed_plans: 63
@@ -57,11 +88,11 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 77 of 80 (Transport Security)
-Plan: 01 of 02 complete
-Status: Plan 77-01 complete
-Last activity: 2026-03-20 -- 77-01 complete: TLS foundation with rcgen cert gen, RustlsConfig loader, ServerConfig extension (TLS-02, TLS-04)
+Plan: 02 of 02 complete
+Status: Phase 77 complete
+Last activity: 2026-03-20 -- 77-02 complete: dual-port HTTPS 8443 + tower-helmet security headers + protocol-aware kiosk API_BASE (TLS-01, TLS-03, TLS-04, KIOSK-06)
 
-Progress: [█████████░] 91% (62/67 plans complete)
+Progress: [█████████░] 91% (64/70 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -130,6 +161,7 @@ Progress: [█████████░] 91% (62/67 plans complete)
 - 68-01: SwitchController placed after RunSelfTest — additive variant, no enum reorder; failover_url: Option<String> with serde(default) for zero-friction backward compat; last_switch_ms: AtomicU64 on HeartbeatStatus for Plan 02 runtime wiring (FAIL-01, FAIL-03, FAIL-04 data contracts complete)
 - 68-02: active_url Arc<RwLock<String>> read inside outer reconnect loop on each iteration — picks up new URL from SwitchController without restart; strict URL allowlist (primary+failover only); log_event made pub for cross-module SWITCH event recording; switch_grace_active = last_switch_ms != 0 && since_switch_ms < 60_000 (FAIL-02, FAIL-03, FAIL-04 runtime wiring complete)
 - 77-01: rcgen 0.14 generate_simple_self_signed takes Vec<String> with auto IP detection (not SanType enum); CertifiedKey has signing_key (not key_pair); backward-compat ServerConfig with Option fields (TLS-02, TLS-04)
+- 77-02: HelmetLayer::blank() with selective headers (not with_defaults) -- avoids COEP/COOP/upgrade-insecure-requests that break kiosk proxy; HSTS max-age=300 for testing safety; racingpoint.cloud CORS exact match (security fix from .contains()); HTTPS listener via tokio::spawn with .into_make_service() (no ConnectInfo/rate-limiting on HTTPS port) (TLS-01, TLS-03, TLS-04, KIOSK-06)
 
 ### Blockers/Concerns
 
@@ -150,7 +182,7 @@ Progress: [█████████░] 91% (62/67 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T14:13:04Z
-Stopped at: Completed 77-01-PLAN.md
+Last session: 2026-03-20T14:20:49Z
+Stopped at: Completed 77-02-PLAN.md
 Resume file: None
-Next action: Start 77-02 -- dual-port wiring (HTTPS 8443 listener + security headers)
+Next action: Start next phase (78 or beyond)

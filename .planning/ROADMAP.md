@@ -215,7 +215,7 @@ Lock down the Racing Point operations stack — audit all exposed endpoints and 
 
 - [x] **Phase 75: Security Audit & Foundations** - Inventory all exposed endpoints, trace PII locations, move secrets to env vars, auto-generate JWT key (completed 2026-03-20)
 - [x] **Phase 76: API Authentication & Admin Protection** - JWT enforcement on all sensitive routes, admin PIN gate with argon2, rate limiting, bot auth, pod HMAC, session integrity (completed 2026-03-20)
-- [ ] **Phase 77: Transport Security** - HTTPS for PWA/admin browser traffic, self-signed LAN certs, Let's Encrypt for cloud, security response headers
+- [x] **Phase 77: Transport Security** - HTTPS for PWA/admin browser traffic, self-signed LAN certs, Let's Encrypt for cloud, security response headers (completed 2026-03-20)
 - [ ] **Phase 78: Kiosk & Session Hardening** - Chrome lockdown, hotkey blocking, USB disable, session-scoped tokens, anomaly auto-pause with WhatsApp alert
 - [ ] **Phase 79: Data Protection** - AES-256-GCM on PII columns, deterministic phone hash for lookups, log redaction, customer data export/deletion
 - [ ] **Phase 80: Audit Trail & Defense in Depth** - Admin action logging, WhatsApp alerts on sensitive actions, PIN rotation alerts, cloud sync HMAC signing
@@ -1012,7 +1012,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 65. Shift Lights & RGB Lighting | v10.0 | 0/? | Not started | - |
 | 66. Infrastructure Foundations | 5/5 | Complete    | 2026-03-20 | - |
 | 67. Config Sync | 2/2 | Complete    | 2026-03-20 | - |
-| 68. Pod SwitchController | 2/2 | Complete   | 2026-03-20 | - |
+| 68. Pod SwitchController | 2/2 | Complete    | 2026-03-20 | - |
 | 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
 | 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |
 | 71. rc-common Foundation + rc-sentry Core Hardening | 2/2 | Complete    | 2026-03-20 | - |
@@ -1021,7 +1021,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
 | 76. API Authentication & Admin Protection | 6/6 | Complete    | 2026-03-20 | - |
-| 77. Transport Security | 1/2 | In Progress|  | - |
+| 77. Transport Security | 2/2 | Complete   | 2026-03-20 | - |
 | 78. Kiosk & Session Hardening | v12.0 | 0/? | Not started | - |
 | 79. Data Protection | v12.0 | 0/? | Not started | - |
 | 80. Audit Trail & Defense in Depth | v12.0 | 0/? | Not started | - |
