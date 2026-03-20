@@ -1,219 +1,184 @@
 # Project Research Summary
 
-**Project:** v11.0 Agent and Sentry Hardening
-**Domain:** Rust daemon hardening — rc-sentry timeout/concurrency, rc-agent decomposition, rc-common extraction, test infrastructure
+**Project:** Racing Point Operations Security (v12.0)
+**Domain:** Security hardening for a live, distributed eSports cafe operations system (Rust/Axum server, Next.js PWA, 8-pod fleet, Linux VPS)
 **Researched:** 2026-03-20
 **Confidence:** HIGH
 
 ## Executive Summary
 
-This milestone hardens two production daemons running across an 8-pod sim-racing fleet. rc-sentry (155-line stdlib HTTP server on port 8091) has three silent correctness failures: `timeout_ms` is parsed but never enforced, output is never truncated, and threads are spawned without a concurrency cap. These are not theoretical — a single long-running `dir /s` command will block the sentry thread indefinitely and a concurrent fleet-wide health poll can spawn unbounded OS threads. rc-agent (port 8090) is architecturally sound but its 3,400-line `main.rs` is approaching an unmaintainable mass; its two highest-risk subsystems (billing_guard, failure_monitor) have no unit tests despite controlling revenue and autonomous healing behavior.
+Racing Point's operations stack (racecontrol server, 8 rc-agent pods, kiosk PWA, staff dashboard, cloud sync) currently has zero API authentication on 80+ routes, no admin panel protection, plaintext HTTP on all local traffic, and customer PII stored unencrypted in SQLite. The system is a single-venue eSports cafe on a private LAN, but the attack surface is real: tech-savvy customers sit at pod machines with kiosk escape potential, anyone on the WiFi can sniff credentials, and India's DPDP Act (compliance deadline May 2027) mandates encryption and access logging for personal data. The existing JWT infrastructure (jsonwebtoken crate, Claims struct, OTP login flow) is built but not enforced -- the middleware layer is missing.
 
-The recommended approach is a strict two-phase sequence: harden rc-sentry and write critical tests first, then decompose rc-agent. rc-common gains two shared primitives (exec helper, HTTP utils) that both callers benefit from — but must be feature-gated to preserve rc-sentry's stdlib-only constraint. The key architectural invariant throughout is that rc-sentry must never take a tokio dependency: its value as a fallback tool derives entirely from being independent of rc-agent's failure modes. Any temptation to "just add axum" to simplify timeout logic must be resisted.
+The recommended approach is a phased security rollout using the existing Rust/Axum + tower middleware stack. No new frameworks or external identity providers are needed. The critical addition is Axum middleware layers (`from_fn`) that enforce JWT and HMAC-based authentication on route groups, plus argon2 for PIN hashing, aes-gcm for PII column encryption, and axum-server with rustls for HTTPS. The most important architectural decision is splitting the monolithic 80+ route Router into grouped sub-routers (public, customer, staff/admin, service) with separate auth layers -- this is idiomatic Axum 0.8 and naturally decomposes the 9,500-line routes.rs monolith.
 
-The top risk is the rc-agent main.rs decomposition breaking the `select!` event loop, which coordinates 10+ concurrent tasks with shared mutable state across tightly coupled arms. The standing rule applies without exception: characterization tests first, verify green, then refactor one module at a time in compilation order. The recovery path for a bad decomposition (git revert + pendrive deploy) is expensive; the prevention (incremental extraction with tests) is not.
-
----
+The single biggest risk is a big-bang auth rollout that bricks the pod fleet. The server, 8 agents, and the PWA deploy independently -- enabling auth on the server while clients still send unauthenticated requests will take the cafe offline. Every auth phase must follow the expand-migrate-contract pattern: server accepts both authenticated and unauthenticated requests first, clients are updated pod-by-pod, then unauthenticated requests are rejected only after 24 hours of zero unauthenticated traffic. Pod agent endpoints (:8090, :8091) must be included in auth scope -- they are the backdoor if only the central API is locked.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The dependency delta for this milestone is intentionally minimal: 2 new crates total. `wait-timeout 0.2` adds `ChildExt::wait_timeout(Duration)` for rc-sentry's blocking process execution — it calls `WaitForSingleObject` under the hood, requires no async runtime, and is the only correct stdlib-compatible solution for the timeout problem. `mockall 0.13` goes in rc-agent dev-dependencies only, enabling trait-based mocking of the reqwest HTTP client in billing_guard tests without spinning up a real server.
+The existing Rust/Axum/tower/SQLx stack requires only 4 new crates for full security coverage. No npm packages needed on the frontend side. See [STACK.md](STACK.md) for full details.
 
-Everything else is already in the workspace: tracing/tracing-subscriber (rc-sentry structured logging), tokio (rc-agent async exec), sysinfo 0.33 (rc-sentry /processes endpoint), serial_test 3, tempfile 3, tower 0.5, and http-body-util 0.1 for test infrastructure. The workspace already pays the compile cost for these — adding them to rc-sentry's Cargo.toml resolves the same locked versions at zero additional cost.
+**Core additions:**
+- `argon2` 0.5: Admin PIN hashing -- OWASP-recommended, pure Rust, memory-hard (prevents GPU brute-force)
+- `aes-gcm` 0.10: PII column encryption -- AES-256-GCM for phone/email fields, avoids SQLCipher build complexity
+- `axum-server` 0.8 + `rcgen` 0.14: HTTPS via rustls -- in-process TLS, no OpenSSL dependency, compatible with static CRT builds
+- `tower-helmet` 0.2 + `tower_governor` 0.4: Security headers and rate limiting -- drop-in tower middleware layers
 
-**Core technologies:**
-- `wait-timeout 0.2`: child process timeout for rc-sentry — only stdlib-compatible solution on Windows
-- `AtomicUsize` (stdlib): concurrency cap for rc-sentry — no external crate needed for a cap-and-reject pattern
-- `tracing` + `tracing-subscriber` (workspace): structured logging for rc-sentry — already paid for
-- `mockall 0.13` (dev-only): HTTP trait mocking for billing_guard tests — MSRV 1.77, project at 1.93.1
-- `sysinfo 0.33` (workspace version): process listing for rc-sentry /processes — same locked version as rc-agent
+**What NOT to add:** No external identity providers (Auth0, Keycloak), no SQLCipher (Windows build pain for only 5 PII columns), no NextAuth (overkill for PIN-to-JWT), no OpenSSL (breaks static CRT).
 
 ### Expected Features
 
-**Must have (table stakes — Phase 1):**
-- rc-sentry timeout enforcement — `_timeout_ms` is silently ignored; hung threads accumulate
-- rc-sentry output truncation — no cap; `dir /s C:\` floods the response buffer
-- rc-sentry concurrency limit — unbounded `thread::spawn` per connection; must be co-implemented with timeout (same threading design)
-- rc-sentry structured logging — `eprintln!()` only; no timestamps, no levels, no pod context
-- rc-sentry /health endpoint — operators need to confirm sentry is alive when rc-agent is down
-- rc-sentry /version endpoint — operators need to confirm which binary is deployed; requires build.rs for GIT_HASH
-- Unit tests for billing_guard.rs — controls BILL-02/03/SESSION-01; wrong = lost revenue or trapped sessions
-- Unit tests for failure_monitor.rs — drives autonomous healing; wrong = undetected game freezes
+See [FEATURES.md](FEATURES.md) for full analysis including dependency graph and current state assessment.
 
-**Should have (Phase 2):**
-- rc-agent config.rs extraction — pure data structs + validation functions; lowest refactor risk, enables clean unit tests
-- rc-agent state_machine.rs extraction — LaunchState/CrashRecoveryState enums; depends on config.rs first
-- rc-sentry /files endpoint — fallback binary verification when rc-agent is down
-- rc-sentry /processes endpoint — fallback process health check when rc-agent is down
-- rc-common exec helper — eliminates drift between remote_ops.rs and ws_exec handler
-- rc-sentry endpoint tests — TcpStream-based integration tests on ephemeral port
+**Must have (table stakes -- 10 features):**
+- TS-1: API auth on all billing/session endpoints (CRITICAL gap -- direct financial loss vector)
+- TS-2: Admin panel PIN protection (CRITICAL gap -- dashboard is wide open)
+- TS-3: HTTPS for PWA and admin traffic over WiFi
+- TS-4: JWT enforcement on all /customer/* routes
+- TS-5: Rate limiting on auth endpoints (prevent PIN brute-force)
+- TS-6: Kiosk escape prevention (hotkeys, USB, file dialogs, Sticky Keys)
+- TS-7: PII encryption at rest (DPDP Act compliance, May 2027 deadline)
+- TS-8: Bot command payment verification
+- TS-9: Session launch integrity (prevent billing bypass via race conditions)
+- TS-10: Secrets management (JWT key out of config file, into env vars)
 
-**Defer (v12.0+):**
-- FFB safety unit tests — hardware mock design non-trivial; defer unless FFB incidents occur
-- rc-agent ws_handler.rs extraction — timing-sensitive WS reconnect loop; only after simpler extractions prove safe
-- rc-agent event_loop.rs full extraction — highest regression risk; select! dispatch must not be touched until everything else is proven stable
+**Should have (differentiators -- 4 features for v12):**
+- D-1: Audit trail for admin actions (DPDP Act access logging)
+- D-2: Session-scoped kiosk tokens
+- D-4: Automated session cleanup on security anomaly
+- D-8: Security response headers (CSP, X-Frame-Options)
 
-**Anti-features (do not build):**
-- tokio/axum in rc-sentry — doubles binary size, eliminates independent-failure-mode property
-- Shared reqwest client in rc-common — pulls tokio into rc-common, contaminates rc-sentry
-- Big-bang main.rs rewrite — no regression safety net, behavioral regressions only surface under live conditions
-- Full hardware test coverage — ffb, HID, firewall paths are hardware-bound; 100% coverage goal stalls milestone
+**Defer to v13+:**
+- D-3: Network source tagging (application-level IP trust tiers)
+- D-5: Customer data export/deletion (DPDP right to erasure -- implement closer to May 2027)
+- D-6: Staff PIN rotation
+- D-7: Cloud sync request signing (HMAC on sync payloads)
 
 ### Architecture Approach
 
-The workspace has a clean three-tier structure: rc-common (shared types, lib-only), rc-agent (pod daemon, tokio/axum, port 8090), rc-sentry (pod fallback, stdlib, port 8091). v11.0 adds two shared primitives to rc-common — `exec.rs` with sync and async exec paths feature-gated behind `async-exec`, and `http_util.rs` for raw HTTP response formatting. The feature gate is the critical design decision: rc-sentry imports rc-common without `async-exec`, preserving its zero-async-runtime constraint. rc-agent imports rc-common with `features = ["async-exec"]` to get the tokio-based path. This boundary must be established before any code moves into rc-common.
+The architecture follows a 6-layer defense model (network boundary, transport, API auth, authorization, data protection, kiosk hardening) with this project covering layers 2-6. The key pattern is Axum nested Routers with per-group middleware stacks rather than a single global auth check. Three auth tiers emerge: customer JWT, staff/admin JWT (with role claim), and service-to-service HMAC (for pod agents and cloud sync). See [ARCHITECTURE.md](ARCHITECTURE.md) for data flow diagrams and component boundaries.
 
-**Major components and changes:**
-1. `rc-common/src/exec.rs` (new) — `ExecRequest`, `ExecResult`, `run_cmd_sync` (always compiled), `run_cmd_async` (feature-gated); both callers converge on the same truncation threshold and timeout logic
-2. `rc-common/src/http_util.rs` (new) — `json_response()`, `plain_response()`, `cors_ok()` for rc-sentry's raw TCP HTTP responses
-3. `rc-sentry/src/main.rs` (hardened) — `OnceLock<Instant>` for start time, `AtomicUsize` for active connections, `recv_timeout` for exec timeout, 4 new endpoints, structured log per request
-4. `rc-agent/src/config.rs` (extracted) — all `*Config` structs + `load_config()` + `validate_config()`; pure data, testable in isolation
-5. `rc-agent/src/app_state.rs` (extracted) — `AppState`, `LaunchState`, `CrashRecoveryState`; depends on config.rs
-6. `rc-agent/src/ws_handler.rs` (extracted) — WS connect/reconnect outer loop; depends on config + app_state
-7. `rc-agent/tests/` (new) — billing_guard, failure_monitor tests; use existing watch channel injection pattern
-
-Build order is leaves-to-roots: rc-common first, then rc-sentry (independent of rc-agent), then rc-agent decomposition (highest risk, done last).
+**Major components:**
+1. **API Auth Middleware** -- Axum `from_fn` layers on grouped routers (public/customer/staff/service tiers)
+2. **Admin Auth Module** -- PIN-to-JWT flow, argon2 hashing, 12-hour session cookies, rate limiting
+3. **Service-to-Service Auth** -- HMAC-SHA256 with timestamp for pod WebSocket and remote_ops, PSK for rc-sentry
+4. **HTTPS/TLS Layer** -- axum-server + rustls for browser traffic; LAN pod-to-server stays HTTP with HMAC auth
+5. **Data Protection** -- AES-256-GCM column encryption for PII fields, phone hash for lookups
+6. **Kiosk Hardening** -- Chrome kiosk flags, Group Policy lockdown, rc-agent process monitor, CSP headers
 
 ### Critical Pitfalls
 
-1. **timeout_ms parsed but never enforced in rc-sentry** — `_` prefix suppresses the warning; a hung `xcopy` blocks the thread indefinitely. Fix: spawn child thread + `channel.recv_timeout(Duration::from_millis(timeout_ms))`. Must NOT use tokio.
+See [PITFALLS.md](PITFALLS.md) for all 10 pitfalls with recovery strategies.
 
-2. **rc-sentry thread-per-connection with no concurrency cap** — fleet health poller + deploy script + manual curl = unbounded threads, each consuming ~1MB stack on Windows. Fix: `AtomicUsize` semaphore before spawn, reject with HTTP 429 at configured limit. Must be co-implemented with timeout (same threading change).
-
-3. **rc-agent select! loop decomposition breaking borrow checker** — 10+ select! arms share ~14 mutable local variables (`game_process`, `launch_state`, `crash_recovery`, etc.). Naive function extraction fails E0502/E0505. Fix: extract ALL shared state into `ConnectionState` struct, pass `&mut ConnectionState` to extracted handlers; never use `Arc<Mutex<T>>` for variables that were previously local — introduces lock contention in async hot path.
-
-4. **rc-common extraction contaminating rc-sentry with tokio** — adding `async fn` or `tokio` to rc-common without feature gating causes rc-sentry's linker to pull in the async runtime. Fix: define `[features] async-exec = ["dep:tokio"]` in rc-common BEFORE moving any code; always run `cargo build --bin rc-sentry` after every rc-common change.
-
-5. **Tests triggering real HID/FFB hardware** — `FfbController::new(0x1209, 0xFFB0)` in a test on James's workstation (no wheelbase connected) fails with USB error; on a pod it silently sends a zero-torque command to live hardware. Fix: `FfbBackend` trait with `HidBackend` (production) and `NullBackend` (tests), or `#[cfg(test)]` early-return guards; never call `FfbController` methods directly in tests without this seam.
-
----
+1. **Big-bang auth rollout bricks the fleet** -- Use expand-migrate-contract: server accepts both modes, update clients pod-by-pod (Pod 8 canary first), reject unauthenticated only after 24h clean logs
+2. **Pod agent bypass via localhost:8090** -- rc-agent remote_ops and rc-sentry accept commands without auth; locking the central API while pods are open is security theater. Auth must cover pod agents in the same phase as the central server
+3. **HTTPS breaks WebSocket connections** -- Enabling TLS on :8080 requires all pods to switch from ws:// to wss:// simultaneously. Decision: keep LAN traffic as HTTP + HMAC auth; HTTPS only for WiFi/external browser traffic
+4. **Admin PIN stored plaintext** -- Hash with argon2 on first setup; rate-limit PIN attempts; server-side validation is non-negotiable (client-side React check alone is bypassed with curl)
+5. **PII scattered beyond the database** -- Phone numbers in log files, bot messages, cloud sync payloads, browser localStorage. Full-system PII trace must happen before any encryption work
 
 ## Implications for Roadmap
 
-Based on combined research, the natural phase structure follows the build-order dependency graph and risk gradient.
+Based on combined research, the dependency graph, and pitfall analysis, I recommend 6 phases.
 
-### Phase 1: rc-sentry Hardening + Critical Business Tests
+### Phase 1: Security Audit and Foundations
+**Rationale:** You cannot protect what you have not measured. PITFALLS.md Pitfall 6 warns PII is in unexpected locations. FEATURES.md dependency graph shows TS-10 (secrets) must precede all auth work.
+**Delivers:** Complete inventory of exposed endpoints, PII locations, and secret storage. Secure key management via environment variables. Multi-token acceptance pattern in middleware skeleton.
+**Addresses:** TS-10 (secrets management), foundation for TS-1
+**Avoids:** Pitfall 2 (hardcoded secrets), Pitfall 6 (PII in unexpected places)
 
-**Rationale:** rc-sentry has three live correctness failures (timeout, truncation, unbounded threads) that can manifest at any time during fleet operations. The billing_guard and failure_monitor have no tests despite controlling revenue and autonomous healing — they are the highest business risk in the codebase. Both are achievable with no refactoring risk. Phase 1 should be completable and deployed before any refactoring work begins.
+### Phase 2: API Authentication + Admin Protection
+**Rationale:** The two CRITICAL gaps (open API + open admin panel) represent immediate financial loss. ARCHITECTURE.md build order and FEATURES.md MVP recommendation agree: auth first, everything else second. Must use expand-migrate-contract rollout.
+**Delivers:** Auth middleware on all billing/session/admin routes. Admin PIN-to-JWT with argon2 hashing. Rate limiting on auth endpoints. Pod agent auth on :8090 and :8091.
+**Addresses:** TS-1 (API auth), TS-2 (admin auth), TS-4 (customer JWT enforcement), TS-5 (rate limiting), TS-8 (bot payment verification)
+**Avoids:** Pitfall 1 (big-bang rollout), Pitfall 3 (plaintext PIN), Pitfall 7 (no token rotation), Pitfall 8 (pod agent bypass), Pitfall 10 (auth latency)
+**Uses:** axum::middleware::from_fn, argon2, tower_governor, existing jsonwebtoken
 
-**Delivers:** A hardened fallback daemon with verified behavior under load; test coverage on the two highest-risk subsystems; deployable to Pod 8 for canary verification.
+### Phase 3: HTTPS and Transport Security
+**Rationale:** With auth in place, transit encryption prevents token sniffing on WiFi. ARCHITECTURE.md places this after auth because "unauthenticated endpoints are a bigger risk than unencrypted transport on a private LAN."
+**Delivers:** TLS on racecontrol for browser traffic (PWA, dashboard). Self-signed CA via rcgen, distributed to pod browsers. HttpOnly/Secure/SameSite cookies. WSS for browser WebSocket connections.
+**Addresses:** TS-3 (HTTPS), D-8 (security headers)
+**Avoids:** Pitfall 4 (HTTPS breaks WebSocket -- scoped to browser traffic only, pod agents stay HTTP+HMAC)
+**Uses:** axum-server, rcgen, rustls, tower-helmet
 
-**Addresses:**
-- rc-sentry timeout enforcement (P1)
-- rc-sentry output truncation (P1)
-- rc-sentry concurrency limit (P1, co-implemented with timeout)
-- rc-sentry structured logging (P1)
-- rc-sentry /health endpoint (P1)
-- rc-sentry /version endpoint + build.rs (P1)
-- Unit tests for billing_guard.rs (P1)
-- Unit tests for failure_monitor.rs (P1)
+### Phase 4: Kiosk Hardening
+**Rationale:** Independent of the API security stack (can run in parallel with Phase 3). Physical exploitation requires venue presence -- lower blast radius than remote API abuse, but tech-savvy gamer customers will try escape vectors.
+**Delivers:** Chrome kiosk flag hardening, Group Policy lockdown (Task Manager, USB, hotkeys), rc-agent process allowlist updates, session-scoped kiosk tokens.
+**Addresses:** TS-6 (kiosk escape prevention), TS-9 (session launch integrity), D-2 (session-scoped tokens), D-4 (automated cleanup on anomaly)
+**Avoids:** Pitfall 5 (kiosk escape via hotkeys/DevTools), Pitfall 8 (pod agent bypass -- already closed in Phase 2)
 
-**Avoids:** Do not add tokio to rc-sentry (destroys independent-failure-mode property). Do not add /files or /processes before timeout + concurrency cap is in place (new endpoints expose longer-running commands). Do not start rc-agent decomposition until Phase 1 is green.
+### Phase 5: Data Protection (PII Encryption)
+**Rationale:** Depends on Phase 3 (transit security) being complete -- encrypting at rest is undermined if PII transits in plaintext. DPDP Act deadline is May 2027, so this is not emergency-urgent but must ship well before that.
+**Delivers:** AES-256-GCM encryption on drivers.phone, drivers.email, drivers.name, drivers.guardian_phone. Phone hash for OTP lookups. Log redaction middleware. PII boundary policy.
+**Addresses:** TS-7 (PII encryption at rest)
+**Avoids:** Pitfall 6 (PII in unexpected locations -- traced in Phase 1), Pitfall 9 (encryption breaks tooling -- field-level, not full-DB)
+**Uses:** aes-gcm
 
----
-
-### Phase 2: rc-common Extraction + rc-sentry Endpoint Expansion
-
-**Rationale:** Once rc-sentry is hardened and tests are green, rc-common gains the shared exec primitive and HTTP utilities. This phase is safe to do before rc-agent decomposition because rc-common changes compile independently. The new rc-sentry endpoints (/files, /processes) complete the fallback tool's capabilities for incident response.
-
-**Delivers:** Single source of truth for exec timeout/truncation logic; rc-sentry becomes a capable fallback with process and file visibility; rc-common feature gating established for all future shared code.
-
-**Uses:**
-- `wait-timeout 0.2` in rc-common (sync exec path)
-- `sysinfo 0.33` in rc-sentry (process listing)
-- Cargo feature gate `async-exec` in rc-common
-
-**Implements:** rc-common exec.rs + http_util.rs; rc-sentry /files + /processes + endpoint integration tests
-
-**Critical gate:** Run `cargo build --bin rc-sentry` explicitly after every rc-common change. The `cargo test -p rc-common` command does not catch rc-sentry contamination.
-
----
-
-### Phase 3: rc-agent Decomposition
-
-**Rationale:** Highest regression risk in the milestone. Protected by characterization tests written in this phase before any structural change. Extraction proceeds in strict risk order: config (pure data, no runtime effects) → app_state (pure construction, no channels) → ws_handler (WS lifecycle) → event_loop (select! dispatch, deferred). The panic hook and startup sequence stay in main.rs regardless.
-
-**Delivers:** rc-agent main.rs reduced from ~3,400 lines to ~150 lines; four new testable modules; clean module boundaries for future feature development.
-
-**Uses:**
-- `mockall 0.13` in rc-agent dev-dependencies (billing_guard HTTP isolation)
-- rc-common exec helper (async path) to remove duplication in remote_ops.rs
-
-**Implements:** config.rs, app_state.rs, ws_handler.rs extraction (event_loop.rs deferred to v12.0)
-
-**Avoids:** No `Arc<Mutex<T>>` for previously-local select! variables. No big-bang rewrite. event_loop.rs extraction explicitly deferred — the select! dispatch body is not touched in this phase.
-
----
+### Phase 6: Audit Trail and Defense in Depth
+**Rationale:** Requires admin identity (Phase 2) and session infrastructure to be stable. Low urgency but important for DPDP compliance (access logging) and incident investigation.
+**Delivers:** Append-only audit_log table for admin actions. WhatsApp alerting on security anomalies. Cloud sync auth hardening if needed.
+**Addresses:** D-1 (audit trail), remaining differentiators
 
 ### Phase Ordering Rationale
 
-- Phase 1 before Phase 2: rc-sentry hardening is a prerequisite for safe endpoint expansion. A /files endpoint on an un-rate-limited, no-timeout sentry is a reliability liability.
-- Phase 2 before Phase 3: rc-common extraction is independent of rc-agent. Establishing the feature gate boundary and validating `cargo build --bin rc-sentry` clean before any rc-agent code moves is the correct order.
-- Phase 3 last: rc-agent decomposition carries the highest regression risk. It must be protected by Phase 1's test infrastructure before it starts. A bad extraction is recovered by `git revert` + pendrive deploy — expensive. Prevention via incremental extraction is not.
-- rc-sentry and rc-agent development can proceed in parallel within Phase 3 (they share only rc-common, not each other).
+- **Secrets before auth** because JWT signing keys must be securely stored before the first token is issued
+- **Auth before HTTPS** because unauthorized API access (curl billing/start) is a bigger immediate threat than network sniffing
+- **HTTPS before data-at-rest** because encrypting stored PII while it transits in plaintext is inconsistent protection
+- **Kiosk hardening is parallel** to Phases 3-5 because it is an OS/browser concern, not an API concern
+- **Audit trail last** because it requires identity infrastructure (who did what) to already exist
 
 ### Research Flags
 
-Phases with standard patterns (research-phase not needed):
-- **Phase 1 — rc-sentry hardening:** well-documented stdlib patterns; thread + channel timeout, AtomicUsize semaphore, OnceLock uptime are all established std patterns with no ambiguity.
-- **Phase 1 — billing_guard tests:** watch channel injection already designed; mockall automock is well-documented; the test seam exists in the current spawn() signature.
-- **Phase 2 — rc-common extraction:** Cargo feature gating for conditional tokio dependency is documented; the exec API design is fully specified in ARCHITECTURE.md.
+Phases likely needing deeper research during planning:
+- **Phase 2 (API Auth):** The expand-migrate-contract rollout across 8 pods is operationally complex. Needs detailed deploy sequencing. Also needs research on the exact route classification (which of the 80+ routes are public vs. customer vs. staff vs. service).
+- **Phase 4 (Kiosk Hardening):** Windows Group Policy settings, Chrome flag combinations, and game overlay compatibility need hands-on testing. Not well-served by desk research -- requires physical testing on a pod.
+- **Phase 5 (Data Protection):** Cloud sync payload contents need auditing to determine if encrypted fields break the sync protocol. Field-level encryption impact on query patterns needs validation.
 
-Phases likely needing targeted research during planning:
-- **Phase 3 — select! decomposition:** the EventLoopArgs struct boundary needs careful design before extraction. The 14 mutable shared variables and their ownership across 10+ select! arms need a concrete mapping before a line of code changes. Recommend a planning step that enumerates all captured variables and assigns each to `ConnectionState` (inner loop) or `ReconnectState` (outer loop) before implementation begins.
-- **Phase 3 — FFB backend trait:** if FFB safety tests are pulled into this phase, the `FfbBackend` trait design needs upfront agreement. The `#[cfg(test)]` stub approach is simpler but produces fragile tests; the trait approach is cleaner but requires a signature change to `FfbController`. Decide before writing any FFB tests.
-
----
+Phases with standard patterns (skip research-phase):
+- **Phase 1 (Audit + Foundations):** Straightforward grep/audit work plus env var migration. Well-understood.
+- **Phase 3 (HTTPS):** axum-server + rustls is well-documented with official examples. Self-signed CA distribution is a one-time setup script.
+- **Phase 6 (Audit Trail):** Simple append-only SQL table. No complex patterns.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All recommendations verified against crates.io, docs.rs, and direct Cargo.lock inspection. Dependency delta is minimal (2 new crates). No speculative additions. |
-| Features | HIGH | Based on direct codebase analysis of all affected files. `_timeout_ms` unused variable confirmed at line 78. No tests for billing_guard/failure_monitor confirmed by grep. Feature dependencies are code-verified. |
-| Architecture | HIGH | Build order, module boundaries, channel ownership, and data flow all derived from direct source inspection of 155-line rc-sentry and 3,400-line rc-agent. Feature-gate design for rc-common is technically sound. |
-| Pitfalls | HIGH | Every pitfall is grounded in observed code structure. No speculation. Recovery strategies are operationally realistic (pendrive deploy path confirmed in CLAUDE.md). |
+| Stack | HIGH | All recommendations verified against docs.rs. 3 of 6 new crates version-verified. Existing JWT/tower/SQLx stack is well-understood from codebase. |
+| Features | HIGH | Based on direct codebase audit of routes.rs, auth/mod.rs, kiosk.rs, db/mod.rs. DPDP Act requirements sourced from DLA Piper and Deloitte. |
+| Architecture | HIGH | Based on direct codebase analysis, not external sources. Axum middleware patterns already in use (CORS, trace). Route grouping is idiomatic Axum 0.8. |
+| Pitfalls | HIGH | Operational pitfalls (big-bang rollout, pod bypass) are specific to Racing Point's fleet topology. Kiosk escape vectors sourced from multiple security research repos. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **billing_guard HTTP mock seam:** The orphan session end call (`attempt_orphan_end`) currently calls `reqwest::Client::post()` directly without an injectable seam. Before writing billing_guard tests, decide between: (a) wrap reqwest behind a trait + mockall automock, or (b) extract `attempt_orphan_end` as a callback parameter to `billing_guard::spawn()`. Option (b) is simpler and avoids trait boilerplate. This decision should be made during Phase 1 planning, not mid-implementation.
-
-- **failure_monitor try_auto_fix stub approach:** `try_auto_fix` calls the Ollama endpoint. The `#[cfg(test)] mod ai_debugger_stub` approach works but shadows the real module in tests. If `failure_monitor::spawn()` is later refactored to accept a `fix_fn` callback, the test approach improves. Acceptable to start with the cfg(test) stub in Phase 1 and refactor if needed.
-
-- **rc-sentry partial TCP read:** PITFALLS.md documents that the single `stream.read(&mut buf)` call can return partial data for bodies >~1KB. This is a correctness issue distinct from the timeout/truncation work. The fix (~30 lines) should be included in Phase 1 hardening, not deferred. It is not currently listed as a P1 feature in FEATURES.md — roadmapper should flag it.
-
-- **event_loop.rs deferred scope:** The select! dispatch body (lines ~800-2800 in main.rs) is explicitly deferred to v12.0. The roadmap should make this boundary explicit — Phase 3 extractions stop at the ws_handler outer structure and do not enter the select! arms.
-
----
+- **tower-helmet and tower_governor version verification:** Claimed versions (0.2 and 0.4) need validation at build time. May have newer versions or API changes.
+- **aes-gcm version verification:** Version 0.10 from training data, needs build-time check.
+- **HTTPS scope decision:** PITFALLS.md and ARCHITECTURE.md present slightly different recommendations on LAN HTTPS. PITFALLS.md says "keep LAN as HTTP" while ARCHITECTURE.md recommends axum-server with rustls for browser traffic. Recommendation: HTTPS for WiFi browser traffic (PWA, dashboard), HTTP+HMAC for wired pod-to-server. This must be explicitly decided before Phase 3 implementation.
+- **Route classification:** The exact split of 80+ routes into public/customer/staff/service tiers has not been enumerated. Phase 2 planning must include a route audit.
+- **Cloud sync PII exposure:** What specific fields does cloud sync send to Bono's VPS? If encrypted PII fields are synced as ciphertext, does the cloud side need to decrypt? This affects Phase 5 design.
+- **Game overlay compatibility:** Kiosk process allowlist hardening (Phase 4) risks killing game-required overlay processes (Steam, Discord). Each game title needs testing.
 
 ## Sources
 
-### Primary (HIGH confidence — direct source inspection)
-- `crates/rc-sentry/src/main.rs` (full file, 155 lines) — timeout_ms unused at line 78, unbounded thread spawn, no output truncation confirmed
-- `crates/rc-agent/src/main.rs` (lines 1-1165) — 3,400 lines confirmed, LaunchState/CrashRecoveryState present, panic hook at lines 396-438
-- `crates/rc-agent/src/remote_ops.rs` — truncation at 65,536 bytes, Semaphore 8-slot pattern
-- `crates/rc-agent/src/billing_guard.rs` — BILL-02/03/SESSION-01 state machine, no tests present
-- `crates/rc-agent/src/failure_monitor.rs` — CRASH-01/02/USB-01 detection, no tests present
-- `crates/rc-agent/src/ffb_controller.rs` — VID:0x1209 PID:0xFFB0, no FfbBackend trait, no test seam
-- `crates/rc-sentry/Cargo.toml` — deps: serde, serde_json, toml only; no tokio confirmed
-- `crates/rc-agent/Cargo.toml` — sysinfo 0.33, axum 0.8, reqwest 0.12, serial_test 3, tempfile 3, tower 0.5 confirmed
-- `crates/rc-common/src/lib.rs` — current modules: types, protocol, udp_protocol, watchdog, ai_names
-- `.planning/PROJECT.md` — v11.0 requirements list
+### Primary (HIGH confidence)
+- Direct codebase audit: routes.rs, auth/mod.rs, main.rs, kiosk.rs, db/mod.rs, remote_ops.rs, rc-sentry main.rs
+- [Axum middleware documentation](https://docs.rs/axum/latest/axum/middleware/index.html)
+- [axum-server TLS rustls docs](https://docs.rs/axum-server/latest/axum_server/tls_rustls/index.html)
+- [rcgen docs](https://docs.rs/rcgen/latest/rcgen/)
+- [argon2 (RustCrypto)](https://crates.io/crates/argon2)
+- [CVE-2025-29927](https://projectdiscovery.io/blog/nextjs-middleware-authorization-bypass) -- Next.js middleware bypass
 
-### Secondary (HIGH confidence — external verification)
-- crates.io/crates/wait-timeout — version 0.2, Windows WaitForSingleObject impl confirmed
-- crates.io/crates/mockall — version 0.13.1, MSRV 1.77, 84M downloads confirmed
-- docs.rs/tracing — tracing does not require tokio; set_global_default() covers std::thread threads
-- std::sync::atomic documentation — AtomicUsize cap-and-reject is the standard stdlib pattern
+### Secondary (MEDIUM confidence)
+- [India DPDP Act overview - DLA Piper](https://www.dlapiperdataprotection.com/?t=law&c=IN)
+- [DPDP Rules 2025 - Deloitte](https://www.deloitte.com/in/en/services/consulting/about/indias-dpdp-rules-2025-leading-digital-privacy-compliance.html)
+- [tower-helmet](https://github.com/Atrox/tower-helmet), [tower_governor](https://github.com/benwis/tower-governor)
+- [Kiosk escape techniques](https://github.com/ikarus23/kiosk-mode-breakout), [InternalAllTheThings](https://swisskyrepo.github.io/InternalAllTheThings/cheatsheets/escape-breakout/)
+- [Kiosk hardening guides](https://www.hexnode.com/blogs/hardening-windows-kiosk-mode-security-best-practices-for-enterprise-protection/)
 
-### Tertiary (context)
-- CLAUDE.md standing rules — "Refactor Second" rule, deployment rules, pendrive recovery path
-- PROJECT.md v11.0 — active requirements confirmed to match research scope
+### Tertiary (LOW confidence)
+- tower-helmet 0.2, tower_governor 0.4, aes-gcm 0.10 version claims -- need build-time verification
 
 ---
-*Research completed: 2026-03-20 IST*
+*Research completed: 2026-03-20*
 *Ready for roadmap: yes*

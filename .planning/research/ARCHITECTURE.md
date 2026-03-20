@@ -1,449 +1,491 @@
-# Architecture Research
+# Architecture Patterns: Security Layers for Racing Point Operations
 
-**Domain:** rc-agent / rc-sentry hardening and refactoring (v11.0)
+**Domain:** Security hardening for distributed eSports cafe operations system
 **Researched:** 2026-03-20
-**Confidence:** HIGH — based on direct source inspection of all affected files
+**Confidence:** HIGH (based on direct codebase analysis, not external sources)
 
 ---
 
-## Current System Overview
+## Current System Topology
 
 ```
-+-----------------------------------------------------------------+
-|                    Pod (192.168.31.x)                           |
-|                                                                 |
-|  +-----------------------------------------------------------+  |
-|  |  rc-agent (port 8090)  -- tokio/axum, 3400-line main.rs  |  |
-|  |                                                           |  |
-|  |  +----------+  +----------+  +----------+  +----------+  |  |
-|  |  |remote_ops|  |billing_  |  |failure_  |  |ffb_ctrl  |  |  |
-|  |  |(Axum8090)|  |guard     |  |monitor   |  |ler       |  |  |
-|  |  +----------+  +----------+  +----------+  +----------+  |  |
-|  |        |            |             |              |        |  |
-|  |  +-----v------------v-------------v--------------v-----+  |  |
-|  |  |         main.rs event loop (select!)                |  |  |
-|  |  |  AppState | WS reconnect | Config | Channels        |  |  |
-|  |  +-----------------------------------------------------+  |  |
-|  +-----------------------------------------------------------+  |
-|                                                                 |
-|  +-----------------------------------------------------------+  |
-|  |  rc-sentry (port 8091) -- std::net, 155 lines            |  |
-|  |                                                           |  |
-|  |  /ping   /exec   (OPTIONS CORS)                          |  |
-|  |  No timeout enforcement | No output truncation            |  |
-|  |  Unbounded thread spawn per connection                    |  |
-|  +-----------------------------------------------------------+  |
-+-----------------------------------------------------------------+
-          | WebSocket                       | HTTP :8090
-          | UDP heartbeat                   |
-          v                                 v
-+-----------------------------------------------------------------+
-|   racecontrol (Server .23:8080) -- Axum                         |
-+-----------------------------------------------------------------+
-          | cloud_sync
-          v
-+-----------------------------------------------------------------+
-|   app.racingpoint.cloud (Bono VPS :443)                         |
-+-----------------------------------------------------------------+
+                    INTERNET
+                       |
+              [Bono VPS :443]          <-- app.racingpoint.cloud (HTTPS)
+              Cloud API + Gateway       <-- PostgreSQL cloud DB
+                       |
+            ~~~~ WAN / Tailscale ~~~~
+                       |
+         [Router 192.168.31.1]         <-- Local network boundary
+                       |
+       +---------------+---------------+
+       |               |               |
+[James .27]    [Server .23]      [Pods .28-.91]
+RTX 4070       racecontrol:8080  rc-agent:8090 (x8)
+Ollama:11434   kiosk:3300        rc-sentry:8091
+webterm:9999   dashboard:3200    lock-screen (local)
+               rc-sentry:8091
+               SQLite DB
 ```
+
+### Communication Channels (Current State)
+
+| Channel | Protocol | Auth | Encrypted |
+|---------|----------|------|-----------|
+| Pod agent <-> Server | WebSocket :8080 | None (pod_id in first message) | No (HTTP) |
+| Pod remote_ops | HTTP :8090 | None | No |
+| rc-sentry (all nodes) | HTTP :8091 | None | No |
+| Customer PWA <-> Server | HTTP :8080 | JWT (customer_sessions table) | No |
+| Staff Dashboard <-> Server | HTTP/WS :8080 | None | No |
+| Kiosk <-> Server | HTTP :3300 proxied via :8080 | None | No |
+| Server <-> Cloud VPS | HTTPS :443 | terminal_secret header | Yes |
+| Cloud sync (relay mode) | HTTP localhost :8765/8766 | None (localhost only) | No |
+| Bono relay | HTTP over Tailscale | x-api-key header | Tailscale encrypted |
+| Remote terminal (cloud) | HTTPS :443 | terminal_secret | Yes |
+| WhatsApp (Evolution API) | HTTPS | evolution_api_key | Yes |
 
 ---
 
-## What v11.0 Changes
+## Recommended Security Architecture
 
-### New vs Modified Components
+### Layered Defense Model
 
-| Component | Status | What Changes |
-|-----------|--------|--------------|
-| `rc-sentry/src/main.rs` | **Modified** | Add timeout enforcement, output truncation, concurrency semaphore, structured logging, new endpoints |
-| `rc-agent/src/main.rs` | **Modified** | Extract ~2800 lines into new modules; main.rs becomes orchestrator only |
-| `rc-agent/src/app_state.rs` | **New** | AppState struct and derived types extracted from main.rs |
-| `rc-agent/src/ws_handler.rs` | **New** | WS reconnect loop, message send/recv, ping/pong |
-| `rc-agent/src/config.rs` | **New** | AgentConfig, PodConfig, CoreConfig, WheelbaseConfig, etc. |
-| `rc-agent/src/event_loop.rs` | **New** | select! dispatch logic -- the inner event loop body |
-| `rc-common/src/exec.rs` | **New** | Shared exec primitive: semaphore + timeout + truncation |
-| `rc-common/src/http_util.rs` | **New** | Shared HTTP response helpers for rc-sentry (JSON, plain text, CORS) |
-| `rc-agent/tests/` | **New** | Integration tests for billing_guard, failure_monitor, ffb safety |
-| `rc-sentry/tests/` | **New** | Integration tests for /health, /version, /exec, /processes |
+Security layers apply from outside-in. Each layer is independent -- a breach of one does not compromise others.
+
+```
+Layer 1: Network Boundary         Router firewall + no port forwarding
+Layer 2: Transport Security       HTTPS/TLS for all data in transit
+Layer 3: API Authentication       Bearer tokens + HMAC for service-to-service
+Layer 4: Authorization             Role-based route guards (admin/staff/customer)
+Layer 5: Data Protection           Encryption at rest, PII audit, minimal retention
+Layer 6: Kiosk Hardening          OS-level lockdown, PWA escape prevention
+```
+
+**What this project covers:** Layers 2-6. Layer 1 (network/firewall/VLANs) is out of scope per PROJECT-v12.md.
 
 ---
 
-## Target Architecture After v11.0
+## Component Boundaries
 
+### Component 1: API Authentication Middleware (racecontrol)
+
+**Responsibility:** Verify identity of every HTTP/WS request before it reaches route handlers.
+
+**Communicates with:** All clients (pods, dashboard, PWA, kiosk, cloud, bots)
+
+**Current state:** JWT infrastructure exists (`jsonwebtoken` crate, `Claims` struct, `auth/mod.rs`) but is only used for customer PWA sessions and terminal auth. Staff dashboard and billing endpoints have zero authentication.
+
+**Target state:**
 ```
-rc-agent/src/
-  main.rs            (~150 lines)
-      |                  init, panic hook, tracing setup,
-      |                  spawn everything, enter reconnect
-      |                  loop via ws_handler
-      +-- config.rs      AgentConfig + all sub-configs
-      +-- app_state.rs   AppState (shared runtime state)
-      +-- ws_handler.rs  WS connect/reconnect/split, register
-      +-- event_loop.rs  select! arms: WS msgs, channels,
-      |                  heartbeat, billing ticks
-      +-- billing_guard.rs    (unchanged)
-      +-- failure_monitor.rs  (unchanged)
-      +-- ffb_controller.rs   (unchanged)
-      +-- remote_ops.rs       (unchanged, Axum/8090)
-      +-- kiosk.rs            (unchanged)
-      +-- lock_screen.rs      (unchanged)
-      +-- [other 15 modules unchanged]
-
-rc-sentry/src/
-  main.rs            (~280 lines)
-      |                  listen loop, per-connection threads
-      |                  with semaphore guard, structured
-      |                  log lines (JSON to stderr)
-      +-- handle()           request parse, route dispatch
-      +-- handle_exec()      calls rc_common::exec::run_cmd_sync()
-      +-- handle_health()    NEW: uptime, version, active_conns
-      +-- handle_version()   NEW: GIT_HASH + pkg version
-      +-- handle_files()     NEW: dir listing (path query param)
-      +-- handle_processes() NEW: running process snapshot
-
-rc-common/src/
-  exec.rs            NEW: ExecRequest, ExecResult, run_cmd_sync, run_cmd_async
-                     Shared between remote_ops.rs AND rc-sentry
-                     Sync path for rc-sentry (std::net threads)
-                     Async path for rc-agent remote_ops (tokio)
-  http_util.rs       NEW: json_response(), plain_response(), cors_ok()
-                     Only for rc-sentry -- rc-agent uses axum
+                       Request arrives at :8080
+                              |
+                    [CORS Layer] (existing)
+                              |
+                    [Auth Middleware Layer]  <-- NEW
+                       /      |      \
+                 Public    Authed    Service
+                 routes    routes    routes
+                   |         |         |
+                /health   /billing   /sync/push
+                /venue    /pods      /ws (agent)
+                /kiosk/*  /admin/*
 ```
+
+**Implementation pattern:** Axum middleware layer using `tower::Layer` + `axum::middleware::from_fn`. Three tiers:
+
+| Tier | Routes | Auth Method |
+|------|--------|-------------|
+| Public | `/health`, `/venue`, `/kiosk/*` proxy, `/customer/login`, `/customer/register` | None |
+| Customer | `/customer/*` (except login/register) | JWT Bearer token from customer_sessions |
+| Staff/Admin | `/billing/*`, `/pods/*`, `/drivers/*`, `/admin/*`, `/wallet/*`, etc. | Admin PIN -> JWT, or daily-rotating employee PIN -> JWT |
+| Service | `/ws` (agent), `/sync/*`, `/fleet/*` | HMAC shared secret or pre-shared key |
+
+**Key design decision:** Use Axum's nested Router with different middleware stacks rather than a single middleware that checks every route. This is idiomatic Axum 0.8 and avoids a giant allowlist.
+
+```rust
+// Pseudostructure (not literal code)
+let public_routes = Router::new()
+    .route("/health", get(health))
+    .route("/venue", get(venue_info));
+
+let customer_routes = Router::new()
+    .route("/customer/profile", get(profile))
+    .layer(from_fn(require_customer_jwt));
+
+let staff_routes = Router::new()
+    .route("/billing/start", post(start_billing))
+    .layer(from_fn(require_staff_jwt));
+
+let service_routes = Router::new()
+    .route("/sync/push", post(sync_push))
+    .layer(from_fn(require_service_hmac));
+
+let app = Router::new()
+    .merge(public_routes)
+    .merge(customer_routes)
+    .merge(staff_routes)
+    .merge(service_routes);
+```
+
+### Component 2: Admin Authentication (racecontrol auth module)
+
+**Responsibility:** Gate all admin/staff operations behind PIN-based authentication. Uday enters PIN once, gets JWT valid for shift duration.
+
+**Communicates with:** Staff dashboard (web), terminal auth, bot commands
+
+**Current state:** `terminal_auth` endpoint exists with daily-rotating PIN. `staff_validate_pin` exists. No middleware enforcement -- these are optional entry points that return JWTs, but downstream routes do not check for them.
+
+**Target state:** Staff JWT required on all non-public, non-customer routes. Admin PIN entered once per browser session (stored in httpOnly cookie or localStorage). JWT expiry = 12 hours (one shift).
+
+**Design:**
+- Reuse existing `jsonwebtoken` infrastructure
+- Add `role` claim to JWT: `{ sub: "admin", role: "staff", exp, iat }`
+- Staff login: `POST /auth/admin-login` with `{ pin: "1234" }` -> returns JWT
+- Middleware extracts `Authorization: Bearer <jwt>` and validates role
+
+### Component 3: Service-to-Service Auth (rc-agent <-> racecontrol)
+
+**Responsibility:** Prevent unauthorized devices from connecting as pods or issuing commands.
+
+**Communicates with:** rc-agent instances on pods, rc-sentry on all nodes
+
+**Current state:** WebSocket connections from pods are unauthenticated. Any device on the LAN can connect to `:8080/ws` and impersonate a pod. rc-agent `:8090` and rc-sentry `:8091` accept commands from any LAN device with zero auth.
+
+**Target state:** Pre-shared key (PSK) authentication for all service-to-service communication.
+
+**Design:**
+- Shared secret in `racecontrol.toml` (`[auth].service_secret`) and `rc-agent.toml` (`[core].service_secret`)
+- WebSocket: Agent sends HMAC(pod_id + timestamp, secret) in first message. Server validates within 30s window.
+- HTTP (remote_ops :8090): `X-Service-Key: <secret>` header on all requests. Middleware rejects without it.
+- rc-sentry: Same `X-Service-Key` header. This is the highest-risk endpoint (raw shell exec with no auth).
+
+**Why PSK over mTLS:** PSK is simple to deploy, simple to rotate, and adequate for a trusted LAN. mTLS adds certificate management complexity that is not justified for 8 pods on a private subnet. If the network grows beyond the venue, revisit.
+
+### Component 4: HTTPS / TLS (transport layer)
+
+**Responsibility:** Encrypt all data in transit between PWA browsers and the server.
+
+**Communicates with:** All browser-based clients (customer PWA, staff dashboard, kiosk)
+
+**Current state:** All local traffic is plain HTTP. Cloud traffic to VPS is HTTPS. Customer PII (phone, name, payment info) travels in plaintext on the LAN.
+
+**Target state:** TLS termination at racecontrol `:8080` for all browser traffic.
+
+**Design options (choose one):**
+
+| Option | Pros | Cons | Recommendation |
+|--------|------|------|----------------|
+| Self-signed cert on server | Simple, no external deps | Browser warnings, PWA install issues | No |
+| Caddy/nginx reverse proxy with Let's Encrypt | Automatic TLS, well-tested | Adds another service, needs domain pointed at LAN IP | Maybe (if external access needed) |
+| `axum-server` with `rustls` + self-signed CA | In-process TLS, no extra services | Must distribute CA cert to pod browsers, more Rust code | **Yes** |
+| mkcert (local CA) | Trusted certs for LAN | Manual CA distribution | Good complement to option 3 |
+
+**Recommended approach:** Use `mkcert` to generate a local CA + server cert for `192.168.31.23` and `racingpoint.local`. Install the CA cert on all pod browsers (one-time setup via deploy script). Configure Axum with `axum-server` + `rustls` to serve HTTPS. This gives trusted TLS without external dependencies or browser warnings.
+
+**For the cloud path:** Already HTTPS via VPS. No changes needed.
+
+**WebSocket upgrade:** Once HTTPS is enabled, WebSocket connections automatically upgrade to WSS. No code changes needed in rc-agent beyond changing `ws://` to `wss://` in the connection URL.
+
+### Component 5: Data Protection (SQLite + cloud)
+
+**Responsibility:** Protect customer PII at rest and limit exposure.
+
+**Communicates with:** SQLite on server, PostgreSQL on cloud VPS
+
+**Current state:** SQLite file on server `.23` stores phone numbers, names, emails, OTP codes, wallet balances, session history in plaintext. Cloud sync replicates drivers table (with PII) to cloud PostgreSQL.
+
+**Target state:**
+- PII fields encrypted at application level before SQLite storage
+- OTP codes cleared after verification (already done in `verify_otp`)
+- Minimal PII retention policy
+- SQLite file permissions locked to service account
+
+**Design:**
+- **Application-level encryption** for `drivers.phone`, `drivers.email` using AES-256-GCM with a key from `racecontrol.toml`
+- **NOT SQLite-level encryption** (SQLCipher) -- adds build complexity, breaks sqlx compatibility, and does not protect against application-level leaks
+- Encryption key stored in config file (which should have restricted file permissions)
+- Phone number stored as encrypted blob + last-4-digits hash for lookup
+- Cloud sync: encrypted fields stay encrypted in transit and at rest on cloud DB
+
+### Component 6: Kiosk Hardening (rc-agent + OS)
+
+**Responsibility:** Prevent customers from escaping the kiosk PWA to access the underlying Windows OS or network.
+
+**Communicates with:** rc-agent kiosk module, Windows Group Policy, browser configuration
+
+**Current state:** `kiosk.rs` module exists with process allowlisting, keyboard hook stubs (unused), and debug mode. Kiosk browser runs in kiosk/fullscreen mode but escape vectors exist (Alt+Tab, Ctrl+Alt+Del, task manager).
+
+**Target state:** Defense-in-depth kiosk lockdown:
+1. Windows Shell replacement (browser as shell instead of explorer.exe)
+2. Group Policy: disable Task Manager, disable Ctrl+Alt+Del options, disable USB mass storage
+3. rc-agent process monitor kills unauthorized processes
+4. Browser configured with `--kiosk` flag + disabled dev tools + disabled right-click
 
 ---
 
-## Component Responsibilities (Current to Target)
+## Data Flow Diagrams
 
-| Module | Current Responsibility | v11.0 Change |
-|--------|------------------------|--------------|
-| `main.rs` | Everything: config, state, WS, event loop, panic hook, startup | Orchestrator only: init + spawn. Delegates to 4 new modules |
-| `config.rs` (new) | -- | All *Config structs, load_config(), default_* fns |
-| `app_state.rs` (new) | -- | AppState, LaunchState, CrashRecoveryState, shared Arcs |
-| `ws_handler.rs` (new) | -- | connect_and_run(): WS connect, split, register, drive event loop |
-| `event_loop.rs` (new) | -- | run_event_loop(): select! arms, message dispatch |
-| `rc-sentry main.rs` | Single-file std::net HTTP, no timeouts | Hardened: semaphore, timeout_ms honoured, output truncated, structured log, 4 new endpoints |
-| `rc-common exec.rs` (new) | -- | run_cmd(cmd, timeout_ms) -> ExecResult -- sync + async variant |
-| `rc-common http_util.rs` (new) | -- | Raw HTTP response formatting (used by rc-sentry only) |
+### Flow 1: Customer Session (Current -- No Auth on Admin)
+
+```
+Staff Dashboard                racecontrol:8080              Pod rc-agent
+     |                              |                            |
+     |--POST /auth/assign--------->|                            |
+     |  {pod, driver, tier}        |--WS: ShowPinLockScreen--->|
+     |                              |                            |
+     |                              |<--WS: PinEntered----------|
+     |                              |   (customer types PIN)     |
+     |                              |                            |
+     |                              |--validate_pin()            |
+     |                              |--start_billing()           |
+     |                              |--WS: LaunchGame---------->|
+     |<--WS: DashboardEvent--------|                            |
+     |  (session_started)          |                            |
+```
+
+### Flow 2: Customer Session (Target -- Auth on Admin)
+
+```
+Staff Dashboard                racecontrol:8080              Pod rc-agent
+     |                              |                            |
+     |--POST /auth/admin-login---->|                            |
+     |  {pin: "1234"}             |                            |
+     |<--{jwt: "eyJ..."}----------|                            |
+     |                              |                            |
+     |--POST /auth/assign--------->|                            |
+     |  Authorization: Bearer jwt  |                            |
+     |  {pod, driver, tier}        |--WSS: ShowPinLockScreen-->|
+     |                              |  (HMAC-authed WS)         |
+     |                              |                            |
+     |                              |<--WSS: PinEntered---------|
+     |                              |                            |
+     |                              |--validate_pin()            |
+     |                              |--start_billing()           |
+     |<--WSS: DashboardEvent-------|                            |
+```
+
+### Flow 3: Cloud Sync (Current -- terminal_secret only)
+
+```
+racecontrol (venue)          Cloud VPS
+     |                          |
+     |--GET /sync/changes------>|
+     |  X-Terminal-Secret: xxx  |
+     |<--{drivers, pricing}-----|
+     |                          |
+     |--POST /sync/push-------->|
+     |  X-Terminal-Secret: xxx  |
+     |  {laps, billing, pods}   |
+     |                          |
+```
+
+Cloud sync already uses a shared secret. This is adequate -- just ensure the secret is strong and rotated periodically.
+
+### Flow 4: Bot Command (Discord/WhatsApp -> Cloud -> Venue)
+
+```
+WhatsApp/Discord              Cloud VPS              racecontrol (venue)
+     |                          |                          |
+     |--"start pod 3"--------->|                          |
+     |                          |--POST /actions---------->|
+     |                          |  X-Terminal-Secret: xxx  |
+     |                          |                          |
+     |                          |<--POST /actions/ack------|
+     |<--"Session started"------|                          |
+```
+
+Bot commands already flow through cloud with terminal_secret auth. The gap is that the cloud side needs to verify the bot command came from an authorized user (Uday). This is a cloud/bot-side concern, not venue-side.
 
 ---
 
-## Data Flow Changes
+## Build Order (Dependency Graph)
 
-### rc-agent main.rs Decomposition Flow
-
-**Before:**
-```
-main() [3400 lines]
-  all logic inline
-```
-
-**After:**
-```
-main() [~150 lines]
-  -> config::load_config()         reads rc-agent.toml
-  -> app_state::AppState::new()    builds shared state from config
-  -> spawn all background tasks    (unchanged spawns)
-  -> ws_handler::connect_and_run() drives WS + event loop
-        -> event_loop::run_one_iteration()   called per select! tick
-```
-
-Channels that cross the module boundary into event_loop:
-
-| Channel | Direction | Owner after extraction |
-|---------|-----------|----------------------|
-| `failure_monitor_tx: watch::Sender<FailureMonitorState>` | event_loop writes, failure_monitor reads | event_loop |
-| `ws_exec_result_tx: mpsc::Sender<AgentMessage>` | WS handler tasks write, event_loop drains | ws_handler |
-| `lock_event_rx: mpsc::Receiver<LockScreenEvent>` | lock_screen sends, event_loop drains | event_loop |
-| `heartbeat_event_rx: mpsc::Receiver<HeartbeatEvent>` | heartbeat sends, event_loop drains | event_loop |
-| `signal_rx: mpsc::Receiver<DetectorSignal>` | HID/UDP sends, event_loop drains | event_loop |
-| `ai_result_rx: mpsc::Receiver<AiDebugSuggestion>` | ai_debugger sends, event_loop drains | event_loop |
-
-All channels pass into event_loop via an `EventLoopArgs` struct to avoid a >10-parameter function signature.
-
-### rc-sentry Hardening Flow
-
-**Before:**
-```
-incoming connection
-  -> thread::spawn (unbounded)
-  -> handle()
-  -> handle_exec()
-  -> Command::new("cmd.exe") blocking, no timeout, no output limit
-  -> send_response()
-```
-
-**After:**
-```
-incoming connection
-  -> ACTIVE_CONNS check (AtomicUsize >= MAX_CONNS -> send 503, drop)
-  -> ACTIVE_CONNS.fetch_add(1)
-  -> thread::spawn
-  -> handle()
-  -> handle_exec()
-  -> rc_common::exec::run_cmd_sync(req)
-       timeout via thread + channel recv_timeout
-       output truncated to 64KB before returning
-  -> structured log line written to stderr:
-       {"ts":"...","method":"POST","path":"/exec","status":200,"ms":42}
-  -> send_response()
-  -> ACTIVE_CONNS.fetch_sub(1)
-```
-
-### rc-common Shared Exec API Design
-
-rc-sentry is std-only (no tokio). rc-agent remote_ops is async/tokio. The shared exec primitive must support both without pulling tokio into rc-sentry.
+Security components have a specific dependency order. Building out of order causes rework.
 
 ```
-rc-common/src/exec.rs:
+Phase 1: Security Audit
+    |     (discover current state -- what's actually exposed)
+    |
+Phase 2: API Auth Middleware + Admin PIN
+    |     (depends on: nothing. Biggest hole, biggest impact)
+    |     Enables: staff JWT required for billing/pod control
+    |
+Phase 3: Service-to-Service Auth (PSK for pods)
+    |     (depends on: Phase 2 pattern for middleware)
+    |     Enables: pods authenticate to server, remote_ops locked
+    |
+Phase 4: HTTPS / TLS
+    |     (depends on: nothing technically, but Phase 2-3 first
+    |      because auth tokens in plaintext HTTP are still better
+    |      than no auth at all)
+    |     Enables: encrypted transport for all browser traffic
+    |
+Phase 5: Data Protection
+    |     (depends on: Phase 4 for transit security)
+    |     Enables: PII encrypted at rest
+    |
+Phase 6: Kiosk Hardening
+          (independent of other phases, can run in parallel)
+          Enables: customer escape prevention
+```
 
-pub struct ExecRequest {
-    pub cmd: String,
-    pub timeout_ms: u64,         // 0 = use default (30_000)
-    pub max_output_bytes: usize, // 0 = use default (65_536)
+### Why This Order
+
+1. **Audit first** because the PROJECT-v12.md itself says "Security audit -- discover current auth state, data storage locations, HTTPS coverage." You cannot fix what you have not measured. The audit also validates/invalidates assumptions in this architecture doc.
+
+2. **API auth before HTTPS** because unauthenticated endpoints are a bigger risk than unencrypted transport on a private LAN. An attacker on the LAN can `curl POST /billing/start` right now -- that is worse than sniffing encrypted but unauthenticated traffic.
+
+3. **Service auth after API auth** because the middleware pattern established in Phase 2 (Axum layer-based auth) directly applies to Phase 3. The pod PSK middleware follows the same `from_fn` pattern.
+
+4. **HTTPS after auth** because TLS without auth still allows unauthorized access (just encrypted unauthorized access). Auth without TLS at least prevents unauthorized access (tokens can be sniffed but this requires active LAN presence).
+
+5. **Data protection last** (of the main phases) because encrypted PII at rest is lower priority than preventing unauthorized API access. If someone can call `/billing/start` without auth, encrypted phone numbers do not matter.
+
+6. **Kiosk hardening is parallel** because it is an OS/browser concern independent of the API security stack. It can proceed alongside any other phase.
+
+---
+
+## Patterns to Follow
+
+### Pattern 1: Axum Middleware Tower for Auth
+
+**What:** Use Axum's `middleware::from_fn` with state injection to compose auth layers.
+
+**When:** Every route group that needs authentication.
+
+```rust
+use axum::{middleware, extract::Request, http::StatusCode, response::Response};
+
+async fn require_staff_jwt(
+    req: Request,
+    next: middleware::Next,
+) -> Result<Response, StatusCode> {
+    let auth_header = req.headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let token = auth_header.strip_prefix("Bearer ")
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    // Validate JWT using existing jsonwebtoken crate
+    let claims = jsonwebtoken::decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    ).map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    // Inject claims into request extensions for downstream use
+    req.extensions_mut().insert(claims.claims);
+    Ok(next.run(req).await)
 }
+```
 
-pub struct ExecResult {
-    pub stdout: String,
-    pub stderr: String,
-    pub exit_code: i32,
-    pub timed_out: bool,
-    pub truncated: bool,
+**Why:** This is idiomatic Axum. The project already uses `tower` and `tower-http` layers (CORS, trace). Adding auth as another layer is consistent with existing patterns.
+
+### Pattern 2: PSK with HMAC for Service Auth
+
+**What:** Pre-shared key validated via HMAC signature rather than raw key comparison.
+
+**When:** Pod agent WebSocket connection, rc-sentry commands, remote_ops HTTP.
+
+```rust
+// Agent sends: HMAC-SHA256(pod_id + timestamp, shared_secret)
+// Server validates: recompute HMAC, check timestamp within 30s window
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+type HmacSha256 = Hmac<Sha256>;
+
+fn validate_service_auth(
+    pod_id: &str, timestamp: u64, signature: &str, secret: &str
+) -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH).unwrap().as_secs();
+    if now.abs_diff(timestamp) > 30 { return false; }
+
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(format!("{}{}", pod_id, timestamp).as_bytes());
+    let expected = hex::encode(mac.finalize().into_bytes());
+    expected == signature
 }
-
-// Sync path: for rc-sentry (std::net thread)
-// Uses thread::spawn + channel.recv_timeout() for timeout
-pub fn run_cmd_sync(req: &ExecRequest) -> ExecResult
-
-// Async path: for rc-agent remote_ops (tokio)
-// Uses tokio::time::timeout + tokio::process::Command
-// Feature-gated so rc-sentry does not pull in tokio
-#[cfg(feature = "async-exec")]
-pub async fn run_cmd_async(req: &ExecRequest) -> ExecResult
 ```
 
-Cargo feature in rc-common:
-```
-[features]
-default = []
-async-exec = ["dep:tokio"]
-```
+**Why raw PSK is insufficient:** If the secret is sent as a header, any LAN sniffer captures it. HMAC with timestamp prevents replay attacks even on plaintext HTTP (which is the state before Phase 4 TLS).
 
-rc-sentry Cargo.toml: `rc-common = { workspace = true }` (no async-exec)
-rc-agent Cargo.toml: `rc-common = { workspace = true, features = ["async-exec"] }`
+### Pattern 3: Route Grouping by Auth Level
 
-This ensures rc-sentry binary stays minimal -- tokio is not linked.
+**What:** Split the current monolithic `api_routes()` function into grouped routers with different auth layers.
 
----
+**When:** Phase 2 implementation.
 
-## New rc-sentry Endpoints
+**Current:** Single `api_routes()` function returns one Router with 100+ routes, no auth middleware.
 
-| Endpoint | Method | Returns | Notes |
-|----------|--------|---------|-------|
-| `/ping` | GET | `"pong"` (text/plain) | Existing, unchanged |
-| `/exec` | POST | `{stdout, stderr, exit_code, timed_out, truncated}` | Hardened |
-| `/health` | GET | `{uptime_secs, active_conns, max_conns, version, build_id}` | New |
-| `/version` | GET | `{version, build_id}` | New -- mirrors rc-agent :8090/health response |
-| `/files` | GET | `{entries:[{name,size,is_dir,modified_secs}]}` | New, ?path= query param |
-| `/processes` | GET | `{processes:[{pid,name,memory_kb}]}` | New, top 50 by memory |
+**Target:** Multiple router functions, each with appropriate auth layer, merged at the top level.
 
-All new endpoints use std only. `/processes` requires adding `sysinfo = "0.33"` to rc-sentry Cargo.toml. `/health` uptime via `OnceLock<Instant>` initialized at main() entry -- same pattern already used in remote_ops.rs.
-
----
-
-## Architectural Patterns
-
-### Pattern 1: Mechanical Module Extraction via Function Boundary
-
-The rc-agent main.rs decomposition should NOT redesign the data model. The select! body is already structured -- it is a mechanical extraction problem, not an architectural redesign.
-
-**What:** Extract the select! body into `run_one_iteration(args: &mut EventLoopArgs) -> LoopControl`. The compiler enforces correctness.
-
-**When to use:** Any block over 200 lines that has a single clear input/output contract.
-
-**Trade-offs:**
-- Pro: Minimal diff, compiler-verified, no behavioural change
-- Pro: Each extracted module can grow its own tests independently
-- Con: EventLoopArgs becomes a large struct -- acceptable since it replaces local variables, not a long-term API
-
-### Pattern 2: OnceLock + AtomicUsize for rc-sentry Globals
-
-rc-sentry is multi-threaded std. Thread-safe globals without Mutex overhead.
-
-**What:** `OnceLock<Instant>` for start time, `AtomicUsize` for active connection count.
-
-**When to use:** Single-writer globals that are set once (start time) or incremented/decremented atomically (connection count).
-
-**Trade-offs:**
-- Pro: Zero lock contention, appropriate for this access pattern
-- Con: AtomicUsize does not prevent the count going below zero on bug -- guard with saturating_sub in fetch_sub
-
-### Pattern 3: Characterization Tests Before Refactor (Standing Rule)
-
-Write tests that pin current behaviour, verify green, refactor, verify still green.
-
-**Extraction order for rc-agent:**
-1. `config.rs` -- no runtime effects, pure deserialization, trivial to test
-2. `app_state.rs` -- pure data construction, no channels
-3. `ws_handler.rs` -- WS lifecycle, depends on config + app_state
-4. `event_loop.rs` -- select! dispatch, most complex, protected by tests from steps 1-3
-
-### Pattern 4: Sync Timeout via Thread + Channel (rc-sentry exec)
-
-rc-sentry has no tokio. Timeout is implemented by running the command in a dedicated thread and using `channel.recv_timeout()` in the handler thread.
-
-**What:** The spawned command thread sends its result on a channel. The handler thread waits with a deadline. On timeout, the handler returns a timeout error -- the command thread continues in background until the child process exits naturally.
-
-**When to use:** Any blocking operation that needs a timeout in a std (non-async) context.
-
-**Trade-offs:**
-- Pro: No tokio dependency, correct deadline semantics
-- Con: The child process is not killed on timeout (Windows kill requires a handle; keepng it simple is correct for an LAN admin tool with short-lived commands)
-- Con: One extra thread per exec call -- bounded by MAX_CONNS semaphore
-
----
-
-## Build Order
-
-Dependencies determine ordering. Build from leaves to roots:
-
-```
-Step 1: rc-common
-  - Add exec.rs (ExecRequest, ExecResult, run_cmd_sync, run_cmd_async feature-gated)
-  - Add http_util.rs (json_response, plain_response, cors_ok)
-  - cargo test -p rc-common
-
-Step 2: rc-sentry
-  - Update Cargo.toml: add rc-common, sysinfo
-  - Harden handle_exec(): call rc_common::exec::run_cmd_sync
-  - Add /health, /version, /files, /processes handlers
-  - Add structured log line per request
-  - Add AtomicUsize concurrency guard
-  - cargo test -p rc-sentry
-  - cargo build --release --bin rc-sentry
-
-Step 3: rc-agent (decomposition)
-  - Write characterization tests for billing_guard, failure_monitor, ffb safety
-  - Extract config.rs -- cargo test -p rc-agent
-  - Extract app_state.rs -- cargo test -p rc-agent
-  - Extract ws_handler.rs -- cargo test -p rc-agent
-  - Extract event_loop.rs -- cargo test -p rc-agent
-  - Update remote_ops.rs to use rc_common::exec::run_cmd_async
-  - cargo build --release --bin rc-agent
-
-Step 4: Integration verification
-  - Deploy rc-sentry to Pod 8 (canary)
-  - Verify /health, /exec with timeout, /processes via curl
-  - Deploy rc-agent to Pod 8, verify no regression (billing, game launch, WS)
-  - Roll to remaining pods
-```
-
-**Why this order:**
-- rc-common changes must land before rc-sentry or rc-agent can use them
-- rc-sentry is independent of rc-agent -- both can be developed in parallel once rc-common is ready
-- rc-agent decomposition is highest risk -- do last, after tests protect critical paths
-- Both rc-sentry and rc-agent depend on rc-common, not on each other
-
----
-
-## Integration Points
-
-### rc-sentry -> rc-common (new dependency)
-
-| Integration | Type | Notes |
-|-------------|------|-------|
-| `rc_common::exec::run_cmd_sync` | Direct fn call | No async, no tokio in rc-sentry |
-| `rc_common::exec::ExecRequest` | Struct | Parsed from JSON body in handle_exec() |
-| `rc_common::exec::ExecResult` | Struct | Serialized as JSON in send_response() |
-| `rc_common::http_util::*` | Fn calls | Replace local send_response/send_plain/send_cors_preflight |
-
-rc-sentry Cargo.toml additions:
-```
-rc-common = { workspace = true }
-sysinfo = "0.33"
-```
-
-### rc-agent remote_ops -> rc-common (optional, improves consistency)
-
-| Integration | Type | Notes |
-|-------------|------|-------|
-| `rc_common::exec::run_cmd_async` | Async fn call | Replaces inline tokio::process::Command in exec_command() |
-
-This removes duplicated truncation/timeout logic in remote_ops.rs. The ExecRequest/ExecResult types map to the existing JSON wire format -- no server-side changes needed.
-
-rc-agent Cargo.toml: add `features = ["async-exec"]` to rc-common dependency.
-
-### rc-agent main.rs -> new modules
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| main -> config | `config::load_config() -> AgentConfig` | No channels, pure return |
-| main -> app_state | `AppState::new(&config)` | Constructs Arcs passed to tasks |
-| main -> ws_handler | `ws_handler::connect_and_run(state, config).await` | Owns reconnect loop |
-| ws_handler -> event_loop | `event_loop::run_one_iteration(&mut EventLoopArgs)` | Called per select! tick |
-| event_loop -> all tasks | Existing channels (watch, mpsc) | Unchanged types and directions |
+This also addresses the CONCERNS.md issue of the 9,515-line `routes.rs` monolith -- security refactoring naturally forces route decomposition.
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Adding tokio to rc-sentry
+### Anti-Pattern 1: Auth Checks Inside Route Handlers
 
-**What people do:** Pull in tokio for "proper" async while hardening rc-sentry.
+**What:** Calling `verify_jwt()` at the top of each handler function.
 
-**Why it's wrong:** rc-sentry's value is its minimal binary with no async runtime. Adding tokio adds ~1MB binary size, runtime feature coordination, and eliminates the "independent of rc-agent failure modes" property. A panic in the tokio runtime of rc-sentry would mirror rc-agent failure modes.
+**Why bad:** Easy to forget on new routes. One missed check = security hole. The existing codebase already has `jwt_error_to_401` middleware that post-processes responses -- this is a symptom of handler-level auth where the JWT check happens inside the handler and returns a 200 with an error message.
 
-**Do this instead:** Use the thread + channel timeout pattern via rc-common exec.rs. Keep rc-sentry as std-only.
+**Instead:** Middleware layer that rejects before the handler runs. Handlers never see unauthenticated requests.
 
-### Anti-Pattern 2: Big-Bang Refactor of main.rs
+### Anti-Pattern 2: Global CORS Allow-All
 
-**What people do:** Delete main.rs, rewrite as 4 files simultaneously, push when it compiles.
+**What:** Setting `CorsLayer::permissive()` or `Access-Control-Allow-Origin: *`.
 
-**Why it's wrong:** The 3400-line main.rs has no unit tests. A big-bang rewrite has no regression safety net. One incorrect channel direction produces a runtime bug indistinguishable from a pre-existing bug.
+**Why bad:** Allows any website to make API calls to the racecontrol server if a browser on the LAN visits a malicious page.
 
-**Do this instead:** Extract one module at a time in compilation order. Each extraction compiles and passes cargo test before moving to the next.
+**Instead:** Restrict CORS origins to known frontends: `http://192.168.31.23:3300` (kiosk), `http://192.168.31.23:3200` (dashboard), `https://app.racingpoint.cloud`.
 
-### Anti-Pattern 3: God Object AppState with Mutex Fields
+### Anti-Pattern 3: Storing Secrets in Code or Default Config Values
 
-**What people do:** Create a large AppState with Mutex-wrapped fields, pass Arc<AppState> to every module.
+**What:** The existing `default_jwt_secret()` function returns a hardcoded string.
 
-**Why it's wrong:** The current design uses fine-grained channels (watch, mpsc) with documented ownership and flow direction. Replacing with a shared Mutex<AppState> collapses the ownership model and risks deadlocks when two modules both try to lock state during event processing.
+**Why bad:** If config omits `jwt_secret`, anyone who reads the source code can forge tokens.
 
-**Do this instead:** Keep channels as-is. Extracted modules receive only the channels they need, not a god object.
+**Instead:** Fail to start if `jwt_secret` is not set. Panic on startup with clear error message.
 
-### Anti-Pattern 4: Calling sysinfo in the rc-sentry Accept Loop
+### Anti-Pattern 4: Encrypting the Entire Database
 
-**What people do:** Call sysinfo::System::refresh_all() in the main accept loop to keep a process cache warm.
+**What:** Using SQLCipher or full-disk encryption as the primary data protection strategy.
 
-**Why it's wrong:** refresh_all() can take 100ms+ on Windows (iterates all processes via NtQuerySystemInformation). This blocks new connections from being accepted.
+**Why bad:** Protects against disk theft but not against application-level access. If the app can read the DB, so can any process running as the same user. Adds build complexity (SQLCipher requires native compilation).
 
-**Do this instead:** Spawn a thread per connection (which rc-sentry already does). The process scan runs inside the spawned thread, not in the accept loop. Scan on each /processes request -- the endpoint is low-frequency staff tooling, not a hot path.
+**Instead:** Application-level field encryption for specific PII columns. Simpler, targeted, and protects against SQL injection or DB file copying.
 
 ---
 
-## Scaling Considerations
+## Scalability Considerations
 
-This is a fixed 8-pod venue. Scaling is not a concern. The hardening targets reliability, not throughput.
+| Concern | Current (8 pods) | At 16 pods | At 32+ pods (multi-venue) |
+|---------|-------------------|------------|---------------------------|
+| Auth overhead | Negligible (JWT validation is CPU-cheap) | Negligible | Negligible |
+| PSK management | 1 shared secret in config | Same | Per-venue secrets, key rotation needed |
+| TLS certificates | 1 self-signed CA, install on 8 browsers | Same CA, 16 browsers | Per-venue CAs or proper PKI |
+| PII encryption | AES-256-GCM per field, ~1ms/field | Same | Same, but key management needs centralization |
+| CORS origins | 3 origins | Same | Per-venue origin lists |
 
-| Concern | At 8 pods (current) | Notes |
-|---------|---------------------|-------|
-| rc-sentry concurrency | 1-3 simultaneous admin calls in practice | Cap at 16 -- comfortable margin |
-| rc-agent event loop | Single tokio select! drives one pod | Adequate, no concern |
-| rc-common exec | Semaphore per caller (8 in remote_ops, 4 in WS) | Keep per-module semaphores separate |
+The recommended architecture scales to 2-3 venues without rework. Beyond that, centralized key management and proper PKI would be needed.
 
 ---
 
 ## Sources
 
-- Direct source inspection: `crates/rc-sentry/src/main.rs` (155 lines, 2026-03-20)
-- Direct source inspection: `crates/rc-agent/src/main.rs` (3400+ lines, 2026-03-20)
-- Direct source inspection: `crates/rc-agent/src/remote_ops.rs` (semaphore, timeout, truncation patterns)
-- Direct source inspection: `crates/rc-agent/src/billing_guard.rs`, `failure_monitor.rs`, `ffb_controller.rs`
-- Direct source inspection: `crates/rc-common/src/lib.rs`, `protocol.rs`
-- Direct source inspection: `crates/rc-sentry/Cargo.toml`, `crates/rc-agent/Cargo.toml`
-- Project context: `.planning/PROJECT.md` (v11.0 requirements)
-- Operational rules: `CLAUDE.md` (build commands, standing process rules, deployment rules)
-
----
-
-*Architecture research for: rc-agent/rc-sentry hardening and refactoring (v11.0)*
-*Researched: 2026-03-20 IST*
+- Direct codebase analysis of `crates/racecontrol/src/auth/mod.rs` (JWT, PIN, OTP implementation)
+- Direct codebase analysis of `crates/racecontrol/src/api/routes.rs` (route structure, no auth middleware)
+- Direct codebase analysis of `crates/rc-agent/src/remote_ops.rs` (unauthenticated remote exec)
+- Direct codebase analysis of `crates/rc-sentry/src/main.rs` (unauthenticated shell exec)
+- Direct codebase analysis of `crates/racecontrol/src/main.rs` (middleware stack, proxy setup)
+- `.planning/codebase/CONCERNS.md` (known security debt, hardcoded JWT secret)
+- `.planning/codebase/ARCHITECTURE.md` (system structure, sync patterns)
+- `racecontrol.toml` (jwt_secret configured, terminal_secret, evolution_api_key)
+- Axum 0.8 middleware patterns (HIGH confidence -- `tower` and `axum::middleware` already in dependencies)
+- `jsonwebtoken` crate (HIGH confidence -- already in workspace dependencies, actively used)

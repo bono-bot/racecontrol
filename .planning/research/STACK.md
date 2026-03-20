@@ -1,217 +1,245 @@
-# Stack Research
+# Technology Stack: Security Hardening
 
-**Domain:** Rust daemon hardening -- rc-sentry timeout/concurrency, rc-agent decomposition, rc-common extraction, test infrastructure
+**Project:** Racing Point Operations Security (v12)
 **Researched:** 2026-03-20
-**Confidence:** HIGH (all additions verified against crates.io, docs.rs, or already present in Cargo.lock)
+**Scope:** Adding API auth, admin PIN protection, HTTPS, customer data protection, and PWA hardening to existing Rust/Axum + Next.js system
+
+## Existing Stack (Do Not Change)
+
+These are already in place and must be extended, not replaced:
+
+| Technology | Version | Role |
+|------------|---------|------|
+| Rust (edition 2024) | 1.93.1 | Backend language |
+| Axum | 0.8 | HTTP framework (ws, macros) |
+| Tower / tower-http | 0.5 / 0.6 | Middleware (cors, fs, trace) |
+| SQLx + SQLite | 0.8 | Database |
+| jsonwebtoken | 9 | JWT creation/validation (already in workspace) |
+| Next.js | 16.1.6 | PWA + web dashboard |
+| React | 19.2.3 | Frontend |
+| Tailwind CSS | 4 | Styling |
 
 ---
 
-## What Is Already Present (Do Not Re-Add)
+## Recommended Security Stack
 
-Confirmed in the workspace Cargo.toml and crate Cargo.toml files:
+### 1. API Authentication Middleware
 
-| Crate | Already Available In |
-|-------|---------------------|
-| serde / serde_json | workspace (all crates) |
-| tokio (full features) | workspace (rc-agent) |
-| tracing + tracing-subscriber + tracing-appender | workspace (rc-agent) |
-| anyhow / thiserror | workspace (rc-agent) |
-| reqwest 0.12 | rc-agent Cargo.toml |
-| axum 0.8 | rc-agent Cargo.toml |
-| sysinfo 0.33 | rc-agent Cargo.toml |
-| tokio::sync::Semaphore | available via tokio (rc-agent) |
-| tokio::time::timeout | available via tokio (rc-agent) |
-| serial_test 3 | rc-agent dev-dependencies |
-| tempfile 3 | rc-agent dev-dependencies |
-| tower 0.5 | rc-agent dev-dependencies |
-| http-body-util 0.1 | rc-agent dev-dependencies |
+**Already have:** `jsonwebtoken = "9"` in workspace, `auth/mod.rs` with JWT Claims, token creation, PIN validation.
+**Missing:** Axum middleware layer that enforces auth on protected routes.
 
----
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| `axum::middleware::from_fn` | (built-in to axum 0.8) | Auth middleware layer | Native Axum pattern. No extra crate needed. Use `from_fn` to create a layer that extracts Bearer token from Authorization header, validates JWT via existing `jsonwebtoken` crate, and injects claims into request extensions. Already have the JWT infra -- just need the middleware wiring. |
+| `tower-http` (existing) | 0.6 | Sensitive header marking | Already a dependency. Use `SetSensitiveHeadersLayer` to mark Authorization headers as sensitive in traces so tokens don't leak to logs. |
 
-## Recommended Stack -- New Additions Only
+**Confidence:** HIGH -- axum::middleware::from_fn is the documented, idiomatic approach for custom auth in Axum 0.8. No third-party auth crate needed given existing JWT setup.
 
-### rc-sentry: Timeout Enforcement
+**What NOT to use:**
+- `axum-jwt-auth` crate -- adds complexity for JWKS/remote key support you don't need. Your JWT secret is local in `racecontrol.toml`.
+- `tower-http`'s `ValidateRequestHeaderLayer` -- too simplistic for JWT validation (only does basic auth/bearer presence check, no claims parsing).
+- Auth0/Keycloak/any external identity provider -- massive overkill for single-venue, single-admin operation.
 
-**Problem:** handle_exec() calls Command::new("cmd.exe").output() with no timeout. The _timeout_ms field is parsed but ignored (line 78 in main.rs). A hung command blocks the thread indefinitely.
+### 2. Admin PIN / Password Hashing
 
-**Solution:** wait-timeout 0.2 -- adds ChildExt::wait_timeout(Duration) to std::process::Child. On Windows this calls WaitForSingleObject with a timeout, then kills the child if it has not exited. Pure stdlib, zero async dependency, fits rc-sentry no-tokio design.
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| `argon2` | 0.5 | Admin PIN hashing | RustCrypto's pure-Rust Argon2id implementation. OWASP-recommended algorithm for password hashing. Argon2id is memory-hard, making GPU/ASIC brute-force impractical. Use for hashing Uday's admin PIN at rest in config/DB. The `password-hash` trait it implements gives PHC string format output (algorithm + salt + hash in one string). |
 
-| Library | Version | Add To | Purpose |
-|---------|---------|--------|---------|
-| wait-timeout | 0.2 | rc-sentry dependencies | Enforce timeout_ms in /exec -- kill hung cmd.exe after deadline |
+**Confidence:** HIGH -- `argon2` (RustCrypto) is the standard Rust crate. Version 0.5.3 is latest stable.
 
-**Why not tokio::time::timeout?** rc-sentry deliberately avoids tokio. Adding tokio would triple the binary size and contradict the design intent. wait-timeout is the correct std-compatible solution.
+**What NOT to use:**
+- `rust-argon2` (different crate, `sru-systems`) -- less maintained, confusing name overlap.
+- `bcrypt` -- Argon2id is strictly better (memory-hard, won PHC competition). bcrypt has a 72-byte password limit.
+- Plain SHA-256/SHA-512 -- not a password hash; no salt, no work factor, trivially brute-forced.
+- Storing PIN in plaintext in `racecontrol.toml` -- must be hashed.
 
-**Why not set_read_timeout on the stream?** output() waits for the child to exit -- set_read_timeout only affects socket reads, not child process waits.
+### 3. HTTPS / TLS
 
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| `axum-server` | 0.8 | TLS termination for Axum | Drop-in replacement for `axum::serve` that adds rustls TLS. Feature flag `tls-rustls` enables `bind_rustls()`. Loads PEM cert+key files. Works with self-signed certs for LAN use. |
+| `rcgen` | 0.14 | Self-signed certificate generation | Pure Rust X.509 cert generator. `generate_simple_self_signed(&["192.168.31.23", "localhost"])` produces cert+key for the server IP. Part of the rustls ecosystem (maintained by same org). Use at first startup to auto-generate certs if none exist. |
+| `rustls` | (transitive via axum-server) | TLS implementation | Pure Rust, no OpenSSL dependency. Already works with static CRT builds (important -- pods use +crt-static). No vcruntime or OpenSSL DLL needed on pods. |
 
+**Confidence:** HIGH -- axum-server 0.8 with tls-rustls is the documented approach for HTTPS with Axum. rcgen is maintained by the rustls team.
 
----
+**What NOT to use:**
+- `openssl` / `native-tls` -- requires OpenSSL DLLs on Windows. Breaks your static CRT requirement. Pain to cross-compile.
+- Let's Encrypt / ACME -- requires public DNS and port 80/443 accessible from internet. Your server is on a private LAN (192.168.31.x). Self-signed is correct for LAN-only services.
+- Reverse proxy (nginx/caddy) -- adds operational complexity for a Windows-based setup. Axum-native TLS is simpler.
+- No TLS at all (relying on "it's a LAN") -- kiosk pods are customer-accessible machines. Anyone on WiFi can sniff HTTP traffic. HTTPS prevents session hijacking and credential theft on the local network.
 
-### rc-sentry: Concurrency Limiting
+### 4. Security Headers
 
-**Problem:** rc-sentry spawns a new std::thread per connection with no cap. A flood of /exec requests spawns unbounded threads.
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| `tower-helmet` | 0.2 | Security HTTP headers | Sets CSP, X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security, etc. in one middleware layer. Tower-native, works directly with your existing tower-http stack. Default config is sane -- enable and customize CSP for your PWA's needs. |
 
-**Solution:** std::sync::atomic::AtomicUsize -- stdlib only, no new dependency. Pattern: fetch_add before running the command, check against MAX_CONCURRENT_EXECS, return HTTP 429 if over limit, fetch_sub in all exit paths. This is a cap-and-reject pattern -- appropriate for a daemon that must remain responsive.
+**Confidence:** MEDIUM -- tower-helmet is small but well-maintained. Alternative is manually setting headers via tower-http's `SetResponseHeaderLayer`, which works but is verbose.
 
-No new crate needed. AtomicUsize is in std::sync::atomic. A tokio Semaphore would require the async runtime which rc-sentry intentionally avoids.
+### 5. Rate Limiting
 
----
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| `tower_governor` | 0.4 | API rate limiting | Wraps the `governor` crate (GCRA algorithm) as a Tower layer. Prevents brute-force attacks on PIN/auth endpoints. Configure per-IP limits: e.g., 5 requests/minute on `/api/v1/auth/*` endpoints. Already Tower-native, slots into your existing middleware stack. |
 
-### rc-sentry: Structured Logging
+**Confidence:** MEDIUM -- tower_governor is the most popular rate limiting layer for Tower. Version needs verification at build time.
 
-**Problem:** rc-sentry uses eprintln!() -- unstructured, no timestamps, no log levels.
+**What NOT to use:**
+- Rolling your own rate limiter -- GCRA is non-trivial to implement correctly. governor is battle-tested.
+- Global rate limiting only -- need per-IP limits to prevent one actor from locking everyone out.
 
-**Solution:** tracing + tracing-subscriber -- both already in the workspace. rc-sentry declares them as dependencies and calls tracing_subscriber::fmt::init() at startup. No new crates required. tracing does not require tokio and works with std::thread via set_global_default().
+### 6. Data-at-Rest Protection (SQLite)
 
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| Column-level encryption via `aes-gcm` | 0.10 | Encrypt PII columns in SQLite | Encrypt phone numbers, emails, payment details before storing in SQLite. AES-256-GCM provides authenticated encryption (tamper detection). Key stored in `racecontrol.toml` (separate from DB file). Simpler than SQLCipher for your use case -- only PII columns need encryption, not the entire DB. |
 
+**Confidence:** MEDIUM -- Column-level encryption is pragmatic for your scale. Full-DB encryption (SQLCipher) requires rebuilding SQLx with `bundled-sqlcipher` feature and adds significant build complexity on Windows.
 
----
+**What NOT to use:**
+- SQLCipher (`sqlx-sqlite-cipher`) -- requires linking against SQLCipher C library. Build complexity on Windows is high (need pre-built SQLCipher DLL or compile from source). Overkill when only ~5 columns contain PII. If you later need full-DB encryption, revisit.
+- No encryption at all -- customer phone numbers and payment details are in plaintext SQLite files on a multi-user Windows machine. Anyone with file access can read them.
+- Filesystem-level encryption (BitLocker) -- helps but doesn't protect against other processes or logged-in users reading the DB while the system is running.
 
-### rc-agent: Module Decomposition
+### 7. PWA Route Protection (Next.js 16)
 
-No new crates needed. This is a Rust module system refactor. The modern pattern (Rust 2018+) is src/module_name.rs + mod module_name; in main.rs.
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| Next.js `proxy.ts` (was `middleware.ts`) | Built-in (Next.js 16) | Route-level auth checks | Next.js 16 renamed middleware.ts to proxy.ts. Use it to check for session cookie existence and redirect unauthenticated users. Lightweight -- only checks cookie presence, no DB calls. |
+| Server-side session validation | Custom (fetch to racecontrol API) | Validate session on data access | Never trust proxy.ts alone (CVE-2025-29927 showed middleware bypass). Validate JWT on every API call from the PWA to racecontrol. The Rust backend is the source of truth. |
+| `HttpOnly` + `Secure` + `SameSite=Strict` cookies | Built-in | Session cookie security | Store JWT in HttpOnly cookie (not localStorage). Prevents XSS from stealing tokens. SameSite=Strict prevents CSRF. Secure flag requires HTTPS (see TLS section). |
 
-Suggested extraction targets from the 3,400-line main.rs:
+**Confidence:** HIGH -- This is standard Next.js auth pattern. The CVE-2025-29927 middleware bypass reinforces that backend validation is mandatory.
 
-| New Module File | Extracts | Lines (approx) |
-|----------------|----------|----------------|
-| src/app_state.rs | AppState struct + shared Arc fields | ~150 |
-| src/config.rs | AgentConfig + all config sub-structs | ~200 |
-| src/ws_handler.rs | WebSocket connect loop, message dispatch, reconnect backoff | ~400 |
-| src/event_loop.rs | Main select! loop, timer ticks, signal handling | ~350 |
-| src/session.rs | Session state machine, orphan detection, billing sync | ~300 |
+**What NOT to use:**
+- Auth.js / NextAuth -- designed for OAuth/social login flows. You have a simple PIN-to-JWT flow. Adding NextAuth adds complexity without value.
+- Clerk / Auth0 / any SaaS auth -- external dependency for a LAN-only app. Breaks when internet is down.
+- localStorage for JWT storage -- XSS-vulnerable. HttpOnly cookies are strictly safer.
 
-No new tooling or crates are required. pub use re-exports handle visibility at module boundaries.
+### 8. Kiosk Escape Prevention
 
----
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| Chrome `--kiosk` flags | N/A (Chrome CLI) | Browser lockdown | `--kiosk --disable-extensions --disable-dev-tools --disable-pinch --noerrdialogs --disable-translate --no-first-run --autoplay-policy=no-user-gesture-required`. Already partially in use via rc-agent kiosk module. |
+| Windows Group Policy | N/A (OS) | OS-level lockdown | Disable Ctrl+Alt+Del task manager access, Alt+Tab, Windows key via Group Policy on pod machines. Filter keyboard shortcuts. Already noted as pending in CLAUDE.md (USB mass storage lockdown). |
+| CSP headers on kiosk PWA | Via tower-helmet | Prevent script injection | Strict Content-Security-Policy: only allow scripts from self, no inline scripts, no eval. Prevents any injected content from executing. |
 
-### rc-common: Shared Exec Pattern Extraction
-
-**Problem:** remote_ops.rs (rc-agent) and rc-sentry both implement exec + timeout + output truncation. They diverge -- rc-agent uses async tokio::process::Command with tokio::time::timeout; rc-sentry uses sync std::process::Command with no timeout enforcement at all.
-
-**Solution:** Extract a synchronous exec_cmd(cmd, timeout_ms, max_output_bytes) -> ExecResult function into rc-common. rc-agent keeps its own tokio-based implementation. rc-sentry and any other sync caller use the shared function.
-
-rc-sentry links rc-common and calls rc_common::exec::exec_cmd(). This eliminates the duplicated pattern while preserving rc-sentry no-tokio constraint.
-
-
-
-The shared type lives at rc-common/src/exec.rs:
-
-
-
----
-
-### Test Infrastructure
-
-**Existing dev-dependencies already in rc-agent (no additions needed):**
-
-| Library | Version | Purpose |
-|---------|---------|----------|
-| tempfile | 3 | Temp files/dirs for file system tests |
-| serial_test | 3 | Serialize tests that share global state (port binds, static singletons) |
-| tower | 0.5 | tower::ServiceExt::oneshot() for axum handler unit tests |
-| http-body-util | 0.1 | Read response bodies in axum handler tests |
-| tokio::test | (tokio feature) | via tokio -- the test attribute macro |
-
-**New test-only addition for rc-agent:**
-
-The billing_guard, failure_monitor, and FFB safety tests need to exercise code paths that call reqwest::Client::post() (orphan session end). Mocking requires trait abstraction.
-
-| Library | Version | Add To | Purpose |
-|---------|---------|--------|---------|
-| mockall | 0.13 | rc-agent dev-dependencies | Mock traits for billing_guard / failure_monitor HTTP isolation |
-
-**Why mockall?** The billing guard calls reqwest::Client::post() directly. To unit-test the guard logic without a live HTTP server, wrap the client behind a trait and use mockall automock. mockall 0.13.1: 84M downloads, supports async methods, MSRV 1.77 (project uses 1.93).
-
-**Why not wiremock?** wiremock spins up a real HTTP server -- appropriate for integration tests, too heavy for billing_guard unit tests.
-
-**rc-sentry endpoint tests:** No new dev-dependencies needed. Use std::net::TcpListener::bind with port 0 (OS assigns port) in test setup, connect with std::net::TcpStream, send raw HTTP, parse response. Avoids port collisions with the real sentry on :8091.
+**Confidence:** HIGH -- Chrome kiosk flags + Group Policy is the standard approach for Windows kiosk lockdown. rc-agent already has kiosk module infrastructure.
 
 ---
 
-## Complete Dependency Delta
+## Supporting Libraries (Already in Stack)
 
-Changes relative to current state -- minimal by design.
+These existing dependencies serve security purposes -- no changes needed:
 
-**crates/rc-sentry/Cargo.toml** -- add tracing, tracing-subscriber, wait-timeout to dependencies. No dev-dependencies needed.
-
-**crates/rc-common/Cargo.toml** -- add wait-timeout to dependencies.
-
-**crates/rc-agent/Cargo.toml** -- add mockall to dev-dependencies only.
-
-**Total new crates: 2** -- wait-timeout (used in both rc-sentry and rc-common), mockall (dev-only in rc-agent). Everything else is already present.
+| Library | Version | Security Role |
+|---------|---------|--------------|
+| `jsonwebtoken` | 9 | JWT encode/decode -- already handles HS256 signing |
+| `uuid` | 1 (v4) | Cryptographically random token IDs |
+| `rand` | 0.8 | Random PIN generation, JWT secret generation |
+| `tower-http` (cors) | 0.6 | CORS policy enforcement -- restrict origins to known kiosk/PWA domains |
+| `reqwest` | 0.12 | HTTPS client for cloud sync (already uses rustls by default) |
 
 ---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | Why Not |
-|-------------|-------------|---------|
-| wait-timeout 0.2 | tokio + tokio::time::timeout | Pulls async runtime into rc-sentry, contradicts no-async design |
-| wait-timeout 0.2 | set_read_timeout on TcpStream | Does not terminate the child process |
-| AtomicUsize stdlib | External semaphore crate | Overkill for a cap-and-reject pattern; adds a dependency for ~10 lines of code |
-| tracing from workspace | Custom eprintln formatting | Workspace already pays the compile cost; rc-sentry gets timestamps + levels for free |
-| mockall 0.13 | wiremock | wiremock runs a real HTTP server -- too heavy for billing_guard unit tests |
-| mockall 0.13 | Manual mock structs | Manual mocks require ongoing boilerplate maintenance |
-| File-level mod decomposition | New workspace crate per subsystem | Cross-crate imports add complexity with no benefit at this scale |
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| Auth middleware | `axum::middleware::from_fn` | `axum-jwt-auth` crate | Extra dep for JWKS features we don't need |
+| Password hashing | `argon2` (RustCrypto) | `bcrypt`, `rust-argon2` | bcrypt has 72-byte limit; rust-argon2 is less maintained |
+| TLS | `axum-server` + `rustls` | `openssl` / `native-tls` | OpenSSL DLLs break static CRT; Windows build pain |
+| Cert generation | `rcgen` | Manual openssl CLI | rcgen is pure Rust, can auto-generate at startup |
+| Rate limiting | `tower_governor` | Custom implementation | GCRA is complex; governor is proven |
+| DB encryption | Column-level `aes-gcm` | SQLCipher | SQLCipher Windows build complexity; only ~5 PII columns |
+| Security headers | `tower-helmet` | Manual `SetResponseHeader` | tower-helmet is one line vs 8 manual layers |
+| PWA auth | Cookie-based JWT + backend validation | NextAuth / Auth.js | Overkill for PIN-to-JWT flow |
+| Frontend storage | HttpOnly cookies | localStorage | localStorage is XSS-vulnerable |
 
 ---
 
-## What NOT to Add
+## Installation
 
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| async-std | rc-sentry is sync by design; mixing runtimes is undefined behavior | wait-timeout + AtomicUsize |
-| actix-web or hyper | rc-sentry uses pure std::net intentionally | Keep std::net::TcpListener, extend dispatch by hand |
-| log crate | Project committed to tracing; mixing creates double initialization | tracing macros everywhere |
-| env_logger | Redundant -- tracing-subscriber::fmt::init() covers the same use case | tracing-subscriber from workspace |
-| criterion | Not needed for correctness testing of exec/billing paths | cargo test with assertions |
-| proptest / quickcheck | Property testing suits parsers; exec and billing need deterministic scenarios | tokio::test + serial_test |
-| New workspace member for rc-agent subsystems | Module decomposition inside one crate is the right scope | File-level mod in rc-agent src/ |
+### Rust (add to workspace Cargo.toml)
+
+```toml
+[workspace.dependencies]
+# Security additions
+argon2 = "0.5"
+aes-gcm = "0.10"
+
+# Existing (no changes)
+jsonwebtoken = "9"
+rand = "0.8"
+```
+
+### Rust (add to crates/racecontrol/Cargo.toml)
+
+```toml
+[dependencies]
+# TLS
+axum-server = { version = "0.8", features = ["tls-rustls"] }
+rcgen = "0.14"
+
+# Security middleware
+tower-helmet = "0.2"
+tower_governor = "0.4"
+
+# Password hashing
+argon2 = { workspace = true }
+
+# PII encryption
+aes-gcm = { workspace = true }
+```
+
+### Next.js PWA (no new dependencies)
+
+No new npm packages needed. Security is achieved through:
+- Renaming `middleware.ts` to `proxy.ts` (Next.js 16 convention)
+- Setting `HttpOnly` / `Secure` / `SameSite` cookie attributes on JWT
+- CSP headers served by the Rust backend via tower-helmet
 
 ---
 
-## Stack Patterns by Context
+## Architecture Integration Notes
 
-**If rc-sentry /processes endpoint needs process listing:**
-Add sysinfo = "0.33" to rc-sentry Cargo.toml dependencies. Use the same version as rc-agent to share Cargo.lock resolution.
+1. **Middleware ordering matters:** Rate limiting (tower_governor) -> Security headers (tower-helmet) -> CORS (existing) -> Auth (from_fn) -> Route handlers. Rate limiting must be outermost to prevent brute-force before any processing.
 
-**If billing_guard tests need async HTTP mocking:**
-1. Wrap reqwest::Client behind a trait (e.g. HttpClient)
-2. Add mockall automock attribute to the trait
-3. Inject the mock in tests via the trait bound
-4. Production code gets the real reqwest client via the concrete impl
+2. **Two auth tiers:**
+   - **Customer auth:** PIN -> JWT (existing flow, needs middleware enforcement)
+   - **Admin auth:** Uday's PIN -> separate admin JWT with `role: "admin"` claim. Same `jsonwebtoken` crate, different claim type.
 
-**If rc-sentry concurrency tests need to verify the 429 path:**
-Spawn N std::threads each connecting a TcpStream. Assert that threads N+1 and above receive 429 in the response status line. No additional crate needed.
+3. **HTTPS rollout:** Start with self-signed certs via rcgen. Pods trust the self-signed CA by installing it to Windows cert store (rc-installer can do this). No browser warnings on kiosk Chrome if cert is trusted at OS level.
+
+4. **Backward compatibility:** During rollout, support both HTTP and HTTPS on different ports (8080 HTTP, 8443 HTTPS). Migrate pods one at a time. Kill HTTP listener only after all pods are on HTTPS.
 
 ---
 
-## Version Compatibility
+## Version Verification Status
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| wait-timeout 0.2 | rustc 1.93.1 (project) | Pure stdlib bindings, no MSRV issues |
-| tracing 0.1 workspace | tracing-subscriber 0.3 workspace | Same tracing ecosystem, already validated in rc-agent |
-| mockall 0.13 | rustc >= 1.77 | Project at 1.93.1, well above MSRV |
-| sysinfo 0.33 | Already in Cargo.lock via rc-agent | Adding to rc-sentry resolves same locked version |
-| serial_test 3 | tokio 1.x | Already in rc-agent dev-deps, compatible |
+| Crate | Claimed Version | Verified | Source |
+|-------|----------------|----------|--------|
+| axum-server | 0.8 | YES | docs.rs shows 0.8.0, released 2025-12-06 |
+| rcgen | 0.14 | YES | docs.rs shows 0.14.6, released 2025-12-13 |
+| argon2 | 0.5 | YES | docs.rs shows 0.5.3 |
+| aes-gcm | 0.10 | MEDIUM | Training data; verify at build time |
+| tower-helmet | 0.2 | MEDIUM | Training data; verify at build time |
+| tower_governor | 0.4 | MEDIUM | Training data; verify at build time |
 
 ---
 
 ## Sources
 
-- crates.io/crates/wait-timeout -- version 0.2, Windows impl via WaitForSingleObject; confirmed at lib.rs (February 2025)
-- crates.io/crates/mockall -- version 0.13.1, MSRV 1.77, 84M downloads; confirmed at generalistprogrammer.com (2025 guide)
-- crates.io/crates/tempfile -- version 3.23.0, 379M downloads; confirmed current
-- crates.io/crates/serial_test -- version 3.2.0, 75.5M downloads; confirmed current
-- docs.rs/tracing -- tracing does not require tokio; set_global_default() covers all std::thread threads
-- std::sync::atomic documentation -- AtomicUsize::fetch_add/fetch_sub is the standard cap-and-reject pattern
-- rc-agent Cargo.toml inspected -- confirmed: sysinfo 0.33, axum 0.8, reqwest 0.12, serial_test 3, tempfile 3, tower 0.5
-- rc-sentry src/main.rs inspected -- 155 LOC, pure std, timeout_ms parsed but ignored line 78, unbounded thread spawn
-
----
-
-*Stack research for: v11.0 Agent and Sentry Hardening*
-*Researched: 2026-03-20 IST*
+- [Axum middleware documentation](https://docs.rs/axum/latest/axum/middleware/index.html) -- from_fn pattern
+- [axum-server TLS rustls docs](https://docs.rs/axum-server/latest/axum_server/tls_rustls/index.html) -- bind_rustls API
+- [axum TLS example](https://github.com/tokio-rs/axum/blob/main/examples/tls-rustls/src/main.rs) -- official example
+- [rcgen docs](https://docs.rs/rcgen/latest/rcgen/) -- self-signed cert generation
+- [tower-helmet](https://github.com/Atrox/tower-helmet) -- security headers middleware
+- [tower_governor](https://github.com/benwis/tower-governor) -- rate limiting for Tower
+- [argon2 (RustCrypto)](https://crates.io/crates/argon2) -- password hashing
+- [CVE-2025-29927 analysis](https://projectdiscovery.io/blog/nextjs-middleware-authorization-bypass) -- Next.js middleware bypass
+- [Next.js 16 auth changes](https://auth0.com/blog/whats-new-nextjs-16/) -- proxy.ts rename
+- [Kiosk escape techniques](https://github.com/ikarus23/kiosk-mode-breakout) -- what to defend against
+- [Chrome kiosk hardening](https://smartupworld.com/chromium-kiosk-mode/) -- enterprise display security
