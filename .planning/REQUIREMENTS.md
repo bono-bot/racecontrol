@@ -111,10 +111,10 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 ### Safety & Session Lifecycle
 
 - [ ] **SAFE-01**: Wheelbase returns to center within 2 seconds of game session ending (no stuck rotation)
-- [ ] **SAFE-02**: Session-end sequence uses `fxm.reset` + `axis.idlespring` (NOT estop) for routine shutdown
-- [ ] **SAFE-03**: Force ramp-up is gradual (500ms minimum) when applying centering spring -- no snap-back
-- [ ] **SAFE-04**: Venue power capped at safe maximum via `axis.power` command
-- [ ] **SAFE-05**: ESTOP reserved for genuine emergencies only (separate code path from session end)
+- [x] **SAFE-02**: Session-end sequence uses `fxm.reset` + `axis.idlespring` (NOT estop) for routine shutdown
+- [x] **SAFE-03**: Force ramp-up is gradual (500ms minimum) when applying centering spring -- no snap-back
+- [x] **SAFE-04**: Venue power capped at safe maximum via `axis.power` command
+- [x] **SAFE-05**: ESTOP reserved for genuine emergencies only (separate code path from session end)
 - [ ] **SAFE-06**: ConspitLink gracefully closed (WM_CLOSE) before HID safety commands to avoid P-20 contention
 - [ ] **SAFE-07**: ConspitLink restarted after safety sequence completes, with JSON integrity verification
 
@@ -172,10 +172,10 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SAFE-01 | Phase 57: Session-End Safety | Pending |
-| SAFE-02 | Phase 57: Session-End Safety | Pending |
-| SAFE-03 | Phase 57: Session-End Safety | Pending |
-| SAFE-04 | Phase 57: Session-End Safety | Pending |
-| SAFE-05 | Phase 57: Session-End Safety | Pending |
+| SAFE-02 | Phase 57: Session-End Safety | Complete |
+| SAFE-03 | Phase 57: Session-End Safety | Complete |
+| SAFE-04 | Phase 57: Session-End Safety | Complete |
+| SAFE-05 | Phase 57: Session-End Safety | Complete |
 | SAFE-06 | Phase 57: Session-End Safety | Pending |
 | SAFE-07 | Phase 57: Session-End Safety | Pending |
 | PROC-01 | Phase 58: ConspitLink Process Hardening | Pending |
