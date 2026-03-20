@@ -1,190 +1,197 @@
 # Project Research Summary
 
-**Project:** Racing Point Operations — v9.0 Tooling & Automation
-**Domain:** Venue ops tooling — Claude Code skills, MCP servers, deployment automation, monitoring/alerting
+**Project:** Racing Point Operations — v10.0 Connectivity & Redundancy
+**Domain:** Venue ops infrastructure — DHCP stability, health monitoring, config sync, auto-failover, and failback for a Rust/Axum + rc-agent sim racing venue
 **Researched:** 2026-03-20 IST
 **Confidence:** HIGH
 
 ## Executive Summary
 
-v9.0 Tooling & Automation is an operator-experience milestone, not a customer-facing one. The goal is to reduce the weekly manual overhead for James (developer) and Uday (operator) by codifying repetitive workflows into Claude Code skills, repairing and extending MCP integrations for Google Workspace access, automating the pod binary deploy pipeline, and introducing a lightweight monitoring stack that stays operational when the venue internet drops. The existing Rust/Axum/Next.js/SQLite stack is unchanged — all new tooling is additive, external, or session-side.
+v10.0 Connectivity & Redundancy solves a single operational problem: the venue has no automated recovery when the local server (.23) goes down. The current architecture has all pods hardwired to a single WebSocket URL, no external health observer, and a server IP that drifts nightly due to an unconfigured DHCP reservation. The root cause of most weekly ops incidents — IP drift, manual recovery, Uday having to wake James — is addressable with targeted infrastructure changes and one new Rust crate (`sha2`). The Bono VPS already runs a compatible racecontrol instance with Tailscale mesh connectivity to all pods, making this a wiring problem, not a greenfield build.
 
-The recommended approach is strictly layered by deployment risk and time-to-value. Phase 1 delivers maximum ROI with minimum infrastructure change: a project CLAUDE.md (zero installs), four Claude Code skills (zero installs), and Grafana Alloy with axum-prometheus metrics (low-risk Cargo.toml additions). Phase 2 repairs the broken Gmail MCP and deploys the Prometheus+Grafana monitoring stack on-premises on the server. Phase 3 adds deployment automation via Fabric+OpenSSH as a pendrive-replacement, gated on successfully enabling OpenSSH on at least one pod — which has never been verified. Every phase is offline-capable by design: Prometheus+Grafana run on the venue LAN, and skills call existing local endpoints.
+The recommended approach is strictly dependency-ordered across six phases: (1) fix the DHCP reservation so the health monitor watches a stable address, (2) implement config sync so the cloud failover target has current venue settings, (3) add the `SwitchController` message to rc-agent so pods can be redirected at runtime without a restart, (4) build the failover controller server-side, (5) deploy the standalone `server-monitor` binary on James's workstation to automate detection and triggering, and (6) handle failback data reconciliation. Each phase delivers testable, independently verifiable functionality. Nothing is built against an untested dependency.
 
-The critical risk for this milestone is repeating the v6.0 pattern: investing in fleet tooling (Salt, WinRM, OpenSSH) that fails silently on this network due to Windows Defender, Session 0/1 constraints, or non-domain authentication. The mitigation is explicit: every new tool must pass a five-question checklist (non-domain Windows, standard HTTP ports, Defender-safe, offline-capable, Windows 11 verified) before a line of implementation begins. Ansible and Fabric are the lowest-risk automation path if OpenSSH validation succeeds; they are explicitly deferred until that validation happens.
+The critical risks are not architectural — they are operational. Tailscale SSH server does not work on Windows (confirmed via GitHub issue #14942), so the remote exec path must use rc-agent remote_ops :8090 over Tailscale IP instead. The health monitor threshold must be calibrated high enough to survive normal AC game launches (3-4s CPU spikes) without triggering false-positive failovers that disrupt live sessions. Split-brain billing — two servers simultaneously billing the same session — is the highest-severity failure mode and requires pod-side health confirmation (not just James's view) before any failover is declared.
 
 ## Key Findings
 
 ### Recommended Stack
 
-See `.planning/research/STACK.md` for full details and version rationale.
+See `.planning/research/STACK.md` for full details, code patterns, and alternative rationale.
 
-The tooling stack is additive — nothing in the existing Rust/Axum/SQLite/rc-agent architecture changes. For Claude Code skills, the SKILL.md format with `disable-model-invocation: true` on all operational skills (deploy, logbook write) is the correct pattern. For metrics, `axum-prometheus 0.10.0` + `metrics 0.24` provide a 3-line integration to expose a Prometheus `/metrics` endpoint from racecontrol. Grafana Alloy (not the EOL Grafana Agent) replaces the standalone `windows_exporter` pattern and scrapes both OS metrics and the racecontrol endpoint. Grafana Cloud free tier (10K series, 14-day retention) handles the Racing Point fleet's ~160 metric series comfortably; self-hosted Prometheus+Grafana on server .23 is the alternative if data sovereignty is required.
-
-For MCP, `taylorwilsdon/google_workspace_mcp` fixes the broken Gmail OAuth and covers Gmail, Sheets, Calendar, and Drive in one server. The existing `racingpoint-mcp-gmail` server.js pattern is correct — only the OAuth token needs re-authorization. For deployment automation, Fabric (Python SSH) is the right-sized tool for 8 pods (vs. Ansible's complexity); both are gated on OpenSSH validation on pods.
+Only one net-new Cargo dependency is added for the entire milestone: `sha2 = "0.10"` for config file change detection. Every other capability is satisfied by existing crates (`reqwest`, `tokio::sync::watch`, `tokio::process::Command`, `serde_json`) or by infrastructure configuration (DHCP reservation, OpenSSH if available). The constraint "no new language runtimes" is satisfied — everything stays Rust + the existing Node.js `send_email.js` pattern.
 
 **Core technologies:**
-- `axum-prometheus 0.10.0` + `metrics 0.24`: racecontrol metrics endpoint — 3-line integration, no route changes
-- Grafana Alloy (v1.x, Windows MSI): scrape OS + app metrics, forward to Grafana Cloud or local Prometheus — EOL Grafana Agent replacement
-- `taylorwilsdon/google_workspace_mcp`: Gmail/Sheets/Calendar/Drive MCP — fixes broken OAuth, one OAuth credential
-- SKILL.md format with `disable-model-invocation: true`: Claude Code skills for operational workflows — zero dependencies
-- Fabric 3.2.x (Python SSH): pod deploy automation — 50 lines vs. Ansible's 200+ YAML — gated on OpenSSH validation
-- `prometheus-mcp-server` (pab1it0): query Prometheus metrics from Claude — 18 read-only tools — add only after Prometheus is deployed
+- `sha2 0.10.8` (RustCrypto): config file hash for change detection before pushing to Bono — the sole new dependency
+- `tokio::sync::watch` (existing): broadcast failover URL changes from the health probe task to the WS reconnect loop in rc-agent — lock-free, zero new crate
+- `reqwest 0.12` (existing): HTTP health probes every 5-10s from James .27 to server .23; reused in both `server-monitor` and `failover_monitor`
+- `tokio::process::Command` (existing): shell-out to `send_email.js` for failover alerts; same pattern as existing `watchdog.rs`
+- TP-Link router DHCP reservation (web UI): pin server .23 to MAC `10:FF:E0:80:B1:A7` — zero code, one-time router config
+- OpenSSH or rc-agent :8090 (existing): remote exec path to server for automated restart; OpenSSH is preferred but has a documented component store failure on this machine — rc-agent :8090 is the fallback
 
 ### Expected Features
 
-See `.planning/research/FEATURES.md` for full prioritization matrix and ROI analysis.
+See `.planning/research/FEATURES.md` for the full prioritization matrix and dependency graph.
 
-**Must have (table stakes — v9.0 Phase 1):**
-- Project CLAUDE.md with Racing Point topology, pod IPs, naming conventions — eliminates context re-establishment per session
-- `/rp:deploy` + `/rp:deploy-server` skills — codify exact build+deploy sequence with `disable-model-invocation: true`
-- `/rp:pod-status <pod>` skill — query any pod's rc-agent status with dynamic IP injection
-- Google Workspace MCP (Gmail read + Sheets read) — fixes broken OAuth, unlocks business data access in Claude
-- Structured JSON logging in racecontrol — one-line `tracing-subscriber` change, foundation for all monitoring
-- Staging HTTP server auto-start (HKLM Run key) — prevents silent deploy failures after workstation reboot
-- Deploy verification script — catches failed deploys before customer impact
+**Must have (v10.0 MVP — launch together):**
+- DHCP reservation for server .23 (MAC 10-FF-E0-80-B1-A7) — prevents IP drift that invalidates all other features; 30-minute router UI task
+- Server health monitor on James .27 — HTTP poll `/health` every 5s, DOWN after 3 consecutive failures, UP after 2 consecutive successes; uses `reqwest`, no new deps
+- Config sync (racecontrol.toml → Bono VPS) — push sanitized venue config on startup and on file change so cloud failover target knows pod definitions and billing rates
+- `core.fallback_url` in rc-agent TOML + `SwitchController` AgentMessage — pods can switch WS target at runtime without restart; deploy to Pod 8 canary first
+- Failover trigger + Uday email notification — when health monitor declares .23 DOWN and Bono VPS is healthy, signal pods to switch; email Uday
+- Failback trigger + Uday email notification — when .23 recovers, signal pods back to primary WS URL; email Uday
 
-**Should have (v9.0 Phase 2 — add after Phase 1 validated in daily ops):**
-- `/rp:incident` skill — structured incident response using the 4-tier debug order
-- Netdata on server + pods — hardware degradation detection, lightweight Windows MSI install
-- Error rate alerting threshold — N errors in M minutes triggers email (in-racecontrol counter logic)
-- `/rp:logbook` skill — auto-append incidents to LOGBOOK
-- PostToolUse hook — auto-notify Bono on git commit (enforces standing rule)
-- MCP-INVENTORY.md — track tool availability across James and Bono environments
+**Should have (v10.x Phase 2 — add after MVP validated):**
+- Tailscale SSH to server (via OpenSSH MSI if component store repair succeeds) — remote restart capability for James without physical access
+- Split-brain prevention — Bono enters read-only billing mode when .23 sends "I am primary" signal; requires remote exec to server
+- Grace period for active sessions — snapshot lap/session state before URL switch to prevent lost laps during mid-session failover
+- WhatsApp failover alerts (Evolution API, existing) — mirror email alerts; faster notification for Uday
 
-**Defer (Phase 3 / v9.x+):**
-- Ansible fleet management — blocked until WinRM/SSH validated on one pod
-- rc-ops-mcp custom server — high-value but high build cost; validate MCP pattern with Google Workspace first
-- WhatsApp P0 alerting — add after error rate thresholds proven reliable
-- Weekly fleet uptime report — requires structured logging foundation
-- Prometheus /metrics endpoint — add if Netdata auto-dashboards are insufficient
+**Defer (v10.x+):**
+- Failover health dashboard — admin panel widget; email notifications cover the operational need at MVP
+- Automatic recovery test drill — weekly simulated outage; too risky until MVP is proven stable in production
+- Island mode (no connectivity) — pods accept local sessions without billing when both .23 and cloud are unreachable; significant complexity, rare scenario
 
 **Explicitly avoid:**
-- Grafana+Prometheus full stack as MVP (Netdata covers this at lower cost and zero query language)
-- ELK/OpenSearch (4GB+ RAM overhead for a `jq`-solvable problem)
-- Docker on pods (gaming hardware, Session 1 GUI requirement)
-- Cloud monitoring (Datadog/New Relic) — $100-500/month for an 8-pod venue
+- DNS-based failover — Windows DNS caching makes propagation 90-120s minimum; direct IP switching in rc-agent gives <15s
+- Active-active dual-server — requires distributed consensus on top of SQLite; the existing UUID mismatch in cloud_sync already proves this is architecturally mismatched
+- Tailscale SSH server on Windows — not supported (Tailscale GitHub #14942); use Tailscale for IP routing only, exec via rc-agent :8090 or OpenSSH
+- Continuous config sync every 30s — config changes weekly at most; push event-driven on startup and file mtime change, not every loop tick
+- Full racecontrol.toml sync to cloud — must strip all credentials (JWT secret, API keys, db path) before transmission; `ConfigSnapshot` struct is the correct abstraction
 
 ### Architecture Approach
 
-See `.planning/research/ARCHITECTURE.md` for full component diagram and build order.
+See `.planning/research/ARCHITECTURE.md` for full data flow diagrams, build order, and anti-pattern analysis.
 
-All v9.0 components are either purely additive or session-side. Net change to existing racecontrol Rust code: zero for Phase 1; three lines added (Cargo.toml + main.rs) for the metrics endpoint in Phase 2. Skills live in `.claude/skills/` (project-scoped, committed to repo). Hooks live in `~/.claude/settings.json` (personal, not committed). MCP servers are already configured on James's machine — Gmail needs OAuth repair only. The monitoring stack (Prometheus + Grafana) runs entirely on server .23 LAN-only; no metrics leave the venue except optionally to Grafana Cloud free tier. The key architectural constraint is that all monitoring must operate offline: Prometheus + Grafana on LAN, alerts via WhatsApp (Evolution API localhost:53622) first, email second.
+The architecture adds four new components to the existing system with minimal modification to existing files. The core pattern is: an external health observer (James .27) watches the server from outside the failure domain; pods receive `SwitchController` AgentMessages over their existing WS channel to redirect their connections at runtime; Bono's VPS receives config snapshots and pod connections during failover using the existing ws/agent WebSocket protocol with no changes to the shared rc-common protocol beyond one new enum variant.
 
 **Major components:**
-1. Claude Code Skills (`.claude/skills/`) — project-scoped operational macros; call existing deploy_pod.py + rc-agent :8090 + racecontrol API; no new infrastructure
-2. Claude Code Hooks (`~/.claude/settings.json`) — PreToolUse guard (block rc-agent.exe on .27), PostToolUse logger (append to DEPLOY_LOG.md + INBOX.md for Bono)
-3. Google Workspace MCP (`taylorwilsdon/google_workspace_mcp`) — replaces broken `racingpoint-mcp-gmail`; HTTP transport for Claude Code; OAuth repair one-time
-4. Grafana Alloy on server + pods — scrapes `/metrics` from racecontrol + Windows OS metrics; forwards to Prometheus (local) or Grafana Cloud
-5. Prometheus + Grafana on server .23 — LAN-only monitoring; Grafana JSON plugin reads `/api/v1/fleet/health` for operational state alongside OS metrics
-6. Fabric (`fabfile.py`) — Python SSH task runner; wraps same deploy logic as install.bat v5 over SSH once OpenSSH is enabled on pods
+1. `server-monitor` (new Rust binary on James .27) — polls `.23:8080/health` every 10s, drives FSM (Healthy→Failover→Recovering→Healthy), triggers failover/failback commands, notifies Uday via email/WhatsApp
+2. `failover_controller.rs` (new module in racecontrol) — broadcasts `SwitchController` to all WS-connected pods; rc-sentry :8091 fallback for disconnected pods; registered as `POST /api/v1/admin/failover` and `POST /api/v1/admin/failback`
+3. `SwitchController` variant in `CoreToAgentMessage` (rc-common) — `{ new_url: String, reason: String, write_override: bool }` — pods update their in-memory active URL and write a durable override file (`C:\RacingPoint\rc-agent-active-url.txt`) that survives rc-agent restarts
+4. `ConfigSnapshot` + config export endpoint (racecontrol on .23) — sanitized venue config (pod definitions, billing rates, no secrets) pushed to Bono on startup and on mtime change via extended `bono_relay.rs`
+
+**Key build order constraint:** DHCP reservation must be verified stable (server survives overnight reboot at .23) before any Rust code is written for phases 2+. The health monitor watching a drifting IP is worse than no health monitor.
 
 ### Critical Pitfalls
 
-See `.planning/research/PITFALLS.md` for full recovery strategies and integration gotchas.
+See `.planning/research/PITFALLS.md` for full recovery strategies, integration gotchas, and the "Looks Done But Isn't" verification checklist.
 
-1. **Repeating the v6.0 fleet-tool failure pattern** — Salt, WinRM, and OpenSSH have all failed on this network. Before evaluating any new fleet tool, answer five questions: (a) non-domain Windows support, (b) Defender-safe installer, (c) standard HTTP ports, (d) offline-tolerant, (e) Windows 11 verified. If any answer is no, don't proceed. Build on rc-agent remote_ops :8090 first.
+1. **Tailscale SSH server not supported on Windows** — Tailscale SSH is Linux/macOS only (GitHub #14942). The v10.0 plan references "remote exec via Tailscale SSH" — this must be re-planned. Use rc-agent remote_ops :8090 over Tailscale IP for automated exec, or OpenSSH MSI (not `Add-WindowsCapability` which already failed) for interactive shell. Test on the actual server before designing any phase around SSH. No planning assumption should depend on `tailscale ssh` working on .23.
 
-2. **OAuth token expiry silently breaking Gmail automation** — Google OAuth refresh tokens expire in 7 days for test-mode apps. The broken `racingpoint-mcp-gmail` is the current example. Never make Gmail the sole alert path. Keep `send_email.js` as primary alert fallback. Publish the OAuth app to production mode to remove 7-day expiry. Add a daily health-check API call to detect token expiry before it silences critical alerts.
+2. **DHCP reservation assigned to the old MAC** — The server's NIC changed from `BC:FC:E7:2C:F2:CE` to `10:FF:E0:80:B1:A7` on 2026-03-17. Any existing DHCP reservation uses the old MAC and will never match. Verify the current MAC on the server with `ipconfig /all` before touching the router. After creating the reservation, force `ipconfig /release && ipconfig /renew` and then reboot to confirm .23 sticks. Also configure a static IP on the NIC as belt-and-suspenders — DHCP reservation alone has known consumer router bugs where active leases are not overridden.
 
-3. **Internet dependency for venue-critical operations** — Monitoring or automation that requires internet breaks during venue outages exactly when it matters most. All monitoring stays on LAN (Prometheus + Grafana on .23). Alerts go via WhatsApp (Evolution API localhost:53622, LAN-local) first. Follow the existing cloud_sync pattern: local-authoritative, cloud is a secondary sync.
+3. **Split-brain dual billing during failover** — If James's network path to .23 fails (switch port fault, cable issue) but pods can still reach .23 directly, James declares a false outage and commands all pods to switch to cloud. Both servers bill the same active sessions. This is the highest-severity failure mode: billing is double-charged or credits are lost. Mitigation: require at least one pod's own LAN probe to confirm .23 unreachability before triggering fleet-wide failover. James's health check is a necessary but not sufficient condition.
 
-4. **Windows Session 0 vs Session 1 breaking new services** — New agents installed as SYSTEM Windows Services run in Session 0 and cannot interact with the kiosk, lock screen, or game processes (Session 1). For any new process that needs GUI access: use HKLM Run key (`start-service.bat`) pattern. For background-only services (Prometheus, Grafana Alloy, windows_exporter): install as SYSTEM service but verify explicitly that all target operations work from Session 0 before deployment design.
+4. **False-positive health check during AC game launch** — AC session spawn is CPU-intensive (3-4s). If the health check timeout is 2s and the threshold is 2 failures, a normal game launch triggers failover. Minimum outage duration for trigger must be 60s continuous; health probe timeout must be 5-10s, not 2s. The existing `WS_DEAD_SECS = 300` in `self_monitor.rs` already accounts for slow boots — health monitor thresholds must be at least as tolerant.
 
-5. **Alert fatigue from uncalibrated monitoring thresholds** — The existing system has production-calibrated thresholds (6s heartbeat, 10s idle, ALERT-02 rate limiting). A new monitoring layer that ignores these will generate 40+ false-positive alerts per day (normal AC launch CPU spikes, game-startup WS gaps). Start with zero alerts. Document the normal behavior baseline for one week. Add alerts one at a time, mirroring ALERT-02's 30-minute rate limit per alert type.
+5. **rc-agent dual-connect during failback** — If failback opens a new WS to .23 before the cloud WS is explicitly closed, both servers send commands simultaneously. This causes double-execution of billing END events and phantom lock screen engagements. The connection state machine in rc-agent must have an explicit `DISCONNECTING` state with awaited close before any new connection is opened.
 
 ## Implications for Roadmap
 
 Based on research, suggested phase structure:
 
-### Phase 1: Context and Skills Foundation
-**Rationale:** Highest ROI, zero new infrastructure, zero deployment risk. Everything in this phase is file authoring or one-line config changes. Delivers immediate daily-ops improvement for James in every Claude Code session before any infrastructure work begins.
-**Delivers:** Project CLAUDE.md, four `/rp:*` skills (`/rp:deploy`, `/rp:deploy-server`, `/rp:pod-status`, `/rp:fleet-health`), staging server auto-start, deploy verification script
-**Addresses:** Project CLAUDE.md (P1), all `/rp:*` skills (P1), staging HTTP server auto-start (P1), deploy verification script (P1)
-**Avoids:** Over-engineering anti-pattern (zero new services), automation-requires-confirmation pitfall (all skills define fallback policy before marking complete)
+### Phase 1: Infrastructure Foundation
+**Rationale:** All of v10.0 depends on the server having a stable IP and James having a remote exec path. Neither requires Rust code. These are prerequisites that can be validated in isolation before any development begins. DHCP drift is the root cause of the current weekly ops burden — fixing it first eliminates a failure mode that would corrupt all subsequent testing.
+**Delivers:** Server .23 permanently assigned to IP 192.168.31.23 (DHCP reservation + static NIC fallback); remote exec path confirmed (rc-agent :8090 over Tailscale IP, and/or OpenSSH if component store repair succeeds)
+**Addresses:** Table stakes "stable server IP" and "remote exec" features from FEATURES.md
+**Avoids:** DHCP wrong-MAC pitfall (Pitfall 2), Tailscale SSH on Windows pitfall (Pitfall 1)
+**Verification gate:** Reboot server overnight, confirm it gets .23 in the morning. Run `curl http://192.168.31.23:8080/health` from James .27. Phase does not proceed to code until this passes.
 
-### Phase 2: Metrics Instrumentation
-**Rationale:** axum-prometheus is a 3-line Cargo.toml + main.rs change with zero breaking changes to existing routes. Must come before the Grafana stack (Phase 3) because custom `rp_*` metrics are what make dashboards meaningful beyond raw OS CPU graphs.
-**Delivers:** `/metrics` endpoint on racecontrol :8080, custom gauges/counters for active sessions, pod WS state, game launches, billing credits, cloud sync lag
-**Uses:** `axum-prometheus 0.10.0`, `metrics 0.24` — both compatible with existing axum 0.7
-**Avoids:** "Dashboard without app metrics" anti-pattern documented in ARCHITECTURE.md
+### Phase 2: Config Sync
+**Rationale:** Config sync is purely additive (push-only from .23 to Bono VPS) with zero failover risk. Building it first validates the James↔Bono communication channel under zero operational pressure. If config sync has problems (auth failures, schema mismatches, Bono-side storage), better to discover them here than during an actual failover event.
+**Delivers:** `ConfigSnapshot` type in rc-common; `GET /api/v1/config/export` endpoint on racecontrol; `config_pusher.rs` task that hashes racecontrol.toml (sha2) and pushes to Bono on startup and on mtime change; Bono VPS stores snapshot; cloud racecontrol knows pod count, pod numbers, billing rates
+**Uses:** `sha2 0.10.8` (sole new Cargo dependency for all of v10.0), `reqwest` (existing), `bono_relay.rs` extension (existing)
+**Implements:** config export endpoint and config_pusher.rs architecture components
+**Avoids:** Config sync overwrites outage changes pitfall (Pitfall 6 — add `config_updated_at` timestamp from the start); syncing secrets to cloud (ConfigSnapshot struct excludes credentials by design)
 
-### Phase 3: MCP Repair and Google Workspace Integration
-**Rationale:** Gmail OAuth re-authorization is a prerequisite for any email-based alerting to be reliable. Repair before building new monitoring that depends on email alerts. Google Workspace MCP is `pip install` + one-time OAuth flow — low complexity, high daily-ops value.
-**Delivers:** Working Gmail read/send, Google Sheets read/write, Google Calendar read in Claude Code sessions. MCP-INVENTORY.md as James-Bono tool coordination artifact.
-**Addresses:** Gmail MCP (P1), Google Sheets MCP (P1), Google Calendar MCP (P1), MCP config drift pitfall
-**Avoids:** OAuth expiry silent failure (token health check + fallback to send_email.js required before phase is complete), MCP config drift (notify Bono via INBOX.md with config diff)
+### Phase 3: Pod SwitchController
+**Rationale:** The `SwitchController` AgentMessage is the core mechanism that makes failover zero-downtime for active sessions. It touches rc-agent's WS reconnect loop — the most sensitive code in the system. Must be built and validated in isolation (Pod 8 canary) before any automated trigger can use it. If this phase reveals unexpected complexity in the reconnect loop, it does not affect config sync or health monitoring phases.
+**Delivers:** `SwitchController` variant in `CoreToAgentMessage`; rc-agent reconnect loop reads from `Arc<RwLock<String>>` (not startup-cached URL); `SwitchController` handler writes durable override file (`rc-agent-active-url.txt`); `self_monitor.rs` suppresses relaunch for 5min after switch; Pod 8 canary validated
+**Uses:** `tokio::sync::RwLock` (existing), `CoreToAgentMessage` enum extension (rc-common)
+**Implements:** in-memory URL switch with TOML durability pattern (Pattern 1 from ARCHITECTURE.md)
+**Avoids:** rc-agent dual-connect pitfall (Pitfall 5 — explicit DISCONNECTING state before new connection); self_monitor relaunch loop risk (WS dead→relaunch→reconnect to dead .23→loop)
 
-### Phase 4: On-Premises Monitoring Stack
-**Rationale:** Grafana Alloy + Prometheus + Grafana on server .23 provides fleet-wide OS health and operational state visibility. LAN-only — works during internet outages. Must come after Phase 2 (app metrics instrumented) for meaningful dashboards.
-**Delivers:** Grafana Alloy on server and all 8 pods, Prometheus on server, Grafana fleet-health dashboard (OS metrics + billing state + pod WS status), LAN-only
-**Uses:** Grafana Alloy v1.x (Windows MSI), Prometheus 3.x, Grafana OSS 11.x — all Windows services on server .23
-**Avoids:** Internet-dependency pitfall (everything on LAN), Session 0 pitfall (all background services, HTTP-only, no GUI needed), alert fatigue (one-week baseline calibration before any alert rule is enabled)
+### Phase 4: Failover Controller
+**Rationale:** The failover controller server-side provides manual trigger capability before any automated detection is connected. Manual testing (trigger failover from James's terminal, verify all 8 pods switch to cloud WS) is a necessary confidence-building step before automation. A manual trigger that fails reveals integration bugs in a controlled way; automated false-positive triggers cause customer disruption.
+**Delivers:** `failover_controller.rs` module in racecontrol; `POST /api/v1/admin/failover` and `POST /api/v1/admin/failback` endpoints (X-Admin-Secret auth); broadcast SwitchController to all connected pods; rc-sentry :8091 fallback for pods not WS-connected; manual failover test confirmed end-to-end
+**Implements:** Failover controller architecture component, incremental pod switching pattern (Pattern 4 — Pod 8 first, 30s delay, then fleet)
+**Avoids:** Split-brain during manual test (only one operator initiating, no simultaneous cloud and local billing)
 
-### Phase 5: Deployment Automation (Gated)
-**Rationale:** Fabric+OpenSSH replaces the pendrive workflow. Explicitly gated on a validation spike confirming OpenSSH works on at least one pod. This has never been confirmed on this fleet. If validation fails, phase scope changes to rc-agent :8090 HTTP exec improvements only.
-**Delivers:** `fabfile.py` deploy script, OpenSSH enabled on all 8 pods via rc-agent remote_ops exec, canary-first deploy enforcement (Pod 8 canary → human approval gate → fleet rollout)
-**Uses:** Fabric 3.2.x, native Windows OpenSSH Server, Tailscale mesh for routing
-**Avoids:** Fleet-tool-failure pitfall (five-question checklist passed, Pod 8 validated before fleet), over-engineering pitfall (Fabric is 50 lines vs Ansible 200+ YAML for 8 pods)
+### Phase 5: Health Monitor Automation
+**Rationale:** The `server-monitor` binary on James .27 is the final step that makes failover fully automatic. It depends on Phases 3 and 4 both being proven correct — the trigger mechanism must be reliable before it is automated. First automated test: kill racecontrol on .23 and confirm server-monitor triggers failover within 90s without operator intervention.
+**Delivers:** New `crates/server-monitor` Rust binary; 5s health probe loop; FSM (Healthy→Failover→Recovering→Healthy); calls Bono VPS `POST /api/v1/admin/failover` when .23 DOWN + Bono UP confirmed; email notification via `send_email.js`; state persisted to `~/.local/server-monitor.state.json` for crash recovery
+**Uses:** `reqwest` (existing), `tokio::time::interval` (existing), `send_email.js` shell-out pattern (existing)
+**Avoids:** False-positive failover pitfall (Pitfall 4 — minimum 60s continuous outage, 5-10s probe timeout, time-gated suppression 01:00-03:00 for Windows Update window); health check pitfall "heartbeat piggybacked on WS" (FEATURES.md anti-feature)
+
+### Phase 6: Failback and Data Reconciliation
+**Rationale:** Failback is more complex than failover because it requires data integrity — sessions that ran on cloud during the outage must merge back to local without double-billing or phantom session states. The sync-before-accept gate (server refuses rc-agent connections until cloud_sync pull completes) is the most important correctness constraint in the entire milestone.
+**Delivers:** Sync-before-accept startup gate in racecontrol (WS listener opens only after cloud_sync pull completes); session state reconciliation on first pod reconnect after failback (compare in-memory state vs synced DB); cloud sessions marked as "failover-mode" for merge tracking; Uday notification on failback; all-pod-reconnected confirmation check
+**Avoids:** Failback stale session state pitfall (Pitfall 7); cloud_sync passive sync timing gap for sessions created during outage; dual billing on failed reconciliation
 
 ### Phase Ordering Rationale
 
-- Phases 1-3 can be built in parallel — no hard dependencies between them. Phase 1 is pure file authoring. Phase 2 is a small Cargo.toml + Rust change. Phase 3 is MCP setup on James's workstation.
-- Phase 4 (monitoring) depends on Phase 2 (metrics instrumented first). Deploying Grafana without app metrics produces OS CPU graphs with no correlation to Racing Point events — the anti-pattern documented in ARCHITECTURE.md.
-- Phase 5 (deployment automation) is explicitly deferred and gated. It has the highest historical failure rate on this network. Run Phase 5 as a validation spike before any implementation work is scoped.
-- The dependency graph from FEATURES.md confirms: structured JSON logging (Phase 2/4 foundation) must precede error rate alerting and log search features. Deploy skills (Phase 1) are independent and deliver value immediately.
+- Phase 1 is a hard prerequisite for all subsequent phases. A drifting server IP makes health monitoring non-deterministic and failover testing unreliable. Nothing else starts until Phase 1 verification passes.
+- Phases 2 and 3 can be developed in parallel by different sessions — they have no shared code. Phase 2 touches racecontrol and bono_relay; Phase 3 touches rc-agent and rc-common. They share only the `ConfigSnapshot` type in rc-common which can be stubbed.
+- Phase 4 requires Phase 3 complete (pods must support SwitchController before the controller can broadcast it).
+- Phase 5 requires Phase 4 complete (failover endpoint must exist before server-monitor calls it).
+- Phase 6 requires Phase 5 complete (failback is triggered by server-monitor, and reconciliation logic must handle sessions created during an automated failover scenario).
+- This ordering follows the architecture build order from ARCHITECTURE.md exactly, which was derived from code dependency analysis.
 
 ### Research Flags
 
-Phases needing deeper research during planning:
-- **Phase 3 (MCP):** `taylorwilsdon/google_workspace_mcp` HTTP transport mode was not hands-on tested in Claude Code (MEDIUM confidence). If HTTP transport fails, fall back to repairing `racingpoint-mcp-gmail` server.js OAuth directly. Research the fallback before committing to the community tool.
-- **Phase 4 (Monitoring):** Grafana Alloy Windows service install on Windows Server .23 (not Windows 11) needs validation. Verify `winget` is available on the server. If not, use direct MSI download from Grafana releases page.
-- **Phase 5 (Deployment Automation):** Full validation spike required before implementation. Confirm: (1) `Add-WindowsCapability OpenSSH.Server` succeeds on at least one pod. (2) SSH key auth works from James .27 to pod via Tailscale IP. (3) `scp` binary transfer completes in <60s for a 10MB binary. This is a hard go/no-go gate.
+Phases needing deeper research or explicit verification during planning:
+
+- **Phase 1 (Remote Exec):** OpenSSH on server .23 has a documented component store failure. Before any planning assumes OpenSSH, run `winget install Microsoft.OpenSSH.Beta` on the server and confirm it succeeds. If it fails, the remote exec path is rc-agent :8090 (already deployed on server per MEMORY.md). The plan must be explicit about which path it depends on.
+- **Phase 3 (SwitchController):** rc-agent reconnect loop is complex (`reconnect_delay_for_attempt()` backoff, `self_monitor.rs` relaunch interaction). The architecture research identified a specific loop risk (relaunch→reconnect to dead .23→WS dead→relaunch loop). The implementation plan must explicitly address this interaction and include a test that confirms the loop does not occur.
+- **Phase 6 (Failback Reconciliation):** The session sync direction "cloud → local for sessions created during failover" is not currently implemented in `cloud_sync.rs`. The planning session must determine whether this extends the existing SYNC_TABLES mechanism or requires a new dedicated reconciliation endpoint on Bono's VPS. This is the highest architectural uncertainty in the milestone.
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1 (Skills):** SKILL.md format is official Anthropic documentation with HIGH confidence. No research needed.
-- **Phase 2 (Metrics):** `axum-prometheus 0.10.0` docs.rs verified. Verify axum version compatibility with `cargo tree | grep axum` before adding dependency — no other research needed.
+
+- **Phase 1 (DHCP):** TP-Link DHCP reservation procedure is documented in the official FAQ. MAC verification via `ipconfig /all` is standard. No research needed — this is a router UI change with a clear verification step.
+- **Phase 2 (Config Sync):** `sha2` integration is trivial (compute hash, POST if different). Bono relay extension follows the existing `X-Relay-Secret` auth pattern exactly. No research needed.
+- **Phase 4 (Failover Controller):** Axum route registration and WebSocket broadcast to connected pods follows existing patterns in racecontrol (see `pod_monitor.rs`, `main.rs` router setup). No research needed.
+- **Phase 5 (Server Monitor):** Probe loop with hysteresis is a standard async Rust pattern already used in `cloud_sync.rs` (`RELAY_DOWN_THRESHOLD=3`, `RELAY_UP_THRESHOLD=2`). The FSM is documented in full in ARCHITECTURE.md. No research needed beyond validating the failover endpoint address before writing the trigger call.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Claude Code official docs fetched live; axum-prometheus docs.rs verified; Grafana Alloy official docs. Single MEDIUM item: `taylorwilsdon/google_workspace_mcp` is a community project |
-| Features | HIGH | Feature prioritization cross-referenced with existing MEMORY.md operational history. P1 features all have documented ROI from real operational pain points |
-| Architecture | HIGH | Existing codebase read directly (deploy_pod.py, settings.json, rc-sentry/main.rs, racecontrol state.rs). Integration points verified against actual code |
-| Pitfalls | HIGH | All critical pitfalls derived from documented failures: Salt v6.0 blocked, Gmail OAuth expired, WinRM failures, Session 0/1 split problem. Not hypothetical |
+| Stack | HIGH | Only new dependency is `sha2` (393M downloads, RustCrypto ecosystem). All other capabilities use existing crates verified in the codebase. Single uncertainty: OpenSSH component store repair on server — but rc-agent :8090 is a confirmed fallback. |
+| Features | HIGH | Feature set derived from concrete operational gaps (DHCP drift history, no health observer, no fallback URL). MVP scope is minimal and tightly bounded. The FEATURES.md dependency graph is internally consistent. |
+| Architecture | HIGH | All integration points verified by reading actual source files (bono_relay.rs, cloud_sync.rs, self_monitor.rs, rc-agent/main.rs, rc-common/protocol.rs). The loop risk in Phase 3 is identified and documented — not a gap, but a design constraint to address. |
+| Pitfalls | HIGH | Every critical pitfall is derived from a documented past failure on this exact hardware or a confirmed external source (Tailscale GitHub issue). No hypothetical risks — all concrete. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **OpenSSH pod status unknown:** MEMORY.md documents OpenSSH failure on the server (component store corrupted). Pod status is undocumented. Treat Phase 5 as blocked until a manual test confirms at least one pod can enable OpenSSH Server. If all pods fail, Phase 5 scope changes to rc-agent :8090 HTTP exec improvements only.
-- **`google_workspace_mcp` HTTP transport verification:** HTTP transport for Claude Code (vs. stdio for Claude Desktop) was not hands-on tested. If HTTP transport fails, alternative is running the MCP as a stdio server in `.claude/settings.json` — same pattern as the existing `racingpoint-mcp-gmail`.
-- **Grafana Alloy on Windows Server .23:** Server .23 may not have `winget` if it lacks Windows App Installer. Alternative: download Grafana Alloy MSI directly from the Grafana releases page. Verify before deployment planning.
-- **Hardcoded JWT secret (existing P0):** PITFALLS.md flags `default_jwt_secret()` in config.rs as a P0 security issue. Before adding any new auth integration, this must be fixed. Treat as a prerequisite gate for Phase 3 (MCP with racecontrol API access).
+- **OpenSSH availability on server .23:** `Add-WindowsCapability` already failed once (MEMORY.md). The alternative (`winget install Microsoft.OpenSSH.Beta` or offline MSI) has not been tested. Treat remote exec via OpenSSH as unconfirmed until verified on the server. Phase 1 must include a "confirm exec path" step with an explicit go/no-go on OpenSSH before any automated recovery design assumes it is available.
+- **Pod Tailscale IPs for failover URL:** The failover WS URL for Bono's VPS uses Bono's Tailscale IP (100.x.x.x). This IP must be confirmed before updating any rc-agent TOML config — Tailscale IPs are stable per device but must be looked up from the Tailscale admin console or `tailscale ip` on Bono's VPS.
+- **Failback session reconciliation scope:** `cloud_sync.rs` SYNC_TABLES includes billing_rates, drivers, wallets — but NOT session events (sessions that started and ended on cloud during failover). The implementation must define whether to extend SYNC_TABLES or add a dedicated reconciliation push from Bono. This decision affects both the cloud_sync schema and the Bono-side API surface.
+- **Split-brain prevention mechanism:** The research recommends pod-side health confirmation before fleet-wide failover. The exact implementation (pod reports its own LAN probe result to server-monitor, or server-monitor polls each pod's :8090 as a secondary signal) was not specified. This must be resolved during Phase 5 planning before writing the failover trigger logic.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Claude Code Skills official docs (`code.claude.com/docs/en/skills`) — SKILL.md format, frontmatter, invocation control, subagent forking
-- Claude Code Hooks reference (`code.claude.com/docs/en/hooks`) — PreToolUse/PostToolUse, stdin JSON, exit codes
-- `axum-prometheus` docs.rs — version 0.10.0, default metrics, main.rs integration pattern
-- Grafana Alloy Windows docs (`grafana.com/docs/alloy/latest/set-up/install/windows/`) — MSI installer, `prometheus.exporter.windows` component
-- Grafana Cloud pricing (`grafana.com/pricing/`) — 10K series, 14-day retention, 3 users free
-- `windows_exporter` GitHub releases — v0.31.4 latest stable
-- Tailscale SSH GitHub issue #14942 — SSH server not supported on Windows (confirmed open)
-- Existing codebase read directly — `deploy/deploy_pod.py`, `~/.claude/settings.json`, `crates/rc-sentry/src/main.rs`, `crates/racecontrol/src/state.rs`
-- MEMORY.md — WinRM failure, Salt v6.0 blocked, Gmail OAuth expired, OpenSSH server component store corruption
-- CONCERNS.md (via PITFALLS.md) — hardcoded JWT secret P0, cloud sync fragility
+- Existing codebase read directly (2026-03-20 IST): `bono_relay.rs`, `cloud_sync.rs`, `self_monitor.rs`, `config.rs`, `state.rs`, `rc-agent/main.rs`, `rc-common/protocol.rs`, `rc-sentry/main.rs`, `pod_monitor.rs`
+- [Tailscale SSH GitHub issue #14942](https://github.com/tailscale/tailscale/issues/14942) — Tailscale SSH server not supported on Windows (confirmed by Tailscale team)
+- [sha2 crates.io](https://crates.io/crates/sha2) — 0.10.8 current stable, RustCrypto ecosystem, 393M downloads
+- [tokio::sync::watch docs.rs](https://docs.rs/tokio/latest/tokio/sync/watch/index.html) — lock-free broadcast pattern for frequently-read, rarely-written values
+- [Microsoft Learn: OpenSSH for Windows](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) — `Add-WindowsCapability` install path, alternative `winget` option
+- [TP-Link DHCP Address Reservation FAQ](https://www.tp-link.com/us/support/faq/182/) — reservation procedure and active lease behavior
+- [Tailscale High Availability Docs](https://tailscale.com/kb/1115/high-availability) — failover timing ~15s, threshold calibration
+- [AWS ELB Health Check Concepts](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/target-group-health-checks.html) — interval/threshold patterns for health check design
+- MEMORY.md — server MAC change history, DHCP drift timeline, OpenSSH component store failure, Tailscale Phase 27 status, VPS address
 
 ### Secondary (MEDIUM confidence)
-- `taylorwilsdon/google_workspace_mcp` GitHub — 287+ issues, active March 2026, HTTP transport for Claude Code
-- `pab1it0/prometheus-mcp-server` GitHub — 18 read-only Prometheus tools, PromQL support
-- Fabric official docs (`fabfile.org`) — v3.2.x, Python SSH tasks, Connection API
-- Claude Code skills merged from slash commands (community article) — backward compatibility confirmed
+- [IBM DNS Failover Limitations](https://www.ibm.com/think/topics/dns-failover) — Windows DNS caching makes DNS-based failover unsuitable for LAN
+- [StarWind Split-Brain Prevention](https://www.starwindsoftware.com/blog/whats-split-brain-and-how-to-avoid-it/) — heartbeat-based split-brain detection patterns
+- [OneUptime Rust Health Check Endpoints (2026)](https://oneuptime.com/blog/post/2026-01-25-health-check-endpoints-dependencies-rust/view) — dependency-aware /health endpoint patterns
+- [HAProxy Health Check Tutorial](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/reliability/health-checks/) — 3-5s intervals, 2-3 failure threshold calibration
 
 ### Tertiary (LOW confidence)
-- Grafana Alloy on Windows Server (not Windows 11): documented for Windows 11, less community documentation for Windows Server variants — needs hands-on validation
+- TP-Link Community forums — DHCP reservation ignored for active leases (consumer router behavior; not officially documented but confirmed in practice)
 
 ---
 *Research completed: 2026-03-20 IST*

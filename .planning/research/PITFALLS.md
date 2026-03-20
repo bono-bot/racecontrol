@@ -1,178 +1,199 @@
 # Pitfalls Research
 
-**Domain:** Adding Claude Code skills, MCP servers, deployment automation, and monitoring to a Windows fleet venue management system (Racing Point v9.0)
+**Domain:** Adding connectivity reliability, health monitoring, auto-failover, config sync, and failback to an active venue management system (Racing Point v10.0)
 **Researched:** 2026-03-20
-**Confidence:** HIGH — pitfalls derived from documented past failures (Salt v6.0 blocked, Gmail OAuth expired, WinRM/OpenSSH failures, over-engineering scraps), codebase analysis (CONCERNS.md), and environment constraints (Windows 11 fleet, LAN-only, single operator).
+**Confidence:** HIGH — pitfalls derived from documented past failures on this exact hardware (WinRM, OpenSSH, Salt, DHCP drift history), operational constraints (8 pods with live customer sessions, consumer router, Windows 11), and verified research on Tailscale SSH Windows status, split-brain patterns, and billing consistency requirements.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Assuming Fleet Tooling Will Work on This Network (Salt/WinRM/Ansible History)
+### Pitfall 1: Tailscale SSH Server Does Not Run on Windows
 
 **What goes wrong:**
-A fleet automation tool that works perfectly in a corporate or cloud environment is deployed to Racing Point's Windows 11 LAN. Installation appears to succeed. Then: the tool cannot reach pods because Windows Defender blocks the agent installer, the ZMQ ports (Salt 4505/4506) are LISTENING but no minion connects, WinRM returns 401/5 authentication failures, or OpenSSH's Windows component store is corrupted and `Add-WindowsCapability` silently fails. The entire deployment week is wasted. This happened three times: Salt (WSL2 portproxy couldn't forward ZMQ), WinRM (failed on this network previously), OpenSSH (Server component store corrupted on the server).
+The plan includes "remote exec from James to Server (.23) via Tailscale SSH." Tailscale SSH *server* (the component that accepts incoming SSH connections and authenticates via Tailscale) is NOT supported on Windows as of 2026. The feature request tracking Windows SSH server support is GitHub issue #4697 / #14942 on the Tailscale repo, and Tailscale has confirmed it is implemented in Go as part of tailscaled — not via OpenSSH — so the corrupted Windows OpenSSH component store on the server (.23) is irrelevant. Attempting to enable `tailscale ssh` on the Windows server will silently not work — the flag may be accepted but no SSH listener opens.
 
 **Why it happens:**
-This network has compounding constraints that break fleet tools: (1) No domain controller — pods use local Windows accounts with no Kerberos. (2) Windows Defender on pods is active and blocks new service installers without admin approval. (3) rc-agent is in Session 1 (GUI session) because of the lock screen requirement, but most remote management daemons run as SYSTEM in Session 0 — creating the Session 0/1 split. (4) Firewall rules require admin to open ports, and batch file CRLF bugs silently break netsh rules. (5) WSL2 portproxy has documented limitations with ZMQ multicast.
+Tailscale SSH server is available on Linux and macOS only. Windows machines can be SSH *clients* through Tailscale (connecting out to Linux nodes) but cannot accept incoming Tailscale SSH connections. The distinction between "Tailscale the client" (works on Windows) and "Tailscale SSH server" (Linux/macOS only) is not prominent in the docs until you look at the platform-specific notes.
 
 **How to avoid:**
-Before committing to any new fleet tool for v9.0, answer five questions: (a) Does it work on non-domain Windows machines? (b) Does its agent installer pass Windows Defender without manual exclusion? (c) Does it use standard HTTP/HTTPS ports (80/443/8080) rather than custom ports? (d) Does it tolerate a 5-minute internet outage mid-operation? (e) Is there a working reference deployment on Windows 11 21H2+ without a domain controller? If any answer is no, it will fail. The existing rc-agent remote_ops on port 8090 (WebSocket exec) is already deployed and working — prefer building on that foundation over adopting a new fleet daemon.
+The correct architecture for remote exec to a Windows server over Tailscale is: Tailscale provides the encrypted tunnel (IP reachability), then an application-layer exec mechanism runs over that tunnel. Three viable options in order of preference:
+1. **rc-agent remote_ops :8090** — already deployed, already authenticated, works over any IP including Tailscale IP. Use the server's Tailscale IP as the target.
+2. **RustDesk over Tailscale** — RustDesk direct IP access via Tailscale IP provides GUI remote control when needed. No SSH server required.
+3. **OpenSSH via DISM repair** — If the component store on the server (.23) can be repaired (`DISM /Online /Cleanup-Image /RestoreHealth` then `Add-WindowsCapability`), install OpenSSH Server and configure it to listen on the Tailscale IP only. This is the fallback for interactive shell access.
+
+Do NOT plan phase timelines assuming Tailscale SSH server works on Windows. Budget time for one of the above alternatives.
 
 **Warning signs:**
-- Tool documentation says "supports Windows" but examples show AD/domain setups
-- Agent requires `Add-WindowsCapability` or `DISM` to install
-- Tool uses ZMQ, SSH, or WinRM as transport (all failed before)
-- First pod test works but identical steps fail on second pod (inconsistent Defender state)
+- `tailscale ssh` on the server returns a connection attempt that never completes
+- Tailscale admin console shows server online but SSH column is blank/unavailable
+- Phase plan references "enable SSH on server" without specifying the mechanism
 
-**Phase to address:** Phase 1 (Deployment Automation) — verify the five questions before any implementation begins. Add a "Prior Failures" section to the phase plan citing Salt, WinRM, OpenSSH.
+**Phase to address:** Phase 1 (DHCP + Remote Exec) — verify the exec mechanism before designing any health monitoring or failover that depends on it.
 
 ---
 
-### Pitfall 2: OAuth Token Expiry Silently Breaking Automation
+### Pitfall 2: DHCP Reservation Fails Because MAC Address Changed (Server Already Did This)
 
 **What goes wrong:**
-An automation workflow is built on Gmail MCP or Google Workspace API for alerting, status emails, or log delivery. The integration works on day 1. Six weeks later, the refresh token silently expires (Google OAuth tokens for non-production apps have 7-day expiry in test mode; production apps can be 6 months). The automation sends no alerts. Uday doesn't notice because the venue is running fine. Three weeks after that, a pod crashes at 2 AM — no alert fires, Uday sees the issue at 9 AM when customers arrive. The Gmail MCP is documented as broken in MEMORY.md as of 2026-03-20: "Gmail OAuth tokens expired — `getAuthClient` fails with 'No access, refresh token'."
+A DHCP reservation is set on the router for the server (.23) using the MAC address recorded in MEMORY.md. The server gets a different IP anyway. This has already happened: the server's MAC changed from `BC:FC:E7:2C:F2:CE` (old Marvell NIC) to `10:FF:E0:80:B1:A7` (new Gigabyte Z870 onboard NIC) on 2026-03-17, and the DHCP reservation is still listed under the OLD MAC. The server will never receive the reserved IP until the reservation is updated to the new MAC. Additionally, consumer routers (including Xiaomi/TP-Link variants common in Indian venues) have documented bugs where DHCP reservations are ignored for active leases that were assigned before the reservation was created — the old lease must expire before the reservation takes effect.
 
 **Why it happens:**
-Google OAuth refresh tokens are not permanent. For apps in "testing" mode (not published to Google Workspace Marketplace), tokens expire after 7 days and must be re-authorized. Even published apps expire after 6 months of inactivity. Claude Code Gmail MCP uses stored credentials — when the token expires, all MCP tool calls silently fail with an auth error, but the MCP server keeps running and reporting no errors at the process level.
+DHCP reservation works by matching the MAC address in the DHCP DISCOVER packet. A reservation for the wrong MAC is the same as no reservation. Additionally, Windows 11 has MAC address randomization enabled by default for Wi-Fi, though Ethernet typically uses the physical MAC. The server uses Ethernet, but any future NIC replacement or driver change can change the reported MAC.
 
 **How to avoid:**
-Never build a critical alerting path on OAuth-dependent integrations without a fallback. The existing `send_email.js` shell-out with stored credentials is the current working email method — keep it as the primary alert path. For any new MCP-based integration, add a daily health check that attempts a low-stakes API call (e.g., list one calendar event) and alerts via the fallback channel if it fails. For Google Workspace: publish the app to production mode (removes 7-day expiry), or use a service account with domain-wide delegation (no token expiry). Set a calendar reminder to re-authorize tokens before expiry.
+1. Before creating/updating the DHCP reservation, verify the current MAC on the server: run `getmac /v /fo list` or check `ipconfig /all` on the server, not from router ARP tables (ARP can be stale).
+2. Create the reservation in the router using the current MAC (`10:FF:E0:80:B1:A7` as of 2026-03-17).
+3. Force the old lease to expire: either wait for nightly lease expiry (~01:05 per MEMORY.md) or run `ipconfig /release && ipconfig /renew` on the server after the reservation is saved.
+4. As a belt-and-suspenders measure, also configure a static IP directly on the server's NIC (same .23 address) alongside the DHCP reservation — the static assignment wins if DHCP fails.
+5. Document the MAC in MEMORY.md with a "verify before DHCP config" note so any future NIC change triggers an update.
 
 **Warning signs:**
-- MCP server process is running but API calls return `getAuthClient` or "No access, refresh token" errors
-- Alert emails stop arriving but venue operations appear normal (silent failure)
-- Last successful alert email was more than 7 days ago
-- `node send_email.js` returns 200 but Gmail MCP returns auth error
+- Router DHCP client list shows the server's current MAC is different from the reserved MAC
+- Server gets IP from DHCP pool (not the reserved .23) after reboot
+- `arp -a` on James workstation shows .23 with a MAC that doesn't match the reservation
 
-**Phase to address:** Phase 2 (MCP Servers) — every MCP integration must have a token health check and fallback path before being marked complete.
+**Phase to address:** Phase 1 (DHCP Fix) — MAC verification must be the first step before touching the router.
 
 ---
 
-### Pitfall 3: Internet Dependency for Venue-Critical Operations
+### Pitfall 3: Split-Brain During Failover — Pods Take Billing Actions on Both Servers Simultaneously
 
 **What goes wrong:**
-A new monitoring or automation feature is built assuming stable internet: Prometheus metrics pushed to a cloud endpoint, alert webhooks to Slack/PagerDuty, Claude API calls for AI-assisted debugging, cloud-sync-dependent workflows for billing decisions. The venue's internet connection drops (it does — "flaky internet" is a documented constraint). During the outage: all monitoring is blind, alerts cannot fire, billing workflows stall because cloud_sync fails, and AI debugging fallback to cloud Claude API fails. Uday is left managing 8 pods with no tooling for 20-30 minutes.
+A pod's rc-agent reconnects to the cloud server (Bono's VPS) while the local server (.23) is believed to be down. The local server was not actually down — it was unreachable from James (.27) due to a network path issue between .27 and .23, but pods on the .31 subnet could still reach .23 directly. Now both servers believe they are authoritative for the same sessions. Billing timers run on both. A session is ended on the cloud server (customer paid) while the local server still shows it as active and charges more credits. When .23 comes back into sync, `cloud_sync.rs` resolves by phone/email lookup — but neither server knows which billing record is correct. Credits are double-charged or incorrectly refunded.
 
 **Why it happens:**
-The impulse when adding monitoring is to send metrics/events to a cloud service (Grafana Cloud, Datadog, etc.) because they provide dashboards without self-hosting. But Racing Point's operations are venue-local — the 8 pods, the server, and James workstation are all on 192.168.31.x. None of them need internet to function. Building critical tooling on internet-dependent paths turns a network blip into an operational outage.
+James (.27) is the health monitor — it probes .23 and declares it down. But James's path to .23 may differ from the pods' path. On a flat LAN (192.168.31.x/24), this is rare but possible: a switch port failure, a cable issue on the uplink, or a temporary ARP storm can isolate .27 from .23 while pods remain connected. The auto-failover mechanism reads James's health verdict as authoritative and commands all pods to switch, even though .23 is still reachable by the pods.
 
 **How to avoid:**
-Follow the existing cloud_sync pattern: local operations are authoritative and run first; cloud is a secondary sync that gracefully degrades. For monitoring: run Prometheus + Grafana locally on the server (.23) and export metrics over LAN. For alerting: send alerts via WhatsApp (Evolution API on localhost:53622 — LAN-only, works offline) first, email second. For AI debugging: Ollama on James workstation (.27) is already the primary path, Claude API is the fallback. New tooling must follow this same offline-first hierarchy: LAN-local → offline-capable → cloud-dependent.
+1. **Failover verdict must be multi-probe:** Do not trigger failover based on James's health check alone. Require at least one pod's own connectivity report to confirm .23 is unreachable from the LAN before declaring a failover. A pod that can still reach .23 is a counter-signal that overrides James's verdict.
+2. **Session lease before failover:** Before switching a pod to cloud, the pod must successfully revoke its session lease from .23 (or confirm .23 is truly unreachable via direct pod probe). If the revocation succeeds, .23 already knows the session moved.
+3. **Cloud server is read-only for billing until local confirmed down:** Cloud server should not start new billing ticks for sessions that originated on local server until it has received a session transfer (not just a reconnect).
+4. **Failback reconciliation is mandatory:** When .23 recovers, perform a full billing reconciliation before resuming local-authoritative mode — compare session end times and credits charged on both servers, flag any mismatch for manual review.
 
 **Warning signs:**
-- Feature works perfectly during development but fails during demo when 4G hotspot is used
-- Monitoring dashboard shows gaps in metrics during known internet outage periods
-- Alert fires 20 minutes late (cloud webhook queued and delivered after reconnect)
-- Billing session hangs because it awaits a cloud_sync confirmation
+- Failover is triggered when `ping 192.168.31.23` from .27 fails but pod WebSocket to .23 is still connected
+- Cloud server accepts billing END events for sessions it received as NEW (transfer) vs sessions it originated
+- After failback, `cloud_sync.rs` shows UUID mismatch warnings for sessions that were active during failover
 
-**Phase to address:** Phase 1 (Deployment Automation) and Phase 4 (Monitoring) — architecture review must verify offline behavior before implementation begins.
+**Phase to address:** Phase 3 (Auto-Failover) — failover condition must be defined as "pods cannot reach .23" not "James cannot reach .23."
 
 ---
 
-### Pitfall 4: Over-Engineering the Fleet Management Layer
+### Pitfall 4: False Positive Health Checks Causing Unnecessary Failovers During Normal Events
 
 **What goes wrong:**
-v6.0 is the canonical example: Salt fleet management (SaltStack master on WSL2, salt-minions on 8 pods + server) was designed, researched, and planned before any pod was tested. The planned architecture required WSL2 AMD-V virtualization on the server. The server's BIOS doesn't support AMD-V for WSL2. v6.0 is now "BLOCKED" and has been parked. Six weeks of architectural planning delivered nothing operational. The existing rc-agent remote_ops port 8090 was already deployed and working.
+The health monitor polls `http://192.168.31.23:8080/health` every 10 seconds. A session of AC launches on Pod 4 — the server is CPU-busy for 3-4 seconds while processing the launch. The `/health` endpoint times out once. The health monitor records one failure, and since the failover threshold is set low (2 consecutive failures = failover), it triggers. All 8 pods disconnect from .23 and attempt to reconnect to Bono's VPS. Game sessions are interrupted. Customers complain. The server was never actually down.
 
 **Why it happens:**
-Fleet management is a solved problem at scale (1000+ servers). It's also massively over-engineered for a fleet of 8 Windows PCs that rarely change. The temptation is to adopt "production-grade" infrastructure tooling because it exists and is well-documented. But Racing Point's fleet is not a cloud server farm — pods rarely need batch commands, binary deploys happen once a month, and the primary channel (rc-agent WS exec) already works for 90% of cases.
+Normal Racing Point operations include events that create brief server unavailability: game launch (AC process spawn is CPU-intensive), Windows Update (server may restart at 2 AM), racecontrol restart (20-30 second gap between binary swap and port bind), and the existing WS_DEAD_SECS 300-second window (per commit 8a026da) that already knows slow boots are normal. A simple consecutive-failure threshold without duration awareness treats momentary load spikes as outages.
 
 **How to avoid:**
-Before evaluating any new fleet tool for v9.0, ask: "What does the existing rc-agent remote_ops + pendrive workflow not cover?" The answer is small: (a) deploying a new rc-agent binary when the old one is crashed, (b) bulk config changes across all 8 pods simultaneously. Address those two gaps with the simplest possible mechanism (a one-click deploy HTTP server on James workstation + rc-agent's self-restart sentinel) rather than introducing a new fleet daemon. New tooling must solve a documented operational problem, not a hypothetical scale problem.
+1. **Minimum outage duration:** Do not trigger failover until the server has been unreachable for at least 60 seconds continuously — not just 2 consecutive checks.
+2. **Multi-probe with jitter:** Use 3 independent probes (HTTP /health, TCP port check :8080, ICMP ping) and require all three to fail simultaneously before counting a failure.
+3. **Time-gated suppression:** Suppress failover during the 01:00-03:00 AM window when Windows Update reboots are expected, and during the first 5 minutes after racecontrol restarts.
+4. **Consult existing thresholds:** The codebase already uses `WS_DEAD_SECS = 300` (5-minute tolerance for slow boot reconnect) — health monitor thresholds must be calibrated to be at least as tolerant.
+5. **Alert before acting:** Send a WhatsApp alert to Uday when health drops to "warning" state. Only trigger automatic failover if warning persists for 60+ seconds AND Uday has not acknowledged/cancelled.
 
 **Warning signs:**
-- Tool evaluation takes more than one day before any pod is tested
-- Architecture requires a component (WSL2 AMD-V, domain controller, SSH server) that hasn't been verified on the target hardware
-- The tool solves a problem that currently requires ~5 minutes of manual work (not worth the automation overhead)
-- The plan has more than 3 deployment phases before producing any operational value
+- Health check failures correlate with game launch events on pods (timestamps match)
+- Failover happens at 2-3 AM during Windows Update window
+- Failover triggers multiple times per week despite the server being "fine" operationally
+- Health check timeout is shorter than the server's normal racecontrol restart time
 
-**Phase to address:** Phase 1 (Deployment Automation) — scope must be bounded to the documented operational gaps, not a general fleet management overhaul.
+**Phase to address:** Phase 2 (Health Monitoring) — define and document the normal-event baseline before writing any threshold logic.
 
 ---
 
-### Pitfall 5: Claude Code Skills That Require Human Confirmation in the Critical Path
+### Pitfall 5: rc-agent Dual-Connect — Connecting to Both Local and Cloud Server Simultaneously
 
 **What goes wrong:**
-A Claude Code skill or automation hook is added to handle pod crashes or billing issues. The skill works correctly in testing. In production, the skill hits an edge case (e.g., billing session stuck in a state it doesn't recognize) and prompts Uday for confirmation: "Should I force-end this session? (y/n)". Uday is with a customer at the reception desk. He doesn't see the prompt for 15 minutes. The pod is locked and the customer is waiting. The automation that was supposed to reduce manual intervention has created a worse experience than no automation at all.
+During failover, an rc-agent reconnects to Bono's VPS. During failback, the rc-agent detects .23 is back and opens a new WebSocket connection to .23 while the cloud connection is still alive (the old connection hasn't timed out yet). Now the agent has two active WebSocket connections. Both servers send commands. The rc-agent processes commands from both, leading to double-execution: a billing END command fires twice, the lock screen engages twice, or a game launch is attempted on an already-running session. The cloud server's WS_DEAD_SECS timer hasn't triggered yet so it still sends commands, and the local server's reconnection starts sending commands too.
 
 **Why it happens:**
-Claude Code and LLM-based automation have a natural tendency to ask for confirmation before destructive or irreversible actions. This is appropriate for development tasks but wrong for operational automation where speed and autonomy are the value proposition. Racing Point has one operator (Uday) who cannot monitor a terminal. If automation can't make a decision, Uday must, and he may not be available.
+WebSocket reconnect logic opens a new connection before explicitly closing the old one — the close and connect are not atomic. In a failover/failback scenario with two candidate servers, the rc-agent's connection state machine must prevent simultaneous connections. The existing auto-reconnect with backoff (CONN-03) was designed for single-server reconnect, not multi-server switching.
 
 **How to avoid:**
-Every automation action must have a pre-determined policy for the uncertain case: "If I cannot determine the correct action, do X by default." For pod automation: the safest default is always "engage lock screen and alert Uday via WhatsApp." Never leave the system in a state requiring human input before proceeding. For Claude Code skills: define the decision boundary explicitly in the skill's prompt — what it is authorized to do without asking, and what should trigger a WhatsApp alert to Uday instead. The existing 4-tier debug order (deterministic → memory → Ollama → Claude API) is the correct pattern: escalate, don't block.
+1. **Explicit disconnect-before-connect:** Before opening a WebSocket to a new server, explicitly close and await confirmation of close on the current connection. Add a `DISCONNECTING` state to the connection state machine.
+2. **Server authority token:** When rc-agent connects to a server, the server returns an authority token that includes the server ID. rc-agent refuses commands from any server whose authority token it does not currently hold. Only one server can hold authority at a time.
+3. **Failback handshake:** Failback to .23 requires .23 to request authority transfer from Bono's VPS (via Tailscale), which revokes the cloud server's authority token before the rc-agent reconnects locally.
+4. **Connection state logging:** Log every connection state transition with timestamps and server identity — dual-connect is detectable in logs before it causes damage.
 
 **Warning signs:**
-- Skill prompt includes "ask the user whether to..." for any operational action
-- Testing shows the skill works for the 3 common cases but "will ask" for edge cases
-- The skill's error handling is "return the error and wait for instructions"
-- Uday has to check a terminal to see if automation completed
+- rc-agent log shows two active WebSocket connection IDs simultaneously
+- Billing END events appear twice in the racecontrol database for the same session
+- Lock screen engages unexpectedly on a pod that was in the middle of a session
 
-**Phase to address:** Phase 3 (Claude Code Skills) — every skill must define its fallback policy (alert + safe-state) before implementation.
+**Phase to address:** Phase 3 (Auto-Failover) and Phase 4 (Failback) — connection state machine changes must precede any failover testing.
 
 ---
 
-### Pitfall 6: Windows Session 0 vs Session 1 Breaking New Service Deployments
+### Pitfall 6: Config Sync Overwrites Local Customizations Made During an Outage
 
 **What goes wrong:**
-A new monitoring agent, MCP server, or automation service is installed as a Windows Service (SYSTEM account, Session 0). The service starts successfully. It cannot display UI elements, cannot interact with the kiosk or lock screen (which run in Session 1), cannot read GPU metrics from the user session, and cannot interact with game processes (which have user-session security context). On the server, services that need to talk to the kiosk frontend over localhost see connection refused because the kiosk is listening on a user-session socket. This exact problem caused the watchdog to restart rc-agent in Session 0 on pod crashes — it shows as blank screen until next reboot.
+During a 2-hour local server outage, Uday asks Bono to update billing rates on the cloud server — a customer negotiated a group discount. Bono edits the `billing_rates` table on Bono's VPS. When .23 recovers, the config sync runs. The sync is designed "cloud authoritative for pricing" — so the cloud pricing overwrites .23's local pricing. But between the outage and the sync completing, a staff member had also manually edited `racecontrol.toml` on .23 to temporarily set a different rate while the cloud was unreachable. That local change is silently overwritten. No one notices for two days until billing discrepancies surface.
 
 **Why it happens:**
-Windows Vista+ separates services (Session 0) from interactive user processes (Session 1+). Any service running as SYSTEM cannot directly interact with the desktop session. For Racing Point: the kiosk, rc-agent, and the lock screen all require Session 1 because they are GUI applications or need to interact with game processes. New services that need to bridge both sessions require explicit `CreateProcessAsUser` or `WTSQueryUserToken` calls, which are complex and error-prone.
+The existing cloud_sync.rs is designed with "cloud authoritative: drivers, pricing" and "local authoritative: billing, laps, game state." This works in steady-state but creates a conflict window when both sides are written during an outage. The sync does not track which side was written more recently — it applies the authority rule unconditionally, not the "newer wins" rule.
 
 **How to avoid:**
-For new agents or services that need to interact with the RC system: prefer HTTP endpoints over Windows Service architecture. The existing pattern (HKLM Run key → starts in Session 1 at login, `start-rcagent.bat`) is the proven approach for processes that need GUI access. For background monitoring that doesn't need GUI (Prometheus node exporter, log shipper), install as a SYSTEM service but scope it to HTTP-only operations against LAN endpoints. Never install a new Windows Service as SYSTEM without explicitly testing that it can access everything it needs from Session 0.
+1. **Timestamp-based config sync:** Add a `config_updated_at` timestamp to any config record that can be modified on both sides. On sync, apply "last-write-wins" within the authoritative domain, not just "cloud wins always."
+2. **Outage detection in sync:** When .23 comes back online, compare `config_updated_at` for any records modified on .23 during the outage window with records modified on cloud during the same window. Surface conflicts to Uday before applying.
+3. **Narrow the cloud-authoritative scope:** Pricing is cloud-authoritative for PWA display, but operational overrides made during an outage should be treated as local-authoritative until explicitly synced. Add an `override_until` timestamp or `local_override` flag.
+4. **Config sync audit log:** Every sync event should write a log entry detailing what was overwritten. This makes conflicts detectable after the fact.
 
 **Warning signs:**
-- Service reports "started" but produces no output / collects no metrics
-- Log files show "Access denied" or "Handle is invalid" for operations that work fine when run as the logged-in user
-- Service can HTTP-GET a LAN endpoint but cannot write to a local file in the user profile
-- New service needs to interact with the lock screen HTML, kiosk browser, or game process — these require Session 1
+- Billing rates change unexpectedly after .23 comes back online following an outage
+- `cloud_sync.rs` log shows "applied cloud config" without a conflict check step
+- Staff report that rates they set during an outage were "undone by the system"
 
-**Phase to address:** Phase 1 (Deployment Automation) and Phase 4 (Monitoring) — session context must be specified for every new process before deployment design.
+**Phase to address:** Phase 2 (Config Sync) — conflict resolution policy must be defined before implementation, not after.
 
 ---
 
-### Pitfall 7: MCP Server Config Drift Breaking James-Bono Coordination
+### Pitfall 7: Failback Resumes Sessions That Were Already Ended on Cloud
 
 **What goes wrong:**
-A new MCP server is configured in Claude Code on James workstation (.27) — for example, a Google Workspace MCP or a custom venue MCP that reads racecontrol SQLite. The MCP works from James's Claude Code session. A month later, a new MCP is added. The `claude_desktop_config.json` (or equivalent MCP config) is updated on James's machine but never synced to Bono's VPS environment. Bono attempts a task that should use the Google Drive MCP and falls back to a worse path because the MCP is not available in his environment. James assumes Bono has the same tools; Bono assumes James has the same tools. Neither verifies, and both produce incorrect automation that silently fails.
+Pod 3 has an active session during the failover. The session is billed and ended on Bono's VPS after 45 minutes. The customer pays and leaves. When .23 recovers and failback occurs, the rc-agent reconnects to .23. .23's `cloud_sync.rs` pulls session data from the cloud, but the sync runs asynchronously and hasn't completed yet. .23's in-memory state still shows Pod 3 as "active" (it never received the END event while it was down). rc-agent reconnects and .23 thinks the pod needs re-authentication. The lock screen engages on Pod 3. A new customer is already seated and trying to start a session — their experience is broken.
 
 **Why it happens:**
-Claude Code MCP configuration is per-machine. James (.27, Windows) and Bono (VPS, Linux) have different environments and different MCP availability. When new MCPs are added to one environment, there is no automatic sync to the other. The comms-link INBOX.md is used for operational messages but not for infrastructure changes. Over time, the tool sets diverge.
+.23 was offline during the session's lifecycle. Its in-memory state is stale. Failback reestablishes the WebSocket without first reconciling pod state. The `cloud_sync.rs` pull-on-startup pattern handles this for the database tables but not for in-memory `AppState` (pod sessions, game state). The server needs to reconcile in-memory state from the sync data before allowing rc-agents to reconnect.
 
 **How to avoid:**
-Maintain a `.planning/codebase/MCP-INVENTORY.md` file in the racecontrol repo that lists every MCP server, which environment it runs in (James/Bono/both), its purpose, its config location, and its last verified date. When adding a new MCP, update this file and notify the partner AI via INBOX.md with the config diff. For any task that involves both James and Bono, check MCP-INVENTORY.md first to confirm tool availability on both sides.
+1. **Sync-before-accept:** When .23 comes back online, do not accept rc-agent connections until `cloud_sync.rs` has completed a full pull from Bono's VPS. Add a startup health gate: `racecontrol` only opens its WebSocket listener after sync confirms its state is current.
+2. **Session state reconciliation:** On first rc-agent reconnect after failback, the server must query the pod's current state (running game? lock screen?) and reconcile with the synced database state, not just the stale in-memory state.
+3. **Graceful stale-state handling:** If sync shows a session was ended on cloud while .23 was down, the in-memory state for that pod should be set to `Idle`/`Ready` immediately, not `Active`.
+4. **Failback notification to Bono:** When failback completes, Bono should notify .23 of all sessions that started, changed state, or ended during the outage — push a reconciliation payload, don't wait for the passive sync cycle.
 
 **Warning signs:**
-- Bono completes a task using a different (worse) path that James knows has an MCP shortcut
-- James references a tool capability that Bono's session doesn't have
-- `claude mcp list` output differs between James and Bono environments
-- New MCP was added without a corresponding INBOX.md message to the partner AI
+- Pod lock screen engages immediately after failback on a pod where the customer already finished
+- .23 logs show `session_id` already present in the `sessions` table (duplicate on sync)
+- Customers report being asked to authenticate again on a pod they just completed
 
-**Phase to address:** Phase 2 (MCP Servers) — MCP-INVENTORY.md must be created and populated as the first deliverable, before any new MCP is installed.
+**Phase to address:** Phase 4 (Failback) — sync-before-accept gate must be implemented before any failback testing with active sessions.
 
 ---
 
-### Pitfall 8: Monitoring That Alerts Too Much (Alert Fatigue) or Too Little (Silent Failures)
+### Pitfall 8: OpenSSH Component Store Repair Fails on Server — No Fallback Planned
 
 **What goes wrong:**
-A Prometheus + Grafana monitoring stack is set up. Alerts are configured for pod heartbeat timeout (6s), WebSocket disconnect, billing session anomaly, CPU over 80%. Within a week, Uday receives 40+ WhatsApp alerts per day: pods disconnect momentarily during game startup (normal), CPU spikes during AC loading (normal), heartbeat gaps during Windows update reboots (normal). Uday starts ignoring all alerts. Three weeks later, a genuine billing failure produces an alert that goes unnoticed because the notification channel is muted.
+The v10.0 plan includes remote exec via Tailscale to the server. Tailscale SSH server doesn't work on Windows (see Pitfall 1). The fallback plan is to repair OpenSSH via `DISM /Online /Cleanup-Image /RestoreHealth` on the server. This repair requires internet access on the server and can take 30-60 minutes. On an isolated network (server behind NAT, no direct internet) or with Windows Update policies that redirect to WSUS, `DISM /RestoreHealth` fails with error `0x800f0954` ("The source files could not be found"). The repair hangs or errors out. Now there is no remote exec mechanism and the original rc-agent remote_ops on port 8090 is the only option.
 
 **Why it happens:**
-The existing system already has hardcoded thresholds tuned for the Racing Point environment (6s heartbeat, 10s idle, 5 CLOSE_WAIT strikes before restart). These thresholds were calibrated through 50+ phases of production operation. A new monitoring layer that doesn't respect these calibrations will generate false positives from normal events. The rate-limited alert system (ALERT-02) exists specifically because unchecked alerting caused this problem before.
+`Add-WindowsCapability` for OpenSSH requires downloading the capability package from Windows Update servers. If WSUS is configured, or if the server's Windows Update source is blocked, the download fails. The server at Racing Point has had component store issues before — the fact that OpenSSH install already failed once indicates a pre-existing component store problem that DISM may not be able to repair without a Windows installation media source.
 
 **How to avoid:**
-Before configuring any alert, document the normal behavior baseline: What is the expected heartbeat gap during AC launch? (up to 30s.) What is normal CPU during F1 25 session? (60-80%.) What is acceptable WebSocket disconnect frequency? (1-2 per day.) Alert only when observed values exceed the documented normal range for more than the calibrated duration. Start with zero alerts and add them one at a time after observing the baseline for one week. Mirror the existing ALERT-02 rate-limiting: maximum one alert per type per 30 minutes.
+1. **Plan for OpenSSH failure:** The primary remote exec path must be rc-agent remote_ops :8090, which already works. OpenSSH is a nice-to-have for interactive shell, not a dependency for automated exec.
+2. **Offline repair option:** Download the OpenSSH capability package (.cab file) from Microsoft Update Catalog before attempting repair — this allows offline installation (`Add-WindowsCapability -Source <local-path>`).
+3. **Alternative: SSH via pendrive install:** Deploy a standalone OpenSSH MSI (not the Windows capability feature) to the server via pendrive. The MSI-based install (`OpenSSH-Win64.msi` from the PowerShell/openssh-portable releases) bypasses the component store entirely.
+4. **Test first:** Before designing any phase around OpenSSH on the server, run the DISM repair and capability install once to confirm it succeeds. Commit this as a prerequisite verification step, not an assumption.
 
 **Warning signs:**
-- More than 10 alerts fire in the first 24 hours after monitoring is enabled
-- Alerts fire during events that are known-normal (game startup, pod reboot, steam update)
-- Uday mutes the alert channel or starts not responding to alerts
-- Alert thresholds were copied from a generic template rather than calibrated against Racing Point's logs
+- `Add-WindowsCapability` returns `0x800f0954` (source not found) or `0x800f081f` (store corruption)
+- `DISM /Cleanup-Image /RestoreHealth` takes more than 10 minutes or returns errors
+- The CBS.log (`C:\Windows\Logs\CBS\CBS.log`) shows "Package_for_OpenSSH" with a failed state
 
-**Phase to address:** Phase 4 (Monitoring) — baseline calibration week must precede any alert threshold configuration.
+**Phase to address:** Phase 1 (Remote Exec Setup) — add "verify OpenSSH install or confirm rc-agent :8090 is sufficient" as the first acceptance criterion.
 
 ---
 
@@ -180,13 +201,13 @@ Before configuring any alert, document the normal behavior baseline: What is the
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Using Gmail MCP as the sole alert channel | Simple to set up | Silent failure when OAuth expires; no fallback for critical pod alerts | Never for critical alerts — always add WhatsApp (Evolution API) as primary |
-| Installing new agents as Windows Services without Session 1 testing | Clean install, auto-start | Agent runs but can't access GUI or game processes; breaks lock screen integration | Only if agent is purely network/HTTP with no UI interaction |
-| Adding Claude Code skills that prompt for confirmation | Safer in development | Blocks operations when Uday is unavailable; worse than no automation | Only for non-time-sensitive admin tasks (never for pod crash recovery) |
-| Deploying fleet tool to all 8 pods simultaneously | Faster deployment | One failure blocks all pods; no canary | Never — always deploy Pod 8 canary first, verify, then roll out |
-| Hardcoding alert webhook URLs in automation scripts | Simple | URL changes break all alerts silently; no single source of truth | Never — put webhook URLs in racecontrol.toml config |
-| Building monitoring on cloud endpoints | Avoids self-hosting | Monitoring blind during internet outage; exactly when monitoring matters most | Only for non-critical dashboards that don't affect operations |
-| Storing MCP credentials alongside the racecontrol repo | Convenient | Credentials committed to git history; API keys exposed | Never — always use environment variables or separate secrets file outside repo |
+| Using James's health check as sole failover trigger | Simple, single point of decision | Split-brain when James's path to server differs from pods' path (switch fault, cable issue) | Never — require pod-side confirmation |
+| Setting failover threshold to 2 consecutive failures | Fast failover response | False positives during normal game launches, server restarts; unnecessary pod disruption | Never — minimum 60s continuous outage |
+| Cloud-authoritative config sync without timestamp tracking | Simple sync logic | Silent overwrite of local changes made during outage | Never for billing rates — add last-write-wins per record |
+| Failback without sync-before-accept | Fast reconnect | Stale in-memory session state causes double billing or phantom lock screens | Never — always sync before accepting rc-agent connections |
+| Skipping the DHCP + static IP belt-and-suspenders approach | Slightly simpler setup | DHCP reservation alone can fail (wrong MAC, lease timing, router bug) | Never for the server — use both static NIC config AND DHCP reservation |
+| Trusting Tailscale SSH will work on Windows without testing | Saves time in planning | Phase blocked at implementation when SSH server doesn't open | Never — test on the actual server before planning timeline |
+| Single-path failover notification (email only) | Simple alerting | Email delivery may fail if internet is down during the same outage that caused the failover | Never — always send WhatsApp (LAN-accessible Evolution API) as primary + email as secondary |
 
 ---
 
@@ -194,14 +215,12 @@ Before configuring any alert, document the normal behavior baseline: What is the
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Google Workspace MCP | Assume OAuth tokens are permanent | Tokens expire; add daily health-check API call + fallback to send_email.js |
-| Prometheus node exporter on Windows | Install as SYSTEM service and assume it reads everything | Verify Session 0 can access all target metrics; GPU/game metrics need Session 1 context |
-| Ansible/fleet tool on Windows pods | Assume WinRM is available | WinRM has failed before; use rc-agent HTTP port 8090 as the transport layer |
-| Claude Code custom skills | Write skills that call external APIs directly | Route all external calls through racecontrol API or existing rc-agent endpoints to respect config and auth |
-| SQLite monitoring queries | Run monitoring queries against live racecontrol.db | SQLite WAL mode allows concurrent reads but heavy monitoring queries add latency to billing operations; use a read replica or periodic export |
-| MCP for racecontrol SQLite | Allow MCP to write to the database | MCP access must be read-only; all writes go through racecontrol API to maintain billing integrity |
-| Grafana on the server (.23) | Install via Linux package manager | Server runs Windows; use the Windows binary or the Docker-based version (if Docker is available); verify RAM usage against 64GB budget |
-| WhatsApp via Evolution API | Assume the API instance stays connected | Evolution API WhatsApp instance requires periodic QR re-scan; add a health check endpoint probe |
+| Tailscale on Windows server | Assume Tailscale SSH server is available | Tailscale SSH server is Linux/macOS only; use Tailscale for IP reachability only, route exec via rc-agent :8090 over the Tailscale IP |
+| DHCP reservation on consumer router | Set reservation without verifying current MAC | Run `ipconfig /all` on the server; compare to router ARP table; consumer routers ignore reservations for active leases — force lease renewal after setting reservation |
+| cloud_sync.rs on failback | Trust the 30s passive sync cycle to reconcile outage state | Push a dedicated reconciliation payload from Bono to .23 on failback; do not rely on passive polling to reconstruct outage state in time |
+| Windows NIC MAC addresses | Assume MAC is stable | Windows 11 Wi-Fi uses random MACs by default; future hardware changes (NIC replacement, driver update) can change Ethernet MAC; pin MAC in MEMORY.md and verify before any DHCP config |
+| Health monitoring HTTP endpoint | Use a fast timeout (1-2s) | Server is busy during game launches — use a 5-10s timeout minimum; a 3-4 second load spike is not an outage |
+| rc-agent failover switch | Switch to cloud server immediately on first health failure | rc-agent should try a direct LAN probe to .23 before accepting James's health verdict; a routing issue on .27 should not trigger a fleet-wide failover |
 
 ---
 
@@ -209,10 +228,9 @@ Before configuring any alert, document the normal behavior baseline: What is the
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Monitoring queries on racecontrol.db during active sessions | Billing latency increases; `compute_session_cost()` takes 200ms+ | Use SQLite WAL mode (already configured?) and limit monitoring to off-peak reads | During peak hours (6-10 PM) with 8 active sessions |
-| Prometheus scraping every pod every 15s via HTTP | Network traffic doubles; rc-agent HTTP handler slows | Scrape interval 60s minimum; use rc-agent WebSocket push events rather than HTTP polling | Immediately — rc-agent HTTP handler is not designed for high-frequency scrapes |
-| Claude API calls from automation triggered by pod events | API latency (500ms-3s) blocks event processing loop | Rate-limit Claude calls; use Ollama on .27 for real-time decisions, Claude API only for async analysis | During any pod flap (rapid connect/disconnect) — flood of events triggers flood of API calls |
-| Full log shipping from 8 pods + server | Disk I/O on server hits 100%; log files consume all free space | Ship only ERROR/WARN logs; rotate daily; cap at 100MB per pod | Within 2 weeks of enabling DEBUG-level log shipping |
+| Health check polling every 5s from James against the server | Server's Axum worker pool sees health check requests competing with pod WebSocket frames; brief latency spikes under load | Poll every 30s; use a dedicated lightweight `/ping` endpoint that returns 200 immediately without touching DB | During peak hours with 8 active sessions + health check flood |
+| Failover sending config sync pull immediately after reconnect to cloud | Cloud VPS (512MB-1GB RAM environment) gets a flood of sync requests from all 8 pods reconnecting simultaneously | Stagger reconnect backoff per pod (pod number * 2s delay); sync only what changed since last sync, not full pull | Immediately on failover with all 8 pods reconnecting at once |
+| Billing reconciliation running in the request handler on failback | HTTP timeout during reconciliation causes racecontrol to appear hung | Run reconciliation as a background task; block rc-agent connections with a "syncing" response code until complete | On failback with 3+ sessions that had activity during the outage |
 
 ---
 
@@ -220,23 +238,22 @@ Before configuring any alert, document the normal behavior baseline: What is the
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| MCP server with read/write access to racecontrol.db | Billing manipulation, driver wallet modification via Claude | MCP access must be read-only SQLite or go through racecontrol API with auth token |
-| Storing API keys in Claude Code skill prompts | Keys exposed in conversation history, logs, and any context window that includes the skill | Use environment variables or racecontrol.toml config; never inline keys in prompts |
-| Enabling remote exec via new automation tool without auth | Any process on the LAN can run arbitrary commands on pods | Require rc-agent token auth for all exec endpoints; never open unauthenticated exec on any port |
-| Hardcoded JWT default secret remaining unfixed (existing P0) | Token forgery, unauthorized billing session creation | Before adding any new auth integration, fix `default_jwt_secret()` in config.rs — this is a prerequisite |
-| New MCP server running with James's Windows credentials | MCP process has full filesystem access including `C:\RacingPoint\racecontrol.toml` (contains API keys) | Run MCP servers as a limited user account; scope filesystem access to minimum needed paths |
+| Remote exec endpoint accessible on public Tailscale IP without auth | Anyone with a Tailscale account added to the network can run arbitrary commands on the server | rc-agent remote_ops :8090 requires its existing auth token; verify the token check is not bypassed when the source IP is a Tailscale address |
+| Failover logic hardcodes Bono's VPS IP (72.60.101.58) in rc-agent config | VPS IP change breaks all failover; IP in source code creates a git-tracked configuration that must be updated on all 8 pods | Store cloud WS URL in `rc-agent.toml` as `cloud_ws_url`; never hardcode in source |
+| Config sync sends full `racecontrol.toml` to cloud (including JWT secret, API keys) | Secrets exposed on Bono's VPS, potentially in logs or sync payloads | Config sync must use a separate `billing_rates` API endpoint, not file-level TOML sync; never sync the full config file |
+| Tailscale ACL misconfiguration allowing pods to reach Bono's VPS directly | Pods could attempt to resolve health check or exec against cloud directly, creating unexpected traffic during normal operation | Tailscale ACL: only James (.27) and server (.23) have egress to Bono's VPS Tailscale node; pods reach cloud only through the server |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Gmail MCP working:** Verify by sending a test email *and* checking token expiry date — a successful send today does not mean the token is valid in 7 days
-- [ ] **Fleet automation deployed:** Verify by deploying a real binary update to Pod 8 and confirming the pod restores to Running state within 2 minutes — not just that the deploy script exits 0
-- [ ] **Monitoring alerting:** Verify by killing rc-agent on Pod 8 and confirming a WhatsApp alert arrives within 2 minutes — not just that Grafana shows a red panel
-- [ ] **Claude Code skill works offline:** Verify by disabling internet on James workstation and running the skill — if it fails, add Ollama fallback before marking complete
-- [ ] **MCP credential rotation tested:** Simulate token expiry by revoking the OAuth token and confirm the fallback path (send_email.js) fires before marking the MCP integration complete
-- [ ] **New service session context verified:** Run the service, then check with `Get-Process -IncludeUserName` that it's running in Session 1 (if GUI needed) or confirm it doesn't need Session 1 access (if background only)
-- [ ] **Alert thresholds calibrated:** Confirm zero false-positive alerts fired during one full business day before enabling production alerting
+- [ ] **DHCP reservation active:** Verify by rebooting the server and confirming it gets .23 — not just that the reservation appears in the router UI (reservations for wrong MACs are silently ignored)
+- [ ] **Remote exec working:** Verify by running a real command on the server from James via Tailscale IP — not just that Tailscale shows the server as "connected"
+- [ ] **Health monitor not false-positive:** Verify by launching a game on a pod and confirming the health monitor does not trigger a failover event during the launch
+- [ ] **Failover completes without billing loss:** Verify by starting a session on a pod, triggering failover, ending the session on cloud, then failback — confirm the session record appears correctly on .23 and credits are charged exactly once
+- [ ] **Failback sync-before-accept working:** Verify by checking that rc-agents cannot reconnect to .23 until the sync pull from Bono's VPS has completed (the port should refuse connections for up to 30s after .23 restarts)
+- [ ] **Split-brain prevention active:** Verify by disconnecting James's cable from the switch (James cannot reach .23) while leaving pods connected — confirm pods do NOT failover because they can still reach .23 directly
+- [ ] **Config sync conflict detection:** Verify by writing a billing rate on .23 during a simulated outage, then syncing from cloud — confirm the conflict is flagged, not silently overwritten
 
 ---
 
@@ -244,13 +261,13 @@ Before configuring any alert, document the normal behavior baseline: What is the
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Fleet tool failure (blocked by Defender/WinRM/etc.) | HIGH | Abandon the tool; fall back to pendrive install.bat v5 + rc-agent remote_ops :8090 for the specific gap being addressed |
-| Gmail OAuth token expired | LOW | Re-authorize via `node send_email.js --reauth`; update token in credentials file; set 30-day calendar reminder for next re-auth |
-| Cloud-dependent automation fails during internet outage | MEDIUM | Add offline-first fallback path; switch alert delivery to WhatsApp (Evolution API, LAN-local); document the outage handling policy |
-| Alert fatigue (too many alerts) | LOW | Disable alert channel; audit all alert rules; raise thresholds or add minimum-duration filters; re-enable one alert at a time |
-| MCP credential leak | HIGH | Rotate all API keys immediately; audit racecontrol.toml for any keys that appeared in MCP context; update `rc-agent.toml` on all pods via pendrive |
-| Over-engineered solution (like v6.0) | HIGH | Stop. Document why it failed in PROJECT.md. Identify the minimal working alternative. Ship that instead. |
-| New Windows Service stuck in Session 0 | MEDIUM | Convert to HKLM Run key (`start-service.bat`) to launch in Session 1 at login; accept the "no crash restart" limitation as the cost of Session 1 |
+| Tailscale SSH not working on server | LOW | Switch to rc-agent remote_ops :8090 over Tailscale IP; document Tailscale SSH as "not available on Windows" in PROJECT.md |
+| DHCP reservation not taking effect | LOW | Force `ipconfig /release && ipconfig /renew` on server; if reservation still wrong MAC, update router; fallback: configure static IP on server NIC directly |
+| Split-brain detected (both servers billing same session) | HIGH | Stop cloud server billing immediately; reconcile credits manually; apply "later end time wins" for session duration; notify Uday with summary |
+| False positive failover during business hours | MEDIUM | Reconnect all pods to .23 manually via rc-agent remote_ops; review health check thresholds; add minimum-duration gate before re-enabling auto-failover |
+| Failback leaves pods in stale session state | MEDIUM | For each pod: check rc-agent state vs .23 DB; if DB shows session ended but rc-agent shows active, send force-idle command via remote_ops; re-engage lock screen |
+| Config sync overwrites billing rates | MEDIUM | Restore backup billing_rates row (racecontrol.db is SQLite — `sqlite3 racecontrol.db ".dump billing_rates"` from pre-sync backup); re-sync from correct source |
+| Dual-connect (rc-agent on two servers) | HIGH | Kill rc-agent on affected pod via remote_ops; reconnect manually to correct server; audit session state on both servers before restarting |
 
 ---
 
@@ -258,26 +275,28 @@ Before configuring any alert, document the normal behavior baseline: What is the
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Fleet tool blocked by Defender/WinRM/Session constraints | Phase 1: Deployment Automation | Five-question checklist answered before any tool evaluation; no new fleet daemon unless it passes all five |
-| OAuth token expiry breaks automation | Phase 2: MCP Servers | Token health check fires before all critical workflows; fallback to send_email.js tested by simulating expiry |
-| Internet dependency for venue-critical ops | Phase 1 + Phase 4 | Offline test: disable internet on .27, verify all automation still functions on LAN |
-| Over-engineering (v6.0 redux) | Phase 1: Deployment Automation | Phase 1 scope bounded to documented gaps only; any new fleet daemon proposal requires prior failure review |
-| Automation requiring Uday confirmation | Phase 3: Claude Code Skills | Every skill has a defined fallback policy; zero skills with blocking prompts in operational paths |
-| Session 0 vs Session 1 breakage | Phase 1 + Phase 4 | `Get-Process -IncludeUserName` check for every new process; Session 1 requirement documented before deployment design |
-| MCP config drift (James vs Bono) | Phase 2: MCP Servers | MCP-INVENTORY.md created as first deliverable; Bono notified via INBOX.md on every config change |
-| Alert fatigue | Phase 4: Monitoring | Baseline calibration documented before any alert is enabled; max 1 alert per type per 30 minutes (mirror ALERT-02) |
+| Tailscale SSH not working on Windows | Phase 1: Remote Exec Setup | Test `tailscale ssh` or confirm rc-agent :8090 is the exec path before any phase design |
+| DHCP reservation wrong MAC | Phase 1: DHCP Fix | Reboot server and confirm .23 is assigned before marking phase done |
+| Split-brain dual billing | Phase 3: Auto-Failover | Disconnect James from switch, confirm pods do not failover; test with active session |
+| False positive health check failover | Phase 2: Health Monitoring | Launch a game during health check observation; confirm zero failover events in 24h |
+| Dual-connect on failback | Phase 3+4: Failover/Failback | Check rc-agent logs for simultaneous connection IDs; verify authority token revocation |
+| Config sync overwrites outage changes | Phase 2: Config Sync | Simulate outage, write config locally, sync — confirm conflict detection fires |
+| Failback stale in-memory session state | Phase 4: Failback | End session on cloud during simulated outage; failback; confirm pod is Idle not Active |
+| OpenSSH component store broken | Phase 1: Remote Exec Setup | Attempt OpenSSH install before assuming it's available; have rc-agent :8090 as fallback |
 
 ---
 
 ## Sources
 
-- MEMORY.md — Documents Salt v6.0 blocked (BIOS AMD-V), Gmail OAuth expired, WinRM failure history, OpenSSH component store corruption, Session 0/1 split problem
-- PROJECT.md — v6.0 "Paused Milestone" entry; remote deploy scrapped approaches list (Salt, OpenSSH, WinRM)
-- CONCERNS.md — Hardcoded JWT secret (P0 #1), cloud sync fragility, error silencing patterns, race conditions in pod state
-- INTEGRATIONS.md — Gmail/Google Workspace dependency, Ollama LAN-only constraint, Evolution API localhost:53622 (LAN-local), cloud_sync 30s poll pattern
-- codebase STACK.md — Static CRT build, HKLM Run key for Session 1, existing rc-agent remote_ops :8090
-- Real operational history: v6.0 blocked March 2026, Gmail MCP broken March 2026, pendrive as fallback after all remote deploy approaches failed
+- MEMORY.md — Documents server MAC change (2026-03-17), DHCP drift history (.51→.23→.4→.23), OpenSSH component store corruption, WinRM/Salt/SSH failure history, existing cloud_sync.rs authority model
+- PROJECT.md — v10.0 requirements list, remote deploy scrapped approaches, cloud_sync authoritative domains
+- GitHub issue tailscale/tailscale #14942 and #4697 — Tailscale SSH server not supported on Windows (confirmed by Tailscale team)
+- TP-Link Community forums — DHCP reservation bugs on consumer routers, reservation ignored for active leases, MAC binding conflicts
+- AWS Builders Library "Implementing Health Checks" — consecutive failure thresholds, false positive prevention
+- Nagios documentation — flapping detection, state change percentage thresholds
+- WebSocket.org reconnection guide — state sync on failover, race conditions during reconnect
+- Microsoft Learn — `Add-WindowsCapability` failure 0x800f0954 (source not found), DISM repair limitations, component store corruption
 
 ---
-*Pitfalls research for: Tooling, automation, MCP servers, and monitoring additions to Racing Point Windows fleet venue system (v9.0)*
+*Pitfalls research for: Connectivity reliability, health monitoring, auto-failover, config sync, and failback — Racing Point v10.0*
 *Researched: 2026-03-20*
