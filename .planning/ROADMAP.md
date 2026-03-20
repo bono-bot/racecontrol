@@ -636,10 +636,12 @@ Plans:
   1. Router DHCP reservation table shows MAC 10-FF-E0-80-B1-A7 permanently bound to 192.168.31.23 — server never drifts again after reboot or lease expiry
   2. James can POST to rc-agent :8090 exec endpoint via Tailscale IP and receive command output from server .23
   3. James can send an exec_request via comms-link INBOX.md and Bono executes the command on the VPS, returning result via comms-link
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 66-01: TBD
+- [ ] 66-01-PLAN.md — DHCP reservation + static IP on server .23 (INFRA-01)
+- [ ] 66-02-PLAN.md — Server exec verification via rc-agent :8090 over Tailscale/LAN (INFRA-02)
+- [ ] 66-03-PLAN.md — Comms-link exec wiring: Bono ExecHandler + 4 failover commands (INFRA-03)
 
 ### Phase 67: Config Sync
 **Goal**: Venue configuration (pod definitions, billing rates, game catalog) is mirrored to Bono's cloud racecontrol so failover has a current config to run on
