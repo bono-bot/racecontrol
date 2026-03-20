@@ -28,11 +28,23 @@ const CLASS_AXIS: u16 = 0x0A01;
 /// Axis command: power (overall force strength)
 const CMD_POWER: u32 = 0x00;
 
+/// Effects Manager class ID — for clearing orphaned DirectInput effects
+const CLASS_FXM: u16 = 0x0A03;
+/// Effects Manager: reset all effects
+const CMD_FXM_RESET: u32 = 0x01;
+
+/// Axis command: idle spring strength (centering spring when no game FFB active)
+const CMD_IDLESPRING: u32 = 0x05;
+
+/// 80% power cap as HID value: (80 * 65535) / 100 = 52428
+pub const POWER_CAP_80_PERCENT: i64 = 52428;
+
 /// Force Feedback controller for the Conspit Ares wheelbase.
 ///
 /// Opens the OpenFFBoard vendor HID interface and provides safety commands.
 /// All methods are non-panicking — if the device is absent or writes fail,
 /// warnings are logged and execution continues.
+#[derive(Clone)]
 pub struct FfbController {
     vid: u16,
     pid: u16,
@@ -183,6 +195,43 @@ impl FfbController {
         self.send_vendor_cmd_to_class(&device, CLASS_AXIS, CMD_POWER, value)
             .map(|_| {
                 tracing::info!("FFB: gain set to {}% (HID value: {})", percent, value);
+                true
+            })
+    }
+
+    /// Clear all orphaned DirectInput force-feedback effects.
+    /// Sends fxm.reset (Effects Manager class 0x0A03, cmd 0x01).
+    /// Returns Ok(true) if sent, Ok(false) if device not found.
+    pub fn fxm_reset(&self) -> Result<bool, String> {
+        let device = match self.open_vendor_interface() {
+            Some(dev) => dev,
+            None => {
+                tracing::debug!("Wheelbase not found — skipping fxm.reset");
+                return Ok(false);
+            }
+        };
+        self.send_vendor_cmd_to_class(&device, CLASS_FXM, CMD_FXM_RESET, 0)
+            .map(|_| {
+                tracing::info!("FFB: fxm.reset sent — orphaned effects cleared");
+                true
+            })
+    }
+
+    /// Set the idle centering spring strength.
+    /// Sends axis.idlespring (Axis class 0x0A01, cmd 0x05).
+    /// Value range TBD empirically — start low (500-2000), test on hardware.
+    /// Returns Ok(true) if sent, Ok(false) if device not found.
+    pub fn set_idle_spring(&self, value: i64) -> Result<bool, String> {
+        let device = match self.open_vendor_interface() {
+            Some(dev) => dev,
+            None => {
+                tracing::debug!("Wheelbase not found — skipping idlespring");
+                return Ok(false);
+            }
+        };
+        self.send_vendor_cmd_to_class(&device, CLASS_AXIS, CMD_IDLESPRING, value)
+            .map(|_| {
+                tracing::info!("FFB: idlespring set to {}", value);
                 true
             })
     }
