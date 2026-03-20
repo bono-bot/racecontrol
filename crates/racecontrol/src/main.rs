@@ -314,8 +314,10 @@ async fn main() -> anyhow::Result<()> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info".into());
 
-    // Error rate monitoring — mpsc bridge from sync Layer to async alerter
-    let (alert_tx, alert_rx) = tokio::sync::mpsc::channel::<()>(4);
+    // Error rate monitoring — broadcast bridge from sync Layer to async alerters
+    let (alert_tx, _) = tokio::sync::broadcast::channel::<()>(4);
+    let email_alert_rx = alert_tx.subscribe();
+    let wa_alert_rx = alert_tx.subscribe();
     let error_rate_config = ErrorRateConfig {
         threshold: config.monitoring.error_rate_threshold,
         window_secs: config.monitoring.error_rate_window_secs,
@@ -363,7 +365,16 @@ async fn main() -> anyhow::Result<()> {
             "james@racingpoint.in".to_string(),
             "usingh@racingpoint.in".to_string(),
         ];
-        tokio::spawn(error_rate_alerter_task(alert_rx, email_script, recipients));
+        tokio::spawn(error_rate_alerter_task(email_alert_rx, email_script, recipients));
+    }
+
+    // Spawn WhatsApp P0 alerter task
+    if state.config.alerting.enabled {
+        let wa_state = state.clone();
+        tokio::spawn(racecontrol_crate::whatsapp_alerter::whatsapp_alerter_task(
+            wa_state,
+            wa_alert_rx,
+        ));
     }
 
     // First-boot email test: verify Gmail OAuth works on initial setup

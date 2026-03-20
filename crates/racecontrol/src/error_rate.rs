@@ -36,11 +36,11 @@ struct ErrorRateState {
 /// and signals an alerter task via mpsc channel when threshold is exceeded.
 pub struct ErrorCountLayer {
     inner: Arc<Mutex<ErrorRateState>>,
-    alert_tx: tokio::sync::mpsc::Sender<()>,
+    alert_tx: tokio::sync::broadcast::Sender<()>,
 }
 
 impl ErrorCountLayer {
-    pub fn new(config: ErrorRateConfig, alert_tx: tokio::sync::mpsc::Sender<()>) -> Self {
+    pub fn new(config: ErrorRateConfig, alert_tx: tokio::sync::broadcast::Sender<()>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(ErrorRateState {
                 timestamps: VecDeque::new(),
@@ -81,8 +81,8 @@ impl<S: Subscriber> Layer<S> for ErrorCountLayer {
                 }
             }
 
-            // Fire alert — non-blocking try_send (CRITICAL: on_event is sync)
-            if self.alert_tx.try_send(()).is_ok() {
+            // Fire alert — broadcast send (CRITICAL: on_event is sync)
+            if self.alert_tx.send(()).is_ok() {
                 state.last_alerted = Some(now);
                 // Clear timestamps to avoid re-firing on next error
                 state.timestamps.clear();
@@ -99,7 +99,7 @@ impl<S: Subscriber> Layer<S> for ErrorCountLayer {
 /// - Independent rate limiting from watchdog alerts
 /// - Sends to two recipients (james + uday)
 pub async fn error_rate_alerter_task(
-    mut alert_rx: tokio::sync::mpsc::Receiver<()>,
+    mut alert_rx: tokio::sync::broadcast::Receiver<()>,
     email_script_path: String,
     recipients: Vec<String>,
 ) {
@@ -112,18 +112,26 @@ pub async fn error_rate_alerter_task(
         .map(|r| EmailAlerter::new(r.clone(), email_script_path.clone(), true))
         .collect();
 
-    while let Some(()) = alert_rx.recv().await {
-        let subject = "RaceControl: High Error Rate Alert";
-        let body = format!(
-            "RaceControl error rate threshold exceeded.\n\n\
-             The server has logged an unusual number of errors in a short time window.\n\
-             Please check the structured logs at logs/racecontrol-*.jsonl on the server.\n\n\
-             Run: jq 'select(.level == \"ERROR\")' logs/racecontrol-$(date +%%Y-%%m-%%d).jsonl\n\n\
-             — James Vowles (automated alert)"
-        );
+    loop {
+        match alert_rx.recv().await {
+            Ok(()) => {
+                let subject = "RaceControl: High Error Rate Alert";
+                let body = format!(
+                    "RaceControl error rate threshold exceeded.\n\n\
+                     The server has logged an unusual number of errors in a short time window.\n\
+                     Please check the structured logs at logs/racecontrol-*.jsonl on the server.\n\n\
+                     Run: jq 'select(.level == \"ERROR\")' logs/racecontrol-$(date +%%Y-%%m-%%d).jsonl\n\n\
+                     — James Vowles (automated alert)"
+                );
 
-        for alerter in &mut alerters {
-            alerter.send_alert("server", subject, &body).await;
+                for alerter in &mut alerters {
+                    alerter.send_alert("server", subject, &body).await;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!("Error rate alerter lagged by {} messages", n);
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
         }
     }
 }
@@ -131,10 +139,11 @@ pub async fn error_rate_alerter_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::mpsc;
+    use tokio::sync::broadcast;
 
-    fn make_layer(threshold: usize, window_secs: u64, cooldown_secs: u64) -> (ErrorCountLayer, mpsc::Receiver<()>) {
-        let (tx, rx) = mpsc::channel(16);
+    fn make_layer(threshold: usize, window_secs: u64, cooldown_secs: u64) -> (ErrorCountLayer, broadcast::Receiver<()>) {
+        let (tx, _) = broadcast::channel(16);
+        let rx = tx.subscribe();
         let config = ErrorRateConfig {
             threshold,
             window_secs,
@@ -154,8 +163,9 @@ mod tests {
 
     #[test]
     fn test_error_rate_threshold_reached() {
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-        let (tx, mut rx) = mpsc::channel(16);
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+        let (tx, _) = broadcast::channel(16);
+        let mut rx = tx.subscribe();
         let config = ErrorRateConfig {
             threshold: 3,
             window_secs: 60,
@@ -185,7 +195,8 @@ mod tests {
 
     #[test]
     fn test_error_rate_window_eviction() {
-        let (tx, mut rx) = mpsc::channel(16);
+        let (tx, _) = broadcast::channel(16);
+        let mut rx = tx.subscribe();
         let config = ErrorRateConfig {
             threshold: 5,
             window_secs: 1, // 1 second window for test
@@ -214,8 +225,9 @@ mod tests {
 
     #[test]
     fn test_error_rate_cooldown() {
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-        let (tx, mut rx) = mpsc::channel(16);
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+        let (tx, _) = broadcast::channel(16);
+        let mut rx = tx.subscribe();
         let config = ErrorRateConfig {
             threshold: 2,
             window_secs: 60,
