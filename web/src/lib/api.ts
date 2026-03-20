@@ -1,10 +1,29 @@
+import { getToken, clearToken } from "./auth";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers,
   });
+
+  // If server returns 401, clear stale JWT and redirect to login
+  if (res.status === 401 && typeof window !== "undefined") {
+    clearToken();
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
+
   return res.json();
 }
 
