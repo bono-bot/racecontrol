@@ -9,8 +9,8 @@ Requirements for connectivity, config sync, and failover redundancy.
 
 ### Config Sync
 
-- [ ] **SYNC-01**: racecontrol.toml changes on server .23 are detected via SHA-256 hash comparison and pushed to Bono via comms-link sync_push within 60s
-- [ ] **SYNC-02**: Config payload is sanitized before push -- allowlist-only (venue/pods/branding), no credentials (jwt_secret, terminal_secret, relay_secret), no local Windows paths
+- [x] **SYNC-01**: racecontrol.toml changes on server .23 are detected via SHA-256 hash comparison and pushed to Bono via comms-link sync_push within 60s
+- [x] **SYNC-02**: Config payload is sanitized before push -- allowlist-only (venue/pods/branding), no credentials (jwt_secret, terminal_secret, relay_secret), no local Windows paths
 - [ ] **SYNC-03**: Cloud racecontrol receives config_snapshot in /sync/push and stores venue/pods/branding in AppState.venue_config (TOML-based config only -- billing rates and game catalog are DB-based and already synced via cloud_sync.rs SYNC_TABLES)
 
 ## v11.0 Requirements
@@ -83,8 +83,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SYNC-01 | Phase 67 | Pending |
-| SYNC-02 | Phase 67 | Pending |
+| SYNC-01 | Phase 67 | Complete |
+| SYNC-02 | Phase 67 | Complete |
 | SYNC-03 | Phase 67 | Pending |
 | SHARD-01 | Phase 71 | Complete |
 | SHARD-02 | Phase 71 | Complete |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: executing
-stopped_at: Completed 72-02-PLAN.md
-last_updated: "2026-03-20T13:04:00Z"
-last_activity: "2026-03-20 -- 72-02 complete: 7 integration tests for all rc-sentry endpoints (TEST-04 complete)"
+stopped_at: Completed 67-01-PLAN.md
+last_updated: "2026-03-20T13:07:52.140Z"
+last_activity: "2026-03-20 -- 76-02 complete: admin PIN-to-JWT login with argon2id verification"
 progress:
   total_phases: 45
   completed_phases: 21
   total_plans: 60
-  completed_plans: 52
-  percent: 87
+  completed_plans: 54
+  percent: 90
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v12.0 Security Audit & Hardening -- Phase 76 in progress (3/6 plans complete)
+**Current focus:** v12.0 Security Audit & Hardening -- Phase 76 in progress (4/6 plans complete)
 
 ## Current Position
 
 Phase: 76 of 80 (API Authentication & Admin Protection)
-Plan: 01 complete (also 03 complete; 02 pending)
+Plan: 02 complete (also 01, 03 complete; 04 next)
 Status: In progress
-Last activity: 2026-03-20 -- 76-01 complete: staff JWT middleware + 4-tier route split with permissive auth
+Last activity: 2026-03-20 -- 76-02 complete: admin PIN-to-JWT login with argon2id verification
 
-Progress: [█████████░] 94% (49/50 plans complete)
+Progress: [█████████░] 90% (54/60 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -85,6 +85,7 @@ Progress: [█████████░] 94% (49/50 plans complete)
 - 72-01: build.rs copied from rc-agent for GIT_HASH embedding; winapi 0.3 consoleapi-only for SetConsoleCtrlHandler; non-blocking accept loop polls SHUTDOWN_REQUESTED every 10ms for graceful drain (SEXP-01..04, SHARD-06 complete)
 - 72-02: inline #[cfg(test)] module with incoming().take(N) for clean thread exit; ephemeral ports via 127.0.0.1:0; all 7 tests pass with zero tokio contamination (TEST-04 complete)
 - 66-05: Bono deployment (exec round-trip) deferred async via INBOX.md; INFRA-03 code complete on both sides, live verification pending Bono pm2 restart
+- 67-01: Allowlist approach for sanitizer (only venue/pods/branding) -- never denylist; httpPost used for relay/sync POST for consistency; RACECONTROL_TOML_PATH env var for configurable path (SYNC-01, SYNC-02 complete)
 
 ### Blockers/Concerns
 
@@ -105,7 +106,7 @@ Progress: [█████████░] 94% (49/50 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:04:00Z
-Stopped at: Completed 72-02-PLAN.md
+Last session: 2026-03-20T13:06:56.153Z
+Stopped at: Completed 67-01-PLAN.md
 Resume file: None
 Next action: Continue Phase 73 -- Critical Business Tests (TEST-01, TEST-02, TEST-03)
