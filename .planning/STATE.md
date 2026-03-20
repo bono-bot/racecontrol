@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: executing
-stopped_at: Completed 75-02-PLAN.md
-last_updated: "2026-03-20T12:17:06.000Z"
+status: completed
+stopped_at: Completed 66-05-PLAN.md
+last_updated: "2026-03-20T12:21:38.491Z"
 last_activity: "2026-03-20 -- 75-02 complete: env var overrides for 6 secrets + JWT key auto-generation"
 progress:
   total_phases: 45
-  completed_phases: 18
+  completed_phases: 19
   total_plans: 50
-  completed_plans: 46
-  percent: 90
+  completed_plans: 47
+  percent: 92
 ---
 
 # Project State
@@ -80,12 +80,15 @@ Progress: [█████████░] 92% (46/50 plans complete)
 - 71-02: THREAD_COUNTER separate from EXEC_SLOTS -- EXEC_SLOTS=live connections, THREAD_COUNTER=monotonic spawn IDs
 - 75-02: rand 0.8 thread_rng().r#gen() for JWT key gen (gen is Rust 2024 reserved keyword); RACECONTROL_* env var naming for all secrets
 - 75-02: default_jwt_secret() kept for serde backward compat; resolve_jwt_secret() catches dangerous default at runtime
+- 66-05: INFRA-01 complete via static IP alone -- TP-Link EX220 firmware bug (Error 5024) persists ARP entries in NVRAM across reboots, permanently blocking DHCP reservation for server .23; reservation is "won't fix" for this router model, add if factory-reset or replaced
+- 66-05: Bono deployment (exec round-trip) deferred async via INBOX.md; INFRA-03 code complete on both sides, live verification pending Bono pm2 restart
 
 ### Blockers/Concerns
 
 - Phase 73 billing_guard: `attempt_orphan_end` calls reqwest directly -- need to decide on trait-wrap vs callback param before writing tests. Callback param (option b) is simpler, avoid trait boilerplate.
 - Phase 74 select! decomposition: enumerate all 14 mutable shared variables before first extraction step -- assign each to ConnectionState (inner loop) or ReconnectState (outer loop)
 - v6.0 (Phases 36-40) still blocked on BIOS AMD-V -- does not affect v11.0
+- 66-05: exec round-trip (INFRA-03) pending Bono deployment -- Bono notified via INBOX.md commits 3e4091a + 35cea4f, will self-verify once Bono pulls + restarts pm2
 
 ### Pending Todos
 
@@ -96,7 +99,7 @@ Progress: [█████████░] 92% (46/50 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T12:17:06.000Z
-Stopped at: Completed 75-02-PLAN.md
+Last session: 2026-03-20T12:20:22.172Z
+Stopped at: Completed 66-05-PLAN.md
 Resume file: None
 Next action: Phase 75 complete -- next phase TBD

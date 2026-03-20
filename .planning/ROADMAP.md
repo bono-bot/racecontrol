@@ -1006,7 +1006,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 63. Fleet Monitoring | v10.0 | 0/? | Not started | - |
 | 64. Telemetry Dashboards | v10.0 | 0/? | Not started | - |
 | 65. Shift Lights & RGB Lighting | v10.0 | 0/? | Not started | - |
-| 66. Infrastructure Foundations | 4/5 | In Progress|  | - |
+| 66. Infrastructure Foundations | 5/5 | Complete   | 2026-03-20 | - |
 | 67. Config Sync | v10.0-CR | 0/? | Not started | - |
 | 68. Pod SwitchController | v10.0-CR | 0/? | Not started | - |
 | 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
@@ -1015,7 +1015,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 72. rc-sentry Endpoint Expansion + Integration Tests | v11.0 | 0/? | Not started | - |
 | 73. Critical Business Tests | v11.0 | 0/? | Not started | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
-| 75. Security Audit & Foundations | 2/2 | Complete   | 2026-03-20 | - |
+| 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
 | 76. API Authentication & Admin Protection | v12.0 | 0/? | Not started | - |
 | 77. Transport Security | v12.0 | 0/? | Not started | - |
 | 78. Kiosk & Session Hardening | v12.0 | 0/? | Not started | - |
