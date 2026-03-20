@@ -74,34 +74,34 @@ Comms Link v2.0 (shipped 2026-03-20) is the coordination backbone for James-Bono
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Pending | Pending |
-| INFRA-02 | Pending | Pending |
-| INFRA-03 | Pending | Pending |
-| SYNC-01 | Pending | Pending |
-| SYNC-02 | Pending | Pending |
-| SYNC-03 | Pending | Pending |
-| FAIL-01 | Pending | Pending |
-| FAIL-02 | Pending | Pending |
-| FAIL-03 | Pending | Pending |
-| FAIL-04 | Pending | Pending |
-| HLTH-01 | Pending | Pending |
-| HLTH-02 | Pending | Pending |
-| HLTH-03 | Pending | Pending |
-| HLTH-04 | Pending | Pending |
-| ORCH-01 | Pending | Pending |
-| ORCH-02 | Pending | Pending |
-| ORCH-03 | Pending | Pending |
-| ORCH-04 | Pending | Pending |
-| BACK-01 | Pending | Pending |
-| BACK-02 | Pending | Pending |
-| BACK-03 | Pending | Pending |
-| BACK-04 | Pending | Pending |
+| INFRA-01 | Phase 66 | Pending |
+| INFRA-02 | Phase 66 | Pending |
+| INFRA-03 | Phase 66 | Pending |
+| SYNC-01 | Phase 67 | Pending |
+| SYNC-02 | Phase 67 | Pending |
+| SYNC-03 | Phase 67 | Pending |
+| FAIL-01 | Phase 68 | Pending |
+| FAIL-02 | Phase 68 | Pending |
+| FAIL-03 | Phase 68 | Pending |
+| FAIL-04 | Phase 68 | Pending |
+| HLTH-01 | Phase 69 | Pending |
+| HLTH-02 | Phase 69 | Pending |
+| HLTH-03 | Phase 69 | Pending |
+| HLTH-04 | Phase 69 | Pending |
+| ORCH-01 | Phase 69 | Pending |
+| ORCH-02 | Phase 69 | Pending |
+| ORCH-03 | Phase 69 | Pending |
+| ORCH-04 | Phase 69 | Pending |
+| BACK-01 | Phase 70 | Pending |
+| BACK-02 | Phase 70 | Pending |
+| BACK-03 | Phase 70 | Pending |
+| BACK-04 | Phase 70 | Pending |
 
 **Coverage:**
 - v10.0 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after initial definition*
+*Last updated: 2026-03-20 after v10.0 roadmap creation — all 22 requirements mapped to phases 66-70*

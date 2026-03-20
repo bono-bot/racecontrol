@@ -154,6 +154,15 @@ Fix stuck-rotation safety bug, unlock all Conspit Link 2.0 features (per-game FF
 - [ ] **Phase 63: Fleet Monitoring** - rc-agent reports active preset, config hashes, firmware version per pod; racecontrol dashboard shows fleet config status at a glance
 - [ ] **Phase 64: Telemetry Dashboards** - Enable wheel LCD showing RPM/speed/gear for all 4 venue games, verify GameSettingCenter.json telemetry fields, document UDP port chain
 - [ ] **Phase 65: Shift Lights & RGB Lighting** - Auto RPM shift lights for AC/ACC, manual RPM thresholds for F1 25/AC Rally, RGB button lighting tied to telemetry (DRS, ABS, TC, flags)
+## v10.0 Connectivity & Redundancy
+
+Make server .23 IP permanently stable, establish reliable James↔Server↔Bono remote exec paths, sync venue config to cloud, and deliver automatic pod failover to Bono's VPS when .23 goes down — with self-healing failback when .23 recovers.
+
+- [ ] **Phase 66: Infrastructure Foundations** - DHCP reservation pins server .23 to MAC 10-FF-E0-80-B1-A7; James can exec on .23 via rc-agent :8090 over Tailscale and on Bono VPS via comms-link exec_request
+- [ ] **Phase 67: Config Sync** - racecontrol.toml changes detected by sha2 hash, sanitized, and pushed to Bono via comms-link sync_push; Bono applies config to cloud racecontrol
+- [ ] **Phase 68: Pod SwitchController** - rc-agent CoreConfig gains failover_url; WS reconnect loop uses Arc<RwLock<String>> for runtime URL switching; SwitchController AgentMessage triggers switch without restart; self_monitor suppression guard prevents relaunch during intentional failover
+- [ ] **Phase 69: Health Monitor & Failover Orchestration** - James probes .23 every 5s; 3-down/2-up hysteresis + 60s minimum outage window gates auto-failover; James sends task_request to Bono to activate cloud primary; racecontrol broadcasts SwitchController to all pods; pods confirm .23 unreachable before switching; Uday notified via email + WhatsApp
+- [ ] **Phase 70: Failback & Data Reconciliation** - James detects .23 recovery (2-up threshold); cloud sessions merged to local DB before .23 resumes primary; racecontrol broadcasts SwitchController with original URL; Uday notified on failback
 
 ## Phase Details
 
@@ -617,6 +626,78 @@ Plans:
 Plans:
 - [ ] 65-01: TBD
 
+## v10.0 Connectivity & Redundancy — Phase Details
+
+### Phase 66: Infrastructure Foundations
+**Goal**: The network foundation is stable — server .23 always gets IP 192.168.31.23, James can run commands on .23 via rc-agent :8090 over Tailscale, and James can delegate tasks to Bono's VPS via comms-link exec_request
+**Depends on**: Phase 65 (or can start in parallel — no code dependency)
+**Requirements**: INFRA-01, INFRA-02, INFRA-03
+**Success Criteria** (what must be TRUE):
+  1. Router DHCP reservation table shows MAC 10-FF-E0-80-B1-A7 permanently bound to 192.168.31.23 — server never drifts again after reboot or lease expiry
+  2. James can POST to rc-agent :8090 exec endpoint via Tailscale IP and receive command output from server .23
+  3. James can send an exec_request via comms-link INBOX.md and Bono executes the command on the VPS, returning result via comms-link
+**Plans**: TBD
+
+Plans:
+- [ ] 66-01: TBD
+
+### Phase 67: Config Sync
+**Goal**: Venue configuration (pod definitions, billing rates, game catalog) is mirrored to Bono's cloud racecontrol so failover has a current config to run on
+**Depends on**: Phase 66
+**Requirements**: SYNC-01, SYNC-02, SYNC-03
+**Success Criteria** (what must be TRUE):
+  1. After editing racecontrol.toml on .23, James observes a sync_push message in comms-link within 60s containing the updated config diff
+  2. The pushed config payload contains no credentials, passwords, or local Windows paths — only pod definitions, billing rates, and game catalog
+  3. Bono's cloud racecontrol reflects the same billing rates and pod count as the local venue config within 5 minutes of a local change
+**Plans**: TBD
+
+Plans:
+- [ ] 67-01: TBD
+
+### Phase 68: Pod SwitchController
+**Goal**: Any rc-agent pod can switch its WebSocket target from .23 to Bono's VPS and back at runtime without a process restart, and self_monitor will not fight the intentional switch
+**Depends on**: Phase 66
+**Requirements**: FAIL-01, FAIL-02, FAIL-03, FAIL-04
+**Success Criteria** (what must be TRUE):
+  1. rc-agent rc-agent.toml has a failover_url field pointing to Bono's racecontrol Tailscale address — all 8 pods configured after pendrive deploy
+  2. On Pod 8 canary: sending a SwitchController AgentMessage causes rc-agent to reconnect to the new URL within 15s without rc-agent.exe restarting
+  3. self_monitor.rs does not trigger a relaunch during the 60s window after a SwitchController is received (last_switch_time guard active)
+  4. Switching back to .23 URL works identically — pod reconnects and resumes normal billing heartbeat
+**Plans**: TBD
+
+Plans:
+- [ ] 68-01: TBD
+
+### Phase 69: Health Monitor & Failover Orchestration
+**Goal**: James automatically detects when .23 is unreachable, waits to confirm it is not a transient AC-launch CPU spike, then coordinates with Bono to promote cloud racecontrol as primary and switch all pods — with Uday notified
+**Depends on**: Phase 67, Phase 68
+**Requirements**: HLTH-01, HLTH-02, HLTH-03, HLTH-04, ORCH-01, ORCH-02, ORCH-03, ORCH-04
+**Success Criteria** (what must be TRUE):
+  1. James's health probe loop shows server .23 HTTP + WS checks running every 5s in racecontrol logs — status visible to James without manual intervention
+  2. When .23 is powered off, automatic failover fires only after a continuous 60s outage window — a 3s CPU spike during AC launch does not trigger failover
+  3. After failover fires: all 8 pods are connected to Bono's VPS WebSocket within 30s of racecontrol broadcasting SwitchController
+  4. A pod that still has .23 reachable (split-brain scenario) does not honor the SwitchController until its own LAN probe confirms .23 is down
+  5. Uday receives an email and WhatsApp notification within 2 minutes of failover completing, stating which URL pods switched to
+**Plans**: TBD
+
+Plans:
+- [ ] 69-01: TBD
+
+### Phase 70: Failback & Data Reconciliation
+**Goal**: When .23 comes back online, sessions created during failover are merged into local DB, and pods automatically reconnect to .23 — Uday notified of the all-clear
+**Depends on**: Phase 69
+**Requirements**: BACK-01, BACK-02, BACK-03, BACK-04
+**Success Criteria** (what must be TRUE):
+  1. James detects server .23 recovery using the 2-up threshold (2 consecutive successful probes) — no manual action needed
+  2. Any billing sessions that ran on Bono's VPS during the outage appear in the local .23 SQLite DB after failback sync completes
+  3. After failback: all 8 pods are connected to .23's WebSocket within 30s of racecontrol broadcasting SwitchController with the original URL
+  4. Uday receives an email and WhatsApp notification confirming the venue is back on local server and the outage duration
+**Plans**: TBD
+
+Plans:
+- [ ] 70-01: TBD
+
+
 ## Progress
 
 **Execution Order:**
@@ -696,3 +777,8 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 63. Fleet Monitoring | v10.0 | 0/? | Not started | - |
 | 64. Telemetry Dashboards | v10.0 | 0/? | Not started | - |
 | 65. Shift Lights & RGB Lighting | v10.0 | 0/? | Not started | - |
+| 66. Infrastructure Foundations | v10.0-CR | 0/? | Not started | - |
+| 67. Config Sync | v10.0-CR | 0/? | Not started | - |
+| 68. Pod SwitchController | v10.0-CR | 0/? | Not started | - |
+| 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
+| 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |

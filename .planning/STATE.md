@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v10.0-CR
+milestone_name: Connectivity & Redundancy
 status: Roadmap ready, awaiting plan-phase
-stopped_at: "Completed 55-01 Task 1; waiting at checkpoint:human-action for server .23 Netdata install"
-last_updated: "2026-03-20T09:42:06.065Z"
-last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
+stopped_at: "Roadmap created for v10.0 Connectivity & Redundancy — 6 phases (66-70), 22 requirements mapped"
+last_updated: "2026-03-20T10:00:00.000Z"
+last_activity: 2026-03-20 — v10.0 Connectivity & Redundancy roadmap created, 5 phases (66-70), 22 requirements mapped
 progress:
-  total_phases: 30
-  completed_phases: 15
-  total_plans: 39
-  completed_plans: 36
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -21,50 +21,47 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v9.0 Tooling & Automation — Phase 51: CLAUDE.md + Custom Skills
+**Current focus:** v10.0 Connectivity & Redundancy — Phase 66: Infrastructure Foundations
 
 ## Current Position
 
-Phase: 51 — CLAUDE.md + Custom Skills
+Phase: 66 — Infrastructure Foundations
 Plan: Not started
 Status: Roadmap ready, awaiting plan-phase
-Last activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
+Last activity: 2026-03-20 — v10.0 Connectivity & Redundancy roadmap created, 5 phases (66-70), 22 requirements mapped
 
-Progress: [░░░░░░░░░░] 0% (0/6 phases)
+Progress: [░░░░░░░░░░] 0% (0/5 phases)
 
-## Phase Map — v9.0
-
-| Phase | Name | Requirements | Access | Status |
-|-------|------|--------------|--------|--------|
-| 51 | CLAUDE.md + Custom Skills | SKILL-01 through SKILL-05 | James workstation only | Not started |
-| 52 | MCP Servers | MCP-01 through MCP-04 | James workstation only | Not started |
-| 53 | Deployment Automation | DEPLOY-01 through DEPLOY-03 | James workstation only | Not started |
-| 54 | Structured Logging + Error Rate Alerting | MON-01 through MON-03 | Server + pods (Rust changes) | Not started |
-| 55 | Netdata Fleet Deploy | MON-04 through MON-05 | Server + pods via :8090 | Not started |
-| 56 | WhatsApp Alerting + Weekly Report | MON-06 through MON-07 | Server (depends on Phase 54) | Not started |
-
-**Phases 51-53:** James workstation only, zero pod access needed.
-**Phases 54-56:** Require server/pod access, deployed via pendrive or rc-agent :8090.
-
-## Phase Map — v10.0 Conspit Link
+## Phase Map — v10.0 Connectivity & Redundancy
 
 | Phase | Name | Requirements | Access | Status |
 |-------|------|--------------|--------|--------|
-| 57 | Session-End Safety | SAFE-01 through SAFE-07 | Pods (rc-agent Rust changes) | Complete |
-| 58 | ConspitLink Process Hardening | PROC-01 through PROC-04 | Pods (rc-agent Rust changes) | Not started |
-| 59 | Auto-Switch Configuration | PROF-01, PROF-02, PROF-04 | Pods (config files) | Not started |
-| 60 | Pre-Launch Profile Loading | PROF-03, PROF-05 | Pods (rc-agent Rust changes) | Not started |
-| 61 | FFB Preset Tuning | FFB-01 through FFB-06 | Pods (config + hands-on tuning) | Not started |
-| 62 | Fleet Config Distribution | FLEET-01 through FLEET-06 | Server + pods (Rust changes) | Not started |
-| 63 | Fleet Monitoring | CLMON-01 through CLMON-04 | Server + pods (Rust changes) | Not started |
-| 64 | Telemetry Dashboards | TELE-01, TELE-02, TELE-06 | Pods (config files) | Not started |
-| 65 | Shift Lights & RGB Lighting | TELE-03 through TELE-05 | Pods (config files) | Not started |
+| 66 | Infrastructure Foundations | INFRA-01, INFRA-02, INFRA-03 | Router web UI + Tailscale | Not started |
+| 67 | Config Sync | SYNC-01, SYNC-02, SYNC-03 | Server .23 (Rust changes) | Not started |
+| 68 | Pod SwitchController | FAIL-01, FAIL-02, FAIL-03, FAIL-04 | Pods (rc-agent Rust changes) | Not started |
+| 69 | Health Monitor & Failover Orchestration | HLTH-01..04, ORCH-01..04 | Server + pods (Rust changes) | Not started |
+| 70 | Failback & Data Reconciliation | BACK-01, BACK-02, BACK-03, BACK-04 | Server + pods (Rust changes) | Not started |
 
-**Phases 57-58:** Safety-critical rc-agent changes, deploy to Pod 8 first.
-**Phase 59:** Config file fix — potentially one-file-copy for Global.json path.
-**Phases 60-61:** rc-agent preset loading + hands-on FFB tuning.
-**Phases 62-63:** Fleet automation (server + pod Rust changes).
-**Phases 64-65:** Config-only telemetry/LED setup, no code changes.
+**Phase 66:** Router config + Tailscale verification — no code changes, manual network work.
+**Phase 67:** Rust changes to racecontrol on .23 — sha2 hash watcher + comms-link sync_push.
+**Phase 68:** Rust changes to rc-agent — Arc<RwLock<String>> refactor + SwitchController message + self_monitor guard. Pod 8 canary required before fleet deploy.
+**Phase 69:** Rust changes to racecontrol (health probe loop, hysteresis FSM, ORCH broadcast) + comms-link task_request to Bono. Bono VPS changes coordinated via comms-link.
+**Phase 70:** Rust changes to racecontrol (DB merge) + failback broadcast. Most complex data integrity phase.
+
+## Phase Map — Active Parallel Work (v9.0 + v10.0 Conspit Link)
+
+| Phase | Name | Status |
+|-------|------|--------|
+| 55 | Netdata Fleet Deploy | In Progress (55-01 Task 1 done, waiting for server .23 install) |
+| 56 | WhatsApp Alerting + Weekly Report | Not started |
+| 58 | ConspitLink Process Hardening | In Progress (58-01 done) |
+| 59 | Auto-Switch Configuration | Not started |
+| 60 | Pre-Launch Profile Loading | Not started |
+| 61 | FFB Preset Tuning | Not started |
+| 62 | Fleet Config Distribution | Not started |
+| 63 | Fleet Monitoring | Not started |
+| 64 | Telemetry Dashboards | Not started |
+| 65 | Shift Lights & RGB Lighting | Not started |
 
 ## Performance Metrics
 
@@ -245,6 +242,17 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - [Phase 55]: Netdata dashboard UI locked on free tier for Windows nodes — use /api/v1/info as canonical health check, not browser dashboard
 - [Phase 55]: netdata.msi excluded from git (154MB binary artifact) — downloaded fresh each deploy from staging :9998
 
+(v10.0 Connectivity & Redundancy — key constraints from roadmap)
+- DHCP reservation is a hard prerequisite (Phase 66) — all subsequent phases depend on stable .23 IP
+- Tailscale SSH does NOT work on Windows — use rc-agent :8090 over Tailscale IP for all server exec (GitHub #14942)
+- rc-agent core.url is currently read once at startup — Phase 68 requires Arc<RwLock<String>> refactor before runtime URL switching is possible
+- self_monitor.rs will fight intentional failover switches — Phase 68 adds last_switch_time guard to suppress relaunch during switch window
+- Existing hysteresis pattern in cloud_sync.rs (3-down/2-up) should be reused in Phase 69 health probe loop
+- Minimum 60s outage window before auto-failover (AC game launches cause 3-4s CPU spikes that transiently fail probes)
+- Pod 8 canary testing required for SwitchController (Phase 68) before fleet deployment to all 8 pods
+- Comms Link v2.0 (shipped 2026-03-20) is the coordination backbone — sync_push, task_request, exec_request protocols all available
+- BACK-02 (session merge) is the highest-risk plan in the milestone — requires careful SQLite UUID reconciliation matching cloud_sync.rs pattern
+
 ### Pending Todos
 
 - Pod 3 still not verified running after fix-pod.bat — needs physical reboot + verification
@@ -254,12 +262,13 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ### Blockers/Concerns
 
-- v6.0 (Phases 36–40) is blocked on BIOS AMD-V — does not affect v9.0 (no SaltStack dependency)
+- v6.0 (Phases 36–40) is blocked on BIOS AMD-V — does not affect v10.0 Connectivity & Redundancy
 - Gmail OAuth tokens expired — MCP-01/02/03 (Phase 52) will need re-authorization of racingpoint-google OAuth before MCP server can connect
+- Phase 66 (INFRA-01) requires physical access to router web UI at 192.168.31.1 to set DHCP reservation
 
 ## Session Continuity
 
-Last session: 2026-03-20T09:42:06.061Z
-Stopped at: Completed 55-01 Task 1; waiting at checkpoint:human-action for server .23 Netdata install
+Last session: 2026-03-20T10:00:00.000Z
+Stopped at: v10.0 Connectivity & Redundancy roadmap created — 5 phases (66-70), 22 requirements mapped
 Resume file: None
-Next action: Phase 58 — ConspitLink Process Hardening (or deploy Phase 57 to fleet)
+Next action: Phase 66 — Infrastructure Foundations (DHCP reservation + Tailscale exec verification)
