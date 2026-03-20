@@ -293,3 +293,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 15:13 IST | James | `6388f93` | docs(55-01): complete Netdata deploy scripts plan — SUMMARY, STATE, ROADMAP, LOGBOOK updated |
 | 2026-03-20 16:09 IST | James | `pending` | chore(66-01): server .23 NIC confirmed static IP 192.168.31.23 — PrefixOrigin Manual, DHCP disabled, DNS set to 192.168.31.1 |
 | 2026-03-20 10:39 IST | James | 2833425 | feat(66-03): wire Bono ExecHandler + 4 failover COMMAND_REGISTRY entries + James exec_result handler |
+| 2026-03-20 16:17 IST | James | dc9fbf5 | feat(56-01): add WhatsApp P0 alerter module with AlertingConfig and SQLite tables |
+| 2026-03-20 16:17 IST | James | 309e218 | feat(56-01): convert error_rate mpsc to broadcast + wire whatsapp_alerter in main.rs |
+| 2026-03-20 16:17 IST | James | b642e98 | docs(56-01): complete WhatsApp P0 alerter plan — SUMMARY, STATE, ROADMAP updated |
