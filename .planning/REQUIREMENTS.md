@@ -120,10 +120,10 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 
 ### ConspitLink Process Management
 
-- [ ] **PROC-01**: Hardened watchdog with crash-count tracking and graceful restart (never taskkill /F)
-- [ ] **PROC-02**: Post-restart config file verification (JSON parse check)
-- [ ] **PROC-03**: Config file backup before any write operation
-- [ ] **PROC-04**: Window minimization survives ConspitLink restarts
+- [x] **PROC-01**: Hardened watchdog with crash-count tracking and graceful restart (never taskkill /F)
+- [x] **PROC-02**: Post-restart config file verification (JSON parse check)
+- [x] **PROC-03**: Config file backup before any write operation
+- [x] **PROC-04**: Window minimization survives ConspitLink restarts
 
 ### Game Profile Switching
 
@@ -178,10 +178,10 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 | SAFE-05 | Phase 57: Session-End Safety | Complete |
 | SAFE-06 | Phase 57: Session-End Safety | Complete |
 | SAFE-07 | Phase 57: Session-End Safety | Complete |
-| PROC-01 | Phase 58: ConspitLink Process Hardening | Pending |
-| PROC-02 | Phase 58: ConspitLink Process Hardening | Pending |
-| PROC-03 | Phase 58: ConspitLink Process Hardening | Pending |
-| PROC-04 | Phase 58: ConspitLink Process Hardening | Pending |
+| PROC-01 | Phase 58: ConspitLink Process Hardening | Complete |
+| PROC-02 | Phase 58: ConspitLink Process Hardening | Complete |
+| PROC-03 | Phase 58: ConspitLink Process Hardening | Complete |
+| PROC-04 | Phase 58: ConspitLink Process Hardening | Complete |
 | PROF-01 | Phase 59: Auto-Switch Configuration | Pending |
 | PROF-02 | Phase 59: Auto-Switch Configuration | Pending |
 | PROF-03 | Phase 60: Pre-Launch Profile Loading | Pending |
