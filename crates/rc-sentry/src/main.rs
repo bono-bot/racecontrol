@@ -401,3 +401,115 @@ fn send_cors_preflight(stream: &mut TcpStream) -> Result<(), Box<dyn std::error:
     stream.flush()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn start_test_server(requests: usize) -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        START_TIME.get_or_init(std::time::Instant::now);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(requests).flatten() {
+                let _ = handle(stream);
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        port
+    }
+
+    fn http_get(port: u16, path: &str) -> String {
+        use std::io::{Read, Write};
+        let mut s = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        write!(s, "GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+        let mut resp = String::new();
+        let _ = s.read_to_string(&mut resp);
+        resp
+    }
+
+    fn http_post(port: u16, path: &str, body: &str) -> String {
+        use std::io::{Read, Write};
+        let mut s = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        write!(
+            s,
+            "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        ).unwrap();
+        let mut resp = String::new();
+        let _ = s.read_to_string(&mut resp);
+        resp
+    }
+
+    #[test]
+    fn test_ping() {
+        let port = start_test_server(1);
+        let resp = http_get(port, "/ping");
+        assert!(resp.contains("pong"), "expected pong in response: {resp}");
+    }
+
+    #[test]
+    fn test_health_fields() {
+        let port = start_test_server(1);
+        let resp = http_get(port, "/health");
+        assert!(resp.contains("200"), "expected HTTP 200: {resp}");
+        assert!(resp.contains("\"status\""), "missing status field: {resp}");
+        assert!(resp.contains("\"uptime_secs\""), "missing uptime_secs: {resp}");
+        assert!(resp.contains("\"exec_slots_available\""), "missing exec_slots_available: {resp}");
+        assert!(resp.contains("\"hostname\""), "missing hostname: {resp}");
+        assert!(resp.contains("\"version\""), "missing version: {resp}");
+        assert!(resp.contains("\"build_id\""), "missing build_id: {resp}");
+        assert!(resp.contains("\"exec_slots_total\""), "missing exec_slots_total: {resp}");
+    }
+
+    #[test]
+    fn test_version_fields() {
+        let port = start_test_server(1);
+        let resp = http_get(port, "/version");
+        assert!(resp.contains("200"), "expected HTTP 200: {resp}");
+        assert!(resp.contains("\"version\""), "missing version: {resp}");
+        assert!(resp.contains("\"git_hash\""), "missing git_hash: {resp}");
+    }
+
+    #[test]
+    fn test_files_directory() {
+        let port = start_test_server(1);
+        // Use C:\ on Windows -- guaranteed to exist
+        let resp = http_get(port, "/files?path=C%3A%5C");
+        assert!(!resp.contains("500"), "unexpected HTTP 500: {resp}");
+        // Should return 200 with a JSON array
+        assert!(resp.contains("200"), "expected HTTP 200: {resp}");
+        assert!(resp.contains("\"name\""), "missing name field in entries: {resp}");
+        assert!(resp.contains("\"is_dir\""), "missing is_dir field: {resp}");
+    }
+
+    #[test]
+    fn test_processes_fields() {
+        let port = start_test_server(1);
+        let resp = http_get(port, "/processes");
+        assert!(resp.contains("200"), "expected HTTP 200: {resp}");
+        assert!(resp.contains("\"pid\""), "missing pid field: {resp}");
+        assert!(resp.contains("\"name\""), "missing name field: {resp}");
+        assert!(resp.contains("\"memory_kb\""), "missing memory_kb: {resp}");
+    }
+
+    #[test]
+    fn test_exec_echo() {
+        let port = start_test_server(1);
+        let body = r#"{"cmd":"echo hello","timeout_ms":5000}"#;
+        let resp = http_post(port, "/exec", body);
+        assert!(resp.contains("200"), "expected HTTP 200: {resp}");
+        assert!(resp.contains("hello"), "stdout should contain hello: {resp}");
+        assert!(resp.contains("\"exit_code\":0"), "expected exit_code 0: {resp}");
+    }
+
+    #[test]
+    fn test_404_unknown_path() {
+        let port = start_test_server(1);
+        let resp = http_get(port, "/nonexistent");
+        assert!(resp.contains("404"), "expected HTTP 404: {resp}");
+        assert!(resp.contains("not found"), "expected not found message: {resp}");
+    }
+}
