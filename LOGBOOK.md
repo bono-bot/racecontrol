@@ -268,3 +268,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 12 01:33 UTC | Bono | `3ac10d4` | docs: phase 1.1 plans — Cloud-Venue WebSocket Sync |
 | Mar 12 01:47 UTC | Bono | `fbd22fe` | fix: revise phase 1.1 plans based on checker feedback |
 | Mar 12 07:16 IST | James | `7996122` | fix: revise plan 02-01 based on checker feedback |
+| 2026-03-20 11:30 IST | James | `4af3f5b` | feat(51-01): create CLAUDE.md — 179-line Racing Point context file (all 8 pod IPs/MACs, crate names, deploy rules, 4-tier debug, standing rules, brand identity) |
+| 2026-03-20 11:30 IST | James | `d19b916` | docs(51-01): SUMMARY + STATE/ROADMAP/REQUIREMENTS updated — SKILL-01 complete |
