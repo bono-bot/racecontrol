@@ -171,7 +171,7 @@ Plans:
   3. `sc qfailure salt-minion` on Pod 8 shows restart actions at 5s, 10s, 30s — the minion self-restarts after a stop (working around the confirmed Salt Windows service restart bug)
   4. `salt 'pod8' test.ping` still returns True 30 seconds after `sc stop salt-minion` — the sc failure recovery kicked in and restarted the minion service
   5. The rewritten install.bat contains no pod-agent kill, no :8090 firewall rule, and no pod-agent binary reference — only Defender exclusions + rc-agent copy + salt-minion MSI bootstrap
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 37-01-PLAN.md — Pod 8 minion install: Defender exclusions + silent EXE install with id:pod8 + sc failure config + key accept (MINION-01, MINION-02, MINION-04)
@@ -187,7 +187,7 @@ Plans:
   3. A deploy triggered from racecontrol to Pod 8 via `salt_exec.cp_get_file()` + `salt_exec.cmd_run()` completes with the new rc-agent binary running on the pod — the Python HTTP server + curl pipeline is no longer needed for this operation
   4. `pod_monitor.rs` restarts the rc-agent Windows service on Pod 8 via `salt_exec.service_restart()` — confirmed by checking pod agent reconnect after the restart
   5. `pod_healer.rs` runs a healing command on Pod 8 via `salt_exec.cmd_run()` and the result is logged — all diagnostic parse logic in pod_healer is unchanged, only the transport layer changed
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 38-01-PLAN.md — salt_exec.rs module: SaltClient, cmd_run, cp_get_file, ping, ping_all, service_restart; [salt] config section; AppState wiring (SALT-01)
@@ -204,7 +204,7 @@ Plans:
   3. `cargo build --release -p rc-agent-crate` succeeds and `cargo test` passes — rc-agent compiles cleanly without the remote_ops module
   4. No references to pod-agent or port 8090 remain in deploy scripts, training data pairs, or operational docs — confirmed by grep across the full repo
   5. Pod 8 completes a full billing session (start → game launch → billing ticks → session end → lock screen) with the new rc-agent binary that has no remote_ops module — no panics, no blank screens, billing amounts correct
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 39-01-PLAN.md — Characterization tests: WebSocket billing lifecycle path covering AppState fields touched by remote_ops.rs (PURGE-01 prerequisite, FLEET-01 prerequisite)
@@ -220,7 +220,7 @@ Plans:
   2. The staff fleet health dashboard shows all 8 pods as `minion_reachable: true` — fleet_health.rs is pulling live Salt ping results
   3. Staff deploys a new rc-agent.exe to Pod 3 via Salt (as a rollout verification step) and the pod reconnects to racecontrol within 30 seconds — the full deploy workflow via Salt works end-to-end without the Python HTTP server
   4. No active billing sessions are interrupted during the rolling minion installation across pods 1–7 + server — install.bat canary discipline preserved (Pod 8 already done, remaining pods installed one at a time)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 40-01-PLAN.md — Install salt-minion on pods 1–7 + server via updated install.bat; accept all keys; fleet-wide test.ping (MINION-05, FLEET-02)
@@ -443,7 +443,7 @@ Plans:
   1. After a racecontrol restart, the logs directory on the server shows racecontrol-YYYY-MM-DD.jsonl with JSON entries containing timestamp, level, and message fields — structured logs with daily rotation
   2. After an rc-agent restart on any pod, the logs directory shows rc-agent-YYYY-MM-DD.jsonl with JSON entries including pod_id, timestamp, level, and message fields
   3. Triggering 5 consecutive errors in racecontrol within 1 minute (configurable via error_rate_threshold and error_rate_window_secs in racecontrol.toml) sends an email to james@racingpoint.in and usingh@racingpoint.in within 2 minutes — rate-limited, no second email for 30 minutes
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 54-01-PLAN.md — racecontrol structured logging: tracing-subscriber JSON format + daily file rotation via tracing-appender (MON-01)
@@ -458,7 +458,7 @@ Plans:
   1. Navigating to http://192.168.31.23:19999 in James's browser shows the Netdata dashboard for the racecontrol server with live CPU, RAM, disk, and network charts updating in real time
   2. Navigating to http://192.168.31.89:19999 (Pod 1) shows a Netdata dashboard — all 8 pods have Netdata running after fleet deploy via rc-agent :8090 exec
   3. The Netdata install on each pod completed via rc-agent remote exec confirmed by exec log showing successful install command per pod — no pendrive needed
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 55-01-PLAN.md — Netdata on server .23: install + configure + verify dashboard at :19999 (MON-04)
@@ -472,7 +472,7 @@ Plans:
   1. Simulating a P0 event (stopping racecontrol so all pods lose WS connection) results in Uday receiving a WhatsApp message via racingpoint-whatsapp-bot within 60 seconds — message includes event type, timestamp in IST, and pod count affected
   2. When all P0 conditions resolve (all pods reconnect), a resolved WhatsApp message is sent to Uday within 60 seconds of recovery
   3. The weekly report email arrives in usingh@racingpoint.in every Monday between 08:00 and 08:05 IST with: total sessions, uptime % per pod, total credits billed, and numbered incident list from the error rate alert log
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 56-01-PLAN.md — P0 WhatsApp alert: hook into racingpoint-whatsapp-bot; trigger on all-pods-offline + billing crash; resolved notification (MON-06)
@@ -488,11 +488,12 @@ Plans:
   3. ConspitLink is closed before HID safety commands fire, eliminating P-20 contention
   4. ConspitLink restarts automatically after the safety sequence with verified JSON config intact
   5. ESTOP code path remains available but is never triggered during routine session ends
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 57-01: TBD
-- [ ] 57-02: TBD
+- [ ] 57-01-PLAN.md — HID commands: fxm_reset + idlespring + power cap constant + Clone derive + unit tests (SAFE-02, SAFE-03, SAFE-04, SAFE-05)
+- [ ] 57-02-PLAN.md — safe_session_end orchestrator: close ConspitLink + HID sequence + wire 10 call sites in main.rs (SAFE-01, SAFE-06, SAFE-07)
+- [ ] 57-03-PLAN.md — Startup power cap + manual hardware verification on canary pod (SAFE-01, SAFE-04)
 
 ### Phase 58: ConspitLink Process Hardening
 **Goal**: ConspitLink stays running reliably across all sessions with crash recovery, config integrity, and kiosk compliance
@@ -502,7 +503,7 @@ Plans:
   1. ConspitLink automatically restarts after a crash with crash count tracked (never using taskkill /F)
   2. Config files are backed up before any write and verified via JSON parse after every restart
   3. ConspitLink window stays minimized even after restarts — kiosk lock screen always visible
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 58-01: TBD
@@ -515,7 +516,7 @@ Plans:
   1. Global.json exists at C:\RacingPoint\ on every pod (the runtime read path ConspitLink actually uses)
   2. GameToBaseConfig.json mappings point to Racing Point venue presets for all 4 active games
   3. Launching AC, F1 25, ACC/AC EVO, or AC Rally causes ConspitLink to auto-load the matching preset
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 59-01: TBD
@@ -527,7 +528,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. rc-agent loads the correct game preset before launching the game process (not relying solely on ConspitLink auto-detect)
   2. If an unrecognized game launches, a safe default preset is applied (conservative force, centered spring)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 60-01: TBD
@@ -542,7 +543,7 @@ Plans:
   3. ACC/AC EVO has a venue-tuned .Base preset (based on Yifei Ye pro preset) with appropriate steering angle
   4. AC Rally has a custom venue-tuned .Base preset with ~800-degree steering
   5. All presets are stored in version control under .planning/presets/ for reproducibility
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 61-01: TBD
@@ -558,7 +559,7 @@ Plans:
   3. ConspitLink is gracefully stopped before config write and restarted after, with JSON integrity verified
   4. Config checksums are included in pod heartbeats so racecontrol can detect drift across the fleet
   5. A golden config directory in the repo serves as the version-controlled master for all pod configs
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 62-01: TBD
@@ -573,7 +574,7 @@ Plans:
   2. rc-agent reports config file hashes (Settings.json, Global.json, GameToBaseConfig.json) for drift detection
   3. rc-agent reports ConspitLink firmware version for the connected Ares wheelbase
   4. racecontrol dashboard displays fleet config status showing all 8 pods with their preset/hash/firmware at a glance
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 63-01: TBD
@@ -586,7 +587,7 @@ Plans:
   1. Wheel LCD displays RPM, speed, and gear data while playing any of the 4 venue games
   2. GameSettingCenter.json has all required telemetry fields enabled for AC, F1 25, ACC/AC EVO, and AC Rally
   3. UDP port chain is documented: game output port -> ConspitLink receive port (20778)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 64-01: TBD
@@ -599,7 +600,7 @@ Plans:
   1. Shift light LEDs illuminate at correct RPM thresholds for AC and ACC (using Auto RPM configs)
   2. Shift light LEDs illuminate at correct RPM thresholds for F1 25 and AC Rally (using manual RPM thresholds)
   3. RGB button lighting responds to telemetry events (DRS, ABS, TC, flags) per game where supported
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 65-01: TBD
