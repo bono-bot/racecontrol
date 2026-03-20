@@ -4,7 +4,7 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 77-02-PLAN.md
-last_updated: "2026-03-20T14:23:07.575Z"
+last_updated: "2026-03-20T14:28:17.903Z"
 last_activity: "2026-03-20 -- 77-02 complete: dual-port HTTPS 8443 + tower-helmet security headers + protocol-aware kiosk API_BASE (TLS-01, TLS-03, TLS-04, KIOSK-06)"
 progress:
   total_phases: 45
