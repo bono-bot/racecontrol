@@ -55,9 +55,9 @@ pub fn spawn(
         let mut interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
         // Task-local debounce state (same pattern as launch_timeout_fired in failure_monitor)
         let mut stuck_fired = false;
-        let mut game_gone_since: Option<std::time::Instant> = None;
+        let mut game_gone_since: Option<tokio::time::Instant> = None;
         let mut idle_fired = false;
-        let mut idle_since: Option<std::time::Instant> = None;
+        let mut idle_since: Option<tokio::time::Instant> = None;
         let mut orphan_fired = false;
 
         loop {
@@ -88,7 +88,7 @@ pub fn spawn(
 
             // BILL-02: Stuck session detection
             if state.billing_active && state.game_pid.is_none() {
-                let since = game_gone_since.get_or_insert_with(std::time::Instant::now);
+                let since = game_gone_since.get_or_insert_with(tokio::time::Instant::now);
                 if since.elapsed() >= Duration::from_secs(STUCK_SESSION_THRESHOLD_SECS) && !stuck_fired {
                     stuck_fired = true;
                     let msg = AgentMessage::BillingAnomaly {
@@ -156,7 +156,7 @@ pub fn spawn(
             // BILL-03: Idle drift detection
             let is_driving_active = matches!(state.driving_state, Some(DrivingState::Active));
             if state.billing_active && !is_driving_active {
-                let since = idle_since.get_or_insert_with(std::time::Instant::now);
+                let since = idle_since.get_or_insert_with(tokio::time::Instant::now);
                 if since.elapsed() >= Duration::from_secs(IDLE_DRIFT_THRESHOLD_SECS) && !idle_fired {
                     idle_fired = true;
                     let msg = AgentMessage::BillingAnomaly {
@@ -183,7 +183,11 @@ pub fn spawn(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rc_common::types::DrivingState;
+    use std::time::Duration;
+    use tokio::sync::{mpsc, watch};
+    use rc_common::protocol::AgentMessage;
+    use rc_common::types::{DrivingState, PodFailureReason};
+    use crate::failure_monitor::FailureMonitorState;
 
     fn make_state(
         billing_active: bool,
@@ -274,5 +278,184 @@ mod tests {
         let state = make_state(true, None, None, true); // recovery=true
         assert!(state.recovery_in_progress,
             "recovery_in_progress must suppress all anomaly detection including orphan");
+    }
+
+    // ── Timer + channel tests (TEST-01) — verify AgentMessage sends via tokio::time ──
+    //
+    // Pattern: tokio::time::pause() freezes the mock clock. The spawned task must be
+    // initially polled before any advance() so it can start and register its interval.
+    // We yield several times first (to let the task start), then advance(5) to fire the
+    // first interval tick (recording game_gone_since/idle_since), then advance past the
+    // threshold to trigger the anomaly send.
+
+    #[tokio::test]
+    async fn bill02_anomaly_fires_after_60s() {
+        tokio::time::pause();
+
+        let initial_state = FailureMonitorState {
+            billing_active: true,
+            game_pid: None,
+            ..FailureMonitorState::default()
+        };
+        let (state_tx, state_rx) = watch::channel(initial_state);
+        let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
+        let _ = state_tx; // keep sender alive
+
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+
+        // Yield to let the spawned task start and block on interval.tick()
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        // Advance one poll interval: first tick fires, task records game_gone_since
+        tokio::time::advance(Duration::from_secs(5)).await;
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        // Advance past 60s threshold: elapsed = 65s >= 60s → anomaly fires
+        tokio::time::advance(Duration::from_secs(65)).await;
+        for _ in 0..15 { tokio::task::yield_now().await; }
+
+        match msg_rx.try_recv() {
+            Ok(AgentMessage::BillingAnomaly { reason, .. }) => {
+                assert_eq!(reason, PodFailureReason::SessionStuckWaitingForGame,
+                    "BILL-02: expected SessionStuckWaitingForGame");
+            }
+            other => panic!("Expected BillingAnomaly(SessionStuckWaitingForGame), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn bill02_does_not_fire_before_threshold() {
+        tokio::time::pause();
+
+        let initial_state = FailureMonitorState {
+            billing_active: true,
+            game_pid: None,
+            ..FailureMonitorState::default()
+        };
+        let (state_tx, state_rx) = watch::channel(initial_state);
+        let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
+        let _ = state_tx;
+
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+
+        // Let task start, record game_gone_since
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        tokio::time::advance(Duration::from_secs(5)).await;
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        // Advance only 50s more — total elapsed since game_gone_since = 50s < 60s threshold
+        tokio::time::advance(Duration::from_secs(50)).await;
+        for _ in 0..10 { tokio::task::yield_now().await; }
+
+        assert!(msg_rx.try_recv().is_err(),
+            "BILL-02 must NOT fire before 60s threshold");
+    }
+
+    #[tokio::test]
+    async fn bill02_suppressed_when_recovery_in_progress() {
+        tokio::time::pause();
+
+        let initial_state = FailureMonitorState {
+            billing_active: true,
+            game_pid: None,
+            recovery_in_progress: true,
+            ..FailureMonitorState::default()
+        };
+        let (state_tx, state_rx) = watch::channel(initial_state);
+        let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
+        let _ = state_tx;
+
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        tokio::time::advance(Duration::from_secs(5)).await;
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        tokio::time::advance(Duration::from_secs(65)).await;
+        for _ in 0..15 { tokio::task::yield_now().await; }
+
+        assert!(msg_rx.try_recv().is_err(),
+            "BILL-02 must be suppressed when recovery_in_progress=true");
+    }
+
+    #[tokio::test]
+    async fn bill02_suppressed_when_billing_paused() {
+        tokio::time::pause();
+
+        let initial_state = FailureMonitorState {
+            billing_active: true,
+            game_pid: None,
+            billing_paused: true,
+            ..FailureMonitorState::default()
+        };
+        let (state_tx, state_rx) = watch::channel(initial_state);
+        let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
+        let _ = state_tx;
+
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        tokio::time::advance(Duration::from_secs(5)).await;
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        tokio::time::advance(Duration::from_secs(65)).await;
+        for _ in 0..15 { tokio::task::yield_now().await; }
+
+        assert!(msg_rx.try_recv().is_err(),
+            "BILL-02 must be suppressed when billing_paused=true (SESSION-01)");
+    }
+
+    #[tokio::test]
+    async fn bill03_idle_drift_fires_after_300s() {
+        tokio::time::pause();
+
+        let initial_state = FailureMonitorState {
+            billing_active: true,
+            game_pid: Some(1234),
+            driving_state: Some(DrivingState::Idle),
+            ..FailureMonitorState::default()
+        };
+        let (state_tx, state_rx) = watch::channel(initial_state);
+        let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
+        let _ = state_tx;
+
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+
+        // Let task start, record idle_since
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        tokio::time::advance(Duration::from_secs(5)).await;
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        // Advance past 300s threshold: elapsed = 300s >= 300s → anomaly fires
+        tokio::time::advance(Duration::from_secs(300)).await;
+        for _ in 0..15 { tokio::task::yield_now().await; }
+
+        match msg_rx.try_recv() {
+            Ok(AgentMessage::BillingAnomaly { reason, .. }) => {
+                assert_eq!(reason, PodFailureReason::IdleBillingDrift,
+                    "BILL-03: expected IdleBillingDrift");
+            }
+            other => panic!("Expected BillingAnomaly(IdleBillingDrift), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn bill03_no_drift_when_driving_active() {
+        tokio::time::pause();
+
+        let initial_state = FailureMonitorState {
+            billing_active: true,
+            game_pid: Some(1234),
+            driving_state: Some(DrivingState::Active),
+            ..FailureMonitorState::default()
+        };
+        let (state_tx, state_rx) = watch::channel(initial_state);
+        let (msg_tx, mut msg_rx) = mpsc::channel::<AgentMessage>(16);
+        let _ = state_tx;
+
+        spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999);
+
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        tokio::time::advance(Duration::from_secs(5)).await;
+        for _ in 0..5 { tokio::task::yield_now().await; }
+        tokio::time::advance(Duration::from_secs(300)).await;
+        for _ in 0..15 { tokio::task::yield_now().await; }
+
+        assert!(msg_rx.try_recv().is_err(),
+            "BILL-03 must NOT fire when DrivingState is Active");
     }
 }
