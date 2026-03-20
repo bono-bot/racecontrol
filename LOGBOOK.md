@@ -286,3 +286,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 16:14 IST | James | `b667d6a` | docs(54-01): complete structured-json-logging plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (MON-01) |
 | 2026-03-20 14:17 IST | James | `0c42b1a` | feat(54-02): rc-agent structured JSON logging — daily-rotating rc-agent-YYYY-MM-DD.jsonl, pod_id span injected after config load, 30-day cleanup, stdout stays plain text |
 | 2026-03-20 14:20 IST | James | `0392281` | docs(54-02): complete rc-agent JSON logging plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (MON-02) |
+| 2026-03-20 14:21 IST | James | `73a1bbb` | feat(54-03): ErrorCountLayer with sliding window VecDeque, mpsc bridge to async alerter task, 4 unit tests |
+| 2026-03-20 14:27 IST | James | `47293b2` | feat(54-03): MonitoringConfig in config.rs + ErrorCountLayer wired into tracing registry in main.rs |
+| 2026-03-20 14:28 IST | James | `123ffd5` | docs(54-03): complete error rate alerting plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS (MON-03) updated |
