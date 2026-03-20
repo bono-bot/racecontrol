@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: Phase 52 context gathered
-last_updated: "2026-03-20T06:17:49.946Z"
+stopped_at: "Completed 52-01 Tasks 1+2, checkpoint:human-action at Task 3 (OAuth re-auth)"
+last_updated: "2026-03-20T06:42:42.295Z"
 last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 progress:
   total_phases: 21
   completed_phases: 11
-  total_plans: 25
-  completed_plans: 24
+  total_plans: 27
+  completed_plans: 25
   percent: 0
 ---
 
@@ -81,6 +81,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase 50 P03 | 25 | 2 tasks | 6 files |
 | Phase 49 P02 | 12 | 2 tasks | 2 files |
 | Phase 51 P01 | 193 | 2 tasks | 2 files |
+| Phase 52-mcp-servers P01 | 4 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -183,6 +184,9 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - WhatsApp bot is racingpoint-whatsapp-bot (bono-bot org) — already integrated for v5.0 Phase 27 bono_relay.rs
 - [Phase 51]: CLAUDE.md is the authoritative Racing Point context source; MEMORY.md holds identity + current state only, with explicit pointer to CLAUDE.md
 - [Phase 51]: CLAUDE.md at 179 lines uses dense tables — well under 300-line context pressure limit
+- [Phase 52-01]: createRequire CJS bridge pattern copied exactly from racingpoint-mcp-gmail — proven approach for ESM servers using CJS google libs
+- [Phase 52-01]: GOOGLE_REFRESH_TOKEN set to PLACEHOLDER_REAUTH_NEEDED in settings.json — will be updated after OAuth re-auth in Task 3
+- [Phase 52-01]: Same CLIENT_ID and CLIENT_SECRET as Gmail/Drive entries — all 4 Google MCP servers share one OAuth app
 
 ### Pending Todos
 
@@ -198,7 +202,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T06:17:49.942Z
-Stopped at: Phase 52 context gathered
-Resume file: .planning/phases/52-mcp-servers/52-CONTEXT.md
+Last session: 2026-03-20T06:42:42.292Z
+Stopped at: Completed 52-01 Tasks 1+2, checkpoint:human-action at Task 3 (OAuth re-auth)
+Resume file: None
 Next action: Phase 51 Plan 01 — CLAUDE.md with project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order)
