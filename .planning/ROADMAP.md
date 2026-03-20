@@ -503,10 +503,11 @@ Plans:
   1. ConspitLink automatically restarts after a crash with crash count tracked (never using taskkill /F)
   2. Config files are backed up before any write and verified via JSON parse after every restart
   3. ConspitLink window stays minimized even after restarts — kiosk lock screen always visible
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
-- [ ] 58-01: TBD
+- [ ] 58-01-PLAN.md — Hardened restart with crash-count, config backup/verify, minimize retry (PROC-01, PROC-02, PROC-03, PROC-04)
+- [ ] 58-02-PLAN.md — Wire watchdog to hardened restart + Pod 8 hardware verification (PROC-01, PROC-04)
 
 ### Phase 59: Auto-Switch Configuration
 **Goal**: ConspitLink automatically detects which game is running and loads the correct FFB preset without staff action
