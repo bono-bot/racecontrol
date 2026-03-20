@@ -213,7 +213,7 @@ Harden rc-sentry into a reliable fallback operations tool, extract shared exec p
 Lock down the Racing Point operations stack — audit all exposed endpoints and PII, enforce JWT auth on billing/session APIs, add admin PIN gate, HTTPS for browser traffic, harden kiosk escape vectors, encrypt customer PII at rest, and add audit trails for compliance. Gradual hardening: biggest holes first, then layer defenses.
 
 - [x] **Phase 75: Security Audit & Foundations** - Inventory all exposed endpoints, trace PII locations, move secrets to env vars, auto-generate JWT key (completed 2026-03-20)
-- [ ] **Phase 76: API Authentication & Admin Protection** - JWT enforcement on all sensitive routes, admin PIN gate with argon2, rate limiting, bot auth, pod HMAC, session integrity
+- [x] **Phase 76: API Authentication & Admin Protection** - JWT enforcement on all sensitive routes, admin PIN gate with argon2, rate limiting, bot auth, pod HMAC, session integrity (completed 2026-03-20)
 - [ ] **Phase 77: Transport Security** - HTTPS for PWA/admin browser traffic, self-signed LAN certs, Let's Encrypt for cloud, security response headers
 - [ ] **Phase 78: Kiosk & Session Hardening** - Chrome lockdown, hotkey blocking, USB disable, session-scoped tokens, anomaly auto-pause with WhatsApp alert
 - [ ] **Phase 79: Data Protection** - AES-256-GCM on PII columns, deterministic phone hash for lookups, log redaction, customer data export/deletion
@@ -1020,7 +1020,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 73. Critical Business Tests | 1/2 | In Progress|  | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
-| 76. API Authentication & Admin Protection | 5/6 | In Progress|  | - |
+| 76. API Authentication & Admin Protection | 6/6 | Complete   | 2026-03-20 | - |
 | 77. Transport Security | v12.0 | 0/? | Not started | - |
 | 78. Kiosk & Session Hardening | v12.0 | 0/? | Not started | - |
 | 79. Data Protection | v12.0 | 0/? | Not started | - |

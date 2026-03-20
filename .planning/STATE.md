@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: executing
-stopped_at: Phase 68 context gathered
-last_updated: "2026-03-20T13:33:07.429Z"
-last_activity: "2026-03-20 -- 76-05 complete: dashboard PIN gate, AuthGate wrapper, 15-min idle timeout (ADMIN-01, ADMIN-03)"
+status: completed
+stopped_at: Completed 76-06-PLAN.md
+last_updated: "2026-03-20T13:38:47.349Z"
+last_activity: "2026-03-20 -- 76-06 complete: strict JWT enforcement on 172 staff routes (AUTH-01, AUTH-02, AUTH-03, SESS-01)"
 progress:
   total_phases: 45
-  completed_phases: 22
+  completed_phases: 24
   total_plans: 62
-  completed_plans: 58
-  percent: 94
+  completed_plans: 60
+  percent: 97
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v12.0 Security Audit & Hardening -- Phase 76 in progress (5/6 plans complete)
+**Current focus:** v12.0 Security Audit & Hardening -- Phase 76 complete (6/6 plans done)
 
 ## Current Position
 
-Phase: 73 of 80 (Critical Business Tests)
-Plan: 01 complete; 02 next
-Status: In progress
-Last activity: 2026-03-20 -- 76-05 complete: dashboard PIN gate, AuthGate wrapper, 15-min idle timeout (ADMIN-01, ADMIN-03)
+Phase: 76 of 80 (API Authentication & Admin Protection)
+Plan: 06 of 06 complete
+Status: Phase 76 complete
+Last activity: 2026-03-20 -- 76-06 complete: strict JWT enforcement on 172 staff routes (AUTH-01, AUTH-02, AUTH-03, SESS-01)
 
-Progress: [█████████░] 94% (58/62 plans complete)
+Progress: [██████████] 97% (60/62 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -94,6 +94,7 @@ Progress: [█████████░] 94% (58/62 plans complete)
 - 76-04: Bot wallet check (AUTH-05) already existed; billing is deferred (in-memory), not DB -- TOCTOU mitigated by optimistic locking
 - 73-01: FfbBackend trait uses FfbController::method(self) fully-qualified delegation to avoid infinite recursion when trait and inherent method names match; mockall mock tests added inside existing test module; tokio test-util added to dev-deps to fix pre-existing billing_guard compilation (TEST-03 complete)
 - 76-05: JWT in localStorage with client-side expiry check; AuthGate skips /login pathname to avoid redirect loop; fetchApi auto-clears token + redirects on 401; useIdleTimeout listens to 5 event types with passive listeners (ADMIN-01, ADMIN-03 complete)
+- 76-06: One-line swap from require_staff_jwt_permissive to require_staff_jwt on staff sub-router; contract step of expand-migrate-contract; kept permissive variant for rollback (AUTH-01, AUTH-02, AUTH-03, SESS-01 complete)
 
 ### Blockers/Concerns
 
@@ -114,7 +115,7 @@ Progress: [█████████░] 94% (58/62 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:33:07.423Z
-Stopped at: Completed 76-05-PLAN.md
+Last session: 2026-03-20T13:38:47.343Z
+Stopped at: Completed 76-06-PLAN.md
 Resume file: None
-Next action: Continue Phase 76 -- plan 06 next (switch permissive to strict JWT enforcement)
+Next action: Phase 76 complete -- all 6 plans done. Next phase TBD.
