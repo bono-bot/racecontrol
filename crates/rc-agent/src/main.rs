@@ -461,32 +461,14 @@ async fn main() -> Result<()> {
         handle // held until process exits → mutex released automatically
     };
 
-    // Logging: stdout + file appender (C:\RacingPoint\rc-agent.log)
-    // File log persists after crashes so we can diagnose via pod-agent.
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "rc_agent=info".into());
-
+    // Compute log directory (exe dir) — needed for cleanup and later tracing init
     let log_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
 
-    let file_appender = tracing_appender::rolling::never(&log_dir, "rc-agent.log");
-    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file_appender);
-
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
-
-    let stdout_layer = tracing_subscriber::fmt::layer();
-    let file_layer = tracing_subscriber::fmt::layer()
-        .with_writer(non_blocking_file)
-        .with_ansi(false);
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(stdout_layer)
-        .with(file_layer)
-        .init();
+    // Clean up old log files (>30 days) before initializing tracing
+    cleanup_old_logs(&log_dir);
 
     println!(r#"
   RaceControl Agent
@@ -497,7 +479,7 @@ async fn main() -> Result<()> {
     let crash_recovery = startup_log::detect_crash_recovery();
     startup_log::write_phase("init", "");
     if crash_recovery {
-        tracing::warn!("Detected crash recovery -- previous startup did not complete");
+        eprintln!("[rc-agent] Detected crash recovery -- previous startup did not complete");
     }
 
     // Start a minimal lock screen server early so we can show a branded error
@@ -528,7 +510,7 @@ async fn main() -> Result<()> {
     let config = match load_config() {
         Ok(cfg) => cfg,
         Err(e) => {
-            tracing::error!("Config error: {}", e);
+            eprintln!("[rc-agent] Config error: {}", e);
             early_lock_screen.show_config_error(&e.to_string());
             // Give Edge time to render the error page before process exits
             tokio::time::sleep(Duration::from_secs(2)).await;
