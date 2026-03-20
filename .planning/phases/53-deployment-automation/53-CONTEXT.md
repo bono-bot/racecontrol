@@ -16,10 +16,10 @@ Deliverables: Task Scheduler entries for auto-start, verify script integration, 
 ## Implementation Decisions
 
 ### Auto-start Method
-- **Task Scheduler** — two scheduled tasks triggered at boot (`/sc onstart /ru SYSTEM`)
+- **Task Scheduler** — two scheduled tasks triggered at login (`/sc onlogon /ru bono /rl HIGHEST`)
 - Task 1: staging HTTP server (serves deploy-staging/ directory on James's machine)
 - Task 2: `webterm.py` (port 9999 — Uday's phone terminal access)
-- Runs at boot even before login — survives reboots reliably without James logging in
+- ONLOGON (not ONSTART) — SYSTEM context can't bind user ports or write to user paths. Matches existing CommsLink-Watchdog pattern. Requires auto-login on James's machine for cold-boot reliability.
 
 ### Verify Script
 - **Reuse existing** `tests/e2e/deploy/verify.sh` from v7.0 Phase 44
