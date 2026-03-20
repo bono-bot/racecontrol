@@ -275,3 +275,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 12:15 IST | James | `7f0ce1e` | feat(52-01): create racingpoint-mcp-sheets — read_sheet and write_sheet MCP tools |
 | 2026-03-20 12:15 IST | James | `7e2c8ce` | feat(52-01): create racingpoint-mcp-calendar — list_events, create_event, delete_event MCP tools |
 | 2026-03-20 12:15 IST | James | `6e9eca9` | docs(52-01): SUMMARY + STATE/ROADMAP/REQUIREMENTS updated — Tasks 1+2 complete, OAuth checkpoint reached |
+| 2026-03-20 12:18 IST | James | `40214df` | feat(52-02): create rc-ops-mcp MCP server with 10 racecontrol API tools (in rc-ops-mcp repo) |
+| 2026-03-20 12:18 IST | James | `0a241c8` | docs(52-02): complete rc-ops-mcp plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
