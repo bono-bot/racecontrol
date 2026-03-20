@@ -532,7 +532,7 @@ async fn main() -> anyhow::Result<()> {
     // Build router
     let app = Router::new()
         // API routes
-        .nest("/api/v1", api::routes::api_routes())
+        .nest("/api/v1", api::routes::api_routes(state.clone()))
         // WebSocket endpoints
         .route("/ws/agent", get(ws::agent_ws))
         .route("/ws/dashboard", get(ws::dashboard_ws))

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::ac_server;
 use crate::accounting;
 use crate::auth;
+use crate::auth::middleware::require_staff_jwt_permissive;
 use crate::billing;
 use crate::catalog;
 use crate::cloud_sync;
@@ -25,118 +26,53 @@ use crate::wol;
 use rc_common::types::*;
 use rc_common::protocol::{CloudAction, CoreToAgentMessage, DashboardEvent};
 
-pub fn api_routes() -> Router<Arc<AppState>> {
+/// Top-level API router: merges 4 tiered sub-routers.
+///
+/// - `public_routes()` -- no auth required (health, venue, public leaderboards, customer login/register)
+/// - `customer_routes()` -- customer JWT checked in-handler via extract_driver_id()
+/// - `staff_routes(state)` -- staff/admin routes with permissive JWT middleware (logs warnings)
+/// - `service_routes()` -- service routes (sync, actions, terminal, bot) with in-handler auth
+pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        // Health
+        .merge(public_routes())
+        .merge(customer_routes())
+        .merge(staff_routes(state))
+        .merge(service_routes())
+}
+
+// ─── Tier 1: Public (no auth) ────────────────────────────────────────────
+
+fn public_routes() -> Router<Arc<AppState>> {
+    Router::new()
         .route("/health", get(health))
-        // Fleet health (public — no auth required)
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
-        // Pods
-        .route("/pods", get(list_pods).post(register_pod))
-        .route("/pod-status-summary", get(pod_status_summary))
-        .route("/pods/seed", post(seed_pods))
-        .route("/pods/{id}", get(get_pod))
-        .route("/pods/{id}/wake", post(wake_pod))
-        .route("/pods/{id}/shutdown", post(shutdown_pod))
-        .route("/pods/{id}/lockdown", post(lockdown_pod))
-        .route("/pods/{id}/enable", post(enable_pod))
-        .route("/pods/{id}/disable", post(disable_pod))
-        .route("/pods/{id}/screen", post(set_pod_screen))
-        .route("/pods/{id}/restart", post(restart_pod))
-        .route("/pods/wake-all", post(wake_all_pods))
-        .route("/pods/shutdown-all", post(shutdown_all_pods))
-        .route("/pods/restart-all", post(restart_all_pods))
-        .route("/pods/lockdown-all", post(lockdown_all_pods))
-        .route("/pods/{id}/exec", post(ws_exec_pod))
-        .route("/pods/{id}/self-test", get(pod_self_test))
-        // Drivers
-        .route("/drivers", get(list_drivers).post(create_driver))
-        .route("/drivers/{id}", get(get_driver))
-        .route("/drivers/{id}/full-profile", get(get_driver_full_profile))
-        // Sessions
-        .route("/sessions", get(list_sessions).post(create_session))
-        .route("/sessions/{id}", get(get_session))
-        // Laps
-        .route("/laps", get(list_laps))
-        .route("/sessions/{id}/laps", get(session_laps))
-        // Leaderboard
-        .route("/leaderboard/{track}", get(track_leaderboard))
-        // Events
-        .route("/events", get(list_events).post(create_event))
-        // Bookings
-        .route("/bookings", get(list_bookings).post(create_booking))
-        // Pricing
-        .route("/pricing", get(list_pricing_tiers).post(create_pricing_tier))
-        .route("/pricing/{id}", put(update_pricing_tier).delete(delete_pricing_tier))
-        .route("/billing/rates", get(list_billing_rates).post(create_billing_rate))
-        .route("/billing/rates/{id}", put(update_billing_rate).delete(delete_billing_rate))
-        // Billing
-        .route("/billing/start", post(start_billing))
-        .route("/billing/active", get(active_billing_sessions))
-        .route("/billing/sessions", get(list_billing_sessions))
-        .route("/billing/sessions/{id}", get(get_billing_session))
-        .route("/billing/sessions/{id}/events", get(billing_session_events))
-        .route("/billing/sessions/{id}/summary", get(billing_session_summary))
-        .route("/billing/{id}/stop", post(stop_billing))
-        .route("/billing/{id}/pause", post(pause_billing))
-        .route("/billing/{id}/resume", post(resume_billing))
-        .route("/billing/{id}/extend", post(extend_billing))
-        .route("/billing/{id}/refund", post(refund_billing_session))
-        .route("/billing/{id}/refunds", get(get_billing_refunds))
-        .route("/billing/report/daily", get(daily_billing_report))
-        .route("/billing/split-options/{duration_minutes}", get(get_split_options))
-        .route("/billing/continue-split", post(continue_split))
-        // Game Launcher
-        .route("/games/launch", post(launch_game))
-        .route("/games/relaunch/{pod_id}", post(relaunch_game))
-        .route("/games/stop", post(stop_game))
-        .route("/games/active", get(active_games))
-        .route("/games/history", get(game_launch_history))
-        .route("/games/pod/{pod_id}", get(pod_game_state))
-        .route("/pods/{pod_id}/transmission", post(set_pod_transmission))
-        .route("/pods/{pod_id}/ffb", post(set_pod_ffb))
-        .route("/pods/{pod_id}/assists", post(set_pod_assists))
-        .route("/pods/{pod_id}/assist-state", get(get_pod_assist_state))
-        // AC LAN
-        .route("/ac/presets", get(list_ac_presets).post(save_ac_preset))
-        .route("/ac/presets/{id}", get(get_ac_preset).put(update_ac_preset).delete(delete_ac_preset))
-        .route("/ac/session/start", post(start_ac_session))
-        .route("/ac/session/stop", post(stop_ac_session))
-        .route("/ac/session/active", get(active_ac_session))
-        .route("/ac/sessions", get(list_ac_sessions))
-        .route("/ac/sessions/{id}/leaderboard", get(ac_session_leaderboard))
-        .route("/ac/session/{session_id}/continuous", post(ac_server_set_continuous))
-        .route("/ac/session/retry-pod", post(ac_session_retry_pod))
-        .route("/ac/session/update-config", post(ac_session_update_config))
-        .route("/ac/content/tracks", get(list_ac_tracks))
-        .route("/ac/content/cars", get(list_ac_cars))
-        // Venue info
         .route("/venue", get(venue_info))
-        // Auth (staff-facing)
-        .route("/auth/assign", post(assign_customer))
-        .route("/auth/cancel/{id}", post(cancel_assignment))
-        .route("/auth/pending", get(pending_auth_tokens))
-        .route("/auth/pending/{pod_id}", get(pending_auth_token_for_pod))
-        // Auth (staff override — start billing without PIN/QR)
-        .route("/auth/start-now", post(start_now))
-        // Auth (agent-facing)
-        .route("/auth/validate-pin", post(validate_pin))
-        // Auth (kiosk-facing — no pod_id required)
-        .route("/auth/kiosk/validate-pin", post(kiosk_validate_pin))
-        // Auth (PWA-facing)
-        .route("/auth/validate-qr", post(validate_qr))
-        // Wallet (staff-facing)
-        .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
-        .route("/wallet/transactions", get(all_wallet_transactions))
-        .route("/wallet/{driver_id}", get(get_wallet))
-        .route("/wallet/{driver_id}/topup", post(topup_wallet))
-        .route("/wallet/{driver_id}/transactions", get(wallet_transactions))
-        .route("/wallet/{driver_id}/debit", post(debit_wallet_manual))
-        .route("/wallet/{driver_id}/refund", post(refund_wallet))
-        // Customer (PWA endpoints)
         .route("/customer/login", post(customer_login))
         .route("/customer/verify-otp", post(customer_verify_otp))
         .route("/customer/register", post(customer_register))
+        .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
+        // Public leaderboards, events, championships (no auth)
+        .route("/public/leaderboard", get(public_leaderboard))
+        .route("/public/leaderboard/{track}", get(public_track_leaderboard))
+        .route("/public/circuit-records", get(public_circuit_records))
+        .route("/public/vehicle-records/{car}", get(public_vehicle_records))
+        .route("/public/drivers", get(public_drivers_search))
+        .route("/public/drivers/{id}", get(public_driver_profile))
+        .route("/public/time-trial", get(public_time_trial))
+        .route("/public/laps/{lap_id}/telemetry", get(public_lap_telemetry))
+        .route("/public/sessions/{id}", get(public_session_summary))
+        .route("/public/championships/{id}/standings", get(public_championship_standings_handler))
+        .route("/public/events", get(public_events_list))
+        .route("/public/events/{id}", get(public_event_leaderboard))
+        .route("/public/events/{id}/sessions", get(public_event_sessions))
+        .route("/public/championships", get(public_championships_list))
+        .route("/public/championships/{id}", get(public_championship_standings))
+}
+
+// ─── Tier 2: Customer (JWT checked in-handler via extract_driver_id) ─────
+
+fn customer_routes() -> Router<Arc<AppState>> {
+    Router::new()
         .route("/customer/waiver-status", get(customer_waiver_status))
         .route("/customer/profile", get(customer_profile).put(customer_update_profile))
         .route("/customer/sessions", get(customer_sessions))
@@ -167,85 +103,11 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/customer/multiplayer-results/{group_session_id}", get(customer_multiplayer_results))
         // Telemetry (PWA)
         .route("/customer/telemetry", get(customer_telemetry))
-        // Waivers (admin-facing)
-        .route("/waivers", get(list_waivers))
-        .route("/waivers/check", get(check_waiver))
-        .route("/waivers/{driver_id}/signature", get(get_waiver_signature))
-        // Kiosk
-        .route("/kiosk/experiences", get(list_kiosk_experiences).post(create_kiosk_experience))
-        .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
-        .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
-        .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
-        // Kiosk Allowlist (admin-configurable process additions)
-        .route("/config/kiosk-allowlist", get(list_kiosk_allowlist).post(add_kiosk_allowlist_entry))
-        .route("/config/kiosk-allowlist/{name}", axum::routing::delete(delete_kiosk_allowlist_entry))
-        // POS lockdown
-        .route("/pos/lockdown", get(get_pos_lockdown).post(set_pos_lockdown))
-        .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
-        // AI Chat
-        .route("/ai/chat", post(ai_chat))
-        .route("/customer/ai/chat", post(customer_ai_chat))
-        // Ops stats (overview counts)
-        .route("/ops/stats", get(ops_stats))
-        // AI Diagnose (on-demand analysis)
-        .route("/ai/diagnose", post(ai_diagnose))
-        // AI Suggestions (history)
-        .route("/ai/suggestions", get(list_ai_suggestions))
-        .route("/ai/suggestions/{id}/dismiss", post(dismiss_ai_suggestion))
-        // AI Training Management
-        .route("/ai/training/stats", get(ai_training_stats))
-        .route("/ai/training/pairs", get(ai_training_pairs))
-        .route("/ai/training/import", post(ai_training_import))
-        // Cloud action queue
-        .route("/actions", post(create_action))
-        .route("/actions/pending", get(pending_actions))
-        .route("/actions/process", post(process_action_endpoint))
-        .route("/actions/{id}/ack", post(ack_action))
-        .route("/actions/history", get(action_history))
-        // Cloud sync
-        .route("/sync/changes", get(sync_changes))
-        .route("/sync/push", post(sync_push))
-        .route("/sync/health", get(sync_health))
-        // Terminal (remote command execution)
-        .route("/terminal/auth", post(terminal_auth))
-        .route("/terminal/commands", get(terminal_list).post(terminal_submit))
-        .route("/terminal/commands/pending", get(terminal_pending))
-        .route("/terminal/commands/{id}/result", post(terminal_result))
-        .route("/terminal/book-multiplayer", post(terminal_book_multiplayer))
-        .route("/terminal/group-sessions", get(terminal_group_sessions))
-        // Staff
-        .route("/staff/validate-pin", post(staff_validate_pin))
-        .route("/staff", get(list_staff).post(create_staff))
-        // Employee
-        .route("/employee/daily-pin", get(employee_daily_pin))
-        .route("/employee/debug-unlock", post(employee_debug_unlock))
-        // Dynamic Pricing & Coupons (admin)
-        .route("/pricing/rules", get(list_pricing_rules).post(create_pricing_rule))
-        .route("/pricing/rules/{id}", put(update_pricing_rule).delete(delete_pricing_rule))
-        .route("/coupons", get(list_coupons).post(create_coupon))
-        .route("/coupons/{id}", put(update_coupon).delete(delete_coupon))
-        // Review Nudges (admin)
-        .route("/review-nudges/pending", get(pending_review_nudges))
-        .route("/review-nudges/{id}/sent", post(mark_nudge_sent))
-        // Time Trial Admin
-        .route("/time-trials", get(list_time_trials).post(create_time_trial))
-        .route("/time-trials/{id}", put(update_time_trial).delete(delete_time_trial))
-        // Tournaments (admin + public)
-        .route("/tournaments", get(list_tournaments).post(create_tournament))
-        .route("/tournaments/{id}", get(get_tournament).put(update_tournament))
-        .route("/tournaments/{id}/registrations", get(tournament_registrations))
-        .route("/tournaments/{id}/matches", get(tournament_matches))
-        .route("/tournaments/{id}/generate-bracket", post(generate_bracket))
-        .route("/tournaments/{id}/matches/{match_id}/result", post(record_match_result))
         // Tournament (PWA customer)
         .route("/customer/tournaments", get(customer_list_tournaments))
         .route("/customer/tournaments/{id}/register", post(customer_register_tournament))
         // Coaching / Telemetry comparison (PWA)
         .route("/customer/compare-laps", get(customer_compare_laps))
-        // Smart Scheduler
-        .route("/scheduler/status", get(scheduler::get_status))
-        .route("/scheduler/settings", put(scheduler::update_settings))
-        .route("/scheduler/analytics", get(scheduler::get_analytics))
         // Session share report (PWA)
         .route("/customer/sessions/{id}/share", get(customer_session_share))
         // Referrals (PWA)
@@ -259,43 +121,172 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         // Memberships (PWA)
         .route("/customer/membership", get(customer_membership))
         .route("/customer/membership/subscribe", post(customer_subscribe_membership))
-        // Public (no auth)
-        .route("/public/leaderboard", get(public_leaderboard))
-        .route("/public/leaderboard/{track}", get(public_track_leaderboard))
-        .route("/public/circuit-records", get(public_circuit_records))
-        .route("/public/vehicle-records/{car}", get(public_vehicle_records))
-        .route("/public/drivers", get(public_drivers_search))
-        .route("/public/drivers/{id}", get(public_driver_profile))
-        .route("/public/time-trial", get(public_time_trial))
-        .route("/public/laps/{lap_id}/telemetry", get(public_lap_telemetry))
-        .route("/public/sessions/{id}", get(public_session_summary))
-        .route("/public/championships/{id}/standings", get(public_championship_standings_handler))
-        .route("/public/events", get(public_events_list))
-        .route("/public/events/{id}", get(public_event_leaderboard))
-        .route("/public/events/{id}/sessions", get(public_event_sessions))
-        .route("/public/championships", get(public_championships_list))
-        .route("/public/championships/{id}", get(public_championship_standings))
-        // Pod Activity Log (unified real-time feed)
-        .route("/activity", get(global_activity))
+        // Customer AI chat
+        .route("/customer/ai/chat", post(customer_ai_chat))
+}
+
+// ─── Tier 3: Staff/Admin (permissive JWT middleware — logs warnings) ──────
+
+/// Staff and admin routes. Protected by `require_staff_jwt_permissive` which
+/// logs unauthenticated requests but does NOT reject them (expand phase of
+/// expand-migrate-contract pattern). Switch to `require_staff_jwt` (strict)
+/// once dashboard, kiosk, and bots send staff JWTs.
+fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    Router::new()
+        // Pods
+        .route("/pods", get(list_pods).post(register_pod))
+        .route("/pod-status-summary", get(pod_status_summary))
+        .route("/pods/seed", post(seed_pods))
+        .route("/pods/{id}", get(get_pod))
+        .route("/pods/{id}/wake", post(wake_pod))
+        .route("/pods/{id}/shutdown", post(shutdown_pod))
+        .route("/pods/{id}/lockdown", post(lockdown_pod))
+        .route("/pods/{id}/enable", post(enable_pod))
+        .route("/pods/{id}/disable", post(disable_pod))
+        .route("/pods/{id}/screen", post(set_pod_screen))
+        .route("/pods/{id}/unrestrict", post(unrestrict_pod))
+        .route("/pods/{id}/restart", post(restart_pod))
+        .route("/pods/wake-all", post(wake_all_pods))
+        .route("/pods/shutdown-all", post(shutdown_all_pods))
+        .route("/pods/restart-all", post(restart_all_pods))
+        .route("/pods/lockdown-all", post(lockdown_all_pods))
+        .route("/pods/{id}/exec", post(ws_exec_pod))
+        .route("/pods/{id}/self-test", get(pod_self_test))
+        .route("/pods/{pod_id}/transmission", post(set_pod_transmission))
+        .route("/pods/{pod_id}/ffb", post(set_pod_ffb))
+        .route("/pods/{pod_id}/assists", post(set_pod_assists))
+        .route("/pods/{pod_id}/assist-state", get(get_pod_assist_state))
         .route("/pods/{pod_id}/activity", get(pod_activity))
-        // Pod Debug System
-        .route("/debug/activity", get(debug_activity))
-        .route("/debug/playbooks", get(debug_playbooks))
-        .route("/debug/incidents", get(list_debug_incidents).post(create_debug_incident))
-        .route("/debug/incidents/{id}", put(update_debug_incident))
-        .route("/debug/diagnose", post(debug_diagnose))
-        // Server logs
-        .route("/logs", get(get_server_logs))
-        // Bot (WhatsApp bot — terminal_secret auth)
-        .route("/bot/lookup", get(bot_lookup))
-        .route("/bot/pricing", get(bot_pricing))
-        .route("/bot/book", post(bot_book))
-        .route("/bot/pods-status", get(bot_pods_status))
-        .route("/bot/events", get(bot_events))
-        .route("/bot/leaderboard", get(bot_leaderboard))
-        .route("/bot/customer-stats", get(bot_customer_stats))
-        .route("/bot/register-lead", post(bot_register_lead))
-        // Accounting & Audit (admin)
+        .route("/pods/{pod_id}/watchdog-crash", post(watchdog_crash_report))
+        // Drivers
+        .route("/drivers", get(list_drivers).post(create_driver))
+        .route("/drivers/{id}", get(get_driver))
+        .route("/drivers/{id}/full-profile", get(get_driver_full_profile))
+        // Sessions
+        .route("/sessions", get(list_sessions).post(create_session))
+        .route("/sessions/{id}", get(get_session))
+        .route("/sessions/{id}/laps", get(session_laps))
+        // Laps
+        .route("/laps", get(list_laps))
+        // Leaderboard
+        .route("/leaderboard/{track}", get(track_leaderboard))
+        // Events
+        .route("/events", get(list_events).post(create_event))
+        // Bookings
+        .route("/bookings", get(list_bookings).post(create_booking))
+        // Pricing
+        .route("/pricing", get(list_pricing_tiers).post(create_pricing_tier))
+        .route("/pricing/{id}", put(update_pricing_tier).delete(delete_pricing_tier))
+        .route("/pricing/rules", get(list_pricing_rules).post(create_pricing_rule))
+        .route("/pricing/rules/{id}", put(update_pricing_rule).delete(delete_pricing_rule))
+        // Billing
+        .route("/billing/start", post(start_billing))
+        .route("/billing/active", get(active_billing_sessions))
+        .route("/billing/sessions", get(list_billing_sessions))
+        .route("/billing/sessions/{id}", get(get_billing_session))
+        .route("/billing/sessions/{id}/events", get(billing_session_events))
+        .route("/billing/sessions/{id}/summary", get(billing_session_summary))
+        .route("/billing/{id}/stop", post(stop_billing))
+        .route("/billing/{id}/pause", post(pause_billing))
+        .route("/billing/{id}/resume", post(resume_billing))
+        .route("/billing/{id}/extend", post(extend_billing))
+        .route("/billing/{id}/refund", post(refund_billing_session))
+        .route("/billing/{id}/refunds", get(get_billing_refunds))
+        .route("/billing/report/daily", get(daily_billing_report))
+        .route("/billing/rates", get(list_billing_rates).post(create_billing_rate))
+        .route("/billing/rates/{id}", put(update_billing_rate).delete(delete_billing_rate))
+        .route("/billing/split-options/{duration_minutes}", get(get_split_options))
+        .route("/billing/continue-split", post(continue_split))
+        // Game Launcher
+        .route("/games/launch", post(launch_game))
+        .route("/games/relaunch/{pod_id}", post(relaunch_game))
+        .route("/games/stop", post(stop_game))
+        .route("/games/active", get(active_games))
+        .route("/games/history", get(game_launch_history))
+        .route("/games/pod/{pod_id}", get(pod_game_state))
+        // AC LAN
+        .route("/ac/presets", get(list_ac_presets).post(save_ac_preset))
+        .route("/ac/presets/{id}", get(get_ac_preset).put(update_ac_preset).delete(delete_ac_preset))
+        .route("/ac/session/start", post(start_ac_session))
+        .route("/ac/session/stop", post(stop_ac_session))
+        .route("/ac/session/active", get(active_ac_session))
+        .route("/ac/sessions", get(list_ac_sessions))
+        .route("/ac/sessions/{id}/leaderboard", get(ac_session_leaderboard))
+        .route("/ac/session/{session_id}/continuous", post(ac_server_set_continuous))
+        .route("/ac/session/retry-pod", post(ac_session_retry_pod))
+        .route("/ac/session/update-config", post(ac_session_update_config))
+        .route("/ac/content/tracks", get(list_ac_tracks))
+        .route("/ac/content/cars", get(list_ac_cars))
+        // Auth (staff-facing)
+        .route("/auth/assign", post(assign_customer))
+        .route("/auth/cancel/{id}", post(cancel_assignment))
+        .route("/auth/pending", get(pending_auth_tokens))
+        .route("/auth/pending/{pod_id}", get(pending_auth_token_for_pod))
+        .route("/auth/start-now", post(start_now))
+        .route("/auth/validate-pin", post(validate_pin))
+        .route("/auth/kiosk/validate-pin", post(kiosk_validate_pin))
+        .route("/auth/validate-qr", post(validate_qr))
+        // Wallet (staff-facing)
+        .route("/wallet/transactions", get(all_wallet_transactions))
+        .route("/wallet/{driver_id}", get(get_wallet))
+        .route("/wallet/{driver_id}/topup", post(topup_wallet))
+        .route("/wallet/{driver_id}/transactions", get(wallet_transactions))
+        .route("/wallet/{driver_id}/debit", post(debit_wallet_manual))
+        .route("/wallet/{driver_id}/refund", post(refund_wallet))
+        // Waivers (admin-facing)
+        .route("/waivers", get(list_waivers))
+        .route("/waivers/check", get(check_waiver))
+        .route("/waivers/{driver_id}/signature", get(get_waiver_signature))
+        // Kiosk
+        .route("/kiosk/experiences", get(list_kiosk_experiences).post(create_kiosk_experience))
+        .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
+        .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
+        .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
+        .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
+        // Config
+        .route("/config/kiosk-allowlist", get(list_kiosk_allowlist).post(add_kiosk_allowlist_entry))
+        .route("/config/kiosk-allowlist/{name}", axum::routing::delete(delete_kiosk_allowlist_entry))
+        // POS
+        .route("/pos/lockdown", get(get_pos_lockdown).post(set_pos_lockdown))
+        // AI (staff)
+        .route("/ai/chat", post(ai_chat))
+        .route("/ai/diagnose", post(ai_diagnose))
+        .route("/ai/suggestions", get(list_ai_suggestions))
+        .route("/ai/suggestions/{id}/dismiss", post(dismiss_ai_suggestion))
+        .route("/ai/training/stats", get(ai_training_stats))
+        .route("/ai/training/pairs", get(ai_training_pairs))
+        .route("/ai/training/import", post(ai_training_import))
+        // Ops stats
+        .route("/ops/stats", get(ops_stats))
+        // Activity
+        .route("/activity", get(global_activity))
+        // Staff
+        .route("/staff/validate-pin", post(staff_validate_pin))
+        .route("/staff", get(list_staff).post(create_staff))
+        // Employee
+        .route("/employee/daily-pin", get(employee_daily_pin))
+        .route("/employee/debug-unlock", post(employee_debug_unlock))
+        // Coupons (admin)
+        .route("/coupons", get(list_coupons).post(create_coupon))
+        .route("/coupons/{id}", put(update_coupon).delete(delete_coupon))
+        // Review Nudges (admin)
+        .route("/review-nudges/pending", get(pending_review_nudges))
+        .route("/review-nudges/{id}/sent", post(mark_nudge_sent))
+        // Time Trial Admin
+        .route("/time-trials", get(list_time_trials).post(create_time_trial))
+        .route("/time-trials/{id}", put(update_time_trial).delete(delete_time_trial))
+        // Tournaments (admin)
+        .route("/tournaments", get(list_tournaments).post(create_tournament))
+        .route("/tournaments/{id}", get(get_tournament).put(update_tournament))
+        .route("/tournaments/{id}/registrations", get(tournament_registrations))
+        .route("/tournaments/{id}/matches", get(tournament_matches))
+        .route("/tournaments/{id}/generate-bracket", post(generate_bracket))
+        .route("/tournaments/{id}/matches/{match_id}/result", post(record_match_result))
+        // Scheduler
+        .route("/scheduler/status", get(scheduler::get_status))
+        .route("/scheduler/settings", put(scheduler::update_settings))
+        .route("/scheduler/analytics", get(scheduler::get_analytics))
+        // Accounting & Audit
         .route("/accounting/accounts", get(list_accounts))
         .route("/accounting/trial-balance", get(trial_balance))
         .route("/accounting/profit-loss", get(profit_loss))
@@ -306,8 +297,12 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/deploy/status", get(deploy_status))
         .route("/deploy/rolling", post(deploy_rolling_handler))
         .route("/deploy/{pod_id}", post(deploy_single_pod))
-        // Watchdog
-        .route("/pods/{pod_id}/watchdog-crash", post(watchdog_crash_report))
+        // Debug
+        .route("/debug/activity", get(debug_activity))
+        .route("/debug/playbooks", get(debug_playbooks))
+        .route("/debug/incidents", get(list_debug_incidents).post(create_debug_incident))
+        .route("/debug/incidents/{id}", put(update_debug_incident))
+        .route("/debug/diagnose", post(debug_diagnose))
         // Staff: Hotlap Events
         .route("/staff/events", post(create_hotlap_event).get(list_staff_events))
         .route("/staff/events/{id}", get(get_staff_event).put(update_hotlap_event))
@@ -317,6 +312,42 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/staff/championships/{id}/rounds", post(add_championship_round))
         .route("/staff/events/{id}/link-session", post(link_group_session_to_event))
         .route("/staff/group-sessions/{id}/complete", post(complete_group_session))
+        // Apply permissive staff JWT middleware (logs warnings, does not reject)
+        .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt_permissive))
+}
+
+// ─── Tier 4: Service (terminal_secret/sync auth in handler) ──────────────
+
+fn service_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        // Cloud sync
+        .route("/sync/changes", get(sync_changes))
+        .route("/sync/push", post(sync_push))
+        .route("/sync/health", get(sync_health))
+        // Cloud action queue
+        .route("/actions", post(create_action))
+        .route("/actions/pending", get(pending_actions))
+        .route("/actions/process", post(process_action_endpoint))
+        .route("/actions/{id}/ack", post(ack_action))
+        .route("/actions/history", get(action_history))
+        // Terminal (remote command execution — terminal_secret auth in handler)
+        .route("/terminal/auth", post(terminal_auth))
+        .route("/terminal/commands", get(terminal_list).post(terminal_submit))
+        .route("/terminal/commands/pending", get(terminal_pending))
+        .route("/terminal/commands/{id}/result", post(terminal_result))
+        .route("/terminal/book-multiplayer", post(terminal_book_multiplayer))
+        .route("/terminal/group-sessions", get(terminal_group_sessions))
+        // Bot (WhatsApp bot — terminal_secret auth in handler)
+        .route("/bot/lookup", get(bot_lookup))
+        .route("/bot/pricing", get(bot_pricing))
+        .route("/bot/book", post(bot_book))
+        .route("/bot/pods-status", get(bot_pods_status))
+        .route("/bot/events", get(bot_events))
+        .route("/bot/leaderboard", get(bot_leaderboard))
+        .route("/bot/customer-stats", get(bot_customer_stats))
+        .route("/bot/register-lead", post(bot_register_lead))
+        // Server logs (service-level, used by cloud terminal)
+        .route("/logs", get(get_server_logs))
 }
 
 const BUILD_ID: &str = env!("GIT_HASH");
@@ -733,6 +764,58 @@ async fn lockdown_all_pods(
     }
 
     Json(json!({ "ok": true, "locked": locked, "results": results }))
+}
+
+// POST /pods/{id}/unrestrict — Fully unrestrict a pod for employee training/maintenance.
+// Sends ClearLockScreen + EnterDebugMode + disables kiosk lockdown on that pod.
+// To re-restrict, use POST /pods/{id}/lockdown {"locked": true}.
+// Body: { "unrestrict": true } (or false to re-restrict via lockdown + blank screen)
+async fn unrestrict_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let unrestrict = body.get("unrestrict").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let senders = state.agent_senders.read().await;
+    let Some(sender) = senders.get(&id) else {
+        return Json(json!({ "error": format!("Pod {} not connected", id) }));
+    };
+    if sender.is_closed() {
+        return Json(json!({ "error": format!("Pod {} not connected", id) }));
+    }
+
+    if unrestrict {
+        // 1. Clear lock screen
+        let _ = sender.send(CoreToAgentMessage::ClearLockScreen).await;
+        // 2. Enter debug mode (deactivates kiosk enforcement, restores taskbar)
+        let _ = sender.send(CoreToAgentMessage::EnterDebugMode {
+            employee_name: "Staff (admin panel)".to_string(),
+        }).await;
+        // 3. Disable kiosk lockdown via settings (prevents re-activation on next settings broadcast)
+        let mut settings = std::collections::HashMap::new();
+        settings.insert("kiosk_lockdown_enabled".to_string(), "false".to_string());
+        let _ = sender.send(CoreToAgentMessage::SettingsUpdated { settings }).await;
+        tracing::info!("Pod {} UNRESTRICTED for employee training", id);
+    } else {
+        // Re-restrict: re-enable kiosk lockdown + blank screen
+        let mut settings = std::collections::HashMap::new();
+        settings.insert("kiosk_lockdown_enabled".to_string(), "true".to_string());
+        let _ = sender.send(CoreToAgentMessage::SettingsUpdated { settings }).await;
+        let _ = sender.send(CoreToAgentMessage::BlankScreen).await;
+        tracing::info!("Pod {} RESTRICTED — kiosk re-engaged", id);
+    }
+
+    // Optimistic update for dashboard
+    {
+        let mut pods = state.pods.write().await;
+        if let Some(pod) = pods.get_mut(&id) {
+            pod.screen_blanked = Some(!unrestrict);
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+        }
+    }
+
+    Json(json!({ "ok": true, "pod_id": id, "unrestricted": unrestrict }))
 }
 
 /// POST /pods/{id}/exec — Execute a command on a pod via WebSocket proxy.
