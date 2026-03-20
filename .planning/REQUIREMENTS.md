@@ -1,107 +1,105 @@
-# Requirements: Racing Point Operations — v10.0 Connectivity & Redundancy
+# Requirements: Racing Point Operations — v11.0 Agent & Sentry Hardening
 
 **Defined:** 2026-03-20
 **Core Value:** Customers see their lap times, compete on leaderboards, and compare telemetry
 
-## v10.0 Requirements
+## v11.0 Requirements
 
-Requirements for Connectivity & Redundancy milestone. Each maps to roadmap phases.
-Comms Link v2.0 (shipped 2026-03-20) is the coordination backbone for James-Bono communication.
+Requirements for rc-sentry hardening, rc-agent decomposition, shared extraction, and test coverage.
 
-### Infrastructure
+### Sentry Hardening
 
-- [ ] **INFRA-01**: Server .23 has DHCP reservation pinned to MAC `10-FF-E0-80-B1-A7`
-- [ ] **INFRA-02**: James can execute commands on Server .23 via rc-agent :8090 over Tailscale IP
-- [x] **INFRA-03**: James can execute commands on Bono VPS via comms-link exec_request protocol
+- [ ] **SHARD-01**: rc-sentry enforces timeout_ms on command execution (kills child process after deadline)
+- [ ] **SHARD-02**: rc-sentry truncates command output to 64KB (matching rc-agent remote_ops behavior)
+- [ ] **SHARD-03**: rc-sentry limits concurrent exec requests to 4 (rejects with HTTP 429 when full)
+- [ ] **SHARD-04**: rc-sentry fixes partial TCP read bug (loops until full HTTP body received)
+- [ ] **SHARD-05**: rc-sentry uses structured logging via tracing (replaces eprintln)
+- [ ] **SHARD-06**: rc-sentry handles graceful shutdown on SIGTERM/Ctrl+C (drains active connections)
 
-### Config Sync
+### Sentry Expansion
 
-- [ ] **SYNC-01**: racecontrol.toml changes detected via sha2 hash and pushed to Bono via comms-link sync_push
-- [ ] **SYNC-02**: Config payload is sanitized (credentials/local paths stripped) before push
-- [ ] **SYNC-03**: Bono applies received config to cloud racecontrol (pod definitions, billing rates, game catalog)
+- [ ] **SEXP-01**: rc-sentry exposes GET /health returning uptime, version, concurrent exec slots, hostname
+- [ ] **SEXP-02**: rc-sentry exposes GET /version returning binary version and git commit hash
+- [ ] **SEXP-03**: rc-sentry exposes GET /files?path=... returning directory listing or file contents
+- [ ] **SEXP-04**: rc-sentry exposes GET /processes returning list of running processes with PID, name, memory
 
-### Failover Mechanics
+### Agent Decomposition
 
-- [ ] **FAIL-01**: rc-agent has `failover_url` in CoreConfig pointing to Bono's racecontrol via Tailscale
-- [ ] **FAIL-02**: rc-agent WS reconnect loop uses `Arc<RwLock<String>>` for runtime URL switching
-- [ ] **FAIL-03**: New `SwitchController` AgentMessage triggers rc-agent URL switch without process restart
-- [ ] **FAIL-04**: `self_monitor.rs` suppresses relaunch during intentional failover (last_switch_time guard)
+- [ ] **DECOMP-01**: rc-agent config types extracted from main.rs to config.rs (<500 lines)
+- [ ] **DECOMP-02**: rc-agent AppState struct and shared state extracted to app_state.rs
+- [ ] **DECOMP-03**: rc-agent WebSocket message handler extracted to ws_handler.rs
+- [ ] **DECOMP-04**: rc-agent event loop select! body extracted to event_loop.rs using ConnectionState struct pattern
 
-### Health Monitoring
+### Shared Extraction
 
-- [ ] **HLTH-01**: James runs health probe loop against server .23 (HTTP + WS check, 5s interval)
-- [ ] **HLTH-02**: Hysteresis state machine (3-down/2-up thresholds, reuse cloud_sync pattern) gates failover trigger
-- [ ] **HLTH-03**: Minimum 60s continuous outage window before auto-failover fires
-- [ ] **HLTH-04**: Bono detects James heartbeat loss via comms-link as secondary watchdog (24/7)
+- [ ] **SHARED-01**: rc-common exposes run_cmd_sync (thread + timeout) for rc-sentry and sync contexts
+- [ ] **SHARED-02**: rc-common exposes run_cmd_async (tokio, feature-gated) for rc-agent
+- [ ] **SHARED-03**: rc-sentry uses rc-common run_cmd_sync without pulling in tokio (verified via cargo tree)
 
-### Failover Orchestration
+### Testing
 
-- [ ] **ORCH-01**: James sends `task_request` to Bono via comms-link to activate cloud racecontrol as primary
-- [ ] **ORCH-02**: Racecontrol broadcasts `SwitchController` to all connected pods (failover URL)
-- [ ] **ORCH-03**: Pod-side LAN probe confirms .23 is unreachable before honoring switch (split-brain prevention)
-- [ ] **ORCH-04**: Uday notified via email + WhatsApp on failover event
+- [ ] **TEST-01**: billing_guard unit tests cover stuck session detection (BILL-02) and idle drift (BILL-03)
+- [ ] **TEST-02**: failure_monitor unit tests cover game freeze (CRASH-01) and launch timeout (CRASH-02)
+- [ ] **TEST-03**: ffb_controller tests via FfbBackend trait seam (no real HID access in tests)
+- [ ] **TEST-04**: rc-sentry endpoint integration tests (/ping, /exec, /health, /version, /files, /processes)
 
-### Failback
+## v12.0 Requirements
 
-- [ ] **BACK-01**: James detects server .23 recovery (2-up threshold)
-- [ ] **BACK-02**: Sync-before-accept: cloud sessions merged to local DB before .23 resumes primary role
-- [ ] **BACK-03**: Racecontrol broadcasts `SwitchController` with original .23 URL to all pods
-- [ ] **BACK-04**: Uday notified on failback event
+Deferred to future release. Tracked but not in current roadmap.
 
-## Future Requirements
+### Agent Decomposition (Advanced)
 
-### Enhanced Monitoring
+- **DECOMP-05**: Extract select! dispatch body into sub-handlers per message type (requires ConnectionState/ReconnectState split design)
+- **DECOMP-06**: Extract lock_screen state machine into standalone module with unit tests
 
-- **MON-01**: Grafana dashboard for failover events and server uptime
-- **MON-02**: Historical failover log with duration and session impact metrics
+### Testing (Extended)
 
-### Advanced Redundancy
-
-- **RED-01**: Automatic config sync on every racecontrol.toml change (file watcher)
-- **RED-02**: Kiosk and dashboard auto-redirect to cloud during failover
+- **TEST-05**: Integration tests for rc-agent ↔ racecontrol WebSocket protocol
+- **TEST-06**: End-to-end deploy verification tests using rc-sentry as health probe
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Active-active (dual primary) | SQLite-first architecture incompatible with dual-write; cloud_sync already documents UUID mismatch |
-| DNS-based failover | Windows LAN DNS caching causes 90-120s latency; direct IP switching is <15s |
-| Tailscale SSH on Windows | Not supported by Tailscale (GitHub #14942); use rc-agent :8090 over Tailscale IP |
-| Salt-based fleet management | v6.0 blocked at BIOS AMD-V; this milestone uses existing rc-agent + comms-link |
-| Kiosk/dashboard failover UI | Pods switch WS endpoint; kiosk/dashboard on .23 unavailable during failover — staff uses cloud URL directly |
+| rc-sentry authentication | Network-scoped by design (192.168.31.x subnet); adding auth increases complexity without security benefit |
+| rc-sentry async migration (tokio) | Deliberately stdlib-only for reliability as fallback; tokio would defeat the purpose |
+| rc-agent main.rs complete rewrite | Incremental extraction is safer; full rewrite risks regressions in safety-critical paths |
+| New sim adapter implementations | Separate milestone concern (iRacing, LMU, Forza telemetry) |
+| rc-sentry TLS/HTTPS | Internal LAN only; no external exposure |
 
 ## Traceability
 
+Which phases cover which requirements. Updated during roadmap creation.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 66 | Pending |
-| INFRA-02 | Phase 66 | Pending |
-| INFRA-03 | Phase 66 | Complete |
-| SYNC-01 | Phase 67 | Pending |
-| SYNC-02 | Phase 67 | Pending |
-| SYNC-03 | Phase 67 | Pending |
-| FAIL-01 | Phase 68 | Pending |
-| FAIL-02 | Phase 68 | Pending |
-| FAIL-03 | Phase 68 | Pending |
-| FAIL-04 | Phase 68 | Pending |
-| HLTH-01 | Phase 69 | Pending |
-| HLTH-02 | Phase 69 | Pending |
-| HLTH-03 | Phase 69 | Pending |
-| HLTH-04 | Phase 69 | Pending |
-| ORCH-01 | Phase 69 | Pending |
-| ORCH-02 | Phase 69 | Pending |
-| ORCH-03 | Phase 69 | Pending |
-| ORCH-04 | Phase 69 | Pending |
-| BACK-01 | Phase 70 | Pending |
-| BACK-02 | Phase 70 | Pending |
-| BACK-03 | Phase 70 | Pending |
-| BACK-04 | Phase 70 | Pending |
+| SHARD-01 | — | Pending |
+| SHARD-02 | — | Pending |
+| SHARD-03 | — | Pending |
+| SHARD-04 | — | Pending |
+| SHARD-05 | — | Pending |
+| SHARD-06 | — | Pending |
+| SEXP-01 | — | Pending |
+| SEXP-02 | — | Pending |
+| SEXP-03 | — | Pending |
+| SEXP-04 | — | Pending |
+| DECOMP-01 | — | Pending |
+| DECOMP-02 | — | Pending |
+| DECOMP-03 | — | Pending |
+| DECOMP-04 | — | Pending |
+| SHARED-01 | — | Pending |
+| SHARED-02 | — | Pending |
+| SHARED-03 | — | Pending |
+| TEST-01 | — | Pending |
+| TEST-02 | — | Pending |
+| TEST-03 | — | Pending |
+| TEST-04 | — | Pending |
 
 **Coverage:**
-- v10.0 requirements: 22 total
-- Mapped to phases: 22
-- Unmapped: 0
+- v11.0 requirements: 21 total
+- Mapped to phases: 0
+- Unmapped: 21
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after v10.0 roadmap creation — all 22 requirements mapped to phases 66-70*
+*Last updated: 2026-03-20 after initial definition*
