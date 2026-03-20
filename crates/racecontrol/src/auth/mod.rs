@@ -1,4 +1,7 @@
+pub mod admin;
 pub mod middleware;
+pub mod rate_limit;
+pub use admin::{admin_login, hash_admin_pin, verify_admin_pin};
 pub use middleware::{StaffClaims, require_staff_jwt, require_staff_jwt_permissive, create_staff_jwt};
 
 use std::sync::Arc;

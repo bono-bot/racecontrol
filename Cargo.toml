@@ -32,6 +32,7 @@ thiserror = "2"
 toml = "0.8"
 jsonwebtoken = "9"
 rand = "0.8"
+argon2 = "0.5"
 
 # rc-common
 rc-common = { path = "crates/rc-common" }

@@ -223,6 +223,10 @@ pub struct AuthConfig {
     pub evolution_url: Option<String>,
     pub evolution_api_key: Option<String>,
     pub evolution_instance: Option<String>,
+    /// Argon2id hash of the admin PIN. When set, enables the admin login endpoint.
+    /// Set via config file or RACECONTROL_ADMIN_PIN_HASH env var.
+    #[serde(default)]
+    pub admin_pin_hash: Option<String>,
 }
 
 impl Default for AuthConfig {
@@ -234,6 +238,7 @@ impl Default for AuthConfig {
             evolution_url: None,
             evolution_api_key: None,
             evolution_instance: None,
+            admin_pin_hash: None,
         }
     }
 }
@@ -456,6 +461,13 @@ impl Config {
         // --- Secret env var overrides (AUDIT-03) ---
         // JWT secret is handled specially via resolve_jwt_secret (supports auto-generation)
         self.auth.jwt_secret = resolve_jwt_secret(&self.auth.jwt_secret);
+
+        if let Ok(val) = std::env::var("RACECONTROL_ADMIN_PIN_HASH") {
+            if !val.is_empty() {
+                tracing::info!("Overriding admin_pin_hash from RACECONTROL_ADMIN_PIN_HASH env var");
+                self.auth.admin_pin_hash = Some(val);
+            }
+        }
 
         if let Ok(val) = std::env::var("RACECONTROL_TERMINAL_SECRET") {
             if !val.is_empty() {
