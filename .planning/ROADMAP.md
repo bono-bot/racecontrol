@@ -818,13 +818,13 @@ Plans:
   2. `cargo test -p rc-agent` passes with all Phase 73 tests still green after every extraction step -- no regression in billing_guard, failure_monitor, or FFB tests
   3. `cargo build --release --bin rc-agent` produces a binary that passes the Phase 50 pod self-test on Pod 8 canary -- behaviorally identical to pre-decomposition binary
   4. config.rs, app_state.rs, ws_handler.rs, and event_loop.rs each exist as named source files under crates/rc-agent/src/ -- decomposition is observable in the file tree
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 74-01: TBD
-- [ ] 74-02: TBD
-- [ ] 74-03: TBD
-
+- [ ] 74-01-PLAN.md -- Extract config types and load/validate functions to config.rs (DECOMP-01)
+- [ ] 74-02-PLAN.md -- Extract pre-loop shared state to AppState struct in app_state.rs (DECOMP-02)
+- [ ] 74-03-PLAN.md -- Extract WebSocket message handler to ws_handler.rs (DECOMP-03)
+- [ ] 74-04-PLAN.md -- Extract inner select! loop to event_loop.rs with ConnectionState (DECOMP-04)
 
 ## v12.0 Operations Security -- Phase Details
 
