@@ -801,11 +801,11 @@ Plans:
   1. `cargo test -p rc-agent billing_guard` passes -- stuck session detection (BILL-02) and idle drift (BILL-03) are covered by named unit tests that assert the correct auto-end behavior
   2. `cargo test -p rc-agent failure_monitor` passes -- game freeze detection (CRASH-01) and launch timeout (CRASH-02) are covered without requiring a live game process
   3. `cargo test -p rc-agent ffb` passes with FfbBackend trait injected -- tests run on James workstation without a real wheelbase connected and without sending any HID command to live hardware
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 73-01: TBD
-- [ ] 73-02: TBD
+- [ ] 73-01-PLAN.md — FfbBackend trait seam + mockall mock tests (TEST-03)
+- [ ] 73-02-PLAN.md — billing_guard timer tests (TEST-01) + failure_monitor requirement-named tests (TEST-02)
 
 ### Phase 74: rc-agent Decomposition
 **Goal**: rc-agent main.rs is reduced from ~3,400 lines to ~150 lines by extracting config types, AppState, WebSocket handler, and event loop into focused modules -- each module under 500 lines and testable in isolation
