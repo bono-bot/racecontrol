@@ -4,7 +4,7 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 66-05-PLAN.md
-last_updated: "2026-03-20T12:24:06.434Z"
+last_updated: "2026-03-20T12:27:00.762Z"
 last_activity: "2026-03-20 -- 75-02 complete: env var overrides for 6 secrets + JWT key auto-generation"
 progress:
   total_phases: 45
