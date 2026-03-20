@@ -79,10 +79,27 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
             // The reconnect loop retries every 30s; 5min means ~10 failed attempts.
             // A full process restart is the right escalation regardless of Ollama.
             if ws_dead_secs >= WS_DEAD_SECS {
-                tracing::warn!("[rc-bot] WebSocket dead {}s — relaunching to reestablish", ws_dead_secs);
-                log_event(&format!("RELAUNCH: ws_dead={}s (threshold={}s) — no AI needed", ws_dead_secs, WS_DEAD_SECS));
-                relaunch_self();
-                continue;
+                // Phase 68: Check if a SwitchController was received recently.
+                // Suppress relaunch for 60s after a switch to allow reconnection to new URL.
+                let last_switch_ms = status.last_switch_ms.load(Ordering::Relaxed);
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let since_switch_ms = now_ms.saturating_sub(last_switch_ms);
+                let switch_grace_active = last_switch_ms != 0 && since_switch_ms < 60_000;
+
+                if switch_grace_active {
+                    tracing::info!(
+                        "[rc-bot] WS dead {}s but SwitchController received {}ms ago — suppressing relaunch",
+                        ws_dead_secs, since_switch_ms
+                    );
+                } else {
+                    tracing::warn!("[rc-bot] WebSocket dead {}s — relaunching to reestablish", ws_dead_secs);
+                    log_event(&format!("RELAUNCH: ws_dead={}s (threshold={}s) — no AI needed", ws_dead_secs, WS_DEAD_SECS));
+                    relaunch_self();
+                    continue;
+                }
             }
 
             // CLOSE_WAIT persistent for 5+ checks (~5 min) — restart without Ollama.
@@ -247,6 +264,51 @@ mod tests {
         assert!(response.trim().to_uppercase().contains("RESTART"));
         let response_ok = "OK";
         assert!(!response_ok.trim().to_uppercase().contains("RESTART"));
+    }
+
+    #[test]
+    fn last_switch_guard_suppresses_within_60s() {
+        // Simulate: last_switch_ms was 30 seconds ago
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let last_switch_ms = now_ms - 30_000; // 30s ago
+
+        let since_switch_ms = now_ms.saturating_sub(last_switch_ms);
+        let switch_grace_active = last_switch_ms != 0 && since_switch_ms < 60_000;
+
+        assert!(switch_grace_active, "Grace should be active within 60s of switch");
+    }
+
+    #[test]
+    fn last_switch_guard_allows_after_60s() {
+        // Simulate: last_switch_ms was 90 seconds ago
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let last_switch_ms = now_ms - 90_000; // 90s ago
+
+        let since_switch_ms = now_ms.saturating_sub(last_switch_ms);
+        let switch_grace_active = last_switch_ms != 0 && since_switch_ms < 60_000;
+
+        assert!(!switch_grace_active, "Grace should NOT be active after 60s");
+    }
+
+    #[test]
+    fn last_switch_guard_allows_when_never_switched() {
+        // Simulate: last_switch_ms = 0 (never switched)
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let last_switch_ms: u64 = 0;
+
+        let since_switch_ms = now_ms.saturating_sub(last_switch_ms);
+        let switch_grace_active = last_switch_ms != 0 && since_switch_ms < 60_000;
+
+        assert!(!switch_grace_active, "Grace should NOT be active when never switched (last_switch_ms=0)");
     }
 
     #[test]
