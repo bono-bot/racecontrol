@@ -277,3 +277,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 12:15 IST | James | `6e9eca9` | docs(52-01): SUMMARY + STATE/ROADMAP/REQUIREMENTS updated — Tasks 1+2 complete, OAuth checkpoint reached |
 | 2026-03-20 12:18 IST | James | `40214df` | feat(52-02): create rc-ops-mcp MCP server with 10 racecontrol API tools (in rc-ops-mcp repo) |
 | 2026-03-20 12:18 IST | James | `0a241c8` | docs(52-02): complete rc-ops-mcp plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-03-20 13:36 IST | James | `9f7addd` | feat(53-02): add /rp:deploy-fleet canary-first fleet deploy skill — Pod 8 + verify.sh gate + approval prompt before pods 1-7 |
+| 2026-03-20 13:36 IST | James | `acee734` | docs(53-02): complete deploy-fleet plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (DEPLOY-02, DEPLOY-03) |
