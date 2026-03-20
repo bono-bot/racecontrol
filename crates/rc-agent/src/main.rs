@@ -361,6 +361,28 @@ async fn allowlist_poll_loop(core_http_url: String, client: reqwest::Client) {
     }
 }
 
+/// Delete log files older than 30 days from the given directory.
+fn cleanup_old_logs(log_dir: &std::path::Path) {
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(30 * 24 * 3600))
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+    if let Ok(entries) = std::fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.ends_with(".jsonl") || name.contains(".jsonl.") || name.ends_with(".log") {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if modified < cutoff {
+                            let _ = std::fs::remove_file(&path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Guard against recursive panics in the hook
 static PANIC_HOOK_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Lock screen state handle — set after LockScreenManager is created, used by panic hook
@@ -516,6 +538,38 @@ async fn main() -> Result<()> {
     // Early lock screen is replaced by the main lock screen manager below
     drop(early_lock_screen);
     startup_log::write_phase("config_loaded", &format!("pod={}", config.pod.number));
+
+    // Initialize tracing AFTER config load — pod_id now available for structured logs
+    let pod_id_str = format!("pod_{}", config.pod.number);
+
+    let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("rc-agent-")
+        .filename_suffix("jsonl")
+        .build(&log_dir)
+        .expect("failed to build rolling file appender");
+    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "rc_agent=info".into());
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer().with_target(true))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_target(true)
+                .with_ansi(false)
+                .with_writer(non_blocking_file),
+        )
+        .init();
+
+    // Enter pod span — all subsequent logs carry pod_id in span context
+    let _pod_span = tracing::info_span!("rc-agent", pod_id = %pod_id_str).entered();
+    tracing::info!("Structured logging initialized for {}", pod_id_str);
 
     let agent_start_time = std::time::Instant::now();
     tracing::info!("Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
@@ -741,10 +795,8 @@ async fn main() -> Result<()> {
         let ffb_startup_cleanup = ffb.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(8)).await;
-            tokio::task::spawn_blocking(move || {
-                ffb_startup_cleanup.zero_force_with_retry(3, 100);
-                ac_launcher::enforce_safe_state(false);
-            });
+            ffb_controller::safe_session_end(&ffb_startup_cleanup).await;
+            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
             tracing::info!("Startup: safe state enforced — pod clean for first customer");
         });
     }
@@ -1306,8 +1358,8 @@ async fn main() -> Result<()> {
                             // attempt up to 2 relaunches (60s each). Auto-end on 2nd failure.
                             if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
                                 tracing::warn!("Game crashed during active billing — pausing billing, attempting relaunch");
-                                // SAFETY: Zero FFB immediately on crash during billing
-                                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                // SAFETY: Safe session-end sequence on crash during billing
+                                ffb_controller::safe_session_end(&ffb).await;
                                 // Report crash + FFB status to core
                                 let crash_msg = AgentMessage::GameCrashed { pod_id: pod_id.clone(), billing_active: true };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_msg).unwrap_or_default().into())).await;
@@ -1337,12 +1389,12 @@ async fn main() -> Result<()> {
                                     last_launch_args: last_launch_args_stored.clone(),
                                 };
                             } else {
-                                // No billing active — enforce safe state immediately (FFB first, awaited)
+                                // No billing active — safe session-end then enforce safe state
                                 tracing::info!("Game exited with no active billing — enforcing safe state");
-                                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                ffb_controller::safe_session_end(&ffb).await;
                                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
+                                tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                 lock_screen.show_idle_pin_entry();
                             }
                         }
@@ -1528,11 +1580,11 @@ async fn main() -> Result<()> {
                 } else {
                     tracing::info!("Resetting to idle PinEntry after session summary (SESSION-02)");
                     lock_screen.show_idle_pin_entry();
-                    // Final cleanup pass — FFB zero first (awaited), then safe state
-                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                    // Final cleanup pass — safe session-end then enforce safe state
+                    ffb_controller::safe_session_end(&ffb).await;
                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
+                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                 }
             }
             // SESSION-03: Crash recovery state machine timer
@@ -1698,9 +1750,8 @@ async fn main() -> Result<()> {
                                 s.recovery_in_progress = false;
                                 s.active_billing_session_id = None;
                             });
-                            // SAFETY: Zero FFB FIRST (awaited), before game cleanup
-                            { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            // SAFETY: Safe session-end sequence before game cleanup
+                            ffb_controller::safe_session_end(&ffb).await;
                             lock_screen.show_idle_pin_entry();
                             overlay.deactivate();
                             if let Some(ref mut game) = game_process {
@@ -1708,7 +1759,7 @@ async fn main() -> Result<()> {
                                 game_process = None;
                             }
                             if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
+                            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                             current_driver_name = None;
                             last_ac_status = None;
                             ac_status_stable_since = None;
@@ -1834,12 +1885,11 @@ async fn main() -> Result<()> {
                                         s.billing_paused = false;
                                         s.launch_started_at = None;
                                     });
-                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // SAFETY: Safe session-end sequence before game cleanup
+                                    ffb_controller::safe_session_end(&ffb).await;
                                     // Show lock screen (covers desktop before game is killed)
                                     lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
-                                    // Stop game and clean up AFTER FFB is zeroed
+                                    // Stop game and clean up AFTER FFB safety sequence
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
@@ -1848,8 +1898,8 @@ async fn main() -> Result<()> {
                                     // Report FFB status
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
+                                    // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                     current_driver_name = None;
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SessionEnded {
@@ -1875,9 +1925,8 @@ async fn main() -> Result<()> {
                                         s.recovery_in_progress = false;
                                     });
 
-                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // SAFETY: Safe session-end sequence before game cleanup
+                                    ffb_controller::safe_session_end(&ffb).await;
 
                                     // Show session summary with accumulated telemetry stats (SESS-01, SESS-02)
                                     lock_screen.show_session_summary(
@@ -1886,7 +1935,7 @@ async fn main() -> Result<()> {
                                         session_race_position,
                                     );
 
-                                    // Stop game and clean up AFTER FFB is zeroed
+                                    // Stop game and clean up AFTER FFB safety sequence
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
@@ -1896,8 +1945,8 @@ async fn main() -> Result<()> {
                                     // Report FFB status
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
+                                    // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                     current_driver_name = None;
                                     // SESSION-02: auto-return to idle PinEntry after 30s session summary display
                                     blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(30));
@@ -2274,9 +2323,8 @@ async fn main() -> Result<()> {
                                         s.recovery_in_progress = true;
                                         s.launch_started_at = None;
                                     });
-                                    // SAFETY: Zero FFB BEFORE killing the game (awaited)
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // SAFETY: Safe session-end sequence before killing the game
+                                    ffb_controller::safe_session_end(&ffb).await;
                                     // Report FFB status
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
@@ -2355,9 +2403,8 @@ async fn main() -> Result<()> {
                                         s.recovery_in_progress = false;
                                     });
 
-                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // SAFETY: Safe session-end sequence before game cleanup
+                                    ffb_controller::safe_session_end(&ffb).await;
 
                                     // Show between-sessions lock screen
                                     lock_screen.show_between_sessions(
@@ -2365,7 +2412,7 @@ async fn main() -> Result<()> {
                                         current_split_number, total_splits,
                                     );
 
-                                    // Stop game and clean up AFTER FFB is zeroed
+                                    // Stop game and clean up AFTER FFB safety sequence
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
@@ -2375,8 +2422,8 @@ async fn main() -> Result<()> {
                                     // Report FFB status
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
+                                    // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {
                                     tracing::info!("Assistance screen for {}: {}", driver_name, message);
@@ -2718,16 +2765,15 @@ async fn main() -> Result<()> {
         if !heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
             tracing::info!("No active billing on disconnect — enforcing safe state");
             overlay.deactivate();
-            // SAFETY: Zero FFB FIRST (awaited), before game cleanup
-            { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-            tracing::info!("FFB zeroed on disconnect (ws_tx unavailable for FfbZeroed message)");
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            // SAFETY: Safe session-end sequence before game cleanup
+            ffb_controller::safe_session_end(&ffb).await;
+            tracing::info!("FFB safety sequence complete on disconnect (ws_tx unavailable for FfbZeroed message)");
             if let Some(ref mut game) = game_process {
                 let _ = game.stop();
                 game_process = None;
             }
             if let Some(ref mut adp) = adapter { adp.disconnect(); }
-            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(false); });
+            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
             lock_screen.show_blank_screen();
         } else {
             // SESSION-04: Billing active — apply 30s grace window before showing Disconnected
