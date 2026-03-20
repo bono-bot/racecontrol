@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::ac_server;
 use crate::accounting;
 use crate::auth;
-use crate::auth::middleware::require_staff_jwt_permissive;
+use crate::auth::middleware::require_staff_jwt;
 use crate::billing;
 use crate::catalog;
 use crate::cloud_sync;
@@ -140,10 +140,10 @@ fn customer_routes() -> Router<Arc<AppState>> {
 
 // ─── Tier 3: Staff/Admin (permissive JWT middleware — logs warnings) ──────
 
-/// Staff and admin routes. Protected by `require_staff_jwt_permissive` which
-/// logs unauthenticated requests but does NOT reject them (expand phase of
-/// expand-migrate-contract pattern). Switch to `require_staff_jwt` (strict)
-/// once dashboard, kiosk, and bots send staff JWTs.
+/// Staff and admin routes. Protected by `require_staff_jwt` (strict) which
+/// rejects unauthenticated requests with 401 Unauthorized. Switched from
+/// permissive mode (expand-migrate-contract pattern) now that dashboard,
+/// kiosk, and bots send staff JWTs.
 fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         // Pods
@@ -322,8 +322,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/staff/championships/{id}/rounds", post(add_championship_round))
         .route("/staff/events/{id}/link-session", post(link_group_session_to_event))
         .route("/staff/group-sessions/{id}/complete", post(complete_group_session))
-        // Apply permissive staff JWT middleware (logs warnings, does not reject)
-        .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt_permissive))
+        // Apply strict staff JWT middleware (rejects unauthenticated with 401)
+        .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
 }
 
 // ─── Tier 4: Service (terminal_secret/sync auth in handler) ──────────────
