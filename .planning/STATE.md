@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: Completed 54-02-PLAN.md
-last_updated: "2026-03-20T08:48:59.041Z"
+stopped_at: Completed 54-03-PLAN.md
+last_updated: "2026-03-20T08:58:11.389Z"
 last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 progress:
   total_phases: 30
-  completed_phases: 13
+  completed_phases: 14
   total_plans: 35
-  completed_plans: 32
+  completed_plans: 33
   percent: 0
 ---
 
@@ -109,6 +109,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase 54-structured-logging-error-rate-alerting P01 | 8 | 1 tasks | 2 files |
 | Phase 57 P02 | 12 | 2 tasks | 3 files |
 | Phase 54-structured-logging-error-rate-alerting P02 | 12 | 1 tasks | 1 files |
+| Phase 54-structured-logging-error-rate-alerting P03 | 6 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -230,6 +231,8 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - [Phase 54-02]: Tracing init moved after config load in rc-agent so pod_id is available for info_span; pre-init messages use eprintln!
 - [Phase 54-02]: rc-agent JSONL filename pattern: rc-agent-YYYY-MM-DD.jsonl (DAILY rotation, prefix=rc-agent-, suffix=jsonl)
 - [Phase 54-02]: rc-agent stdout layer stays plain text; only file layer uses .json() for fleet-wide jq filtering
+- [Phase 54-03]: Config loaded before tracing init in main.rs so MonitoringConfig thresholds are available at layer setup time
+- [Phase 54-03]: ErrorCountLayer clears timestamps after firing alert to avoid re-triggering on next error in same burst
 
 ### Pending Todos
 
@@ -245,7 +248,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T08:48:59.037Z
-Stopped at: Completed 54-02-PLAN.md
+Last session: 2026-03-20T08:58:11.385Z
+Stopped at: Completed 54-03-PLAN.md
 Resume file: None
 Next action: Phase 51 Plan 01 — CLAUDE.md with project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order)

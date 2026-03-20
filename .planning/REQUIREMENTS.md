@@ -32,7 +32,7 @@ Requirements for tooling & automation milestone. Each maps to roadmap phases.
 
 - [x] **MON-01**: racecontrol emits structured JSON logs via tracing-subscriber with daily file rotation
 - [x] **MON-02**: rc-agent emits structured JSON logs via tracing-subscriber with daily file rotation
-- [ ] **MON-03**: racecontrol triggers email alert when error rate exceeds N errors in M minutes (configurable threshold)
+- [x] **MON-03**: racecontrol triggers email alert when error rate exceeds N errors in M minutes (configurable threshold)
 - [ ] **MON-04**: Netdata agent installed on racecontrol server (.23) collecting system metrics (CPU, RAM, disk, network)
 - [ ] **MON-05**: Netdata agent installed on all 8 pods collecting system metrics, deployed via rc-agent :8090 exec
 - [ ] **MON-06**: WhatsApp notification sent to Uday for P0 severity events (all pods offline, billing crash) via existing racingpoint-whatsapp-bot
@@ -91,7 +91,7 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 | DEPLOY-03 | Phase 53 | Complete |
 | MON-01 | Phase 54 | Complete |
 | MON-02 | Phase 54 | Complete |
-| MON-03 | Phase 54 | Pending |
+| MON-03 | Phase 54 | Complete |
 | MON-04 | Phase 55 | Pending |
 | MON-05 | Phase 55 | Pending |
 | MON-06 | Phase 56 | Pending |
