@@ -282,3 +282,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 13:36 IST | James | `290e0a6` | chore(53-01): register RacingPoint-StagingHTTP and RacingPoint-WebTerm Task Scheduler tasks (ONLOGON, user bono) |
 | 2026-03-20 13:37 IST | James | `4f260bd` | feat(53-01): add tests/e2e/deploy/auto-start.sh — liveness check for :9998 and :9999 |
 | 2026-03-20 13:38 IST | James | `563e9c4` | docs(53-01): complete autostart plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (DEPLOY-01) |
+| 2026-03-20 16:14 IST | James | `451b4c6` | feat(54-01): structured JSON logging — racecontrol file layer uses .json(), daily rotation to racecontrol-YYYY-MM-DD.jsonl, 30-day cleanup on startup |
+| 2026-03-20 16:14 IST | James | `b667d6a` | docs(54-01): complete structured-json-logging plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (MON-01) |
