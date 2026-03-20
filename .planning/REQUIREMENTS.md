@@ -1,4 +1,4 @@
-# Requirements: Racing Point Operations — v11.0 Agent & Sentry Hardening
+# Requirements: Racing Point Operations -- v11.0 Agent & Sentry Hardening
 
 **Defined:** 2026-03-20
 **Core Value:** Customers see their lap times, compete on leaderboards, and compare telemetry
@@ -54,7 +54,7 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ### Testing (Extended)
 
-- **TEST-05**: Integration tests for rc-agent ↔ racecontrol WebSocket protocol
+- **TEST-05**: Integration tests for rc-agent <-> racecontrol WebSocket protocol
 - **TEST-06**: End-to-end deploy verification tests using rc-sentry as health probe
 
 ## Out of Scope
@@ -73,33 +73,33 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SHARD-01 | — | Pending |
-| SHARD-02 | — | Pending |
-| SHARD-03 | — | Pending |
-| SHARD-04 | — | Pending |
-| SHARD-05 | — | Pending |
-| SHARD-06 | — | Pending |
-| SEXP-01 | — | Pending |
-| SEXP-02 | — | Pending |
-| SEXP-03 | — | Pending |
-| SEXP-04 | — | Pending |
-| DECOMP-01 | — | Pending |
-| DECOMP-02 | — | Pending |
-| DECOMP-03 | — | Pending |
-| DECOMP-04 | — | Pending |
-| SHARED-01 | — | Pending |
-| SHARED-02 | — | Pending |
-| SHARED-03 | — | Pending |
-| TEST-01 | — | Pending |
-| TEST-02 | — | Pending |
-| TEST-03 | — | Pending |
-| TEST-04 | — | Pending |
+| SHARD-01 | Phase 71 | Pending |
+| SHARD-02 | Phase 71 | Pending |
+| SHARD-03 | Phase 71 | Pending |
+| SHARD-04 | Phase 71 | Pending |
+| SHARD-05 | Phase 71 | Pending |
+| SHARD-06 | Phase 72 | Pending |
+| SEXP-01 | Phase 72 | Pending |
+| SEXP-02 | Phase 72 | Pending |
+| SEXP-03 | Phase 72 | Pending |
+| SEXP-04 | Phase 72 | Pending |
+| DECOMP-01 | Phase 74 | Pending |
+| DECOMP-02 | Phase 74 | Pending |
+| DECOMP-03 | Phase 74 | Pending |
+| DECOMP-04 | Phase 74 | Pending |
+| SHARED-01 | Phase 71 | Pending |
+| SHARED-02 | Phase 71 | Pending |
+| SHARED-03 | Phase 71 | Pending |
+| TEST-01 | Phase 73 | Pending |
+| TEST-02 | Phase 73 | Pending |
+| TEST-03 | Phase 73 | Pending |
+| TEST-04 | Phase 72 | Pending |
 
 **Coverage:**
 - v11.0 requirements: 21 total
-- Mapped to phases: 0
-- Unmapped: 21
+- Mapped to phases: 21
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after initial definition*
+*Last updated: 2026-03-20 -- traceability filled after roadmap creation (phases 71-74)*

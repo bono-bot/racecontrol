@@ -197,6 +197,16 @@ Make server .23 IP permanently stable, establish reliable James↔Server↔Bono 
 - [ ] **Phase 69: Health Monitor & Failover Orchestration** - James probes .23 every 5s; 3-down/2-up hysteresis + 60s minimum outage window gates auto-failover; James sends task_request to Bono to activate cloud primary; racecontrol broadcasts SwitchController to all pods; pods confirm .23 unreachable before switching; Uday notified via email + WhatsApp
 - [ ] **Phase 70: Failback & Data Reconciliation** - James detects .23 recovery (2-up threshold); cloud sessions merged to local DB before .23 resumes primary; racecontrol broadcasts SwitchController with original URL; Uday notified on failback
 
+## v11.0 Agent & Sentry Hardening
+
+Harden rc-sentry into a reliable fallback operations tool, extract shared exec patterns into rc-common, write characterization tests before decomposing rc-agent main.rs, and add unit/integration tests for critical safety paths.
+
+- [ ] **Phase 71: rc-common Foundation + rc-sentry Core Hardening** - rc-common exec.rs feature-gated (sync/async), rc-sentry timeout enforcement, output truncation, concurrency cap, partial TCP read fix, structured logging
+- [ ] **Phase 72: rc-sentry Endpoint Expansion + Integration Tests** - /health, /version, /files, /processes endpoints; endpoint integration tests for all routes
+- [ ] **Phase 73: Critical Business Tests** - billing_guard and failure_monitor unit tests before any refactoring; FfbBackend trait seam for FFB controller tests
+- [ ] **Phase 74: rc-agent Decomposition** - config.rs, app_state.rs, ws_handler.rs, event_loop.rs extracted from main.rs in strict risk order
+
+
 ## Phase Details
 
 ### Phase 36: WSL2 Infrastructure
@@ -733,6 +743,72 @@ Plans:
 - [ ] 70-01: TBD
 
 
+## v11.0 Agent & Sentry Hardening -- Phase Details
+
+### Phase 71: rc-common Foundation + rc-sentry Core Hardening
+**Goal**: rc-sentry's three live correctness failures are fixed and rc-common gains the feature-gated exec primitive that both callers will share -- with the tokio contamination boundary verified before any code migrates
+**Depends on**: Phase 70 (can start in parallel -- no code dependency on v10.0)
+**Requirements**: SHARED-01, SHARED-02, SHARED-03, SHARD-01, SHARD-02, SHARD-03, SHARD-04, SHARD-05
+**Success Criteria** (what must be TRUE):
+  1. `cargo build --bin rc-sentry` succeeds and `cargo tree -p rc-sentry` shows no tokio dependency -- the feature gate boundary is enforced
+  2. A long-running command sent to rc-sentry is killed and returns a timeout error after timeout_ms -- hung threads no longer accumulate
+  3. rc-sentry rejects a 5th concurrent exec request with HTTP 429 -- unbounded thread spawning is capped at 4
+  4. rc-sentry log output shows structured tracing lines with timestamps and levels instead of raw eprintln -- observable in the terminal when rc-sentry starts
+  5. A command producing >64KB output is truncated to 64KB before the response is sent -- no buffer overflow on large dir /s outputs
+**Plans**: TBD
+
+Plans:
+- [ ] 71-01: TBD
+- [ ] 71-02: TBD
+
+### Phase 72: rc-sentry Endpoint Expansion + Integration Tests
+**Goal**: rc-sentry becomes a complete fallback operations tool with process visibility, file inspection, and health confirmation -- all endpoints covered by integration tests running against an ephemeral port
+**Depends on**: Phase 71
+**Requirements**: SEXP-01, SEXP-02, SEXP-03, SEXP-04, SHARD-06, TEST-04
+**Success Criteria** (what must be TRUE):
+  1. `curl http://192.168.31.89:8091/health` returns JSON with uptime, version, concurrent exec slots used, and hostname -- operators can confirm sentry is alive when rc-agent is down
+  2. `curl http://192.168.31.89:8091/version` returns the binary version and git commit hash baked in at build time via build.rs
+  3. `curl 'http://192.168.31.89:8091/files?path=C:\RacingPoint'` returns a directory listing -- staff can verify binaries are present during incident response
+  4. `curl http://192.168.31.89:8091/processes` returns running processes with PID, name, and memory -- staff can confirm rc-agent.exe is running when WS is down
+  5. `cargo test -p rc-sentry` passes all endpoint integration tests (/ping, /exec, /health, /version, /files, /processes) against an ephemeral port
+  6. Sending SIGTERM or Ctrl+C to rc-sentry causes it to drain active connections before exiting -- no abrupt mid-response kills
+**Plans**: TBD
+
+Plans:
+- [ ] 72-01: TBD
+- [ ] 72-02: TBD
+
+### Phase 73: Critical Business Tests
+**Goal**: billing_guard and failure_monitor have unit test coverage verifying their state machine logic before any structural refactoring; FfbBackend trait seam enables FFB controller tests without real HID hardware
+**Depends on**: Phase 71 (rc-common available; no dependency on Phase 72)
+**Requirements**: TEST-01, TEST-02, TEST-03
+**Success Criteria** (what must be TRUE):
+  1. `cargo test -p rc-agent billing_guard` passes -- stuck session detection (BILL-02) and idle drift (BILL-03) are covered by named unit tests that assert the correct auto-end behavior
+  2. `cargo test -p rc-agent failure_monitor` passes -- game freeze detection (CRASH-01) and launch timeout (CRASH-02) are covered without requiring a live game process
+  3. `cargo test -p rc-agent ffb` passes with FfbBackend trait injected -- tests run on James workstation without a real wheelbase connected and without sending any HID command to live hardware
+**Plans**: TBD
+
+Plans:
+- [ ] 73-01: TBD
+- [ ] 73-02: TBD
+
+### Phase 74: rc-agent Decomposition
+**Goal**: rc-agent main.rs is reduced from ~3,400 lines to ~150 lines by extracting config types, AppState, WebSocket handler, and event loop into focused modules -- each module under 500 lines and testable in isolation
+**Depends on**: Phase 73 (characterization tests must be green before any structural change -- standing rule: Refactor Second)
+**Requirements**: DECOMP-01, DECOMP-02, DECOMP-03, DECOMP-04
+**Success Criteria** (what must be TRUE):
+  1. `wc -l crates/rc-agent/src/main.rs` reports fewer than 500 lines -- the bulk of startup and state logic is now in separate modules
+  2. `cargo test -p rc-agent` passes with all Phase 73 tests still green after every extraction step -- no regression in billing_guard, failure_monitor, or FFB tests
+  3. `cargo build --release --bin rc-agent` produces a binary that passes the Phase 50 pod self-test on Pod 8 canary -- behaviorally identical to pre-decomposition binary
+  4. config.rs, app_state.rs, ws_handler.rs, and event_loop.rs each exist as named source files under crates/rc-agent/src/ -- decomposition is observable in the file tree
+**Plans**: TBD
+
+Plans:
+- [ ] 74-01: TBD
+- [ ] 74-02: TBD
+- [ ] 74-03: TBD
+
+
 ## Progress
 
 **Execution Order:**
@@ -817,3 +893,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 68. Pod SwitchController | v10.0-CR | 0/? | Not started | - |
 | 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
 | 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |
+| 71. rc-common Foundation + rc-sentry Core Hardening | v11.0 | 0/? | Not started | - |
+| 72. rc-sentry Endpoint Expansion + Integration Tests | v11.0 | 0/? | Not started | - |
+| 73. Critical Business Tests | v11.0 | 0/? | Not started | - |
+| 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
