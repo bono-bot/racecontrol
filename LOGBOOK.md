@@ -305,3 +305,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 17:31 IST | James | c197515 | docs(71-01): complete rc-common exec module plan — SUMMARY, STATE, ROADMAP updated |
 | 2026-03-20 17:44 IST | James | b8a43b9 | feat(71-02): harden rc-sentry — timeout via run_cmd_sync, SlotGuard/429, Content-Length TCP read loop, tracing (SHARD-01..05) |
 | 2026-03-20 17:45 IST | James | c45aac7 | docs(71-02): complete rc-sentry core hardening plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-03-20 18:28 IST | James | 0d0baf6 | chore(72-01): add build.rs and sysinfo/winapi dependencies to rc-sentry |
+| 2026-03-20 18:28 IST | James | 185eb7d | feat(72-01): add 4 endpoints + graceful shutdown to rc-sentry |
+| 2026-03-20 18:28 IST | James | 971856d | docs(72-01): complete rc-sentry endpoint expansion plan |
