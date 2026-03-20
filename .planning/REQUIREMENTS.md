@@ -9,11 +9,11 @@ Requirements for rc-sentry hardening, rc-agent decomposition, shared extraction,
 
 ### Sentry Hardening
 
-- [ ] **SHARD-01**: rc-sentry enforces timeout_ms on command execution (kills child process after deadline)
-- [ ] **SHARD-02**: rc-sentry truncates command output to 64KB (matching rc-agent remote_ops behavior)
-- [ ] **SHARD-03**: rc-sentry limits concurrent exec requests to 4 (rejects with HTTP 429 when full)
-- [ ] **SHARD-04**: rc-sentry fixes partial TCP read bug (loops until full HTTP body received)
-- [ ] **SHARD-05**: rc-sentry uses structured logging via tracing (replaces eprintln)
+- [x] **SHARD-01**: rc-sentry enforces timeout_ms on command execution (kills child process after deadline)
+- [x] **SHARD-02**: rc-sentry truncates command output to 64KB (matching rc-agent remote_ops behavior)
+- [x] **SHARD-03**: rc-sentry limits concurrent exec requests to 4 (rejects with HTTP 429 when full)
+- [x] **SHARD-04**: rc-sentry fixes partial TCP read bug (loops until full HTTP body received)
+- [x] **SHARD-05**: rc-sentry uses structured logging via tracing (replaces eprintln)
 - [ ] **SHARD-06**: rc-sentry handles graceful shutdown on SIGTERM/Ctrl+C (drains active connections)
 
 ### Sentry Expansion
@@ -73,11 +73,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SHARD-01 | Phase 71 | Pending |
-| SHARD-02 | Phase 71 | Pending |
-| SHARD-03 | Phase 71 | Pending |
-| SHARD-04 | Phase 71 | Pending |
-| SHARD-05 | Phase 71 | Pending |
+| SHARD-01 | Phase 71 | Complete |
+| SHARD-02 | Phase 71 | Complete |
+| SHARD-03 | Phase 71 | Complete |
+| SHARD-04 | Phase 71 | Complete |
+| SHARD-05 | Phase 71 | Complete |
 | SHARD-06 | Phase 72 | Pending |
 | SEXP-01 | Phase 72 | Pending |
 | SEXP-02 | Phase 72 | Pending |
