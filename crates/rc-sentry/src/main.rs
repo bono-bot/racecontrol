@@ -11,13 +11,48 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 const DEFAULT_PORT: u16 = 8091;
-const MAX_BODY: usize = 64 * 1024;
+const MAX_BODY: usize = 64 * 1024; // 64KB max request/output size
+const MAX_EXEC_SLOTS: usize = 4;
+const DEFAULT_TIMEOUT_MS: u64 = 30_000;
+
+static EXEC_SLOTS: AtomicUsize = AtomicUsize::new(0);
+static THREAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+struct SlotGuard;
+
+impl SlotGuard {
+    fn acquire() -> Option<Self> {
+        loop {
+            let current = EXEC_SLOTS.load(Ordering::Acquire);
+            if current >= MAX_EXEC_SLOTS {
+                return None;
+            }
+            match EXEC_SLOTS.compare_exchange(
+                current,
+                current + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Some(SlotGuard),
+                Err(_) => continue,
+            }
+        }
+    }
+}
+
+impl Drop for SlotGuard {
+    fn drop(&mut self) {
+        EXEC_SLOTS.fetch_sub(1, Ordering::Release);
+    }
+}
 
 fn main() {
+    tracing_subscriber::fmt::init();
+
     let port = std::env::args()
         .nth(1)
         .and_then(|s| s.parse().ok())
@@ -26,28 +61,77 @@ fn main() {
     let listener = match TcpListener::bind(format!("0.0.0.0:{port}")) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("rc-sentry: bind :{port} failed: {e}");
+            tracing::error!("bind :{port} failed: {e}");
             std::process::exit(1);
         }
     };
-    eprintln!("rc-sentry listening on :{port}");
+    tracing::info!("rc-sentry listening on :{port}");
 
     for stream in listener.incoming().flatten() {
-        std::thread::spawn(move || {
-            if let Err(e) = handle(stream) {
-                eprintln!("rc-sentry: {e}");
-            }
-        });
+        let n = THREAD_COUNTER.fetch_add(1, Ordering::Relaxed);
+        if let Err(e) = std::thread::Builder::new()
+            .name(format!("sentry-handler-{}", n))
+            .spawn(move || {
+                if let Err(e) = handle(stream) {
+                    tracing::warn!("handler error: {e}");
+                }
+            })
+        {
+            tracing::error!("thread spawn failed: {e}");
+        }
     }
+}
+
+fn read_request(stream: &mut TcpStream) -> Result<String, Box<dyn std::error::Error>> {
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 4096];
+
+    // Read until we have the full header (ends with \r\n\r\n)
+    let header_end = loop {
+        let n = stream.read(&mut tmp)?;
+        if n == 0 {
+            return Err("connection closed".into());
+        }
+        buf.extend_from_slice(&tmp[..n]);
+        if buf.len() > MAX_BODY {
+            return Err("request too large".into());
+        }
+        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos;
+        }
+    };
+
+    let header_str = std::str::from_utf8(&buf[..header_end])?;
+    let content_length = header_str
+        .lines()
+        .find(|l| l.to_ascii_lowercase().starts_with("content-length:"))
+        .and_then(|l| l.split(':').nth(1))
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+
+    let body_start = header_end + 4; // skip \r\n\r\n
+    let body_received = buf.len().saturating_sub(body_start);
+    let mut remaining = content_length.saturating_sub(body_received).min(MAX_BODY);
+
+    // Read remaining body bytes
+    while remaining > 0 {
+        let to_read = remaining.min(4096);
+        let n = stream.read(&mut tmp[..to_read])?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&tmp[..n]);
+        remaining = remaining.saturating_sub(n);
+    }
+
+    Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
 fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
 
-    let mut buf = vec![0u8; MAX_BODY];
-    let n = stream.read(&mut buf)?;
-    let request = std::str::from_utf8(&buf[..n])?;
+    let request = read_request(&mut stream)?;
 
     // Parse HTTP request line
     let first_line = request.lines().next().unwrap_or("");
@@ -59,13 +143,21 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
 
     match (method, path) {
         ("GET", "/ping") => send_plain(&mut stream, 200, "pong"),
-        ("POST", "/exec") => handle_exec(&mut stream, request),
+        ("POST", "/exec") => handle_exec(&mut stream, &request),
         ("OPTIONS", _) => send_cors_preflight(&mut stream),
         _ => send_response(&mut stream, 404, r#"{"error":"not found"}"#),
     }
 }
 
 fn handle_exec(stream: &mut TcpStream, request: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let _guard = match SlotGuard::acquire() {
+        Some(g) => g,
+        None => {
+            tracing::warn!("exec rejected: all {MAX_EXEC_SLOTS} slots in use");
+            return send_response(stream, 429, r#"{"error":"too many concurrent requests"}"#);
+        }
+    };
+
     // Find JSON body after the empty line
     let body = request
         .find("\r\n\r\n")
@@ -75,39 +167,41 @@ fn handle_exec(stream: &mut TcpStream, request: &str) -> Result<(), Box<dyn std:
 
     let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
     let cmd = parsed["cmd"].as_str().unwrap_or("");
-    let _timeout_ms = parsed["timeout_ms"].as_u64().unwrap_or(30_000);
+    let timeout_ms = parsed["timeout_ms"].as_u64().unwrap_or(DEFAULT_TIMEOUT_MS);
 
     if cmd.is_empty() {
         return send_response(stream, 400, r#"{"error":"missing cmd"}"#);
     }
 
-    // Internal LAN admin tool — cmd.exe shell execution is intentional (equivalent to SSH).
-    // Only accessible on private subnet 192.168.31.x, no public exposure.
-    let result = Command::new("cmd.exe")
-        .args(["/C", cmd])
-        .output();
+    tracing::info!(cmd = cmd, timeout_ms = timeout_ms, "exec request");
 
-    let resp = match result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            serde_json::json!({
-                "stdout": stdout,
-                "stderr": stderr,
-                "exit_code": output.status.code().unwrap_or(-1),
-            })
-        }
-        Err(e) => serde_json::json!({ "error": e.to_string() }),
-    };
+    let result = rc_common::exec::run_cmd_sync(
+        cmd,
+        Duration::from_millis(timeout_ms),
+        MAX_BODY,
+    );
+
+    let resp = serde_json::json!({
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "exit_code": result.exit_code,
+        "timed_out": result.timed_out,
+        "truncated": result.truncated,
+    });
 
     send_response(stream, 200, &resp.to_string())
 }
 
-fn send_response(stream: &mut TcpStream, status: u16, body: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn send_response(
+    stream: &mut TcpStream,
+    status: u16,
+    body: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let reason = match status {
         200 => "OK",
         400 => "Bad Request",
         404 => "Not Found",
+        429 => "Too Many Requests",
         _ => "Error",
     };
     let response = format!(
@@ -125,7 +219,11 @@ fn send_response(stream: &mut TcpStream, status: u16, body: &str) -> Result<(), 
     Ok(())
 }
 
-fn send_plain(stream: &mut TcpStream, status: u16, body: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn send_plain(
+    stream: &mut TcpStream,
+    status: u16,
+    body: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let response = format!(
         "HTTP/1.1 {status} OK\r\n\
          Content-Type: text/plain\r\n\
