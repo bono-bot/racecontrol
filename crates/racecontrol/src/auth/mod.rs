@@ -1,3 +1,6 @@
+pub mod middleware;
+pub use middleware::{StaffClaims, require_staff_jwt, require_staff_jwt_permissive, create_staff_jwt};
+
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
