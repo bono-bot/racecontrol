@@ -187,6 +187,8 @@ export const api = {
     const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : "";
     return fetchApi<{ sessions: AcSessionRecord[] }>(`/ac/sessions${qs ? `?${qs}` : ""}`);
   },
+  acSessionLeaderboard: (id: string) =>
+    fetchApi<AcSessionLeaderboardData>(`/ac/sessions/${id}/leaderboard`),
   acTracks: () => fetchApi<{ tracks: AcTrack[] }>("/ac/content/tracks"),
   acCars: () => fetchApi<{ cars: AcCar[] }>("/ac/content/cars"),
 
@@ -603,6 +605,32 @@ export interface AcSessionRecord {
   started_at?: string;
   ended_at?: string;
   created_at: string;
+}
+
+export interface AcSessionLeaderboardEntry {
+  position: number;
+  driver_id: string;
+  driver: string;
+  car: string;
+  track: string;
+  best_lap_ms: number;
+  lap_count: number;
+  sector1_ms?: number | null;
+  sector2_ms?: number | null;
+  sector3_ms?: number | null;
+  gap_ms?: number | null;
+}
+
+export interface AcSessionLeaderboardData {
+  session_id: string;
+  status: string;
+  track?: string;
+  started_at?: string;
+  ended_at?: string;
+  created_at: string;
+  pod_ids: string[];
+  leaderboard: AcSessionLeaderboardEntry[];
+  total_laps: number;
 }
 
 export interface AcTrack {

@@ -1,23 +1,27 @@
-# RaceControl
+# Racing Point Operations (Unified)
 
 ## Current State
 
-**Shipped:** v1.0 RaceControl HUD & Safety (2026-03-13), v2.0 Kiosk URL Reliability (2026-03-14)
+**Shipped:** v1.0 through v5.5 (HUD, Kiosk, Leaderboards, Self-Healing, Bot Expansion, Credits), v7.0 E2E Test Suite, v8.0 Bot Autonomy (2026-03-13 to 2026-03-19)
 
-The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls. v2.0 delivered server IP pinning, lock screen hardening, Edge hardening, pod lockdown UI, and session results display.
+The pod management stack is reliable: self-healing, branded screens, stable URLs, staff dashboard controls, E2E test coverage, and 8/10 bot autonomy. 51+ phases shipped across 9 milestones.
 
-## Current Milestone: v7.0 E2E Test Suite
+## Current Milestone: v10.0 Connectivity & Redundancy
 
-**Goal:** Comprehensive end-to-end test coverage for the full kiosk→server→agent→game launch pipeline across all sim types, with Playwright browser tests, self-healing error correction, per-game launch validation, and deploy verification — reusable as a master test script for future projects (POS, Admin Dashboard).
+**Goal:** Make James (.27) ↔ Server (.23) connectivity bulletproof and give Bono (cloud VPS) full failover capability so the venue keeps running even when the local server goes down.
 
 **Target features:**
-- Playwright browser tests for kiosk wizard flow (per-game: AC, F1 25, EVO, Rally, iRacing)
-- API pipeline tests (billing gates, launch lifecycle, SimType parsing, game state transitions)
-- Deploy verification (binary swap, port conflict detection, service restart, config propagation)
-- Per-game launch validation (launch each installed game, verify PID, auto-dismiss Steam dialogs)
-- Self-healing test runner (auto-cleanup stale games, restart agents, retry failed gates)
-- Kiosk frontend smoke tests (page rendering, SSR error detection, wizard step correctness)
-- Single master E2E script in tests/e2e/ reusable for other services
+- Fix server .23 DHCP drift permanently (static IP or MAC reservation)
+- Establish remote exec from James (.27) to Server (.23) via Tailscale SSH
+- James health-monitors server .23 continuously (auto-detect outages)
+- Config sync: push venue racecontrol config to Bono so cloud mirrors local
+- Auto-failover: pods switch to Bono's VPS via Tailscale when .23 goes down
+- Uday notified on failover events (email/WhatsApp)
+- Failback: pods auto-switch back to .23 when it recovers
+
+## Active Milestone: v9.0 Tooling & Automation Research
+
+**Goal:** Research and evaluate tools, skills, and plugins to improve Racing Point Operations — Claude Code skills, MCP servers, deployment automation, and monitoring/alerting.
 
 ## Paused Milestone: v6.0 Salt Fleet Management
 
@@ -25,7 +29,10 @@ The pod management stack is reliable: self-healing, branded screens, stable URLs
 
 ## What This Is
 
-The RaceControl platform for Racing Point eSports — 8 sim racing pods managed from a central server (racecontrol, rc-agent, pod-agent), staff kiosk for pod management, and a cloud PWA for customer engagement. Captures lap times, sector splits, and telemetry from Assetto Corsa and F1 25, with leaderboards, competitive events, and driver profiles accessible publicly.
+Unified project encompassing all Racing Point eSports operations:
+- **RaceControl:** 8 sim racing pods managed from a central server (racecontrol, rc-agent), staff kiosk, cloud PWA. Captures lap times, sector splits, and telemetry from Assetto Corsa and F1 25 with leaderboards and driver profiles.
+- **Comms Link:** Persistent James-Bono AI communication — WebSocket, watchdog, LOGBOOK sync, alerts. (Shipped, archived)
+- **AC Launcher:** Purpose-built Assetto Corsa session management — difficulty tiers, billing sync, safety enforcement, multiplayer orchestration. (Shipped, archived)
 
 ## Core Value
 
@@ -97,15 +104,42 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - ✓ Admin panel Per-Minute Rates table with inline editing
 - ✓ billing_rates added to SYNC_TABLES for cloud replication
 
-### Active (v7.0)
+### Completed (v7.0 — shipped 2026-03-18)
 
-- [ ] Playwright browser tests for kiosk wizard per-game flow
-- [ ] API pipeline tests (billing, launch, game state lifecycle)
-- [ ] Deploy verification (binary swap, port conflicts, service health)
-- [ ] Per-game launch validation (AC, F1 25, EVO, Rally, iRacing)
-- [ ] Self-healing test runner with auto-cleanup and retry
-- [ ] Kiosk frontend smoke (page load, SSR errors, wizard correctness)
-- [ ] Master E2E script reusable for other services
+- ✓ Playwright browser tests for kiosk wizard per-game flow
+- ✓ API pipeline tests (billing, launch, game state lifecycle)
+- ✓ Deploy verification (binary swap, port conflicts, service health)
+- ✓ Per-game launch validation (AC, F1 25, EVO, Rally, iRacing)
+- ✓ Self-healing test runner with auto-cleanup and retry
+- ✓ Kiosk frontend smoke (page load, SSR errors, wizard correctness)
+- ✓ Master E2E script reusable for other services
+
+### Completed (v8.0 — shipped 2026-03-19)
+
+- ✓ CLOSE_WAIT socket leak fix + connection hygiene
+- ✓ Crash safety panic hook + FFB zero + startup health verification
+- ✓ Local LLM (Ollama + qwen3:0.6b + rp-debug) deployed to all 8 pods
+- ✓ Dynamic kiosk allowlist with LLM-based process classifier
+- ✓ Session lifecycle autonomy (orphan auto-end, crash recovery, fast reconnect)
+- ✓ LLM self-test with 22 probes + deterministic verdict + auto-fix patterns 8-14
+
+### Active (v10.0)
+
+- [ ] Fix server .23 DHCP drift permanently
+- [ ] Establish remote exec from James to Server via Tailscale SSH
+- [ ] James health-monitors server .23 continuously
+- [ ] Config sync: venue racecontrol config pushed to Bono
+- [ ] Auto-failover: pods switch to Bono when .23 goes down
+- [ ] Failover notifications to Uday
+- [ ] Failback: pods return to .23 when it recovers
+
+### Active (v9.0)
+
+- [ ] Evaluate Claude Code custom skills and automation hooks
+- [ ] Research MCP servers for Google Workspace, monitoring, venue ops
+- [ ] Investigate deployment automation tools for fleet management
+- [ ] Evaluate monitoring and alerting stack options
+- [ ] Produce actionable recommendations with adoption plan
 
 ### Paused (v6.0 — blocked at BIOS AMD-V)
 
@@ -166,6 +200,12 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Lock screen before game kill | Prevents desktop flash during session end | Shipped v1.0 |
 | Registry-based pod lockdown | Survives rc-agent restarts, one-time apply | Shipped v1.0 |
 
+## Planned: v8.0 RC Bot Autonomy (Phases 45–49)
+
+**Goal:** Raise rc-agent autonomy from 6/10 to 8/10. Fix live CLOSE_WAIT socket leak (5/8 pods), install crash safety (panic hook + FFB zero), deploy local LLM to all pods, add dynamic kiosk allowlist (eliminates #1 manual intervention), auto-end orphaned sessions, auto-reset pods after billing. Can proceed in parallel with v7.0.
+
+**Evidence:** Audit of git log (80+ commits), live pod logs (CLOSE_WAIT on pods 1/2/3/6/8, 3 fleet-wide WS disconnects, Pod 8 port binding conflicts), and code analysis (no panic hook, 6 unhandled startup failures, billing guard sends alerts but never acts).
+
 ## Future Milestone Candidates
 
 - HUD overlay with live sector times and telemetry
@@ -179,4 +219,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-19 after milestone v7.0 E2E Test Suite started*
+*Last updated: 2026-03-20 after milestone v10.0 Connectivity & Redundancy started*

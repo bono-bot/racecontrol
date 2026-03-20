@@ -1,36 +1,67 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
-status: completed
-stopped_at: Completed 49-02-PLAN.md
-last_updated: "2026-03-19T03:48:40.682Z"
-last_activity: "2026-03-19 — Plan 50-01 complete: self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult (SELFTEST-01/02/06)"
+milestone: v10.0-CR
+milestone_name: Connectivity & Redundancy
+status: Roadmap ready, awaiting plan-phase
+stopped_at: "Roadmap created for v10.0 Connectivity & Redundancy — 6 phases (66-70), 22 requirements mapped"
+last_updated: "2026-03-20T10:00:00.000Z"
+last_activity: 2026-03-20 — v10.0 Connectivity & Redundancy roadmap created, 5 phases (66-70), 22 requirements mapped
 progress:
-  total_phases: 15
-  completed_phases: 10
-  total_plans: 23
-  completed_plans: 22
-  percent: 89
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-19)
+See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v7.0 E2E Test Suite — Phase 41: Test Foundation (ready to plan)
+**Current focus:** v10.0 Connectivity & Redundancy — Phase 66: Infrastructure Foundations
 
 ## Current Position
 
-Phase: 50 (LLM Self-Test Fleet Health)
-Plan: 1 of 1 (complete)
-Status: Phase 50 Plan 01 complete — self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult
-Last activity: 2026-03-19 — Plan 50-01 complete: self_test.rs 22 probes + LLM verdict + protocol RunSelfTest/SelfTestResult (SELFTEST-01/02/06)
+Phase: 66 — Infrastructure Foundations
+Plan: Not started
+Status: Roadmap ready, awaiting plan-phase
+Last activity: 2026-03-20 — v10.0 Connectivity & Redundancy roadmap created, 5 phases (66-70), 22 requirements mapped
 
-Progress: [█████████░] 89%
+Progress: [░░░░░░░░░░] 0% (0/5 phases)
+
+## Phase Map — v10.0 Connectivity & Redundancy
+
+| Phase | Name | Requirements | Access | Status |
+|-------|------|--------------|--------|--------|
+| 66 | Infrastructure Foundations | INFRA-01, INFRA-02, INFRA-03 | Router web UI + Tailscale | Not started |
+| 67 | Config Sync | SYNC-01, SYNC-02, SYNC-03 | Server .23 (Rust changes) | Not started |
+| 68 | Pod SwitchController | FAIL-01, FAIL-02, FAIL-03, FAIL-04 | Pods (rc-agent Rust changes) | Not started |
+| 69 | Health Monitor & Failover Orchestration | HLTH-01..04, ORCH-01..04 | Server + pods (Rust changes) | Not started |
+| 70 | Failback & Data Reconciliation | BACK-01, BACK-02, BACK-03, BACK-04 | Server + pods (Rust changes) | Not started |
+
+**Phase 66:** Router config + Tailscale verification — no code changes, manual network work.
+**Phase 67:** Rust changes to racecontrol on .23 — sha2 hash watcher + comms-link sync_push.
+**Phase 68:** Rust changes to rc-agent — Arc<RwLock<String>> refactor + SwitchController message + self_monitor guard. Pod 8 canary required before fleet deploy.
+**Phase 69:** Rust changes to racecontrol (health probe loop, hysteresis FSM, ORCH broadcast) + comms-link task_request to Bono. Bono VPS changes coordinated via comms-link.
+**Phase 70:** Rust changes to racecontrol (DB merge) + failback broadcast. Most complex data integrity phase.
+
+## Phase Map — Active Parallel Work (v9.0 + v10.0 Conspit Link)
+
+| Phase | Name | Status |
+|-------|------|--------|
+| 55 | Netdata Fleet Deploy | In Progress (55-01 Task 1 done, waiting for server .23 install) |
+| 56 | WhatsApp Alerting + Weekly Report | Not started |
+| 58 | ConspitLink Process Hardening | In Progress (58-01 done) |
+| 59 | Auto-Switch Configuration | Not started |
+| 60 | Pre-Launch Profile Loading | Not started |
+| 61 | FFB Preset Tuning | Not started |
+| 62 | Fleet Config Distribution | Not started |
+| 63 | Fleet Monitoring | Not started |
+| 64 | Telemetry Dashboards | Not started |
+| 65 | Shift Lights & RGB Lighting | Not started |
 
 ## Performance Metrics
 
@@ -66,6 +97,19 @@ Progress: [█████████░] 89%
 | Phase 50 P01 | 8 | 2 tasks | 3 files |
 | Phase 50 P03 | 25 | 2 tasks | 6 files |
 | Phase 49 P02 | 12 | 2 tasks | 2 files |
+| Phase 51 P01 | 193 | 2 tasks | 2 files |
+| Phase 52-mcp-servers P01 | 4 | 2 tasks | 6 files |
+| Phase 52-mcp-servers P02 | 3 | 2 tasks | 3 files |
+| Phase 53-deployment-automation P02 | 2 | 1 tasks | 1 files |
+| Phase 53-deployment-automation P01 | 513 | 2 tasks | 1 files |
+| Phase 57 P01 | 2 | 1 tasks | 1 files |
+| Phase 54-structured-logging-error-rate-alerting P01 | 8 | 1 tasks | 2 files |
+| Phase 57 P02 | 12 | 2 tasks | 3 files |
+| Phase 57 P03 | 2 | 2 tasks | 1 files |
+| Phase 54-structured-logging-error-rate-alerting P02 | 12 | 1 tasks | 1 files |
+| Phase 54-structured-logging-error-rate-alerting P03 | 6 | 2 tasks | 4 files |
+| Phase 58 P01 | 286 | 1 tasks | 1 files |
+| Phase 55 P01 | 815 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -155,21 +199,76 @@ Progress: [█████████░] 89%
 - [Phase 49]: CrashRecoveryState timer embedded in enum variant (not a separate armed bool) — eliminates split state, cleaner tokio::select! polling
 - [Phase 49]: WS 30s grace window uses ws_disconnected_at: Option<Instant> with get_or_insert_with — billing+game continue during WiFi blips, Disconnected screen suppressed for first 30s
 
+(v9.0 Tooling & Automation — key constraints from roadmap)
+- Phase 51-53 have zero pod access requirements — can execute on James's workstation alone
+- Phase 54-56 require Rust code changes deployed to server and pods — use pendrive or rc-agent :8090
+- CLAUDE.md must be created in the repo root (not .planning/) so Claude Code auto-loads it on session start
+- Custom skills use disable-model-invocation: true for SKILL-02 and SKILL-03 (per requirements) — deterministic deploy flows, not LLM-mediated
+- racingpoint-google OAuth is the existing auth for MCP-01/02/03 — do not create new OAuth credentials
+- rc-ops-mcp (MCP-04) runs on James's machine (:27), not on the server — avoids exposing server REST API externally
+- tracing-appender crate already used in racecontrol; tracing-subscriber needs JSON feature flag for MON-01/02
+- Error rate alerting uses the existing send_email.js shell-out pattern — no new SMTP crate (constraint in PROJECT.md)
+- Netdata install on pods goes via rc-agent :8090 exec (not pendrive) — MEMORY.md confirms :8090 is deployed on all pods
+- WhatsApp bot is racingpoint-whatsapp-bot (bono-bot org) — already integrated for v5.0 Phase 27 bono_relay.rs
+- [Phase 51]: CLAUDE.md is the authoritative Racing Point context source; MEMORY.md holds identity + current state only, with explicit pointer to CLAUDE.md
+- [Phase 51]: CLAUDE.md at 179 lines uses dense tables — well under 300-line context pressure limit
+- [Phase 52-01]: createRequire CJS bridge pattern copied exactly from racingpoint-mcp-gmail — proven approach for ESM servers using CJS google libs
+- [Phase 52-01]: GOOGLE_REFRESH_TOKEN set to PLACEHOLDER_REAUTH_NEEDED in settings.json — will be updated after OAuth re-auth in Task 3
+- [Phase 52-01]: Same CLIENT_ID and CLIENT_SECRET as Gmail/Drive entries — all 4 Google MCP servers share one OAuth app
+- [Phase 52-mcp-servers]: rc-ops-mcp runs on James's machine (.27) not on server — avoids exposing server REST API externally
+- [Phase 52-mcp-servers]: Native fetch() only in rc-ops-mcp — Node 22 built-in, no axios/node-fetch dependency
+- [Phase 52-mcp-servers]: Per-pod exec via /pods/{id}/exec (NOT /fleet/exec which does not exist) — 10 tools cover all priority racecontrol endpoints
+- [Phase 53-02]: Use deploy_pod.py (NOT deploy-all-pods.py) — avoids hardcoded TARGET_SIZE that must be updated per build
+- [Phase 53-02]: Sequential pod deploy (not parallel) — prevents RCAGENT_SELF_RESTART race conditions across pods
+- [Phase 53-02]: Approval gate accepts y/yes/go/proceed only — any ambiguity cancels fleet rollout
+- [Phase 53-01]: ONLOGON trigger (not ONSTART/SYSTEM) used for both tasks — matches CommsLink-Watchdog pattern; Python HTTP servers require user session
+- [Phase 53-01]: Task Scheduler registration requires admin — used Start-Process RunAs elevation; schtasks /create with ONLOGON always needs UAC on non-admin sessions
+- [Phase 57]: CLASS_FXM = 0x0A03, CMD_FXM_RESET = 0x01, CMD_IDLESPRING = 0x05 per upstream OpenFFBoard wiki — needs empirical validation on Conspit fork
+- [Phase 57]: POWER_CAP_80_PERCENT pub const (not crate-private) so main.rs can reference at startup; Clone derive on FfbController since it only holds vid/pid
+- [Phase 54-structured-logging-error-rate-alerting]: File layer uses .json() for structured JSONL; stdout layer stays plain text — no JSON on stdout per requirement
+- [Phase 54-structured-logging-error-rate-alerting]: RollingFileAppender::builder() used over rolling::daily() to produce racecontrol-YYYY-MM-DD.jsonl naming with .jsonl extension
+- [Phase 57]: safe_session_end() is async with spawn_blocking for sync HID — fits tokio select loop; CL restart is fire-and-forget; idlespring target=2000 (empirical starting value)
+- [Phase 54-02]: Tracing init moved after config load in rc-agent so pod_id is available for info_span; pre-init messages use eprintln!
+- [Phase 54-02]: rc-agent JSONL filename pattern: rc-agent-YYYY-MM-DD.jsonl (DAILY rotation, prefix=rc-agent-, suffix=jsonl)
+- [Phase 54-02]: rc-agent stdout layer stays plain text; only file layer uses .json() for fleet-wide jq filtering
+- [Phase 54-03]: Config loaded before tracing init in main.rs so MonitoringConfig thresholds are available at layer setup time
+- [Phase 54-03]: ErrorCountLayer clears timestamps after firing alert to avoid re-triggering on next error in same burst
+- [Phase 57-03]: Power cap placed after zero_force_with_retry() probe — wheelbase must be detected before set_gain can succeed
+- [Phase 57-03]: Idlespring target=2000 confirmed acceptable on hardware — no tuning adjustment needed from Plan 02 default
+- [Phase 58]: backup_conspit_configs() validates JSON before overwriting .bak -- prevents corrupt backup chain (Pitfall 2)
+- [Phase 58]: Crash count increments only on watchdog path (is_crash_recovery=true), not session-end restarts
+- [Phase 58]: Testable _impl(Option<&Path>) pattern for filesystem functions with hardcoded production paths
+- [Phase 55]: msiexec timeout_ms=180000 critical — default 10s exec timeout kills Netdata install mid-run
+- [Phase 55]: Netdata dashboard UI locked on free tier for Windows nodes — use /api/v1/info as canonical health check, not browser dashboard
+- [Phase 55]: netdata.msi excluded from git (154MB binary artifact) — downloaded fresh each deploy from staging :9998
+
+(v10.0 Connectivity & Redundancy — key constraints from roadmap)
+- DHCP reservation is a hard prerequisite (Phase 66) — all subsequent phases depend on stable .23 IP
+- Tailscale SSH does NOT work on Windows — use rc-agent :8090 over Tailscale IP for all server exec (GitHub #14942)
+- rc-agent core.url is currently read once at startup — Phase 68 requires Arc<RwLock<String>> refactor before runtime URL switching is possible
+- self_monitor.rs will fight intentional failover switches — Phase 68 adds last_switch_time guard to suppress relaunch during switch window
+- Existing hysteresis pattern in cloud_sync.rs (3-down/2-up) should be reused in Phase 69 health probe loop
+- Minimum 60s outage window before auto-failover (AC game launches cause 3-4s CPU spikes that transiently fail probes)
+- Pod 8 canary testing required for SwitchController (Phase 68) before fleet deployment to all 8 pods
+- Comms Link v2.0 (shipped 2026-03-20) is the coordination backbone — sync_push, task_request, exec_request protocols all available
+- BACK-02 (session merge) is the highest-risk plan in the milestone — requires careful SQLite UUID reconciliation matching cloud_sync.rs pattern
+
 ### Pending Todos
 
 - Pod 3 still not verified running after fix-pod.bat — needs physical reboot + verification
 - Version string inconsistency: USB-installed pods report v0.1.0, HTTP-deployed report v0.5.2
 - BIOS AMD-V disabled on Ryzen 7 5800X — v6.0 blocked; must enable SVM Mode before Phase 36
+- Clean up .planning/update_roadmap_v9.py after v9.0 roadmap creation (can delete)
 
 ### Blockers/Concerns
 
-- v6.0 (Phases 36–40) is blocked on BIOS AMD-V — Phase 41 may start independently as pure test infrastructure
-- Phase 42 gate: RESOLVED — 97 data-testid attributes added to book/page.tsx, SetupWizard.tsx, page.tsx in Plan 42-01
-- Phase 43 gate: Steam app IDs for EA Anti-Cheat wrapped games require manual verification on Pod 8 before launch specs are written
+- v6.0 (Phases 36–40) is blocked on BIOS AMD-V — does not affect v10.0 Connectivity & Redundancy
+- Gmail OAuth tokens expired — MCP-01/02/03 (Phase 52) will need re-authorization of racingpoint-google OAuth before MCP server can connect
+- Phase 66 (INFRA-01) requires physical access to router web UI at 192.168.31.1 to set DHCP reservation
 
 ## Session Continuity
 
-Last session: 2026-03-19T03:41:59.699Z
-Stopped at: Completed 49-02-PLAN.md
+Last session: 2026-03-20T10:00:00.000Z
+Stopped at: v10.0 Connectivity & Redundancy roadmap created — 5 phases (66-70), 22 requirements mapped
 Resume file: None
-Next action: Phase 49 Plan 02 — SESSION-03 billing pause/resume during crash recovery
+Next action: Phase 66 — Infrastructure Foundations (DHCP reservation + Tailscale exec verification)

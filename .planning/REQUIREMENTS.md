@@ -1,115 +1,107 @@
-# Requirements: RaceControl v7.0 E2E Test Suite
+# Requirements: Racing Point Operations — v10.0 Connectivity & Redundancy
 
-**Defined:** 2026-03-19
-**Core Value:** Comprehensive, self-healing E2E test coverage for the full kiosk→server→agent→game launch pipeline
+**Defined:** 2026-03-20
+**Core Value:** Customers see their lap times, compete on leaderboards, and compare telemetry
 
-## v7.0 Requirements
+## v10.0 Requirements
 
-### Foundation
+Requirements for Connectivity & Redundancy milestone. Each maps to roadmap phases.
+Comms Link v2.0 (shipped 2026-03-20) is the coordination backbone for James-Bono communication.
 
-- [x] **FOUND-01**: Shared shell library (`lib/common.sh`) with pass/fail/skip/info helpers and exit code tracking
-- [x] **FOUND-02**: Shared pod IP map (`lib/pod-map.sh`) with all 8 pod IPs, used by all test scripts
-- [x] **FOUND-03**: Playwright installed with `playwright.config.ts` — bundled Chromium, `reuseExistingServer`, sequential workers
-- [x] **FOUND-04**: Pre-test cleanup fixture — stop stale games, end billing, restart stuck agents before each test run
-- [x] **FOUND-05**: cargo-nextest configured for Rust crate tests with per-process isolation and built-in retries
-- [x] **FOUND-06**: data-testid attributes added to kiosk wizard components for reliable Playwright selectors
-- [x] **FOUND-07**: UI user navigation simulation — keyboard navigation (Tab, Enter, Escape), touch/click targets, scroll behavior
+### Infrastructure
 
-### Browser Tests
+- [ ] **INFRA-01**: Server .23 has DHCP reservation pinned to MAC `10-FF-E0-80-B1-A7`
+- [ ] **INFRA-02**: James can execute commands on Server .23 via rc-agent :8090 over Tailscale IP
+- [ ] **INFRA-03**: James can execute commands on Bono VPS via comms-link exec_request protocol
 
-- [x] **BROW-01**: Kiosk page smoke — all pages load (200), no SSR errors, no React error boundaries
-- [x] **BROW-02**: AC wizard flow — full 13-step flow with track/car selection, AI config, driving settings
-- [x] **BROW-03**: Non-AC wizard flow — simplified 5-step flow (game → experience → review) for F1 25, EVO, Rally, iRacing
-- [x] **BROW-04**: Staff mode booking — `?staff=true&pod=pod-8` bypass path tested end-to-end
-- [x] **BROW-05**: Experience filtering — only selected game's experiences appear, Custom button hidden for non-AC
-- [x] **BROW-06**: UI navigation — page transitions, back/forward, step indicators update correctly
-- [x] **BROW-07**: Screenshot on failure — capture screenshot + DOM snapshot when any browser test fails for debugging
+### Config Sync
 
-### API & Launch
+- [ ] **SYNC-01**: racecontrol.toml changes detected via sha2 hash and pushed to Bono via comms-link sync_push
+- [ ] **SYNC-02**: Config payload is sanitized (credentials/local paths stripped) before push
+- [ ] **SYNC-03**: Bono applies received config to cloud racecontrol (pod definitions, billing rates, game catalog)
 
-- [x] **API-01**: Billing gates — reject launch without billing, create/end session, timer sync
-- [x] **API-02**: Per-game launch — launch each installed game (AC, F1 25, EVO, Rally, iRacing), verify PID or Launching state
-- [x] **API-03**: Game state lifecycle — Idle→Launching→Running→Stop→Idle, timeout at 60s, auto-relaunch on crash
-- [x] **API-04**: Steam dialog auto-dismiss — close "Support Message" windows via WM_CLOSE during launch tests
-- [x] **API-05**: Error window screenshot — capture screenshots of unexpected popup/error windows on pods for AI debugger analysis
+### Failover Mechanics
 
-### Deploy & Orchestration
+- [ ] **FAIL-01**: rc-agent has `failover_url` in CoreConfig pointing to Bono's racecontrol via Tailscale
+- [ ] **FAIL-02**: rc-agent WS reconnect loop uses `Arc<RwLock<String>>` for runtime URL switching
+- [ ] **FAIL-03**: New `SwitchController` AgentMessage triggers rc-agent URL switch without process restart
+- [ ] **FAIL-04**: `self_monitor.rs` suppresses relaunch during intentional failover (last_switch_time guard)
 
-- [x] **DEPL-01**: Deploy verification — binary swap check, port conflict detection (EADDRINUSE), service restart health
-- [x] **DEPL-02**: Fleet health validation — all 8 pods WS connected, correct build_id, installed_games match config
-- [x] **DEPL-03**: Master `run-all.sh` — phase-gated orchestrator with exit code collection and summary report
-- [x] **DEPL-04**: AI debugger error logging — route test failures and error screenshots to AI debugger for automated analysis
+### Health Monitoring
 
-## v8.0 Requirements (Phase 50: LLM Self-Test + Fleet Health)
+- [ ] **HLTH-01**: James runs health probe loop against server .23 (HTTP + WS check, 5s interval)
+- [ ] **HLTH-02**: Hysteresis state machine (3-down/2-up thresholds, reuse cloud_sync pattern) gates failover trigger
+- [ ] **HLTH-03**: Minimum 60s continuous outage window before auto-failover fires
+- [ ] **HLTH-04**: Bono detects James heartbeat loss via comms-link as secondary watchdog (24/7)
 
-### Self-Test Probes
+### Failover Orchestration
 
-- **SELFTEST-01**: self_test.rs module with 18 deterministic probes (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam) — each probe returns pass/fail/skip with detail string, 10s timeout per probe
-- **SELFTEST-02**: Local LLM verdict generation — feed all 18 probe results to rp-debug model, return HEALTHY/DEGRADED/CRITICAL with correlation analysis linking related failures and auto-fix recommendations
-- **SELFTEST-03**: Server endpoint `GET /api/v1/pods/{id}/self-test` — triggers self-test on target pod via WebSocket command, returns full probe results + LLM verdict within 30s
-- **SELFTEST-04**: Expanded auto-fix patterns 8-14 in ai_debugger.rs — DirectX (shader cache clear + device reset), memory (process trim), DLL (sfc scan), Steam (restart), performance (power plan), network (adapter reset)
-- **SELFTEST-05**: E2E test `tests/e2e/fleet/pod-health.sh` — trigger self-test on all 8 pods via API, assert all HEALTHY, wired into run-all.sh as final phase gate
-- **SELFTEST-06**: Self-test runs at rc-agent startup (post-boot verification) and on-demand via server command — startup results included in BootVerification message
+- [ ] **ORCH-01**: James sends `task_request` to Bono via comms-link to activate cloud racecontrol as primary
+- [ ] **ORCH-02**: Racecontrol broadcasts `SwitchController` to all connected pods (failover URL)
+- [ ] **ORCH-03**: Pod-side LAN probe confirms .23 is unreachable before honoring switch (split-brain prevention)
+- [ ] **ORCH-04**: Uday notified via email + WhatsApp on failover event
+
+### Failback
+
+- [ ] **BACK-01**: James detects server .23 recovery (2-up threshold)
+- [ ] **BACK-02**: Sync-before-accept: cloud sessions merged to local DB before .23 resumes primary role
+- [ ] **BACK-03**: Racecontrol broadcasts `SwitchController` with original .23 URL to all pods
+- [ ] **BACK-04**: Uday notified on failback event
 
 ## Future Requirements
 
-### v7.x (after core suite validated)
+### Enhanced Monitoring
 
-- **FLAKY-01**: Flaky test detection — track pass/fail history, flag inconsistent tests
-- **TIMER-01**: Inactivity timer test — verify billing pauses when AC STATUS=PAUSE
-- **AUTH-01**: Auth token lifecycle test — validate JWT expiry, refresh, and session persistence
-- **PERF-01**: Performance benchmarks — page load times, API response times under load
+- **MON-01**: Grafana dashboard for failover events and server uptime
+- **MON-02**: Historical failover log with duration and session impact metrics
+
+### Advanced Redundancy
+
+- **RED-01**: Automatic config sync on every racecontrol.toml change (file watcher)
+- **RED-02**: Kiosk and dashboard auto-redirect to cloud during failover
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Visual regression screenshots | Kiosk UI changes too frequently — maintenance overhead exceeds value |
-| Full API mocking | Tests must run against live venue infrastructure, not simulated |
-| Mobile/responsive testing | Kiosk runs fullscreen on fixed displays — no mobile viewport needed |
-| Load/stress testing | Venue has exactly 8 pods — concurrency is fixed, not variable |
+| Active-active (dual primary) | SQLite-first architecture incompatible with dual-write; cloud_sync already documents UUID mismatch |
+| DNS-based failover | Windows LAN DNS caching causes 90-120s latency; direct IP switching is <15s |
+| Tailscale SSH on Windows | Not supported by Tailscale (GitHub #14942); use rc-agent :8090 over Tailscale IP |
+| Salt-based fleet management | v6.0 blocked at BIOS AMD-V; this milestone uses existing rc-agent + comms-link |
+| Kiosk/dashboard failover UI | Pods switch WS endpoint; kiosk/dashboard on .23 unavailable during failover — staff uses cloud URL directly |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 41 | Complete |
-| FOUND-02 | Phase 41 | Complete |
-| FOUND-03 | Phase 41 | Complete |
-| FOUND-05 | Phase 41 | Complete |
-| FOUND-04 | Phase 42 | Complete |
-| FOUND-06 | Phase 42 | Complete |
-| FOUND-07 | Phase 42 | Complete |
-| BROW-01 | Phase 42 | Complete |
-| BROW-07 | Phase 42 | Complete |
-| BROW-02 | Phase 43 | Complete |
-| BROW-03 | Phase 43 | Complete |
-| BROW-04 | Phase 43 | Complete |
-| BROW-05 | Phase 43 | Complete |
-| BROW-06 | Phase 43 | Complete |
-| API-01 | Phase 43 | Complete |
-| API-02 | Phase 43 | Complete |
-| API-03 | Phase 43 | Complete |
-| API-04 | Phase 43 | Complete |
-| API-05 | Phase 43 | Complete |
-| DEPL-01 | Phase 44 | Complete |
-| DEPL-02 | Phase 44 | Complete |
-| DEPL-03 | Phase 44 | Complete |
-| DEPL-04 | Phase 44 | Complete |
-
-| SELFTEST-01 | Phase 50 | Complete |
-| SELFTEST-02 | Phase 50 | Complete |
-| SELFTEST-03 | Phase 50 | Complete |
-| SELFTEST-04 | Phase 50 | Complete |
-| SELFTEST-05 | Phase 50 | Complete |
-| SELFTEST-06 | Phase 50 | Complete |
+| INFRA-01 | Phase 66 | Pending |
+| INFRA-02 | Phase 66 | Pending |
+| INFRA-03 | Phase 66 | Pending |
+| SYNC-01 | Phase 67 | Pending |
+| SYNC-02 | Phase 67 | Pending |
+| SYNC-03 | Phase 67 | Pending |
+| FAIL-01 | Phase 68 | Pending |
+| FAIL-02 | Phase 68 | Pending |
+| FAIL-03 | Phase 68 | Pending |
+| FAIL-04 | Phase 68 | Pending |
+| HLTH-01 | Phase 69 | Pending |
+| HLTH-02 | Phase 69 | Pending |
+| HLTH-03 | Phase 69 | Pending |
+| HLTH-04 | Phase 69 | Pending |
+| ORCH-01 | Phase 69 | Pending |
+| ORCH-02 | Phase 69 | Pending |
+| ORCH-03 | Phase 69 | Pending |
+| ORCH-04 | Phase 69 | Pending |
+| BACK-01 | Phase 70 | Pending |
+| BACK-02 | Phase 70 | Pending |
+| BACK-03 | Phase 70 | Pending |
+| BACK-04 | Phase 70 | Pending |
 
 **Coverage:**
-- v7.0 requirements: 23 total (all complete)
-- v8.0 requirements: 6 total (Phase 50)
-- Mapped to phases: 29
+- v10.0 requirements: 22 total
+- Mapped to phases: 22
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-03-19*
-*Last updated: 2026-03-19 — traceability mapped to phases 41–44, 50*
+*Requirements defined: 2026-03-20*
+*Last updated: 2026-03-20 after v10.0 roadmap creation — all 22 requirements mapped to phases 66-70*

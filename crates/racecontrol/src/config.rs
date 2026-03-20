@@ -25,6 +25,8 @@ pub struct Config {
     pub bono: BonoConfig,
     #[serde(default)]
     pub gmail: GmailConfig,
+    #[serde(default)]
+    pub monitoring: MonitoringConfig,
 }
 
 /// Gmail API config for sending notification emails (track record beaten, etc.)
@@ -275,6 +277,38 @@ impl Default for WatchdogConfig {
     }
 }
 
+/// Configuration for server-side monitoring and alerting.
+#[derive(Debug, Deserialize)]
+pub struct MonitoringConfig {
+    /// Number of ERROR events in window that triggers alert (default: 5)
+    #[serde(default = "default_error_rate_threshold")]
+    pub error_rate_threshold: usize,
+    /// Sliding window duration in seconds (default: 60)
+    #[serde(default = "default_error_rate_window_secs")]
+    pub error_rate_window_secs: u64,
+    /// Cooldown between error rate alerts in seconds (default: 1800 = 30 min)
+    #[serde(default = "default_error_rate_cooldown_secs")]
+    pub error_rate_cooldown_secs: u64,
+    /// Enable error rate email alerting (default: false)
+    #[serde(default)]
+    pub error_rate_email_enabled: bool,
+}
+
+fn default_error_rate_threshold() -> usize { 5 }
+fn default_error_rate_window_secs() -> u64 { 60 }
+fn default_error_rate_cooldown_secs() -> u64 { 1800 }
+
+impl Default for MonitoringConfig {
+    fn default() -> Self {
+        Self {
+            error_rate_threshold: 5,
+            error_rate_window_secs: 60,
+            error_rate_cooldown_secs: 1800,
+            error_rate_email_enabled: false,
+        }
+    }
+}
+
 /// Configuration for the Bono relay: event push to Bono's VPS over Tailscale mesh,
 /// and inbound relay endpoint for commands from Bono's cloud.
 #[derive(Debug, Deserialize)]
@@ -357,6 +391,7 @@ impl Config {
             watchdog: WatchdogConfig::default(),
             bono: BonoConfig::default(),
             gmail: GmailConfig::default(),
+            monitoring: MonitoringConfig::default(),
         }
     }
 
@@ -387,7 +422,7 @@ fn default_pod_count() -> u32 { 16 }
 fn default_true() -> bool { true }
 fn default_color() -> String { "#E10600".to_string() }
 fn default_theme() -> String { "dark".to_string() }
-fn default_acserver_path() -> String { "/opt/ac-server/acServer".to_string() }
+fn default_acserver_path() -> String { "C:/RacingPoint/ac-server/acServer.exe".to_string() }
 fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }
 fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to_string() }
 fn default_pin_expiry() -> u64 { 600 }

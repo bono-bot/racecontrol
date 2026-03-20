@@ -1,4 +1,4 @@
-# Roadmap: RaceControl
+# Roadmap: Racing Point Operations (Unified)
 
 ## Completed Milestones
 
@@ -58,6 +58,39 @@ Key: billing_rates DB table + non-retroactive additive algorithm + in-memory rat
 
 </details>
 
+<details>
+<summary>Comms Link v1.0 — James-Bono Communication — 8 phases, 14 plans (Shipped 2026-03-12)</summary>
+
+Repo origin: comms-link | Archive: archive/comms-link-v1.0/
+
+Phases: WebSocket Connection → Reconnection Reliability → Heartbeat → Watchdog Core → Watchdog Hardening → Alerting → Logbook Sync → Coordination & Daily Ops
+
+Key: persistent WS with PSK auth, auto-reconnect with queue flush, Claude watchdog with cooldown DI, bidirectional LOGBOOK.md sync, IST-windowed daily summaries, WhatsApp/email alerts.
+
+</details>
+
+<details>
+<summary>Comms Link v2.0 — Reliable AI-to-AI Communication — 6 phases, 14 plans (Shipped 2026-03-20)</summary>
+
+Repo origin: comms-link | Archive: archive/comms-link-v2.0/
+
+Phases: Protocol Foundation → Process Supervisor → Reliable Delivery Wiring → Remote Execution → Observability → Graceful Degradation
+
+Key: ACK protocol with sequence numbers + WAL-backed message queue; mid-session process supervisor + Task Scheduler watchdog-of-watchdog; bidirectional task routing with correlation IDs; 13-command remote execution with 3-tier approval (auto/notify/approve); MetricsCollector + /relay/metrics endpoint; REALTIME > EMAIL_FALLBACK > OFFLINE_QUEUE graceful degradation. 437 tests, 34 requirements.
+
+</details>
+
+<details>
+<summary>AC Launcher v1.0 — Full AC Launch Experience — 9 phases, 20 plans (Shipped 2026-03-14)</summary>
+
+Repo origin: ac-launcher | Archive: archive/ac-launcher-v1.0/
+
+Phases: Session Types & Race Mode → Difficulty Tiers → Billing Synchronization → Safety Enforcement → Content Validation & Filtering → Mid-Session Controls → Curated Presets → Staff/PWA Integration → Multiplayer Enhancement
+
+Key: 5 difficulty tiers, billing synced to in-game start, safety presets enforced, content validation, mid-session controls, curated presets, multiplayer with lobby enrichment.
+
+</details>
+
 ## Current Milestone
 
 ### v6.0 Salt Fleet Management (Phases 36–40)
@@ -71,6 +104,10 @@ Key: billing_rates DB table + non-retroactive additive algorithm + in-memory rat
 ### v8.0 RC Bot Autonomy (Phases 45–49)
 
 **Milestone Goal:** Raise rc-agent autonomy from 6/10 to 8/10 — fix the CLOSE_WAIT socket leak causing 5/8 pods to self-relaunch every 5 minutes, install panic hooks for FFB safety on crash, deploy local Ollama (qwen3:0.6b + rp-debug model) to all 8 pods so AI diagnosis is instant and offline-capable, add dynamic server-fetched kiosk allowlist to eliminate the #1 manual intervention, auto-end orphaned billing sessions, and auto-reset pods after session end.
+
+### v9.0 Tooling & Automation (Phases 51–56)
+
+**Milestone Goal:** Install the tooling layer that makes James+Claude more effective — CLAUDE.md project context + 5 custom skills so Claude always knows pod IPs and naming conventions, MCP servers for Google Workspace (Gmail/Sheets/Calendar) and racecontrol REST API access, deployment automation so staging auto-starts and every deploy runs a verified canary-first flow, structured JSON logs in racecontrol and rc-agent with error-rate email alerts, Netdata fleet monitoring on server and all 8 pods, WhatsApp P0 alerts to Uday, and a weekly fleet uptime report.
 
 ## Phases
 
@@ -96,6 +133,36 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 48: Dynamic Kiosk Allowlist** - Server endpoint GET /api/v1/config/kiosk-allowlist, admin panel UI for adding/removing allowed processes, rc-agent fetches allowlist on startup + every 5 min, merges with hardcoded baseline, LLM-based process classifier for unknown processes (ALLOW/BLOCK/ASK). **E2E (v7.0):** Add `tests/e2e/api/kiosk-allowlist.sh` — curl CRUD on allowlist API, verify rc-agent picks up new process within 5min, Playwright test for admin panel UI (completed 2026-03-19)
 - [x] **Phase 49: Session Lifecycle Autonomy** - Auto-end orphaned billing sessions after configurable threshold (TOML: auto_end_orphan_session_secs), auto-reset pod to idle 30s after session end, game crash pauses billing with auto-resume on relaunch (max 2 retries before auto-end), fast WS reconnect path (skip relaunch if reconnect succeeds within 30s). **E2E (v7.0):** Add `tests/e2e/api/session-lifecycle.sh` — create billing session, verify auto-end after timeout, verify pod reset to idle, verify billing pause on simulated crash (completed 2026-03-19)
 - [x] **Phase 50: LLM Self-Test + Fleet Health** - self_test.rs with 18 deterministic probes (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam), local LLM verdict (HEALTHY/DEGRADED/CRITICAL) with correlation and auto-fix recommendations, server /api/v1/pods/{id}/self-test endpoint, expanded auto-fix patterns 8-14 (DirectX, shader cache, memory, DLL, Steam, performance, network). **E2E (v7.0):** Add `tests/e2e/fleet/pod-health.sh` — trigger self-test on all 8 pods via API, assert all HEALTHY, wire into run-all.sh as final phase gate (completed 2026-03-19)
+
+- [x] **Phase 51: CLAUDE.md + Custom Skills** - Project context file + 5 slash commands so Claude auto-loads venue context and James can trigger structured workflows from any session (completed 2026-03-20)
+- [x] **Phase 52: MCP Servers** - Google Workspace MCP (Gmail, Sheets, Calendar) and rc-ops-mcp (racecontrol REST API) wired into Claude Code (completed 2026-03-20)
+- [x] **Phase 53: Deployment Automation** - Staging HTTP server and webterm auto-start on boot, post-deploy verify script, canary-first gate enforced (completed 2026-03-20)
+- [x] **Phase 54: Structured Logging + Error Rate Alerting** - racecontrol and rc-agent emit structured JSON logs with daily rotation; error-rate email alerting (completed 2026-03-20)
+- [ ] **Phase 55: Netdata Fleet Deploy** - Netdata agent on server (.23) and all 8 pods via rc-agent :8090 exec, live system metrics dashboards
+- [ ] **Phase 56: WhatsApp Alerting + Weekly Report** - P0 events trigger WhatsApp to Uday; weekly automated email report with sessions, uptime %, credits, incidents
+
+## v10.0 Conspit Link — Full Capability Unlock
+
+Fix stuck-rotation safety bug, unlock all Conspit Link 2.0 features (per-game FFB presets, auto game switching, telemetry dashboards, shift lights, RGB), and automate fleet-wide config management via rc-agent.
+
+- [x] **Phase 57: Session-End Safety** - Fix stuck-rotation bug: close ConspitLink before HID commands, use fxm.reset + axis.idlespring (not estop), gradual force ramp, auto-restart ConspitLink after
+- [ ] **Phase 58: ConspitLink Process Hardening** - Harden watchdog with crash-count tracking, graceful restart (never taskkill /F), config backup + JSON integrity verification, minimize survives restarts
+- [ ] **Phase 59: Auto-Switch Configuration** - Fix broken auto game detection by placing Global.json at C:\RacingPoint\ (runtime path), update GameToBaseConfig.json mappings to venue presets
+- [ ] **Phase 60: Pre-Launch Profile Loading** - rc-agent pre-loads correct preset BEFORE game launch (not relying solely on ConspitLink auto-detect), safe fallback for unrecognized games
+- [ ] **Phase 61: FFB Preset Tuning** - Create venue-tuned .Base presets for AC (900deg), F1 25 (360deg), ACC/ACE, AC Rally (~800deg) starting from Yifei Ye pro presets, store in version control
+- [ ] **Phase 62: Fleet Config Distribution** - Push configs to all 8 pods via rc-agent WebSocket, atomic writes (temp+rename), Global.json to both paths, graceful CL stop/write/restart/verify cycle
+- [ ] **Phase 63: Fleet Monitoring** - rc-agent reports active preset, config hashes, firmware version per pod; racecontrol dashboard shows fleet config status at a glance
+- [ ] **Phase 64: Telemetry Dashboards** - Enable wheel LCD showing RPM/speed/gear for all 4 venue games, verify GameSettingCenter.json telemetry fields, document UDP port chain
+- [ ] **Phase 65: Shift Lights & RGB Lighting** - Auto RPM shift lights for AC/ACC, manual RPM thresholds for F1 25/AC Rally, RGB button lighting tied to telemetry (DRS, ABS, TC, flags)
+## v10.0 Connectivity & Redundancy
+
+Make server .23 IP permanently stable, establish reliable James↔Server↔Bono remote exec paths, sync venue config to cloud, and deliver automatic pod failover to Bono's VPS when .23 goes down — with self-healing failback when .23 recovers.
+
+- [ ] **Phase 66: Infrastructure Foundations** - DHCP reservation pins server .23 to MAC 10-FF-E0-80-B1-A7; James can exec on .23 via rc-agent :8090 over Tailscale and on Bono VPS via comms-link exec_request
+- [ ] **Phase 67: Config Sync** - racecontrol.toml changes detected by sha2 hash, sanitized, and pushed to Bono via comms-link sync_push; Bono applies config to cloud racecontrol
+- [ ] **Phase 68: Pod SwitchController** - rc-agent CoreConfig gains failover_url; WS reconnect loop uses Arc<RwLock<String>> for runtime URL switching; SwitchController AgentMessage triggers switch without restart; self_monitor suppression guard prevents relaunch during intentional failover
+- [ ] **Phase 69: Health Monitor & Failover Orchestration** - James probes .23 every 5s; 3-down/2-up hysteresis + 60s minimum outage window gates auto-failover; James sends task_request to Bono to activate cloud primary; racecontrol broadcasts SwitchController to all pods; pods confirm .23 unreachable before switching; Uday notified via email + WhatsApp
+- [ ] **Phase 70: Failback & Data Reconciliation** - James detects .23 recovery (2-up threshold); cloud sessions merged to local DB before .23 resumes primary; racecontrol broadcasts SwitchController with original URL; Uday notified on failback
 
 ## Phase Details
 
@@ -124,7 +191,7 @@ Plans:
   3. `sc qfailure salt-minion` on Pod 8 shows restart actions at 5s, 10s, 30s — the minion self-restarts after a stop (working around the confirmed Salt Windows service restart bug)
   4. `salt 'pod8' test.ping` still returns True 30 seconds after `sc stop salt-minion` — the sc failure recovery kicked in and restarted the minion service
   5. The rewritten install.bat contains no pod-agent kill, no :8090 firewall rule, and no pod-agent binary reference — only Defender exclusions + rc-agent copy + salt-minion MSI bootstrap
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 37-01-PLAN.md — Pod 8 minion install: Defender exclusions + silent EXE install with id:pod8 + sc failure config + key accept (MINION-01, MINION-02, MINION-04)
@@ -140,7 +207,7 @@ Plans:
   3. A deploy triggered from racecontrol to Pod 8 via `salt_exec.cp_get_file()` + `salt_exec.cmd_run()` completes with the new rc-agent binary running on the pod — the Python HTTP server + curl pipeline is no longer needed for this operation
   4. `pod_monitor.rs` restarts the rc-agent Windows service on Pod 8 via `salt_exec.service_restart()` — confirmed by checking pod agent reconnect after the restart
   5. `pod_healer.rs` runs a healing command on Pod 8 via `salt_exec.cmd_run()` and the result is logged — all diagnostic parse logic in pod_healer is unchanged, only the transport layer changed
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 38-01-PLAN.md — salt_exec.rs module: SaltClient, cmd_run, cp_get_file, ping, ping_all, service_restart; [salt] config section; AppState wiring (SALT-01)
@@ -157,7 +224,7 @@ Plans:
   3. `cargo build --release -p rc-agent-crate` succeeds and `cargo test` passes — rc-agent compiles cleanly without the remote_ops module
   4. No references to pod-agent or port 8090 remain in deploy scripts, training data pairs, or operational docs — confirmed by grep across the full repo
   5. Pod 8 completes a full billing session (start → game launch → billing ticks → session end → lock screen) with the new rc-agent binary that has no remote_ops module — no panics, no blank screens, billing amounts correct
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 39-01-PLAN.md — Characterization tests: WebSocket billing lifecycle path covering AppState fields touched by remote_ops.rs (PURGE-01 prerequisite, FLEET-01 prerequisite)
@@ -173,7 +240,7 @@ Plans:
   2. The staff fleet health dashboard shows all 8 pods as `minion_reachable: true` — fleet_health.rs is pulling live Salt ping results
   3. Staff deploys a new rc-agent.exe to Pod 3 via Salt (as a rollout verification step) and the pod reconnects to racecontrol within 30 seconds — the full deploy workflow via Salt works end-to-end without the Python HTTP server
   4. No active billing sessions are interrupted during the rolling minion installation across pods 1–7 + server — install.bat canary discipline preserved (Pod 8 already done, remaining pods installed one at a time)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 - [ ] 40-01-PLAN.md — Install salt-minion on pods 1–7 + server via updated install.bat; accept all keys; fleet-wide test.ping (MINION-05, FLEET-02)
@@ -343,10 +410,298 @@ Plans:
 - [ ] 50-02-PLAN.md — Auto-fix patterns 8-14 in ai_debugger.rs (SELFTEST-04)
 - [ ] 50-03-PLAN.md — Server endpoint + WS plumbing + agent handler + pod-health.sh E2E + run-all.sh integration (SELFTEST-03, SELFTEST-05)
 
+### Phase 51: CLAUDE.md + Custom Skills
+**Goal**: Claude Code sessions always start with full Racing Point context — pod IPs, crate names, naming conventions, constraints — and James can trigger structured deploy and incident workflows with single slash commands, no manual copy-paste of context
+**Depends on**: Nothing (James workstation only, zero install)
+**Requirements**: SKILL-01, SKILL-02, SKILL-03, SKILL-04, SKILL-05
+**Success Criteria** (what must be TRUE):
+  1. Opening any Claude Code session in the racecontrol repo, Claude immediately knows all 8 pod IPs, crate names, binary naming rules, and the 4-tier debug order without James typing any context
+  2. `/rp:deploy` builds rc-agent, stages the binary, and outputs the pendrive deploy command — James never needs to remember cargo flags or paths
+  3. `/rp:deploy-server` stops the old racecontrol process, swaps the binary, and confirms :8080 returns 200 — the full server deploy flow in one command
+  4. `/rp:pod-status pod-8` returns rc-agent WS status, billing state, and last heartbeat for Pod 8 by querying /fleet/health with the correct IP injected automatically
+  5. `/rp:incident "Pod 3 lock screen blank"` returns a structured 4-tier response: deterministic checks first, memory patterns, Ollama diagnosis steps, then cloud escalation
+**Plans**: 2 plans
+
+Plans:
+- [ ] 51-01-PLAN.md — CLAUDE.md: project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order) (SKILL-01)
+- [ ] 51-02-PLAN.md — Custom skills: /rp:deploy, /rp:deploy-server, /rp:pod-status, /rp:incident (SKILL-02, SKILL-03, SKILL-04, SKILL-05)
+
+### Phase 52: MCP Servers
+**Goal**: Claude Code can query Gmail, Google Sheets, Google Calendar, and the racecontrol REST API directly from any session — James describes what he needs in plain language and Claude fetches live data without manual curl or browser lookups
+**Depends on**: Phase 51 (CLAUDE.md must document MCP tool names so skills can reference them)
+**Requirements**: MCP-01, MCP-02, MCP-03, MCP-04
+**Success Criteria** (what must be TRUE):
+  1. Claude Code reads the latest Gmail messages in james@racingpoint.in without James opening a browser — MCP-01 Google Workspace MCP connected via existing racingpoint-google OAuth
+  2. Claude Code reads a cell range from a Racing Point Google Sheet and writes computed values back — MCP-02 Sheets read/write works end-to-end
+  3. Claude Code lists today's Google Calendar events for james@racingpoint.in — MCP-03 Calendar read works
+  4. Claude Code calls GET /api/v1/fleet/health on the local racecontrol server and returns structured pod statuses — MCP-04 rc-ops-mcp running on James's machine and responding
+**Plans**: 2 plans
+
+Plans:
+- [ ] 52-01-PLAN.md — Google Workspace MCP: wire racingpoint-google OAuth into Claude Code MCP config, verify Gmail + Sheets + Calendar (MCP-01, MCP-02, MCP-03)
+- [ ] 52-02-PLAN.md — rc-ops-mcp: Node.js MCP server exposing racecontrol REST endpoints; Claude Code MCP config entry (MCP-04)
+
+### Phase 53: Deployment Automation
+**Goal**: The staging HTTP server and webterm start automatically when James's machine boots; every deploy runs a verification script confirming binary size changed, /health returns 200, and all agents reconnected; the deploy script enforces canary-first and requires explicit approval before fleet rollout
+**Depends on**: Phase 51 (deploy skills reference the verify script)
+**Requirements**: DEPLOY-01, DEPLOY-02, DEPLOY-03
+**Success Criteria** (what must be TRUE):
+  1. After a cold reboot of James's machine, the staging HTTP server (deploy-staging/) and webterm (port 9999) are running within 60 seconds without James opening any terminal — autostart confirmed
+  2. Running the post-deploy verify script outputs: binary size changed (before vs after bytes), /api/v1/fleet/health returns HTTP 200, and all 8 agents show ws_connected:true — exits non-zero on any failure
+  3. The deploy script deploys to Pod 8 first, waits for verify to pass, then prints a confirmation prompt and refuses to proceed to all pods until James explicitly approves — canary gate is enforced, not advisory
+**Plans**: 2 plans
+
+Plans:
+- [ ] 53-01-PLAN.md — Task Scheduler ONLOGON autostart for staging HTTP :9998 + webterm :9999 + auto-start.sh test (DEPLOY-01)
+- [ ] 53-02-PLAN.md — /rp:deploy-fleet skill: canary Pod 8 + verify.sh + approval gate + sequential fleet deploy (DEPLOY-02, DEPLOY-03)
+
+### Phase 54: Structured Logging + Error Rate Alerting
+**Goal**: racecontrol and rc-agent write structured JSON logs to daily-rotating files so incidents can be investigated with jq; racecontrol watches its own error rate and emails James and Uday when it exceeds a configurable threshold
+**Depends on**: Phase 53 (deployment automation must be in place before Rust code changes are deployed)
+**Requirements**: MON-01, MON-02, MON-03
+**Success Criteria** (what must be TRUE):
+  1. After a racecontrol restart, the logs directory on the server shows racecontrol-YYYY-MM-DD.jsonl with JSON entries containing timestamp, level, and message fields — structured logs with daily rotation
+  2. After an rc-agent restart on any pod, the logs directory shows rc-agent-YYYY-MM-DD.jsonl with JSON entries including pod_id, timestamp, level, and message fields
+  3. Triggering 5 consecutive errors in racecontrol within 1 minute (configurable via error_rate_threshold and error_rate_window_secs in racecontrol.toml) sends an email to james@racingpoint.in and usingh@racingpoint.in within 2 minutes — rate-limited, no second email for 30 minutes
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — racecontrol structured logging: tracing-subscriber JSON format + daily file rotation via tracing-appender (MON-01)
+- [ ] 54-02-PLAN.md — rc-agent structured logging: same tracing-subscriber JSON setup + daily rotation (MON-02)
+- [ ] 54-03-PLAN.md — Error rate alerting in racecontrol: sliding window counter + threshold config + email via send_email.js (MON-03)
+
+### Phase 55: Netdata Fleet Deploy
+**Goal**: Netdata agent is installed on the racecontrol server (.23) and all 8 pods, collecting real-time CPU/RAM/disk/network metrics with auto-generated dashboards — pods deployed via rc-agent :8090 exec without physical access
+**Depends on**: Phase 54 (structured logs must be in place before Netdata install)
+**Requirements**: MON-04, MON-05
+**Success Criteria** (what must be TRUE):
+  1. Navigating to http://192.168.31.23:19999 in James's browser shows the Netdata dashboard for the racecontrol server with live CPU, RAM, disk, and network charts updating in real time
+  2. Navigating to http://192.168.31.89:19999 (Pod 1) shows a Netdata dashboard — all 8 pods have Netdata running after fleet deploy via rc-agent :8090 exec
+  3. The Netdata install on each pod completed via rc-agent remote exec confirmed by exec log showing successful install command per pod — no pendrive needed
+**Plans**: 2 plans
+
+Plans:
+- [ ] 55-01-PLAN.md — Download MSI + deploy script + verification script + server install (MON-04)
+- [ ] 55-02-PLAN.md — Canary Pod 8 + fleet rollout Pods 1-7 via rc-agent :8090 exec (MON-05)
+
+### Phase 56: WhatsApp Alerting + Weekly Report
+**Goal**: Uday receives a WhatsApp message within 60 seconds of a P0 event and a recovery notification when it clears; every Monday morning an email lands in Uday's inbox summarizing the previous week's fleet performance
+**Depends on**: Phase 54 (error rate alerting provides event hooks; structured logs feed the weekly report query)
+**Requirements**: MON-06, MON-07
+**Success Criteria** (what must be TRUE):
+  1. Simulating a P0 event (stopping racecontrol so all pods lose WS connection) results in Uday receiving a WhatsApp message via racingpoint-whatsapp-bot within 60 seconds — message includes event type, timestamp in IST, and pod count affected
+  2. When all P0 conditions resolve (all pods reconnect), a resolved WhatsApp message is sent to Uday within 60 seconds of recovery
+  3. The weekly report email arrives in usingh@racingpoint.in every Monday between 08:00 and 08:05 IST with: total sessions, uptime % per pod, total credits billed, and numbered incident list from the error rate alert log
+**Plans**: 3 plans
+
+Plans:
+- [ ] 56-01-PLAN.md — P0 WhatsApp alert: hook into racingpoint-whatsapp-bot; trigger on all-pods-offline + billing crash; resolved notification (MON-06)
+- [ ] 56-02-PLAN.md — Weekly report: scheduled task; query racecontrol DB for sessions/uptime/credits; compose + email via send_email.js (MON-07)
+
+### Phase 57: Session-End Safety
+**Goal**: When a game session ends, the wheelbase returns to center safely within 2 seconds — no stuck rotation, no snap-back, no staff intervention
+**Depends on**: Phase 52 (existing rc-agent codebase; no v9.0 dependency)
+**Requirements**: SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-06, SAFE-07
+**Success Criteria** (what must be TRUE):
+  1. Wheelbase returns to center within 2 seconds of any game closing on any pod — no stuck rotation
+  2. Centering force ramps up gradually (no sudden snap that could injure a customer's hands)
+  3. ConspitLink is closed before HID safety commands fire, eliminating P-20 contention
+  4. ConspitLink restarts automatically after the safety sequence with verified JSON config intact
+  5. ESTOP code path remains available but is never triggered during routine session ends
+**Plans**: 3 plans
+
+Plans:
+- [x] 57-01-PLAN.md — HID commands: fxm_reset + idlespring + power cap constant + Clone derive + unit tests (SAFE-02, SAFE-03, SAFE-04, SAFE-05)
+- [x] 57-02-PLAN.md — safe_session_end orchestrator: close ConspitLink + HID sequence + wire 10 call sites in main.rs (SAFE-01, SAFE-06, SAFE-07)
+- [x] 57-03-PLAN.md — Startup power cap + manual hardware verification on canary pod (SAFE-01, SAFE-04)
+
+### Phase 58: ConspitLink Process Hardening
+**Goal**: ConspitLink stays running reliably across all sessions with crash recovery, config integrity, and kiosk compliance
+**Depends on**: Phase 57
+**Requirements**: PROC-01, PROC-02, PROC-03, PROC-04
+**Success Criteria** (what must be TRUE):
+  1. ConspitLink automatically restarts after a crash with crash count tracked (never using taskkill /F)
+  2. Config files are backed up before any write and verified via JSON parse after every restart
+  3. ConspitLink window stays minimized even after restarts — kiosk lock screen always visible
+**Plans**: 2 plans
+
+Plans:
+- [ ] 58-01-PLAN.md — Hardened restart with crash-count, config backup/verify, minimize retry (PROC-01, PROC-02, PROC-03, PROC-04)
+- [ ] 58-02-PLAN.md — Wire watchdog to hardened restart + Pod 8 hardware verification (PROC-01, PROC-04)
+
+### Phase 59: Auto-Switch Configuration
+**Goal**: ConspitLink automatically detects which game is running and loads the correct FFB preset without staff action
+**Depends on**: Phase 58
+**Requirements**: PROF-01, PROF-02, PROF-04
+**Success Criteria** (what must be TRUE):
+  1. Global.json exists at C:\RacingPoint\ on every pod (the runtime read path ConspitLink actually uses)
+  2. GameToBaseConfig.json mappings point to Racing Point venue presets for all 4 active games
+  3. Launching AC, F1 25, ACC/AC EVO, or AC Rally causes ConspitLink to auto-load the matching preset
+**Plans**: 3 plans
+
+Plans:
+- [ ] 59-01: TBD
+
+### Phase 60: Pre-Launch Profile Loading
+**Goal**: rc-agent ensures the correct preset is loaded BEFORE the game starts, with a safe fallback if the game is unrecognized
+**Depends on**: Phase 59
+**Requirements**: PROF-03, PROF-05
+**Success Criteria** (what must be TRUE):
+  1. rc-agent loads the correct game preset before launching the game process (not relying solely on ConspitLink auto-detect)
+  2. If an unrecognized game launches, a safe default preset is applied (conservative force, centered spring)
+**Plans**: 3 plans
+
+Plans:
+- [ ] 60-01: TBD
+
+### Phase 61: FFB Preset Tuning
+**Goal**: Every venue game has a tuned FFB preset that feels right on the Ares 8Nm hardware, with correct steering angles and force limits
+**Depends on**: Phase 59
+**Requirements**: FFB-01, FFB-02, FFB-03, FFB-04, FFB-05, FFB-06
+**Success Criteria** (what must be TRUE):
+  1. Assetto Corsa has a venue-tuned .Base preset (based on Yifei Ye pro preset) with 900-degree steering
+  2. F1 25 has a custom venue-tuned .Base preset with 360-degree steering
+  3. ACC/AC EVO has a venue-tuned .Base preset (based on Yifei Ye pro preset) with appropriate steering angle
+  4. AC Rally has a custom venue-tuned .Base preset with ~800-degree steering
+  5. All presets are stored in version control under .planning/presets/ for reproducibility
+**Plans**: 3 plans
+
+Plans:
+- [ ] 61-01: TBD
+- [ ] 61-02: TBD
+
+### Phase 62: Fleet Config Distribution
+**Goal**: Configs validated on one pod can be pushed to all 8 pods atomically via rc-agent, with drift detection
+**Depends on**: Phase 60, Phase 61
+**Requirements**: FLEET-01, FLEET-02, FLEET-03, FLEET-04, FLEET-05, FLEET-06
+**Success Criteria** (what must be TRUE):
+  1. racecontrol can push a config update to any/all pods via WebSocket and rc-agent writes it atomically (temp file + rename)
+  2. Global.json is written to BOTH the install directory and C:\RacingPoint\ on every config push
+  3. ConspitLink is gracefully stopped before config write and restarted after, with JSON integrity verified
+  4. Config checksums are included in pod heartbeats so racecontrol can detect drift across the fleet
+  5. A golden config directory in the repo serves as the version-controlled master for all pod configs
+**Plans**: 3 plans
+
+Plans:
+- [ ] 62-01: TBD
+- [ ] 62-02: TBD
+
+### Phase 63: Fleet Monitoring
+**Goal**: racecontrol dashboard shows the config state of every pod at a glance — active preset, config hash, firmware version
+**Depends on**: Phase 62
+**Requirements**: MON-01, MON-02, MON-03, MON-04
+**Success Criteria** (what must be TRUE):
+  1. rc-agent reports the currently active ConspitLink preset name for its pod
+  2. rc-agent reports config file hashes (Settings.json, Global.json, GameToBaseConfig.json) for drift detection
+  3. rc-agent reports ConspitLink firmware version for the connected Ares wheelbase
+  4. racecontrol dashboard displays fleet config status showing all 8 pods with their preset/hash/firmware at a glance
+**Plans**: 3 plans
+
+Plans:
+- [ ] 63-01: TBD
+
+### Phase 64: Telemetry Dashboards
+**Goal**: The wheel LCD shows useful telemetry (RPM, speed, gear) for every venue game
+**Depends on**: Phase 59
+**Requirements**: TELE-01, TELE-02, TELE-06
+**Success Criteria** (what must be TRUE):
+  1. Wheel LCD displays RPM, speed, and gear data while playing any of the 4 venue games
+  2. GameSettingCenter.json has all required telemetry fields enabled for AC, F1 25, ACC/AC EVO, and AC Rally
+  3. UDP port chain is documented: game output port -> ConspitLink receive port (20778)
+**Plans**: 3 plans
+
+Plans:
+- [ ] 64-01: TBD
+
+### Phase 65: Shift Lights & RGB Lighting
+**Goal**: Shift light LEDs and RGB button lighting respond to live game telemetry for an immersive customer experience
+**Depends on**: Phase 64
+**Requirements**: TELE-03, TELE-04, TELE-05
+**Success Criteria** (what must be TRUE):
+  1. Shift light LEDs illuminate at correct RPM thresholds for AC and ACC (using Auto RPM configs)
+  2. Shift light LEDs illuminate at correct RPM thresholds for F1 25 and AC Rally (using manual RPM thresholds)
+  3. RGB button lighting responds to telemetry events (DRS, ABS, TC, flags) per game where supported
+**Plans**: 3 plans
+
+Plans:
+- [ ] 65-01: TBD
+
+## v10.0 Connectivity & Redundancy — Phase Details
+
+### Phase 66: Infrastructure Foundations
+**Goal**: The network foundation is stable — server .23 always gets IP 192.168.31.23, James can run commands on .23 via rc-agent :8090 over Tailscale, and James can delegate tasks to Bono's VPS via comms-link exec_request
+**Depends on**: Phase 65 (or can start in parallel — no code dependency)
+**Requirements**: INFRA-01, INFRA-02, INFRA-03
+**Success Criteria** (what must be TRUE):
+  1. Router DHCP reservation table shows MAC 10-FF-E0-80-B1-A7 permanently bound to 192.168.31.23 — server never drifts again after reboot or lease expiry
+  2. James can POST to rc-agent :8090 exec endpoint via Tailscale IP and receive command output from server .23
+  3. James can send an exec_request via comms-link INBOX.md and Bono executes the command on the VPS, returning result via comms-link
+**Plans**: TBD
+
+Plans:
+- [ ] 66-01: TBD
+
+### Phase 67: Config Sync
+**Goal**: Venue configuration (pod definitions, billing rates, game catalog) is mirrored to Bono's cloud racecontrol so failover has a current config to run on
+**Depends on**: Phase 66
+**Requirements**: SYNC-01, SYNC-02, SYNC-03
+**Success Criteria** (what must be TRUE):
+  1. After editing racecontrol.toml on .23, James observes a sync_push message in comms-link within 60s containing the updated config diff
+  2. The pushed config payload contains no credentials, passwords, or local Windows paths — only pod definitions, billing rates, and game catalog
+  3. Bono's cloud racecontrol reflects the same billing rates and pod count as the local venue config within 5 minutes of a local change
+**Plans**: TBD
+
+Plans:
+- [ ] 67-01: TBD
+
+### Phase 68: Pod SwitchController
+**Goal**: Any rc-agent pod can switch its WebSocket target from .23 to Bono's VPS and back at runtime without a process restart, and self_monitor will not fight the intentional switch
+**Depends on**: Phase 66
+**Requirements**: FAIL-01, FAIL-02, FAIL-03, FAIL-04
+**Success Criteria** (what must be TRUE):
+  1. rc-agent rc-agent.toml has a failover_url field pointing to Bono's racecontrol Tailscale address — all 8 pods configured after pendrive deploy
+  2. On Pod 8 canary: sending a SwitchController AgentMessage causes rc-agent to reconnect to the new URL within 15s without rc-agent.exe restarting
+  3. self_monitor.rs does not trigger a relaunch during the 60s window after a SwitchController is received (last_switch_time guard active)
+  4. Switching back to .23 URL works identically — pod reconnects and resumes normal billing heartbeat
+**Plans**: TBD
+
+Plans:
+- [ ] 68-01: TBD
+
+### Phase 69: Health Monitor & Failover Orchestration
+**Goal**: James automatically detects when .23 is unreachable, waits to confirm it is not a transient AC-launch CPU spike, then coordinates with Bono to promote cloud racecontrol as primary and switch all pods — with Uday notified
+**Depends on**: Phase 67, Phase 68
+**Requirements**: HLTH-01, HLTH-02, HLTH-03, HLTH-04, ORCH-01, ORCH-02, ORCH-03, ORCH-04
+**Success Criteria** (what must be TRUE):
+  1. James's health probe loop shows server .23 HTTP + WS checks running every 5s in racecontrol logs — status visible to James without manual intervention
+  2. When .23 is powered off, automatic failover fires only after a continuous 60s outage window — a 3s CPU spike during AC launch does not trigger failover
+  3. After failover fires: all 8 pods are connected to Bono's VPS WebSocket within 30s of racecontrol broadcasting SwitchController
+  4. A pod that still has .23 reachable (split-brain scenario) does not honor the SwitchController until its own LAN probe confirms .23 is down
+  5. Uday receives an email and WhatsApp notification within 2 minutes of failover completing, stating which URL pods switched to
+**Plans**: TBD
+
+Plans:
+- [ ] 69-01: TBD
+
+### Phase 70: Failback & Data Reconciliation
+**Goal**: When .23 comes back online, sessions created during failover are merged into local DB, and pods automatically reconnect to .23 — Uday notified of the all-clear
+**Depends on**: Phase 69
+**Requirements**: BACK-01, BACK-02, BACK-03, BACK-04
+**Success Criteria** (what must be TRUE):
+  1. James detects server .23 recovery using the 2-up threshold (2 consecutive successful probes) — no manual action needed
+  2. Any billing sessions that ran on Bono's VPS during the outage appear in the local .23 SQLite DB after failback sync completes
+  3. After failback: all 8 pods are connected to .23's WebSocket within 30s of racecontrol broadcasting SwitchController with the original URL
+  4. Uday receives an email and WhatsApp notification confirming the venue is back on local server and the outage duration
+**Plans**: TBD
+
+Plans:
+- [ ] 70-01: TBD
+
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44 → 45 → 46 → 47 → 48 → 49 → 50
+Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44 → 45 → 46 → 47 → 48 → 49 → 50 → 51 → 52 → 53 → 54 → 55 → 56
 
 Note: v8.0 phases 45–50 build on v7.0's shipped E2E infrastructure (lib/common.sh, lib/pod-map.sh, Playwright, run-all.sh). Every phase includes E2E test scripts wired into run-all.sh as new fleet/ and api/ test phases. Phases 45 (CLOSE_WAIT) and 46 (Panic Hook) have no dependencies. Phase 47 (LLM Fleet) depends on 45. Phase 48 (Dynamic Allowlist) depends on 47 (needs local LLM for process classifier). Phase 49 (Session Lifecycle) depends on 46. Phase 50 (Self-Test) depends on 46+47 and is the capstone — its pod-health.sh becomes the final gate in run-all.sh.
 
@@ -407,3 +762,23 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 48. Dynamic Kiosk Allowlist | 2/2 | Complete   | 2026-03-19 | - |
 | 49. Session Lifecycle Autonomy | 2/2 | Complete    | 2026-03-19 | - |
 | 50. LLM Self-Test + Fleet Health | 3/3 | Complete    | 2026-03-19 | - |
+| 51. CLAUDE.md + Custom Skills | 2/2 | Complete    | 2026-03-20 | - |
+| 52. MCP Servers | 2/2 | Complete    | 2026-03-20 | - |
+| 53. Deployment Automation | 2/2 | Complete    | 2026-03-20 | - |
+| 54. Structured Logging + Error Rate Alerting | 3/3 | Complete    | 2026-03-20 | - |
+| 55. Netdata Fleet Deploy | 1/2 | In Progress|  | - |
+| 56. WhatsApp Alerting + Weekly Report | v9.0 | 0/2 | Not started | - |
+| 57. Session-End Safety | 2/3 | Complete    | 2026-03-20 | - |
+| 58. ConspitLink Process Hardening | 1/2 | In Progress|  | - |
+| 59. Auto-Switch Configuration | v10.0 | 0/? | Not started | - |
+| 60. Pre-Launch Profile Loading | v10.0 | 0/? | Not started | - |
+| 61. FFB Preset Tuning | v10.0 | 0/? | Not started | - |
+| 62. Fleet Config Distribution | v10.0 | 0/? | Not started | - |
+| 63. Fleet Monitoring | v10.0 | 0/? | Not started | - |
+| 64. Telemetry Dashboards | v10.0 | 0/? | Not started | - |
+| 65. Shift Lights & RGB Lighting | v10.0 | 0/? | Not started | - |
+| 66. Infrastructure Foundations | v10.0-CR | 0/? | Not started | - |
+| 67. Config Sync | v10.0-CR | 0/? | Not started | - |
+| 68. Pod SwitchController | v10.0-CR | 0/? | Not started | - |
+| 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
+| 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |

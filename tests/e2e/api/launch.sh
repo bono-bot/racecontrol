@@ -212,8 +212,10 @@ for GAME in $GAMES_TO_TEST; do
     # Sleep 3s between games to avoid double-launch guard
     sleep 3
 
-    # Build launch_args matching kiosk wizard output (same pattern as game-launch.sh Gate 6)
-    LAUNCH_ARGS=$(python3 -c "
+    # Build launch_args matching kiosk wizard output
+    # AC gets full config (aids, conditions, AI); non-AC gets minimal (game + game_mode + driver)
+    if [ "$GAME" = "assetto_corsa" ]; then
+        LAUNCH_ARGS=$(python3 -c "
 import json
 args = {
     'game': '${GAME}',
@@ -229,6 +231,18 @@ args = {
 }
 print(json.dumps(args))
 " 2>/dev/null)
+    else
+        # Non-AC: kiosk sends only game, driver, game_mode (useSetupWizard.ts:185-191)
+        LAUNCH_ARGS=$(python3 -c "
+import json
+args = {
+    'game': '${GAME}',
+    'driver': 'E2E Test Driver',
+    'game_mode': 'single'
+}
+print(json.dumps(args))
+" 2>/dev/null)
+    fi
 
     info "Launching ${GAME} on ${POD_ID}"
 

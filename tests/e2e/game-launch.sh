@@ -259,7 +259,9 @@ fi
 
 if [ "$HAS_BILLING" = "true" ]; then
     # Build launch_args matching kiosk wizard output
-    LAUNCH_ARGS=$(python3 -c "
+    # AC gets full config; non-AC gets minimal (matches useSetupWizard.ts buildLaunchArgs)
+    if [ "$SIM_TYPE" = "assetto_corsa" ]; then
+        LAUNCH_ARGS=$(python3 -c "
 import json
 args = {
     'game': '${SIM_TYPE}',
@@ -275,6 +277,18 @@ args = {
 }
 print(json.dumps(args))
 " 2>/dev/null)
+    else
+        # Non-AC: kiosk sends only game, driver, game_mode
+        LAUNCH_ARGS=$(python3 -c "
+import json
+args = {
+    'game': '${SIM_TYPE}',
+    'driver': 'E2E Test Driver',
+    'game_mode': 'single'
+}
+print(json.dumps(args))
+" 2>/dev/null)
+    fi
 
     info "Sending launch command: sim_type=${SIM_TYPE}, pod=${POD_ID}"
     info "launch_args: ${LAUNCH_ARGS}"

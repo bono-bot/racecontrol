@@ -268,3 +268,26 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | Mar 12 01:33 UTC | Bono | `3ac10d4` | docs: phase 1.1 plans — Cloud-Venue WebSocket Sync |
 | Mar 12 01:47 UTC | Bono | `fbd22fe` | fix: revise phase 1.1 plans based on checker feedback |
 | Mar 12 07:16 IST | James | `7996122` | fix: revise plan 02-01 based on checker feedback |
+| 2026-03-20 11:30 IST | James | `4af3f5b` | feat(51-01): create CLAUDE.md — 179-line Racing Point context file (all 8 pod IPs/MACs, crate names, deploy rules, 4-tier debug, standing rules, brand identity) |
+| 2026-03-20 11:30 IST | James | `d19b916` | docs(51-01): SUMMARY + STATE/ROADMAP/REQUIREMENTS updated — SKILL-01 complete |
+| 2026-03-20 11:53 IST | James | `d1fd50b` | docs(52): research Phase 52 MCP Servers — Gmail fix, Sheets/Calendar scaffold, rc-ops-mcp API surface |
+| 2026-03-20 12:15 IST | James | `e90532b` | feat(52-01): add OAuth token refresh utility (refresh-token.js) in racingpoint-google |
+| 2026-03-20 12:15 IST | James | `7f0ce1e` | feat(52-01): create racingpoint-mcp-sheets — read_sheet and write_sheet MCP tools |
+| 2026-03-20 12:15 IST | James | `7e2c8ce` | feat(52-01): create racingpoint-mcp-calendar — list_events, create_event, delete_event MCP tools |
+| 2026-03-20 12:15 IST | James | `6e9eca9` | docs(52-01): SUMMARY + STATE/ROADMAP/REQUIREMENTS updated — Tasks 1+2 complete, OAuth checkpoint reached |
+| 2026-03-20 12:18 IST | James | `40214df` | feat(52-02): create rc-ops-mcp MCP server with 10 racecontrol API tools (in rc-ops-mcp repo) |
+| 2026-03-20 12:18 IST | James | `0a241c8` | docs(52-02): complete rc-ops-mcp plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-03-20 13:36 IST | James | `9f7addd` | feat(53-02): add /rp:deploy-fleet canary-first fleet deploy skill — Pod 8 + verify.sh gate + approval prompt before pods 1-7 |
+| 2026-03-20 13:36 IST | James | `acee734` | docs(53-02): complete deploy-fleet plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (DEPLOY-02, DEPLOY-03) |
+| 2026-03-20 13:36 IST | James | `290e0a6` | chore(53-01): register RacingPoint-StagingHTTP and RacingPoint-WebTerm Task Scheduler tasks (ONLOGON, user bono) |
+| 2026-03-20 13:37 IST | James | `4f260bd` | feat(53-01): add tests/e2e/deploy/auto-start.sh — liveness check for :9998 and :9999 |
+| 2026-03-20 13:38 IST | James | `563e9c4` | docs(53-01): complete autostart plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (DEPLOY-01) |
+| 2026-03-20 16:14 IST | James | `451b4c6` | feat(54-01): structured JSON logging — racecontrol file layer uses .json(), daily rotation to racecontrol-YYYY-MM-DD.jsonl, 30-day cleanup on startup |
+| 2026-03-20 16:14 IST | James | `b667d6a` | docs(54-01): complete structured-json-logging plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (MON-01) |
+| 2026-03-20 14:17 IST | James | `0c42b1a` | feat(54-02): rc-agent structured JSON logging — daily-rotating rc-agent-YYYY-MM-DD.jsonl, pod_id span injected after config load, 30-day cleanup, stdout stays plain text |
+| 2026-03-20 14:20 IST | James | `0392281` | docs(54-02): complete rc-agent JSON logging plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (MON-02) |
+| 2026-03-20 14:21 IST | James | `73a1bbb` | feat(54-03): ErrorCountLayer with sliding window VecDeque, mpsc bridge to async alerter task, 4 unit tests |
+| 2026-03-20 14:27 IST | James | `47293b2` | feat(54-03): MonitoringConfig in config.rs + ErrorCountLayer wired into tracing registry in main.rs |
+| 2026-03-20 14:28 IST | James | `123ffd5` | docs(54-03): complete error rate alerting plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS (MON-03) updated |
+| 2026-03-20 15:00 IST | James | `17e7b95` | feat(55-01): add Netdata fleet E2E verification script (netdata-fleet.sh checks all 9 hosts :19999/api/v1/info) |
+| 2026-03-20 15:13 IST | James | `6388f93` | docs(55-01): complete Netdata deploy scripts plan — SUMMARY, STATE, ROADMAP, LOGBOOK updated |

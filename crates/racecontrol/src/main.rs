@@ -10,6 +10,7 @@ use axum::http::{HeaderValue, Method, StatusCode};
 use tower_http::trace::TraceLayer;
 
 use racecontrol_crate::config::Config;
+use racecontrol_crate::error_rate::{ErrorCountLayer, ErrorRateConfig, error_rate_alerter_task};
 use racecontrol_crate::state::AppState;
 use racecontrol_crate::{
     ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
@@ -93,7 +94,7 @@ async fn jwt_error_to_401(
 const WEB_DASHBOARD_PATHS: &[&str] = &[
     "/billing", "/presenter", "/leaderboards", "/drivers", "/pods",
     "/telemetry", "/games", "/ai", "/sessions", "/bookings",
-    "/events", "/settings", "/ac-lan", "/results",
+    "/events", "/settings", "/ac-lan", "/ac-sessions", "/results",
 ];
 
 /// Reverse proxy: forwards /kiosk* and /_next/* to the local Next.js kiosk on port 3300,
@@ -141,60 +142,144 @@ async fn kiosk_proxy(
         Err(_) => return (StatusCode::BAD_REQUEST, "Body too large").into_response(),
     };
 
-    let resp = state.http_client
-        .request(method, &url)
-        .headers(proxy_headers)
-        .body(body_bytes)
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await;
+    // Retry up to 3 times with 1s backoff to absorb backend startup delay.
+    // This eliminates the 502 error page during the typical 3-5s Node.js boot window.
+    let mut last_err = String::new();
+    for attempt in 0..3u8 {
+        let req_method = method.clone();
+        let req_headers = proxy_headers.clone();
+        let req_body = body_bytes.clone();
 
-    match resp {
-        Ok(r) => {
-            let status = StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-            let mut builder = axum::response::Response::builder().status(status);
-            for (key, val) in r.headers() {
-                let k = key.as_str();
-                // Skip hop-by-hop headers that conflict with the final response
-                if k == "transfer-encoding" || k == "connection" || k == "keep-alive" {
-                    continue;
+        let resp = state.http_client
+            .request(req_method, &url)
+            .headers(req_headers)
+            .body(req_body)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => {
+                let status = StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+                let mut builder = axum::response::Response::builder().status(status);
+                for (key, val) in r.headers() {
+                    let k = key.as_str();
+                    if k == "transfer-encoding" || k == "connection" || k == "keep-alive" {
+                        continue;
+                    }
+                    builder = builder.header(k, val.as_bytes());
                 }
-                builder = builder.header(k, val.as_bytes());
+                let body = r.bytes().await.unwrap_or_default();
+                if attempt > 0 {
+                    tracing::info!("Proxy succeeded on attempt {} for {}", attempt + 1, url);
+                }
+                return builder.body(axum::body::Body::from(body)).unwrap().into_response();
             }
-            let body = r.bytes().await.unwrap_or_default();
-            builder.body(axum::body::Body::from(body)).unwrap().into_response()
+            Err(e) => {
+                last_err = format!("{e}");
+                if attempt < 2 {
+                    tracing::info!("Proxy attempt {} failed for {}, retrying in 1s: {e}", attempt + 1, url);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
         }
-        Err(e) => {
-            tracing::warn!("Proxy error: {e}");
-            (StatusCode::BAD_GATEWAY, "Backend unavailable").into_response()
+    }
+
+    // All 3 retries exhausted — show branded error page
+    tracing::warn!("Proxy failed after 3 attempts for {}: {}", url, last_err);
+    let service = if is_kiosk { "Kiosk" } else { "Dashboard" };
+    axum::response::Response::builder()
+        .status(StatusCode::BAD_GATEWAY)
+        .header("content-type", "text/html; charset=utf-8")
+        .body(axum::body::Body::from(backend_unavailable_page(service, port)))
+        .unwrap()
+        .into_response()
+}
+
+/// Branded error page shown when the kiosk or dashboard backend is unreachable.
+/// Auto-reloads every 5 seconds so it recovers automatically once the service starts.
+fn backend_unavailable_page(service: &str, port: u16) -> String {
+    format!(r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Racing Point — {service} Unavailable</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{
+    background: linear-gradient(135deg, #1A1A1A 0%, #222222 50%, #1A1A1A 100%);
+    color: #fff;
+    font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}}
+@keyframes spin {{
+    0%   {{ transform: rotate(0deg); }}
+    100% {{ transform: rotate(360deg); }}
+}}
+@keyframes pulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.5; }}
+}}
+</style>
+</head>
+<body>
+<div style="text-align:center">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" width="220" height="64" role="img" aria-label="Racing Point" style="margin-bottom:40px">
+  <rect x="0" y="4" width="8" height="8" fill="#E10600"/>
+  <rect x="8" y="4" width="8" height="8" fill="#ffffff" opacity="0.15"/>
+  <rect x="0" y="12" width="8" height="8" fill="#ffffff" opacity="0.15"/>
+  <rect x="8" y="12" width="8" height="8" fill="#E10600"/>
+  <text x="24" y="36" font-family="Montserrat,Segoe UI,system-ui,sans-serif" font-weight="800" font-size="26" letter-spacing="4" fill="#E10600">RACING</text>
+  <text x="24" y="58" font-family="Montserrat,Segoe UI,system-ui,sans-serif" font-weight="300" font-size="18" letter-spacing="6" fill="#ffffff" opacity="0.85">POINT</text>
+</svg>
+<div style="font-size:1.6em;font-weight:700;color:#E10600;margin-bottom:16px;letter-spacing:2px">{service} STARTING UP</div>
+<div style="font-size:1em;color:#888;margin-bottom:8px">The {service} service on port {port} is not ready yet.</div>
+<div style="font-size:0.9em;color:#5A5A5A;margin-bottom:40px">This page will automatically retry.</div>
+<div style="display:inline-block;width:48px;height:48px;border:4px solid #333;border-top-color:#E10600;border-radius:50%;animation:spin 0.9s linear infinite"></div>
+<div style="margin-top:40px;font-size:0.75em;color:#333;animation:pulse 2s infinite">Retrying in <span id="cd">5</span>s</div>
+</div>
+<script>
+var s=5,el=document.getElementById('cd');
+setInterval(function(){{ s--; if(s<=0){{ location.reload(); }} else {{ el.textContent=s; }} }},1000);
+</script>
+</body>
+</html>"##, service = service, port = port)
+}
+
+fn cleanup_old_logs(log_dir: &std::path::Path) {
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(30 * 24 * 3600))
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+    if let Ok(entries) = std::fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.ends_with(".jsonl") || name.contains(".jsonl.") || name.ends_with(".log") {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if modified < cutoff {
+                            if std::fs::remove_file(&path).is_ok() {
+                                eprintln!("Cleaned old log: {}", path.display());
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing — dual output: stdout + rolling log file
-    let log_dir = std::path::Path::new("logs");
-    std::fs::create_dir_all(log_dir).ok();
-    let file_appender = tracing_appender::rolling::daily(log_dir, "racecontrol.log");
-    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
-
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info".into());
-
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(tracing_subscriber::fmt::layer().with_target(false))
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_target(false)
-                .with_ansi(false)
-                .with_writer(non_blocking_file),
-        )
-        .init();
-
     println!(r#"
     ____                  ______            __             __
    / __ \____ _________  / ____/___  ____  / /__________  / /
@@ -206,8 +291,52 @@ async fn main() -> anyhow::Result<()> {
   by RacingPoint
 "#);
 
-    // Load config
+    // Load config FIRST so MonitoringConfig is available for tracing init
+    // Pre-init messages use eprintln! since tracing is not yet initialized
+    eprintln!("Loading config...");
     let config = Config::load_or_default();
+
+    // Initialize tracing — dual output: stdout (text) + rolling JSON log file
+    // Config must be loaded before this point so error_rate thresholds are available
+    use tracing_appender::rolling::{RollingFileAppender, Rotation};
+    let log_dir = std::path::Path::new("logs");
+    std::fs::create_dir_all(log_dir).ok();
+    cleanup_old_logs(log_dir);
+
+    let file_appender = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("racecontrol-")
+        .filename_suffix("jsonl")
+        .build(log_dir)
+        .expect("failed to build rolling file appender");
+    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info".into());
+
+    // Error rate monitoring — mpsc bridge from sync Layer to async alerter
+    let (alert_tx, alert_rx) = tokio::sync::mpsc::channel::<()>(4);
+    let error_rate_config = ErrorRateConfig {
+        threshold: config.monitoring.error_rate_threshold,
+        window_secs: config.monitoring.error_rate_window_secs,
+        cooldown_secs: config.monitoring.error_rate_cooldown_secs,
+    };
+    let error_count_layer = ErrorCountLayer::new(error_rate_config, alert_tx);
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer().with_target(true))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_target(true)
+                .with_ansi(false)
+                .with_writer(non_blocking_file),
+        )
+        .with(error_count_layer)
+        .init();
 
     // Warn if default JWT secret is unchanged
     if config.auth.jwt_secret == "racingpoint-jwt-change-me-in-production" {
@@ -219,9 +348,23 @@ async fn main() -> anyhow::Result<()> {
     // Initialize database
     let pool = db::init_pool(&config.database.path).await?;
 
+    // Extract monitoring/email config before config is moved into AppState
+    let error_rate_email_enabled = config.monitoring.error_rate_email_enabled;
+    let email_script_for_alerter = config.watchdog.email_script_path.clone();
+
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     let state = Arc::new(AppState::new(config, pool));
+
+    // Spawn error rate alerter task — sends to both James and Uday on error spikes
+    if error_rate_email_enabled {
+        let email_script = email_script_for_alerter;
+        let recipients = vec![
+            "james@racingpoint.in".to_string(),
+            "usingh@racingpoint.in".to_string(),
+        ];
+        tokio::spawn(error_rate_alerter_task(alert_rx, email_script, recipients));
+    }
 
     // First-boot email test: verify Gmail OAuth works on initial setup
     maybe_send_first_boot_email(&state).await;
@@ -427,4 +570,40 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_unavailable_page_is_html() {
+        let html = backend_unavailable_page("Kiosk", 3300);
+        assert!(html.contains("<!DOCTYPE html>"), "must be a full HTML page");
+    }
+
+    #[test]
+    fn backend_unavailable_page_has_branding() {
+        let html = backend_unavailable_page("Dashboard", 3200);
+        assert!(html.contains("#E10600"), "must contain Racing Point red");
+        assert!(html.contains("RACING"), "must contain RACING wordmark");
+        assert!(html.contains("POINT"), "must contain POINT wordmark");
+    }
+
+    #[test]
+    fn backend_unavailable_page_has_auto_retry() {
+        let html = backend_unavailable_page("Kiosk", 3300);
+        assert!(html.contains("location.reload"), "must auto-reload");
+    }
+
+    #[test]
+    fn backend_unavailable_page_shows_service_name() {
+        let kiosk = backend_unavailable_page("Kiosk", 3300);
+        assert!(kiosk.contains("Kiosk STARTING UP"), "must show Kiosk service name");
+        assert!(kiosk.contains("3300"), "must show kiosk port");
+
+        let dash = backend_unavailable_page("Dashboard", 3200);
+        assert!(dash.contains("Dashboard STARTING UP"), "must show Dashboard service name");
+        assert!(dash.contains("3200"), "must show dashboard port");
+    }
 }

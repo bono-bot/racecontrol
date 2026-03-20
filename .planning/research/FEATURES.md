@@ -1,229 +1,229 @@
-# Feature Research — E2E Test Suite (v7.0)
+# Feature Research — Connectivity & Redundancy (v10.0)
 
-**Domain:** End-to-end test suite for kiosk/venue-management sim racing platform
-**Researched:** 2026-03-19
-**Confidence:** HIGH (Playwright official docs, verified patterns from production suites, confirmed against existing codebase)
+**Domain:** Venue operations — LAN server health monitoring, config sync, auto-failover (local→cloud), and failback for 8-pod sim racing venue
+**Researched:** 2026-03-20
+**Confidence:** HIGH (patterns verified via Tailscale official docs, AWS/GCP health check documentation, production failover research, and codebase analysis)
 
 ---
 
 ## Context: What Already Exists vs What This Milestone Adds
 
-The existing test suite is entirely shell-based (curl + python). No browser automation, no wizard flow coverage, no per-game launch validation, no reusable runner structure.
+v10.0 is not building health monitoring from scratch. The venue already has meaningful redundancy infrastructure. The gaps are specific and well-defined.
 
 ### What Already Exists (Do NOT Duplicate)
 
-| File | What It Tests | Gap It Leaves |
-|------|--------------|---------------|
-| `tests/e2e/smoke.sh` | 7 API endpoints — HTTP status + JSON validity | No UI, no auth flow, no wizard, no state assertions |
-| `tests/e2e/game-launch.sh` | 15 gates — billing gate, double-launch guard, SimType parsing, WS connectivity, launch lifecycle | No browser, AC/F1/EVO/Rally/iRacing not individually covered, no kiosk wizard interaction |
-| `tests/e2e/cross-process.sh` | Schema compat, sync table coverage, service health chains, API spot checks | No browser, no deploy lifecycle, no binary verification |
+| System | What It Does | Gap It Leaves |
+|--------|-------------|---------------|
+| UDP heartbeat (udp_heartbeat.rs) | rc-agent sends heartbeat every 6s; racecontrol marks pod offline if no heartbeat for 6s | Only monitors pod→server. No server→cloud health path. |
+| WebSocket auto-reconnect with backoff | rc-agent reconnects to `core.url` with exponential backoff (1s→30s cap) | Only reconnects to the same URL. Cannot switch to a backup URL on persistent failure. |
+| cloud_sync.rs (every 30s) | Pulls/pushes laps, drivers, pricing, wallets to Bono's VPS | Only syncs data rows — NOT racecontrol.toml config. Does not sync venue configuration. |
+| bono_relay.rs (event push over Tailscale) | Pushes session/lap/pod events to Bono webhook; Bono can send relay commands back | One-directional operational events. Not a failover channel — no health signaling. |
+| pod_monitor.rs + pod_healer.rs | Detects stale pods via WS/heartbeat; triggers restart sequences | Only watches pods from the server's perspective. James's machine (.27) does not independently monitor the server (.23). |
+| Email alerts (email_alerts.rs) | Fires on billing failures, pod crashes | No alerts for server itself going down. No failover-trigger alerts. |
+| rc-agent remote_ops :8090 | HTTP exec endpoint for remote pod commands | Sends commands to pods but has no concept of failover server. |
+| Tailscale mesh (all pods, Phase 27) | Pods accessible via Tailscale IPs | Tailscale installed but not configured as a failover channel. Pods still connect to LAN IP for WS. |
 
-### What v7.0 Must Add
+### What v10.0 Adds
 
-Playwright browser tests for the kiosk booking wizard (per-game flow), deploy verification (binary swap, port conflict, service restart), per-game launch validation with PID checks, a self-healing runner with pre-test cleanup, and a single master E2E entry point reusable across racecontrol, POS, and the Admin Dashboard.
+The four-feature shape of this milestone:
+1. **DHCP fix** — Server .23 gets stable IP (MAC reservation). Foundation for everything else.
+2. **Health monitoring** — James's machine (.27) continuously monitors server .23. Detects outage.
+3. **Config sync** — racecontrol.toml pushed to Bono's VPS so cloud mirrors venue config.
+4. **Auto-failover + failback** — Pods switch to Bono's VPS when .23 goes down; switch back when it recovers.
 
 ---
 
 ## Feature Landscape
 
-### Table Stakes (Tests Are Unreliable Without These)
+### Table Stakes (Required for a Reliable Venue)
 
-Features where their absence makes the test suite produce false results, miss real failures, or be impossible to run reliably in the venue environment.
+Features the system must have for Connectivity & Redundancy to be meaningful. Missing any of these means failover either never triggers, triggers incorrectly, or doesn't work when needed.
 
-| Feature | Why Required | Complexity | Notes |
+| Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Pre-test state cleanup | Stale games or billing sessions from prior runs corrupt subsequent tests — smoke passes but launch tests fail | LOW | Pattern: before each test, call `/games/stop` on target pod + verify game state is `NONE`. game-launch.sh already does a version of this ad hoc; it needs to be a fixture. |
-| Playwright for kiosk wizard browser tests | curl cannot detect React rendering errors, wizard step transitions, or component state bugs — only browser automation can | MEDIUM | Kiosk runs Next.js with SSR. Playwright is the correct tool. Use `npx playwright test` from kiosk/ with `baseURL: http://localhost:3300`. |
-| Per-step wizard assertions (phone → OTP → select_plan → select_game → ... → review) | HTTP 200 on `/kiosk/book` does not validate that the wizard reaches "review" — only Playwright stepping through each phase catches regressions | MEDIUM | The wizard has 11 defined steps: `phone`, `otp`, `wizard` (multi-step: `select_plan`, `select_game`, `player_mode`, `session_type`, `ai_config`, `select_experience`, `select_track`, `select_car`, `driving_settings`, `review`). Each step must render without error and advance correctly. |
-| Staff mode wizard bypass | Staff launch (`?staff=true&pod=pod-8`) skips phone/OTP — tests must cover both paths or staff launches remain untested | LOW | Pass `?staff=true&pod=pod-8` as URL params in the staff fixture. |
-| SSR error detection in browser (not just HTTP status) | HTTP 200 from curl does not catch React hydration errors, missing env vars, or runtime exceptions — only a real browser catches these | LOW | Playwright `page.on('pageerror')` catches uncaught JS exceptions. Assert zero `pageerror` events during wizard walk-through. Already partially done in game-launch.sh via body string scan, but that misses client-side errors. |
-| Per-game SimType test coverage (AC, F1 25, EVO, Rally, iRacing) | game-launch.sh tests `f1_25` by default and accepts `SIM_TYPE=` env var — but individual game coverage is not enforced in any test | MEDIUM | Each sim type has different wizard path (AC uses track/car picker, others use experience picker). Tests must fork at `select_game` and exercise each path. |
-| Idempotent test teardown | Tests that leave billing sessions, games, or test drivers behind cause the next test run to fail differently than the first | LOW | Teardown fixture: `afterEach` stops game + ends billing if `driver_test_trial` session exists. |
-| Single master script entry point | Without one, tests are scattered (smoke.sh, game-launch.sh, cross-process.sh) — no unified pass/fail for CI or pre-deploy verification | LOW | `tests/e2e/run-all.sh` or `npm run test:e2e` invoking all three existing scripts + new Playwright suite. Exit code = total failures. |
-| Configurable base URL | Tests must run against both `localhost:8080` (dev) and `192.168.31.23:8080` (venue) without code changes | LOW | All existing scripts use `RC_BASE_URL` env var. Playwright config must honor the same convention via `process.env.RC_BASE_URL`. |
+| **Stable server IP (DHCP reservation)** | Every other feature depends on .23 having a predictable address. DHCP drift has already caused outages (see MEMORY.md: "drifted .51→.23→.4→.23"). Failover logic that monitors the wrong IP is useless. | LOW | MAC reservation in DHCP server (router at .1). New MAC is 10-FF-E0-80-B1-A7 (changed 2026-03-17). One-time config in router UI. Already in v10.0 requirements. |
+| **Continuous server health check from James (.27)** | Without an independent observer, nobody knows the server is down until a customer reports a problem. James's machine (.27) is always on and on the LAN — ideal monitor. | LOW | HTTP poll to `http://192.168.31.23:8080/health` on a tight interval (5–10s). Mark server DOWN after 3 consecutive failures (~15–30s total). Reset to UP after 2 consecutive successes. Uses `reqwest` in a tokio background task; no new dependencies. |
+| **Multi-factor liveness check (not just one probe type)** | A single TCP/HTTP check can pass even when the service is functionally broken (port open but not processing requests). A process that has deadlocked will still accept TCP connections. | LOW | Check both: (1) HTTP GET `/health` returns 200, AND (2) response latency < 2s. Optional: check ICMP ping as a third signal — if HTTP fails but ICMP passes, the machine is up but the service is stuck. If ICMP also fails, the machine is unreachable. Different recovery actions for each. |
+| **Failover notification to Uday** | Uday must know when the venue is running on cloud backup so he can decide whether to investigate or wait. Silent failover leaves Uday confused about why things are behaving differently. | LOW | Send email via existing `send_email.js` when failover triggers. Message: "Server .23 offline — pods switched to cloud backup at [IST timestamp]." Rate-limit: max 1 alert per 5 minutes. Uses existing alert infrastructure. |
+| **Failback to local server** | Auto-failover without failback means the venue permanently runs on cloud after the first outage. Cloud has higher latency and lower throughput than LAN — it is emergency infrastructure, not primary. | LOW | When server .23 health check recovers (2 consecutive successes after DOWN state), send a failback signal to pods to switch back to LAN. Notify Uday: "Server .23 recovered — pods returned to local at [IST timestamp]." |
+| **Failback notification to Uday** | Uday needs to know when the venue has returned to normal operation, not just when it failed over. | LOW | Mirror of failover notification. Same channel (email). Add WhatsApp via existing bot when confidence in failover/failback is established. |
+| **Pods accept a backup server URL** | rc-agent currently has one `core.url` in config. Failover requires pods to know about a secondary URL (Bono's VPS WebSocket endpoint) before the outage — they cannot dynamically discover it at failover time. | MEDIUM | Add `core.fallback_url` (optional) to rc-agent TOML config. When the monitor signals failover, rc-agent switches its active WS URL to `fallback_url` and reconnects. When failback is signaled, switch back to `core.url`. Implementation path: extend `CoreConfig` struct, add URL-selector logic in the WS reconnect loop. |
+| **Config sync: racecontrol.toml pushed to Bono** | Bono's VPS is only useful as a failover target if it has the same venue config (pod IPs, pricing tiers, billing rates, session rules). Without config sync, failover lands on a cloud instance with default/stale settings. | MEDIUM | Watch for racecontrol.toml changes (on write or on startup). Push to Bono's VPS via a dedicated API endpoint (`POST /admin/sync-config`). Bono applies the config on receipt. Frequency: on every restart of racecontrol + on any config change. Not a continuous loop — event-driven. |
 
-### Differentiators (Competitive Advantage in Test Quality)
+### Differentiators (Competitive Advantage vs Simple Failover)
 
-Features that go beyond "tests pass/fail" and make the suite actively useful as a reliability tool for a live venue.
+Features that make this failover system more robust than naive "switch URL on timeout."
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Self-healing pre-test runner | Auto-kills stale games, restarts disconnected agents, clears stuck billing — so tests reflect real system state, not prior test debris | MEDIUM | Pattern proven in game-launch.sh Gate 5: stop game → wait → if still stuck → restart agent via `/exec`. Extract to `fixtures/heal-pod.ts` or `heal-pod.sh` utility. Avoids 80% of spurious failures in practice. |
-| Playwright trace-on-failure | When wizard tests fail in CI, trace.zip gives full DOM + network timeline — eliminates "works on my machine" debugging for UI regressions | LOW | Set `trace: 'on-first-retry'` in `playwright.config.ts`. Store trace artifacts with test report. Adds zero test-writing overhead. |
-| Per-game launch validation with PID check | Verifies game process actually started on the pod, not just that the launch API returned `ok:true` | HIGH | Requires polling `/games/active` for `state: "running"` + non-null `pid` field. For Steam games (F1 25, EVO, Rally), PID may take 10–30s to populate — need tolerant polling, not a 2s sleep. |
-| Auto-dismiss Steam dialog detection | Steam dialogs (update prompts, "game is already running") silently block game launches — detecting them via game state timeout or error message is a test differentiator | HIGH | Detection: poll game state; if `state: "launching"` persists > 60s, flag as "Steam dialog likely blocking". Auto-dismiss: out of scope for tests — this is rc-agent's responsibility. Tests should detect and report, not fix. |
-| Deploy verification test | Verifies binary was actually swapped (size check), old process died, new process is serving, and port is bound — not just that the copy command ran | MEDIUM | Pattern: record binary size before deploy, run deploy, assert new size differs + `/health` responds + no CLOSE_WAIT sockets on port 8080. Windows-specific: use `/games/active` and `/fleet/health` to confirm agent reconnect. |
-| Test result JSON artifact | Machine-readable `results.json` alongside human-readable output — enables Uday's dashboard to display last test run status | MEDIUM | Playwright's `--reporter=json` produces `test-results.json`. Wrap shell tests to emit a JSON summary. A single `results.json` with pass/fail counts per category feeds the fleet health dashboard. |
-| Playwright HTML report | Interactive report with screenshots, video (on failure), and trace links — shareable with Uday for post-deploy verification sign-off | LOW | Playwright built-in: `--reporter=html`. Open with `npx playwright show-report`. Store as artifact after deploy runs. |
-| Retry with stability tracking | Tests that fail once but pass on retry are flagged as flaky — rather than silently passing. Flaky flag triggers investigation, not just "good enough" | MEDIUM | Playwright `retries: 2` in config. Wrap results: a test that needed retries is FLAKY not PASS. Log flaky tests to a `flaky-log.txt` so they get investigated, not ignored. |
-| Kiosk inactivity timer test | Verifies the 120s inactivity auto-return on phone/OTP phases works — prevents stuck kiosk screens in the venue | MEDIUM | Playwright `page.clock.fastForward(120_000)` simulates 2 minutes of inactivity. Assert router push back to `/`. This is a real venue failure mode: stuck booking screen. |
-| Auth token session test | Verifies that staff terminal auth (24h session token from racecontrol.toml PIN) gates the `/terminal` endpoint correctly — tests both valid and expired token paths | MEDIUM | Use `supertest` or curl in API tests — no browser needed. Tests: valid token returns 200, wrong token returns 401, missing token returns 401. |
+| **Hysteresis on failover trigger (not single-failure)** | Without hysteresis, a momentary network blip (1 failed probe) causes unnecessary failover, disrupting all 8 pods mid-session. The existing RELAY_DOWN_THRESHOLD pattern in cloud_sync.rs (3 failures before declaring down, 2 successes before declaring up) is proven and should be reused exactly. | LOW | Already implemented in cloud_sync.rs as `RELAY_DOWN_THRESHOLD = 3` and `RELAY_UP_THRESHOLD = 2`. Apply same pattern to the server health monitor. Copy the state machine, not the code. |
+| **Grace period during active billing sessions** | If a pod has an active billing session and the server fails over, abruptly switching the pod's WS target during an active session risks losing the session's lap data. Grace period: complete or snapshot the current session before switching URLs. | MEDIUM | In rc-agent failover logic: if `session_active == true`, send a session-state snapshot to both old and new server URLs before switching. If old URL is unreachable, proceed with snapshot to new URL only. This prevents lost laps. |
+| **Tailscale SSH remote exec from James to server** | James can currently not remotely restart racecontrol on the server. If the service hangs (port open but no responses), James must physically access the server. Tailscale SSH gives James a remote exec channel over the mesh. | MEDIUM | Tailscale SSH is a Tailscale feature (not OS SSH). Enable on server with `tailscale up --ssh`. James's machine (.27) already has Tailscale. Connection via `ssh admin@<tailscale-ip>`. Prerequisite: confirm Phase 27 Tailscale deployment is complete on server. |
+| **Failover-aware config on Bono's VPS (pod IP whitelist)** | Bono's cloud instance does not know the venue's pod IPs by default. When pods connect over Tailscale during failover, Bono needs to recognize them as legitimate Racing Point pods, not unknown agents. Config sync should include pod MAC/IP/Tailscale-IP mapping. | MEDIUM | Include `pods` section of racecontrol.toml in config sync payload. Bono validates incoming WS connections against this pod whitelist on the shared secret or pod identifier in the agent handshake. |
+| **Health check endpoint on Bono's VPS** | James's monitor checks server .23. It should also check that the failover target (Bono's VPS) is healthy before triggering failover — switching to a broken cloud instance is worse than staying disconnected. | LOW | HTTP GET to `https://app.racingpoint.cloud/health` before triggering failover. If both .23 and cloud are unreachable, do NOT attempt failover — notify Uday of "full outage, both local and cloud down." |
+| **Split-brain prevention** | If server .23 recovers but pods don't receive the failback signal (e.g., Tailscale mesh is degraded), some pods may be on .23 and some on cloud simultaneously. Two server instances will both record sessions and laps, creating conflicting records. | MEDIUM | Prevention: failback should be server-initiated, not client-initiated. Server .23 on recovery broadcasts a "I am primary again" message over Tailscale. Bono's cloud enters read-only mode (stops accepting new sessions) when it receives this signal. Pods reconnect to .23. Simple rule: exactly one instance accepts session creation at a time. |
 
-### Anti-Features (Explicitly Do NOT Build These)
-
-Features that seem like obvious inclusions but would make the test suite harder to run, maintain, or trust.
+### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Full mocking of racecontrol API in Playwright tests | "Tests should be isolated, mock the backend" | Mocking hides the real integration. The point of E2E tests is to verify the kiosk talks to racecontrol correctly. Mocking makes tests pass while real integration silently breaks. For a venue system, real API calls against a running server are the only meaningful signal. | Run Playwright against a live racecontrol instance (dev or venue). Use a `test_` prefix billing session to isolate test data without mocking. |
-| Shared test state across test files | "Create one billing session, share across all tests for speed" | Test interdependency: if one test corrupts the session, all downstream tests fail with misleading errors. A test that must run after another test is not a test — it's a script. | Each Playwright test creates and tears down its own billing session via `beforeEach`/`afterEach` fixtures. Slower but reliable. |
-| Visual regression (screenshot diffing) | "Catch UI regressions automatically" | The kiosk UI evolves frequently (racing red brand updates, new game additions). Screenshot diffing requires constant baseline updates and produces high false-positive rates on any intentional UI change. Every brand update becomes a test failure. | Use semantic assertions (wizard step titles render, buttons are visible by role) instead of pixel comparison. Catches functional regressions without chasing visual noise. |
-| Testing on all 8 pods in parallel | "Run game launch tests on all pods simultaneously for full coverage" | Parallel launch tests on all 8 pods during a test run would disrupt live customer sessions. The venue has paying customers during operating hours. | Target Pod 8 as the canary test pod (established convention). Pod 8 is always the first to receive changes and is the test target. Never run launch tests on pods 1–7 in automated suites. |
-| AI-generated test scripts | "AI can auto-generate Playwright tests from the kiosk UI" | AI-generated selectors based on current DOM will break on any component rename or UI restructure. They also generate test logic that mimics implementation, not user intent. The kiosk wizard is complex enough that generated tests miss critical state transitions (e.g., staff mode bypass, inactivity timer). | Write tests by hand against role-based selectors (`getByRole`, `getByText`). Slower to write, but each test encodes explicit intent that survives refactors. |
-| Continuous E2E tests running every 5 minutes on venue server | "Always-on E2E guarantees the system is healthy" | Running game launch tests continuously disrupts Pod 8. The test suite is a pre-deploy verification tool, not a production monitor. Continuous monitoring is already handled by racecontrol's WebSocket health + email alerts. | Run E2E suite: (1) before each binary deploy, (2) after deploy to verify success, (3) on-demand via `run-all.sh`. Use existing WS health monitoring for continuous health. |
-| Testing racecontrol internals (Rust unit tests as E2E) | "Add Rust tests to verify billing FSM state transitions as part of E2E" | Rust unit tests belong in `cargo test`, not in `tests/e2e/`. Mixing them inflates E2E scope and blurs the boundary between unit and integration testing. | Keep `cargo test` for Rust unit/integration tests. E2E tests verify observable behavior via HTTP API and browser UI only. |
+| **DNS-based failover (update A record on outage)** | "Standard approach" — change DNS TTL to 60s, point domain to backup IP on failure | Windows DNS client caches aggressively and ignores TTL on LAN hostnames. rc-agent resolves `core.url` once at connect time then uses the cached connection. DNS failover requires the client to re-resolve, which only happens after connection timeout + new connection. Total failover time: connection timeout (30s) + DNS propagation (60s TTL) + reconnect backoff. ~90–120 seconds minimum. Unacceptable for active sessions. | Direct IP failover: rc-agent holds both primary IP and fallback IP in config. On WS connection failure past threshold, switch to fallback IP immediately — no DNS lookup, no propagation delay. Failover in < 15s. |
+| **Active-active dual-server (pods connected to both simultaneously)** | "No downtime, load shared between local and cloud" | Active-active means every session write (laps, billing events) must be committed to both servers with distributed consensus. The existing cloud_sync already has ID mismatch problems (local/cloud use different UUIDs, resolved by phone/email). True active-active would require a distributed database — fundamentally at odds with the SQLite-first architecture. | Active-passive: .23 is always primary, cloud is always standby. Failover is an exception state, not normal operation. Keep SQLite local. |
+| **Heartbeat piggybacked on existing WebSocket** | "Reuse the WS keepalive for server health" | The WS keepalive (CONN-01: ping/pong) only proves the connection is alive — it does not prove the server is processing requests correctly. A deadlocked server will still respond to WS pings because the OS handles TCP keepalive below the application layer. | Use a separate HTTP health check to `/health` that exercises the application stack (DB connection, state access) — not just TCP connectivity. |
+| **Watchdog-based failover (scheduled task on pods)** | "No need to change rc-agent — Windows scheduled task polls the server and kills/restarts rc-agent if it can't reach the server" | A scheduled task restarts the entire rc-agent process, destroying all in-flight state (current session, billing state, lap being recorded). The right behavior is to switch the WS URL and reconnect — not destroy and restart the process. | Implement URL-switch logic inside rc-agent's existing reconnect loop. The connection loop already knows when WS is dead; add the URL-switch step there. Process stays running, only the connection target changes. |
+| **Config sync via filesystem sync (rsync/Syncthing)** | "Sync the entire C:\RacingPoint\ directory to Bono" | The config directory contains local state (SQLite WAL files, session state, local-authoritative billing data) that should NOT be overwritten by sync in either direction. Filesystem-level sync does not know which files are config vs state. | Push only `racecontrol.toml` via API. A dedicated `POST /admin/sync-config` endpoint on Bono's VPS receives the TOML content, validates it, and applies it. No filesystem sync tooling needed. |
+| **Continuous config sync (push on every 30s loop)** | "Piggyback on cloud_sync loop for config" | racecontrol.toml changes are rare (weekly or less). Pushing the entire config every 30 seconds is noisy and creates a risk of pushing a corrupted/mid-write config. | Event-driven: push on (1) racecontrol startup, and (2) when the file's modification time changes. No polling loop. File mtime is cheap to check; push is infrequent and intentional. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[Pre-test state cleanup fixture]
-    must-run-before --> [Playwright wizard tests]
-    must-run-before --> [Per-game launch validation]
-    must-run-before --> [Self-healing runner]
+[Stable server IP — MAC reservation]
+    required-by --> [Server health monitor from James]
+    required-by --> [Tailscale SSH to server]
+    required-by --> [All failover/failback logic]
+    note: If IP drifts, health monitor watches wrong address
 
-[Playwright installed in kiosk/]
-    required-by --> [Kiosk wizard browser tests]
-    required-by --> [SSR error detection in browser]
-    required-by --> [Inactivity timer test]
-    required-by --> [Per-step wizard assertions]
-    required-by --> [Playwright trace-on-failure]
-    required-by --> [Playwright HTML report]
+[Server health monitor (James .27)]
+    required-by --> [Failover trigger]
+    required-by --> [Failover notification to Uday]
+    uses --> [HTTP GET /health on :8080 (existing endpoint)]
+    uses --> [Hysteresis state machine (pattern from cloud_sync.rs)]
 
-[Kiosk wizard browser tests (per-step)]
-    requires --> [Staff mode fixture (URL params)]
-    requires --> [Pre-test state cleanup fixture]
-    forks-at --> [select_game step] -- one branch per sim type
+[Pods accept fallback_url in config]
+    required-by --> [Auto-failover (pods switch URLs)]
+    required-by --> [Failback (pods switch back)]
+    requires --> [rc-agent TOML extension (CoreConfig.fallback_url)]
+    requires --> [URL-switch logic in WS reconnect loop]
 
-[Per-game launch validation]
-    requires --> [Pre-test state cleanup fixture]
-    requires --> [Active billing session on Pod 8]
-    requires --> [Pod 8 agent WS connected]
-    includes --> [PID polling loop with timeout]
-    detects --> [Steam dialog blocking pattern]
+[Config sync: racecontrol.toml to Bono]
+    required-by --> [Bono VPS useful as failover target]
+    required-by --> [Pod IP whitelist on cloud]
+    required-by --> [Failover-aware Bono config]
+    uses --> [Bono's existing webhook/relay infrastructure]
+    NOT: cloud_sync.rs rows sync (different purpose)
 
-[Active billing session fixture]
-    required-by --> [Per-game launch validation]
-    required-by --> [Full launch via wizard]
-    creates --> [driver_test_trial session on pod-8]
-    tears-down --> [billing stop afterEach]
+[Bono VPS health check]
+    required-by --> [Failover trigger (must verify target is healthy)]
+    uses --> [https://app.racingpoint.cloud/health (existing endpoint)]
 
-[Single master entry point (run-all.sh)]
-    invokes --> [smoke.sh]
-    invokes --> [game-launch.sh]
-    invokes --> [cross-process.sh]
-    invokes --> [npx playwright test]
-    produces --> [results.json]
-    exits --> [total failure count]
+[Tailscale SSH to server]
+    requires --> [Phase 27 Tailscale deploy on server (status: partially deployed)]
+    enables --> [James remote restart of racecontrol on .23]
+    enables --> [Server-initiated failback signal]
 
-[Deploy verification test]
-    requires --> [Binary size before/after comparison]
-    requires --> [/health poll after restart]
-    requires --> [/fleet/health agent reconnect check]
-    depends-on --> [racecontrol server being local or accessible]
+[Failover trigger]
+    requires --> [Server health monitor DOWN state]
+    requires --> [Bono VPS health check PASS]
+    requires --> [Pods have fallback_url configured]
+    triggers --> [Failover notification to Uday]
+    triggers --> [Pods switch to cloud URL]
 
-[Test result JSON artifact]
-    requires --> [Playwright --reporter=json]
-    requires --> [Shell script summary wrapper]
-    feeds --> [Fleet health dashboard (future)]
+[Split-brain prevention]
+    requires --> [Tailscale SSH (for server-initiated failback)]
+    requires --> [Bono read-only mode on primary recovery]
+    prevents --> [Dual session recording]
+
+[Grace period for active sessions]
+    requires --> [Pods have fallback_url configured]
+    requires --> [Session state snapshot mechanism]
+    prevents --> [Lost laps during mid-session failover]
 ```
 
 ### Dependency Notes
 
-- **Pre-test cleanup must be the first thing every test does.** game-launch.sh already demonstrates this pattern in Gate 5. It must be promoted to a shared fixture, not copy-pasted into each test file.
-- **Playwright depends on the kiosk Next.js server being up.** The master script must verify kiosk responds on `:3300` (or via the `:8080` proxy) before launching any Playwright tests. If the kiosk is not running, Playwright tests abort immediately — they should SKIP, not FAIL.
-- **Per-game wizard tests fork at `select_game`.** The phone auth and plan selection steps are shared. Individual game wizard paths diverge after `select_game`. The shared setup should be a Playwright fixture that lands on the `select_game` step, then each game test continues from there.
-- **Launch validation with PID check requires Pod 8 to be physically accessible and WS-connected.** If Pod 8 is offline (powered down), the test must SKIP (not FAIL). The `ws_connected` field from `/fleet/health` is the gate.
-- **Deploy verification test is standalone.** It does not require Playwright. It is a shell script that records binary state, triggers a deploy, and polls health. It runs after every `cargo build --release` + binary copy.
+- **DHCP reservation is the blocker for everything.** If .23 drifts again mid-milestone, health monitor fires false positives and failover logic breaks. Do this first, before writing any failover code.
+- **`core.fallback_url` in rc-agent requires a binary re-deploy to all 8 pods.** This is the highest-effort deployment step. Build and validate config change on Pod 8 canary first.
+- **Config sync to Bono is independent of failover mechanics.** It can be built and tested without triggering actual failover. Build it first — it validates the James↔Bono communication channel before relying on it under stress.
+- **Split-brain prevention requires Tailscale SSH to be working on the server.** If Phase 27 server deployment is incomplete, implement a simpler prevention: Bono auto-enters read-only mode on a 60s timer after primary reconnects (not server-initiated). Less clean but doesn't require Tailscale SSH.
+- **Grace period for active sessions is a differentiator, not table stakes.** MVP can failover without it; data loss risk is acceptable for short outages. Add grace period in phase 2 once basic failover is validated.
 
 ---
 
 ## MVP Definition
 
-v7.0 "Comprehensive E2E Test Suite" is done when a single command runs all coverage and produces a unified pass/fail.
+v10.0 is complete when a server .23 crash does not cause permanent venue downtime and does not require James or Uday to manually intervene to restore pod connectivity.
 
-### Launch With (v7.0 MVP)
+### Launch With (v10.0 MVP — Phase 1)
 
-- [ ] **Playwright installed and configured** in kiosk package — `npx playwright install chromium` + `playwright.config.ts` with `baseURL`, `trace: 'on-first-retry'`, `screenshot: 'only-on-failure'`
-- [ ] **Kiosk wizard smoke test (all games)** — Playwright test that walks phone→OTP→wizard per sim type (AC, F1 25, EVO, Rally, iRacing), asserts each wizard step title renders, reaches "review" without pageerror
-- [ ] **Staff mode wizard test** — `?staff=true&pod=pod-8` path, verifies staff bypass lands on wizard without phone/OTP
-- [ ] **Per-game launch validation** — For each sim type: create billing on Pod 8, launch via API, poll for `state: "running"` with PID, stop and clean up
-- [ ] **Deploy verification script** — Records binary size, triggers restart, polls `/health` until serving, verifies `/fleet/health` shows agents reconnected
-- [ ] **Pre-test cleanup fixture** — Reusable: stop any game on Pod 8, end test billing session, wait for clean state
-- [ ] **Master entry point `tests/e2e/run-all.sh`** — Runs smoke.sh + cross-process.sh + game-launch.sh + `npx playwright test`, exits with total failure count
-- [ ] **Playwright HTML report** — Generated in `tests/e2e/playwright-report/`, viewable after test run
+The minimum that achieves the stated goal.
 
-### Add After Validation (v7.x)
+- [ ] **DHCP reservation for .23 (MAC 10-FF-E0-80-B1-A7)** — Foundation. Stops IP drift permanently. 30-minute task in router UI.
+- [ ] **Server health monitor on James's machine** — HTTP poll `/health` every 5s, DOWN after 3 consecutive failures, UP after 2 consecutive successes. Logs state transitions. No failover action yet — just detection.
+- [ ] **Config sync: racecontrol.toml → Bono on startup and on change** — Ensures Bono's VPS mirrors venue config before any failover is needed. Validates James→Bono communication.
+- [ ] **`core.fallback_url` in rc-agent TOML + URL-switch logic** — rc-agent can switch WS target. Deploy to Pod 8 first, then all pods after validation.
+- [ ] **Failover trigger + notification** — When health monitor declares .23 DOWN and Bono VPS is healthy, signal all pods to switch to fallback_url. Email Uday.
+- [ ] **Failback trigger + notification** — When .23 recovers (2 consecutive successes), signal pods back to primary URL. Email Uday.
 
-- [ ] **Test result JSON artifact** — `results.json` with per-category pass/fail counts, feeds future dashboard widget
-- [ ] **Flaky test log** — Tests that needed retries emit to `tests/e2e/flaky-log.txt` for investigation
-- [ ] **Inactivity timer test** — Playwright `clock.fastForward` verifying auto-return on phone/OTP phases
-- [ ] **Auth token test** — API test for staff terminal PIN: valid, invalid, expired paths
+### Add After Validation (v10.x — Phase 2)
 
-### Future Consideration (v8+)
+Once basic failover/failback is confirmed working in a test scenario:
 
-- [ ] **Results dashboard widget in fleet health UI** — Show last E2E run status (passed/failed/when) in the kiosk control panel
-- [ ] **CI integration** — Trigger `run-all.sh` on git push to main (requires CI runner with racecontrol access, not in scope for v7.0 which is venue-only)
-- [ ] **Multi-pod launch parallelism test** — Verify 8 simultaneous billing starts do not corrupt each other (load test, deferred until competitive events milestone v3.0)
+- [ ] **Tailscale SSH to server** — Remote exec channel for James. Prerequisite: Phase 27 server Tailscale confirmed. Then `tailscale up --ssh` on server.
+- [ ] **Split-brain prevention** — Bono enters read-only mode when server .23 sends "I am primary" signal via Tailscale. Requires Tailscale SSH.
+- [ ] **Grace period for active sessions** — Snapshot lap/session state before URL switch. Prevents lost laps during mid-session failover.
+- [ ] **WhatsApp failover alerts for Uday** — Mirror email alerts to WhatsApp via existing bot. Add after email alerts are confirmed reliable.
+
+### Future Consideration (v10.x+)
+
+- [ ] **Failover health dashboard** — Admin panel widget showing: current primary (local/cloud), last failover timestamp, failover count in last 30 days. Low urgency — email notifications cover operational need.
+- [ ] **Automatic recovery test** — Weekly scheduled drill: briefly simulate server unreachable and verify failover triggers within SLA. Requires confidence that drill won't affect active customer sessions.
+- [ ] **Multi-level failover** — If both .23 and Bono are unreachable, pods enter local-only "island mode" (accept walk-in sessions without billing, store locally, sync when connectivity returns). Significant complexity; relevant if internet reliability is poor.
 
 ---
 
 ## Feature Prioritization Matrix
 
-| Feature | Test Quality Value | Implementation Cost | Priority |
-|---------|-------------------|---------------------|----------|
-| Pre-test cleanup fixture | HIGH (prevents false failures) | LOW | P1 |
-| Playwright kiosk wizard smoke (all games) | HIGH (covers biggest gap vs current suite) | MEDIUM | P1 |
-| Staff mode wizard test | HIGH (untested path today) | LOW | P1 |
-| Per-game launch validation with PID check | HIGH (verifies full pipeline per sim) | MEDIUM | P1 |
-| Master entry point run-all.sh | HIGH (unifies test suite) | LOW | P1 |
-| SSR pageerror detection in Playwright | HIGH (catches real breakage curl misses) | LOW | P1 |
-| Playwright HTML report | MEDIUM (debug aid) | LOW | P1 |
-| Playwright trace-on-failure | MEDIUM (failure diagnosis) | LOW | P1 |
-| Deploy verification script | HIGH (verifies deploys succeeded) | MEDIUM | P1 |
-| Retry + flaky detection | MEDIUM (improves trust) | LOW | P2 |
-| Inactivity timer test | MEDIUM (real venue failure mode) | MEDIUM | P2 |
-| Auth token API test | MEDIUM (security path coverage) | LOW | P2 |
-| Test result JSON artifact | LOW (future dashboard integration) | MEDIUM | P3 |
-| Steam dialog detection (timeout-based) | MEDIUM (real failure mode) | MEDIUM | P2 |
+| Feature | Operator Value | Implementation Cost | Priority |
+|---------|----------------|---------------------|----------|
+| DHCP reservation for .23 | HIGH — prevents all IP-drift failures | LOW — router UI change | P1 |
+| Server health monitor (James) | HIGH — enables all failover logic | LOW — 50 lines of Rust | P1 |
+| Config sync racecontrol.toml → Bono | HIGH — makes cloud failover useful | MEDIUM — new API endpoint on Bono | P1 |
+| `core.fallback_url` + URL-switch in rc-agent | HIGH — core mechanic of failover | MEDIUM — TOML + reconnect loop change + pod re-deploy | P1 |
+| Failover trigger + Uday notification | HIGH — automates the critical response | LOW — builds on health monitor | P1 |
+| Failback + Uday notification | HIGH — returns to normal without manual intervention | LOW — mirrors failover logic | P1 |
+| Tailscale SSH to server | MEDIUM — remote restart capability | MEDIUM — depends on Phase 27 completion | P2 |
+| Split-brain prevention | MEDIUM — prevents data conflicts during failback | MEDIUM — requires Tailscale SSH | P2 |
+| Grace period for active sessions | MEDIUM — prevents mid-session lap loss | MEDIUM — session snapshot logic | P2 |
+| WhatsApp failover alerts | MEDIUM — faster Uday notification | LOW — route through existing bot | P2 |
+| Failover health dashboard | LOW — email covers operational need | MEDIUM — new admin UI component | P3 |
+| Automatic recovery test drill | LOW — nice-to-have validation | HIGH — scheduling + session safety | P3 |
+| Island mode (no connectivity) | LOW — rare scenario | HIGH — distributed state management | Avoid for now |
 
-**Priority key:** P1 = v7.0 MVP, P2 = v7.x after validation, P3 = future milestone
+**Priority key:** P1 = v10.0 MVP (ship together), P2 = Phase 2 post-validation, P3 = future consideration
 
 ---
 
-## Implicit Requirements From Existing Code
+## Health Check Interval and Threshold Recommendations
 
-Observations from reading the existing test files and kiosk code that constrain feature implementation:
+Based on production patterns (AWS ELB, HAProxy, Tailscale HA) and the specific constraints of this system:
 
-| Observation | Implication for Feature Implementation |
-|-------------|----------------------------------------|
-| Kiosk wizard has 11 named steps: `phone`, `otp`, `select_plan`, `select_game`, `player_mode`, `session_type`, `ai_config`, `select_experience`, `select_track`, `select_car`, `driving_settings`, `review` | Each step needs at least one Playwright `expect` assertion. Use `STEP_TITLES` from constants as assertion targets. |
-| Inactivity auto-return fires after 120s on phone/OTP phase | `page.clock.fastForward` in Playwright is the correct tool — do not `waitForTimeout(120000)` which blocks for 2 real minutes. |
-| Staff mode sets `isStaffMode = searchParams.get("staff") === "true"` + `staffPodId = searchParams.get("pod")` | Playwright staff fixture: `page.goto('/kiosk/book?staff=true&pod=pod-8')`. No phone entry needed. |
-| game-launch.sh uses `driver_test_trial` as the test driver ID and `tier_trial` for billing tier | Playwright billing fixtures must use same synthetic IDs. Consistent across all test files. |
-| Pod IP map is hardcoded in game-launch.sh (pod_1: .89 ... pod_8: .91) | Extract to shared config `tests/e2e/pod-config.json` rather than duplicating in each test file. |
-| `/fleet/health` (not `/pods`) provides `ws_connected` field | All "is pod connected?" checks must use `/fleet/health` — this is documented in game-launch.sh comments and must be enforced in the Playwright fixtures. |
-| Kiosk runs on `:3300` but is also accessible via racecontrol proxy at `:8080` | Playwright `baseURL` should be the proxy URL (`http://localhost:8080`) for consistency with how venues access it, not the direct Next.js port. Test that both routes reach the same content. |
-| `RC_BASE_URL` environment variable is the existing convention for all shell tests | Playwright config must read `process.env.RC_BASE_URL` and derive kiosk URL from it (`RC_BASE_URL.replace('/api/v1', '')`). |
+| Parameter | Recommended Value | Rationale |
+|-----------|------------------|-----------|
+| Health check interval | 5 seconds | Fast enough to detect outages within 15-30s. Slower than Tailscale's 15s HA threshold. Low overhead (1 HTTP GET every 5s from James's machine). |
+| DOWN threshold | 3 consecutive failures | 3 × 5s = 15s before declaring DOWN. Matches Tailscale's ~15s failover timing. Prevents single-probe false positive. |
+| UP threshold (recovery) | 2 consecutive successes | 2 × 5s = 10s to confirm recovery. Fast enough for failback without flip-flopping. Same pattern as cloud_sync.rs `RELAY_UP_THRESHOLD`. |
+| HTTP probe timeout | 2 seconds | Distinguishes "server unreachable" from "server slow." Slow responses (>2s) count as failures. |
+| Failover notification rate limit | 1 alert per 5 minutes | Prevents alert flood if server oscillates. Same pattern as existing email_alerts.rs rate limiting. |
+| Config sync frequency | On startup + on mtime change | Event-driven, not polling. racecontrol.toml changes at most weekly. |
+| Failback delay after recovery | 10 seconds (2 successes × 5s interval) | Short enough to restore LAN performance. Long enough to confirm recovery is stable. |
 
 ---
 
 ## Sources
 
-- [Playwright official: Best Practices](https://playwright.dev/docs/best-practices) — HIGH confidence
-- [Playwright official: Page Object Models](https://playwright.dev/docs/pom) — HIGH confidence
-- [Playwright official: Fixtures](https://playwright.dev/docs/test-fixtures) — HIGH confidence
-- [Playwright official: Test Retries](https://playwright.dev/docs/test-retries) — HIGH confidence
-- [Playwright official: Trace Viewer](https://playwright.dev/docs/trace-viewer) — HIGH confidence
-- [BrowserStack: Playwright Best Practices 2026](https://www.browserstack.com/guide/playwright-best-practices) — MEDIUM confidence
-- [BrowserStack: Flaky Tests in Playwright](https://www.browserstack.com/guide/playwright-flaky-tests) — MEDIUM confidence
-- [Evil Martians: Flaky tests relief](https://evilmartians.com/chronicles/flaky-tests-be-gone-long-lasting-relief-chronic-ci-retry-irritation) — MEDIUM confidence
-- [Thunders AI: Modern E2E Test Architecture](https://www.thunders.ai/articles/modern-e2e-test-architecture-patterns-and-anti-patterns-for-a-maintainable-test-suite) — MEDIUM confidence
-- Existing codebase: `tests/e2e/smoke.sh`, `tests/e2e/game-launch.sh`, `tests/e2e/cross-process.sh` — HIGH confidence
-- Existing codebase: `kiosk/src/app/book/page.tsx` (wizard phases, step titles, staff mode params) — HIGH confidence
-- PROJECT.md v7.0 requirements (2026-03-19) — HIGH confidence
+- [Tailscale High Availability Docs](https://tailscale.com/kb/1115/high-availability) — HIGH confidence (official docs). Failover timing ~15s matches our DOWN threshold design.
+- [Tailscale HA Subnet Router Troubleshooting](https://tailscale.com/docs/reference/troubleshooting/network-configuration/overlapping-subnet-route-failover) — HIGH confidence (official docs)
+- [AWS ELB Health Check Concepts](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/target-group-health-checks.html) — HIGH confidence (official AWS docs). Source for interval/threshold patterns.
+- [HAProxy Health Check Tutorial](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/reliability/health-checks/) — HIGH confidence (official HAProxy docs). Source for 3-5s intervals with 2-3 failure thresholds.
+- [Resilient Microservices: Recovery Patterns (arxiv 2025)](https://arxiv.org/html/2512.16959v1) — MEDIUM confidence (academic, 2025). Confirms jitter + backoff + circuit breaker as standard.
+- [DNS Failover Limitations (IBM)](https://www.ibm.com/think/topics/dns-failover) — HIGH confidence (official IBM). Confirms Windows DNS caching makes DNS-based failover unsuitable for LAN.
+- [Split-Brain Prevention (StarWind)](https://www.starwindsoftware.com/blog/whats-split-brain-and-how-to-avoid-it/) — MEDIUM confidence (vendor blog, well-sourced). Heartbeat-based split-brain detection.
+- cloud_sync.rs codebase — HIGH confidence (primary source). `RELAY_DOWN_THRESHOLD=3`, `RELAY_UP_THRESHOLD=2` pattern directly reused.
+- rc-agent main.rs codebase — HIGH confidence (primary source). `reconnect_delay_for_attempt()` backoff, `CoreConfig.url`, WS reconnect loop structure.
+- PROJECT.md v10.0 requirements — HIGH confidence (primary source).
 
 ---
-*Feature research for: E2E Test Suite (v7.0) — RaceControl venue-management platform*
-*Researched: 2026-03-19*
+*Feature research for: Connectivity & Redundancy (v10.0) — Racing Point eSports venue operations*
+*Researched: 2026-03-20*

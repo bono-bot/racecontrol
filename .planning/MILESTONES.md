@@ -68,3 +68,36 @@
 - Tailscale mesh installed on all pods + `bono_relay.rs` bidirectional event/command relay to Bono's VPS on port 8099 (Phase 27)
 
 ---
+
+## Comms Link v1.0 — James-Bono Communication (Shipped: 2026-03-12)
+
+**Phases completed:** 8 phases, 14 plans (100%)
+**Repo origin:** comms-link (merged into unified .planning/)
+**Archive:** archive/comms-link-v1.0/
+
+**Key accomplishments:**
+- Persistent WebSocket connection from James → Bono's VPS with PSK auth (Bearer header, not query params)
+- Auto-reconnect with queue flush on re-establish — only reconnects on network drops, not auth rejection
+- Heartbeat sender with CPU/memory/Claude detection metrics every N seconds
+- ClaudeWatchdog: detects Claude Code crash, 2s kill→spawn delay, 3s post-spawn verification, cooldown DI
+- Watchdog hardening: cooldown reset policy, ESM isMainModule detection, wireRunner() DI pattern
+- Alert system: fixed-window cooldown suppression, email fallback to both usingh and bono, WhatsApp via Evolution API
+- LOGBOOK.md bidirectional sync with atomic writes, conflict detection, and ack-based content tracking
+- Daily coordination: HealthAccumulator snapshots, IST-windowed daily summary scheduler, pod status HTTP fetch, FAILSAFE retirement
+
+## AC Launcher v1.0 — Full AC Launch Experience (Shipped: 2026-03-14)
+
+**Phases completed:** 9 phases, 20 plans (100%)
+**Repo origin:** ac-launcher (code in racecontrol, merged into unified .planning/)
+**Archive:** archive/ac-launcher-v1.0/
+
+**Key accomplishments:**
+- Session types (Practice, Race, Hotlap) with mode validation — only valid AC combinations presented
+- 5 difficulty tiers (Rookie→Alien) mapping to AI strength, aggression, and behavior
+- Billing synchronized to in-game session start (not game launch), DirectX init delay handled
+- Safety enforcement: 100% grip, 0% damage always applied — non-negotiable
+- Content validation: invalid track/car/session combos filtered before customer sees them
+- Mid-session controls: transmission, FFB, ABS, TC, stability all adjustable during gameplay
+- Curated presets: popular car/track/session packages for quick selection
+- Staff/PWA integration: QR/PIN triggers correct AC session, staff configures via kiosk
+- Multiplayer enhancement: AC server preset management, lobby enrichment with track/car/AI info

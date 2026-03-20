@@ -9,6 +9,7 @@ const nav = [
   { href: "/games", label: "Games", icon: "&#127918;" },
   { href: "/telemetry", label: "Telemetry", icon: "&#128200;" },
   { href: "/ac-lan", label: "AC LAN Race", icon: "&#127937;" },
+  { href: "/ac-sessions", label: "AC Results", icon: "&#127942;" },
   { href: "/sessions", label: "Sessions", icon: "&#9654;" },
   { href: "/drivers", label: "Drivers", icon: "&#9786;" },
   { href: "/leaderboards", label: "Leaderboards", icon: "&#9733;" },

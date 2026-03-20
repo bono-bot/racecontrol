@@ -477,18 +477,24 @@ pub async fn start_ac_server(
         lan_ip, config.http_port
     );
 
-    // Spawn acServer process
+    // Spawn acServer process — binary MUST exist (no silent dry-run)
     let acserver_path = &state.config.ac_server.acserver_path;
-    let (child, pid) = if Path::new(acserver_path).exists() {
-        let child = std::process::Command::new(acserver_path)
-            .current_dir(&server_dir)
-            .spawn()?;
-        let pid = child.id();
-        (Some(child), Some(pid))
-    } else {
-        tracing::warn!("acServer not found at {}. Running in dry-run mode.", acserver_path);
-        (None, None)
-    };
+    if !Path::new(acserver_path).exists() {
+        // Clean up allocated ports before failing
+        state.port_allocator.release(&session_id).await;
+        // Clean up created directory
+        let _ = std::fs::remove_dir_all(&server_dir);
+        anyhow::bail!(
+            "acServer binary not found at '{}'. Install the AC dedicated server or update \
+             [ac_server] acserver_path in racecontrol.toml. Multiplayer AC cannot start without it.",
+            acserver_path
+        );
+    }
+    let child = std::process::Command::new(acserver_path)
+        .current_dir(&server_dir)
+        .spawn()?;
+    let pid = child.id();
+    let (child, pid) = (Some(child), Some(pid));
 
     let now = Utc::now();
 

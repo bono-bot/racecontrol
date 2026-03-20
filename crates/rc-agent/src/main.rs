@@ -104,33 +104,60 @@ struct GamesConfig {
     forza_horizon_5: GameExeConfig,
 }
 
-/// Detect which games are installed on this pod based on GamesConfig.
-/// A game is considered "installed" if it has an exe_path or steam_app_id configured.
+/// Detect which games are actually installed on this pod.
+/// Checks both TOML config (exe_path/steam_app_id) AND verifies the game exists on disk
+/// via Steam appmanifest files. A game must be configured AND present on disk.
 /// AC (original) is always included — it's the default game on every pod.
 fn detect_installed_games(games: &GamesConfig) -> Vec<SimType> {
     let mut installed = vec![SimType::AssettoCorsa]; // AC always available (Content Manager)
-    if games.f1_25.exe_path.is_some() || games.f1_25.steam_app_id.is_some() {
-        installed.push(SimType::F125);
+
+    let candidates: &[(&GameExeConfig, SimType)] = &[
+        (&games.f1_25, SimType::F125),
+        (&games.iracing, SimType::IRacing),
+        (&games.forza, SimType::Forza),
+        (&games.le_mans_ultimate, SimType::LeMansUltimate),
+        (&games.assetto_corsa_evo, SimType::AssettoCorsaEvo),
+        (&games.assetto_corsa_rally, SimType::AssettoCorsaRally),
+        (&games.forza_horizon_5, SimType::ForzaHorizon5),
+    ];
+
+    for (config, sim_type) in candidates {
+        let configured = config.exe_path.is_some() || config.steam_app_id.is_some();
+        if !configured {
+            continue;
+        }
+
+        // If exe_path is set, check if the file exists on disk
+        if let Some(ref path) = config.exe_path {
+            if std::path::Path::new(path).exists() {
+                installed.push(*sim_type);
+                continue;
+            }
+        }
+
+        // If steam_app_id is set, check for appmanifest_{id}.acf in Steam
+        if let Some(app_id) = config.steam_app_id {
+            if is_steam_app_installed(app_id) {
+                installed.push(*sim_type);
+            } else {
+                tracing::info!(
+                    "Game {:?} configured (app_id={}) but not installed on disk — skipping",
+                    sim_type, app_id
+                );
+            }
+        }
     }
-    if games.iracing.exe_path.is_some() || games.iracing.steam_app_id.is_some() {
-        installed.push(SimType::IRacing);
-    }
-    if games.forza.exe_path.is_some() || games.forza.steam_app_id.is_some() {
-        installed.push(SimType::Forza);
-    }
-    if games.le_mans_ultimate.exe_path.is_some() || games.le_mans_ultimate.steam_app_id.is_some() {
-        installed.push(SimType::LeMansUltimate);
-    }
-    if games.assetto_corsa_evo.exe_path.is_some() || games.assetto_corsa_evo.steam_app_id.is_some() {
-        installed.push(SimType::AssettoCorsaEvo);
-    }
-    if games.assetto_corsa_rally.exe_path.is_some() || games.assetto_corsa_rally.steam_app_id.is_some() {
-        installed.push(SimType::AssettoCorsaRally);
-    }
-    if games.forza_horizon_5.exe_path.is_some() || games.forza_horizon_5.steam_app_id.is_some() {
-        installed.push(SimType::ForzaHorizon5);
-    }
+
     installed
+}
+
+/// Check if a Steam app is installed by looking for its appmanifest file.
+fn is_steam_app_installed(app_id: u32) -> bool {
+    let manifest = format!(
+        r"C:\Program Files (x86)\Steam\steamapps\appmanifest_{}.acf",
+        app_id
+    );
+    std::path::Path::new(&manifest).exists()
 }
 
 #[derive(Debug, Deserialize)]
@@ -334,6 +361,28 @@ async fn allowlist_poll_loop(core_http_url: String, client: reqwest::Client) {
     }
 }
 
+/// Delete log files older than 30 days from the given directory.
+fn cleanup_old_logs(log_dir: &std::path::Path) {
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(30 * 24 * 3600))
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+    if let Ok(entries) = std::fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.ends_with(".jsonl") || name.contains(".jsonl.") || name.ends_with(".log") {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if modified < cutoff {
+                            let _ = std::fs::remove_file(&path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Guard against recursive panics in the hook
 static PANIC_HOOK_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Lock screen state handle — set after LockScreenManager is created, used by panic hook
@@ -412,32 +461,14 @@ async fn main() -> Result<()> {
         handle // held until process exits → mutex released automatically
     };
 
-    // Logging: stdout + file appender (C:\RacingPoint\rc-agent.log)
-    // File log persists after crashes so we can diagnose via pod-agent.
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "rc_agent=info".into());
-
+    // Compute log directory (exe dir) — needed for cleanup and later tracing init
     let log_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
 
-    let file_appender = tracing_appender::rolling::never(&log_dir, "rc-agent.log");
-    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file_appender);
-
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
-
-    let stdout_layer = tracing_subscriber::fmt::layer();
-    let file_layer = tracing_subscriber::fmt::layer()
-        .with_writer(non_blocking_file)
-        .with_ansi(false);
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(stdout_layer)
-        .with(file_layer)
-        .init();
+    // Clean up old log files (>30 days) before initializing tracing
+    cleanup_old_logs(&log_dir);
 
     println!(r#"
   RaceControl Agent
@@ -448,7 +479,7 @@ async fn main() -> Result<()> {
     let crash_recovery = startup_log::detect_crash_recovery();
     startup_log::write_phase("init", "");
     if crash_recovery {
-        tracing::warn!("Detected crash recovery -- previous startup did not complete");
+        eprintln!("[rc-agent] Detected crash recovery -- previous startup did not complete");
     }
 
     // Start a minimal lock screen server early so we can show a branded error
@@ -479,7 +510,7 @@ async fn main() -> Result<()> {
     let config = match load_config() {
         Ok(cfg) => cfg,
         Err(e) => {
-            tracing::error!("Config error: {}", e);
+            eprintln!("[rc-agent] Config error: {}", e);
             early_lock_screen.show_config_error(&e.to_string());
             // Give Edge time to render the error page before process exits
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -489,6 +520,38 @@ async fn main() -> Result<()> {
     // Early lock screen is replaced by the main lock screen manager below
     drop(early_lock_screen);
     startup_log::write_phase("config_loaded", &format!("pod={}", config.pod.number));
+
+    // Initialize tracing AFTER config load — pod_id now available for structured logs
+    let pod_id_str = format!("pod_{}", config.pod.number);
+
+    let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("rc-agent-")
+        .filename_suffix("jsonl")
+        .build(&log_dir)
+        .expect("failed to build rolling file appender");
+    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "rc_agent=info".into());
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer().with_target(true))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_target(true)
+                .with_ansi(false)
+                .with_writer(non_blocking_file),
+        )
+        .init();
+
+    // Enter pod span — all subsequent logs carry pod_id in span context
+    let _pod_span = tracing::info_span!("rc-agent", pod_id = %pod_id_str).entered();
+    tracing::info!("Structured logging initialized for {}", pod_id_str);
 
     let agent_start_time = std::time::Instant::now();
     tracing::info!("Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
@@ -578,6 +641,18 @@ async fn main() -> Result<()> {
             ffb_startup.zero_force_with_retry(3, 100)
         }).await.unwrap_or(false)
     };
+
+    // SAFE-04: Cap venue power at 80% (9.6Nm on 12Nm, 6.4Nm on 8Nm)
+    {
+        let ffb_cap = ffb.clone();
+        tokio::task::spawn_blocking(move || {
+            match ffb_cap.set_gain(80) {
+                Ok(true) => tracing::info!("FFB: venue power cap set to 80%"),
+                Ok(false) => tracing::debug!("FFB: no wheelbase found — power cap skipped"),
+                Err(e) => tracing::warn!("FFB: failed to set power cap: {}", e),
+            }
+        }).await.ok();
+    }
 
     // Channel for detector signals from HID/UDP tasks
     let (signal_tx, mut signal_rx) = mpsc::channel::<DetectorSignal>(256);
@@ -714,10 +789,8 @@ async fn main() -> Result<()> {
         let ffb_startup_cleanup = ffb.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(8)).await;
-            tokio::task::spawn_blocking(move || {
-                ffb_startup_cleanup.zero_force_with_retry(3, 100);
-                ac_launcher::enforce_safe_state();
-            });
+            ffb_controller::safe_session_end(&ffb_startup_cleanup).await;
+            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
             tracing::info!("Startup: safe state enforced — pod clean for first customer");
         });
     }
@@ -1279,8 +1352,8 @@ async fn main() -> Result<()> {
                             // attempt up to 2 relaunches (60s each). Auto-end on 2nd failure.
                             if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
                                 tracing::warn!("Game crashed during active billing — pausing billing, attempting relaunch");
-                                // SAFETY: Zero FFB immediately on crash during billing
-                                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                // SAFETY: Safe session-end sequence on crash during billing
+                                ffb_controller::safe_session_end(&ffb).await;
                                 // Report crash + FFB status to core
                                 let crash_msg = AgentMessage::GameCrashed { pod_id: pod_id.clone(), billing_active: true };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_msg).unwrap_or_default().into())).await;
@@ -1310,12 +1383,12 @@ async fn main() -> Result<()> {
                                     last_launch_args: last_launch_args_stored.clone(),
                                 };
                             } else {
-                                // No billing active — enforce safe state immediately (FFB first, awaited)
+                                // No billing active — safe session-end then enforce safe state
                                 tracing::info!("Game exited with no active billing — enforcing safe state");
-                                { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                                ffb_controller::safe_session_end(&ffb).await;
                                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                                tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                 lock_screen.show_idle_pin_entry();
                             }
                         }
@@ -1501,11 +1574,11 @@ async fn main() -> Result<()> {
                 } else {
                     tracing::info!("Resetting to idle PinEntry after session summary (SESSION-02)");
                     lock_screen.show_idle_pin_entry();
-                    // Final cleanup pass — FFB zero first (awaited), then safe state
-                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
+                    // Final cleanup pass — safe session-end then enforce safe state
+                    ffb_controller::safe_session_end(&ffb).await;
                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                 }
             }
             // SESSION-03: Crash recovery state machine timer
@@ -1671,9 +1744,8 @@ async fn main() -> Result<()> {
                                 s.recovery_in_progress = false;
                                 s.active_billing_session_id = None;
                             });
-                            // SAFETY: Zero FFB FIRST (awaited), before game cleanup
-                            { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            // SAFETY: Safe session-end sequence before game cleanup
+                            ffb_controller::safe_session_end(&ffb).await;
                             lock_screen.show_idle_pin_entry();
                             overlay.deactivate();
                             if let Some(ref mut game) = game_process {
@@ -1681,7 +1753,7 @@ async fn main() -> Result<()> {
                                 game_process = None;
                             }
                             if let Some(ref mut adp) = adapter { adp.disconnect(); }
-                            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                             current_driver_name = None;
                             last_ac_status = None;
                             ac_status_stable_since = None;
@@ -1807,12 +1879,11 @@ async fn main() -> Result<()> {
                                         s.billing_paused = false;
                                         s.launch_started_at = None;
                                     });
-                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // SAFETY: Safe session-end sequence before game cleanup
+                                    ffb_controller::safe_session_end(&ffb).await;
                                     // Show lock screen (covers desktop before game is killed)
                                     lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
-                                    // Stop game and clean up AFTER FFB is zeroed
+                                    // Stop game and clean up AFTER FFB safety sequence
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
@@ -1821,8 +1892,8 @@ async fn main() -> Result<()> {
                                     // Report FFB status
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                                    // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                     current_driver_name = None;
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SessionEnded {
@@ -1848,9 +1919,8 @@ async fn main() -> Result<()> {
                                         s.recovery_in_progress = false;
                                     });
 
-                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // SAFETY: Safe session-end sequence before game cleanup
+                                    ffb_controller::safe_session_end(&ffb).await;
 
                                     // Show session summary with accumulated telemetry stats (SESS-01, SESS-02)
                                     lock_screen.show_session_summary(
@@ -1859,7 +1929,7 @@ async fn main() -> Result<()> {
                                         session_race_position,
                                     );
 
-                                    // Stop game and clean up AFTER FFB is zeroed
+                                    // Stop game and clean up AFTER FFB safety sequence
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
@@ -1869,8 +1939,8 @@ async fn main() -> Result<()> {
                                     // Report FFB status
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                                    // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                     current_driver_name = None;
                                     // SESSION-02: auto-return to idle PinEntry after 30s session summary display
                                     blank_timer.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(30));
@@ -2247,9 +2317,8 @@ async fn main() -> Result<()> {
                                         s.recovery_in_progress = true;
                                         s.launch_started_at = None;
                                     });
-                                    // SAFETY: Zero FFB BEFORE killing the game (awaited)
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // SAFETY: Safe session-end sequence before killing the game
+                                    ffb_controller::safe_session_end(&ffb).await;
                                     // Report FFB status
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
@@ -2328,9 +2397,8 @@ async fn main() -> Result<()> {
                                         s.recovery_in_progress = false;
                                     });
 
-                                    // SAFETY: Zero FFB BEFORE anything else (awaited)
-                                    { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    // SAFETY: Safe session-end sequence before game cleanup
+                                    ffb_controller::safe_session_end(&ffb).await;
 
                                     // Show between-sessions lock screen
                                     lock_screen.show_between_sessions(
@@ -2338,7 +2406,7 @@ async fn main() -> Result<()> {
                                         current_split_number, total_splits,
                                     );
 
-                                    // Stop game and clean up AFTER FFB is zeroed
+                                    // Stop game and clean up AFTER FFB safety sequence
                                     if let Some(ref mut game) = game_process {
                                         let _ = game.stop();
                                         game_process = None;
@@ -2348,8 +2416,8 @@ async fn main() -> Result<()> {
                                     // Report FFB status
                                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                    // Cleanup (enforce_safe_state WITHOUT ffb zero — already done)
-                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+                                    // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
+                                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {
                                     tracing::info!("Assistance screen for {}: {}", driver_name, message);
@@ -2691,16 +2759,15 @@ async fn main() -> Result<()> {
         if !heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
             tracing::info!("No active billing on disconnect — enforcing safe state");
             overlay.deactivate();
-            // SAFETY: Zero FFB FIRST (awaited), before game cleanup
-            { let f = ffb.clone(); tokio::task::spawn_blocking(move || { f.zero_force().ok(); }).await.ok(); }
-            tracing::info!("FFB zeroed on disconnect (ws_tx unavailable for FfbZeroed message)");
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            // SAFETY: Safe session-end sequence before game cleanup
+            ffb_controller::safe_session_end(&ffb).await;
+            tracing::info!("FFB safety sequence complete on disconnect (ws_tx unavailable for FfbZeroed message)");
             if let Some(ref mut game) = game_process {
                 let _ = game.stop();
                 game_process = None;
             }
             if let Some(ref mut adp) = adapter { adp.disconnect(); }
-            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(); });
+            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
             lock_screen.show_blank_screen();
         } else {
             // SESSION-04: Billing active — apply 30s grace window before showing Disconnected
@@ -3216,35 +3283,7 @@ mod tests {
         assert_eq!(reconnect_delay_for_attempt(100), Duration::from_secs(30));
     }
 
-    // ─── installed games tests (merged) ──────────────────────────────────
-
-    #[test]
-    fn test_installed_games_detection_new_games() {
-        // Configure AC Rally and FH5 with steam_app_id
-        let mut games = GamesConfig::default();
-        games.assetto_corsa_rally = GameExeConfig {
-            steam_app_id: Some(3917090),
-            use_steam: true,
-            ..Default::default()
-        };
-        games.forza_horizon_5 = GameExeConfig {
-            steam_app_id: Some(1551360),
-            use_steam: true,
-            ..Default::default()
-        };
-        let installed = detect_installed_games(&games);
-        // AC is always included
-        assert!(installed.contains(&SimType::AssettoCorsa));
-        // New games should be detected
-        assert!(
-            installed.contains(&SimType::AssettoCorsaRally),
-            "AC Rally not detected with steam_app_id"
-        );
-        assert!(
-            installed.contains(&SimType::ForzaHorizon5),
-            "FH5 not detected with steam_app_id"
-        );
-    }
+    // ─── installed games tests ─────────────────────────────────────────
 
     #[test]
     fn test_installed_games_empty_config_only_ac() {
@@ -3255,38 +3294,50 @@ mod tests {
     }
 
     #[test]
-    fn test_installed_games_detection_exe_path() {
-        // Test that exe_path also triggers detection
+    fn test_installed_games_configured_but_not_on_disk() {
+        // steam_app_id set but no manifest on disk → should NOT be detected
         let mut games = GamesConfig::default();
-        games.assetto_corsa_rally = GameExeConfig {
-            exe_path: Some("C:\\Games\\acr.exe".to_string()),
-            ..Default::default()
-        };
+        games.f1_25 = GameExeConfig { steam_app_id: Some(9999999), ..Default::default() };
+        games.iracing = GameExeConfig { steam_app_id: Some(9999998), ..Default::default() };
         let installed = detect_installed_games(&games);
-        assert!(installed.contains(&SimType::AssettoCorsaRally));
+        // Only AC — fake app_ids have no manifest files
+        assert_eq!(installed, vec![SimType::AssettoCorsa],
+            "Games with steam_app_id but no disk manifest should not appear");
     }
 
     #[test]
-    fn test_installed_games_all_configured() {
-        // All games configured — should detect all 8
+    fn test_installed_games_exe_path_not_on_disk() {
+        // exe_path set but file does not exist → fall through to steam check (also fails)
         let mut games = GamesConfig::default();
-        games.f1_25 = GameExeConfig { steam_app_id: Some(3059520), ..Default::default() };
-        games.iracing = GameExeConfig { steam_app_id: Some(266410), ..Default::default() };
-        games.forza = GameExeConfig { steam_app_id: Some(2440510), ..Default::default() };
-        games.le_mans_ultimate = GameExeConfig { steam_app_id: Some(2399420), ..Default::default() };
-        games.assetto_corsa_evo = GameExeConfig { steam_app_id: Some(3058630), ..Default::default() };
-        games.assetto_corsa_rally = GameExeConfig { steam_app_id: Some(3917090), ..Default::default() };
-        games.forza_horizon_5 = GameExeConfig { steam_app_id: Some(1551360), ..Default::default() };
+        games.assetto_corsa_rally = GameExeConfig {
+            exe_path: Some("C:\\NonExistent\\fake_game.exe".to_string()),
+            ..Default::default()
+        };
         let installed = detect_installed_games(&games);
-        assert_eq!(installed.len(), 8, "Expected all 8 SimType variants to be detected");
-        assert!(installed.contains(&SimType::AssettoCorsa));
-        assert!(installed.contains(&SimType::F125));
-        assert!(installed.contains(&SimType::IRacing));
-        assert!(installed.contains(&SimType::Forza));
-        assert!(installed.contains(&SimType::LeMansUltimate));
-        assert!(installed.contains(&SimType::AssettoCorsaEvo));
-        assert!(installed.contains(&SimType::AssettoCorsaRally));
-        assert!(installed.contains(&SimType::ForzaHorizon5));
+        assert!(!installed.contains(&SimType::AssettoCorsaRally),
+            "exe_path pointing to nonexistent file should not detect game");
+    }
+
+    #[test]
+    fn test_installed_games_exe_path_exists_on_disk() {
+        // exe_path pointing to a real file → should be detected
+        let tmp = std::env::temp_dir().join("test_game_detect.exe");
+        std::fs::write(&tmp, b"fake").unwrap();
+        let mut games = GamesConfig::default();
+        games.forza_horizon_5 = GameExeConfig {
+            exe_path: Some(tmp.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+        let installed = detect_installed_games(&games);
+        assert!(installed.contains(&SimType::ForzaHorizon5),
+            "exe_path pointing to real file should detect game");
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_is_steam_app_installed_nonexistent() {
+        // Fake app_id should not have a manifest
+        assert!(!is_steam_app_installed(9999999));
     }
 
     // ─── SESSION-03: CrashRecoveryState tests ─────────────────────────────

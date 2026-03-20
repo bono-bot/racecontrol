@@ -81,6 +81,9 @@ function BookingPageInner() {
   const [carSearch, setCarSearch] = useState("");
   const [carCategory, setCarCategory] = useState("Featured");
 
+  // ─── Pod installed games (for filtering game selection) ─────────────────
+  const [podInstalledGames, setPodInstalledGames] = useState<string[] | null>(null);
+
   const touch = useCallback(() => setLastActivity(Date.now()), []);
 
   // Load wizard data on mount
@@ -88,7 +91,14 @@ function BookingPageInner() {
     api.listPricingTiers().then((res) => setTiers((res.tiers || []).filter((t) => t.is_active)));
     api.getAcCatalog().then((data) => setCatalog(data)).catch(() => {});
     api.listExperiences().then((res) => setExperiences((res.experiences || []).filter((e) => e.is_active)));
-  }, []);
+    // Fetch target pod's installed_games for game filtering
+    if (staffPodId) {
+      api.listPods().then((data) => {
+        const pod = data.pods?.find((p) => p.id === staffPodId);
+        if (pod?.installed_games) setPodInstalledGames(pod.installed_games);
+      }).catch(() => {});
+    }
+  }, [staffPodId]);
 
   // Start wizard at select_plan (skip register_driver — handled by phone auth)
   useEffect(() => {
@@ -807,22 +817,27 @@ function BookingPageInner() {
           {/* ─── SELECT GAME ──────────────────────────────────────── */}
           {step === "select_game" && (
             <div data-testid="step-select-game" className="grid grid-cols-2 gap-4">
-              {GAMES.map((g) => (
-                <button
-                  key={g.id}
-                  data-testid={`game-option-${g.id}`}
-                  disabled={!g.enabled}
-                  onClick={() => handleSelectGame(g.id)}
-                  className={`p-8 rounded-xl border-2 text-center transition-all ${
-                    g.enabled
-                      ? "border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 cursor-pointer"
-                      : "border-rp-border/50 bg-rp-surface/50 opacity-40 cursor-not-allowed"
-                  }`}
-                >
-                  <p className="text-xl font-bold text-white">{g.name}</p>
-                  {!g.enabled && <p className="text-sm text-rp-grey mt-1">Coming Soon</p>}
-                </button>
-              ))}
+              {GAMES.map((g) => {
+                const installed = !podInstalledGames || podInstalledGames.includes(g.id);
+                const available = g.enabled && installed;
+                return (
+                  <button
+                    key={g.id}
+                    data-testid={`game-option-${g.id}`}
+                    disabled={!available}
+                    onClick={() => available && handleSelectGame(g.id)}
+                    className={`p-8 rounded-xl border-2 text-center transition-all ${
+                      available
+                        ? "border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 cursor-pointer"
+                        : "border-rp-border/50 bg-rp-surface/50 opacity-40 cursor-not-allowed"
+                    }`}
+                  >
+                    <p className="text-xl font-bold text-white">{g.name}</p>
+                    {!g.enabled && <p className="text-sm text-rp-grey mt-1">Coming Soon</p>}
+                    {g.enabled && !installed && <p className="text-sm text-rp-grey mt-1">Not Installed</p>}
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -1017,10 +1032,10 @@ function BookingPageInner() {
               </div>
 
               <div data-testid="experience-list" className="space-y-3 max-h-[60vh] overflow-y-auto">
-                {experiences.length === 0 ? (
+                {experiences.filter((e) => e.game === ws.selectedGame).length === 0 ? (
                   <p className="text-sm text-rp-grey text-center py-8">No experiences configured</p>
                 ) : (
-                  experiences.map((exp) => (
+                  experiences.filter((e) => e.game === ws.selectedGame).map((exp) => (
                     <button
                       key={exp.id}
                       data-testid={`experience-option-${exp.id}`}
