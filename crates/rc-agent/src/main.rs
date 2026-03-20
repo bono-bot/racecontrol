@@ -175,6 +175,8 @@ struct PodConfig {
 struct CoreConfig {
     #[serde(default = "default_core_url")]
     url: String,
+    #[serde(default)]
+    failover_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2828,6 +2830,16 @@ fn validate_config(config: &AgentConfig) -> Result<()> {
         ));
     }
 
+    if let Some(ref furl) = config.core.failover_url {
+        let furl = furl.trim();
+        if !furl.starts_with("ws://") && !furl.starts_with("wss://") {
+            errors.push(format!(
+                "core.failover_url must start with ws:// or wss://, got {:?}",
+                furl
+            ));
+        }
+    }
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -3078,6 +3090,7 @@ mod tests {
             },
             core: CoreConfig {
                 url: "ws://192.168.31.23:8080/ws/agent".to_string(),
+                failover_url: None,
             },
             wheelbase: WheelbaseConfig::default(),
             telemetry_ports: TelemetryPortsConfig::default(),
@@ -3399,6 +3412,62 @@ mod tests {
         assert!(
             elapsed >= Duration::from_secs(30),
             "30s+ elapsed should be at/beyond grace window boundary"
+        );
+    }
+
+    // ─── Phase 68: failover_url validation tests ───────────────────────────
+
+    #[test]
+    fn validate_config_accepts_failover_url() {
+        let toml_str = r#"
+[pod]
+number = 8
+name = "Pod 8"
+sim = "assetto_corsa"
+[core]
+url = "ws://192.168.31.23:8080/ws/agent"
+failover_url = "ws://100.70.177.44:8080/ws/agent"
+"#;
+        let config: AgentConfig = toml::from_str(toml_str).unwrap();
+        assert!(validate_config(&config).is_ok());
+        assert_eq!(
+            config.core.failover_url.as_deref(),
+            Some("ws://100.70.177.44:8080/ws/agent")
+        );
+    }
+
+    #[test]
+    fn validate_config_accepts_missing_failover_url() {
+        let toml_str = r#"
+[pod]
+number = 8
+name = "Pod 8"
+sim = "assetto_corsa"
+[core]
+url = "ws://192.168.31.23:8080/ws/agent"
+"#;
+        let config: AgentConfig = toml::from_str(toml_str).unwrap();
+        assert!(validate_config(&config).is_ok());
+        assert!(config.core.failover_url.is_none());
+    }
+
+    #[test]
+    fn validate_config_rejects_non_ws_failover_url() {
+        let toml_str = r#"
+[pod]
+number = 8
+name = "Pod 8"
+sim = "assetto_corsa"
+[core]
+url = "ws://192.168.31.23:8080/ws/agent"
+failover_url = "http://bad-url"
+"#;
+        let config: AgentConfig = toml::from_str(toml_str).unwrap();
+        let err = validate_config(&config).unwrap_err();
+        assert!(
+            err.to_string().contains("failover_url"),
+            "Error should mention failover_url: {}",
+            err
         );
     }
 }

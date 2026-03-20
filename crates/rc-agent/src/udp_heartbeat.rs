@@ -4,7 +4,7 @@
 //! If 3 pongs are missed (6s), signals the main loop to force-reconnect WebSocket.
 //! Independent of TCP state — detects half-open connections faster.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -33,6 +33,9 @@ pub struct HeartbeatStatus {
     pub driving_active: AtomicBool,
     pub billing_active: AtomicBool,
     pub game_id: AtomicU32,
+    /// Epoch-millis of last SwitchController received. 0 = no recent switch.
+    /// self_monitor suppresses WS-dead relaunch for 60s after a switch.
+    pub last_switch_ms: AtomicU64,
 }
 
 impl HeartbeatStatus {
@@ -43,6 +46,7 @@ impl HeartbeatStatus {
             driving_active: AtomicBool::new(false),
             billing_active: AtomicBool::new(false),
             game_id: AtomicU32::new(0),
+            last_switch_ms: AtomicU64::new(0),
         }
     }
 }
@@ -158,5 +162,17 @@ async fn run_inner(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn heartbeat_status_last_switch_ms_defaults_to_zero() {
+        let status = HeartbeatStatus::new();
+        assert_eq!(status.last_switch_ms.load(Ordering::Relaxed), 0);
     }
 }
