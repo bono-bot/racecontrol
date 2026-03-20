@@ -10,6 +10,7 @@ use axum::http::{HeaderValue, Method, StatusCode};
 use tower_http::trace::TraceLayer;
 
 use racecontrol_crate::config::Config;
+use racecontrol_crate::error_rate::{ErrorCountLayer, ErrorRateConfig, error_rate_alerter_task};
 use racecontrol_crate::state::AppState;
 use racecontrol_crate::{
     ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
@@ -279,7 +280,24 @@ fn cleanup_old_logs(log_dir: &std::path::Path) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    println!(r#"
+    ____                  ______            __             __
+   / __ \____ _________  / ____/___  ____  / /__________  / /
+  / /_/ / __ `/ ___/ _ \/ /   / __ \/ __ \/ __/ ___/ __ \/ /
+ / _, _/ /_/ / /__/  __/ /___/ /_/ / / / / /_/ /  / /_/ / /
+/_/ |_|\__,_/\___/\___/\____/\____/_/ /_/\__/_/   \____/_/
+
+  Sim Racing Venue Management System
+  by RacingPoint
+"#);
+
+    // Load config FIRST so MonitoringConfig is available for tracing init
+    // Pre-init messages use eprintln! since tracing is not yet initialized
+    eprintln!("Loading config...");
+    let config = Config::load_or_default();
+
     // Initialize tracing — dual output: stdout (text) + rolling JSON log file
+    // Config must be loaded before this point so error_rate thresholds are available
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
     let log_dir = std::path::Path::new("logs");
     std::fs::create_dir_all(log_dir).ok();
@@ -296,6 +314,15 @@ async fn main() -> anyhow::Result<()> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info".into());
 
+    // Error rate monitoring — mpsc bridge from sync Layer to async alerter
+    let (alert_tx, alert_rx) = tokio::sync::mpsc::channel::<()>(4);
+    let error_rate_config = ErrorRateConfig {
+        threshold: config.monitoring.error_rate_threshold,
+        window_secs: config.monitoring.error_rate_window_secs,
+        cooldown_secs: config.monitoring.error_rate_cooldown_secs,
+    };
+    let error_count_layer = ErrorCountLayer::new(error_rate_config, alert_tx);
+
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
     tracing_subscriber::registry()
@@ -308,21 +335,8 @@ async fn main() -> anyhow::Result<()> {
                 .with_ansi(false)
                 .with_writer(non_blocking_file),
         )
+        .with(error_count_layer)
         .init();
-
-    println!(r#"
-    ____                  ______            __             __
-   / __ \____ _________  / ____/___  ____  / /__________  / /
-  / /_/ / __ `/ ___/ _ \/ /   / __ \/ __ \/ __/ ___/ __ \/ /
- / _, _/ /_/ / /__/  __/ /___/ /_/ / / / / /_/ /  / /_/ / /
-/_/ |_|\__,_/\___/\___/\____/\____/_/ /_/\__/_/   \____/_/
-
-  Sim Racing Venue Management System
-  by RacingPoint
-"#);
-
-    // Load config
-    let config = Config::load_or_default();
 
     // Warn if default JWT secret is unchanged
     if config.auth.jwt_secret == "racingpoint-jwt-change-me-in-production" {
@@ -334,9 +348,23 @@ async fn main() -> anyhow::Result<()> {
     // Initialize database
     let pool = db::init_pool(&config.database.path).await?;
 
+    // Extract monitoring/email config before config is moved into AppState
+    let error_rate_email_enabled = config.monitoring.error_rate_email_enabled;
+    let email_script_for_alerter = config.watchdog.email_script_path.clone();
+
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     let state = Arc::new(AppState::new(config, pool));
+
+    // Spawn error rate alerter task — sends to both James and Uday on error spikes
+    if error_rate_email_enabled {
+        let email_script = email_script_for_alerter;
+        let recipients = vec![
+            "james@racingpoint.in".to_string(),
+            "usingh@racingpoint.in".to_string(),
+        ];
+        tokio::spawn(error_rate_alerter_task(alert_rx, email_script, recipients));
+    }
 
     // First-boot email test: verify Gmail OAuth works on initial setup
     maybe_send_first_boot_email(&state).await;
