@@ -271,3 +271,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 11:30 IST | James | `4af3f5b` | feat(51-01): create CLAUDE.md — 179-line Racing Point context file (all 8 pod IPs/MACs, crate names, deploy rules, 4-tier debug, standing rules, brand identity) |
 | 2026-03-20 11:30 IST | James | `d19b916` | docs(51-01): SUMMARY + STATE/ROADMAP/REQUIREMENTS updated — SKILL-01 complete |
 | 2026-03-20 11:53 IST | James | `d1fd50b` | docs(52): research Phase 52 MCP Servers — Gmail fix, Sheets/Calendar scaffold, rc-ops-mcp API surface |
+| 2026-03-20 12:15 IST | James | `e90532b` | feat(52-01): add OAuth token refresh utility (refresh-token.js) in racingpoint-google |
+| 2026-03-20 12:15 IST | James | `7f0ce1e` | feat(52-01): create racingpoint-mcp-sheets — read_sheet and write_sheet MCP tools |
+| 2026-03-20 12:15 IST | James | `7e2c8ce` | feat(52-01): create racingpoint-mcp-calendar — list_events, create_event, delete_event MCP tools |
+| 2026-03-20 12:15 IST | James | `6e9eca9` | docs(52-01): SUMMARY + STATE/ROADMAP/REQUIREMENTS updated — Tasks 1+2 complete, OAuth checkpoint reached |
