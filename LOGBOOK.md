@@ -308,3 +308,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 18:28 IST | James | 0d0baf6 | chore(72-01): add build.rs and sysinfo/winapi dependencies to rc-sentry |
 | 2026-03-20 18:28 IST | James | 185eb7d | feat(72-01): add 4 endpoints + graceful shutdown to rc-sentry |
 | 2026-03-20 18:28 IST | James | 971856d | docs(72-01): complete rc-sentry endpoint expansion plan |
+| 2026-03-20 18:34 IST | James | 2a7e72b | feat(72-02): add 7 inline integration tests to rc-sentry — all endpoints covered, ephemeral ports, no tokio (TEST-04) |
+| 2026-03-20 18:35 IST | James | c952a9d | docs(72-02): complete rc-sentry integration tests plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
