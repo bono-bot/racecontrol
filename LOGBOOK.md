@@ -310,3 +310,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 18:28 IST | James | 971856d | docs(72-01): complete rc-sentry endpoint expansion plan |
 | 2026-03-20 18:34 IST | James | 2a7e72b | feat(72-02): add 7 inline integration tests to rc-sentry — all endpoints covered, ephemeral ports, no tokio (TEST-04) |
 | 2026-03-20 18:35 IST | James | c952a9d | docs(72-02): complete rc-sentry integration tests plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-03-20 18:37 IST | James | 956efde | feat(67-01): config sanitizer with allowlist -- venue/pods/branding only (SYNC-01, SYNC-02) |
+| 2026-03-20 18:38 IST | James | a3b2cdc | feat(67-01): config watcher -- poll + SHA-256 change detection + sanitized snapshot |
+| 2026-03-20 18:38 IST | James | 406628b | feat(67-01): wire ConfigWatcher into james/index.js for config sync |
+| 2026-03-20 18:39 IST | James | 5b9aa74 | docs(67-01): complete config-sync plan 1 -- watcher + sanitizer SUMMARY, STATE, ROADMAP, REQUIREMENTS |
