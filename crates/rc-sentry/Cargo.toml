@@ -16,6 +16,10 @@ toml = { workspace = true }
 rc-common = { path = "../rc-common" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+sysinfo = "0.33"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["consoleapi"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
