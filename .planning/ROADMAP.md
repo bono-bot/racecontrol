@@ -401,7 +401,7 @@ Plans:
   2. Claude Code reads a cell range from a Racing Point Google Sheet and writes computed values back — MCP-02 Sheets read/write works end-to-end
   3. Claude Code lists today's Google Calendar events for james@racingpoint.in — MCP-03 Calendar read works
   4. Claude Code calls GET /api/v1/fleet/health on the local racecontrol server and returns structured pod statuses — MCP-04 rc-ops-mcp running on James's machine and responding
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 52-01-PLAN.md — Google Workspace MCP: wire racingpoint-google OAuth into Claude Code MCP config, verify Gmail + Sheets + Calendar (MCP-01, MCP-02, MCP-03)
