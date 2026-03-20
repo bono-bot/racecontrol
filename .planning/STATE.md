@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v10.0-CR
-milestone_name: Connectivity & Redundancy
+milestone: v6.0
+milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: "Roadmap created for v10.0 Connectivity & Redundancy — 6 phases (66-70), 22 requirements mapped"
-last_updated: "2026-03-20T10:00:00.000Z"
+stopped_at: Phase 55 paused — server .23 install requires physical access
+last_updated: "2026-03-20T10:07:01.685Z"
 last_activity: 2026-03-20 — v10.0 Connectivity & Redundancy roadmap created, 5 phases (66-70), 22 requirements mapped
 progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 35
+  completed_phases: 15
+  total_plans: 39
+  completed_plans: 36
   percent: 0
 ---
 
@@ -268,7 +268,7 @@ Progress: [░░░░░░░░░░] 0% (0/5 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T10:00:00.000Z
-Stopped at: v10.0 Connectivity & Redundancy roadmap created — 5 phases (66-70), 22 requirements mapped
-Resume file: None
+Last session: 2026-03-20T10:07:01.680Z
+Stopped at: Phase 55 paused — server .23 install requires physical access
+Resume file: .planning/phases/55-netdata-fleet-deploy/55-01-PLAN.md
 Next action: Phase 66 — Infrastructure Foundations (DHCP reservation + Tailscale exec verification)
