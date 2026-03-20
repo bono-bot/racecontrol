@@ -19,6 +19,36 @@ fn hidden_cmd(program: &str) -> std::process::Command {
     cmd
 }
 
+/// Query the virtual screen bounds (covers all monitors).
+/// Returns (x, y, width, height) of the full virtual desktop.
+/// On single-monitor setups this is typically (0, 0, 1920, 1080) or similar.
+/// On multi-monitor / surround setups this covers the entire span
+/// (e.g. triple 2560x1440 → (0, 0, 7680, 1440)).
+#[cfg(windows)]
+fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
+    // SM_XVIRTUALSCREEN=76, SM_YVIRTUALSCREEN=77, SM_CXVIRTUALSCREEN=78, SM_CYVIRTUALSCREEN=79
+    unsafe extern "system" {
+        fn GetSystemMetrics(nIndex: i32) -> i32;
+    }
+    let x = unsafe { GetSystemMetrics(76) };
+    let y = unsafe { GetSystemMetrics(77) };
+    let w = unsafe { GetSystemMetrics(78) };
+    let h = unsafe { GetSystemMetrics(79) };
+    if w == 0 || h == 0 {
+        // Fallback to primary monitor
+        let pw = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
+        let ph = unsafe { GetSystemMetrics(1) }; // SM_CYSCREEN
+        (0, 0, pw, ph)
+    } else {
+        (x, y, w, h)
+    }
+}
+
+#[cfg(not(windows))]
+fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
+    (0, 0, 1920, 1080)
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /// Current lock screen state.
@@ -512,27 +542,43 @@ impl LockScreenManager {
             r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
             "msedge.exe",
         ];
+
+        // Query virtual screen bounds to cover multi-monitor / surround setups
+        // (e.g. triple 2560x1440 = 7680x1440 virtual desktop)
+        let (vx, vy, vw, vh) = get_virtual_screen_bounds();
+        let window_pos = format!("--window-position={},{}", vx, vy);
+        let window_size = format!("--window-size={},{}", vw, vh);
+        let use_window_sizing = vw > 2560; // Only override for multi-monitor setups
+
         for edge_path in &edge_paths {
+            let mut args: Vec<&str> = vec![
+                "--kiosk",
+                &url,
+                "--edge-kiosk-type=fullscreen",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-notifications",
+                "--disable-popup-blocking",
+                "--disable-infobars",
+                "--disable-session-crashed-bubble",
+                "--disable-component-update",
+                "--autoplay-policy=no-user-gesture-required",
+                "--suppress-message-center-popups",
+            ];
+            if use_window_sizing {
+                args.push(&window_pos);
+                args.push(&window_size);
+            }
             match std::process::Command::new(edge_path)
-                .args([
-                    "--kiosk",
-                    &url,
-                    "--edge-kiosk-type=fullscreen",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--disable-notifications",
-                    "--disable-popup-blocking",
-                    "--disable-infobars",
-                    "--disable-session-crashed-bubble",
-                    "--disable-component-update",
-                    "--autoplay-policy=no-user-gesture-required",
-                    "--suppress-message-center-popups",
-                ])
+                .args(&args)
                 .spawn()
             {
                 Ok(child) => {
                     self.browser_process = Some(child);
-                    tracing::info!("Lock screen browser launched at {} using {}", url, edge_path);
+                    tracing::info!(
+                        "Lock screen browser launched at {} using {} (virtual screen: {}x{} at {},{})",
+                        url, edge_path, vw, vh, vx, vy
+                    );
                     return;
                 }
                 Err(e) => {
@@ -1645,6 +1691,61 @@ mod tests {
         assert!(html.contains("Scan the QR code") || html.contains("QR"),
             "Idle PinEntry must mention QR code scanning");
     }
+
+    // ─── Centering: all page states must have proper centering CSS ────────
+
+    /// Verify PAGE_SHELL body has all required centering properties.
+    #[test]
+    fn page_shell_has_centering_css() {
+        let html = render_page_public(&LockScreenState::Hidden);
+        assert!(html.contains("justify-content: center") || html.contains("justify-content:center"),
+            "body must have justify-content: center for vertical centering");
+        assert!(html.contains("align-items: center") || html.contains("align-items:center"),
+            "body must have align-items: center for horizontal centering");
+        assert!(html.contains("text-align: center") || html.contains("text-align:center"),
+            "body must have text-align: center for text centering");
+    }
+
+    /// Verify all page states produce HTML with centering CSS (no state bypasses the shell).
+    #[test]
+    fn all_states_have_centering_css() {
+        let states: Vec<(&str, LockScreenState)> = vec![
+            ("Hidden", LockScreenState::Hidden),
+            ("ScreenBlanked", LockScreenState::ScreenBlanked),
+            ("Disconnected", LockScreenState::Disconnected),
+            ("StartupConnecting", LockScreenState::StartupConnecting),
+            ("ConfigError", LockScreenState::ConfigError { message: "test".to_string() }),
+            ("Lockdown", LockScreenState::Lockdown { message: "test".to_string() }),
+            ("PinEntry", LockScreenState::PinEntry {
+                token_id: String::new(),
+                driver_name: "Test".to_string(),
+                pricing_tier_name: "30min".to_string(),
+                allocated_seconds: 1800,
+                pin_error: None,
+            }),
+            ("LaunchSplash", LockScreenState::LaunchSplash {
+                driver_name: "Test".to_string(),
+                message: "Loading...".to_string(),
+            }),
+        ];
+        for (name, state) in states {
+            let html = render_page_public(&state);
+            assert!(html.contains("justify-content: center") || html.contains("justify-content:center"),
+                "{} page missing justify-content: center", name);
+            assert!(html.contains("align-items: center") || html.contains("align-items:center"),
+                "{} page missing align-items: center", name);
+            assert!(html.contains("text-align: center") || html.contains("text-align:center"),
+                "{} page missing text-align: center", name);
+        }
+    }
+
+    /// Verify .pin-row has justify-content: center for pin box centering.
+    #[test]
+    fn pin_row_has_centering() {
+        let html = render_page_public(&LockScreenState::ScreenBlanked);
+        assert!(html.contains("justify-content: center") || html.contains("justify-content:center"),
+            "pin-row must have justify-content: center");
+    }
 }
 
 /// Render session summary page with top speed and race position params.
@@ -1715,6 +1816,7 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    text-align: center;
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
@@ -1731,7 +1833,7 @@ body {
     font-size: 0.95em;
     color: #5A5A5A;
     letter-spacing: 3px;
-    margin-bottom: 50px;
+    margin-bottom: 32px;
     text-transform: uppercase;
 }
 .welcome {
@@ -1746,6 +1848,7 @@ body {
 }
 .pin-row {
     display: flex;
+    justify-content: center;
     gap: 16px;
     margin-bottom: 32px;
 }
