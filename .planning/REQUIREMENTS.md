@@ -103,5 +103,118 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 - Unmapped: 0
 
 ---
+
+## v10.0 Requirements — Conspit Link Full Capability Unlock
+
+**Core Value:** When a session ends the wheelbase centers safely, and when the next session starts the wheel auto-loads the right profile without staff intervention.
+
+### Safety & Session Lifecycle
+
+- [ ] **SAFE-01**: Wheelbase returns to center within 2 seconds of game session ending (no stuck rotation)
+- [ ] **SAFE-02**: Session-end sequence uses `fxm.reset` + `axis.idlespring` (NOT estop) for routine shutdown
+- [ ] **SAFE-03**: Force ramp-up is gradual (500ms minimum) when applying centering spring -- no snap-back
+- [ ] **SAFE-04**: Venue power capped at safe maximum via `axis.power` command
+- [ ] **SAFE-05**: ESTOP reserved for genuine emergencies only (separate code path from session end)
+- [ ] **SAFE-06**: ConspitLink gracefully closed (WM_CLOSE) before HID safety commands to avoid P-20 contention
+- [ ] **SAFE-07**: ConspitLink restarted after safety sequence completes, with JSON integrity verification
+
+### ConspitLink Process Management
+
+- [ ] **PROC-01**: Hardened watchdog with crash-count tracking and graceful restart (never taskkill /F)
+- [ ] **PROC-02**: Post-restart config file verification (JSON parse check)
+- [ ] **PROC-03**: Config file backup before any write operation
+- [ ] **PROC-04**: Window minimization survives ConspitLink restarts
+
+### Game Profile Switching
+
+- [ ] **PROF-01**: `Global.json` placed at `C:\RacingPoint\` on each pod (fix runtime path)
+- [ ] **PROF-02**: `GameToBaseConfig.json` mappings point to Racing Point venue presets
+- [ ] **PROF-03**: rc-agent pre-loads correct preset BEFORE game launch (not after)
+- [ ] **PROF-04**: Auto game detection verified working for AC, F1 25, ACC/AC EVO, AC Rally
+- [ ] **PROF-05**: Fallback to default safe preset if game not recognized
+
+### FFB Preset Tuning
+
+- [ ] **FFB-01**: Venue-tuned `.Base` preset for Assetto Corsa (based on Yifei Ye pro preset)
+- [ ] **FFB-02**: Venue-tuned `.Base` preset for F1 25 (custom -- no pro preset exists)
+- [ ] **FFB-03**: Venue-tuned `.Base` preset for ACC / AC EVO (based on Yifei Ye pro preset)
+- [ ] **FFB-04**: Venue-tuned `.Base` preset for AC Rally (custom -- no pro preset exists)
+- [ ] **FFB-05**: Correct steering angle per game (e.g., 900 deg AC, 360 deg F1, 800 deg rally)
+- [ ] **FFB-06**: All presets stored in version control under `.planning/presets/`
+
+### Fleet Config Distribution
+
+- [ ] **FLEET-01**: rc-agent can receive config push from racecontrol via WebSocket
+- [ ] **FLEET-02**: Atomic file writes (write-to-temp, rename) for all config updates
+- [ ] **FLEET-03**: Config checksum in heartbeat for drift detection
+- [ ] **FLEET-04**: `Global.json` written to BOTH install dir and `C:\RacingPoint\` on push
+- [ ] **FLEET-05**: Graceful ConspitLink stop -> write -> restart -> verify cycle on config push
+- [ ] **FLEET-06**: Golden config directory in repo for version-controlled master configs
+
+### Fleet Monitoring (v10.0)
+
+- [ ] **CLMON-01**: rc-agent reports active ConspitLink preset per pod
+- [ ] **CLMON-02**: rc-agent reports config file hashes per pod
+- [ ] **CLMON-03**: rc-agent reports ConspitLink firmware version per pod
+- [ ] **CLMON-04**: racecontrol dashboard shows fleet config status at a glance
+
+### Telemetry & Display
+
+- [ ] **TELE-01**: Wheel LCD dashboard showing RPM, speed, gear for all 4 venue games
+- [ ] **TELE-02**: `GameSettingCenter.json` telemetry fields enabled for all venue games
+- [ ] **TELE-03**: Shift light LEDs configured with Auto RPM for AC, ACC
+- [ ] **TELE-04**: Shift light LEDs configured with manual RPM thresholds for F1 25, AC Rally
+- [ ] **TELE-05**: RGB button lighting tied to telemetry (DRS, ABS, TC, flags) per game
+- [ ] **TELE-06**: UDP port chain documented: game -> ConspitLink (20778)
+
+### v10.0 Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| SAFE-01 | Phase 57: Session-End Safety | Pending |
+| SAFE-02 | Phase 57: Session-End Safety | Pending |
+| SAFE-03 | Phase 57: Session-End Safety | Pending |
+| SAFE-04 | Phase 57: Session-End Safety | Pending |
+| SAFE-05 | Phase 57: Session-End Safety | Pending |
+| SAFE-06 | Phase 57: Session-End Safety | Pending |
+| SAFE-07 | Phase 57: Session-End Safety | Pending |
+| PROC-01 | Phase 58: ConspitLink Process Hardening | Pending |
+| PROC-02 | Phase 58: ConspitLink Process Hardening | Pending |
+| PROC-03 | Phase 58: ConspitLink Process Hardening | Pending |
+| PROC-04 | Phase 58: ConspitLink Process Hardening | Pending |
+| PROF-01 | Phase 59: Auto-Switch Configuration | Pending |
+| PROF-02 | Phase 59: Auto-Switch Configuration | Pending |
+| PROF-03 | Phase 60: Pre-Launch Profile Loading | Pending |
+| PROF-04 | Phase 59: Auto-Switch Configuration | Pending |
+| PROF-05 | Phase 60: Pre-Launch Profile Loading | Pending |
+| FFB-01 | Phase 61: FFB Preset Tuning | Pending |
+| FFB-02 | Phase 61: FFB Preset Tuning | Pending |
+| FFB-03 | Phase 61: FFB Preset Tuning | Pending |
+| FFB-04 | Phase 61: FFB Preset Tuning | Pending |
+| FFB-05 | Phase 61: FFB Preset Tuning | Pending |
+| FFB-06 | Phase 61: FFB Preset Tuning | Pending |
+| FLEET-01 | Phase 62: Fleet Config Distribution | Pending |
+| FLEET-02 | Phase 62: Fleet Config Distribution | Pending |
+| FLEET-03 | Phase 62: Fleet Config Distribution | Pending |
+| FLEET-04 | Phase 62: Fleet Config Distribution | Pending |
+| FLEET-05 | Phase 62: Fleet Config Distribution | Pending |
+| FLEET-06 | Phase 62: Fleet Config Distribution | Pending |
+| CLMON-01 | Phase 63: Fleet Monitoring | Pending |
+| CLMON-02 | Phase 63: Fleet Monitoring | Pending |
+| CLMON-03 | Phase 63: Fleet Monitoring | Pending |
+| CLMON-04 | Phase 63: Fleet Monitoring | Pending |
+| TELE-01 | Phase 64: Telemetry Dashboards | Pending |
+| TELE-02 | Phase 64: Telemetry Dashboards | Pending |
+| TELE-03 | Phase 65: Shift Lights & RGB Lighting | Pending |
+| TELE-04 | Phase 65: Shift Lights & RGB Lighting | Pending |
+| TELE-05 | Phase 65: Shift Lights & RGB Lighting | Pending |
+| TELE-06 | Phase 64: Telemetry Dashboards | Pending |
+
+**v10.0 Coverage:**
+- v10.0 requirements: 38 total
+- Mapped to phases: 38
+- Unmapped: 0
+
+---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after roadmap creation — all 19 requirements mapped to phases 51-56*
+*Last updated: 2026-03-20 after v10.0 Conspit Link milestone added (phases 57-65)*

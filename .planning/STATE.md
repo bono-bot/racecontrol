@@ -46,6 +46,26 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 **Phases 51-53:** James workstation only, zero pod access needed.
 **Phases 54-56:** Require server/pod access, deployed via pendrive or rc-agent :8090.
 
+## Phase Map — v10.0 Conspit Link
+
+| Phase | Name | Requirements | Access | Status |
+|-------|------|--------------|--------|--------|
+| 57 | Session-End Safety | SAFE-01 through SAFE-07 | Pods (rc-agent Rust changes) | Not started |
+| 58 | ConspitLink Process Hardening | PROC-01 through PROC-04 | Pods (rc-agent Rust changes) | Not started |
+| 59 | Auto-Switch Configuration | PROF-01, PROF-02, PROF-04 | Pods (config files) | Not started |
+| 60 | Pre-Launch Profile Loading | PROF-03, PROF-05 | Pods (rc-agent Rust changes) | Not started |
+| 61 | FFB Preset Tuning | FFB-01 through FFB-06 | Pods (config + hands-on tuning) | Not started |
+| 62 | Fleet Config Distribution | FLEET-01 through FLEET-06 | Server + pods (Rust changes) | Not started |
+| 63 | Fleet Monitoring | CLMON-01 through CLMON-04 | Server + pods (Rust changes) | Not started |
+| 64 | Telemetry Dashboards | TELE-01, TELE-02, TELE-06 | Pods (config files) | Not started |
+| 65 | Shift Lights & RGB Lighting | TELE-03 through TELE-05 | Pods (config files) | Not started |
+
+**Phases 57-58:** Safety-critical rc-agent changes, deploy to Pod 8 first.
+**Phase 59:** Config file fix — potentially one-file-copy for Global.json path.
+**Phases 60-61:** rc-agent preset loading + hands-on FFB tuning.
+**Phases 62-63:** Fleet automation (server + pod Rust changes).
+**Phases 64-65:** Config-only telemetry/LED setup, no code changes.
+
 ## Performance Metrics
 
 **Velocity:**

@@ -130,6 +130,20 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 55: Netdata Fleet Deploy** - Netdata agent on server (.23) and all 8 pods via rc-agent :8090 exec, live system metrics dashboards
 - [ ] **Phase 56: WhatsApp Alerting + Weekly Report** - P0 events trigger WhatsApp to Uday; weekly automated email report with sessions, uptime %, credits, incidents
 
+## v10.0 Conspit Link — Full Capability Unlock
+
+Fix stuck-rotation safety bug, unlock all Conspit Link 2.0 features (per-game FFB presets, auto game switching, telemetry dashboards, shift lights, RGB), and automate fleet-wide config management via rc-agent.
+
+- [ ] **Phase 57: Session-End Safety** - Fix stuck-rotation bug: close ConspitLink before HID commands, use fxm.reset + axis.idlespring (not estop), gradual force ramp, auto-restart ConspitLink after
+- [ ] **Phase 58: ConspitLink Process Hardening** - Harden watchdog with crash-count tracking, graceful restart (never taskkill /F), config backup + JSON integrity verification, minimize survives restarts
+- [ ] **Phase 59: Auto-Switch Configuration** - Fix broken auto game detection by placing Global.json at C:\RacingPoint\ (runtime path), update GameToBaseConfig.json mappings to venue presets
+- [ ] **Phase 60: Pre-Launch Profile Loading** - rc-agent pre-loads correct preset BEFORE game launch (not relying solely on ConspitLink auto-detect), safe fallback for unrecognized games
+- [ ] **Phase 61: FFB Preset Tuning** - Create venue-tuned .Base presets for AC (900deg), F1 25 (360deg), ACC/ACE, AC Rally (~800deg) starting from Yifei Ye pro presets, store in version control
+- [ ] **Phase 62: Fleet Config Distribution** - Push configs to all 8 pods via rc-agent WebSocket, atomic writes (temp+rename), Global.json to both paths, graceful CL stop/write/restart/verify cycle
+- [ ] **Phase 63: Fleet Monitoring** - rc-agent reports active preset, config hashes, firmware version per pod; racecontrol dashboard shows fleet config status at a glance
+- [ ] **Phase 64: Telemetry Dashboards** - Enable wheel LCD showing RPM/speed/gear for all 4 venue games, verify GameSettingCenter.json telemetry fields, document UDP port chain
+- [ ] **Phase 65: Shift Lights & RGB Lighting** - Auto RPM shift lights for AC/ACC, manual RPM thresholds for F1 25/AC Rally, RGB button lighting tied to telemetry (DRS, ABS, TC, flags)
+
 ## Phase Details
 
 ### Phase 36: WSL2 Infrastructure
@@ -464,6 +478,132 @@ Plans:
 - [ ] 56-01-PLAN.md — P0 WhatsApp alert: hook into racingpoint-whatsapp-bot; trigger on all-pods-offline + billing crash; resolved notification (MON-06)
 - [ ] 56-02-PLAN.md — Weekly report: scheduled task; query racecontrol DB for sessions/uptime/credits; compose + email via send_email.js (MON-07)
 
+### Phase 57: Session-End Safety
+**Goal**: When a game session ends, the wheelbase returns to center safely within 2 seconds — no stuck rotation, no snap-back, no staff intervention
+**Depends on**: Phase 52 (existing rc-agent codebase; no v9.0 dependency)
+**Requirements**: SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-06, SAFE-07
+**Success Criteria** (what must be TRUE):
+  1. Wheelbase returns to center within 2 seconds of any game closing on any pod — no stuck rotation
+  2. Centering force ramps up gradually (no sudden snap that could injure a customer's hands)
+  3. ConspitLink is closed before HID safety commands fire, eliminating P-20 contention
+  4. ConspitLink restarts automatically after the safety sequence with verified JSON config intact
+  5. ESTOP code path remains available but is never triggered during routine session ends
+**Plans**: TBD
+
+Plans:
+- [ ] 57-01: TBD
+- [ ] 57-02: TBD
+
+### Phase 58: ConspitLink Process Hardening
+**Goal**: ConspitLink stays running reliably across all sessions with crash recovery, config integrity, and kiosk compliance
+**Depends on**: Phase 57
+**Requirements**: PROC-01, PROC-02, PROC-03, PROC-04
+**Success Criteria** (what must be TRUE):
+  1. ConspitLink automatically restarts after a crash with crash count tracked (never using taskkill /F)
+  2. Config files are backed up before any write and verified via JSON parse after every restart
+  3. ConspitLink window stays minimized even after restarts — kiosk lock screen always visible
+**Plans**: TBD
+
+Plans:
+- [ ] 58-01: TBD
+
+### Phase 59: Auto-Switch Configuration
+**Goal**: ConspitLink automatically detects which game is running and loads the correct FFB preset without staff action
+**Depends on**: Phase 58
+**Requirements**: PROF-01, PROF-02, PROF-04
+**Success Criteria** (what must be TRUE):
+  1. Global.json exists at C:\RacingPoint\ on every pod (the runtime read path ConspitLink actually uses)
+  2. GameToBaseConfig.json mappings point to Racing Point venue presets for all 4 active games
+  3. Launching AC, F1 25, ACC/AC EVO, or AC Rally causes ConspitLink to auto-load the matching preset
+**Plans**: TBD
+
+Plans:
+- [ ] 59-01: TBD
+
+### Phase 60: Pre-Launch Profile Loading
+**Goal**: rc-agent ensures the correct preset is loaded BEFORE the game starts, with a safe fallback if the game is unrecognized
+**Depends on**: Phase 59
+**Requirements**: PROF-03, PROF-05
+**Success Criteria** (what must be TRUE):
+  1. rc-agent loads the correct game preset before launching the game process (not relying solely on ConspitLink auto-detect)
+  2. If an unrecognized game launches, a safe default preset is applied (conservative force, centered spring)
+**Plans**: TBD
+
+Plans:
+- [ ] 60-01: TBD
+
+### Phase 61: FFB Preset Tuning
+**Goal**: Every venue game has a tuned FFB preset that feels right on the Ares 8Nm hardware, with correct steering angles and force limits
+**Depends on**: Phase 59
+**Requirements**: FFB-01, FFB-02, FFB-03, FFB-04, FFB-05, FFB-06
+**Success Criteria** (what must be TRUE):
+  1. Assetto Corsa has a venue-tuned .Base preset (based on Yifei Ye pro preset) with 900-degree steering
+  2. F1 25 has a custom venue-tuned .Base preset with 360-degree steering
+  3. ACC/AC EVO has a venue-tuned .Base preset (based on Yifei Ye pro preset) with appropriate steering angle
+  4. AC Rally has a custom venue-tuned .Base preset with ~800-degree steering
+  5. All presets are stored in version control under .planning/presets/ for reproducibility
+**Plans**: TBD
+
+Plans:
+- [ ] 61-01: TBD
+- [ ] 61-02: TBD
+
+### Phase 62: Fleet Config Distribution
+**Goal**: Configs validated on one pod can be pushed to all 8 pods atomically via rc-agent, with drift detection
+**Depends on**: Phase 60, Phase 61
+**Requirements**: FLEET-01, FLEET-02, FLEET-03, FLEET-04, FLEET-05, FLEET-06
+**Success Criteria** (what must be TRUE):
+  1. racecontrol can push a config update to any/all pods via WebSocket and rc-agent writes it atomically (temp file + rename)
+  2. Global.json is written to BOTH the install directory and C:\RacingPoint\ on every config push
+  3. ConspitLink is gracefully stopped before config write and restarted after, with JSON integrity verified
+  4. Config checksums are included in pod heartbeats so racecontrol can detect drift across the fleet
+  5. A golden config directory in the repo serves as the version-controlled master for all pod configs
+**Plans**: TBD
+
+Plans:
+- [ ] 62-01: TBD
+- [ ] 62-02: TBD
+
+### Phase 63: Fleet Monitoring
+**Goal**: racecontrol dashboard shows the config state of every pod at a glance — active preset, config hash, firmware version
+**Depends on**: Phase 62
+**Requirements**: MON-01, MON-02, MON-03, MON-04
+**Success Criteria** (what must be TRUE):
+  1. rc-agent reports the currently active ConspitLink preset name for its pod
+  2. rc-agent reports config file hashes (Settings.json, Global.json, GameToBaseConfig.json) for drift detection
+  3. rc-agent reports ConspitLink firmware version for the connected Ares wheelbase
+  4. racecontrol dashboard displays fleet config status showing all 8 pods with their preset/hash/firmware at a glance
+**Plans**: TBD
+
+Plans:
+- [ ] 63-01: TBD
+
+### Phase 64: Telemetry Dashboards
+**Goal**: The wheel LCD shows useful telemetry (RPM, speed, gear) for every venue game
+**Depends on**: Phase 59
+**Requirements**: TELE-01, TELE-02, TELE-06
+**Success Criteria** (what must be TRUE):
+  1. Wheel LCD displays RPM, speed, and gear data while playing any of the 4 venue games
+  2. GameSettingCenter.json has all required telemetry fields enabled for AC, F1 25, ACC/AC EVO, and AC Rally
+  3. UDP port chain is documented: game output port -> ConspitLink receive port (20778)
+**Plans**: TBD
+
+Plans:
+- [ ] 64-01: TBD
+
+### Phase 65: Shift Lights & RGB Lighting
+**Goal**: Shift light LEDs and RGB button lighting respond to live game telemetry for an immersive customer experience
+**Depends on**: Phase 64
+**Requirements**: TELE-03, TELE-04, TELE-05
+**Success Criteria** (what must be TRUE):
+  1. Shift light LEDs illuminate at correct RPM thresholds for AC and ACC (using Auto RPM configs)
+  2. Shift light LEDs illuminate at correct RPM thresholds for F1 25 and AC Rally (using manual RPM thresholds)
+  3. RGB button lighting responds to telemetry events (DRS, ABS, TC, flags) per game where supported
+**Plans**: TBD
+
+Plans:
+- [ ] 65-01: TBD
+
 ## Progress
 
 **Execution Order:**
@@ -534,3 +674,12 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 54. Structured Logging + Error Rate Alerting | v9.0 | 0/3 | Not started | - |
 | 55. Netdata Fleet Deploy | v9.0 | 0/2 | Not started | - |
 | 56. WhatsApp Alerting + Weekly Report | v9.0 | 0/2 | Not started | - |
+| 57. Session-End Safety | v10.0 | 0/? | Not started | - |
+| 58. ConspitLink Process Hardening | v10.0 | 0/? | Not started | - |
+| 59. Auto-Switch Configuration | v10.0 | 0/? | Not started | - |
+| 60. Pre-Launch Profile Loading | v10.0 | 0/? | Not started | - |
+| 61. FFB Preset Tuning | v10.0 | 0/? | Not started | - |
+| 62. Fleet Config Distribution | v10.0 | 0/? | Not started | - |
+| 63. Fleet Monitoring | v10.0 | 0/? | Not started | - |
+| 64. Telemetry Dashboards | v10.0 | 0/? | Not started | - |
+| 65. Shift Lights & RGB Lighting | v10.0 | 0/? | Not started | - |
