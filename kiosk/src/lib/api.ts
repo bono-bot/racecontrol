@@ -3,7 +3,7 @@ import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingS
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   (typeof window !== "undefined"
-    ? `http://${window.location.hostname}:8080`
+    ? `${window.location.protocol}//${window.location.host}`
     : "http://localhost:8080");
 
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
@@ -320,6 +320,13 @@ export const api = {
     fetchApi<{ ok: boolean; pod_id: string; blank: boolean }>(`/pods/${pod_id}/screen`, {
       method: "POST",
       body: JSON.stringify({ blank }),
+    }),
+
+  // Pod Unrestrict (employee training/maintenance — disables kiosk enforcement + clears lock screen)
+  unrestrictPod: (pod_id: string, unrestrict: boolean) =>
+    fetchApi<{ ok: boolean; pod_id: string; unrestricted: boolean }>(`/pods/${pod_id}/unrestrict`, {
+      method: "POST",
+      body: JSON.stringify({ unrestrict }),
     }),
 
   // Pod Power Management
