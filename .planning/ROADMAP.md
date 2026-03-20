@@ -858,10 +858,10 @@ Plans:
 
 Plans:
 - [x] 76-01-PLAN.md -- Route classification + staff JWT middleware (AUTH-01,02,03, SESS-01)
-- [ ] 76-02-PLAN.md -- Admin login + argon2 PIN hashing (ADMIN-01,02)
+- [x] 76-02-PLAN.md -- Admin login + argon2 PIN hashing (ADMIN-01,02)
 - [x] 76-03-PLAN.md -- rc-agent service key auth (AUTH-06)
-- [ ] 76-04-PLAN.md -- Rate limiting + bot wallet check + session integrity (AUTH-04,05, SESS-02,03)
-- [ ] 76-05-PLAN.md -- Dashboard frontend PIN gate + idle timeout (ADMIN-01,03)
+- [x] 76-04-PLAN.md -- Rate limiting + bot wallet check + session integrity (AUTH-04,05, SESS-02,03)
+- [x] 76-05-PLAN.md -- Dashboard frontend PIN gate + idle timeout (ADMIN-01,03)
 - [ ] 76-06-PLAN.md -- Switch permissive to strict JWT enforcement (AUTH-01,02,03, SESS-01)
 
 ### Phase 77: Transport Security
@@ -1020,7 +1020,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 73. Critical Business Tests | 1/2 | In Progress|  | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
-| 76. API Authentication & Admin Protection | 4/6 | In Progress|  | - |
+| 76. API Authentication & Admin Protection | 5/6 | In Progress|  | - |
 | 77. Transport Security | v12.0 | 0/? | Not started | - |
 | 78. Kiosk & Session Hardening | v12.0 | 0/? | Not started | - |
 | 79. Data Protection | v12.0 | 0/? | Not started | - |
