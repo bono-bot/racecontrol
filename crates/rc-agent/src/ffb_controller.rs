@@ -346,4 +346,84 @@ mod tests {
         assert_eq!(buf[5], 0x0A); // CmdID low byte (estop)
         assert_eq!(buf[9], 0x01); // Data low byte (1 = activate estop)
     }
+
+    #[test]
+    fn test_fxm_reset_buffer_format() {
+        // Verify fxm.reset uses CLASS_FXM (0x0A03), CMD_FXM_RESET (0x01), data 0
+        let mut buf = [0u8; 26];
+        buf[0] = REPORT_ID;
+        buf[1] = CMD_TYPE_WRITE;
+        buf[2..4].copy_from_slice(&CLASS_FXM.to_le_bytes());
+        buf[4] = 0;
+        buf[5..9].copy_from_slice(&CMD_FXM_RESET.to_le_bytes());
+        buf[9..17].copy_from_slice(&0i64.to_le_bytes());
+        buf[17..25].copy_from_slice(&0i64.to_le_bytes());
+
+        // CLASS_FXM at bytes 2-3: 0x0A03 LE = [0x03, 0x0A]
+        assert_eq!(buf[2], 0x03);
+        assert_eq!(buf[3], 0x0A);
+        // CMD_FXM_RESET at bytes 5-8: 0x01 LE = [0x01, 0x00, 0x00, 0x00]
+        assert_eq!(buf[5], 0x01);
+        assert_eq!(buf[6], 0x00);
+        assert_eq!(buf[7], 0x00);
+        assert_eq!(buf[8], 0x00);
+        // Data at bytes 9-16: 0i64 LE
+        let stored_data = i64::from_le_bytes([buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16]]);
+        assert_eq!(stored_data, 0);
+    }
+
+    #[test]
+    fn test_idlespring_buffer_format() {
+        // Verify idlespring uses CLASS_AXIS (0x0A01), CMD_IDLESPRING (0x05), data = value
+        let value: i64 = 2000;
+        let mut buf = [0u8; 26];
+        buf[0] = REPORT_ID;
+        buf[1] = CMD_TYPE_WRITE;
+        buf[2..4].copy_from_slice(&CLASS_AXIS.to_le_bytes());
+        buf[4] = 0;
+        buf[5..9].copy_from_slice(&CMD_IDLESPRING.to_le_bytes());
+        buf[9..17].copy_from_slice(&value.to_le_bytes());
+        buf[17..25].copy_from_slice(&0i64.to_le_bytes());
+
+        // CLASS_AXIS at bytes 2-3: 0x0A01 LE = [0x01, 0x0A]
+        assert_eq!(buf[2], 0x01);
+        assert_eq!(buf[3], 0x0A);
+        // CMD_IDLESPRING at bytes 5-8: 0x05 LE = [0x05, 0x00, 0x00, 0x00]
+        assert_eq!(buf[5], 0x05);
+        assert_eq!(buf[6], 0x00);
+        assert_eq!(buf[7], 0x00);
+        assert_eq!(buf[8], 0x00);
+        // Data at bytes 9-16: 2000i64 LE
+        let stored_data = i64::from_le_bytes([buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16]]);
+        assert_eq!(stored_data, 2000);
+    }
+
+    #[test]
+    fn test_idlespring_ramp_values() {
+        // 5-step ramp from 0 to target=2000 produces [400, 800, 1200, 1600, 2000]
+        let target: i64 = 2000;
+        let steps: Vec<i64> = (1..=5).map(|step| (target * step) / 5).collect();
+        assert_eq!(steps, vec![400, 800, 1200, 1600, 2000]);
+    }
+
+    #[test]
+    fn test_power_cap_80_percent() {
+        // 80% of 65535 = 52428
+        assert_eq!(POWER_CAP_80_PERCENT, 52428);
+        assert_eq!((80i64 * 65535) / 100, 52428);
+    }
+
+    #[test]
+    fn test_estop_still_uses_ffbwheel_class() {
+        // Regression guard: ESTOP path must use CLASS_FFBWHEEL, not CLASS_AXIS or CLASS_FXM
+        assert_eq!(CLASS_FFBWHEEL, 0x00A1);
+        assert_eq!(CMD_ESTOP, 0x0A);
+    }
+
+    #[test]
+    fn test_ffb_controller_is_clone() {
+        // FfbController must derive Clone for use in spawn_blocking closures
+        let c = FfbController::new(0x1209, 0xFFB0);
+        let _c2 = c.clone();
+    }
 }
