@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: Phase 51 context gathered
-last_updated: "2026-03-20T05:36:47.154Z"
+stopped_at: Completed 51-01-PLAN.md
+last_updated: "2026-03-20T05:59:53.188Z"
 last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 progress:
   total_phases: 21
   completed_phases: 10
-  total_plans: 23
-  completed_plans: 22
+  total_plans: 25
+  completed_plans: 23
   percent: 0
 ---
 
@@ -80,6 +80,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase 50 P01 | 8 | 2 tasks | 3 files |
 | Phase 50 P03 | 25 | 2 tasks | 6 files |
 | Phase 49 P02 | 12 | 2 tasks | 2 files |
+| Phase 51 P01 | 193 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -180,6 +181,8 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - Error rate alerting uses the existing send_email.js shell-out pattern — no new SMTP crate (constraint in PROJECT.md)
 - Netdata install on pods goes via rc-agent :8090 exec (not pendrive) — MEMORY.md confirms :8090 is deployed on all pods
 - WhatsApp bot is racingpoint-whatsapp-bot (bono-bot org) — already integrated for v5.0 Phase 27 bono_relay.rs
+- [Phase 51]: CLAUDE.md is the authoritative Racing Point context source; MEMORY.md holds identity + current state only, with explicit pointer to CLAUDE.md
+- [Phase 51]: CLAUDE.md at 179 lines uses dense tables — well under 300-line context pressure limit
 
 ### Pending Todos
 
@@ -195,7 +198,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T05:36:47.151Z
-Stopped at: Phase 51 context gathered
-Resume file: .planning/phases/51-claude-md-custom-skills/51-CONTEXT.md
+Last session: 2026-03-20T05:59:53.184Z
+Stopped at: Completed 51-01-PLAN.md
+Resume file: None
 Next action: Phase 51 Plan 01 — CLAUDE.md with project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order)

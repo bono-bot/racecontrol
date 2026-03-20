@@ -528,7 +528,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 48. Dynamic Kiosk Allowlist | 2/2 | Complete   | 2026-03-19 | - |
 | 49. Session Lifecycle Autonomy | 2/2 | Complete    | 2026-03-19 | - |
 | 50. LLM Self-Test + Fleet Health | 3/3 | Complete    | 2026-03-19 | - |
-| 51. CLAUDE.md + Custom Skills | v9.0 | 0/2 | Not started | - |
+| 51. CLAUDE.md + Custom Skills | 1/2 | In Progress|  | - |
 | 52. MCP Servers | v9.0 | 0/2 | Not started | - |
 | 53. Deployment Automation | v9.0 | 0/2 | Not started | - |
 | 54. Structured Logging + Error Rate Alerting | v9.0 | 0/3 | Not started | - |

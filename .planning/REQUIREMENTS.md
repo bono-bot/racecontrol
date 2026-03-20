@@ -9,7 +9,7 @@ Requirements for tooling & automation milestone. Each maps to roadmap phases.
 
 ### Claude Code Skills
 
-- [ ] **SKILL-01**: James's Claude Code sessions auto-load Racing Point project context (pod IPs, crate names, naming conventions, constraints) from a project-level CLAUDE.md
+- [x] **SKILL-01**: James's Claude Code sessions auto-load Racing Point project context (pod IPs, crate names, naming conventions, constraints) from a project-level CLAUDE.md
 - [ ] **SKILL-02**: James can invoke `/rp:deploy` to build rc-agent and stage the binary for pod deployment, with `disable-model-invocation: true`
 - [ ] **SKILL-03**: James can invoke `/rp:deploy-server` to build racecontrol, stop the old process, swap the binary, and verify :8080 comes back
 - [ ] **SKILL-04**: James can invoke `/rp:pod-status <pod>` to query any pod's rc-agent status via dynamic IP injection
@@ -77,7 +77,7 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SKILL-01 | Phase 51 | Pending |
+| SKILL-01 | Phase 51 | Complete |
 | SKILL-02 | Phase 51 | Pending |
 | SKILL-03 | Phase 51 | Pending |
 | SKILL-04 | Phase 51 | Pending |
