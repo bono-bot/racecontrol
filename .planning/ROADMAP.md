@@ -675,7 +675,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 54. Structured Logging + Error Rate Alerting | 1/3 | In Progress|  | - |
 | 55. Netdata Fleet Deploy | v9.0 | 0/2 | Not started | - |
 | 56. WhatsApp Alerting + Weekly Report | v9.0 | 0/2 | Not started | - |
-| 57. Session-End Safety | 1/3 | In Progress|  | - |
+| 57. Session-End Safety | 2/3 | In Progress|  | - |
 | 58. ConspitLink Process Hardening | v10.0 | 0/? | Not started | - |
 | 59. Auto-Switch Configuration | v10.0 | 0/? | Not started | - |
 | 60. Pre-Launch Profile Loading | v10.0 | 0/? | Not started | - |
