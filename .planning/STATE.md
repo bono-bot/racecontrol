@@ -38,7 +38,7 @@ Progress: [██████████] 97% (60/62 plans complete)
 |-------|------|--------------|--------|
 | 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Complete (2/2 plans done) |
 | 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Complete (2/2 plans done) |
-| 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | In progress (1/? plans done) |
+| 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Complete (2/2 plans done) |
 | 74 | rc-agent Decomposition | DECOMP-01..04 | Not started |
 
 **Phase 71:** rc-common exec.rs with feature gate (SHARED) + rc-sentry timeout, truncation, concurrency cap, partial read fix, structured logging (SHARD). No rc-agent changes. Verify `cargo tree -p rc-sentry` shows no tokio after every rc-common change.
@@ -93,6 +93,7 @@ Progress: [██████████] 97% (60/62 plans complete)
 - 76-04: tower_governor 0.8 with PeerIpKeyExtractor for per-IP rate limiting; into_make_service_with_connect_info for ConnectInfo; SQLx transaction wraps validate_pin token lifecycle
 - 76-04: Bot wallet check (AUTH-05) already existed; billing is deferred (in-memory), not DB -- TOCTOU mitigated by optimistic locking
 - 73-01: FfbBackend trait uses FfbController::method(self) fully-qualified delegation to avoid infinite recursion when trait and inherent method names match; mockall mock tests added inside existing test module; tokio test-util added to dev-deps to fix pre-existing billing_guard compilation (TEST-03 complete)
+- 73-02: tokio::time::Instant required (not std::time::Instant) for billing_guard debounce timers -- mock clock only controls tokio::time::* functions; yield_now x5 before first advance() lets spawned task start and register interval before clock moves (TEST-01, TEST-02 complete)
 - 76-05: JWT in localStorage with client-side expiry check; AuthGate skips /login pathname to avoid redirect loop; fetchApi auto-clears token + redirects on 401; useIdleTimeout listens to 5 event types with passive listeners (ADMIN-01, ADMIN-03 complete)
 - 76-06: One-line swap from require_staff_jwt_permissive to require_staff_jwt on staff sub-router; contract step of expand-migrate-contract; kept permissive variant for rollback (AUTH-01, AUTH-02, AUTH-03, SESS-01 complete)
 
@@ -115,7 +116,7 @@ Progress: [██████████] 97% (60/62 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:38:47.343Z
-Stopped at: Completed 76-06-PLAN.md
+Last session: 2026-03-20T13:49:07.000Z
+Stopped at: Completed 73-02-PLAN.md
 Resume file: None
-Next action: Phase 76 complete -- all 6 plans done. Next phase TBD.
+Next action: Phase 73 complete (TEST-01, TEST-02, TEST-03 all done) -- start Phase 74 rc-agent Decomposition (DECOMP-01..04)

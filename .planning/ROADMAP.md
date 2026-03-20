@@ -205,7 +205,7 @@ Harden rc-sentry into a reliable fallback operations tool, extract shared exec p
 
 - [x] **Phase 71: rc-common Foundation + rc-sentry Core Hardening** - rc-common exec.rs feature-gated (sync/async), rc-sentry timeout enforcement, output truncation, concurrency cap, partial TCP read fix, structured logging (completed 2026-03-20)
 - [x] **Phase 72: rc-sentry Endpoint Expansion + Integration Tests** - /health, /version, /files, /processes endpoints; endpoint integration tests for all routes (completed 2026-03-20)
-- [ ] **Phase 73: Critical Business Tests** - billing_guard and failure_monitor unit tests before any refactoring; FfbBackend trait seam for FFB controller tests
+- [x] **Phase 73: Critical Business Tests** - billing_guard and failure_monitor unit tests before any refactoring; FfbBackend trait seam for FFB controller tests (completed 2026-03-20)
 - [ ] **Phase 74: rc-agent Decomposition** - config.rs, app_state.rs, ws_handler.rs, event_loop.rs extracted from main.rs in strict risk order
 
 ## v12.0 Operations Security
@@ -1017,7 +1017,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |
 | 71. rc-common Foundation + rc-sentry Core Hardening | 2/2 | Complete    | 2026-03-20 | - |
 | 72. rc-sentry Endpoint Expansion + Integration Tests | 2/2 | Complete    | 2026-03-20 | - |
-| 73. Critical Business Tests | 1/2 | In Progress|  | - |
+| 73. Critical Business Tests | 2/2 | Complete   | 2026-03-20 | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
 | 76. API Authentication & Admin Protection | 6/6 | Complete   | 2026-03-20 | - |
