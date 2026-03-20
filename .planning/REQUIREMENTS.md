@@ -12,7 +12,7 @@ Comms Link v2.0 (shipped 2026-03-20) is the coordination backbone for James-Bono
 
 - [ ] **INFRA-01**: Server .23 has DHCP reservation pinned to MAC `10-FF-E0-80-B1-A7`
 - [ ] **INFRA-02**: James can execute commands on Server .23 via rc-agent :8090 over Tailscale IP
-- [ ] **INFRA-03**: James can execute commands on Bono VPS via comms-link exec_request protocol
+- [x] **INFRA-03**: James can execute commands on Bono VPS via comms-link exec_request protocol
 
 ### Config Sync
 
@@ -76,7 +76,7 @@ Comms Link v2.0 (shipped 2026-03-20) is the coordination backbone for James-Bono
 |-------------|-------|--------|
 | INFRA-01 | Phase 66 | Pending |
 | INFRA-02 | Phase 66 | Pending |
-| INFRA-03 | Phase 66 | Pending |
+| INFRA-03 | Phase 66 | Complete |
 | SYNC-01 | Phase 67 | Pending |
 | SYNC-02 | Phase 67 | Pending |
 | SYNC-03 | Phase 67 | Pending |

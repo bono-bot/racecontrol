@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
+stopped_at: "Phase 66-03: Task 1 done (wired Bono ExecHandler). Task 2 checkpoint awaiting Bono pull+restart + round-trip verification."
+last_updated: "2026-03-20T10:40:52.085Z"
+last_activity: 2026-03-20 — v10.0 Connectivity & Redundancy roadmap created, 5 phases (66-70), 22 requirements mapped
+progress:
+  total_phases: 35
+  completed_phases: 15
+  total_plans: 44
+  completed_plans: 37
+  percent: 84
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: Roadmap ready, awaiting plan-phase
 stopped_at: "Phase 55: server .23 Netdata installed (v2.9.0). Pods offline — deploy pending next venue open."
 last_updated: "2026-03-20T10:15:55.382Z"
 last_activity: 2026-03-20 — v10.0 Connectivity & Redundancy roadmap created, 5 phases (66-70), 22 requirements mapped
 progress:
-  total_phases: 35
+  [████████░░] 84%
   completed_phases: 15
   total_plans: 39
   completed_plans: 36
@@ -110,6 +126,7 @@ Progress: [░░░░░░░░░░] 0% (0/5 phases)
 | Phase 54-structured-logging-error-rate-alerting P03 | 6 | 2 tasks | 4 files |
 | Phase 58 P01 | 286 | 1 tasks | 1 files |
 | Phase 55 P01 | 815 | 1 tasks | 2 files |
+| Phase 66-infrastructure-foundations P03 | 2 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -252,6 +269,8 @@ Progress: [░░░░░░░░░░] 0% (0/5 phases)
 - Pod 8 canary testing required for SwitchController (Phase 68) before fleet deployment to all 8 pods
 - Comms Link v2.0 (shipped 2026-03-20) is the coordination backbone — sync_push, task_request, exec_request protocols all available
 - BACK-02 (session merge) is the highest-risk plan in the milestone — requires careful SQLite UUID reconciliation matching cloud_sync.rs pattern
+- [Phase 66-infrastructure-foundations]: Bono ExecHandler imports james/exec-handler.js (symmetric reuse — same handler class, registry determines valid commands)
+- [Phase 66-infrastructure-foundations]: activate_failover/deactivate_failover use pm2 app name 'racecontrol' — best guess, verify with 'pm2 list' on VPS before Phase 69
 
 ### Pending Todos
 
@@ -268,7 +287,7 @@ Progress: [░░░░░░░░░░] 0% (0/5 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T10:15:55.377Z
-Stopped at: Phase 55: server .23 Netdata installed (v2.9.0). Pods offline — deploy pending next venue open.
-Resume file: .planning/phases/55-netdata-fleet-deploy/55-02-PLAN.md
+Last session: 2026-03-20T10:40:52.080Z
+Stopped at: Phase 66-03: Task 1 done (wired Bono ExecHandler). Task 2 checkpoint awaiting Bono pull+restart + round-trip verification.
+Resume file: None
 Next action: Phase 66 — Infrastructure Foundations (DHCP reservation + Tailscale exec verification)
