@@ -27,6 +27,8 @@ pub struct Config {
     pub gmail: GmailConfig,
     #[serde(default)]
     pub monitoring: MonitoringConfig,
+    #[serde(default)]
+    pub alerting: AlertingConfig,
 }
 
 /// Gmail API config for sending notification emails (track record beaten, etc.)
@@ -309,6 +311,21 @@ impl Default for MonitoringConfig {
     }
 }
 
+/// Configuration for WhatsApp P0 alerting to Uday.
+#[derive(Debug, Default, Deserialize)]
+pub struct AlertingConfig {
+    /// Enable WhatsApp P0 alerting (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Uday's WhatsApp number in Evolution API format (e.g., "919876543210")
+    pub uday_phone: Option<String>,
+    /// Cooldown between same-type P0 alerts in seconds (default: 1800 = 30 min)
+    #[serde(default = "default_alert_cooldown")]
+    pub cooldown_secs: u64,
+}
+
+fn default_alert_cooldown() -> u64 { 1800 }
+
 /// Configuration for the Bono relay: event push to Bono's VPS over Tailscale mesh,
 /// and inbound relay endpoint for commands from Bono's cloud.
 #[derive(Debug, Deserialize)]
@@ -392,6 +409,7 @@ impl Config {
             bono: BonoConfig::default(),
             gmail: GmailConfig::default(),
             monitoring: MonitoringConfig::default(),
+            alerting: AlertingConfig::default(),
         }
     }
 

@@ -33,6 +33,7 @@ pub mod scheduler;
 pub mod server_ops;
 pub mod state;
 pub mod wallet;
+pub mod whatsapp_alerter;
 pub mod udp_heartbeat;
 pub mod wol;
 pub mod ws;

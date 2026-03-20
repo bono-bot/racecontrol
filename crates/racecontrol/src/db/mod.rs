@@ -2009,6 +2009,35 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── Phase 56: WhatsApp Alerting + Weekly Report ───────────────────────────
+    // Uptime sampling for weekly report
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pod_uptime_samples (
+            pod_id TEXT NOT NULL,
+            sampled_at TEXT NOT NULL,
+            ws_connected INTEGER NOT NULL,
+            PRIMARY KEY (pod_id, sampled_at)
+        )"
+    ).execute(pool).await?;
+
+    // Alert incident log for weekly report
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS alert_incidents (
+            id TEXT PRIMARY KEY,
+            alert_type TEXT NOT NULL,
+            started_at TEXT NOT NULL DEFAULT (datetime('now')),
+            resolved_at TEXT,
+            pod_count INTEGER,
+            description TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_alert_incidents_type ON alert_incidents(alert_type)")
+        .execute(pool).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_alert_incidents_started ON alert_incidents(started_at)")
+        .execute(pool).await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
