@@ -279,3 +279,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 12:18 IST | James | `0a241c8` | docs(52-02): complete rc-ops-mcp plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
 | 2026-03-20 13:36 IST | James | `9f7addd` | feat(53-02): add /rp:deploy-fleet canary-first fleet deploy skill — Pod 8 + verify.sh gate + approval prompt before pods 1-7 |
 | 2026-03-20 13:36 IST | James | `acee734` | docs(53-02): complete deploy-fleet plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (DEPLOY-02, DEPLOY-03) |
+| 2026-03-20 13:36 IST | James | `290e0a6` | chore(53-01): register RacingPoint-StagingHTTP and RacingPoint-WebTerm Task Scheduler tasks (ONLOGON, user bono) |
+| 2026-03-20 13:37 IST | James | `4f260bd` | feat(53-01): add tests/e2e/deploy/auto-start.sh — liveness check for :9998 and :9999 |
+| 2026-03-20 13:38 IST | James | `563e9c4` | docs(53-01): complete autostart plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (DEPLOY-01) |
