@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 73-02-PLAN.md
-last_updated: "2026-03-20T13:43:57.737Z"
+stopped_at: Completed 68-01-PLAN.md
+last_updated: "2026-03-20T14:02:05.654Z"
 last_activity: "2026-03-20 -- 76-06 complete: strict JWT enforcement on 172 staff routes (AUTH-01, AUTH-02, AUTH-03, SESS-01)"
 progress:
   total_phases: 45
   completed_phases: 24
-  total_plans: 64
-  completed_plans: 60
+  total_plans: 67
+  completed_plans: 61
 ---
 
 ---
@@ -40,12 +40,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 76 of 80 (API Authentication & Admin Protection)
-Plan: 06 of 06 complete
-Status: Phase 76 complete
-Last activity: 2026-03-20 -- 76-06 complete: strict JWT enforcement on 172 staff routes (AUTH-01, AUTH-02, AUTH-03, SESS-01)
+Phase: 68 of 80 (Pod SwitchController)
+Plan: 01 of 02 complete
+Status: Plan 68-01 complete
+Last activity: 2026-03-20 -- 68-01 complete: SwitchController protocol variant, failover_url config, HeartbeatStatus.last_switch_ms (FAIL-01, FAIL-03, FAIL-04)
 
-Progress: [██████████] 97% (60/62 plans complete)
+Progress: [█████████░] 91% (61/67 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -111,6 +111,7 @@ Progress: [██████████] 97% (60/62 plans complete)
 - 73-02: tokio::time::Instant required (not std::time::Instant) for billing_guard debounce timers -- mock clock only controls tokio::time::* functions; yield_now x5 before first advance() lets spawned task start and register interval before clock moves (TEST-01, TEST-02 complete)
 - 76-05: JWT in localStorage with client-side expiry check; AuthGate skips /login pathname to avoid redirect loop; fetchApi auto-clears token + redirects on 401; useIdleTimeout listens to 5 event types with passive listeners (ADMIN-01, ADMIN-03 complete)
 - 76-06: One-line swap from require_staff_jwt_permissive to require_staff_jwt on staff sub-router; contract step of expand-migrate-contract; kept permissive variant for rollback (AUTH-01, AUTH-02, AUTH-03, SESS-01 complete)
+- 68-01: SwitchController placed after RunSelfTest — additive variant, no enum reorder; failover_url: Option<String> with serde(default) for zero-friction backward compat; last_switch_ms: AtomicU64 on HeartbeatStatus for Plan 02 runtime wiring (FAIL-01, FAIL-03, FAIL-04 data contracts complete)
 
 ### Blockers/Concerns
 
@@ -131,7 +132,7 @@ Progress: [██████████] 97% (60/62 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:49:07.000Z
-Stopped at: Completed 73-02-PLAN.md
+Last session: 2026-03-20T14:02:05.649Z
+Stopped at: Completed 68-01-PLAN.md
 Resume file: None
 Next action: Phase 73 complete (TEST-01, TEST-02, TEST-03 all done) -- start Phase 74 rc-agent Decomposition (DECOMP-01..04)

@@ -322,3 +322,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 19:03 IST | James | bc2cfc9 | test(73-02): add timer+channel tests for BILL-02/BILL-03 (TEST-01) -- 6 async tests, tokio::time::Instant |
 | 2026-03-20 19:04 IST | James | 076f905 | test(73-02): add requirement-named tests for CRASH-01/CRASH-02 (TEST-02) -- 6 condition tests |
 | 2026-03-20 19:20 IST | James | 6e51331 | docs(73-02): complete critical business tests plan -- SUMMARY, STATE, ROADMAP |
+| 2026-03-20 19:30 IST | James | cccd7c9 | feat(68-01): add SwitchController variant to CoreToAgentMessage + serde round-trip test |
+| 2026-03-20 19:30 IST | James | c26f939 | feat(68-01): add failover_url to CoreConfig, last_switch_ms to HeartbeatStatus, 4 unit tests |
