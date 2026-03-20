@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: executing
-stopped_at: Completed 73-01-PLAN.md
-last_updated: "2026-03-20T13:29:55.443Z"
-last_activity: "2026-03-20 -- 73-01 complete: FfbBackend trait seam + mockall tests (TEST-03)"
+stopped_at: Phase 68 context gathered
+last_updated: "2026-03-20T13:33:07.429Z"
+last_activity: "2026-03-20 -- 76-05 complete: dashboard PIN gate, AuthGate wrapper, 15-min idle timeout (ADMIN-01, ADMIN-03)"
 progress:
   total_phases: 45
   completed_phases: 22
   total_plans: 62
-  completed_plans: 57
-  percent: 92
+  completed_plans: 58
+  percent: 94
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v12.0 Security Audit & Hardening -- Phase 76 in progress (4/6 plans complete)
+**Current focus:** v12.0 Security Audit & Hardening -- Phase 76 in progress (5/6 plans complete)
 
 ## Current Position
 
 Phase: 73 of 80 (Critical Business Tests)
 Plan: 01 complete; 02 next
 Status: In progress
-Last activity: 2026-03-20 -- 73-01 complete: FfbBackend trait seam + mockall tests (TEST-03)
+Last activity: 2026-03-20 -- 76-05 complete: dashboard PIN gate, AuthGate wrapper, 15-min idle timeout (ADMIN-01, ADMIN-03)
 
-Progress: [█████████░] 92% (57/62 plans complete)
+Progress: [█████████░] 94% (58/62 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -93,6 +93,7 @@ Progress: [█████████░] 92% (57/62 plans complete)
 - 76-04: tower_governor 0.8 with PeerIpKeyExtractor for per-IP rate limiting; into_make_service_with_connect_info for ConnectInfo; SQLx transaction wraps validate_pin token lifecycle
 - 76-04: Bot wallet check (AUTH-05) already existed; billing is deferred (in-memory), not DB -- TOCTOU mitigated by optimistic locking
 - 73-01: FfbBackend trait uses FfbController::method(self) fully-qualified delegation to avoid infinite recursion when trait and inherent method names match; mockall mock tests added inside existing test module; tokio test-util added to dev-deps to fix pre-existing billing_guard compilation (TEST-03 complete)
+- 76-05: JWT in localStorage with client-side expiry check; AuthGate skips /login pathname to avoid redirect loop; fetchApi auto-clears token + redirects on 401; useIdleTimeout listens to 5 event types with passive listeners (ADMIN-01, ADMIN-03 complete)
 
 ### Blockers/Concerns
 
@@ -113,7 +114,7 @@ Progress: [█████████░] 92% (57/62 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:26:57.055Z
-Stopped at: Completed 73-01-PLAN.md
-Resume file: None
+Last session: 2026-03-20T13:33:07.423Z
+Stopped at: Phase 68 context gathered
+Resume file: .planning/phases/68-pod-switchcontroller/68-CONTEXT.md
 Next action: Continue Phase 76 -- API Authentication & Admin Protection (plan 04 next)
