@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 76 of 80 (API Authentication & Admin Protection)
-Plan: 02 complete (also 01, 03 complete; 04 next)
+Plan: 04 complete (also 01, 02, 03 complete; 05 next)
 Status: In progress
-Last activity: 2026-03-20 -- 76-02 complete: admin PIN-to-JWT login with argon2id verification
+Last activity: 2026-03-20 -- 76-04 complete: rate limiting on auth endpoints + atomic token consumption
 
-Progress: [█████████░] 89% (55/62 plans complete)
+Progress: [█████████░] 90% (56/62 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -90,6 +90,8 @@ Progress: [█████████░] 89% (55/62 plans complete)
 - 67-02: config_snapshot uses total += 1 (single record semantics, not per-field) -- consistent with other upserts
 - 67-02: Structured tracing on config_snapshot receipt: venue name, pod count, hash prefix (first 8 chars)
 - 76-02: argon2 0.5 with Argon2id default params for admin PIN hashing; spawn_blocking for CPU-heavy verification; 503 when no hash configured; 12h JWT expiry (shift-length limit)
+- 76-04: tower_governor 0.8 with PeerIpKeyExtractor for per-IP rate limiting; into_make_service_with_connect_info for ConnectInfo; SQLx transaction wraps validate_pin token lifecycle
+- 76-04: Bot wallet check (AUTH-05) already existed; billing is deferred (in-memory), not DB -- TOCTOU mitigated by optimistic locking
 
 ### Blockers/Concerns
 
@@ -110,7 +112,7 @@ Progress: [█████████░] 89% (55/62 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-20T13:20:07Z
-Stopped at: Completed 67-02-PLAN.md
+Last session: 2026-03-20T13:23:50Z
+Stopped at: Completed 76-04-PLAN.md
 Resume file: None
 Next action: Continue Phase 76 -- API Authentication & Admin Protection (plan 04 next)
