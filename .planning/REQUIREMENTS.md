@@ -78,10 +78,10 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SKILL-01 | Phase 51 | Complete |
-| SKILL-02 | Phase 51 | Pending |
-| SKILL-03 | Phase 51 | Pending |
-| SKILL-04 | Phase 51 | Pending |
-| SKILL-05 | Phase 51 | Pending |
+| SKILL-02 | Phase 51 | Complete |
+| SKILL-03 | Phase 51 | Complete |
+| SKILL-04 | Phase 51 | Complete |
+| SKILL-05 | Phase 51 | Complete |
 | MCP-01 | Phase 52 | Pending |
 | MCP-02 | Phase 52 | Pending |
 | MCP-03 | Phase 52 | Pending |
