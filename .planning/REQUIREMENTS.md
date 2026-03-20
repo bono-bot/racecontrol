@@ -25,8 +25,8 @@ Requirements for tooling & automation milestone. Each maps to roadmap phases.
 ### Deployment Automation
 
 - [ ] **DEPLOY-01**: Staging HTTP server and webterm auto-start on James's machine boot via HKLM Run key or Task Scheduler
-- [ ] **DEPLOY-02**: Post-deploy verification script checks binary size, polls /health, and confirms agent reconnection on /fleet/health
-- [ ] **DEPLOY-03**: Deploy script enforces canary-first (Pod 8) with explicit human approval before fleet rollout
+- [x] **DEPLOY-02**: Post-deploy verification script checks binary size, polls /health, and confirms agent reconnection on /fleet/health
+- [x] **DEPLOY-03**: Deploy script enforces canary-first (Pod 8) with explicit human approval before fleet rollout
 
 ### Monitoring & Alerting
 
@@ -87,8 +87,8 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 | MCP-03 | Phase 52 | Complete |
 | MCP-04 | Phase 52 | Complete |
 | DEPLOY-01 | Phase 53 | Pending |
-| DEPLOY-02 | Phase 53 | Pending |
-| DEPLOY-03 | Phase 53 | Pending |
+| DEPLOY-02 | Phase 53 | Complete |
+| DEPLOY-03 | Phase 53 | Complete |
 | MON-01 | Phase 54 | Pending |
 | MON-02 | Phase 54 | Pending |
 | MON-03 | Phase 54 | Pending |

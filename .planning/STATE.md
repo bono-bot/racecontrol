@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: Phase 57 context gathered
-last_updated: "2026-03-20T08:01:12.961Z"
+stopped_at: "Completed 53-02-PLAN.md — /rp:deploy-fleet skill created"
+last_updated: "2026-03-20T08:03:40.223Z"
 last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 progress:
   total_phases: 30
   completed_phases: 12
   total_plans: 29
-  completed_plans: 26
+  completed_plans: 27
   percent: 0
 ---
 
@@ -103,6 +103,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase 51 P01 | 193 | 2 tasks | 2 files |
 | Phase 52-mcp-servers P01 | 4 | 2 tasks | 6 files |
 | Phase 52-mcp-servers P02 | 3 | 2 tasks | 3 files |
+| Phase 53-deployment-automation P02 | 2 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -211,6 +212,9 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - [Phase 52-mcp-servers]: rc-ops-mcp runs on James's machine (.27) not on server — avoids exposing server REST API externally
 - [Phase 52-mcp-servers]: Native fetch() only in rc-ops-mcp — Node 22 built-in, no axios/node-fetch dependency
 - [Phase 52-mcp-servers]: Per-pod exec via /pods/{id}/exec (NOT /fleet/exec which does not exist) — 10 tools cover all priority racecontrol endpoints
+- [Phase 53-02]: Use deploy_pod.py (NOT deploy-all-pods.py) — avoids hardcoded TARGET_SIZE that must be updated per build
+- [Phase 53-02]: Sequential pod deploy (not parallel) — prevents RCAGENT_SELF_RESTART race conditions across pods
+- [Phase 53-02]: Approval gate accepts y/yes/go/proceed only — any ambiguity cancels fleet rollout
 
 ### Pending Todos
 
@@ -226,7 +230,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T08:01:12.957Z
-Stopped at: Phase 57 context gathered
-Resume file: .planning/phases/57-session-end-safety/57-CONTEXT.md
+Last session: 2026-03-20T08:03:40.219Z
+Stopped at: Completed 53-02-PLAN.md — /rp:deploy-fleet skill created
+Resume file: None
 Next action: Phase 51 Plan 01 — CLAUDE.md with project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order)
