@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
 milestone: v9.0
-milestone_name: Tooling & Automation Research
+milestone_name: Tooling & Automation
 status: active
 stopped_at: null
 last_updated: "2026-03-20T00:00:00.000Z"
-last_activity: "2026-03-20 — Milestone v9.0 unpaused, research complete, defining requirements"
+last_activity: "2026-03-20 — Roadmap created, 6 phases defined (51-56), 19 requirements mapped"
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
-  total_plans: 0
+  total_plans: 13
   completed_plans: 0
   percent: 0
 ---
@@ -21,16 +21,30 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v9.0 Tooling & Automation Research — defining requirements
+**Current focus:** v9.0 Tooling & Automation — Phase 51: CLAUDE.md + Custom Skills
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-20 — Milestone v9.0 unpaused, defining requirements
+Phase: 51 — CLAUDE.md + Custom Skills
+Plan: Not started
+Status: Roadmap ready, awaiting plan-phase
+Last activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [░░░░░░░░░░] 0% (0/6 phases)
+
+## Phase Map — v9.0
+
+| Phase | Name | Requirements | Access | Status |
+|-------|------|--------------|--------|--------|
+| 51 | CLAUDE.md + Custom Skills | SKILL-01 through SKILL-05 | James workstation only | Not started |
+| 52 | MCP Servers | MCP-01 through MCP-04 | James workstation only | Not started |
+| 53 | Deployment Automation | DEPLOY-01 through DEPLOY-03 | James workstation only | Not started |
+| 54 | Structured Logging + Error Rate Alerting | MON-01 through MON-03 | Server + pods (Rust changes) | Not started |
+| 55 | Netdata Fleet Deploy | MON-04 through MON-05 | Server + pods via :8090 | Not started |
+| 56 | WhatsApp Alerting + Weekly Report | MON-06 through MON-07 | Server (depends on Phase 54) | Not started |
+
+**Phases 51-53:** James workstation only, zero pod access needed.
+**Phases 54-56:** Require server/pod access, deployed via pendrive or rc-agent :8090.
 
 ## Performance Metrics
 
@@ -155,21 +169,33 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 49]: CrashRecoveryState timer embedded in enum variant (not a separate armed bool) — eliminates split state, cleaner tokio::select! polling
 - [Phase 49]: WS 30s grace window uses ws_disconnected_at: Option<Instant> with get_or_insert_with — billing+game continue during WiFi blips, Disconnected screen suppressed for first 30s
 
+(v9.0 Tooling & Automation — key constraints from roadmap)
+- Phase 51-53 have zero pod access requirements — can execute on James's workstation alone
+- Phase 54-56 require Rust code changes deployed to server and pods — use pendrive or rc-agent :8090
+- CLAUDE.md must be created in the repo root (not .planning/) so Claude Code auto-loads it on session start
+- Custom skills use disable-model-invocation: true for SKILL-02 and SKILL-03 (per requirements) — deterministic deploy flows, not LLM-mediated
+- racingpoint-google OAuth is the existing auth for MCP-01/02/03 — do not create new OAuth credentials
+- rc-ops-mcp (MCP-04) runs on James's machine (:27), not on the server — avoids exposing server REST API externally
+- tracing-appender crate already used in racecontrol; tracing-subscriber needs JSON feature flag for MON-01/02
+- Error rate alerting uses the existing send_email.js shell-out pattern — no new SMTP crate (constraint in PROJECT.md)
+- Netdata install on pods goes via rc-agent :8090 exec (not pendrive) — MEMORY.md confirms :8090 is deployed on all pods
+- WhatsApp bot is racingpoint-whatsapp-bot (bono-bot org) — already integrated for v5.0 Phase 27 bono_relay.rs
+
 ### Pending Todos
 
 - Pod 3 still not verified running after fix-pod.bat — needs physical reboot + verification
 - Version string inconsistency: USB-installed pods report v0.1.0, HTTP-deployed report v0.5.2
 - BIOS AMD-V disabled on Ryzen 7 5800X — v6.0 blocked; must enable SVM Mode before Phase 36
+- Clean up .planning/update_roadmap_v9.py after v9.0 roadmap creation (can delete)
 
 ### Blockers/Concerns
 
-- v6.0 (Phases 36–40) is blocked on BIOS AMD-V — Phase 41 may start independently as pure test infrastructure
-- Phase 42 gate: RESOLVED — 97 data-testid attributes added to book/page.tsx, SetupWizard.tsx, page.tsx in Plan 42-01
-- Phase 43 gate: Steam app IDs for EA Anti-Cheat wrapped games require manual verification on Pod 8 before launch specs are written
+- v6.0 (Phases 36–40) is blocked on BIOS AMD-V — does not affect v9.0 (no SaltStack dependency)
+- Gmail OAuth tokens expired — MCP-01/02/03 (Phase 52) will need re-authorization of racingpoint-google OAuth before MCP server can connect
 
 ## Session Continuity
 
-Last session: 2026-03-19T03:41:59.699Z
-Stopped at: Completed 49-02-PLAN.md
+Last session: 2026-03-20T00:00:00.000Z
+Stopped at: v9.0 roadmap creation complete
 Resume file: None
-Next action: Phase 49 Plan 02 — SESSION-03 billing pause/resume during crash recovery
+Next action: Phase 51 Plan 01 — CLAUDE.md with project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order)

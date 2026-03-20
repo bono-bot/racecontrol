@@ -1,4 +1,4 @@
-# Roadmap: RaceControl
+# Roadmap: Racing Point Operations (Unified)
 
 ## Completed Milestones
 
@@ -58,6 +58,28 @@ Key: billing_rates DB table + non-retroactive additive algorithm + in-memory rat
 
 </details>
 
+<details>
+<summary>Comms Link v1.0 — James-Bono Communication — 8 phases, 14 plans (Shipped 2026-03-12)</summary>
+
+Repo origin: comms-link | Archive: archive/comms-link-v1.0/
+
+Phases: WebSocket Connection → Reconnection Reliability → Heartbeat → Watchdog Core → Watchdog Hardening → Alerting → Logbook Sync → Coordination & Daily Ops
+
+Key: persistent WS with PSK auth, auto-reconnect with queue flush, Claude watchdog with cooldown DI, bidirectional LOGBOOK.md sync, IST-windowed daily summaries, WhatsApp/email alerts.
+
+</details>
+
+<details>
+<summary>AC Launcher v1.0 — Full AC Launch Experience — 9 phases, 20 plans (Shipped 2026-03-14)</summary>
+
+Repo origin: ac-launcher | Archive: archive/ac-launcher-v1.0/
+
+Phases: Session Types & Race Mode → Difficulty Tiers → Billing Synchronization → Safety Enforcement → Content Validation & Filtering → Mid-Session Controls → Curated Presets → Staff/PWA Integration → Multiplayer Enhancement
+
+Key: 5 difficulty tiers, billing synced to in-game start, safety presets enforced, content validation, mid-session controls, curated presets, multiplayer with lobby enrichment.
+
+</details>
+
 ## Current Milestone
 
 ### v6.0 Salt Fleet Management (Phases 36–40)
@@ -71,6 +93,10 @@ Key: billing_rates DB table + non-retroactive additive algorithm + in-memory rat
 ### v8.0 RC Bot Autonomy (Phases 45–49)
 
 **Milestone Goal:** Raise rc-agent autonomy from 6/10 to 8/10 — fix the CLOSE_WAIT socket leak causing 5/8 pods to self-relaunch every 5 minutes, install panic hooks for FFB safety on crash, deploy local Ollama (qwen3:0.6b + rp-debug model) to all 8 pods so AI diagnosis is instant and offline-capable, add dynamic server-fetched kiosk allowlist to eliminate the #1 manual intervention, auto-end orphaned billing sessions, and auto-reset pods after session end.
+
+### v9.0 Tooling & Automation (Phases 51–56)
+
+**Milestone Goal:** Install the tooling layer that makes James+Claude more effective — CLAUDE.md project context + 5 custom skills so Claude always knows pod IPs and naming conventions, MCP servers for Google Workspace (Gmail/Sheets/Calendar) and racecontrol REST API access, deployment automation so staging auto-starts and every deploy runs a verified canary-first flow, structured JSON logs in racecontrol and rc-agent with error-rate email alerts, Netdata fleet monitoring on server and all 8 pods, WhatsApp P0 alerts to Uday, and a weekly fleet uptime report.
 
 ## Phases
 
@@ -96,6 +122,13 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 48: Dynamic Kiosk Allowlist** - Server endpoint GET /api/v1/config/kiosk-allowlist, admin panel UI for adding/removing allowed processes, rc-agent fetches allowlist on startup + every 5 min, merges with hardcoded baseline, LLM-based process classifier for unknown processes (ALLOW/BLOCK/ASK). **E2E (v7.0):** Add `tests/e2e/api/kiosk-allowlist.sh` — curl CRUD on allowlist API, verify rc-agent picks up new process within 5min, Playwright test for admin panel UI (completed 2026-03-19)
 - [x] **Phase 49: Session Lifecycle Autonomy** - Auto-end orphaned billing sessions after configurable threshold (TOML: auto_end_orphan_session_secs), auto-reset pod to idle 30s after session end, game crash pauses billing with auto-resume on relaunch (max 2 retries before auto-end), fast WS reconnect path (skip relaunch if reconnect succeeds within 30s). **E2E (v7.0):** Add `tests/e2e/api/session-lifecycle.sh` — create billing session, verify auto-end after timeout, verify pod reset to idle, verify billing pause on simulated crash (completed 2026-03-19)
 - [x] **Phase 50: LLM Self-Test + Fleet Health** - self_test.rs with 18 deterministic probes (WS, lock screen, remote ops, overlay, debug server, 5 UDP ports, HID, Ollama, CLOSE_WAIT, single instance, disk, memory, shader cache, build_id, billing state, session ID, GPU temp, Steam), local LLM verdict (HEALTHY/DEGRADED/CRITICAL) with correlation and auto-fix recommendations, server /api/v1/pods/{id}/self-test endpoint, expanded auto-fix patterns 8-14 (DirectX, shader cache, memory, DLL, Steam, performance, network). **E2E (v7.0):** Add `tests/e2e/fleet/pod-health.sh` — trigger self-test on all 8 pods via API, assert all HEALTHY, wire into run-all.sh as final phase gate (completed 2026-03-19)
+
+- [ ] **Phase 51: CLAUDE.md + Custom Skills** - Project context file + 5 slash commands so Claude auto-loads venue context and James can trigger structured workflows from any session
+- [ ] **Phase 52: MCP Servers** - Google Workspace MCP (Gmail, Sheets, Calendar) and rc-ops-mcp (racecontrol REST API) wired into Claude Code
+- [ ] **Phase 53: Deployment Automation** - Staging HTTP server and webterm auto-start on boot, post-deploy verify script, canary-first gate enforced
+- [ ] **Phase 54: Structured Logging + Error Rate Alerting** - racecontrol and rc-agent emit structured JSON logs with daily rotation; error-rate email alerting
+- [ ] **Phase 55: Netdata Fleet Deploy** - Netdata agent on server (.23) and all 8 pods via rc-agent :8090 exec, live system metrics dashboards
+- [ ] **Phase 56: WhatsApp Alerting + Weekly Report** - P0 events trigger WhatsApp to Uday; weekly automated email report with sessions, uptime %, credits, incidents
 
 ## Phase Details
 
@@ -343,10 +376,98 @@ Plans:
 - [ ] 50-02-PLAN.md — Auto-fix patterns 8-14 in ai_debugger.rs (SELFTEST-04)
 - [ ] 50-03-PLAN.md — Server endpoint + WS plumbing + agent handler + pod-health.sh E2E + run-all.sh integration (SELFTEST-03, SELFTEST-05)
 
+### Phase 51: CLAUDE.md + Custom Skills
+**Goal**: Claude Code sessions always start with full Racing Point context — pod IPs, crate names, naming conventions, constraints — and James can trigger structured deploy and incident workflows with single slash commands, no manual copy-paste of context
+**Depends on**: Nothing (James workstation only, zero install)
+**Requirements**: SKILL-01, SKILL-02, SKILL-03, SKILL-04, SKILL-05
+**Success Criteria** (what must be TRUE):
+  1. Opening any Claude Code session in the racecontrol repo, Claude immediately knows all 8 pod IPs, crate names, binary naming rules, and the 4-tier debug order without James typing any context
+  2. `/rp:deploy` builds rc-agent, stages the binary, and outputs the pendrive deploy command — James never needs to remember cargo flags or paths
+  3. `/rp:deploy-server` stops the old racecontrol process, swaps the binary, and confirms :8080 returns 200 — the full server deploy flow in one command
+  4. `/rp:pod-status pod-8` returns rc-agent WS status, billing state, and last heartbeat for Pod 8 by querying /fleet/health with the correct IP injected automatically
+  5. `/rp:incident "Pod 3 lock screen blank"` returns a structured 4-tier response: deterministic checks first, memory patterns, Ollama diagnosis steps, then cloud escalation
+**Plans**: TBD
+
+Plans:
+- [ ] 51-01-PLAN.md — CLAUDE.md: project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order) (SKILL-01)
+- [ ] 51-02-PLAN.md — Custom skills: /rp:deploy, /rp:deploy-server, /rp:pod-status, /rp:incident (SKILL-02, SKILL-03, SKILL-04, SKILL-05)
+
+### Phase 52: MCP Servers
+**Goal**: Claude Code can query Gmail, Google Sheets, Google Calendar, and the racecontrol REST API directly from any session — James describes what he needs in plain language and Claude fetches live data without manual curl or browser lookups
+**Depends on**: Phase 51 (CLAUDE.md must document MCP tool names so skills can reference them)
+**Requirements**: MCP-01, MCP-02, MCP-03, MCP-04
+**Success Criteria** (what must be TRUE):
+  1. Claude Code reads the latest Gmail messages in james@racingpoint.in without James opening a browser — MCP-01 Google Workspace MCP connected via existing racingpoint-google OAuth
+  2. Claude Code reads a cell range from a Racing Point Google Sheet and writes computed values back — MCP-02 Sheets read/write works end-to-end
+  3. Claude Code lists today's Google Calendar events for james@racingpoint.in — MCP-03 Calendar read works
+  4. Claude Code calls GET /api/v1/fleet/health on the local racecontrol server and returns structured pod statuses — MCP-04 rc-ops-mcp running on James's machine and responding
+**Plans**: TBD
+
+Plans:
+- [ ] 52-01-PLAN.md — Google Workspace MCP: wire racingpoint-google OAuth into Claude Code MCP config, verify Gmail + Sheets + Calendar (MCP-01, MCP-02, MCP-03)
+- [ ] 52-02-PLAN.md — rc-ops-mcp: Node.js MCP server exposing racecontrol REST endpoints; Claude Code MCP config entry (MCP-04)
+
+### Phase 53: Deployment Automation
+**Goal**: The staging HTTP server and webterm start automatically when James's machine boots; every deploy runs a verification script confirming binary size changed, /health returns 200, and all agents reconnected; the deploy script enforces canary-first and requires explicit approval before fleet rollout
+**Depends on**: Phase 51 (deploy skills reference the verify script)
+**Requirements**: DEPLOY-01, DEPLOY-02, DEPLOY-03
+**Success Criteria** (what must be TRUE):
+  1. After a cold reboot of James's machine, the staging HTTP server (deploy-staging/) and webterm (port 9999) are running within 60 seconds without James opening any terminal — autostart confirmed
+  2. Running the post-deploy verify script outputs: binary size changed (before vs after bytes), /api/v1/fleet/health returns HTTP 200, and all 8 agents show ws_connected:true — exits non-zero on any failure
+  3. The deploy script deploys to Pod 8 first, waits for verify to pass, then prints a confirmation prompt and refuses to proceed to all pods until James explicitly approves — canary gate is enforced, not advisory
+**Plans**: TBD
+
+Plans:
+- [ ] 53-01-PLAN.md — Autostart: HKLM Run key or Task Scheduler entries for deploy-staging HTTP server + webterm.py (DEPLOY-01)
+- [ ] 53-02-PLAN.md — Post-deploy verify script: binary size check + /health poll + fleet reconnect check + canary-first gate with approval prompt (DEPLOY-02, DEPLOY-03)
+
+### Phase 54: Structured Logging + Error Rate Alerting
+**Goal**: racecontrol and rc-agent write structured JSON logs to daily-rotating files so incidents can be investigated with jq; racecontrol watches its own error rate and emails James and Uday when it exceeds a configurable threshold
+**Depends on**: Phase 53 (deployment automation must be in place before Rust code changes are deployed)
+**Requirements**: MON-01, MON-02, MON-03
+**Success Criteria** (what must be TRUE):
+  1. After a racecontrol restart, the logs directory on the server shows racecontrol-YYYY-MM-DD.jsonl with JSON entries containing timestamp, level, and message fields — structured logs with daily rotation
+  2. After an rc-agent restart on any pod, the logs directory shows rc-agent-YYYY-MM-DD.jsonl with JSON entries including pod_id, timestamp, level, and message fields
+  3. Triggering 5 consecutive errors in racecontrol within 1 minute (configurable via error_rate_threshold and error_rate_window_secs in racecontrol.toml) sends an email to james@racingpoint.in and usingh@racingpoint.in within 2 minutes — rate-limited, no second email for 30 minutes
+**Plans**: TBD
+
+Plans:
+- [ ] 54-01-PLAN.md — racecontrol structured logging: tracing-subscriber JSON format + daily file rotation via tracing-appender (MON-01)
+- [ ] 54-02-PLAN.md — rc-agent structured logging: same tracing-subscriber JSON setup + daily rotation (MON-02)
+- [ ] 54-03-PLAN.md — Error rate alerting in racecontrol: sliding window counter + threshold config + email via send_email.js (MON-03)
+
+### Phase 55: Netdata Fleet Deploy
+**Goal**: Netdata agent is installed on the racecontrol server (.23) and all 8 pods, collecting real-time CPU/RAM/disk/network metrics with auto-generated dashboards — pods deployed via rc-agent :8090 exec without physical access
+**Depends on**: Phase 54 (structured logs must be in place before Netdata install)
+**Requirements**: MON-04, MON-05
+**Success Criteria** (what must be TRUE):
+  1. Navigating to http://192.168.31.23:19999 in James's browser shows the Netdata dashboard for the racecontrol server with live CPU, RAM, disk, and network charts updating in real time
+  2. Navigating to http://192.168.31.89:19999 (Pod 1) shows a Netdata dashboard — all 8 pods have Netdata running after fleet deploy via rc-agent :8090 exec
+  3. The Netdata install on each pod completed via rc-agent remote exec confirmed by exec log showing successful install command per pod — no pendrive needed
+**Plans**: TBD
+
+Plans:
+- [ ] 55-01-PLAN.md — Netdata on server .23: install + configure + verify dashboard at :19999 (MON-04)
+- [ ] 55-02-PLAN.md — Netdata fleet deploy: install script via rc-agent :8090 exec to all 8 pods; verify :19999 on each pod (MON-05)
+
+### Phase 56: WhatsApp Alerting + Weekly Report
+**Goal**: Uday receives a WhatsApp message within 60 seconds of a P0 event and a recovery notification when it clears; every Monday morning an email lands in Uday's inbox summarizing the previous week's fleet performance
+**Depends on**: Phase 54 (error rate alerting provides event hooks; structured logs feed the weekly report query)
+**Requirements**: MON-06, MON-07
+**Success Criteria** (what must be TRUE):
+  1. Simulating a P0 event (stopping racecontrol so all pods lose WS connection) results in Uday receiving a WhatsApp message via racingpoint-whatsapp-bot within 60 seconds — message includes event type, timestamp in IST, and pod count affected
+  2. When all P0 conditions resolve (all pods reconnect), a resolved WhatsApp message is sent to Uday within 60 seconds of recovery
+  3. The weekly report email arrives in usingh@racingpoint.in every Monday between 08:00 and 08:05 IST with: total sessions, uptime % per pod, total credits billed, and numbered incident list from the error rate alert log
+**Plans**: TBD
+
+Plans:
+- [ ] 56-01-PLAN.md — P0 WhatsApp alert: hook into racingpoint-whatsapp-bot; trigger on all-pods-offline + billing crash; resolved notification (MON-06)
+- [ ] 56-02-PLAN.md — Weekly report: scheduled task; query racecontrol DB for sessions/uptime/credits; compose + email via send_email.js (MON-07)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44 → 45 → 46 → 47 → 48 → 49 → 50
+Phases execute in numeric order: 36 → 37 → 38 → 39 → 40 → 41 → 42 → 43 → 44 → 45 → 46 → 47 → 48 → 49 → 50 → 51 → 52 → 53 → 54 → 55 → 56
 
 Note: v8.0 phases 45–50 build on v7.0's shipped E2E infrastructure (lib/common.sh, lib/pod-map.sh, Playwright, run-all.sh). Every phase includes E2E test scripts wired into run-all.sh as new fleet/ and api/ test phases. Phases 45 (CLOSE_WAIT) and 46 (Panic Hook) have no dependencies. Phase 47 (LLM Fleet) depends on 45. Phase 48 (Dynamic Allowlist) depends on 47 (needs local LLM for process classifier). Phase 49 (Session Lifecycle) depends on 46. Phase 50 (Self-Test) depends on 46+47 and is the capstone — its pod-health.sh becomes the final gate in run-all.sh.
 
@@ -407,3 +528,9 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 48. Dynamic Kiosk Allowlist | 2/2 | Complete   | 2026-03-19 | - |
 | 49. Session Lifecycle Autonomy | 2/2 | Complete    | 2026-03-19 | - |
 | 50. LLM Self-Test + Fleet Health | 3/3 | Complete    | 2026-03-19 | - |
+| 51. CLAUDE.md + Custom Skills | v9.0 | 0/2 | Not started | - |
+| 52. MCP Servers | v9.0 | 0/2 | Not started | - |
+| 53. Deployment Automation | v9.0 | 0/2 | Not started | - |
+| 54. Structured Logging + Error Rate Alerting | v9.0 | 0/3 | Not started | - |
+| 55. Netdata Fleet Deploy | v9.0 | 0/2 | Not started | - |
+| 56. WhatsApp Alerting + Weekly Report | v9.0 | 0/2 | Not started | - |

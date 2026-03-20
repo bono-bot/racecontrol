@@ -77,31 +77,31 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SKILL-01 | — | Pending |
-| SKILL-02 | — | Pending |
-| SKILL-03 | — | Pending |
-| SKILL-04 | — | Pending |
-| SKILL-05 | — | Pending |
-| MCP-01 | — | Pending |
-| MCP-02 | — | Pending |
-| MCP-03 | — | Pending |
-| MCP-04 | — | Pending |
-| DEPLOY-01 | — | Pending |
-| DEPLOY-02 | — | Pending |
-| DEPLOY-03 | — | Pending |
-| MON-01 | — | Pending |
-| MON-02 | — | Pending |
-| MON-03 | — | Pending |
-| MON-04 | — | Pending |
-| MON-05 | — | Pending |
-| MON-06 | — | Pending |
-| MON-07 | — | Pending |
+| SKILL-01 | Phase 51 | Pending |
+| SKILL-02 | Phase 51 | Pending |
+| SKILL-03 | Phase 51 | Pending |
+| SKILL-04 | Phase 51 | Pending |
+| SKILL-05 | Phase 51 | Pending |
+| MCP-01 | Phase 52 | Pending |
+| MCP-02 | Phase 52 | Pending |
+| MCP-03 | Phase 52 | Pending |
+| MCP-04 | Phase 52 | Pending |
+| DEPLOY-01 | Phase 53 | Pending |
+| DEPLOY-02 | Phase 53 | Pending |
+| DEPLOY-03 | Phase 53 | Pending |
+| MON-01 | Phase 54 | Pending |
+| MON-02 | Phase 54 | Pending |
+| MON-03 | Phase 54 | Pending |
+| MON-04 | Phase 55 | Pending |
+| MON-05 | Phase 55 | Pending |
+| MON-06 | Phase 56 | Pending |
+| MON-07 | Phase 56 | Pending |
 
 **Coverage:**
 - v9.0 requirements: 19 total
-- Mapped to phases: 0
-- Unmapped: 19
+- Mapped to phases: 19
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after initial definition*
+*Last updated: 2026-03-20 after roadmap creation — all 19 requirements mapped to phases 51-56*
