@@ -706,10 +706,11 @@ Plans:
   1. After editing racecontrol.toml on .23, James observes a sync_push message in comms-link within 60s containing the updated config diff
   2. The pushed config payload contains no credentials, passwords, or local Windows paths — only pod definitions, billing rates, and game catalog
   3. Bono's cloud racecontrol reflects the same billing rates and pod count as the local venue config within 5 minutes of a local change
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 67-01: TBD
+- [ ] 67-01-PLAN.md — James-side config watcher + sanitizer (SYNC-01, SYNC-02)
+- [ ] 67-02-PLAN.md — Cloud racecontrol config_snapshot handler (SYNC-03)
 
 ### Phase 68: Pod SwitchController
 **Goal**: Any rc-agent pod can switch its WebSocket target from .23 to Bono's VPS and back at runtime without a process restart, and self_monitor will not fight the intentional switch
