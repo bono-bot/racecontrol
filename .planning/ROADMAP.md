@@ -191,7 +191,7 @@ Fix stuck-rotation safety bug, unlock all Conspit Link 2.0 features (per-game FF
 
 Make server .23 IP permanently stable, establish reliable James↔Server↔Bono remote exec paths, sync venue config to cloud, and deliver automatic pod failover to Bono's VPS when .23 goes down — with self-healing failback when .23 recovers.
 
-- [ ] **Phase 66: Infrastructure Foundations** - DHCP reservation pins server .23 to MAC 10-FF-E0-80-B1-A7; James can exec on .23 via rc-agent :8090 over Tailscale and on Bono VPS via comms-link exec_request
+- [x] **Phase 66: Infrastructure Foundations** - DHCP reservation pins server .23 to MAC 10-FF-E0-80-B1-A7; James can exec on .23 via rc-agent :8090 over Tailscale and on Bono VPS via comms-link exec_request (completed 2026-03-20)
 - [ ] **Phase 67: Config Sync** - racecontrol.toml changes detected by sha2 hash, sanitized, and pushed to Bono via comms-link sync_push; Bono applies config to cloud racecontrol
 - [ ] **Phase 68: Pod SwitchController** - rc-agent CoreConfig gains failover_url; WS reconnect loop uses Arc<RwLock<String>> for runtime URL switching; SwitchController AgentMessage triggers switch without restart; self_monitor suppression guard prevents relaunch during intentional failover
 - [ ] **Phase 69: Health Monitor & Failover Orchestration** - James probes .23 every 5s; 3-down/2-up hysteresis + 60s minimum outage window gates auto-failover; James sends task_request to Bono to activate cloud primary; racecontrol broadcasts SwitchController to all pods; pods confirm .23 unreachable before switching; Uday notified via email + WhatsApp
@@ -888,7 +888,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 63. Fleet Monitoring | v10.0 | 0/? | Not started | - |
 | 64. Telemetry Dashboards | v10.0 | 0/? | Not started | - |
 | 65. Shift Lights & RGB Lighting | v10.0 | 0/? | Not started | - |
-| 66. Infrastructure Foundations | 2/3 | In Progress|  | - |
+| 66. Infrastructure Foundations | 3/3 | Complete   | 2026-03-20 | - |
 | 67. Config Sync | v10.0-CR | 0/? | Not started | - |
 | 68. Pod SwitchController | v10.0-CR | 0/? | Not started | - |
 | 69. Health Monitor & Failover Orchestration | v10.0-CR | 0/? | Not started | - |
