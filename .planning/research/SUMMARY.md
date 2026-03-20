@@ -1,228 +1,191 @@
 # Project Research Summary
 
-**Project:** RaceControl v7.0 — Comprehensive E2E Test Suite
-**Domain:** Multi-layer test runner — Playwright browser automation + curl API pipeline + self-healing shell runner + deploy verification for a Rust/Axum + Next.js 16 kiosk on Windows
-**Researched:** 2026-03-19 IST
+**Project:** Racing Point Operations — v9.0 Tooling & Automation
+**Domain:** Venue ops tooling — Claude Code skills, MCP servers, deployment automation, monitoring/alerting
+**Researched:** 2026-03-20 IST
 **Confidence:** HIGH
 
 ## Executive Summary
 
-RaceControl v7.0 adds a comprehensive E2E test suite to a production venue system. The current test infrastructure (three shell scripts using curl and Python) validates API endpoints and game-launch gates but is blind to browser-level failures: React render crashes, wizard step regressions, and SSR errors all produce HTTP 200 responses that slip past every existing test. The recommended approach is a two-layer suite — Playwright browser tests for the Next.js kiosk UI, curl-based shell scripts for API pipeline checks — unified under a single master entry point (`tests/e2e/run-all.sh`) with a phase-gated sequential runner that aborts on preflight failure. The recommended Playwright version is 1.58.2 using bundled Chromium (not msedge, which has a documented 30-second hang after headed tests), with `cargo nextest` replacing `cargo test` for Rust crate tests to gain per-process isolation and auto-retry.
+v9.0 Tooling & Automation is an operator-experience milestone, not a customer-facing one. The goal is to reduce the weekly manual overhead for James (developer) and Uday (operator) by codifying repetitive workflows into Claude Code skills, repairing and extending MCP integrations for Google Workspace access, automating the pod binary deploy pipeline, and introducing a lightweight monitoring stack that stays operational when the venue internet drops. The existing Rust/Axum/Next.js/SQLite stack is unchanged — all new tooling is additive, external, or session-side.
 
-The most important design decision is maintaining a strict boundary between what Playwright owns (browser UI flows, SSR error detection, per-game wizard step assertions) and what shell scripts own (port checks, binary verification, rc-agent remote_ops calls, deploy sequencing). Blurring this boundary — either by mocking the backend in browser tests or using Playwright for pure HTTP assertions that curl handles faster — produces a slower, less trustworthy suite. Every pitfall in this research was discovered during real test development in this session, not hypothetically: wrong API endpoint for ws_connected, AC wizard steps rendering for non-AC games, Steam dialog blocking F1 25 launch, EADDRINUSE after kiosk restart, and stale game trackers poisoning subsequent runs.
+The recommended approach is strictly layered by deployment risk and time-to-value. Phase 1 delivers maximum ROI with minimum infrastructure change: a project CLAUDE.md (zero installs), four Claude Code skills (zero installs), and Grafana Alloy with axum-prometheus metrics (low-risk Cargo.toml additions). Phase 2 repairs the broken Gmail MCP and deploys the Prometheus+Grafana monitoring stack on-premises on the server. Phase 3 adds deployment automation via Fabric+OpenSSH as a pendrive-replacement, gated on successfully enabling OpenSSH on at least one pod — which has never been verified. Every phase is offline-capable by design: Prometheus+Grafana run on the venue LAN, and skills call existing local endpoints.
 
-The highest-risk area is the per-game launch validation phase (Phase 3). Steam games using EA Anti-Cheat ship with a different launcher app ID than the store page (F1 25: launch ID `3059520` vs store ID `2805550`), Steam dialogs block first-run launches silently, and game state can get stuck in `Stopping` when the agent restarts mid-cleanup. These are not edge cases — they are the normal operational environment of the venue. Pre-test cleanup fixtures and stale-state detection must be built before any stateful test is written.
+The critical risk for this milestone is repeating the v6.0 pattern: investing in fleet tooling (Salt, WinRM, OpenSSH) that fails silently on this network due to Windows Defender, Session 0/1 constraints, or non-domain authentication. The mitigation is explicit: every new tool must pass a five-question checklist (non-domain Windows, standard HTTP ports, Defender-safe, offline-capable, Windows 11 verified) before a line of implementation begins. Ansible and Fabric are the lowest-risk automation path if OpenSSH validation succeeds; they are explicitly deferred until that validation happens.
 
 ## Key Findings
 
 ### Recommended Stack
 
-Playwright is the correct and only reasonable choice for browser automation in this monorepo. Cypress cannot test the racecontrol Axum API in the same test session as the kiosk UI. Jest + Puppeteer is two packages doing what Playwright does in one. The `@playwright/test` package (not the lower-level `playwright` package) provides the test runner, fixtures, API request context, trace capture, and retry logic as a unified framework.
+See `.planning/research/STACK.md` for full details and version rationale.
+
+The tooling stack is additive — nothing in the existing Rust/Axum/SQLite/rc-agent architecture changes. For Claude Code skills, the SKILL.md format with `disable-model-invocation: true` on all operational skills (deploy, logbook write) is the correct pattern. For metrics, `axum-prometheus 0.10.0` + `metrics 0.24` provide a 3-line integration to expose a Prometheus `/metrics` endpoint from racecontrol. Grafana Alloy (not the EOL Grafana Agent) replaces the standalone `windows_exporter` pattern and scrapes both OS metrics and the racecontrol endpoint. Grafana Cloud free tier (10K series, 14-day retention) handles the Racing Point fleet's ~160 metric series comfortably; self-hosted Prometheus+Grafana on server .23 is the alternative if data sovereignty is required.
+
+For MCP, `taylorwilsdon/google_workspace_mcp` fixes the broken Gmail OAuth and covers Gmail, Sheets, Calendar, and Drive in one server. The existing `racingpoint-mcp-gmail` server.js pattern is correct — only the OAuth token needs re-authorization. For deployment automation, Fabric (Python SSH) is the right-sized tool for 8 pods (vs. Ansible's complexity); both are gated on OpenSSH validation on pods.
 
 **Core technologies:**
-- `@playwright/test` 1.58.2: Browser automation + API testing — single framework for both UI and HTTP assertions, current release (Jan 2026)
-- Playwright bundled Chromium (not `msedge` channel): Kiosk testing — avoids the documented 30s hang-after-headed-test bug in the msedge channel; headed mode blocked anyway in Session 0
-- Bash shell runner (`tests/e2e/*.sh`): API pipeline + deploy verification — owns everything a browser cannot: port checks, PID verification, rc-agent remote_ops, binary swap validation
-- `cargo nextest` 0.9.x: Rust crate test runner — per-process isolation prevents billing state leakage between tests; 3x faster parallel execution; auto-retry on flaky tests
-- TypeScript 5.9.3 (reuse kiosk existing): Type-safe Playwright config and spec files — no new TS version needed
-
-**Critical version requirements:**
-- Node.js 20+ required for `@playwright/test` 1.58.2 — verify on server before installation
-- `workers: 1` and `fullyParallel: false` are mandatory in playwright.config.ts — game launch tests mutate live pod state and collide if parallelized
-- `reuseExistingServer: true` mandatory — venue server has kiosk already running on :3300; Playwright must attach, not restart it
+- `axum-prometheus 0.10.0` + `metrics 0.24`: racecontrol metrics endpoint — 3-line integration, no route changes
+- Grafana Alloy (v1.x, Windows MSI): scrape OS + app metrics, forward to Grafana Cloud or local Prometheus — EOL Grafana Agent replacement
+- `taylorwilsdon/google_workspace_mcp`: Gmail/Sheets/Calendar/Drive MCP — fixes broken OAuth, one OAuth credential
+- SKILL.md format with `disable-model-invocation: true`: Claude Code skills for operational workflows — zero dependencies
+- Fabric 3.2.x (Python SSH): pod deploy automation — 50 lines vs. Ansible's 200+ YAML — gated on OpenSSH validation
+- `prometheus-mcp-server` (pab1it0): query Prometheus metrics from Claude — 18 read-only tools — add only after Prometheus is deployed
 
 ### Expected Features
 
-The existing suite (smoke.sh, game-launch.sh, cross-process.sh) covers API status codes and launch gate sequencing but has zero browser coverage. v7.0 adds the missing browser layer and unifies everything under a single entry point.
+See `.planning/research/FEATURES.md` for full prioritization matrix and ROI analysis.
 
-**Must have (table stakes — suite is unreliable without these):**
-- Pre-test state cleanup fixture — stale games or billing sessions from prior runs corrupt subsequent tests; must run before every stateful test
-- Playwright kiosk wizard browser tests — curl cannot detect React rendering errors or wizard step transitions; only a real browser catches these
-- Per-step wizard assertions per game type — HTTP 200 on `/kiosk/book` does not validate wizard reaches "review"; each of the 11 wizard steps must be explicitly asserted
-- Staff mode wizard test (`?staff=true&pod=pod-8`) — untested path today; skips phone/OTP entirely
-- SSR pageerror detection — `page.on('pageerror')` catches uncaught JS exceptions that produce HTTP 200 + broken page
-- Per-game SimType coverage (AC, F1 25, EVO, Rally, iRacing) — wizard path forks at `select_game`; each fork must be independently exercised
-- Idempotent teardown — `afterEach` stops game + ends billing session regardless of test outcome
-- Single master entry point `run-all.sh` — unified pass/fail exit code for pre-deploy verification
-- Configurable `RC_BASE_URL` in all tests — runs against both localhost (dev) and 192.168.31.23 (venue) without code changes
+**Must have (table stakes — v9.0 Phase 1):**
+- Project CLAUDE.md with Racing Point topology, pod IPs, naming conventions — eliminates context re-establishment per session
+- `/rp:deploy` + `/rp:deploy-server` skills — codify exact build+deploy sequence with `disable-model-invocation: true`
+- `/rp:pod-status <pod>` skill — query any pod's rc-agent status with dynamic IP injection
+- Google Workspace MCP (Gmail read + Sheets read) — fixes broken OAuth, unlocks business data access in Claude
+- Structured JSON logging in racecontrol — one-line `tracing-subscriber` change, foundation for all monitoring
+- Staging HTTP server auto-start (HKLM Run key) — prevents silent deploy failures after workstation reboot
+- Deploy verification script — catches failed deploys before customer impact
 
-**Should have (competitive — improve test quality beyond pass/fail):**
-- Self-healing pre-test runner — auto-kills stale games, restarts disconnected agents, clears stuck billing; eliminates 80% of spurious failures
-- Playwright trace-on-failure (`trace: 'on-first-retry'`) — full DOM + network timeline on failure; zero overhead on passing tests
-- Per-game launch validation with PID check — verifies game process started on pod, not just that API returned `ok:true`
-- Deploy verification script — records binary size before/after, polls `/health`, verifies `/fleet/health` shows agents reconnected
-- Flaky test log — tests needing retries emit to `flaky-log.txt` for investigation; not silently passed
-- Steam dialog detection (timeout-based) — flag `Launching` state persisting >60s as "Steam dialog likely blocking"
+**Should have (v9.0 Phase 2 — add after Phase 1 validated in daily ops):**
+- `/rp:incident` skill — structured incident response using the 4-tier debug order
+- Netdata on server + pods — hardware degradation detection, lightweight Windows MSI install
+- Error rate alerting threshold — N errors in M minutes triggers email (in-racecontrol counter logic)
+- `/rp:logbook` skill — auto-append incidents to LOGBOOK
+- PostToolUse hook — auto-notify Bono on git commit (enforces standing rule)
+- MCP-INVENTORY.md — track tool availability across James and Bono environments
 
-**Defer to v7.x+:**
-- Test result JSON artifact for dashboard widget — future integration, not MVP
-- Inactivity timer test (`page.clock.fastForward`) — real venue failure mode but medium complexity
-- Auth token API test (staff terminal PIN) — security path coverage, low complexity but not blocking launch
-- CI integration (cloud runner) — requires off-LAN runner; venue-only for v7.0
+**Defer (Phase 3 / v9.x+):**
+- Ansible fleet management — blocked until WinRM/SSH validated on one pod
+- rc-ops-mcp custom server — high-value but high build cost; validate MCP pattern with Google Workspace first
+- WhatsApp P0 alerting — add after error rate thresholds proven reliable
+- Weekly fleet uptime report — requires structured logging foundation
+- Prometheus /metrics endpoint — add if Netdata auto-dashboards are insufficient
 
-**Do not build (anti-features):**
-- Mocking racecontrol API in Playwright tests — defeats the purpose of E2E testing; real integration bugs become invisible
-- Shared billing session state across test files — creates test ordering dependencies; each test must own its session lifecycle
-- Visual regression (screenshot diffing) — kiosk UI changes frequently with brand updates; constant false positives
-- Parallel launch tests across multiple pods — disrupts live customer sessions; Pod 8 is the sole test target
-- Continuous E2E runs every 5 minutes — tests are pre-deploy verification, not production monitoring
+**Explicitly avoid:**
+- Grafana+Prometheus full stack as MVP (Netdata covers this at lower cost and zero query language)
+- ELK/OpenSearch (4GB+ RAM overhead for a `jq`-solvable problem)
+- Docker on pods (gaming hardware, Session 1 GUI requirement)
+- Cloud monitoring (Datadog/New Relic) — $100-500/month for an 8-pod venue
 
 ### Architecture Approach
 
-The suite follows a phase-gated sequential architecture: four phases run in order under `run-all.sh`, with Phase 1 (Preflight) as a hard gate — failure aborts the run immediately. Shell scripts own HTTP-level API verification via `lib/common.sh` (shared `pass`/`fail`/`skip` functions) and `lib/pod-map.sh` (single source of truth for pod IP mapping). Playwright owns the browser layer with two projects: `chromium` for kiosk UI tests and `api` for `page.request` HTTP assertions that need cookie/session sharing. Phase 4 (Deploy Verification) uses rc-sentry :8091 as its remote exec channel — intentionally independent of racecontrol and rc-agent so it remains available even when those services are being restarted mid-test.
+See `.planning/research/ARCHITECTURE.md` for full component diagram and build order.
+
+All v9.0 components are either purely additive or session-side. Net change to existing racecontrol Rust code: zero for Phase 1; three lines added (Cargo.toml + main.rs) for the metrics endpoint in Phase 2. Skills live in `.claude/skills/` (project-scoped, committed to repo). Hooks live in `~/.claude/settings.json` (personal, not committed). MCP servers are already configured on James's machine — Gmail needs OAuth repair only. The monitoring stack (Prometheus + Grafana) runs entirely on server .23 LAN-only; no metrics leave the venue except optionally to Grafana Cloud free tier. The key architectural constraint is that all monitoring must operate offline: Prometheus + Grafana on LAN, alerts via WhatsApp (Evolution API localhost:53622) first, email second.
 
 **Major components:**
-1. `run-all.sh` — Master orchestrator: runs all 4 phases, collects exit codes, writes `results/summary.json`, exits with total failure count
-2. `lib/common.sh` + `lib/pod-map.sh` — Shared shell library: eliminates the copy-paste of `pass/fail/skip` and pod IP map currently duplicated across all three existing shell scripts
-3. `api/` shell scripts — Phase 2: curl-based API tests for billing lifecycle, game state, SimType parsing, launch pipeline (game-launch.sh migrated here)
-4. `playwright/kiosk/` + `playwright/api/` specs — Phase 3: browser tests (wizard flows, SSR detection) and request-only API assertions
-5. `lib/playwright.config.ts` — Single Playwright config: `workers: 1`, `retries: 1`, `trace: 'on-first-retry'`, `reuseExistingServer: true`, `baseURL` from `RC_BASE_URL`
-6. `deploy/verify.sh` — Phase 4: binary swap, port conflict detection, service restart idempotency via rc-sentry :8091
-
-**Build order (strict — later items depend on earlier):**
-1. `lib/common.sh`, `lib/pod-map.sh` (no dependencies)
-2. Refactor existing smoke.sh, cross-process.sh to source lib/common.sh
-3. `api/` phase scripts (depend on lib/common.sh, lib/pod-map.sh)
-4. `lib/playwright.config.ts`
-5. `playwright/kiosk/smoke.spec.ts`, `wizard.spec.ts`, `playwright/api/billing.spec.ts`
-6. `deploy/verify.sh` (depends on rc-sentry confirmed on pods)
-7. `run-all.sh` (depends on all above)
+1. Claude Code Skills (`.claude/skills/`) — project-scoped operational macros; call existing deploy_pod.py + rc-agent :8090 + racecontrol API; no new infrastructure
+2. Claude Code Hooks (`~/.claude/settings.json`) — PreToolUse guard (block rc-agent.exe on .27), PostToolUse logger (append to DEPLOY_LOG.md + INBOX.md for Bono)
+3. Google Workspace MCP (`taylorwilsdon/google_workspace_mcp`) — replaces broken `racingpoint-mcp-gmail`; HTTP transport for Claude Code; OAuth repair one-time
+4. Grafana Alloy on server + pods — scrapes `/metrics` from racecontrol + Windows OS metrics; forwards to Prometheus (local) or Grafana Cloud
+5. Prometheus + Grafana on server .23 — LAN-only monitoring; Grafana JSON plugin reads `/api/v1/fleet/health` for operational state alongside OS metrics
+6. Fabric (`fabfile.py`) — Python SSH task runner; wraps same deploy logic as install.bat v5 over SSH once OpenSSH is enabled on pods
 
 ### Critical Pitfalls
 
-All 7 pitfalls below were observed as real failures during v7.0 test development on 2026-03-19 — not hypothetical risks.
+See `.planning/research/PITFALLS.md` for full recovery strategies and integration gotchas.
 
-1. **API tests pass while browser crashes (JSX render errors)** — curl returns HTTP 200 even when React crashes rendering the page. Avoid: add `page.on('pageerror')` in all Playwright browser tests; never treat API 200 as proof the kiosk renders correctly. Phase 1 must add browser smoke before any API test is considered sufficient.
+1. **Repeating the v6.0 fleet-tool failure pattern** — Salt, WinRM, and OpenSSH have all failed on this network. Before evaluating any new fleet tool, answer five questions: (a) non-domain Windows support, (b) Defender-safe installer, (c) standard HTTP ports, (d) offline-tolerant, (e) Windows 11 verified. If any answer is no, don't proceed. Build on rc-agent remote_ops :8090 first.
 
-2. **Wrong endpoint for ws_connected (`/pods` vs `/fleet/health`)** — `ws_connected` is in `FleetPodHealth` struct (returned by `/api/v1/fleet/health`), NOT in the pod list from `/api/v1/pods`. Any test using `/pods` for connectivity checks always shows agents as disconnected. Avoid: enforce the endpoint split with a comment in every connectivity-checking test.
+2. **OAuth token expiry silently breaking Gmail automation** — Google OAuth refresh tokens expire in 7 days for test-mode apps. The broken `racingpoint-mcp-gmail` is the current example. Never make Gmail the sole alert path. Keep `send_email.js` as primary alert fallback. Publish the OAuth app to production mode to remove 7-day expiry. Add a daily health-check API call to detect token expiry before it silences critical alerts.
 
-3. **Steam dialogs block game launch silently** — A "Support Message" or "Product Update" dialog appears before the game process, causing rc-agent to time out waiting for the PID. Avoid: run the first launch manually on a fresh pod reboot; configure Steam offline mode on pods; add pre-launch dialog-dismissal step.
+3. **Internet dependency for venue-critical operations** — Monitoring or automation that requires internet breaks during venue outages exactly when it matters most. All monitoring stays on LAN (Prometheus + Grafana on .23). Alerts go via WhatsApp (Evolution API localhost:53622, LAN-local) first. Follow the existing cloud_sync pattern: local-authoritative, cloud is a secondary sync.
 
-4. **Wrong Steam app ID (store ID vs EA Anti-Cheat launcher ID)** — F1 25 store ID is `2805550`; actual launch ID is `3059520` (EA Anti-Cheat bootstrapper). Using the store ID silently opens a Steam page instead of launching the game. Avoid: maintain `GAME_IDS.md` mapping store ID → launch ID; verify by running `steam://rungameid/{id}` manually.
+4. **Windows Session 0 vs Session 1 breaking new services** — New agents installed as SYSTEM Windows Services run in Session 0 and cannot interact with the kiosk, lock screen, or game processes (Session 1). For any new process that needs GUI access: use HKLM Run key (`start-service.bat`) pattern. For background-only services (Prometheus, Grafana Alloy, windows_exporter): install as SYSTEM service but verify explicitly that all target operations work from Session 0 before deployment design.
 
-5. **EADDRINUSE after kiosk deploy** — Killing the kiosk process leaves port 3300 in CLOSE_WAIT/TIME_WAIT; the new process fails to bind. Avoid: poll port-free status (up to 30s) before starting the new process; use `pm2 delete` + restart cycle rather than `pm2 restart`.
-
-6. **Stale game tracker stuck in `Stopping` state** — If rc-agent restarts mid-cleanup, the in-memory game state resets but the server holds a stale `Stopping` entry. The next test's double-launch guard blocks indefinitely. Avoid: pre-flight cleanup must handle `Stopping` state explicitly; add `afterEach` teardown that verifies `/games/active` returns empty.
-
-7. **AC wizard steps appear for non-AC games** — The `isAc` check in `useSetupWizard.ts` controls which steps appear. A bug or game ID rename can cause `select_track`/`select_car` to appear for F1 25. This is invisible to API tests. Avoid: Playwright wizard test must assert exact step sequence per game type, explicitly verifying AC-specific steps do NOT appear for Steam games.
+5. **Alert fatigue from uncalibrated monitoring thresholds** — The existing system has production-calibrated thresholds (6s heartbeat, 10s idle, ALERT-02 rate limiting). A new monitoring layer that ignores these will generate 40+ false-positive alerts per day (normal AC launch CPU spikes, game-startup WS gaps). Start with zero alerts. Document the normal behavior baseline for one week. Add alerts one at a time, mirroring ALERT-02's 30-minute rate limit per alert type.
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure with 4 phases:
+Based on research, suggested phase structure:
 
-### Phase 1: Foundation + Browser Smoke
+### Phase 1: Context and Skills Foundation
+**Rationale:** Highest ROI, zero new infrastructure, zero deployment risk. Everything in this phase is file authoring or one-line config changes. Delivers immediate daily-ops improvement for James in every Claude Code session before any infrastructure work begins.
+**Delivers:** Project CLAUDE.md, four `/rp:*` skills (`/rp:deploy`, `/rp:deploy-server`, `/rp:pod-status`, `/rp:fleet-health`), staging server auto-start, deploy verification script
+**Addresses:** Project CLAUDE.md (P1), all `/rp:*` skills (P1), staging HTTP server auto-start (P1), deploy verification script (P1)
+**Avoids:** Over-engineering anti-pattern (zero new services), automation-requires-confirmation pitfall (all skills define fallback policy before marking complete)
 
-**Rationale:** Shared library must exist before any script can source it. The browser smoke layer (detecting JSX crashes) is the single highest-value addition given that all current tests are curl-based — it addresses Pitfall 1 immediately and enables the wizard tests in Phase 2. The kiosk wizard also requires `data-testid` attributes on UI elements that may not exist today; confirming this early prevents a mid-phase blocker.
+### Phase 2: Metrics Instrumentation
+**Rationale:** axum-prometheus is a 3-line Cargo.toml + main.rs change with zero breaking changes to existing routes. Must come before the Grafana stack (Phase 3) because custom `rp_*` metrics are what make dashboards meaningful beyond raw OS CPU graphs.
+**Delivers:** `/metrics` endpoint on racecontrol :8080, custom gauges/counters for active sessions, pod WS state, game launches, billing credits, cloud sync lag
+**Uses:** `axum-prometheus 0.10.0`, `metrics 0.24` — both compatible with existing axum 0.7
+**Avoids:** "Dashboard without app metrics" anti-pattern documented in ARCHITECTURE.md
 
-**Delivers:** `lib/common.sh`, `lib/pod-map.sh`, refactored smoke.sh + cross-process.sh, `playwright.config.ts`, `playwright/kiosk/smoke.spec.ts` (SSR error detection + all routes return 200 in real browser), staff mode Playwright fixture.
+### Phase 3: MCP Repair and Google Workspace Integration
+**Rationale:** Gmail OAuth re-authorization is a prerequisite for any email-based alerting to be reliable. Repair before building new monitoring that depends on email alerts. Google Workspace MCP is `pip install` + one-time OAuth flow — low complexity, high daily-ops value.
+**Delivers:** Working Gmail read/send, Google Sheets read/write, Google Calendar read in Claude Code sessions. MCP-INVENTORY.md as James-Bono tool coordination artifact.
+**Addresses:** Gmail MCP (P1), Google Sheets MCP (P1), Google Calendar MCP (P1), MCP config drift pitfall
+**Avoids:** OAuth expiry silent failure (token health check + fallback to send_email.js required before phase is complete), MCP config drift (notify Bono via INBOX.md with config diff)
 
-**Addresses from FEATURES.md:** Pre-test state cleanup fixture, SSR pageerror detection, configurable `RC_BASE_URL`, Playwright installed and configured.
+### Phase 4: On-Premises Monitoring Stack
+**Rationale:** Grafana Alloy + Prometheus + Grafana on server .23 provides fleet-wide OS health and operational state visibility. LAN-only — works during internet outages. Must come after Phase 2 (app metrics instrumented) for meaningful dashboards.
+**Delivers:** Grafana Alloy on server and all 8 pods, Prometheus on server, Grafana fleet-health dashboard (OS metrics + billing state + pod WS status), LAN-only
+**Uses:** Grafana Alloy v1.x (Windows MSI), Prometheus 3.x, Grafana OSS 11.x — all Windows services on server .23
+**Avoids:** Internet-dependency pitfall (everything on LAN), Session 0 pitfall (all background services, HTTP-only, no GUI needed), alert fatigue (one-week baseline calibration before any alert rule is enabled)
 
-**Avoids from PITFALLS.md:** Pitfall 1 (JSX crashes invisible to curl), Pitfall 7 (wizard step correctness — smoke confirms page loads before wizard tests begin).
-
-**Research flag:** Standard patterns — Playwright setup is well-documented; no additional phase research needed.
-
----
-
-### Phase 2: API Pipeline Tests + Shared Fixtures
-
-**Rationale:** The `api/` shell scripts and the pre-test cleanup fixture must exist before any stateful test (game launch, billing lifecycle) can run safely. game-launch.sh must be migrated to `api/launch.sh` and extended with the shared library before Phase 3 adds more stateful tests that depend on clean pod state.
-
-**Delivers:** `api/billing.sh`, `api/simtype.sh`, `api/game-state.sh`, `api/launch.sh` (migrated game-launch.sh), pre-test cleanup fixture, stale game tracker detection + force-clear, `/fleet/health` endpoint documentation enforced in all connectivity checks.
-
-**Addresses from FEATURES.md:** Pre-test cleanup fixture (P1), per-game SimType coverage via API, idempotent teardown.
-
-**Avoids from PITFALLS.md:** Pitfall 2 (wrong endpoint for ws_connected), Pitfall 6 (stale game tracker in Stopping state).
-
-**Research flag:** Standard patterns — curl API test patterns well-established; no research needed.
-
----
-
-### Phase 3: Per-Game Wizard Tests + Launch Validation
-
-**Rationale:** This is the highest-complexity and highest-value phase. Wizard tests require the kiosk to be running and Phase 1 smoke to be passing. Launch validation requires clean pod state (Phase 2 pre-flight) and verified Steam app IDs (requires manual pre-work). The AC wizard step ordering bug (Pitfall 7) can only be caught here. Steam-related pitfalls (Pitfalls 3 and 4) are only exercised here.
-
-**Delivers:** `playwright/kiosk/wizard.spec.ts` (all 5 sim types, per-step assertions, AC-specific steps verified absent for non-AC), staff wizard test, per-game launch validation with PID polling (Pod 8), `GAME_IDS.md` documenting store vs launch IDs, Steam dialog pre-dismissal step.
-
-**Addresses from FEATURES.md:** Kiosk wizard smoke (all games) P1, staff mode wizard test P1, per-game launch validation with PID check P1, Steam dialog detection P2.
-
-**Avoids from PITFALLS.md:** Pitfall 3 (Steam dialogs), Pitfall 4 (wrong Steam app IDs), Pitfall 7 (AC wizard steps for non-AC games).
-
-**Research flag:** NEEDS deeper research/validation — Steam app IDs must be verified manually for each game before specs are written; rc-sentry :8091 availability on pods must be confirmed; `data-testid` attribute presence in kiosk UI must be checked before wizard specs are scoped.
-
----
-
-### Phase 4: Deploy Verification + Master Entry Point
-
-**Rationale:** Deploy verification modifies running services (kills racecontrol, swaps binaries) and needs all other phases to be stable first — a failed deploy test that leaves services in a bad state is a worse outcome than no deploy test at all. `run-all.sh` ties everything together and can only be written once all phase scripts are finalized.
-
-**Delivers:** `deploy/verify.sh` (binary swap, EADDRINUSE protection, port-free poll loop, agent reconnect check via `/fleet/health`), `run-all.sh` (phase-gated orchestrator, results/summary.json), Playwright HTML report configuration, total failure count exit code.
-
-**Addresses from FEATURES.md:** Deploy verification script P1, master entry point run-all.sh P1, Playwright HTML report P1.
-
-**Avoids from PITFALLS.md:** Pitfall 5 (EADDRINUSE after kiosk deploy — port-free polling added to verify.sh), Pitfall 2 (fleet/health used for agent reconnect check in deploy verification).
-
-**Research flag:** Standard patterns — deploy verification is well-understood; rc-sentry usage pattern already established in codebase.
-
----
+### Phase 5: Deployment Automation (Gated)
+**Rationale:** Fabric+OpenSSH replaces the pendrive workflow. Explicitly gated on a validation spike confirming OpenSSH works on at least one pod. This has never been confirmed on this fleet. If validation fails, phase scope changes to rc-agent :8090 HTTP exec improvements only.
+**Delivers:** `fabfile.py` deploy script, OpenSSH enabled on all 8 pods via rc-agent remote_ops exec, canary-first deploy enforcement (Pod 8 canary → human approval gate → fleet rollout)
+**Uses:** Fabric 3.2.x, native Windows OpenSSH Server, Tailscale mesh for routing
+**Avoids:** Fleet-tool-failure pitfall (five-question checklist passed, Pod 8 validated before fleet), over-engineering pitfall (Fabric is 50 lines vs Ansible 200+ YAML for 8 pods)
 
 ### Phase Ordering Rationale
 
-- Shared library first: all shell scripts source `lib/common.sh` — it must exist before any script is written or refactored
-- Browser smoke before wizard tests: confirms Playwright is installed correctly and kiosk is reachable; wizard tests have stricter prerequisites
-- API fixtures before launch tests: clean pod state is a prerequisite for any stateful test; pre-flight cleanup must be proven before game launch tests depend on it
-- Deploy verification last: safest order for a test that intentionally disrupts running services
-- `run-all.sh` after all phases: cannot wire together phases that do not yet exist
+- Phases 1-3 can be built in parallel — no hard dependencies between them. Phase 1 is pure file authoring. Phase 2 is a small Cargo.toml + Rust change. Phase 3 is MCP setup on James's workstation.
+- Phase 4 (monitoring) depends on Phase 2 (metrics instrumented first). Deploying Grafana without app metrics produces OS CPU graphs with no correlation to Racing Point events — the anti-pattern documented in ARCHITECTURE.md.
+- Phase 5 (deployment automation) is explicitly deferred and gated. It has the highest historical failure rate on this network. Run Phase 5 as a validation spike before any implementation work is scoped.
+- The dependency graph from FEATURES.md confirms: structured JSON logging (Phase 2/4 foundation) must precede error rate alerting and log search features. Deploy skills (Phase 1) are independent and deliver value immediately.
 
 ### Research Flags
 
-Phases needing `/gsd:research-phase` during planning:
-- **Phase 3:** Steam app IDs for EA Anti-Cheat wrapped games require manual verification on the pod before writing specs. `data-testid` attribute presence in kiosk components must be audited against the actual Next.js source. rc-sentry :8091 must be confirmed deployed on all pods before Phase 4 is scoped.
+Phases needing deeper research during planning:
+- **Phase 3 (MCP):** `taylorwilsdon/google_workspace_mcp` HTTP transport mode was not hands-on tested in Claude Code (MEDIUM confidence). If HTTP transport fails, fall back to repairing `racingpoint-mcp-gmail` server.js OAuth directly. Research the fallback before committing to the community tool.
+- **Phase 4 (Monitoring):** Grafana Alloy Windows service install on Windows Server .23 (not Windows 11) needs validation. Verify `winget` is available on the server. If not, use direct MSI download from Grafana releases page.
+- **Phase 5 (Deployment Automation):** Full validation spike required before implementation. Confirm: (1) `Add-WindowsCapability OpenSSH.Server` succeeds on at least one pod. (2) SSH key auth works from James .27 to pod via Tailscale IP. (3) `scp` binary transfer completes in <60s for a 10MB binary. This is a hard go/no-go gate.
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1:** Playwright setup, config, and browser smoke are thoroughly documented in official Playwright docs; no unknowns.
-- **Phase 2:** curl API testing patterns are established; the main work is refactoring and migrating existing scripts, not solving novel problems.
-- **Phase 4:** Deploy verification shell pattern is standard; `run-all.sh` orchestration is straightforward once phase scripts exist.
+- **Phase 1 (Skills):** SKILL.md format is official Anthropic documentation with HIGH confidence. No research needed.
+- **Phase 2 (Metrics):** `axum-prometheus 0.10.0` docs.rs verified. Verify axum version compatibility with `cargo tree | grep axum` before adding dependency — no other research needed.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All recommendations sourced from official Playwright docs (1.58.2), official Next.js docs, official cargo-nextest docs. Version requirements verified against npm registry. |
-| Features | HIGH | Feature list derived from existing codebase (smoke.sh, game-launch.sh, cross-process.sh, kiosk/src/app/book/page.tsx) read directly, plus official Playwright best practices docs. |
-| Architecture | HIGH | Architecture grounded in the actual existing file structure read from the repo. Component boundaries derived from how the existing scripts already work, not from generic patterns. |
-| Pitfalls | HIGH | All 7 pitfalls were observed as real failures during this session's test development. Zero speculative bugs — each has a corresponding real failure and a documented recovery. |
+| Stack | HIGH | Claude Code official docs fetched live; axum-prometheus docs.rs verified; Grafana Alloy official docs. Single MEDIUM item: `taylorwilsdon/google_workspace_mcp` is a community project |
+| Features | HIGH | Feature prioritization cross-referenced with existing MEMORY.md operational history. P1 features all have documented ROI from real operational pain points |
+| Architecture | HIGH | Existing codebase read directly (deploy_pod.py, settings.json, rc-sentry/main.rs, racecontrol state.rs). Integration points verified against actual code |
+| Pitfalls | HIGH | All critical pitfalls derived from documented failures: Salt v6.0 blocked, Gmail OAuth expired, WinRM failures, Session 0/1 split problem. Not hypothetical |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **`data-testid` attributes in kiosk UI:** wizard.spec.ts requires selector hooks on kiosk components (`sim-select`, `track-select`, `wizard-step` indicator). These must be added to the Next.js kiosk source if they do not exist today. Audit kiosk/src/app/book/ before committing to wizard spec scope.
-
-- **rc-sentry :8091 on all pods:** deploy/verify.sh uses rc-sentry as the remote exec channel for deploy verification. If rc-sentry is not deployed on pods, Phase 4 has no remote exec channel during service restarts. Confirm deployment status before scoping Phase 4.
-
-- **Steam dialog dismissal method:** Research identified the problem (Steam dialogs block first-run launches) and general approaches (AutoHotkey, PowerShell UIAutomation, Steam offline mode) but the specific solution for this venue's Steam configuration is not yet confirmed. This needs one manual test run on Pod 8 to confirm dialog behavior and determine the right dismissal approach.
-
-- **Kiosk URL routing (proxy vs direct):** Research notes that kiosk is accessible both at `:3300` (direct Next.js) and via racecontrol proxy at `:8080/kiosk`. Tests should use the proxy path for consistency with venue access, but this routing must be verified working before locking in the `baseURL` in playwright.config.ts.
+- **OpenSSH pod status unknown:** MEMORY.md documents OpenSSH failure on the server (component store corrupted). Pod status is undocumented. Treat Phase 5 as blocked until a manual test confirms at least one pod can enable OpenSSH Server. If all pods fail, Phase 5 scope changes to rc-agent :8090 HTTP exec improvements only.
+- **`google_workspace_mcp` HTTP transport verification:** HTTP transport for Claude Code (vs. stdio for Claude Desktop) was not hands-on tested. If HTTP transport fails, alternative is running the MCP as a stdio server in `.claude/settings.json` — same pattern as the existing `racingpoint-mcp-gmail`.
+- **Grafana Alloy on Windows Server .23:** Server .23 may not have `winget` if it lacks Windows App Installer. Alternative: download Grafana Alloy MSI directly from the Grafana releases page. Verify before deployment planning.
+- **Hardcoded JWT secret (existing P0):** PITFALLS.md flags `default_jwt_secret()` in config.rs as a P0 security issue. Before adding any new auth integration, this must be fixed. Treat as a prerequisite gate for Phase 3 (MCP with racecontrol API access).
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Playwright official docs (playwright.dev) — versions, configuration, retries, reporters, browsers, API testing, best practices
-- npm registry (`@playwright/test@1.58.2`) — version confirmed current, install instructions
-- Next.js official docs (nextjs.org) — `webServer` config, `reuseExistingServer`, basePath behavior
-- cargo-nextest official docs (nexte.st) — process isolation model, retry, JUnit XML
-- Existing codebase (read directly 2026-03-19): `tests/e2e/smoke.sh`, `tests/e2e/game-launch.sh`, `tests/e2e/cross-process.sh`, `kiosk/src/app/book/page.tsx`, `kiosk/next.config.ts`, `crates/racecontrol/src/api/routes.rs`, `crates/rc-sentry/src/main.rs`, `fleet_health.rs`, `deploy.rs`, `game_process.rs`
+- Claude Code Skills official docs (`code.claude.com/docs/en/skills`) — SKILL.md format, frontmatter, invocation control, subagent forking
+- Claude Code Hooks reference (`code.claude.com/docs/en/hooks`) — PreToolUse/PostToolUse, stdin JSON, exit codes
+- `axum-prometheus` docs.rs — version 0.10.0, default metrics, main.rs integration pattern
+- Grafana Alloy Windows docs (`grafana.com/docs/alloy/latest/set-up/install/windows/`) — MSI installer, `prometheus.exporter.windows` component
+- Grafana Cloud pricing (`grafana.com/pricing/`) — 10K series, 14-day retention, 3 users free
+- `windows_exporter` GitHub releases — v0.31.4 latest stable
+- Tailscale SSH GitHub issue #14942 — SSH server not supported on Windows (confirmed open)
+- Existing codebase read directly — `deploy/deploy_pod.py`, `~/.claude/settings.json`, `crates/rc-sentry/src/main.rs`, `crates/racecontrol/src/state.rs`
+- MEMORY.md — WinRM failure, Salt v6.0 blocked, Gmail OAuth expired, OpenSSH server component store corruption
+- CONCERNS.md (via PITFALLS.md) — hardcoded JWT secret P0, cloud sync fragility
 
 ### Secondary (MEDIUM confidence)
-- BrowserStack: Playwright Best Practices 2026, Flaky Tests in Playwright
-- Evil Martians: Flaky tests relief (chronic CI retry patterns)
-- Thunders AI: Modern E2E Test Architecture Patterns
-- WebSearch: Playwright 1.58 features, Next.js 16 webServer config
+- `taylorwilsdon/google_workspace_mcp` GitHub — 287+ issues, active March 2026, HTTP transport for Claude Code
+- `pab1it0/prometheus-mcp-server` GitHub — 18 read-only Prometheus tools, PromQL support
+- Fabric official docs (`fabfile.org`) — v3.2.x, Python SSH tasks, Connection API
+- Claude Code skills merged from slash commands (community article) — backward compatibility confirmed
 
-### Tertiary (LOW confidence / validate during implementation)
-- Steam dialog dismissal approaches (AutoHotkey, PowerShell UIAutomation) — not yet tested in this venue's configuration; requires manual verification on Pod 8
+### Tertiary (LOW confidence)
+- Grafana Alloy on Windows Server (not Windows 11): documented for Windows 11, less community documentation for Windows Server variants — needs hands-on validation
 
 ---
-*Research completed: 2026-03-19 IST*
+*Research completed: 2026-03-20 IST*
 *Ready for roadmap: yes*

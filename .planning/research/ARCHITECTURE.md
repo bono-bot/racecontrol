@@ -1,441 +1,604 @@
 # Architecture Research
 
-**Domain:** E2E Test Suite — multi-layer test runner combining Playwright browser tests, curl-based API tests, and remote deploy verification for a Rust/Axum + Next.js + rc-agent system
-**Researched:** 2026-03-19
-**Confidence:** HIGH (existing codebase read directly; Playwright official docs verified)
+**Domain:** Tooling, automation, and monitoring integration for a Rust/Axum + Next.js sim racing venue management system
+**Researched:** 2026-03-20 IST
+**Confidence:** HIGH (Claude Code official docs verified, existing codebase read directly, Prometheus/windows_exporter official docs)
+
+---
+
+> **Milestone scope:** This file covers v9.0 Tooling & Automation ONLY — Claude Code skills, MCP servers,
+> deployment automation, and monitoring/alerting integrations with the existing racecontrol architecture.
+> Existing stack (Rust/Axum, SQLite, rc-agent, WebSocket, rc-sentry) is not re-researched.
+> Focus: what connects where, what is new, what is modified, and the deployment topology.
 
 ---
 
 ## Standard Architecture
 
-### System Under Test (Current State)
+### Existing System Topology (Current State)
 
 ```
-James (.27)                  Server (.23)                    Pods (.89/.33/.28 etc.)
-+-----------------------+    +----------------------------+  +----------------------+
-|  Tests live here      |    |  racecontrol :8080          |  |  rc-agent :8090      |
-|  tests/e2e/           |    |  +- /api/v1/* (Axum)        |  |  rc-sentry :8091     |
-|  +- run-all.sh        +--->+  +- /kiosk/* (Next.js       |  |                      |
-|  +- smoke.sh          |    |     proxy, Next on :3300)    |  |  WebSocket -> :8080  |
-|  +- cross-process.sh  |    |  +- WebSocket /ws            |  |                      |
-|  +- game-launch.sh    |    |                              |  |  Game PIDs on host   |
-|  +- playwright/       |    |  SQLite DB: racecontrol.db   |  +----------------------+
-|     +- kiosk/         |    +----------------------------+
-|     +- api/           |
-+-----------------------+
+James Workstation (.27)          Server (.23)                 Pods (.89/.33/.28 etc.)
++-------------------------+     +---------------------------+  +---------------------+
+|  Claude Code            |     |  racecontrol :8080         |  |  rc-agent :8090     |
+|  ~/.claude/settings.json|     |  kiosk :3300               |  |  rc-sentry :8091    |
+|  ~/.claude/skills/      |     |  admin :3200               |  |  rc-watchdog svc    |
+|  racecontrol repo       |     |  SQLite racecontrol.db     |  |  Ollama qwen3:0.6b  |
+|                         |     |  rc-sentry :8091           |  |                     |
+|  deploy-staging/ :9998  +---> |  bono_relay :8099          |  |  WebSocket → :8080  |
+|  webterm.py :9999       |     |  cloud_sync → VPS          |  |                     |
++-------------------------+     +---------------------------+  +---------------------+
+         |                               |                              |
+         |                       Tailscale mesh                         |
+         +---------------------+ 100.x.x.x +---------------------------+
+                                       |
+                               Bono VPS :8080
+                               app.racingpoint.cloud
 ```
 
-### Proposed Test Suite Architecture
+### Proposed v9.0 Additions (Where Each Tool Lives)
 
 ```
-tests/e2e/
-+-----------------------------------------------------------------+
-|                                                                  |
-|  run-all.sh   (master runner — single entry point)              |
-|  +---------+  +-----------+  +----------+  +------------------+ |
-|  | Phase 1 |  |  Phase 2  |  | Phase 3  |  |    Phase 4       | |
-|  | Preflight|  | API Suite |  | Browser  |  | Deploy Verify    | |
-|  | (health) |  | (curl)    |  |(Playwright|  | (binary/service) | |
-|  +----+----+  +-----+-----+  +-----+----+  +--------+---------+ |
-|       |             |              |                 |           |
-|       v             v              v                 v           |
-|  smoke.sh    api/              playwright/      deploy/          |
-|              +- billing.sh     +- kiosk/        +- verify.sh     |
-|              +- launch.sh      |  +- wizard.spec.ts              |
-|              +- game-state.sh  |  +- smoke.spec.ts               |
-|              +- simtype.sh     +- api/                           |
-|                                   +- billing.spec.ts             |
-|                                   +- launch.spec.ts              |
-+-----------------------------------------------------------------+
-|                                                                  |
-|  lib/                          results/                          |
-|  +- common.sh (shared fns)     +- run-TIMESTAMP/                 |
-|  +- pod-map.sh (IP lookup)     |  +- smoke.log                   |
-|  +- assert.sh (check/pass/fail)|  +- api.log                     |
-|  +- playwright.config.ts       |  +- playwright/                 |
-|                                |  +- deploy.log                  |
-|                                |  +- summary.json                |
-+-----------------------------------------------------------------+
+James Workstation (.27)                  Server (.23)
++-------------------------------------+  +----------------------------------+
+| Claude Code (extended)              |  | racecontrol :8080                |
+|                                     |  |   + /hooks/pre-tool-use endpoint  |
+| .claude/skills/                     |  |   (optional: HTTP hook target)    |
+|   deploy-pod/SKILL.md         NEW   |  |                                  |
+|   fleet-status/SKILL.md       NEW   |  | windows_exporter :9182    NEW    |
+|   pod-logs/SKILL.md           NEW   |  |   exposes CPU/RAM/disk metrics   |
+|   pod-heal/SKILL.md           NEW   |  |                                  |
+|   racecontrol-context/SKILL.md NEW  |  | Prometheus :9090          NEW    |
+|                                     |  |   scrapes .23:9182 + pods:9182  |
+| ~/.claude/settings.json             |  |                                  |
+|   hooks:                            |  | Grafana :3000             NEW    |
+|     PreToolUse: deploy guard  NEW   |  |   dashboards for fleet health    |
+|     PostToolUse: log actions  NEW   |  |                                  |
+|                                     |  +----------------------------------+
+| ~/.claude/settings.json             |
+|   mcpServers:                       |       Pods (.89/.33/.28 etc.)
+|     racingpoint-gmail (EXISTS)      |  +----------------------------------+
+|     racingpoint-drive (EXISTS)      |  | windows_exporter :9182    NEW    |
+|     context7 (add)           NEW    |  |   exposes CPU/RAM/GPU metrics    |
+|                                     |  +----------------------------------+
+| deploy/ scripts                     |
+|   deploy_pod.py (EXISTS)            |
+|   ansible/ playbooks         NEW    |
+|   ansible/inventory.ini      NEW    |
++-------------------------------------+
 ```
 
 ---
 
-## Component Boundaries
+## Component Responsibilities
 
-| Component | Responsibility | Boundary In | Boundary Out |
-|-----------|----------------|------------|--------------|
-| `run-all.sh` | Master orchestrator. Runs all phases in order, collects exit codes, writes `results/summary.json`, exits with total failure count | Entry: invoked by user or CI | Delegates to: smoke.sh, api/*.sh, playwright runner, deploy/verify.sh |
-| `smoke.sh` (existing) | Phase 1 — Preflight. Verifies server is alive, all expected API routes return correct status codes. Fast fail: if smoke fails, abort remaining phases | Entry: called by run-all.sh | Output: exit code 0/N, smoke.log |
-| `cross-process.sh` (existing) | Schema compatibility, sync table coverage, service proxy chain checks. Runs independently of smoke | Entry: called by run-all.sh after smoke | Output: exit code 0/N, cross-process.log |
-| `api/` shell scripts | Phase 2 — API pipeline tests. Each script tests a specific domain: billing lifecycle, game-state transitions, SimType parsing, double-launch guard. All use curl + python3 for JSON extraction. No browser. | Entry: called by run-all.sh | Targets: racecontrol :8080 /api/v1/* |
-| `game-launch.sh` (existing) | Full gate-by-gate launch pipeline test. Already implements billing check, SimType validation, agent connectivity, double-launch guard, auto-cleanup. Belongs in api/ domain. | Entry: called from api/ phase | Targets: :8080 + :8090 + :8091 |
-| `playwright/` directory | Phase 3 — Browser tests. Playwright specs only live here. Two sub-domains: `kiosk/` (UI flows, wizard steps, SSR verification) and `api/` (API assertions using `page.request` without browser navigation). | Entry: `npx playwright test` invoked by run-all.sh | Targets: :8080/kiosk/* served through racecontrol proxy |
-| `playwright.config.ts` | Single config in `tests/e2e/lib/`. Defines two projects: `chromium` (kiosk browser tests) and `api` (API request tests, no browser). Sets baseURL, timeout, retries. | Read by: playwright runner | Controls: parallelism, retries, reporter path |
-| `deploy/verify.sh` | Phase 4 — Deploy verification. Tests binary swap (kill, replace, restart sequence), port conflict detection (:8080 / :3300 / :8091), service restart idempotency, and config propagation. Calls rc-sentry :8091 directly for remote exec verification on pods. | Entry: called by run-all.sh | Targets: :8080 health, :8091 /exec on pod IPs |
-| `lib/common.sh` | Shared POSIX functions used by all shell scripts: `pass()`, `fail()`, `skip()`, `info()` with consistent color codes, `PASS`/`FAIL`/`SKIP` counters, and `summary_exit()` that writes results and returns correct exit code | Read by: all .sh scripts via `source` | N/A |
-| `lib/pod-map.sh` | Single source of truth for pod IP mapping. Defines `pod_ip pod-N` function. Currently duplicated inline in game-launch.sh — must be extracted here. | Read by: game-launch.sh, deploy/verify.sh | N/A |
-| `results/` | Test run artifacts. Created fresh per invocation as `results/run-YYYYMMDD-HHMMSS/`. Contains per-phase logs, Playwright HTML report, and `summary.json` with total pass/fail/skip counts per phase. | Written by: run-all.sh + playwright reporter | Read by: CI, developer post-run |
+| Component | Location | Responsibility | New / Existing |
+|-----------|----------|----------------|----------------|
+| Claude Code skills | James ~/.claude/skills/ + .claude/skills/ | Project-scoped and personal automation macros invoked by James as `/skill-name` | NEW |
+| Claude Code hooks | ~/.claude/settings.json | Pre/post-tool guards — block unsafe deploys, log actions, auto-notify Bono | NEW |
+| MCP racingpoint-gmail | James ~/.claude/settings.json | Gmail read/send via James's OAuth | EXISTS (broken OAuth) |
+| MCP racingpoint-drive | James ~/.claude/settings.json | Google Drive read/write | EXISTS |
+| MCP context7 | James ~/.claude/settings.json | Library documentation lookups during coding | NEW |
+| windows_exporter | Each Windows host (server + pods) | Expose CPU, RAM, disk, network metrics on :9182 for Prometheus scraping | NEW |
+| Prometheus | Server (.23) | Time-series metrics store, scrapes all hosts every 30s | NEW |
+| Grafana | Server (.23) | Dashboard — fleet health, billing activity, pod uptime | NEW |
+| Ansible control | James (.27) WSL2 or Git Bash | Fleet config push via WinRM — deploy binaries, configs, registry keys | NEW |
+| deploy_pod.py | James (.27) | Existing per-pod deploy orchestrator — extend, don't replace | EXISTS |
+| racecontrol AppState | Server (.23) | Fleet health already exposed via /api/v1/fleet/health — Grafana reads this | EXISTS |
 
 ---
 
-## Recommended Project Structure
+## Integration Points with Existing Architecture
+
+### 1. Claude Code Skills — Integration with racecontrol
+
+Skills are Markdown files in `.claude/skills/` (project-scoped) that James invokes as slash commands. They do NOT modify any Rust code. They call existing infrastructure via Bash tool calls.
+
+**Integration pathway:** Skill → Bash tool → existing CLI (deploy_pod.py / curl / rc-sentry :8091)
 
 ```
-tests/e2e/
-├── run-all.sh                  # Master runner — single entry point
-├── smoke.sh                    # Phase 1a: server/endpoint preflight (existing)
-├── cross-process.sh            # Phase 1b: schema/sync/proxy checks (existing)
-│
-├── api/                        # Phase 2: curl-based API tests
-│   ├── billing.sh              # Billing lifecycle: start, active, stop, idle
-│   ├── game-state.sh           # Game state transitions: launch, running, stop
-│   ├── launch.sh               # Full launch pipeline (game-launch.sh migrated here)
-│   └── simtype.sh              # SimType parsing: valid/invalid/all 5 game types
-│
-├── playwright/                 # Phase 3: browser tests
-│   ├── kiosk/
-│   │   ├── wizard.spec.ts      # Booking wizard: per-game flow (AC, F1, EVO, Rally, iRacing)
-│   │   ├── smoke.spec.ts       # Page render: all kiosk routes return 200, no SSR errors
-│   │   ├── staff.spec.ts       # Staff dashboard: pod list loads, controls visible
-│   │   └── fleet.spec.ts       # Fleet page: pod status cards render with correct states
-│   └── api/
-│       ├── billing.spec.ts     # Billing API via page.request (no browser needed)
-│       └── health.spec.ts      # Health + fleet health endpoint assertions
+/deploy-pod pod-8
+    |
+    v
+.claude/skills/deploy-pod/SKILL.md
+    |
+    Claude reads skill instructions
+    |
+    Bash: python deploy/deploy_pod.py 8
+         |
+         v
+    deploy_pod.py → rc-sentry :8091/exec OR rc-agent :8090
+         |
+         v
+    Pod 8 binary swapped, rc-agent restarted
+```
+
+**Which existing modules skills touch:**
+- `deploy/deploy_pod.py` — called directly via Bash; no modification needed
+- `rc-sentry :8091` — called via curl in deploy scripts; no modification needed
+- `racecontrol /api/v1/fleet/health` — queried for status; no modification needed
+
+**New project skills to create** in `.claude/skills/` (project-scoped, committed to repo):
+
+| Skill | Purpose | Invocation |
+|-------|---------|------------|
+| `deploy-pod` | Deploy rc-agent to one or all pods via deploy_pod.py | `/deploy-pod [pod-N\|all]` |
+| `fleet-status` | Query /api/v1/fleet/health and summarize pod states | `/fleet-status` |
+| `pod-logs` | Fetch recent rc-agent logs from a pod via rc-sentry :8091/exec | `/pod-logs pod-N` |
+| `pod-heal` | Force-restart rc-agent on a pod via rc-sentry :8091 or rc-agent :8090 | `/pod-heal pod-N` |
+| `racecontrol-context` | Load architecture context for coding sessions | auto-invoked |
+
+**New personal skills to create** in `~/.claude/skills/` (James only):
+
+| Skill | Purpose |
+|-------|---------|
+| `rp-deploy-server` | Build + deploy racecontrol.exe to server (.23) |
+| `rp-build-rc-agent` | Cross-compile rc-agent + stage at :9998 |
+
+### 2. Claude Code Hooks — Integration Points
+
+Hooks fire at Claude Code lifecycle events and can block or log actions. They run as Bash scripts receiving JSON on stdin.
+
+**Two hooks to add to `~/.claude/settings.json`:**
+
+**Hook A — PreToolUse deploy guard:**
+Intercepts any Bash command containing `rc-agent.exe` or binary-swap keywords on James's machine (preventing accidental local execution of pod binaries).
+
+```
+PreToolUse (matcher: "Bash")
+    |
+    bash script reads tool_input.command via jq
+    |
+    if command matches rc-agent.exe execution pattern on .27 → deny + warn
+    if command matches safe deploy pattern → allow
+```
+
+**Hook B — PostToolUse action logger:**
+After any deploy Bash command succeeds, logs the action to a local file and optionally appends to comms-link INBOX.md for Bono.
+
+```
+PostToolUse (matcher: "Bash")
+    |
+    bash script reads tool_input.command + output
+    |
+    if command was deploy_pod.py → append to .planning/DEPLOY_LOG.md
+```
+
+**What hooks do NOT modify:** No changes to racecontrol, rc-agent, or rc-sentry. Hooks are purely Claude Code session-side.
+
+### 3. MCP Servers — Integration Points
+
+MCP servers expose tools to Claude Code via stdio. Two already exist; one needs repair and one is new.
+
+**racingpoint-gmail (EXISTING — OAuth broken):**
+- Location: `C:\Users\bono\racingpoint\racingpoint-mcp-gmail\server.js`
+- Issue: Google OAuth refresh token expired (logged in MEMORY.md as open issue)
+- Fix: Re-authorize via Google OAuth flow; update `GOOGLE_REFRESH_TOKEN` in `~/.claude/settings.json`
+- No architectural change needed — the server.js pattern is correct
+
+**racingpoint-drive (EXISTING — working):**
+- Location: `C:\Users\bono\racingpoint\racingpoint-mcp-drive\server.js`
+- Status: Working; no changes needed
+
+**context7 (NEW):**
+- Purpose: Live library documentation lookups during coding sessions
+- Configured in `~/.claude/settings.json` under `mcpServers`
+- No integration with racecontrol code; purely a James workstation tool
+
+**Integration with racecontrol code:** None. MCP servers are James-side tools that feed Claude context. They do not connect to racecontrol's API or any pod.
+
+### 4. Monitoring Stack — Integration Points
+
+The monitoring stack is purely additive. It reads existing data; no changes to racecontrol or rc-agent.
+
+**Data sources already exposed:**
+- `GET /api/v1/fleet/health` — pod WS status, rc-agent version, last heartbeat
+- `GET /api/v1/pods` — pod states, active sessions, game status
+- `GET /api/v1/billing/active` — active billing sessions
+- rc-agent UDP heartbeat (interpreted by racecontrol)
+
+**New data source: windows_exporter**
+- Install on server (.23) and all 8 pods as a Windows service
+- Exposes: CPU%, RAM MB used, disk GB free, network bytes/sec, process count
+- Default port: 9182, path: /metrics (Prometheus text format)
+- Installation: `windows_exporter-0.x-amd64.msi /quiet` via rc-sentry or pendrive
+
+**Prometheus on server (.23):**
+- Runs as Windows service on server
+- Scrapes windows_exporter on all 9 hosts (server + 8 pods) every 30s
+- Also scrapes racecontrol custom metrics endpoint (optional)
+
+**Grafana on server (.23):**
+- Connects to Prometheus as data source
+- Dashboards: fleet health (pod online/offline), resource usage per pod, billing activity
+- Not publicly exposed — LAN-only on :3000
+
+**Data flow:**
+
+```
+Pod windows_exporter :9182 --+
+Pod windows_exporter :9182 --+
+Pod windows_exporter :9182 --+--> Prometheus (.23:9090) --> Grafana (.23:3000)
+         ...                  |         |
+Server windows_exporter :9182 +    /api/v1/fleet/health
+                                  (polled by Grafana JSON plugin)
+```
+
+**What monitoring does NOT require changing:**
+- No changes to racecontrol Rust code
+- No changes to rc-agent
+- No changes to SQLite schema
+- No new API endpoints required (fleet/health already sufficient)
+
+**Optional enhancement:** Add a Prometheus metrics endpoint to racecontrol (`GET /metrics`) using the `prometheus` crate. This would expose billing session counts, active pods, lap counts per hour. This is enhancement, not required for the monitoring stack to function.
+
+### 5. Deployment Automation — Integration Points
+
+The current pendrive-based deployment has two layers that already exist:
+- `deploy/deploy_pod.py` — Python script that orchestrates per-pod deploys via rc-sentry :8091
+- `deploy-staging/` on James with HTTP server :9998 for binary hosting
+- `racecontrol /api/v1/pods/{pod_id}/exec` — fallback if rc-agent :8090 unreachable
+
+**Ansible complement (new layer for config management):**
+- Ansible control node: James workstation (.27) using Git Bash + WSL2
+- Target: all 8 pods + server via WinRM (HTTP 5985)
+- Ansible does NOT replace deploy_pod.py — it handles configuration that doesn't exist yet:
+  - Install windows_exporter on all pods (one-time)
+  - Push registry keys, firewall rules, HKLM Run keys
+  - Enforce `C:\RacingPoint\` directory structure
+
+**WinRM requirement:** WinRM must be enabled on each pod. This is the same blocker that defeated Ansible in the past. However, rc-sentry :8091 can run the WinRM enable command one-time: `POST :8091/exec {"cmd": "powershell -ExecutionPolicy Bypass -Command \"Enable-PSRemoting -Force\""}`. This bootstraps WinRM without physical access.
+
+**Ansible does NOT replace:**
+- deploy_pod.py (Python — more flexible for binary swap with verification)
+- rc-sentry :8091 (always-on backup exec)
+- HKLM Run key + Session 1 pattern (Ansible can SET the key, not replace the pattern)
+
+---
+
+## Recommended Project Structure (New Files)
+
+```
+racecontrol/
+├── .claude/
+│   └── skills/                    NEW — project-scoped skills
+│       ├── deploy-pod/
+│       │   └── SKILL.md           NEW
+│       ├── fleet-status/
+│       │   └── SKILL.md           NEW
+│       ├── pod-logs/
+│       │   └── SKILL.md           NEW
+│       ├── pod-heal/
+│       │   └── SKILL.md           NEW
+│       └── racecontrol-context/
+│           └── SKILL.md           NEW
 │
 ├── deploy/
-│   └── verify.sh               # Phase 4: binary swap, port check, service restart, config propagation
+│   ├── deploy_pod.py              EXISTS — extend, don't replace
+│   ├── ansible/                   NEW — fleet config management
+│   │   ├── inventory.ini          NEW — pod IPs + WinRM creds
+│   │   ├── install-exporter.yml   NEW — windows_exporter on all pods
+│   │   ├── configure-winrm.yml    NEW — bootstrap WinRM via rc-sentry
+│   │   └── roles/
+│   │       └── windows-baseline/  NEW — firewall, registry, dirs
+│   └── monitoring/                NEW
+│       ├── prometheus.yml         NEW — scrape config for all 9 hosts
+│       └── grafana/
+│           └── fleet-dashboard.json  NEW — import into Grafana
 │
-└── lib/
-    ├── common.sh               # Shared: pass/fail/skip, colors, counters, summary_exit
-    ├── pod-map.sh              # Pod IP lookup: pod_ip pod-1 → 192.168.31.89
-    └── playwright.config.ts    # Playwright config: chromium + api projects, baseURL, timeouts
+└── crates/
+    └── racecontrol/
+        └── src/
+            └── metrics.rs         OPTIONAL NEW — Prometheus /metrics endpoint
 ```
 
-### Structure Rationale
+**Personal (James ~/.claude/) — not committed to repo:**
 
-- **api/ vs playwright/api/:** Shell scripts own curl-based tests (fast, no Node dependency). Playwright owns `page.request` API tests where browser cookie/session sharing is needed or where request flows are part of a browser flow.
-- **lib/common.sh:** Eliminates the copy-paste of `pass()`/`fail()`/`skip()` that currently exists in all three existing shell scripts. Single change propagates everywhere.
-- **lib/pod-map.sh:** The pod IP map is currently hardcoded in game-launch.sh as a Python dict. Extract to shell once — every script that needs to reach a pod imports this.
-- **deploy/ is its own phase:** Deploy verification (binary swap, port conflicts) has a different failure mode than API tests. It may modify running services. Isolated phase means run-all.sh can skip it with `--skip-deploy` when running in read-only environments (cloud, CI against staging).
-- **results/ is ephemeral:** Never committed. gitignored. Created fresh per run so logs from different runs do not overwrite each other.
+```
+~/.claude/
+├── settings.json                  EXISTS — add context7 MCP, new hooks
+└── skills/
+    ├── rp-deploy-server/
+    │   └── SKILL.md               NEW
+    └── rp-build-rc-agent/
+        └── SKILL.md               NEW
+```
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: Phase-Gated Sequential Execution
+### Pattern 1: Skill as Deploy Orchestrator
 
-**What:** run-all.sh runs phases in order. Each phase returns an exit code. If Phase 1 (Preflight) fails, subsequent phases are skipped, not run. The master script collects exit codes and writes a summary before exiting with total failure count.
+**What:** A SKILL.md file that wraps deploy_pod.py with argument validation, dry-run option, and Bono notification. The skill itself contains instructions; execution happens via existing Python script.
 
-**When to use:** When later tests depend on preconditions verified by earlier tests. A browser test against the kiosk wizard is meaningless if the server is down. Abort early saves time and avoids misleading failures.
+**When to use:** For any repeated operational task with more than 2 steps that James performs at the Claude Code prompt.
 
-**Trade-offs:** Sequential execution is slower than fully parallel. Acceptable here because phases are coarse-grained (not individual test cases). Individual test cases within a phase can still run in parallel.
+**Trade-offs:** Skills add no new infrastructure risk. The underlying script is the same deploy_pod.py that already works. The skill just ensures Claude runs the right sequence with the right arguments.
 
-**Example:**
-```bash
-# run-all.sh — phase gate pattern
-run_phase() {
-    local name="$1"; shift
-    local cmd=("$@")
-    echo "=== Phase: $name ==="
-    if "${cmd[@]}" > "$RESULTS_DIR/${name}.log" 2>&1; then
-        PHASE_RESULTS["$name"]="PASS"
-    else
-        PHASE_RESULTS["$name"]="FAIL"
-        TOTAL_FAIL=$((TOTAL_FAIL + 1))
-    fi
-}
+**SKILL.md pattern:**
+```yaml
+---
+name: deploy-pod
+description: Deploy rc-agent binary to a pod or all pods. Use when user says "deploy to pod N", "push new binary", or "update pods".
+disable-model-invocation: true
+allowed-tools: Bash(python *)
+---
 
-run_phase "preflight"  bash tests/e2e/smoke.sh
-[[ "${PHASE_RESULTS[preflight]}" == "FAIL" ]] && { echo "Preflight failed — aborting"; exit 1; }
-run_phase "api"        bash tests/e2e/api/billing.sh
-run_phase "browser"    npx playwright test --config tests/e2e/lib/playwright.config.ts
-run_phase "deploy"     bash tests/e2e/deploy/verify.sh
+Deploy rc-agent to the specified pod using deploy_pod.py.
+
+1. Confirm pod number or "all" from $ARGUMENTS
+2. Run: python deploy/deploy_pod.py $ARGUMENTS
+3. Watch output for VERIFY_OK or FAILED
+4. If FAILED: report the error and do NOT retry automatically
+
+Working directory must be the racecontrol repo root.
 ```
 
-### Pattern 2: Source-Based Shared Library for Shell Tests
+### Pattern 2: HTTP Hook for Deploy Guarding
 
-**What:** All shell scripts source `lib/common.sh` at the top. `common.sh` defines the `pass`, `fail`, `skip`, `info` functions, color variables, counters (`PASS`, `FAIL`, `SKIP`), and a `summary_exit` function. Scripts call `summary_exit` as their last line which prints totals and exits with `$FAIL`.
+**What:** A PreToolUse hook that reads incoming Bash commands and blocks any attempt to run `rc-agent.exe` directly on James's machine. Prevents the documented failure mode (running pod binary on .27 crashes the workstation).
 
-**When to use:** Whenever more than two shell scripts need consistent output format and exit codes. Currently `smoke.sh`, `cross-process.sh`, and `game-launch.sh` all define their own versions of these functions with slight inconsistencies.
+**When to use:** Any tool-use that has a known unsafe pattern on James's workstation.
 
-**Trade-offs:** Scripts are no longer self-contained (require `lib/common.sh` to exist). Acceptable: the whole suite is always run from the repo root via run-all.sh. Standalone execution still works if you source the lib manually.
+**Trade-offs:** Low cost — hook is a 20-line bash script. Fires on every Bash call but exits early (< 1ms) unless the command matches.
 
-**Example:**
+**Hook pattern:**
 ```bash
 #!/bin/bash
-# api/billing.sh
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=../lib/common.sh
-source "$SCRIPT_DIR/../lib/common.sh"
-
-echo "=== Billing API Tests ==="
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$BASE_URL/billing/active")
-[ "$HTTP" = "200" ] && pass "GET /billing/active -> 200" || fail "GET /billing/active -> $HTTP"
-
-summary_exit  # prints totals, exits with $FAIL count
+# .claude/hooks/block-pod-binary.sh
+COMMAND=$(jq -r '.tool_input.command // ""' < /dev/stdin)
+if echo "$COMMAND" | grep -qiE '(rc-agent\.exe|pod-agent\.exe)' && \
+   ! echo "$COMMAND" | grep -q 'deploy'; then
+  jq -n '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: "rc-agent.exe must not run on .27 — use deploy_pod.py to deploy to pods"
+    }
+  }'
+else
+  exit 0
+fi
 ```
 
-### Pattern 3: Playwright project split — chromium vs api
+### Pattern 3: Prometheus + racecontrol fleet/health JSON
 
-**What:** `playwright.config.ts` defines two Playwright projects. `chromium` runs actual browser tests in kiosk/. `api` runs request-only tests in playwright/api/ with `use: { browserName: undefined }` (no browser launched). Both report to the same HTML reporter.
+**What:** Grafana connects to racecontrol's existing REST API as a JSON data source alongside Prometheus. Windows metrics (CPU, RAM) come from Prometheus/windows_exporter; operational state (ws_connected, billing active, pod game state) comes directly from `/api/v1/fleet/health`.
 
-**When to use:** When you want a single `npx playwright test` invocation to cover both browser flows and pure HTTP API assertions, with unified reporting and shared fixtures. Avoids needing a separate HTTP test framework (Jest, Supertest) alongside Playwright.
+**When to use:** When the metric you need is application state (not OS metrics). Avoids adding a `metrics.rs` endpoint to racecontrol unless strictly needed.
 
-**Trade-offs:** Playwright is heavier than curl for pure API tests. Justified here because: (a) kiosk is Next.js so Playwright is already required; (b) unified HTML report is more readable than separate log files; (c) cookie sharing between browser and API test contexts is useful for authenticated flows.
+**Trade-offs:** Grafana JSON plugin requires additional configuration vs native Prometheus. For a v9.0 MVP, start with Prometheus for OS metrics and use Grafana's JSON plugin for fleet/health. Only add `metrics.rs` if the JSON plugin is insufficient.
 
-**Example:**
-```typescript
-// lib/playwright.config.ts
-import { defineConfig } from '@playwright/test';
-
-export default defineConfig({
-  testDir: '../playwright',
-  timeout: 30_000,
-  retries: 1,
-  reporter: [['html', { outputFolder: '../results/playwright' }]],
-  use: {
-    baseURL: process.env.RC_BASE_URL ?? 'http://192.168.31.23:8080',
-  },
-  projects: [
-    {
-      name: 'chromium',
-      use: { browserName: 'chromium' },
-      testMatch: 'kiosk/**/*.spec.ts',
-    },
-    {
-      name: 'api',
-      use: { browserName: 'chromium', headless: true },
-      testMatch: 'api/**/*.spec.ts',
-    },
-  ],
-});
+**Data flow:**
+```
+Grafana dashboard
+    |-- Panel A: Pod CPU (source: Prometheus, metric: windows_cpu_time_total)
+    |-- Panel B: Pod RAM (source: Prometheus, metric: windows_os_physical_memory_free_bytes)
+    |-- Panel C: Fleet status (source: JSON plugin → racecontrol /api/v1/fleet/health)
+    |-- Panel D: Active billing (source: JSON plugin → racecontrol /api/v1/billing/active)
 ```
 
-### Pattern 4: rc-sentry as the deploy verification channel
+### Pattern 4: Ansible via rc-sentry Bootstrap
 
-**What:** Deploy verification tests (Phase 4) use rc-sentry :8091 as their remote exec channel, not rc-agent :8090 or the racecontrol :8080 WebSocket. rc-sentry is the backup exec service — it is intentionally independent of racecontrol and rc-agent. This means Phase 4 can restart rc-agent, kill racecontrol, or swap binaries and still have a verification channel.
+**What:** Use rc-sentry :8091 (already deployed on all pods) to enable WinRM on each pod in a single pass. Once WinRM is active, Ansible can manage pods directly from James's workstation.
 
-**When to use:** Any test that needs to verify behavior across a service restart. Without rc-sentry, a test that kills racecontrol has no way to verify it came back without a network-level retry loop. With rc-sentry on :8091, the test can immediately probe the host even while the main service is restarting.
+**When to use:** First-time Ansible setup. This is the bootstrap-only pattern — rc-sentry enables WinRM, then Ansible takes over for ongoing config management.
 
-**Trade-offs:** rc-sentry is unauthenticated (by design, internal LAN only). Tests using it must run on the venue subnet or via Tailscale. Not suitable for cloud CI.
+**Trade-offs:** WinRM previously failed on this network. However, the previous attempts were for OpenSSH (server component store corrupted) and SaltStack (WSL2 portproxy issue). WinRM to Windows from Windows via LAN is simpler — no WSL2 relay, no minion process, HTTP 5985 on LAN. The blocker was configuration, not protocol.
 
----
+**Bootstrap sequence:**
+```bash
+# Step 1: Enable WinRM on all pods via rc-sentry
+for pod_ip in 192.168.31.89 .33 .28 .88 .86 .87 .38 .91; do
+  curl -s -X POST http://$pod_ip:8091/exec \
+    -d '{"cmd": "powershell -ExecutionPolicy Bypass -Command \"Enable-PSRemoting -Force; winrm set winrm/config/client/auth @{Basic=\"\"true\"\"}\""}'
+done
 
-## Data Flow
+# Step 2: Test Ansible connectivity
+ansible all -i deploy/ansible/inventory.ini -m win_ping
 
-### Master Runner Flow
-
-```
-User: bash tests/e2e/run-all.sh [--skip-deploy] [--pod pod-8] [--base-url http://...]
-    |
-    v
-run-all.sh
-    |-- mkdir results/run-$(date +%Y%m%d-%H%M%S)
-    |
-    |-- Phase 1: Preflight
-    |       smoke.sh --> curl :8080/api/v1/health      --> PASS/FAIL
-    |       cross-process.sh --> node check-schema.js  --> PASS/FAIL
-    |       [abort if FAIL]
-    |
-    |-- Phase 2: API Tests
-    |       api/billing.sh   --> curl :8080/api/v1/billing/*  --> log + exit code
-    |       api/simtype.sh   --> curl :8080/api/v1/games/*    --> log + exit code
-    |       api/launch.sh    --> curl gates 0-7 (game-launch) --> log + exit code
-    |       api/game-state.sh--> curl :8080 + :8090           --> log + exit code
-    |
-    |-- Phase 3: Browser Tests
-    |       npx playwright test --config lib/playwright.config.ts
-    |           kiosk/smoke.spec.ts   --> Chromium -> :8080/kiosk/*
-    |           kiosk/wizard.spec.ts  --> Chromium -> :8080/kiosk/book
-    |           api/billing.spec.ts   --> page.request -> :8080/api/v1/*
-    |       --> results/playwright/ (HTML report)
-    |
-    |-- Phase 4: Deploy Verification (skippable)
-    |       deploy/verify.sh
-    |           curl :8080/health (pre-check)
-    |           curl :8091/exec on pod-8 (rc-sentry check)
-    |           [simulate binary swap on pod-8 via :8091]
-    |           curl :8090/health (rc-agent came back)
-    |           curl :8080/fleet/health (server sees pod reconnected)
-    |
-    v
-results/run-TIMESTAMP/summary.json
-{
-  "timestamp": "...",
-  "phases": {
-    "preflight": { "pass": 6, "fail": 0, "skip": 0 },
-    "api": { "pass": 24, "fail": 0, "skip": 3 },
-    "browser": { "pass": 18, "fail": 0, "skip": 0 },
-    "deploy": { "pass": 8, "fail": 0, "skip": 0 }
-  },
-  "total_fail": 0
-}
-
-exit code = total_fail (0 = clean)
-```
-
-### Playwright Internal Flow (kiosk wizard spec)
-
-```
-wizard.spec.ts
-    |
-    |-- test.beforeAll: GET /api/v1/health (server alive gate)
-    |
-    |-- test("AC wizard flow")
-    |       page.goto('/kiosk/book')
-    |       page.locator('[data-testid="sim-select"]').selectOption('assetto_corsa')
-    |       page.locator('[data-testid="track-select"]').isVisible()
-    |       page.locator('[data-testid="car-select"]').isVisible()
-    |       expect(page.locator('[data-testid="wizard-step"]')).toHaveText('Select Track')
-    |
-    |-- test("F1 25 wizard flow")
-    |       ... (same pattern, different sim_type)
-    |
-    |-- test.afterAll: no cleanup needed (read-only UI test)
-```
-
-### Deploy Verification Flow
-
-```
-deploy/verify.sh
-    |
-    |-- pre-check: curl :8080/health → must be 200
-    |-- pre-check: curl http://POD_IP:8091/ping → must be 200
-    |
-    |-- [Binary swap simulation on pod-8]
-    |       POST :8091/exec {"cmd": "sc stop RCAgent"}
-    |       sleep 2
-    |       POST :8091/exec {"cmd": "sc start RCAgent"}
-    |       poll :8090/health up to 30s
-    |
-    |-- [Port conflict check]
-    |       POST :8091/exec {"cmd": "netstat -ano | findstr :8090"}
-    |       verify exactly one listener
-    |
-    |-- [Config propagation check]
-    |       GET :8080/api/v1/fleet/health
-    |       verify pod-8 shows ws_connected: true within 30s
-    |
-    |-- summary_exit
+# Step 3: Run playbooks
+ansible-playbook deploy/ansible/install-exporter.yml
 ```
 
 ---
 
-## Build Order Implications
+## Data Flow Changes
 
-The following dependency graph determines what must be built before what:
+### Monitoring Data Flow (New)
 
 ```
-1. lib/common.sh            (no deps — build first)
-   lib/pod-map.sh           (no deps — build first)
+Before v9.0:
+  racecontrol /api/v1/fleet/health → browser dashboard (:3200)
 
-2. smoke.sh (refactor)      (depends on: lib/common.sh — source it instead of inline fns)
-   cross-process.sh (refactor) (same)
-
-3. api/billing.sh           (depends on: lib/common.sh, lib/pod-map.sh)
-   api/simtype.sh           (depends on: lib/common.sh)
-   api/game-state.sh        (depends on: lib/common.sh, lib/pod-map.sh)
-   api/launch.sh            (migrate game-launch.sh, depends on: lib/common.sh, lib/pod-map.sh)
-
-4. lib/playwright.config.ts  (depends on: knowing kiosk basePath=/kiosk — already confirmed)
-
-5. playwright/kiosk/smoke.spec.ts   (depends on: playwright.config.ts, kiosk running)
-   playwright/kiosk/wizard.spec.ts  (depends on: kiosk UI having data-testid attributes)
-   playwright/api/billing.spec.ts   (depends on: playwright.config.ts)
-
-6. deploy/verify.sh         (depends on: lib/common.sh, lib/pod-map.sh, rc-sentry confirmed on pods)
-
-7. run-all.sh               (depends on: all above — ties everything together)
+After v9.0:
+  windows_exporter :9182 on pods/server
+      |
+      v
+  Prometheus :9090 on server (.23)  <-- scrapes every 30s
+      |
+      v
+  Grafana :3000 on server (.23)
+      |
+      +-- Panel: OS metrics (from Prometheus)
+      +-- Panel: Fleet state (from racecontrol /fleet/health JSON)
+      +-- Panel: Billing (from racecontrol /billing/active JSON)
 ```
 
-**Critical path note:** `playwright/kiosk/wizard.spec.ts` requires `data-testid` attributes on kiosk UI elements (sim select, track select, wizard step indicator). If those attributes do not exist today, they must be added to the Next.js kiosk as part of the browser test phase — this is a kiosk source change, not just a test file. Verify before committing to wizard spec scope.
+### Claude Code Skill Data Flow (New)
+
+```
+Before v9.0:
+  James types: python deploy/deploy_pod.py 8
+  (remembers syntax, arguments, verification steps)
+
+After v9.0:
+  James types: /deploy-pod 8
+      |
+      v
+  Claude reads .claude/skills/deploy-pod/SKILL.md
+      |
+      v
+  Bash: python deploy/deploy_pod.py 8
+      |
+      v
+  Claude reads output, reports result or escalates failure
+      |
+      v
+  PostToolUse hook appends to DEPLOY_LOG.md
+```
+
+### MCP Server Data Flow (Repaired)
+
+```
+Before v9.0:
+  racingpoint-gmail broken (OAuth expired)
+
+After v9.0:
+  Claude Code session
+      |
+      v
+  racingpoint-gmail MCP tool call
+      |
+      v
+  C:\Users\bono\racingpoint\racingpoint-mcp-gmail\server.js
+  (running as stdio MCP server, OAuth refreshed)
+      |
+      v
+  Gmail API → send or read emails
+```
+
+---
+
+## Deployment Topology Summary
+
+| Component | Runs On | How Deployed | Manages |
+|-----------|---------|--------------|---------|
+| Claude Code skills | James .27 | Committed to repo (.claude/skills/) | James's sessions only |
+| Claude Code hooks | James .27 | ~/.claude/settings.json | James's sessions only |
+| racingpoint-gmail MCP | James .27 | ~/.claude/settings.json (already) | Re-auth only |
+| context7 MCP | James .27 | ~/.claude/settings.json | Docs lookups |
+| windows_exporter | All 9 Windows hosts | MSI installer via rc-sentry :8091 or Ansible | OS metrics |
+| Prometheus | Server .23 | Windows service (manual install or Ansible) | Metrics collection |
+| Grafana | Server .23 | Windows service (manual install or Ansible) | Dashboards |
+| Ansible control | James .27 (Git Bash) | pip install ansible + pywinrm | Pod config push |
+| Ansible targets | All 8 pods (.23 is separate) | WinRM :5985 (bootstrapped via rc-sentry) | Receive Ansible |
+
+**Nothing new runs on the cloud VPS (app.racingpoint.cloud).** All monitoring is on-premises. Grafana is LAN-only.
+
+---
+
+## Build Order
+
+The following dependency graph determines what must be built before what. Later items depend on earlier.
+
+```
+1. Claude Code skills (no deps — create SKILL.md files, test immediately)
+   .claude/skills/fleet-status/SKILL.md
+   .claude/skills/deploy-pod/SKILL.md
+   .claude/skills/pod-logs/SKILL.md
+   .claude/skills/pod-heal/SKILL.md
+
+2. Claude Code hooks (depends on: knowing which Bash patterns to guard)
+   ~/.claude/settings.json → add PreToolUse block-pod-binary hook
+   ~/.claude/settings.json → add PostToolUse deploy-logger hook
+
+3. MCP OAuth repair (depends on: Gmail OAuth re-authorization)
+   Update GOOGLE_REFRESH_TOKEN in ~/.claude/settings.json
+   Test: ask Claude to send a test email via racingpoint-gmail
+
+4. Monitoring foundation (depends on: rc-sentry on all pods confirmed)
+   Install windows_exporter on server .23 and all 8 pods via rc-sentry
+   Install Prometheus on server .23
+   Configure prometheus.yml scrape_configs for all 9 hosts
+   Verify Prometheus targets page shows all 9 hosts as UP
+
+5. Grafana dashboards (depends on: Prometheus UP with data)
+   Install Grafana on server .23
+   Add Prometheus data source
+   Add racecontrol JSON data source (fleet/health endpoint)
+   Import fleet-dashboard.json
+
+6. Ansible bootstrap (depends on: rc-sentry confirmed on all pods)
+   pip install ansible pywinrm on James's Git Bash
+   Write deploy/ansible/inventory.ini
+   Bootstrap WinRM via rc-sentry curl loop
+   ansible all -m win_ping to confirm
+   Playbook: install-exporter.yml (replaces Step 4 manual install for future pods)
+
+7. racecontrol-context skill (depends on: codebase stable enough to document)
+   .claude/skills/racecontrol-context/SKILL.md with module map
+```
+
+**Critical path:** Steps 1-3 are independent and can be built in parallel. Step 4 (monitoring) is the only one with hardware prerequisites (rc-sentry must be on all pods — confirmed deployed in v8.0). Step 6 (Ansible) can be done in parallel with Steps 4-5.
 
 ---
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Monolithic Master Script
+### Anti-Pattern 1: Monitoring as the racecontrol "business metrics"
 
-**What people do:** Put all test logic directly in run-all.sh — curl calls, assertions, Playwright invocation, deploy verification, all inline in one 1000-line file.
+**What people do:** Add a full Prometheus `/metrics` endpoint to racecontrol as the first monitoring step, exposing billing counts, lap counts, session durations as custom Prometheus metrics.
 
-**Why it's wrong:** A single failure makes the entire file hard to debug. You cannot re-run just the API phase or just the browser phase. The file grows unbounded as tests are added. Cannot be reused for other services (POS, Admin Dashboard) as PROJECT.md requires.
+**Why it's wrong:** It requires modifying production Rust code to add a metrics dependency, testing the endpoint, and deploying a new binary — all before seeing any monitoring value. The existing `/api/v1/fleet/health` and `/billing/active` endpoints already expose the same data via JSON.
 
-**Do this instead:** run-all.sh contains only phase orchestration (call, capture exit code, summarize). All test logic lives in phase-specific files. Reusability is achieved by parameterizing phase scripts with `BASE_URL`, `POD_ID`, etc. environment variables.
+**Do this instead:** Use Grafana's JSON data source plugin to poll existing REST endpoints. Add custom Prometheus metrics to racecontrol only if time-series aggregation is needed for a specific dashboard (e.g., "laps per hour over 7 days"). This is a Phase 2 concern, not MVP.
 
-### Anti-Pattern 2: Duplicating pass/fail/skip in every script
+### Anti-Pattern 2: Replacing deploy_pod.py with Ansible
 
-**What people do:** Each shell script defines its own color variables and counter functions (as smoke.sh, cross-process.sh, and game-launch.sh all currently do).
+**What people do:** Move the entire binary-swap deploy process into Ansible playbooks, replacing deploy_pod.py with `win_copy` + `win_service` tasks.
 
-**Why it's wrong:** Inconsistent output formatting (smoke.sh uses `echo -e`, game-launch.sh defines `pass()` differently). The pod IP map is defined twice in Python inside game-launch.sh. A bug fix in one script does not propagate.
+**Why it's wrong:** Ansible's `win_copy` over WinRM is slow (100+ seconds for a 10MB binary). The self-swap pattern in deploy_pod.py (download via curl on the pod itself from James's HTTP server :9998) is faster because the binary moves over LAN at gigabit speed. Ansible's strength is idempotent config management (registry keys, firewall rules, service definitions) — not binary deployment.
 
-**Do this instead:** Extract to `lib/common.sh` and `lib/pod-map.sh`. All scripts source them. One fix propagates everywhere.
+**Do this instead:** Keep deploy_pod.py for binary swaps. Use Ansible for everything that doesn't change per-deploy: install windows_exporter once, set HKLM Run keys once, configure firewall rules once. "Ansible for config, deploy_pod.py for code" is the boundary.
 
-### Anti-Pattern 3: Browser tests for what curl can verify
+### Anti-Pattern 3: Project-scoped skills that contain sensitive data
 
-**What people do:** Use Playwright for every assertion, including checking that `/api/v1/health` returns 200.
+**What people do:** Put pod IPs, server credentials, or API keys directly in `.claude/skills/` SKILL.md files, then commit to the repo.
 
-**Why it's wrong:** Browser tests are 10-100x slower than curl and require Chrome to be installed. Playwright should own UI flows and SSR verification. Pure HTTP assertions belong in shell + curl.
+**Why it's wrong:** `.claude/skills/` is committed to the racecontrol repo on GitHub (public org). Anything in SKILL.md is readable by anyone with repo access.
 
-**Do this instead:** Phase 2 (api/) handles all HTTP-level API verification. Phase 3 (playwright/) handles only what requires a real browser: page rendering, wizard step progression, SSR error detection, JavaScript-driven UI state.
+**Do this instead:** Skills reference environment variables or call existing scripts that read from `racecontrol.toml` (never committed). Pod IPs are acceptable (already in MEMORY.md which is private). Credentials stay in `~/.claude/settings.json` (personal, not committed) or in `racecontrol.toml`.
 
-### Anti-Pattern 4: Tests that require real game sessions running
+### Anti-Pattern 4: Adding monitoring to the cloud VPS
 
-**What people do:** Write a test that launches AC, waits for a lap time, then asserts on telemetry. This requires a human driver and a physical pod session.
+**What people do:** Run Prometheus and Grafana on app.racingpoint.cloud (Bono's VPS) and have pods send metrics over the internet.
 
-**Why it's wrong:** The test suite must be runnable by James without a customer present. Telemetry verification requires live UDP data. Game launch verification can confirm the PID was created and the launch gate sequence passed — it does not need to verify a lap completed.
+**Why it's wrong:** Pods are on a private LAN (192.168.31.x). Sending metrics over the internet adds latency, requires VPN/Tailscale to reach each pod's exporter port, and adds a cloud infrastructure dependency to venue-local reliability monitoring. If the internet drops (which happens at the venue), monitoring breaks exactly when you need it most.
 
-**Do this instead:** Game launch tests verify the pipeline gates (billing check, SimType acceptance, agent connectivity, PID creation). Telemetry tests are a separate concern verified manually or via separate integration fixtures. Keep the E2E suite non-destructive and runnable anytime.
-
----
-
-## Integration Points
-
-### External Services
-
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| racecontrol :8080 | curl / Playwright page.request | Primary target. All phases hit this. |
-| kiosk :3300 (proxied as :8080/kiosk) | Playwright Chromium browser | basePath=/kiosk confirmed in next.config.ts |
-| rc-agent :8090 | curl (from server context) | Phase 2 — agent connectivity check via fleet/health endpoint, not direct :8090 from James |
-| rc-sentry :8091 | curl POST /exec | Phase 4 only — deploy verification. Direct LAN access required. |
-| SQLite racecontrol.db | sqlite3 CLI | cross-process.sh sync table coverage check. Read-only. |
-
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| run-all.sh -> phase scripts | bash subshell, captures exit code | Phase scripts are independent processes; no shared state via variables |
-| run-all.sh -> playwright | npx playwright test subprocess | Playwright manages its own Node.js process; results via HTML report + exit code |
-| lib/common.sh -> all .sh scripts | source (not subshell) | Shares variables (PASS, FAIL, SKIP) in same process context |
-| lib/pod-map.sh -> scripts that need pod IPs | source, then call `pod_ip pod-N` | Returns IP string to variable; avoids duplicated Python dict |
-| Playwright globalSetup -> specs | environment variables | Pass RC_BASE_URL, auth tokens, pod target via env; not via shared JS objects |
+**Do this instead:** Prometheus and Grafana live on the server (.23) on the venue LAN. All metrics traffic stays on 192.168.31.x. James and Uday access Grafana via the LAN or via Tailscale SSH tunnel from outside. Bono gets alerts via the existing email_alerts.rs mechanism in racecontrol — no change needed.
 
 ---
 
-## Scaling Considerations
+## Integration Summary Table
 
-This test suite serves a fixed fleet (8 pods, 1 server). Scale is not user growth — it is test count growth.
+| v9.0 Feature | Touches Existing Code? | Touches Existing Config? | New Files | Deployment Target |
+|-------------|------------------------|--------------------------|-----------|-------------------|
+| Claude Code skills | No | No (project .claude/) | 5 SKILL.md files | James .27 |
+| Claude Code hooks | No | Yes (settings.json) | 2 bash hook scripts | James .27 |
+| Gmail MCP repair | No | Yes (settings.json) | No | James .27 |
+| context7 MCP | No | Yes (settings.json) | No | James .27 |
+| windows_exporter | No | No | prometheus.yml | Server + all 8 pods |
+| Prometheus | No | No | prometheus.yml | Server .23 |
+| Grafana | No | No | fleet-dashboard.json | Server .23 |
+| Ansible bootstrap | No | No | inventory.ini + playbooks | James .27 (control) |
+| Ansible WinRM | No | Yes (pod Windows config) | configure-winrm.yml | All 8 pods |
 
-| Scale | Architecture Adjustments |
-|-------|--------------------------|
-| Current (smoke + 2 scripts) | Works as-is. run-all.sh adds structure without breaking anything. |
-| 50+ test cases | Playwright parallelism handles browser tests automatically. Shell scripts run sequentially within each phase — fast enough for LAN curl. |
-| Multi-service (POS, Admin) | run-all.sh accepts `--service` flag. Each service has its own phase scripts under `tests/e2e/services/pos/` and `tests/e2e/services/admin/`. lib/ is shared. |
-| CI (cloud runner) | Pass `--skip-deploy` to omit Phase 4 (requires LAN). Set `RC_BASE_URL` to staging. Deploy verification runs only on-venue. |
+**Net change to existing racecontrol Rust code: zero.** All v9.0 components are additive or side-car.
 
 ---
 
 ## Sources
 
-- Playwright official docs — global setup: https://playwright.dev/docs/test-global-setup-teardown
-- Playwright official docs — configuration: https://playwright.dev/docs/test-configuration
-- Playwright official docs — projects (multiple browser targets): https://playwright.dev/docs/test-configuration#projects
-- Existing codebase: tests/e2e/smoke.sh, cross-process.sh, game-launch.sh — read directly 2026-03-19
-- Existing codebase: kiosk/next.config.ts — basePath=/kiosk confirmed
-- Existing codebase: crates/racecontrol/src/api/routes.rs — API surface read directly
-- Existing codebase: crates/rc-sentry/src/main.rs — :8091 exec channel confirmed
+- [Claude Code Skills Official Docs](https://code.claude.com/docs/en/skills) — SKILL.md format, frontmatter fields, invocation control, supporting files — HIGH confidence
+- [Claude Code Hooks Reference](https://code.claude.com/docs/en/hooks) — hook types, PreToolUse/PostToolUse, stdin JSON format, exit codes — HIGH confidence
+- [windows_exporter GitHub](https://github.com/prometheus-community/windows_exporter) — port 9182, MSI install, collector list — HIGH confidence
+- [Grafana windows_exporter dashboard](https://grafana.com/grafana/dashboards/13466-windows-exporter-for-prometheus-dashboard/) — confirmed dashboard available for import — HIGH confidence
+- [Ansible Windows WinRM docs](https://docs.ansible.com/projects/ansible/latest/os_guide/windows_winrm.html) — WinRM setup, pywinrm requirement — HIGH confidence
+- [Google Workspace MCP (taylorwilsdon)](https://github.com/taylorwilsdon/google_workspace_mcp) — OAuth flow, transport modes, Claude Code integration — MEDIUM confidence
+- Existing codebase (read directly 2026-03-20): `crates/racecontrol/src/ai.rs`, `crates/racecontrol/src/deploy.rs`, `crates/racecontrol/src/bono_relay.rs`, `crates/racecontrol/src/state.rs`, `crates/rc-sentry/src/main.rs`, `deploy/deploy_pod.py`, `racecontrol.toml`, `~/.claude/settings.json` — HIGH confidence
 
 ---
-*Architecture research for: E2E Test Suite — RaceControl monorepo*
-*Researched: 2026-03-19*
+*Architecture research for: v9.0 Tooling & Automation — Claude Code skills, MCP servers, deployment automation, monitoring/alerting*
+*Researched: 2026-03-20 IST*
