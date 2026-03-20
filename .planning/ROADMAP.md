@@ -723,10 +723,11 @@ Plans:
   2. On Pod 8 canary: sending a SwitchController AgentMessage causes rc-agent to reconnect to the new URL within 15s without rc-agent.exe restarting
   3. self_monitor.rs does not trigger a relaunch during the 60s window after a SwitchController is received (last_switch_time guard active)
   4. Switching back to .23 URL works identically — pod reconnects and resumes normal billing heartbeat
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 68-01: TBD
+- [ ] 68-01-PLAN.md -- Protocol + Config + HeartbeatStatus contracts with unit tests (FAIL-01, FAIL-03, FAIL-04)
+- [ ] 68-02-PLAN.md -- Runtime URL switching + self-monitor guard wiring (FAIL-02, FAIL-03, FAIL-04)
 
 ### Phase 69: Health Monitor & Failover Orchestration
 **Goal**: James automatically detects when .23 is unreachable, waits to confirm it is not a transient AC-launch CPU spike, then coordinates with Bono to promote cloud racecontrol as primary and switch all pods — with Uday notified
@@ -1020,7 +1021,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 73. Critical Business Tests | 2/2 | Complete   | 2026-03-20 | - |
 | 74. rc-agent Decomposition | v11.0 | 0/? | Not started | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
-| 76. API Authentication & Admin Protection | 6/6 | Complete   | 2026-03-20 | - |
+| 76. API Authentication & Admin Protection | 6/6 | Complete    | 2026-03-20 | - |
 | 77. Transport Security | v12.0 | 0/? | Not started | - |
 | 78. Kiosk & Session Hardening | v12.0 | 0/? | Not started | - |
 | 79. Data Protection | v12.0 | 0/? | Not started | - |
