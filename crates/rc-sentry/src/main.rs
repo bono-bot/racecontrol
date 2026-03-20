@@ -1,7 +1,8 @@
 //! rc-sentry — lightweight backup remote exec service.
 //!
 //! Runs on port 8091 (server + pods), independent of racecontrol/rc-agent.
-//! Provides /ping and /exec endpoints so we never lose remote access during deploys.
+//! Provides /ping, /exec, /health, /version, /files, /processes endpoints
+//! so we never lose remote access during deploys.
 //! No tokio, no async — pure std::net for minimal binary size and zero shared deps.
 //!
 //! SECURITY: This is an internal-only tool for LAN management of Racing Point pods.
@@ -11,16 +12,20 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, SystemTime};
 
 const DEFAULT_PORT: u16 = 8091;
 const MAX_BODY: usize = 64 * 1024; // 64KB max request/output size
 const MAX_EXEC_SLOTS: usize = 4;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_ID: &str = env!("GIT_HASH");
 
 static EXEC_SLOTS: AtomicUsize = AtomicUsize::new(0);
 static THREAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static START_TIME: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 struct SlotGuard;
 
@@ -50,7 +55,20 @@ impl Drop for SlotGuard {
     }
 }
 
+#[cfg(windows)]
+unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
+    if ctrl_type == 0 || ctrl_type == 2 {
+        // CTRL_C_EVENT or CTRL_CLOSE_EVENT
+        SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+        1
+    } else {
+        0
+    }
+}
+
 fn main() {
+    START_TIME.get_or_init(std::time::Instant::now);
+
     tracing_subscriber::fmt::init();
 
     let port = std::env::args()
@@ -65,21 +83,50 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    listener.set_nonblocking(true).expect("set_nonblocking");
+
+    #[cfg(windows)]
+    unsafe {
+        winapi::um::consoleapi::SetConsoleCtrlHandler(Some(ctrl_handler), 1);
+    }
+
     tracing::info!("rc-sentry listening on :{port}");
 
-    for stream in listener.incoming().flatten() {
-        let n = THREAD_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if let Err(e) = std::thread::Builder::new()
-            .name(format!("sentry-handler-{}", n))
-            .spawn(move || {
-                if let Err(e) = handle(stream) {
-                    tracing::warn!("handler error: {e}");
+    let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
+    loop {
+        handles.retain(|h| !h.is_finished());
+        if SHUTDOWN_REQUESTED.load(Ordering::Acquire) {
+            tracing::info!(
+                "shutdown requested -- draining {} active connections",
+                handles.len()
+            );
+            break;
+        }
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let n = THREAD_COUNTER.fetch_add(1, Ordering::Relaxed);
+                if let Ok(h) = std::thread::Builder::new()
+                    .name(format!("sentry-handler-{n}"))
+                    .spawn(move || {
+                        if let Err(e) = handle(stream) {
+                            tracing::warn!("handler error: {e}");
+                        }
+                    })
+                {
+                    handles.push(h);
                 }
-            })
-        {
-            tracing::error!("thread spawn failed: {e}");
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => tracing::error!("accept: {e}"),
         }
     }
+    for h in handles {
+        let _ = h.join();
+    }
+    tracing::info!("rc-sentry shutdown complete");
 }
 
 fn read_request(stream: &mut TcpStream) -> Result<String, Box<dyn std::error::Error>> {
@@ -145,6 +192,10 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
         ("GET", "/ping") => send_plain(&mut stream, 200, "pong"),
         ("POST", "/exec") => handle_exec(&mut stream, &request),
         ("OPTIONS", _) => send_cors_preflight(&mut stream),
+        ("GET", "/health") => handle_health(&mut stream),
+        ("GET", "/version") => handle_version(&mut stream),
+        ("GET", p) if p.starts_with("/files") => handle_files(&mut stream, p),
+        ("GET", "/processes") => handle_processes(&mut stream),
         _ => send_response(&mut stream, 404, r#"{"error":"not found"}"#),
     }
 }
@@ -192,6 +243,105 @@ fn handle_exec(stream: &mut TcpStream, request: &str) -> Result<(), Box<dyn std:
     send_response(stream, 200, &resp.to_string())
 }
 
+fn handle_health(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    let uptime = START_TIME.get().map(|t| t.elapsed().as_secs()).unwrap_or(0);
+    let slots_used = EXEC_SLOTS.load(Ordering::Acquire);
+    let resp = serde_json::json!({
+        "status": "ok",
+        "version": VERSION,
+        "build_id": BUILD_ID,
+        "uptime_secs": uptime,
+        "exec_slots_available": MAX_EXEC_SLOTS - slots_used,
+        "exec_slots_total": MAX_EXEC_SLOTS,
+        "hostname": sysinfo::System::host_name().unwrap_or_default(),
+    });
+    send_response(stream, 200, &resp.to_string())
+}
+
+fn handle_version(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    let resp = serde_json::json!({ "version": VERSION, "git_hash": BUILD_ID });
+    send_response(stream, 200, &resp.to_string())
+}
+
+fn handle_files(
+    stream: &mut TcpStream,
+    path_with_query: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let query = path_with_query.splitn(2, '?').nth(1).unwrap_or("");
+    let raw_path = query
+        .split('&')
+        .find(|p| p.starts_with("path="))
+        .and_then(|p| p.strip_prefix("path="))
+        .unwrap_or("");
+
+    if raw_path.is_empty() {
+        return send_response(stream, 400, r#"{"error":"missing path parameter"}"#);
+    }
+
+    let decoded = raw_path
+        .replace("%3A", ":")
+        .replace("%3a", ":")
+        .replace("%5C", "\\")
+        .replace("%5c", "\\")
+        .replace("%2F", "/")
+        .replace("%2f", "/")
+        .replace("%20", " ");
+    let dir = std::path::PathBuf::from(&decoded);
+
+    if !dir.exists() {
+        return send_response(
+            stream,
+            404,
+            &format!(r#"{{"error":"path not found: {}"}}"#, decoded),
+        );
+    }
+    if !dir.is_dir() {
+        return send_response(stream, 400, r#"{"error":"not a directory"}"#);
+    }
+
+    let entries: Vec<serde_json::Value> = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .flatten()
+            .map(|entry| {
+                let meta = entry.metadata().ok();
+                let modified = meta.as_ref().and_then(|m| {
+                    m.modified().ok().and_then(|t| {
+                        t.duration_since(SystemTime::UNIX_EPOCH)
+                            .ok()
+                            .map(|d| d.as_secs())
+                    })
+                });
+                serde_json::json!({
+                    "name": entry.file_name().to_string_lossy(),
+                    "is_dir": meta.as_ref().map(|m| m.is_dir()).unwrap_or(false),
+                    "size": meta.as_ref().map(|m| m.len()).unwrap_or(0),
+                    "modified": modified,
+                })
+            })
+            .collect(),
+        Err(_) => return send_response(stream, 403, r#"{"error":"cannot read directory"}"#),
+    };
+
+    send_response(stream, 200, &serde_json::to_string(&entries)?)
+}
+
+fn handle_processes(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    let mut sys = sysinfo::System::new_all();
+    sys.refresh_all();
+    let procs: Vec<serde_json::Value> = sys
+        .processes()
+        .values()
+        .map(|p| {
+            serde_json::json!({
+                "pid": p.pid().as_u32(),
+                "name": p.name().to_string_lossy(),
+                "memory_kb": p.memory() / 1024,
+            })
+        })
+        .collect();
+    send_response(stream, 200, &serde_json::to_string(&procs)?)
+}
+
 fn send_response(
     stream: &mut TcpStream,
     status: u16,
@@ -200,6 +350,7 @@ fn send_response(
     let reason = match status {
         200 => "OK",
         400 => "Bad Request",
+        403 => "Forbidden",
         404 => "Not Found",
         429 => "Too Many Requests",
         _ => "Error",
