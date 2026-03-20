@@ -6,6 +6,27 @@
 //!
 //! This module is write-only. HID input reading lives in `driving_detector.rs`.
 
+use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+
+/// Crash counter — tracks how many times ConspitLink has been restarted via
+/// watchdog (crash recovery) since rc-agent started. Resets on agent restart.
+static CONSPIT_CRASH_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Flag: true when safe_session_end() is managing CL lifecycle.
+/// The watchdog MUST skip its check when this is set.
+pub static SESSION_END_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// Config files that must be backed up and verified before/after ConspitLink restart.
+/// Tuple: (absolute path, friendly name for logging)
+const CONSPIT_CONFIG_FILES: &[(&str, &str)] = &[
+    (r"C:\Program Files (x86)\Conspit Link 2.0\Settings.json", "Settings.json"),
+    (r"C:\Program Files (x86)\Conspit Link 2.0\Global.json", "Global.json"),
+    (r"C:\Program Files (x86)\Conspit Link 2.0\JsonConfigure\GameToBaseConfig.json", "GameToBaseConfig.json"),
+];
+
+/// Runtime copy of Global.json that ConspitLink writes to C:\RacingPoint
+const RUNTIME_GLOBAL_JSON: &str = r"C:\RacingPoint\Global.json";
+
 /// OpenFFBoard vendor HID usage page — filters the correct interface
 const OPENFFBOARD_USAGE_PAGE: u16 = 0xFF00;
 
@@ -376,51 +397,214 @@ pub fn close_conspit_link(timeout: std::time::Duration) -> bool {
     }
 }
 
-/// Restart ConspitLink unconditionally (does NOT check if already running).
+/// Get current crash count (number of watchdog-triggered restarts since agent start).
+pub fn get_crash_count() -> u32 {
+    CONSPIT_CRASH_COUNT.load(Ordering::Relaxed)
+}
+
+/// Increment crash count and return new value (watchdog path only).
+fn increment_crash_count() -> u32 {
+    CONSPIT_CRASH_COUNT.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+/// Backup ConspitLink config files to `.json.bak` counterparts.
 ///
-/// Launches the executable, waits 4s, then minimizes the window.
-/// After 5s, verifies `C:\RacingPoint\Global.json` is valid JSON.
-pub fn restart_conspit_link() {
+/// Only backs up files whose current content is valid JSON — avoids overwriting
+/// a good `.bak` with a corrupt source (Pitfall 2).
+pub fn backup_conspit_configs() {
+    backup_conspit_configs_impl(None);
+}
+
+/// Verify all ConspitLink config files parse as valid JSON.
+///
+/// If a file is corrupt and a `.json.bak` exists, restores from backup.
+/// Returns true if all files are OK (or were successfully restored).
+pub fn verify_conspit_configs() -> bool {
+    verify_conspit_configs_impl(None)
+}
+
+/// Internal: backup with optional base dir override for testing.
+fn backup_conspit_configs_impl(base_dir: Option<&std::path::Path>) {
+    // Build list of files to check: the 3 config files + runtime Global.json
+    let config_entries: Vec<(String, &str)> = if let Some(dir) = base_dir {
+        // Test mode: use relative names inside the test dir
+        let mut entries: Vec<(String, &str)> = CONSPIT_CONFIG_FILES
+            .iter()
+            .map(|(_path, name)| (dir.join(name).to_string_lossy().into_owned(), *name))
+            .collect();
+        entries.push((dir.join("RuntimeGlobal.json").to_string_lossy().into_owned(), "RuntimeGlobal.json"));
+        entries
+    } else {
+        let mut entries: Vec<(String, &str)> = CONSPIT_CONFIG_FILES
+            .iter()
+            .map(|(path, name)| (path.to_string(), *name))
+            .collect();
+        entries.push((RUNTIME_GLOBAL_JSON.to_string(), "RuntimeGlobal.json"));
+        entries
+    };
+
+    for (path_str, name) in &config_entries {
+        let src = std::path::Path::new(path_str);
+        if !src.exists() {
+            tracing::debug!("Backup: {} does not exist — skipping", name);
+            continue;
+        }
+        // Only backup if current file is valid JSON
+        match std::fs::read_to_string(src) {
+            Ok(contents) => {
+                if serde_json::from_str::<serde_json::Value>(&contents).is_ok() {
+                    let bak = src.with_extension("json.bak");
+                    match std::fs::copy(src, &bak) {
+                        Ok(_) => tracing::debug!("Backed up {} -> {}", name, bak.display()),
+                        Err(e) => tracing::warn!("Failed to backup {}: {}", name, e),
+                    }
+                } else {
+                    tracing::warn!(
+                        "Backup: {} contains invalid JSON — skipping (preserving existing .bak)",
+                        name
+                    );
+                }
+            }
+            Err(e) => tracing::warn!("Backup: could not read {}: {}", name, e),
+        }
+    }
+}
+
+/// Internal: verify with optional base dir override for testing.
+fn verify_conspit_configs_impl(base_dir: Option<&std::path::Path>) -> bool {
+    let config_entries: Vec<(String, &str)> = if let Some(dir) = base_dir {
+        let mut entries: Vec<(String, &str)> = CONSPIT_CONFIG_FILES
+            .iter()
+            .map(|(_path, name)| (dir.join(name).to_string_lossy().into_owned(), *name))
+            .collect();
+        entries.push((dir.join("RuntimeGlobal.json").to_string_lossy().into_owned(), "RuntimeGlobal.json"));
+        entries
+    } else {
+        let mut entries: Vec<(String, &str)> = CONSPIT_CONFIG_FILES
+            .iter()
+            .map(|(path, name)| (path.to_string(), *name))
+            .collect();
+        entries.push((RUNTIME_GLOBAL_JSON.to_string(), "RuntimeGlobal.json"));
+        entries
+    };
+
+    let mut all_ok = true;
+    for (path_str, name) in &config_entries {
+        let path = std::path::Path::new(path_str);
+        if !path.exists() {
+            tracing::debug!("Verify: {} does not exist — skipping (CL may not have written it yet)", name);
+            continue;
+        }
+        match std::fs::read_to_string(path) {
+            Ok(contents) => {
+                if serde_json::from_str::<serde_json::Value>(&contents).is_err() {
+                    tracing::warn!("{} is corrupted — attempting restore from backup", name);
+                    let bak = path.with_extension("json.bak");
+                    if bak.exists() {
+                        match std::fs::copy(&bak, path) {
+                            Ok(_) => tracing::info!("{} restored from backup", name),
+                            Err(e) => {
+                                tracing::error!("Failed to restore {}: {}", name, e);
+                                all_ok = false;
+                            }
+                        }
+                    } else {
+                        tracing::error!("{} corrupted and no backup exists", name);
+                        all_ok = false;
+                    }
+                } else {
+                    tracing::debug!("{} integrity check passed", name);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Could not read {} for verification: {}", name, e);
+                // Read error is not necessarily corruption — file may be locked briefly
+            }
+        }
+    }
+    all_ok
+}
+
+/// Testable backup function that operates within a given directory.
+#[cfg(test)]
+pub(crate) fn backup_conspit_configs_in_dir(dir: &std::path::Path) {
+    backup_conspit_configs_impl(Some(dir));
+}
+
+/// Testable verify function that operates within a given directory.
+#[cfg(test)]
+pub(crate) fn verify_conspit_configs_in_dir(dir: &std::path::Path) -> bool {
+    verify_conspit_configs_impl(Some(dir))
+}
+
+/// Minimize ConspitLink window with polling retry.
+///
+/// Calls `minimize_conspit_window()` every 500ms for up to 8s (16 attempts).
+/// More reliable than a fixed sleep — handles variable CL startup times.
+pub fn minimize_conspit_window_with_retry() {
+    let start = std::time::Instant::now();
+    for attempt in 1..=16u32 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        crate::ac_launcher::minimize_conspit_window();
+        // Check if CL is at least running (confirms it started)
+        if crate::ac_launcher::is_process_running("ConspitLink2.0.exe") {
+            tracing::info!(
+                "ConspitLink window minimize attempt {} ({}ms elapsed) — process is running",
+                attempt,
+                start.elapsed().as_millis()
+            );
+            return;
+        }
+    }
+    tracing::warn!(
+        "ConspitLink window minimize: process not detected after 8s — may not have started"
+    );
+}
+
+/// Restart ConspitLink with full hardening:
+/// - Optionally increment crash counter (watchdog path only)
+/// - Backup config files (skip if source is corrupt)
+/// - Launch process
+/// - Minimize window with polling retry
+/// - Verify all JSON configs after startup
+///
+/// `is_crash_recovery`: true when called from watchdog, false from session-end.
+pub fn restart_conspit_link_hardened(is_crash_recovery: bool) {
     #[cfg(windows)]
     {
         let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
         if !std::path::Path::new(conspit_path).exists() {
-            tracing::debug!("ConspitLink not installed at {} — skipping restart", conspit_path);
+            tracing::debug!("ConspitLink not installed — skipping restart");
             return;
         }
 
+        // 1. Increment crash counter (watchdog only, not session-end)
+        if is_crash_recovery {
+            let count = increment_crash_count();
+            tracing::warn!("ConspitLink crash recovery restart #{}", count);
+            if count >= 5 {
+                tracing::error!(
+                    "ConspitLink has crashed {} times since agent start",
+                    count
+                );
+            }
+        }
+
+        // 2. Backup configs (only if current files are valid JSON)
+        backup_conspit_configs();
+
+        // 3. Launch ConspitLink
         match crate::ac_launcher::hidden_cmd("cmd")
             .args(["/c", "start", "", conspit_path])
             .spawn()
         {
             Ok(_) => {
-                tracing::info!("ConspitLink restarted, will minimize in 4s...");
-                // Spawn thread: wait for ConspitLink to initialize, then minimize
+                tracing::info!("ConspitLink started, will verify + minimize...");
+                // Single thread: minimize with retry, then verify configs
                 std::thread::spawn(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(4));
-                    crate::ac_launcher::minimize_conspit_window();
-                });
-                // Spawn thread: wait 5s, then verify Global.json integrity
-                std::thread::spawn(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                    let json_path = r"C:\RacingPoint\Global.json";
-                    match std::fs::read_to_string(json_path) {
-                        Ok(contents) => {
-                            match serde_json::from_str::<serde_json::Value>(&contents) {
-                                Ok(_) => tracing::info!(
-                                    "ConspitLink Global.json integrity check passed"
-                                ),
-                                Err(e) => tracing::warn!(
-                                    "ConspitLink Global.json parse error: {} — config may be corrupted",
-                                    e
-                                ),
-                            }
-                        }
-                        Err(e) => tracing::warn!(
-                            "Could not read {} for integrity check: {}",
-                            json_path, e
-                        ),
-                    }
+                    minimize_conspit_window_with_retry();
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    verify_conspit_configs();
                 });
             }
             Err(e) => tracing::error!("Failed to restart ConspitLink: {}", e),
@@ -439,6 +623,9 @@ pub fn restart_conspit_link() {
 /// 3. Ramp idlespring from 0 to 2000 over 500ms (5 steps)
 /// 4. Restart ConspitLink (fire-and-forget background thread)
 pub async fn safe_session_end(ffb: &FfbController) {
+    // Guard: signal watchdog to skip CL checks during session-end
+    SESSION_END_IN_PROGRESS.store(true, Ordering::Release);
+
     // Step 1: Close ConspitLink (sync, in spawn_blocking)
     let closed = tokio::task::spawn_blocking(|| {
         close_conspit_link(std::time::Duration::from_secs(5))
@@ -473,7 +660,11 @@ pub async fn safe_session_end(ffb: &FfbController) {
     .ok();
 
     // Step 3: Restart ConspitLink (fire and forget — do NOT .await)
-    tokio::task::spawn_blocking(|| restart_conspit_link());
+    // Clear SESSION_END_IN_PROGRESS AFTER restart completes (including verify/minimize)
+    tokio::task::spawn_blocking(|| {
+        restart_conspit_link_hardened(false);
+        SESSION_END_IN_PROGRESS.store(false, Ordering::Release);
+    });
 
     tracing::info!("Session-end safety sequence complete -- wheel centering with idlespring");
 }
@@ -649,5 +840,154 @@ mod tests {
         // FfbController must derive Clone for use in spawn_blocking closures
         let c = FfbController::new(0x1209, 0xFFB0);
         let _c2 = c.clone();
+    }
+
+    // ─── ConspitLink Hardening Tests ────────────────────────────────────────
+
+    #[test]
+    fn test_config_file_list_complete() {
+        // CONSPIT_CONFIG_FILES must have exactly 3 entries
+        assert_eq!(CONSPIT_CONFIG_FILES.len(), 3);
+        // Check all expected files are present
+        let names: Vec<&str> = CONSPIT_CONFIG_FILES.iter().map(|(_, n)| *n).collect();
+        assert!(names.contains(&"Settings.json"));
+        assert!(names.contains(&"Global.json"));
+        assert!(names.contains(&"GameToBaseConfig.json"));
+    }
+
+    #[test]
+    fn test_crash_count_starts_at_zero() {
+        // Reset for test isolation (AtomicU32 is global)
+        CONSPIT_CRASH_COUNT.store(0, Ordering::Relaxed);
+        assert_eq!(get_crash_count(), 0);
+    }
+
+    #[test]
+    fn test_crash_count_increment() {
+        CONSPIT_CRASH_COUNT.store(0, Ordering::Relaxed);
+        let new = increment_crash_count();
+        assert_eq!(new, 1);
+        assert_eq!(get_crash_count(), 1);
+        // Reset after test
+        CONSPIT_CRASH_COUNT.store(0, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_backup_skips_corrupt_source() {
+        // Given a file with invalid JSON, backup should NOT overwrite existing .bak
+        let dir = std::env::temp_dir().join("conspit_test_backup_skip");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("Settings.json");
+        let bak = dir.join("Settings.json.bak");
+
+        // Create a good .bak first
+        std::fs::write(&bak, r#"{"good": true}"#).unwrap();
+        // Write corrupt JSON to the source file
+        std::fs::write(&file, "NOT VALID JSON {{{{").unwrap();
+
+        backup_conspit_configs_in_dir(&dir);
+
+        // .bak should still contain the good content (not overwritten)
+        let bak_content = std::fs::read_to_string(&bak).unwrap();
+        assert_eq!(bak_content, r#"{"good": true}"#);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_backup_copies_valid_source() {
+        let dir = std::env::temp_dir().join("conspit_test_backup_copy");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("Settings.json");
+        std::fs::write(&file, r#"{"valid": true}"#).unwrap();
+
+        backup_conspit_configs_in_dir(&dir);
+
+        let bak = dir.join("Settings.json.bak");
+        assert!(bak.exists(), ".bak should be created");
+        let bak_content = std::fs::read_to_string(&bak).unwrap();
+        assert_eq!(bak_content, r#"{"valid": true}"#);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_verify_valid_json() {
+        let dir = std::env::temp_dir().join("conspit_test_verify_valid");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Create all 3 config files + runtime with valid JSON
+        for name in &["Settings.json", "Global.json", "GameToBaseConfig.json", "RuntimeGlobal.json"] {
+            std::fs::write(dir.join(name), r#"{"ok": true}"#).unwrap();
+        }
+
+        let result = verify_conspit_configs_in_dir(&dir);
+        assert!(result, "All valid JSON should return true");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_verify_corrupt_json_triggers_restore() {
+        let dir = std::env::temp_dir().join("conspit_test_verify_restore");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Create valid files for 2 of them
+        std::fs::write(dir.join("Global.json"), r#"{"ok": true}"#).unwrap();
+        std::fs::write(dir.join("GameToBaseConfig.json"), r#"{"ok": true}"#).unwrap();
+        std::fs::write(dir.join("RuntimeGlobal.json"), r#"{"ok": true}"#).unwrap();
+
+        // Create corrupt Settings.json
+        std::fs::write(dir.join("Settings.json"), "CORRUPT!!!").unwrap();
+        // Create a good .bak for Settings.json
+        std::fs::write(dir.join("Settings.json.bak"), r#"{"restored": true}"#).unwrap();
+
+        let result = verify_conspit_configs_in_dir(&dir);
+        assert!(result, "Should return true after restoring from .bak");
+
+        // Verify the file was restored
+        let content = std::fs::read_to_string(dir.join("Settings.json")).unwrap();
+        assert_eq!(content, r#"{"restored": true}"#);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_verify_corrupt_no_backup_returns_false() {
+        let dir = std::env::temp_dir().join("conspit_test_verify_no_bak");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Create valid files for most
+        std::fs::write(dir.join("Global.json"), r#"{"ok": true}"#).unwrap();
+        std::fs::write(dir.join("GameToBaseConfig.json"), r#"{"ok": true}"#).unwrap();
+        std::fs::write(dir.join("RuntimeGlobal.json"), r#"{"ok": true}"#).unwrap();
+
+        // Create corrupt Settings.json with NO .bak
+        std::fs::write(dir.join("Settings.json"), "CORRUPT!!!").unwrap();
+
+        let result = verify_conspit_configs_in_dir(&dir);
+        assert!(!result, "Should return false when corrupt and no .bak exists");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_session_end_guard_flag() {
+        // SESSION_END_IN_PROGRESS can be set and read atomically
+        SESSION_END_IN_PROGRESS.store(false, Ordering::Release);
+        assert!(!SESSION_END_IN_PROGRESS.load(Ordering::Acquire));
+
+        SESSION_END_IN_PROGRESS.store(true, Ordering::Release);
+        assert!(SESSION_END_IN_PROGRESS.load(Ordering::Acquire));
+
+        // Reset
+        SESSION_END_IN_PROGRESS.store(false, Ordering::Release);
     }
 }
