@@ -30,7 +30,7 @@ Requirements for tooling & automation milestone. Each maps to roadmap phases.
 
 ### Monitoring & Alerting
 
-- [ ] **MON-01**: racecontrol emits structured JSON logs via tracing-subscriber with daily file rotation
+- [x] **MON-01**: racecontrol emits structured JSON logs via tracing-subscriber with daily file rotation
 - [ ] **MON-02**: rc-agent emits structured JSON logs via tracing-subscriber with daily file rotation
 - [ ] **MON-03**: racecontrol triggers email alert when error rate exceeds N errors in M minutes (configurable threshold)
 - [ ] **MON-04**: Netdata agent installed on racecontrol server (.23) collecting system metrics (CPU, RAM, disk, network)
@@ -89,7 +89,7 @@ Deferred to after v9.0 validation. Tracked but not in current roadmap.
 | DEPLOY-01 | Phase 53 | Complete |
 | DEPLOY-02 | Phase 53 | Complete |
 | DEPLOY-03 | Phase 53 | Complete |
-| MON-01 | Phase 54 | Pending |
+| MON-01 | Phase 54 | Complete |
 | MON-02 | Phase 54 | Pending |
 | MON-03 | Phase 54 | Pending |
 | MON-04 | Phase 55 | Pending |

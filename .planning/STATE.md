@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: Roadmap ready, awaiting plan-phase
-stopped_at: Completed 57-01-PLAN.md
-last_updated: "2026-03-20T08:33:16.282Z"
+stopped_at: Completed 54-01-PLAN.md
+last_updated: "2026-03-20T08:45:56.198Z"
 last_activity: 2026-03-20 — v9.0 roadmap created, 6 phases (51-56), 19 requirements mapped
 progress:
   total_phases: 30
   completed_phases: 13
-  total_plans: 32
-  completed_plans: 29
+  total_plans: 35
+  completed_plans: 30
   percent: 0
 ---
 
@@ -106,6 +106,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase 53-deployment-automation P02 | 2 | 1 tasks | 1 files |
 | Phase 53-deployment-automation P01 | 513 | 2 tasks | 1 files |
 | Phase 57 P01 | 2 | 1 tasks | 1 files |
+| Phase 54-structured-logging-error-rate-alerting P01 | 8 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -221,6 +222,8 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 - [Phase 53-01]: Task Scheduler registration requires admin — used Start-Process RunAs elevation; schtasks /create with ONLOGON always needs UAC on non-admin sessions
 - [Phase 57]: CLASS_FXM = 0x0A03, CMD_FXM_RESET = 0x01, CMD_IDLESPRING = 0x05 per upstream OpenFFBoard wiki — needs empirical validation on Conspit fork
 - [Phase 57]: POWER_CAP_80_PERCENT pub const (not crate-private) so main.rs can reference at startup; Clone derive on FfbController since it only holds vid/pid
+- [Phase 54-structured-logging-error-rate-alerting]: File layer uses .json() for structured JSONL; stdout layer stays plain text — no JSON on stdout per requirement
+- [Phase 54-structured-logging-error-rate-alerting]: RollingFileAppender::builder() used over rolling::daily() to produce racecontrol-YYYY-MM-DD.jsonl naming with .jsonl extension
 
 ### Pending Todos
 
@@ -236,7 +239,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
 ## Session Continuity
 
-Last session: 2026-03-20T08:33:16.277Z
-Stopped at: Completed 57-01-PLAN.md
+Last session: 2026-03-20T08:45:56.194Z
+Stopped at: Completed 54-01-PLAN.md
 Resume file: None
 Next action: Phase 51 Plan 01 — CLAUDE.md with project context (pod IPs, crate names, naming rules, constraints, 4-tier debug order)
