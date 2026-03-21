@@ -31,15 +31,15 @@ Requirements for full bidirectional dynamic execution between James and Bono.
 - [x] **CHAIN-03**: Per-step continue_on_error flag overrides abort behavior
 - [x] **CHAIN-04**: Structured chain_result returns all step outputs as single response
 - [x] **CHAIN-05**: Chain-level timeout caps entire chain duration regardless of step count
-- [ ] **CHAIN-06**: Named chain templates loadable from config file, invocable by name
-- [ ] **CHAIN-07**: Output templating: {{prev_stdout}} in step args substituted with previous step output
-- [ ] **CHAIN-08**: Per-step retry with configurable count and backoff
+- [x] **CHAIN-06**: Named chain templates loadable from config file, invocable by name
+- [x] **CHAIN-07**: Output templating: {{prev_stdout}} in step args substituted with previous step output
+- [x] **CHAIN-08**: Per-step retry with configurable count and backoff
 - [ ] **CHAIN-09**: Chain state survives WebSocket disconnects — pause/resume across reconnects
 
 ### Claude-to-Claude Delegation
 
-- [ ] **DELEG-01**: James can send a chain_request to Bono; Bono executes and returns chain_result
-- [ ] **DELEG-02**: Bono can send a chain_request to James; James executes and returns chain_result
+- [x] **DELEG-01**: James can send a chain_request to Bono; Bono executes and returns chain_result
+- [x] **DELEG-02**: Bono can send a chain_request to James; James executes and returns chain_result
 - [x] **DELEG-03**: Delegation is transparent — requesting AI integrates response without exposing relay to user
 
 ### Observability
@@ -84,12 +84,12 @@ None — all features scoped into v18.0.
 | CHAIN-03 | Phase 132 | Complete |
 | CHAIN-04 | Phase 132 | Complete |
 | CHAIN-05 | Phase 132 | Complete |
-| CHAIN-06 | Phase 134 | Pending |
-| CHAIN-07 | Phase 134 | Pending |
-| CHAIN-08 | Phase 134 | Pending |
+| CHAIN-06 | Phase 134 | Complete |
+| CHAIN-07 | Phase 134 | Complete |
+| CHAIN-08 | Phase 134 | Complete |
 | CHAIN-09 | Phase 134 | Pending |
-| DELEG-01 | Phase 133 | Pending |
-| DELEG-02 | Phase 133 | Pending |
+| DELEG-01 | Phase 133 | Complete |
+| DELEG-02 | Phase 133 | Complete |
 | DELEG-03 | Phase 133 | Complete |
 | AUDIT-01 | Phase 133 | Complete |
 | AUDIT-02 | Phase 133 | Complete |

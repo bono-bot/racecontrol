@@ -1,5 +1,28 @@
 ---
 gsd_state_version: 1.0
+milestone: v18.0
+milestone_name: Advanced Chain Features Integration Hardening
+status: in_progress
+stopped_at: Completed 134-01-PLAN.md
+last_updated: "2026-03-22T23:31:00.000Z"
+progress:
+  total_phases: 96
+  completed_phases: 68
+  total_plans: 170
+  completed_plans: 167
+decisions:
+  - "133-02: AuditLogger instantiated before execHandler/shellRelay (closures capture at construction time)"
+  - "133-02: Executor-side audit fires before sending delegate_result to guarantee log entry survives network failures"
+  - "133-02: Requester-side audit uses chainId_step_i as execId for cross-machine correlation"
+  - "133-02: bonoAuditLogger returned from wireBono() for testability"
+  - "134-01: templatesFn defaults to () => ({}) for backward-compatible constructor"
+  - "134-01: Inline steps take precedence over template name when both provided"
+  - "134-01: Retry does not re-attempt on broker timeout, only on non-zero exitCode"
+  - "134-01: Fresh execId per retry to avoid ExecResultBroker dedup blocking retries"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
