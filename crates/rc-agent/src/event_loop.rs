@@ -63,6 +63,7 @@ pub(crate) struct ConnectionState {
     pub(crate) game_check_interval: tokio::time::Interval,
     pub(crate) kiosk_interval: tokio::time::Interval,
     pub(crate) overlay_topmost_interval: tokio::time::Interval,
+    pub(crate) maintenance_retry_interval: tokio::time::Interval,
     pub(crate) blank_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
     pub(crate) blank_timer_armed: bool,
     pub(crate) crash_recovery: CrashRecoveryState,
@@ -96,6 +97,7 @@ impl ConnectionState {
             game_check_interval: tokio::time::interval(Duration::from_secs(2)),
             kiosk_interval: tokio::time::interval(Duration::from_secs(5)),
             overlay_topmost_interval: tokio::time::interval(Duration::from_secs(10)),
+            maintenance_retry_interval: tokio::time::interval(Duration::from_secs(30)),
             blank_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
             blank_timer_armed: false,
             crash_recovery: CrashRecoveryState::Idle,
@@ -684,6 +686,35 @@ pub async fn run(
                         crate::lock_screen::enforce_kiosk_foreground();
                         ac_launcher::ensure_conspit_link_running();
                     });
+                }
+            }
+
+            _ = conn.maintenance_retry_interval.tick() => {
+                if !state.in_maintenance.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
+                tracing::info!("Maintenance retry: re-running pre-flight checks");
+                let ffb_ref: &dyn crate::ffb_controller::FfbBackend = state.ffb.as_ref();
+                match crate::pre_flight::run(state, ffb_ref).await {
+                    crate::pre_flight::PreFlightResult::Pass => {
+                        tracing::info!("Maintenance retry: pre-flight passed — clearing maintenance");
+                        state.in_maintenance.store(false, std::sync::atomic::Ordering::Relaxed);
+                        state.lock_screen.show_idle_pin_entry();
+                        // Send PreFlightPassed to server
+                        let pod_id = state.config.pod.number.to_string();
+                        let msg = AgentMessage::PreFlightPassed {
+                            pod_id,
+                        };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                        }
+                    }
+                    crate::pre_flight::PreFlightResult::MaintenanceRequired { failures } => {
+                        let failure_strings: Vec<String> = failures.iter().map(|f| f.detail.clone()).collect();
+                        tracing::warn!("Maintenance retry: still failing — {:?}", failure_strings);
+                        // Refresh lock screen with updated failures
+                        state.lock_screen.show_maintenance_required(failure_strings);
+                    }
                 }
             }
 
