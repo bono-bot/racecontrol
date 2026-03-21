@@ -1,4 +1,13 @@
 # Milestones
+## v10.0 Connectivity & Redundancy (Shipped: 2026-03-21)
+
+**Phases completed:** 34 phases, 85 plans, 13 tasks
+
+**Key accomplishments:**
+- (none recorded)
+
+---
+
 
 ## v1.0 RaceControl HUD & Safety (Shipped: 2026-03-13)
 
