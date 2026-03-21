@@ -441,3 +441,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 17:01 IST | James | 99412bc | feat(106-04): migrate remote_ops.rs, self_monitor.rs, self_heal.rs to structured log labels |
 | 2026-03-21 17:01 IST | James | b4d0588 | feat(106-04): migrate game_process.rs, overlay.rs, billing_guard.rs, pre_flight.rs to structured log labels |
 | 2026-03-21 17:01 IST | James | a47847f | docs(106-04): complete structured log labels plan 04 — 79 tracing calls in 7 files migrated |
+| 2026-03-21 17:15 IST | James | 8dbd3ba | feat(106-05): migrate utility/monitor files to structured target: labels — 8 files, 36 call sites |
+| 2026-03-21 17:20 IST | James | 046f6a7 | feat(106-05): migrate sim module files to structured target: labels — 5 files, 32 call sites |
+| 2026-03-21 17:25 IST | James | 942f5ed | docs(106-05): complete plan — all remaining rc-agent files structured log labels (13 files, 68 calls) |
