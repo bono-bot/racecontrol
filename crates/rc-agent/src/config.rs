@@ -30,6 +30,9 @@ pub struct AgentConfig {
     /// Configurable via TOML, default 300s (5 minutes).
     #[serde(default = "default_auto_end_orphan_session_secs")]
     pub auto_end_orphan_session_secs: u64,
+    /// AC EVO shared memory telemetry feature flag (HARD-05). Off by default until anti-cheat status confirmed at v1.0.
+    #[serde(default)]
+    pub ac_evo_telemetry_enabled: bool,
 }
 
 pub(crate) fn default_auto_end_orphan_session_secs() -> u64 { 300 }
@@ -352,6 +355,7 @@ mod tests {
             preflight: PreflightConfig::default(),
             process_guard: ProcessGuardConfig::default(),
             auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
+            ac_evo_telemetry_enabled: false,
         }
     }
 
@@ -639,6 +643,46 @@ failover_url = "http://bad-url"
             err.to_string().contains("failover_url"),
             "Error should mention failover_url: {}",
             err
+        );
+    }
+
+    // ─── Phase 110: AC EVO telemetry feature flag tests ───────────────────────
+
+    #[test]
+    fn test_ac_evo_feature_flag_default_false() {
+        // Minimal TOML (just [pod] and [core]) — ac_evo_telemetry_enabled absent → must default false
+        let toml_str = r#"
+[pod]
+number = 1
+name = "Pod 1"
+sim = "assetto_corsa"
+[core]
+url = "ws://127.0.0.1:8080/ws/agent"
+"#;
+        let config: AgentConfig = toml::from_str(toml_str).unwrap();
+        assert!(
+            !config.ac_evo_telemetry_enabled,
+            "ac_evo_telemetry_enabled must default to false (HARD-05)"
+        );
+    }
+
+    #[test]
+    fn test_ac_evo_feature_flag_enabled() {
+        // TOML with ac_evo_telemetry_enabled = true as a top-level field — must parse as true
+        let toml_str = r#"
+ac_evo_telemetry_enabled = true
+
+[pod]
+number = 1
+name = "Pod 1"
+sim = "assetto_corsa_evo"
+[core]
+url = "ws://127.0.0.1:8080/ws/agent"
+"#;
+        let config: AgentConfig = toml::from_str(toml_str).unwrap();
+        assert!(
+            config.ac_evo_telemetry_enabled,
+            "ac_evo_telemetry_enabled = true in TOML must parse correctly"
         );
     }
 }

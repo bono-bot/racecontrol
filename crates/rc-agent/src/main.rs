@@ -421,9 +421,19 @@ async fn main() -> Result<()> {
         SimType::LeMansUltimate => Some(Box::new(LmuAdapter::new(
             pod_id.clone(),
         ))),
-        SimType::AssettoCorsaEvo => Some(Box::new(
-            sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new(pod_id.clone()),
-        )),
+        SimType::AssettoCorsaEvo => {
+            if config.ac_evo_telemetry_enabled {
+                Some(Box::new(
+                    sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new(pod_id.clone()),
+                ))
+            } else {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "AC EVO telemetry disabled by feature flag (ac_evo_telemetry_enabled=false)"
+                );
+                None
+            }
+        }
         SimType::AssettoCorsaRally => Some(Box::new(
             sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new_rally(pod_id.clone()),
         )),
