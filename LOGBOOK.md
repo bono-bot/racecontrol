@@ -400,3 +400,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 10:56 IST | James | 21c5ee5 | docs(99-02): complete alert rate-limiting plan — 99-02-SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md |
 | 2026-03-21 11:15 IST | James | 5f27c06 | feat(84-02): wire IracingAdapter and PlayableSignal — main.rs IRacing arm, event_loop.rs IsOnTrack billing trigger, 90s fallback retained for other sims |
 | 2026-03-21 11:15 IST | James | a4337d7 | docs(84-02): complete iRacing wiring plan — 84-02-SUMMARY.md, STATE.md, ROADMAP.md, phase 84 complete |
+| 2026-03-21 11:42 IST | James | 65f6c4e | feat(100-01): add in_maintenance + maintenance_failures to FleetHealthStore + PodFleetStatus + 2 unit tests (STAFF-03) |
+| 2026-03-21 11:50 IST | James | f9688ec | feat(100-01): wire PreFlightFailed/Passed WS handlers + POST /pods/{id}/clear-maintenance endpoint (STAFF-02, STAFF-03) |
+| 2026-03-21 11:55 IST | James | 0156d19 | docs(100-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updates |
