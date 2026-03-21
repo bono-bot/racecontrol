@@ -34,5 +34,6 @@ openh264 = "0.9"
 ndarray = "0.17"
 image = "0.25"
 imageproc = "0.26"
+clahe = "0.1"
 chrono = { workspace = true }
 uuid = { workspace = true }
