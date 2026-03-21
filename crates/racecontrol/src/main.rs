@@ -21,7 +21,7 @@ use racecontrol_crate::{
     ac_camera, ac_server, accounting, action_queue, activity_log, ai, api, auth,
     billing, bono_relay, catalog, cloud_sync, config, db, error_aggregator, fleet_health, friends,
     game_launcher, multiplayer, port_allocator, lap_tracker, pod_healer,
-    pod_monitor, pod_reservation, remote_terminal, scheduler, server_ops, wallet,
+    pod_monitor, pod_reservation, psychology, remote_terminal, scheduler, server_ops, wallet,
     udp_heartbeat, wol, ws,
 };
 
@@ -543,6 +543,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Spawn smart scheduler (auto-wake/shutdown pods, peak hour tracking)
     scheduler::spawn(state.clone());
+
+    // Spawn psychology notification dispatcher (drains nudge_queue, routes to channels)
+    psychology::spawn_dispatcher(state.clone());
 
     // Spawn UDP heartbeat listener (fast liveness detection alongside WebSocket)
     udp_heartbeat::spawn(state.clone());

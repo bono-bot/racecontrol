@@ -2125,7 +2125,7 @@ async fn end_billing_session(
 
 /// Format a phone number for WhatsApp (Evolution API format).
 /// Strips leading '+', prepends '91' for 10-digit Indian numbers.
-fn format_wa_phone(phone: &str) -> String {
+pub(crate) fn format_wa_phone(phone: &str) -> String {
     if phone.starts_with('+') {
         phone[1..].to_string()
     } else if phone.len() == 10 {
@@ -2366,6 +2366,12 @@ async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: 
 
     // 4. Send WhatsApp receipt (best-effort)
     send_whatsapp_receipt(state, session_id, driver_id).await;
+
+    // 5. Evaluate badges for this driver (fire-and-forget, errors logged internally)
+    crate::psychology::evaluate_badges(state, driver_id).await;
+
+    // 6. Update visit streak for this driver
+    crate::psychology::update_streak(state, driver_id).await;
 }
 
 async fn extend_billing_session(

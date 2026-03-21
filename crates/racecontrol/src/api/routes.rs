@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::ac_server;
 use crate::accounting;
 use crate::auth;
+use crate::psychology;
 use crate::auth::middleware::require_staff_jwt;
 use crate::network_source::require_non_pod_source;
 use crate::billing;
@@ -343,6 +344,12 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/staff/championships/{id}/rounds", post(add_championship_round))
         .route("/staff/events/{id}/link-session", post(link_group_session_to_event))
         .route("/staff/group-sessions/{id}/complete", post(complete_group_session))
+        // ─── Psychology ──────────────────────────────────────────────────────────
+        .route("/psychology/badges", get(list_badges))
+        .route("/psychology/badges/{driver_id}", get(driver_badges))
+        .route("/psychology/streaks/{driver_id}", get(driver_streak))
+        .route("/psychology/nudge-queue", get(list_nudge_queue))
+        .route("/psychology/test-nudge", post(test_nudge))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
@@ -14193,8 +14200,64 @@ async fn customer_data_export(
 
     // Fetch nickname
     let nickname: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
-        "SELECT nickname FROM drivers WHERE id = ?",
+        "SELECT nickname FROM drivers WHERE id = ?",// ─── Psychology handlers ──────────────────────────────────────────────────────
+
+async fn list_badges(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let badges: Vec<(String, String, Option<String>, String, String, Option<String>, i64, i64)> = sqlx::query_as(
+        "SELECT id, name, description, category, criteria_json, badge_icon, reward_credits_paise, sort_order
+         FROM achievements WHERE is_active = 1 ORDER BY sort_order ASC"
     )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let result: Vec<Value> = badges.into_iter().map(|(id, name, desc, cat, criteria, icon, reward, sort)| {
+        json!({
+            "id": id, "name": name, "description": desc, "category": cat,
+            "criteria_json": criteria, "badge_icon": icon,
+            "reward_credits_paise": reward, "sort_order": sort
+        })
+    }).collect();
+
+    Json(json!({ "badges": result }))
+}
+
+async fn driver_badges(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+) -> Json<Value> {
+    let earned: Vec<(String, String, Option<String>, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT a.id, a.name, a.description, a.category, a.badge_icon, da.earned_at
+         FROM driver_achievements da
+         JOIN achievements a ON a.id = da.achievement_id
+         WHERE da.driver_id = ?
+         ORDER BY da.earned_at DESC"
+    )
+    .bind(&driver_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let count = earned.len();
+    let result: Vec<Value> = earned.into_iter().map(|(id, name, desc, cat, icon, earned_at)| {
+        json!({
+            "id": id, "name": name, "description": desc,
+            "category": cat, "badge_icon": icon, "earned_at": earned_at
+        })
+    }).collect();
+
+    Json(json!({ "driver_id": driver_id, "badges": result, "count": count }))
+}
+
+async fn driver_streak(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+) -> Json<Value> {
+    let streak: Option<(i64, i64, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT current_streak, longest_streak, last_visit_date, grace_expires_date, streak_started_at
+         FROM streaks WHERE driver_id = ?"    )
     .bind(&driver_id)
     .fetch_optional(&state.db)
     .await
@@ -14705,8 +14768,90 @@ mod data_rights_tests {
         let result = customer_data_delete(State(state), headers).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+    }    .flatten();
+
+    match streak {
+        Some((current, longest, last_visit, grace, started)) => {
+            Json(json!({
+                "driver_id": driver_id,
+                "current_streak": current,
+                "longest_streak": longest,
+                "last_visit_date": last_visit,
+                "grace_expires_date": grace,
+                "streak_started_at": started
+            }))
+        }
+        None => {
+            Json(json!({
+                "driver_id": driver_id,
+                "current_streak": 0,
+                "longest_streak": 0,
+                "last_visit_date": null,
+                "grace_expires_date": null,
+                "streak_started_at": null
+            }))
+        }
     }
 }
+
+async fn list_nudge_queue(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(50);
+    let status_filter = params.get("status").cloned();
+
+    let nudges: Vec<(String, String, String, i32, String, String, String, Option<String>, Option<String>)> = if let Some(status) = &status_filter {
+        sqlx::query_as(
+            "SELECT id, driver_id, channel, priority, template, payload_json, status, sent_at, created_at
+             FROM nudge_queue WHERE status = ? ORDER BY created_at DESC LIMIT ?"
+        )
+        .bind(status)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as(
+            "SELECT id, driver_id, channel, priority, template, payload_json, status, sent_at, created_at
+             FROM nudge_queue ORDER BY created_at DESC LIMIT ?"
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    };
+
+    let count = nudges.len();
+    let result: Vec<Value> = nudges.into_iter().map(|(id, driver, ch, pri, tpl, payload, status, sent, created)| {
+        json!({
+            "id": id, "driver_id": driver, "channel": ch, "priority": pri,
+            "template": tpl, "payload_json": payload, "status": status,
+            "sent_at": sent, "created_at": created
+        })
+    }).collect();
+
+    Json(json!({ "nudges": result, "count": count }))
+}
+
+async fn test_nudge(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = body.get("driver_id").and_then(|v| v.as_str()).unwrap_or("");
+    let channel = body.get("channel").and_then(|v| v.as_str()).unwrap_or("pwa");
+    let message = body.get("message").and_then(|v| v.as_str()).unwrap_or("Test notification");
+
+    if driver_id.is_empty() {
+        return Json(json!({ "error": "driver_id required" }));
+    }
+
+    let ch = psychology::NotificationChannel::from_str(channel)
+        .unwrap_or(psychology::NotificationChannel::Pwa);
+
+    psychology::queue_notification(&state, driver_id, ch, 5, message, "{}").await;
+
+    Json(json!({ "ok": true, "queued_for": driver_id, "channel": channel }))}
 
 #[cfg(test)]
 mod config_snapshot_tests {

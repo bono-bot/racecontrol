@@ -3,14 +3,13 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 81-03-PLAN.md
-last_updated: "2026-03-21T02:30:19.551Z"
-last_activity: "2026-03-21 -- 81-03 complete: TOML template + example config updated with all 6 game stanzas (Steam app IDs for F1 25, iRacing, AC EVO, EA WRC, LMU); full build pipeline green; kiosk UI human-approved (LAUNCH-01, LAUNCH-03, LAUNCH-06)"
+stopped_at: Completed 89-03-PLAN.md
+last_updated: "2026-03-21T02:29:20.428Z"
 progress:
-  total_phases: 61
-  completed_phases: 31
-  total_plans: 85
-  completed_plans: 81
+  total_phases: 71
+  completed_phases: 65
+  total_plans: 177
+  completed_plans: 170
 ---
 
 ---
@@ -193,16 +192,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v12.0 Security Audit & Hardening -- Phase 78 Kiosk Session Hardening (1/3 plans done)
+**Current focus:** Phase 89 — Psychology Foundation
 
 ## Current Position
 
-Phase: 81 of 81 (81-game-launch-core)
-Plan: 03 of 03 complete
-Status: Complete
-Last activity: 2026-03-21 -- 81-03 complete: TOML template + example config updated with all 6 game stanzas (Steam app IDs for F1 25, iRacing, AC EVO, EA WRC, LMU); full build pipeline green; kiosk UI human-approved (LAUNCH-01, LAUNCH-03, LAUNCH-06)
-
-Progress: [██████████] 95% (81/85 plans complete)
+Phase: 89 (Psychology Foundation) — COMPLETE (3/3 plans done)
+Plan: 3 of 3 (complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -211,7 +206,7 @@ Progress: [██████████] 95% (81/85 plans complete)
 | 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Complete (2/2 plans done) |
 | 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Complete (2/2 plans done) |
 | 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Complete (2/2 plans done) |
-| 74 | rc-agent Decomposition | DECOMP-01..04 | Complete (4/4 plans done) |
+| 74 | rc-agent Decomposition | DECOMP-01..04 | In Progress (3/4 plans done) |
 
 **Phase 71:** rc-common exec.rs with feature gate (SHARED) + rc-sentry timeout, truncation, concurrency cap, partial read fix, structured logging (SHARD). No rc-agent changes. Verify `cargo tree -p rc-sentry` shows no tokio after every rc-common change.
 **Phase 72:** rc-sentry endpoint expansion (/health, /version, /files, /processes, graceful shutdown) + TcpStream-based integration tests on ephemeral port.
@@ -230,6 +225,7 @@ Progress: [██████████] 95% (81/85 plans complete)
 ## Performance Metrics
 
 **Velocity (recent):**
+
 - Phase 56 P01: 494 min | Phase 56 P02: 3 min | Phase 57 P01-03: ~35 min total
 - Average recent plan: ~15 min
 
@@ -282,14 +278,13 @@ Progress: [██████████] 95% (81/85 plans complete)
 - 74-02: AppState fields all pub(crate) not pub -- crate-internal (matches config.rs pattern); crash_recovery bool renamed crash_recovery_startup to avoid collision with CrashRecoveryState inner-loop local; SelfHealResult (not HealResult) -- self_heal.rs uses that name; AiDebugSuggestion from rc_common::types (already a shared type); ws_tx/ws_rx stay loop-local (borrow conflict per RESEARCH.md Pitfall); DECOMP-02 complete
 - 74-03: HandleResult::Break/Continue enum (not bool) for self-documenting loop control; anyhow::Result<HandleResult> for serde_json ? propagation; SwitchController params (primary_url/failover_url/active_url/split_brain_probe) passed separately to handle_ws_message -- outer-loop locals not in AppState; LaunchState + CrashRecoveryState made pub(crate) for ws_handler.rs cross-module access; Python file truncation deleted 972-line dead code block (lines 1699-2670); DECOMP-03 complete
 - 78-03: Option<String> with #[serde(default)] for session_token -- backward compat with older agents; direct SQL UPDATE for emergency billing pause avoids circular HTTP dependency; LazyLock<Mutex<HashMap>> for per-pod security alert debounce (5min cooldown) (SESS-04, SESS-05)
+- 89-02: format_wa_phone promoted to pub(crate) in billing.rs -- single phone formatting source for both billing and psychology modules; STREAK_GRACE_DAYS+7=14d total window for weekly visit streaks; send_pwa_notification uses DB-record pattern (not WebSocket), deferred to Phase 3 (FOUND-01, FOUND-02, FOUND-04)
+- 89-03: psychology routes in staff_routes (JWT-protected) -- customer badge display deferred to Phase 90; evaluate_badges + update_streak called sequentially at end of post_session_hooks (already inside tokio::spawn); 5 seed badges use INSERT OR IGNORE -- idempotent across DB migrations; count extracted before into_iter().map() to avoid use-after-move (FOUND-02, FOUND-03, FOUND-04, FOUND-05 complete)
 - 81-01: Non-AC crash recovery else branch: match last_sim_type to config.games field (7 variants), clone base_config, override args from last_launch_args, call GameProcess::launch() -- mirrors LaunchGame handler exactly (LAUNCH-02 complete)
 - 81-01: DashboardEvent::GameLaunchRequested added at end of enum using existing SimType -- no new imports needed (LAUNCH-04 complete)
 - 81-01: pwa_game_request uses extract_driver_id() in-handler (customer JWT); validates pod in state.pods + installed_games; fire-and-forget broadcast; no AppState mutation (LAUNCH-05 complete)
 - 70-02: server_recovery uses prev === 'down' guard -- prevents spurious failback on degraded->healthy; only full outage recovery triggers failback sequence (BACK-01, BACK-03, BACK-04 complete)
 - 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
-- 70-01: INSERT OR IGNORE (not ON CONFLICT DO UPDATE) for import_sessions -- failback must never overwrite locally-confirmed billing records; end_reason omitted per sync_push precedent; terminal_secret != comparison (no subtle crate) consistent with all service routes (BACK-02 complete)
-- 74-04: ConnectionState struct bundles 17 per-connection fields reset on each WS connect; handle_ws_message() signature 18->8 params via &mut ConnectionState; main.rs <500 line target not achieved (1179 lines) -- init sequence is too large without further refactoring; LaunchState/CrashRecoveryState moved to event_loop.rs where they logically belong (DECOMP-04 complete)
-- 81-03: assetto_corsa keeps use_steam=false (Content Manager launch, not Steam URL); forza/forza_horizon_5 stanzas omitted (not installed at venue); GamePickerPanel/GameLaunchRequestBanner visual verify deferred to server deploy where PIN configured and pods online; next build passes clean confirming all new components compile (LAUNCH-01, LAUNCH-03, LAUNCH-06 complete)
 
 ### Blockers/Concerns
 
@@ -312,7 +307,7 @@ Progress: [██████████] 95% (81/85 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T02:26:38.662Z
-Stopped at: Completed 81-03-PLAN.md
+Last session: 2026-03-21T02:23:56.119Z
+Stopped at: Completed 89-03-PLAN.md
 Resume file: None
 Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)
