@@ -226,7 +226,7 @@ Lock down the Racing Point operations stack — audit all exposed endpoints and 
 Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA with PlayableSignal-gated billing, per-game telemetry capture, and multi-game leaderboard integration. Extends existing SimAdapter trait and GameProcess — zero new crate dependencies.
 
 - [x] **Phase 81: Game Launch Core** - Launch profiles, process monitoring, kiosk integration, crash recovery for 5 games (completed 2026-03-21)
-- [ ] **Phase 82: Billing and Session Lifecycle** - PlayableSignal per game, billing accuracy, per-game rates, clean lifecycle
+- [x] **Phase 82: Billing and Session Lifecycle** - PlayableSignal per game, billing accuracy, per-game rates, clean lifecycle (completed 2026-03-21)
 - [ ] **Phase 83: F1 25 Telemetry** - Extend existing F1 25 UDP adapter for LapCompleted events with sector splits
 - [ ] **Phase 84: iRacing Telemetry** - Shared memory reader with session transition handling and pre-flight checks
 - [ ] **Phase 85: LMU Telemetry** - rFactor 2 shared memory reader for Le Mans Ultimate lap data
@@ -1302,7 +1302,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 79. Data Protection | 3/3 | Complete    | 2026-03-21 | - |
 | 80. Audit Trail & Defense in Depth | 2/2 | Complete    | 2026-03-21 | - |
 | 81. Game Launch Core | 3/3 | Complete   | 2026-03-21 | - |
-| 82. Billing and Session Lifecycle | 2/3 | In Progress|  | - |
+| 82. Billing and Session Lifecycle | 2/3 | Complete    | 2026-03-21 | - |
 | 83. F1 25 Telemetry | v13.0 | 0/1 | Not started | - |
 | 84. iRacing Telemetry | v13.0 | 0/2 | Not started | - |
 | 85. LMU Telemetry | v13.0 | 0/1 | Not started | - |
