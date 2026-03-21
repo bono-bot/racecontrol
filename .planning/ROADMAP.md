@@ -1372,7 +1372,10 @@ Plans:
   3. When WebSocket has been connected for less than 10 seconds or has disconnected and reconnected within the last 10 seconds, NET-01 reports a warning but does not block the session — flap-detection logic is correct
   4. Running pre-flight 20 consecutive times on a fully healthy pod produces zero failures and zero MaintenanceRequired transitions — no false positives from probe logic
   5. When a pod is already in MaintenanceRequired and BillingStarted arrives, racecontrol does not book the pod for a new customer — the server rejects the booking before it reaches the pod, and the pod also guards the BillingStarted arm with a state check
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 99-01-PLAN.md — Billing stuck, disk, memory, WS stability checks in pre_flight.rs (9-way concurrent runner)
+- [ ] 99-02-PLAN.md — PreFlightFailed alert rate-limiting (60s cooldown in ws_handler.rs)
 
 ### Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear
 **Goal**: Staff can see at a glance which pods are in maintenance (Racing Red badge on kiosk dashboard), view failure reasons (PIN-gated), and manually clear a pod from the dashboard; maintenance pods appear as unavailable in fleet health; alert cooldown prevents notification floods
@@ -1394,5 +1397,5 @@ Plans:
 |-------|----------------|--------|-----------|
 | 97. rc-common Protocol + Framework + Hardware | 2/2 | Complete    | 2026-03-21 |
 | 98. MaintenanceRequired Lock Screen + Display | 2/2 | Complete    | 2026-03-21 |
-| 99. System + Network + Billing + Handler Wiring | TBD | Not started | - |
+| 99. System + Network + Billing + Handler Wiring | 0/2 | Not started | - |
 | 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |
