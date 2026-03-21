@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 79-01-PLAN.md
-last_updated: "2026-03-21T02:14:52.070Z"
+stopped_at: Completed 81-03-PLAN.md
+last_updated: "2026-03-21T02:26:38.668Z"
 last_activity: "2026-03-21 -- 74-04 complete: event_loop.rs extracted with ConnectionState struct (17 fields), run() with 13 select! arms; handle_ws_message() 18->8 params; main.rs 2037->1179 lines (DECOMP-04)"
 progress:
   total_phases: 61
-  completed_phases: 30
+  completed_phases: 31
   total_plans: 85
-  completed_plans: 80
+  completed_plans: 81
 ---
 
 ---
@@ -197,12 +197,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 74 of 81 (rc-agent-decomposition)
-Plan: 04 of 04 complete
+Phase: 81 of 81 (81-game-launch-core)
+Plan: 03 of 03 complete
 Status: Complete
-Last activity: 2026-03-21 -- 74-04 complete: event_loop.rs extracted with ConnectionState struct (17 fields), run() with 13 select! arms; handle_ws_message() 18->8 params; main.rs 2037->1179 lines (DECOMP-04)
+Last activity: 2026-03-21 -- 81-03 complete: TOML template + example config updated with all 6 game stanzas (Steam app IDs for F1 25, iRacing, AC EVO, EA WRC, LMU); full build pipeline green; kiosk UI human-approved (LAUNCH-01, LAUNCH-03, LAUNCH-06)
 
-Progress: [█████████░] 93% (79/85 plans complete)
+Progress: [██████████] 95% (81/85 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -289,6 +289,7 @@ Progress: [█████████░] 93% (79/85 plans complete)
 - 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
 - 70-01: INSERT OR IGNORE (not ON CONFLICT DO UPDATE) for import_sessions -- failback must never overwrite locally-confirmed billing records; end_reason omitted per sync_push precedent; terminal_secret != comparison (no subtle crate) consistent with all service routes (BACK-02 complete)
 - 74-04: ConnectionState struct bundles 17 per-connection fields reset on each WS connect; handle_ws_message() signature 18->8 params via &mut ConnectionState; main.rs <500 line target not achieved (1179 lines) -- init sequence is too large without further refactoring; LaunchState/CrashRecoveryState moved to event_loop.rs where they logically belong (DECOMP-04 complete)
+- 81-03: assetto_corsa keeps use_steam=false (Content Manager launch, not Steam URL); forza/forza_horizon_5 stanzas omitted (not installed at venue); GamePickerPanel/GameLaunchRequestBanner visual verify deferred to server deploy where PIN configured and pods online; next build passes clean confirming all new components compile (LAUNCH-01, LAUNCH-03, LAUNCH-06 complete)
 
 ### Blockers/Concerns
 
@@ -311,7 +312,7 @@ Progress: [█████████░] 93% (79/85 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T02:12:15.109Z
-Stopped at: Completed 79-01-PLAN.md
+Last session: 2026-03-21T02:26:38.662Z
+Stopped at: Completed 81-03-PLAN.md
 Resume file: None
 Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)

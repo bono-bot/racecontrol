@@ -61,7 +61,7 @@ Requirements for multi-game launch, billing, telemetry, and leaderboard integrat
 
 - [x] **LAUNCH-01**: Staff can select F1 25, iRacing, AC EVO, EA WRC, or LMU from kiosk and launch on any pod with safe defaults
 - [x] **LAUNCH-02**: Customer can request a game launch from PWA/QR, staff confirms via kiosk
-- [ ] **LAUNCH-03**: Game launch profiles define exe path, launch args, and safe defaults per game (TOML config)
+- [x] **LAUNCH-03**: Game launch profiles define exe path, launch args, and safe defaults per game (TOML config)
 - [x] **LAUNCH-04**: Game process monitored -- detect crash/hang, auto-cleanup stale processes
 - [x] **LAUNCH-05**: Crash recovery auto-restarts game or alerts staff with option to relaunch
 - [x] **LAUNCH-06**: Which game is running on which pod visible in kiosk and fleet health dashboard
@@ -168,7 +168,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | LAUNCH-01 | Phase 81 | Complete |
 | LAUNCH-02 | Phase 81 | Complete |
-| LAUNCH-03 | Phase 81 | Pending |
+| LAUNCH-03 | Phase 81 | Complete |
 | LAUNCH-04 | Phase 81 | Complete |
 | LAUNCH-05 | Phase 81 | Complete |
 | LAUNCH-06 | Phase 81 | Complete |
