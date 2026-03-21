@@ -331,3 +331,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 06:27 IST | James | 0849580 | feat(69-01): create HealthMonitor FSM — 12-tick/60s hysteresis, server_down event (comms-link) |
 | 2026-03-21 06:27 IST | James | 4545729 | feat(69-01): create FailoverOrchestrator + wire into james/index.js (comms-link) |
 | 2026-03-21 06:28 IST | James | df19db4 | docs(69-01): 69-01-SUMMARY.md + STATE.md + ROADMAP.md |
+| 2026-03-21 06:24 IST | James | 92bd65b | feat(69-02): add POST /api/v1/failover/broadcast endpoint to racecontrol |
+| 2026-03-21 06:25 IST | James | 02030f4 | feat(69-02): add split-brain guard to rc-agent SwitchController handler |
+| 2026-03-21 06:25 IST | James | 67ffcab | docs(69-02): complete failover-broadcast + split-brain guard plan |
