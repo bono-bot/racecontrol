@@ -1864,7 +1864,10 @@ Parallel after 122: 125+126 | Parallel after 120: 127+128 | 129 after 124+125
   3. All 20 existing static commands (git_log, pm2_status, etc.) work identically after the dynamic layer is added — no behavior change
   4. A dynamic command with allowedEnvKeys receives only those keys at execution; no other env vars leak from safeEnv into the command environment
   5. Lookup always tries the dynamic Map first, falling through to the static COMMAND_REGISTRY on a miss
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 130-01-PLAN.md — Protocol types + DynamicCommandRegistry class
+- [ ] 130-02-PLAN.md — Unified lookup integration + HTTP registration + persistence
 
 ### Phase 131: Shell Relay
 **Goal**: Either AI can execute an arbitrary approved binary on the other's machine, but only after Uday approves via WhatsApp
