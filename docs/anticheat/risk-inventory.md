@@ -107,7 +107,7 @@ The following rc-agent behaviors are confirmed safe alongside all known anti-che
 
 ## Code Signing Certificate Procurement
 
-**Status:** Not started
+**Status:** Deferred to Uday — pending business owner initiation
 **Certificate Authority:** Sectigo OV (~$220/yr)
 **Key Storage:** Physical USB token (SafeNet eToken) — single build machine (James .27)
 **Procurement Owner:** Uday Singh (business owner — OV requires org verification)
