@@ -18,11 +18,11 @@ Requirements for full bidirectional dynamic execution between James and Bono.
 
 ### Shell Relay
 
-- [ ] **SHRL-01**: Either side can send arbitrary binary+args to the other for execution
-- [ ] **SHRL-02**: Shell relay always uses APPROVE tier — never AUTO or NOTIFY
-- [ ] **SHRL-03**: Binary must be in allowlist (node, git, pm2, cargo, systemctl, curl, sqlite3, taskkill, shutdown, net, wmic)
-- [ ] **SHRL-04**: Uday receives WhatsApp notification with full command text before approval
-- [ ] **SHRL-05**: Shell relay uses same sanitized env + no-shell execution model as static commands
+- [x] **SHRL-01**: Either side can send arbitrary binary+args to the other for execution
+- [x] **SHRL-02**: Shell relay always uses APPROVE tier — never AUTO or NOTIFY
+- [x] **SHRL-03**: Binary must be in allowlist (node, git, pm2, cargo, systemctl, curl, sqlite3, taskkill, shutdown, net, wmic)
+- [x] **SHRL-04**: Uday receives WhatsApp notification with full command text before approval
+- [x] **SHRL-05**: Shell relay uses same sanitized env + no-shell execution model as static commands
 
 ### Execution Chains
 
@@ -74,11 +74,11 @@ None — all features scoped into v18.0.
 | DREG-04 | Phase 130 | Complete |
 | DREG-05 | Phase 130 | Complete |
 | DREG-06 | Phase 134 | Pending |
-| SHRL-01 | Phase 131 | Pending |
-| SHRL-02 | Phase 131 | Pending |
-| SHRL-03 | Phase 131 | Pending |
-| SHRL-04 | Phase 131 | Pending |
-| SHRL-05 | Phase 131 | Pending |
+| SHRL-01 | Phase 131 | Complete |
+| SHRL-02 | Phase 131 | Complete |
+| SHRL-03 | Phase 131 | Complete |
+| SHRL-04 | Phase 131 | Complete |
+| SHRL-05 | Phase 131 | Complete |
 | CHAIN-01 | Phase 132 | Pending |
 | CHAIN-02 | Phase 132 | Pending |
 | CHAIN-03 | Phase 132 | Pending |

@@ -32,16 +32,16 @@ gsd_state_version: 1.0
 milestone: v18.0
 milestone_name: Seamless Execution
 status: in_progress
-stopped_at: Completed 130-02-PLAN.md
-last_updated: "2026-03-22T03:43:07.000Z"
+stopped_at: Completed 131-01-PLAN.md
+last_updated: "2026-03-22T03:45:50.000Z"
 progress:
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 10
-current_phase: 130
-current_phase_name: Protocol Foundation + Dynamic Registry
-current_plan: 2
+  completed_phases: 2
+  total_plans: 3
+  completed_plans: 3
+  percent: 15
+current_phase: 131
+current_phase_name: Shell Relay
+current_plan: 1
 decisions:
   - "130-01: Object.freeze(new Set()) for ALLOWED_BINARIES — test uses Object.isFrozen() since freeze doesn't block Set.add()"
   - "130-01: DynamicCommandRegistry uses private class fields (#commands, #safeEnv) for true encapsulation"
@@ -49,6 +49,10 @@ decisions:
   - "130-02: wireBono() is sync -- used fire-and-forget async IIFE for persistence loading to avoid breaking call site"
   - "130-02: ExecHandler dual-registry lookup: dynamicRegistry?.get(command) ?? staticRegistry[command] (DREG-04)"
   - "130-02: #trackCompleted() private method centralizes LRU eviction check + add for completedExecs"
+  - "131-01: ShellRelayHandler completely separate from ExecHandler -- no tier routing switch, SHELL_RELAY_TIER constant = 'approve'"
+  - "131-01: Binary allowlist check fires before notifyFn -- disallowed binary rejected silently (no notification leak)"
+  - "131-01: bono/index.js exec_approval handler added (was missing) -- placed before exec_request handler"
+  - "131-01: Dedup covers both pendingApprovals (in-flight) and completedExecs (finished) -- prevents replay"
 ---
 
 ---
