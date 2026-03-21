@@ -115,8 +115,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | INFRA-01 | Phase 1 | Pending |
 | INFRA-02 | Phase 1 | Pending |
 | INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 1 | Pending |
-| INFRA-05 | Phase 1 | Pending |
+| INFRA-04 | Phase 8 | Pending |
+| INFRA-05 | Phase 9 | Pending |
 | INFRA-06 | Phase 1 | Pending |
 | INFRA-07 | Phase 1 | Pending |
 | PWA-01 | Phase 2 | Pending |
@@ -124,16 +124,16 @@ Deferred to future release. Tracked but not in current roadmap.
 | PWA-03 | Phase 2 | Pending |
 | PWA-04 | Phase 2 | Pending |
 | PWA-05 | Phase 2 | Pending |
-| ADMIN-01 | Phase 5 | Pending |
-| ADMIN-02 | Phase 5 | Pending |
-| ADMIN-03 | Phase 5 | Pending |
-| ADMIN-04 | Phase 5 | Pending |
-| ADMIN-05 | Phase 5 | Pending |
-| DASH-01 | Phase 5 | Pending |
-| DASH-02 | Phase 5 | Pending |
-| DASH-03 | Phase 5 | Pending |
-| DASH-04 | Phase 5 | Pending |
-| DASH-05 | Phase 5 | Pending |
+| ADMIN-01 | Phase 6 | Pending |
+| ADMIN-02 | Phase 6 | Pending |
+| ADMIN-03 | Phase 6 | Pending |
+| ADMIN-04 | Phase 6 | Pending |
+| ADMIN-05 | Phase 6 | Pending |
+| DASH-01 | Phase 7 | Pending |
+| DASH-02 | Phase 7 | Pending |
+| DASH-03 | Phase 7 | Pending |
+| DASH-04 | Phase 7 | Pending |
+| DASH-05 | Phase 7 | Pending |
 | BOOK-01 | Phase 4 | Pending |
 | BOOK-02 | Phase 4 | Pending |
 | BOOK-03 | Phase 4 | Pending |
@@ -141,30 +141,30 @@ Deferred to future release. Tracked but not in current roadmap.
 | BOOK-05 | Phase 4 | Pending |
 | BOOK-06 | Phase 4 | Pending |
 | BOOK-07 | Phase 4 | Pending |
-| KIOSK-01 | Phase 4 | Pending |
-| KIOSK-02 | Phase 4 | Pending |
-| KIOSK-03 | Phase 4 | Pending |
-| KIOSK-04 | Phase 4 | Pending |
-| KIOSK-05 | Phase 4 | Pending |
-| KIOSK-06 | Phase 4 | Pending |
+| KIOSK-01 | Phase 5 | Pending |
+| KIOSK-02 | Phase 5 | Pending |
+| KIOSK-03 | Phase 5 | Pending |
+| KIOSK-04 | Phase 5 | Pending |
+| KIOSK-05 | Phase 5 | Pending |
+| KIOSK-06 | Phase 5 | Pending |
 | SYNC-01 | Phase 3 | Pending |
 | SYNC-02 | Phase 3 | Pending |
 | SYNC-03 | Phase 3 | Pending |
 | SYNC-04 | Phase 3 | Pending |
-| SYNC-05 | Phase 6 | Pending |
+| SYNC-05 | Phase 10 | Pending |
 | SYNC-06 | Phase 3 | Pending |
 | SYNC-07 | Phase 3 | Pending |
 | API-01 | Phase 2 | Pending |
 | API-02 | Phase 2 | Pending |
-| API-03 | Phase 5 | Pending |
+| API-03 | Phase 6 | Pending |
 | API-04 | Phase 4 | Pending |
-| API-05 | Phase 6 | Pending |
+| API-05 | Phase 10 | Pending |
 
 **Coverage:**
-- v1 requirements: 44 total
-- Mapped to phases: 44
+- v1 requirements: 47 total
+- Mapped to phases: 47
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after initial definition*
+*Last updated: 2026-03-21 after roadmap creation*
