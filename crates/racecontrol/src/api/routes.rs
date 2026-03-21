@@ -23,6 +23,7 @@ use crate::friends;
 use crate::game_launcher;
 use crate::multiplayer;
 use crate::pod_reservation;
+use crate::reservation;
 use crate::scheduler;
 use crate::wallet;
 use crate::state::{AppState, VenueConfigSnapshot};
@@ -152,6 +153,10 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/badges", get(customer_badges))
         // Active session PB events (PWA polling)
         .route("/customer/active-session/events", get(customer_active_session_events))
+        // Remote booking reservations (PWA)
+        .route("/customer/reservation", get(customer_get_reservation).delete(customer_cancel_reservation))
+        .route("/customer/reservation/create", post(customer_create_reservation))
+        .route("/customer/reservation/modify", put(customer_modify_reservation))
 }
 
 // ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
@@ -4836,6 +4841,66 @@ async fn customer_active_session_events(
             "at": l.4,
         })).collect::<Vec<_>>()
     }))
+}
+
+// ─── Remote Booking Reservation Handlers ─────────────────────────────────────
+
+async fn customer_create_reservation(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<reservation::CreateReservationRequest>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+    match reservation::create_reservation(&state, &driver_id, &req).await {
+        Ok(v) => Json(v),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn customer_get_reservation(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+    match reservation::get_active_reservation(&state, &driver_id).await {
+        Ok(v) => Json(v),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn customer_cancel_reservation(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+    match reservation::cancel_reservation(&state, &driver_id).await {
+        Ok(v) => Json(v),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+async fn customer_modify_reservation(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<reservation::CreateReservationRequest>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+    match reservation::modify_reservation(&state, &driver_id, &req).await {
+        Ok(v) => Json(v),
+        Err(e) => Json(json!({ "error": e })),
+    }
 }
 
 async fn customer_laps(

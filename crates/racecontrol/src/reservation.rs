@@ -27,11 +27,14 @@ pub struct CreateReservationRequest {
 /// Generate a 6-char alphanumeric PIN unique among active reservations.
 /// Retries up to 5 times (collision probability is negligible with 31^6 = ~887M combinations).
 pub async fn generate_unique_pin(db: &sqlx::SqlitePool) -> Result<String, String> {
-    let mut rng = rand::thread_rng();
     for _ in 0..5 {
-        let pin: String = (0..PIN_LENGTH)
-            .map(|_| PIN_CHARSET[rng.gen_range(0..PIN_CHARSET.len())] as char)
-            .collect();
+        // Generate PIN in a non-async block so ThreadRng doesn't cross await boundary
+        let pin: String = {
+            let mut rng = rand::thread_rng();
+            (0..PIN_LENGTH)
+                .map(|_| PIN_CHARSET[rng.gen_range(0..PIN_CHARSET.len())] as char)
+                .collect()
+        };
         let exists = sqlx::query_as::<_, (i64,)>(
             "SELECT COUNT(*) FROM reservations WHERE pin = ? AND status IN ('pending_debit', 'confirmed')",
         )
