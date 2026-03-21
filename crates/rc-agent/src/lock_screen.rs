@@ -612,6 +612,26 @@ impl LockScreenManager {
                         "Lock screen browser launched at {} using {} (virtual screen: {}x{} at {},{})",
                         url, edge_path, vw, vh, vx, vy
                     );
+                    // Edge --kiosk ignores --window-size on some multi-monitor setups.
+                    // Force the window to cover the full virtual screen after launch.
+                    if use_window_sizing {
+                        let (fx, fy, fw, fh) = (vx, vy, vw, vh);
+                        std::thread::spawn(move || {
+                            // Wait for Edge to create its window
+                            std::thread::sleep(std::time::Duration::from_secs(3));
+                            unsafe extern "system" {
+                                fn FindWindowA(class: *const u8, title: *const u8) -> isize;
+                                fn MoveWindow(hwnd: isize, x: i32, y: i32, w: i32, h: i32, repaint: i32) -> i32;
+                            }
+                            let hwnd = unsafe { FindWindowA(b"Chrome_WidgetWin_1\0".as_ptr(), std::ptr::null()) };
+                            if hwnd != 0 {
+                                let ok = unsafe { MoveWindow(hwnd, fx, fy, fw, fh, 1) };
+                                tracing::info!("MoveWindow(Edge, {},{},{},{}) = {}", fx, fy, fw, fh, ok);
+                            } else {
+                                tracing::warn!("Edge window not found for MoveWindow resize");
+                            }
+                        });
+                    }
                     return;
                 }
                 Err(e) => {
