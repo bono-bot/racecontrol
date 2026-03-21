@@ -42,10 +42,14 @@ Declared values (must be multiples of 4):
 | 3xl | 64px | — (reserved, not used in this phase) |
 
 Exceptions:
-- Touch targets for passport grid items (track/car tiles): minimum 44px height to meet mobile tap target standards
-- BottomNav height is fixed at 64px (`h-16`) — do not modify
-- Page top padding: `pt-12` (48px) to clear status bar — existing convention across all PWA pages
-- Page bottom padding: `pb-20` (80px) to clear BottomNav — existing convention
+
+| Value | Usage | Justification |
+|-------|-------|---------------|
+| 44px | Minimum touch target height for CollectionTile and passport grid items | Mobile tap target standard — not a layout spacing value |
+| 64px (`h-16`) | BottomNav fixed height | Existing convention across all PWA pages — do not modify |
+| 48px (`pt-12`) | Page top padding | Clears device status bar — existing convention across all PWA pages |
+| 80px (`pb-20`) | Page bottom padding | BottomNav clearance — 16px above BottomNav height (64px) + nav itself; existing convention |
+| 6px (`h-1.5`) | Tier progress bar track and fill height | Decorative element height, not a layout spacing value — exempt from 8-point scale |
 
 Source: detected from `profile/page.tsx`, `stats/page.tsx`, `BottomNav.tsx`
 
@@ -53,17 +57,20 @@ Source: detected from `profile/page.tsx`, `stats/page.tsx`, `BottomNav.tsx`
 
 ## Typography
 
-| Role | Size | Weight | Line Height |
-|------|------|--------|-------------|
-| Body | 14px (`text-sm`) | 400 regular | 1.5 |
-| Label | 12px (`text-xs`) | 500 medium | 1.4 |
-| Heading | 24px (`text-2xl`) | 700 bold | 1.2 |
-| Display | 20px (`text-xl`) | 700 bold | 1.2 |
+Two weights only: 400 (regular) and 700 (bold).
 
-Notes:
-- Micro-label for BottomNav tab names: 10px (`text-[10px]`) weight 500 — existing convention, do not change
-- Badge name labels under icons: 10px (`text-[10px]`) weight 400 — matches existing badge grid pattern from RESEARCH.md
-- Tier progress counters (e.g. "12 / 36"): 12px (`text-xs`) weight 600 semibold — draws attention without competing with heading
+| Role | Size | Weight | Line Height | Notes |
+|------|------|--------|-------------|-------|
+| Body | 14px (`text-sm`) | 400 regular | 1.5 | Main content text |
+| Label | 12px (`text-xs`) | 400 regular | 1.4 | Secondary labels, tier progress counters, badge counts — visual distinction from body comes from size, not weight |
+| Heading | 24px (`text-2xl`) | 700 bold | 1.2 | Page headings, stat values in summary card |
+| Display | 20px (`text-xl`) | 700 bold | 1.2 | Section headings |
+
+Additional micro-sizes (do not add new weights):
+
+- BottomNav tab names: 10px (`text-[10px]`) weight **400** — existing convention, collapsed from 500 to 400 to comply with 2-weight limit
+- Badge name labels under icons: 10px (`text-[10px]`) weight **400** — matches existing badge grid pattern
+- Tier progress counters (e.g. "12 / 36"): 12px (`text-xs`) weight **400** — distinguished from heading by size, not weight
 - All type is white (`text-white`) or muted grey (`text-rp-grey: #5A5A5A`) — no mid-grey exceptions
 
 Source: detected from `profile/page.tsx`, `stats/page.tsx`, `globals.css`
@@ -125,7 +132,7 @@ Value: `text-2xl font-bold text-white`
 ### New: PassportSection (Tracks and Cars)
 
 One section per collection type. Each section:
-- Section heading: `text-sm font-semibold text-white mb-3` with tier name + progress count
+- Section heading: `text-sm font-bold text-white mb-3` with tier name + progress count
 - Three tier subsections (Starter, Explorer, Legend) rendered in sequence
 - Each tier: tier label row (`text-xs text-rp-grey mb-2`) + progress bar + item grid
 
@@ -162,7 +169,7 @@ Structure:
 ```
 div.bg-rp-card.border.border-rp-border.rounded-xl.p-4.mb-6
   div.flex.items-center.justify-between.mb-3
-    h3.text-sm.font-semibold.text-white  "Badges"
+    h3.text-sm.font-bold.text-white  "Badges"
     span.text-xs.text-rp-grey            "N / 5"
   div.grid.grid-cols-4.gap-3
     BadgeTile (x5, earned or locked)
@@ -192,8 +199,8 @@ button.w-full.bg-rp-card.border.border-rp-border.rounded-xl.p-4.text-left...
   div.flex.items-center.justify-between
     div
       p.text-xs.text-rp-grey  "Driving Passport"
-      p.text-sm.font-semibold.text-white  "N tracks · N cars driven"
-    span.text-xs.text-rp-red.font-medium  "View →"
+      p.text-sm.font-bold.text-white  "N tracks · N cars driven"
+    span.text-xs.text-rp-red.font-bold  "View →"
 ```
 
 ### Badge Icon Map (5 badges, inline SVG only)
