@@ -3,13 +3,18 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, isLoggedIn, clearToken } from "@/lib/api";
-import type { DriverProfile } from "@/lib/api";
+import type { DriverProfile, Badge } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
 
 export default function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [badges, setBadges] = useState<Badge[] | null>(null);
+  const [passportSummary, setPassportSummary] = useState<{
+    unique_tracks: number;
+    unique_cars: number;
+  } | null>(null);
 
   // Nickname editing
   const [editingNickname, setEditingNickname] = useState(false);
@@ -30,6 +35,21 @@ export default function ProfilePage() {
       }
       setLoading(false);
     }).catch(() => setLoading(false));
+
+    api.badges().then((res) => {
+      if (res.badges) {
+        setBadges([...res.badges.earned, ...res.badges.available]);
+      }
+    });
+
+    api.passport().then((res) => {
+      if (res.passport?.summary) {
+        setPassportSummary({
+          unique_tracks: res.passport.summary.unique_tracks,
+          unique_cars: res.passport.summary.unique_cars,
+        });
+      }
+    });
   }, [router]);
 
   const handleLogout = () => {
@@ -104,6 +124,39 @@ export default function ProfilePage() {
               <span className="text-xs text-rp-red font-medium">History &rarr;</span>
             </button>
 
+            {/* Badge Showcase */}
+            {badges && (
+              <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-white">Badges</h3>
+                  <span className="text-xs text-rp-grey">
+                    {badges.filter((b) => b.earned).length} / {badges.length}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  {badges.map((badge) => (
+                    <div
+                      key={badge.id}
+                      className={`flex flex-col items-center ${badge.earned ? "" : "opacity-30"}`}
+                    >
+                      <div
+                        className={`w-12 h-12 rounded-full flex items-center justify-center mb-1 ${
+                          badge.earned
+                            ? "bg-rp-red/20"
+                            : "bg-rp-card border border-rp-border"
+                        }`}
+                      >
+                        <BadgeIcon icon={badge.icon} earned={badge.earned} />
+                      </div>
+                      <span className="text-xs text-center text-rp-grey">
+                        {badge.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Info cards */}
             <div className="space-y-3 mb-6">
               <InfoRow label="Name" value={profile.name} />
@@ -171,6 +224,25 @@ export default function ProfilePage() {
 
             {/* Links */}
             <div className="space-y-2 mb-8">
+              {/* Driving Passport */}
+              <button
+                onClick={() => router.push("/passport")}
+                className="w-full bg-rp-card border border-rp-border rounded-xl p-4 text-left active:bg-rp-card/80 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-rp-grey">Driving Passport</p>
+                    <p className="text-sm font-bold text-white">
+                      {passportSummary
+                        ? `${passportSummary.unique_tracks} circuits \u00B7 ${passportSummary.unique_cars} cars driven`
+                        : "Start your journey"}
+                    </p>
+                  </div>
+                  <span className="text-xs text-rp-red font-bold">
+                    View &rarr;
+                  </span>
+                </div>
+              </button>
               <button
                 onClick={() => router.push("/friends")}
                 className="w-full bg-rp-card border border-rp-border rounded-xl p-4 text-left text-sm text-neutral-300 active:bg-rp-card transition-colors flex items-center justify-between"
@@ -199,6 +271,66 @@ export default function ProfilePage() {
       <BottomNav />
     </div>
   );
+}
+
+function BadgeIcon({ icon, earned }: { icon: string; earned: boolean }) {
+  const color = earned ? "text-rp-red" : "text-rp-grey";
+  const svgProps = {
+    viewBox: "0 0 24 24",
+    fill: "none" as const,
+    stroke: "currentColor",
+    strokeWidth: 2,
+    className: `w-5 h-5 ${color}`,
+  };
+
+  switch (icon) {
+    case "flag":
+      return (
+        <svg {...svgProps}>
+          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+          <line x1="4" y1="22" x2="4" y2="15" />
+        </svg>
+      );
+    case "map":
+      return (
+        <svg {...svgProps}>
+          <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+          <line x1="8" y1="2" x2="8" y2="18" />
+          <line x1="16" y1="6" x2="16" y2="22" />
+        </svg>
+      );
+    case "trophy":
+      return (
+        <svg {...svgProps}>
+          <polyline points="14 9 9 9 9 2 15 2" />
+          <path d="M6 2H3v7a6 6 0 0 0 6 6" />
+          <path d="M18 2h3v7a6 6 0 0 0-6 6" />
+          <line x1="12" y1="15" x2="12" y2="22" />
+          <line x1="8" y1="22" x2="16" y2="22" />
+        </svg>
+      );
+    case "fire":
+      return (
+        <svg {...svgProps}>
+          <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 3z" />
+        </svg>
+      );
+    case "car":
+      return (
+        <svg {...svgProps}>
+          <rect x="1" y="3" width="15" height="13" />
+          <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+          <circle cx="5.5" cy="18.5" r="2.5" />
+          <circle cx="18.5" cy="18.5" r="2.5" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...svgProps}>
+          <circle cx="12" cy="12" r="10" />
+        </svg>
+      );
+  }
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {

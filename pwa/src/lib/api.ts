@@ -414,6 +414,71 @@ export interface ShareReport {
   tagline: string;
 }
 
+// ─── Passport & Badge Types ────────────────────────────────────────────────
+
+export interface PassportTierItem {
+  id: string;
+  name: string;
+  category: string;
+  country?: string;
+  driven: boolean;
+  lap_count: number;
+  best_lap_ms: number | null;
+  first_driven_at: string | null;
+}
+
+export interface PassportTier {
+  name: string;
+  target: number;
+  driven_count: number;
+  items: PassportTierItem[];
+}
+
+export interface PassportCollection {
+  total_driven: number;
+  total_available: number;
+  tiers: {
+    starter: PassportTier;
+    explorer: PassportTier;
+    legend: PassportTier;
+  };
+  other: PassportTierItem[];
+}
+
+export interface PassportData {
+  passport: {
+    tracks: PassportCollection;
+    cars: PassportCollection;
+    summary: {
+      unique_tracks: number;
+      unique_cars: number;
+      total_laps: number;
+      streak_weeks: number;
+    };
+  };
+}
+
+export interface Badge {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  earned: boolean;
+  earned_at?: string;
+  progress?: number;
+  target?: number;
+}
+
+export interface BadgesData {
+  badges: {
+    earned: Badge[];
+    available: Badge[];
+    total_earned: number;
+    total_available: number;
+  };
+}
+
 // ─── Package & Membership Types ──────────────────────────────────────────
 
 export interface PackageInfo {
@@ -861,6 +926,14 @@ export const api = {
     fetchApi<CompareLapsResult & { error?: string }>(
       `/customer/compare-laps?track=${encodeURIComponent(track)}&car=${encodeURIComponent(car)}${compareTo ? `&compare_to=${encodeURIComponent(compareTo)}` : ""}`
     ),
+
+  // Driving Passport
+  passport: () =>
+    fetchApi<PassportData & { error?: string }>("/customer/passport"),
+
+  // Badges
+  badges: () =>
+    fetchApi<BadgesData & { error?: string }>("/customer/badges"),
 
   // Mid-session controls
   setAssist: (podId: string, assistType: string, enabled: boolean) =>
