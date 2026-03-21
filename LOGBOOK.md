@@ -382,3 +382,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 09:44 IST | James | 1064f1f | feat(97-02): create pre_flight.rs with concurrent check runner (HID, ConspitLink, orphan game) and auto-fix |
 | 2026-03-21 09:44 IST | James | 40467d8 | feat(97-02): wire pre-flight gate into BillingStarted — billing_active.store(true) inside Pass branch only |
 | 2026-03-21 09:44 IST | James | 89325ed | docs(97-02): complete pre_flight.rs + ws_handler gate plan |
+| 2026-03-21 10:15 IST | James | 9bb4f92 | docs(98): research phase — MaintenanceRequired lock screen + display checks (PF-04, PF-05, PF-06, DISP-01, DISP-02) |
