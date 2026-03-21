@@ -412,6 +412,12 @@ async fn main() -> Result<()> {
         SimType::LeMansUltimate => Some(Box::new(LmuAdapter::new(
             pod_id.clone(),
         ))),
+        SimType::AssettoCorsaEvo => Some(Box::new(
+            sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new(pod_id.clone()),
+        )),
+        SimType::AssettoCorsaRally => Some(Box::new(
+            sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new_rally(pod_id.clone()),
+        )),
         _ => {
             tracing::warn!("Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
             None

@@ -3,37 +3,31 @@ use chrono::Utc;
 use rc_common::types::*;
 use super::SimAdapter;
 
-/// Assetto Corsa EVO shared memory telemetry reader.
+/// Shared memory telemetry reader for AC-engine games (EVO, Rally).
 ///
-/// AC EVO (Early Access, UE5) uses the same `acpmf_physics`, `acpmf_graphics`,
-/// `acpmf_static` shared memory map format as AC1/ACC — confirmed by motion sim
-/// community. However, only the physics struct is reliably populated in Early
-/// Access builds. Graphics and static structs may be empty, zero, or absent.
+/// Both AC EVO and AC Rally use the same `acpmf_physics`, `acpmf_graphics`,
+/// `acpmf_static` shared memory map format as AC1/ACC. The `target_sim`
+/// field determines which SimType is emitted in LapData.
+///
+/// For EVO (Early Access): only physics struct is reliably populated.
+/// For Rally: same shared memory as AC1, should be fully populated.
 ///
 /// Strategy: attempt the same struct layout as AC1, gate all lap-detection on
 /// non-zero values, degrade gracefully to 90s process-based billing fallback.
-///
-/// Design decisions (from 86-RESEARCH.md):
-/// - connect() returns Ok even when SHM unavailable (anti-pattern: returning Err causes
-///   repeated error logs since event loop calls connect() on every tick)
-/// - read_telemetry() returns Ok(None) on disconnected/zero state (not Err)
-/// - read_is_on_track() uses physics speed/RPM for PlayableSignal
-/// - Warn-once flags: separate bools for each distinct failure mode
 pub struct AssettoCorsaEvoAdapter {
     connected: bool,
     pod_id: String,
+    target_sim: SimType,
+    log_prefix: &'static str,
     last_lap_count: u32,
     current_car: String,
     current_track: String,
     last_sector_index: i32,
     sector_times: [Option<u32>; 3],
-    // Warn-once flags (per Pattern 4 in RESEARCH.md)
     warned_no_shm: bool,
     warned_empty_graphics: bool,
-    // Completed lap ready for pickup
     #[cfg(windows)]
     pending_lap: Option<LapData>,
-    // Windows handles for memory-mapped files
     #[cfg(windows)]
     physics_handle: Option<ShmHandle>,
     #[cfg(windows)]
@@ -88,9 +82,20 @@ mod statics {
 
 impl AssettoCorsaEvoAdapter {
     pub fn new(pod_id: String) -> Self {
+        Self::with_sim_type(pod_id, SimType::AssettoCorsaEvo, "[EVO]")
+    }
+
+    /// Create an adapter for AC Rally (same shared memory, different SimType)
+    pub fn new_rally(pod_id: String) -> Self {
+        Self::with_sim_type(pod_id, SimType::AssettoCorsaRally, "[RALLY]")
+    }
+
+    fn with_sim_type(pod_id: String, target_sim: SimType, log_prefix: &'static str) -> Self {
         Self {
             connected: false,
             pod_id,
+            target_sim,
+            log_prefix,
             last_lap_count: 0,
             current_car: String::new(),
             current_track: String::new(),
@@ -138,7 +143,7 @@ impl AssettoCorsaEvoAdapter {
 
 impl SimAdapter for AssettoCorsaEvoAdapter {
     fn sim_type(&self) -> SimType {
-        SimType::AssettoCorsaEvo
+        self.target_sim.clone()
     }
 
     /// Connect to AC EVO shared memory.
@@ -190,15 +195,15 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
             Ok(physics) => {
                 self.physics_handle = Some(physics);
                 self.connected = true;
-                tracing::info!("[EVO] connected to shared memory (physics)");
+                tracing::info!("{} connected to shared memory (physics)", self.log_prefix);
             }
             Err(e) => {
                 // EVO may not have populated shared memory yet — not an error
                 // Per Pattern 2 + Anti-Pattern 1: return Ok, not Err
                 if !self.warned_no_shm {
                     tracing::warn!(
-                        "[EVO] shared memory not available: {} — telemetry disabled, billing via process fallback",
-                        e
+                        "{} shared memory not available: {} — telemetry disabled, billing via process fallback",
+                        self.log_prefix, e
                     );
                     self.warned_no_shm = true;
                 }
@@ -214,10 +219,10 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
                 let initial_laps = Self::read_i32(&graphics, graphics::COMPLETED_LAPS) as u32;
                 self.last_lap_count = initial_laps;
                 self.graphics_handle = Some(graphics);
-                tracing::info!("[EVO] graphics shared memory connected, initial_laps={}", initial_laps);
+                tracing::info!("{} graphics shared memory connected, initial_laps={}", self.log_prefix, initial_laps);
             }
             Err(e) => {
-                tracing::warn!("[EVO] graphics shared memory unavailable: {} — lap detection disabled", e);
+                tracing::warn!("{} graphics shared memory unavailable: {} — lap detection disabled", self.log_prefix, e);
             }
         }
 
@@ -226,10 +231,10 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
                 self.current_car = Self::read_wchar_string(&static_info, statics::CAR_MODEL, 33);
                 self.current_track = Self::read_wchar_string(&static_info, statics::TRACK, 33);
                 self.static_handle = Some(static_info);
-                tracing::info!("[EVO] static shared memory connected: car={}, track={}", self.current_car, self.current_track);
+                tracing::info!("{} static shared memory connected: car={}, track={}", self.log_prefix, self.current_car, self.current_track);
             }
             Err(e) => {
-                tracing::warn!("[EVO] static shared memory unavailable: {} — car/track info not available", e);
+                tracing::warn!("{} static shared memory unavailable: {} — car/track info not available", self.log_prefix, e);
             }
         }
 
@@ -244,7 +249,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
     fn connect(&mut self) -> Result<()> {
         // Shared memory is Windows-only; on other platforms remain disconnected
         if !self.warned_no_shm {
-            tracing::warn!("[EVO] shared memory only available on Windows — telemetry disabled");
+            tracing::warn!("{} shared memory only available on Windows — telemetry disabled", self.log_prefix);
             self.warned_no_shm = true;
         }
         Ok(())
@@ -282,7 +287,8 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
             // Warn-once if graphics appears entirely empty (Pattern 4)
             if cl == 0 && lt == 0 && !self.warned_empty_graphics {
                 tracing::warn!(
-                    "[EVO] graphics shared memory appears empty — lap detection disabled. EVO may not yet expose this data."
+                    "{} graphics shared memory appears empty — lap detection disabled",
+                    self.log_prefix
                 );
                 self.warned_empty_graphics = true;
             }
@@ -319,7 +325,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
                         session_id: String::new(),
                         driver_id: String::new(),
                         pod_id: self.pod_id.clone(),
-                        sim_type: SimType::AssettoCorsaEvo, // TEL-EVO-03
+                        sim_type: self.target_sim.clone(),
                         track: self.current_track.clone(),
                         car: self.current_car.clone(),
                         lap_number: completed_laps,
@@ -333,7 +339,8 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
                     };
 
                     tracing::info!(
-                        "[EVO] lap completed: lap={} time={}ms sectors=[{:?}, {:?}, {:?}]",
+                        "{} lap completed: lap={} time={}ms sectors=[{:?}, {:?}, {:?}]",
+                        self.log_prefix,
                         completed_laps, lap_ms,
                         self.sector_times[0], self.sector_times[1], self.sector_times[2]
                     );
@@ -403,7 +410,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
         Ok(Some(SessionInfo {
             id: String::new(),
             session_type: rc_common::types::SessionType::Practice,
-            sim_type: SimType::AssettoCorsaEvo,
+            sim_type: self.target_sim.clone(),
             track: self.current_track.clone(),
             car_class: None,
             status: rc_common::types::SessionStatus::Active,
@@ -439,7 +446,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
         self.connected = false;
         self.warned_no_shm = false;
         self.warned_empty_graphics = false;
-        tracing::info!("[EVO] disconnected from shared memory");
+        tracing::info!("{} disconnected from shared memory", self.log_prefix);
     }
 
     /// Physics-based on-track detection (Pattern 5 in RESEARCH.md).
@@ -572,5 +579,21 @@ mod tests {
             assert!(adapter.graphics_handle.is_none(), "graphics_handle must be None after disconnect");
             assert!(adapter.static_handle.is_none(), "static_handle must be None after disconnect");
         }
+    }
+
+    /// AC Rally adapter uses AssettoCorsaRally sim type
+    #[test]
+    fn test_rally_adapter_sim_type() {
+        let adapter = AssettoCorsaEvoAdapter::new_rally("pod_1".to_string());
+        assert_eq!(adapter.sim_type(), SimType::AssettoCorsaRally);
+        assert_eq!(adapter.log_prefix, "[RALLY]");
+    }
+
+    /// EVO adapter uses AssettoCorsaEvo sim type
+    #[test]
+    fn test_evo_adapter_sim_type() {
+        let adapter = AssettoCorsaEvoAdapter::new("pod_1".to_string());
+        assert_eq!(adapter.sim_type(), SimType::AssettoCorsaEvo);
+        assert_eq!(adapter.log_prefix, "[EVO]");
     }
 }
