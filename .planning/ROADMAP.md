@@ -216,7 +216,7 @@ Lock down the Racing Point operations stack — audit all exposed endpoints and 
 - [x] **Phase 75: Security Audit & Foundations** - Inventory all exposed endpoints, trace PII locations, move secrets to env vars, auto-generate JWT key (completed 2026-03-20)
 - [x] **Phase 76: API Authentication & Admin Protection** - JWT enforcement on all sensitive routes, admin PIN gate with argon2, rate limiting, bot auth, pod HMAC, session integrity (completed 2026-03-20)
 - [x] **Phase 77: Transport Security** - HTTPS for PWA/admin browser traffic, self-signed LAN certs, Let's Encrypt for cloud, security response headers (completed 2026-03-20)
-- [ ] **Phase 78: Kiosk & Session Hardening** - Chrome lockdown, hotkey blocking, USB disable, session-scoped tokens, anomaly auto-pause with WhatsApp alert
+- [x] **Phase 78: Kiosk & Session Hardening** - Chrome lockdown, hotkey blocking, USB disable, session-scoped tokens, anomaly auto-pause with WhatsApp alert (completed 2026-03-21)
 - [ ] **Phase 79: Data Protection** - AES-256-GCM on PII columns, deterministic phone hash for lookups, log redaction, customer data export/deletion
 - [ ] **Phase 80: Audit Trail & Defense in Depth** - Admin action logging, WhatsApp alerts on sensitive actions, PIN rotation alerts, cloud sync HMAC signing
 
@@ -1152,7 +1152,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
 | 76. API Authentication & Admin Protection | 6/6 | Complete    | 2026-03-20 | - |
 | 77. Transport Security | 2/2 | Complete    | 2026-03-20 | - |
-| 78. Kiosk & Session Hardening | 1/3 | In Progress|  | - |
+| 78. Kiosk & Session Hardening | 3/3 | Complete   | 2026-03-21 | - |
 | 79. Data Protection | v12.0 | 0/? | Not started | - |
 | 80. Audit Trail & Defense in Depth | v12.0 | 0/? | Not started | - |
 | 81. Game Launch Core | v13.0 | 0/3 | Not started | - |

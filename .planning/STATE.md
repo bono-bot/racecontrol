@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 74-01-PLAN.md
+last_updated: "2026-03-21T01:06:56.526Z"
+last_activity: "2026-03-21 -- 78-01 complete: Edge kiosk hardened with 12 security flags + keyboard hook blocks (F12/Ctrl+Shift+I/J/Ctrl+L) + pod-lockdown USB/accessibility/TaskMgr lockdown (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)"
+progress:
+  total_phases: 53
+  completed_phases: 27
+  total_plans: 76
+  completed_plans: 70
+  percent: 92
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Completed 69-03-PLAN.md
 last_updated: "2026-03-21T01:01:53.983Z"
 last_activity: "2026-03-21 -- 78-01 complete: Edge kiosk hardened with 12 security flags + keyboard hook blocks (F12/Ctrl+Shift+I/J/Ctrl+L) + pod-lockdown USB/accessibility/TaskMgr lockdown (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)"
 progress:
-  total_phases: 53
+  [█████████░] 92%
   completed_phases: 27
   total_plans: 76
   completed_plans: 69
@@ -152,11 +168,11 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 78 of 81 (Kiosk Session Hardening)
-Plan: 01 of 03 complete
-Status: Phase 78 Plan 01 complete
-Last activity: 2026-03-21 -- 78-01 complete: Edge kiosk hardened with 12 security flags + keyboard hook blocks (F12/Ctrl+Shift+I/J/Ctrl+L) + pod-lockdown USB/accessibility/TaskMgr lockdown (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
+Plan: 03 of 03 complete
+Status: Phase 78 complete
+Last activity: 2026-03-21 -- 78-03 complete: BillingStarted session_token + KioskLockdown auto-pause billing + debounced WhatsApp alert (SESS-04, SESS-05)
 
-Progress: [█████████░] 89% (68/76 plans complete)
+Progress: [█████████░] 92% (70/76 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -232,6 +248,7 @@ Progress: [█████████░] 89% (68/76 plans complete)
 - 69-03: Secondary watchdog timer: 255s after james_down (45s+255s=5min total) probes 100.71.226.83:8090/ping via Tailscale; skips if .23 reachable (not a venue outage); pm2 via execFileSync fallback restart->start; polls /health 6x before broadcast; AlertCooldown 10-min prevents repeat activations (HLTH-04 complete)
 - 78-01: Defense-in-depth for DevTools: both --disable-dev-tools browser flag AND F12/Ctrl+Shift+I/J keyboard hook blocks; USBSTOR Start=4 disables mass storage only (HID unaffected); accessibility Flags 506/122/58 disable hotkeys not features (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
 - 74-01: AgentConfig fields all pub (not pub(crate)) for cross-module access in later extractions; load_config pub; validate_config + detect_installed_games pub(crate); billing_guard.rs required crate::config:: path fix after root extraction (DECOMP-01)
+- 78-03: Option<String> with #[serde(default)] for session_token -- backward compat with older agents; direct SQL UPDATE for emergency billing pause avoids circular HTTP dependency; LazyLock<Mutex<HashMap>> for per-pod security alert debounce (5min cooldown) (SESS-04, SESS-05)
 
 ### Blockers/Concerns
 
@@ -252,7 +269,7 @@ Progress: [█████████░] 89% (68/76 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T06:28:18Z
-Stopped at: Completed 74-01-PLAN.md
-Resume file: None
-Next action: Phase 74 Plan 02 (app_state.rs extraction) next
+Last session: 2026-03-21T01:05:35Z
+Stopped at: Completed 78-03-PLAN.md
+Resume file: .planning/phases/78-kiosk-session-hardening/78-03-SUMMARY.md
+Next action: Phase 78 complete (3/3 plans done)
