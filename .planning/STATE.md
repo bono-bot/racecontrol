@@ -4,7 +4,7 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 80-01-PLAN.md
-last_updated: "2026-03-21T03:55:09.637Z"
+last_updated: "2026-03-21T03:58:29.981Z"
 last_activity: "2026-03-21 -- 80-02 complete: PIN rotation alerting (system_settings + 24h WhatsApp check) + HMAC-SHA256 cloud sync signing/verification in permissive mode (ADMIN-06, AUTH-07)"
 progress:
   total_phases: 61
