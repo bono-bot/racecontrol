@@ -145,6 +145,10 @@ async fn main() -> anyhow::Result<()> {
     let (alert_tx, _) =
         tokio::sync::broadcast::channel::<alerts::types::AlertEvent>(256);
 
+    // Create broadcast channel for unknown face events (pipeline -> unknown engine)
+    let (unknown_tx, _) =
+        tokio::sync::broadcast::channel::<alerts::types::UnknownFaceEvent>(64);
+
     // Spawn alert engine (if enabled)
     if config.alerts.enabled {
         let alert_rx = recognition_tx.subscribe();
@@ -182,9 +186,10 @@ async fn main() -> anyhow::Result<()> {
             let gal = Arc::clone(&gallery);
             let trk = Arc::clone(&tracker);
             let tx = recognition_tx.clone();
+            let utx = unknown_tx.clone();
             tokio::spawn(async move {
                 detection::pipeline::run(
-                    cam_name, buf, det, conf, stats, rec, qg, gal, trk, Some(tx),
+                    cam_name, buf, det, conf, stats, rec, qg, gal, trk, Some(tx), Some(utx),
                 )
                 .await;
             });

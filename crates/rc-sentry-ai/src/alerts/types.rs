@@ -1,5 +1,19 @@
 use crate::recognition::types::RecognitionResult;
 
+/// Intermediate event emitted by the detection pipeline when a face passes
+/// quality gates but has no gallery match above the similarity threshold.
+/// The unknown-person alert engine consumes these to save JPEG crops and
+/// emit rate-limited `AlertEvent::UnknownPerson` alerts.
+#[derive(Debug, Clone)]
+pub struct UnknownFaceEvent {
+    pub camera: String,
+    /// 112x112 RGB aligned face pixels.
+    pub face_crop_rgb: Vec<u8>,
+    pub crop_width: u32,
+    pub crop_height: u32,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
 /// Real-time alert events sent to dashboard clients via WebSocket.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

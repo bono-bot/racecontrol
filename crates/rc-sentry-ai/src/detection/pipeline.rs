@@ -44,6 +44,7 @@ pub async fn run(
     gallery: Arc<Gallery>,
     tracker: Arc<FaceTracker>,
     recognition_tx: Option<tokio::sync::broadcast::Sender<crate::recognition::types::RecognitionResult>>,
+    unknown_tx: Option<tokio::sync::broadcast::Sender<crate::alerts::types::UnknownFaceEvent>>,
 ) {
     let mut decoder = match super::decoder::FrameDecoder::new() {
         Ok(d) => d,
@@ -156,6 +157,9 @@ pub async fn run(
                     &face.landmarks,
                 );
 
+                // Keep a copy before CLAHE for unknown-person face crop
+                let aligned_raw = aligned.clone();
+
                 // 3. Apply CLAHE for lighting normalization
                 let clahe_face = clahe::apply_clahe(&aligned);
 
@@ -199,6 +203,18 @@ pub async fn run(
                             };
                             let _ = tx.send(result);
                         }
+                    }
+                } else {
+                    // No match above threshold — unknown person
+                    if let Some(ref utx) = unknown_tx {
+                        let event = crate::alerts::types::UnknownFaceEvent {
+                            camera: camera_name.clone(),
+                            face_crop_rgb: aligned_raw.into_raw(),
+                            crop_width: 112,
+                            crop_height: 112,
+                            timestamp: chrono::Utc::now(),
+                        };
+                        let _ = utx.send(event);
                     }
                 }
             }
