@@ -8205,19 +8205,61 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
         .map(|r| r.0)
         .unwrap_or(0);
 
-    let sync_states = sqlx::query_as::<_, (String, String, i64)>(
-        "SELECT table_name, last_synced_at, last_sync_count FROM sync_state ORDER BY table_name",
+    let sync_states = sqlx::query_as::<_, (String, String, i64, String)>(
+        "SELECT table_name, last_synced_at, last_sync_count, COALESCE(updated_at, last_synced_at)
+         FROM sync_state ORDER BY table_name",
     )
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
 
+    let now = chrono::Utc::now();
+
     let sync_info: Vec<Value> = sync_states
         .iter()
-        .map(|(table, last, count)| {
-            json!({ "table": table, "last_synced_at": last, "last_sync_count": count })
+        .map(|(table, last, count, updated)| {
+            // Compute per-table staleness
+            let table_lag = chrono::NaiveDateTime::parse_from_str(updated, "%Y-%m-%d %H:%M:%S")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(updated, "%Y-%m-%dT%H:%M:%S"))
+                .map(|dt| (now - dt.and_utc()).num_seconds())
+                .unwrap_or(-1);
+            json!({
+                "table": table,
+                "last_synced_at": last,
+                "last_sync_count": count,
+                "staleness_seconds": table_lag,
+            })
         })
         .collect();
+
+    // Compute overall lag from most recent sync activity
+    let last_activity = sqlx::query_as::<_, (String,)>(
+        "SELECT MAX(COALESCE(updated_at, last_synced_at)) FROM sync_state",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let lag_seconds: i64 = match last_activity {
+        Some((ts,)) => {
+            chrono::NaiveDateTime::parse_from_str(&ts, "%Y-%m-%d %H:%M:%S")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&ts, "%Y-%m-%dT%H:%M:%S"))
+                .map(|dt| (now - dt.and_utc()).num_seconds())
+                .unwrap_or(-1)
+        }
+        None => -1,
+    };
+
+    let health_status = if lag_seconds < 0 {
+        "unknown"
+    } else if lag_seconds <= 60 {
+        "healthy"
+    } else if lag_seconds <= 300 {
+        "degraded"
+    } else {
+        "critical"
+    };
 
     // Relay status: check if comms-link relay is configured and reachable
     let relay_configured = state.config.cloud.comms_link_url.is_some();
@@ -8237,7 +8279,8 @@ async fn sync_health(State(state): State<Arc<AppState>>) -> Json<Value> {
     };
 
     Json(json!({
-        "status": "ok",
+        "status": health_status,
+        "lag_seconds": lag_seconds,
         "drivers": driver_count,
         "cloud_sync_enabled": state.config.cloud.enabled,
         "cloud_api_url": state.config.cloud.api_url,
