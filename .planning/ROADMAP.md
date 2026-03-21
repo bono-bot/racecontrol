@@ -1457,7 +1457,7 @@ Audit and harden all pod-side RaceControl behaviors so that rc-agent, rc-sentry,
 - [x] **Phase 107: Behavior Audit + Certificate Procurement** - Exhaustive risk inventory of every pod-side behavior classified per anti-cheat system; ConspitLink signed-binary audit; code signing certificate procured and integrated into build pipeline (completed 2026-03-21)
 - [x] **Phase 108: Keyboard Hook Replacement** - SetWindowsHookEx hook fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr); kiosk lockdown verified without any hook on Pod 8 (completed 2026-03-21)
 - [x] **Phase 109: Safe Mode State Machine** - safe_mode.rs module; WMI Win32_ProcessStartTrace event subscription for sub-second game detection; 30-second exit cooldown; process guard, Ollama queries, and registry writes gated; safe mode startup default (completed 2026-03-21)
-- [ ] **Phase 110: Telemetry Gating** - shm_connect_allowed() guard defers shared memory adapter connect by 5s; UDP sockets scoped to active game; AC EVO telemetry feature-flagged off by default
+- [x] **Phase 110: Telemetry Gating** - shm_connect_allowed() guard defers shared memory adapter connect by 5s; UDP sockets scoped to active game; AC EVO telemetry feature-flagged off by default (completed 2026-03-21)
 - [ ] **Phase 111: Code Signing + Per-Game Canary Validation** - rc-agent.exe and rc-sentry.exe signed via signtool in deploy pipeline; staff test session per game (F1 25, iRacing, LMU) on Pod 8 with safe mode active; billing continuity verified during safe mode
 
 ## v15.0 AntiCheat Compatibility -- Phase Details
@@ -1542,7 +1542,7 @@ Plans:
 | 107. Behavior Audit + Certificate Procurement | 2/2 | Complete    | 2026-03-21 |
 | 108. Keyboard Hook Replacement | 1/1 | Complete    | 2026-03-21 |
 | 109. Safe Mode State Machine | 2/2 | Complete    | 2026-03-21 |
-| 110. Telemetry Gating | 0/2 | Planning complete | - |
+| 110. Telemetry Gating | 2/2 | Complete   | 2026-03-21 |
 | 111. Code Signing + Per-Game Canary Validation | TBD | Not started | - |
 
 

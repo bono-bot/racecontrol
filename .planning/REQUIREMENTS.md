@@ -19,17 +19,17 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 - [x] **SAFE-01**: rc-agent detects protected game launch within 1 second via WMI Win32_ProcessStartTrace event subscription (not polling)
 - [x] **SAFE-02**: rc-agent enters safe mode automatically when a protected game is detected, managed by a state machine in AppState (safe_mode.rs)
 - [x] **SAFE-03**: Safe mode remains active for 30 seconds after the protected game exits (EA Javelin post-game cooldown)
-- [ ] **SAFE-04**: Process guard (allowlist enforcement + auto-kill) is suspended during safe mode
-- [ ] **SAFE-05**: Ollama LLM queries are suppressed during safe mode (GPU/memory contention + anti-cheat suspicion)
-- [ ] **SAFE-06**: Registry write operations are deferred until safe mode exits
-- [ ] **SAFE-07**: Billing, lock screen, overlay, heartbeat, and WebSocket exec continue uninterrupted during safe mode
+- [x] **SAFE-04**: Process guard (allowlist enforcement + auto-kill) is suspended during safe mode
+- [x] **SAFE-05**: Ollama LLM queries are suppressed during safe mode (GPU/memory contention + anti-cheat suspicion)
+- [x] **SAFE-06**: Registry write operations are deferred until safe mode exits
+- [x] **SAFE-07**: Billing, lock screen, overlay, heartbeat, and WebSocket exec continue uninterrupted during safe mode
 
 ### Hardening
 
 - [x] **HARD-01**: SetWindowsHookEx keyboard hook (Phase 78) is fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr)
 - [ ] **HARD-02**: rc-agent.exe and rc-sentry.exe are code signed with an OV certificate via signtool in the deploy pipeline
 - [ ] **HARD-03**: Shared memory telemetry readers defer MapViewOfFile connect until 5 seconds after game process is stable (anti-cheat init window)
-- [ ] **HARD-04**: UDP telemetry sockets are created only when the corresponding game is active and destroyed on game exit
+- [x] **HARD-04**: UDP telemetry sockets are created only when the corresponding game is active and destroyed on game exit
 - [ ] **HARD-05**: AC EVO telemetry is feature-flagged off by default until anti-cheat status is confirmed at v1.0 release
 
 ### Validation
@@ -66,14 +66,14 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 | SAFE-01 | Phase 109 | Complete |
 | SAFE-02 | Phase 109 | Complete |
 | SAFE-03 | Phase 109 | Complete |
-| SAFE-04 | Phase 109 | Pending |
-| SAFE-05 | Phase 109 | Pending |
-| SAFE-06 | Phase 109 | Pending |
-| SAFE-07 | Phase 109 | Pending |
+| SAFE-04 | Phase 109 | Complete |
+| SAFE-05 | Phase 109 | Complete |
+| SAFE-06 | Phase 109 | Complete |
+| SAFE-07 | Phase 109 | Complete |
 | HARD-01 | Phase 108 | Complete |
 | HARD-02 | Phase 111 | Pending |
 | HARD-03 | Phase 110 | Pending |
-| HARD-04 | Phase 110 | Pending |
+| HARD-04 | Phase 110 | Complete |
 | HARD-05 | Phase 110 | Pending |
 | VALID-01 | Phase 111 | Pending |
 | VALID-02 | Phase 111 | Pending |
