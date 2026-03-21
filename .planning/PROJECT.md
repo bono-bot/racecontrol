@@ -6,6 +6,25 @@
 
 The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
 
+## Current Milestone: v11.2 RC Sentry AI Debugger
+
+**Goal:** Move crash diagnostics from rc-agent (where they die with the patient) to rc-sentry (external survivor). When rc-agent crashes, rc-sentry reads local crash logs, runs Tier 1 deterministic fixes, and restarts rc-agent with context — instead of blind restarts.
+
+**Target features:**
+- Health endpoint polling (localhost:8090/health every 5s) for rc-agent crash detection — anti-cheat safe (no process inspection)
+- Post-crash log analysis: read startup_log, stderr capture, panic output to understand WHY rc-agent crashed
+- Tier 1 deterministic fixes before restart: clean stale sockets, kill zombie processes, repair config, clear shader cache
+- Crash pattern memory (debug-memory.json) for instant replay of known fixes
+- Tier 3 Ollama query (James .27:11434) for unknown crash patterns
+- Crash diagnostics reported to server via fleet API
+- Escalation decision: restart vs alert staff vs block pod
+- Game-crash debugging stays in rc-agent (it's alive for those)
+
+**Constraints:**
+- Must NOT trigger F1 25 (Easy Anti-Cheat) or iRacing anti-cheat — no process inspection, no debug APIs, health polling only
+- Extend existing rc-sentry binary (v11.0, 6 endpoints) — no new binary to deploy
+- Same Rust/Axum stack, no new crate dependencies
+
 ## Current Milestone: v11.1 Pre-Flight Session Checks
 
 **Goal:** Run automated pre-flight checks before every customer session (on BillingStarted). Auto-fix failures (restart ConspitLink, kill orphaned games, etc.), alert staff only if auto-fix fails. Block pod with "Maintenance Required" screen when unfixable.
@@ -297,4 +316,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-21 after milestone v12.1 E2E Process Guard started*
+*Last updated: 2026-03-21 after milestone v11.2 RC Sentry AI Debugger started*

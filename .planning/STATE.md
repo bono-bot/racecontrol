@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: Salt Fleet Management
+milestone: v11.2
+milestone_name: RC Sentry AI Debugger
 status: in_progress
-stopped_at: Completed 105-02-PLAN.md
-last_updated: "2026-03-21T11:55:45.073Z"
+stopped_at: Defining requirements
+last_updated: "2026-03-21T16:00:00.000Z"
 progress:
-  total_phases: 68
-  completed_phases: 51
-  total_plans: 129
-  completed_plans: 127
-  percent: 92
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 ---
