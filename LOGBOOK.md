@@ -414,5 +414,8 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 12:51 IST | Bono | e643174 | feat(91-01): PbAchieved broadcast + compute_percentile + enhanced session detail + active-session polling endpoint |
 | 2026-03-21 12:52 IST | Bono | de363ba | feat(91-01): install canvas-confetti + sonner + update TypeScript types for session experience (Phase 91) |
 | 2026-03-21 12:52 IST | Bono | 1c5410f | docs(91-01): 91-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
+| 2026-03-21 13:31 IST | Bono | fc329f2 | feat(92-01): variable_reward_log DB table + four retention functions in psychology.rs (notify_pb_beaten_holders, maybe_grant_variable_reward, check_streak_at_risk, check_membership_expiry_warnings) |
+| 2026-03-21 13:33 IST | Bono | 1dca228 | feat(92-01): wire retention triggers in lap_tracker, billing, scheduler, passport API (grace_expires_date + longest_streak + last_visit_date) |
+| 2026-03-21 13:35 IST | Bono | 8c2af57 | docs(92-01): retention loops SUMMARY.md + STATE.md + ROADMAP.md updates |
 | 2026-03-21 14:30 IST | James | b76787b | docs(102): create phase plan — whitelist schema + config + fetch endpoint (GUARD-01,02,03,06) |
 | 2026-03-21 15:10 IST | James | 17750da | feat(102-01): ProcessGuardConfig + AllowedProcess + ProcessGuardOverride structs; 6 TDD tests pass; C:/RacingPoint/racecontrol.toml with 185 global allowed entries + 3 per-machine overrides |
