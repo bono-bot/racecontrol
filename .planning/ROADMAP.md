@@ -1925,8 +1925,8 @@ Plans:
   5. Either AI can query the other's command registry and receive a list of command names, descriptions, and approval tiers — binary paths and raw args are never returned in the introspection response
 **Plans**: 2 plans
 Plans:
-- [ ] 134-01-PLAN.md — Chain templates, output templating, per-step retry (ChainOrchestrator)
-- [ ] 134-02-PLAN.md — Chain state persistence (pause/resume) + registry introspection
+- [x] 134-01-PLAN.md — Chain templates, output templating, per-step retry (ChainOrchestrator)
+- [x] 134-02-PLAN.md — Chain state persistence (pause/resume) + registry introspection
 
 ## v18.0 Progress
 
@@ -1939,4 +1939,4 @@ Plans:
 | 131. Shell Relay | 1/1 | Complete    | 2026-03-21 |
 | 132. Chain Orchestration | 2/2 | Complete    | 2026-03-21 |
 | 133. Task Delegation + Audit Trail | 2/2 | Complete    | 2026-03-21 |
-| 134. Advanced Chain Features + Integration Hardening | 1/2 | In Progress|  |
+| 134. Advanced Chain Features + Integration Hardening | 2/2 | Complete | 2026-03-22 |

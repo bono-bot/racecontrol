@@ -14,7 +14,7 @@ Requirements for full bidirectional dynamic execution between James and Bono.
 - [x] **DREG-03**: Static COMMAND_REGISTRY (20 commands) remains frozen and unmodified
 - [x] **DREG-04**: Lookup order: dynamic registry first, static registry fallback
 - [x] **DREG-05**: Dynamic commands can specify allowed env var keys merged with safeEnv at execution
-- [ ] **DREG-06**: Either AI can query the other's full command registry (name, description, tier — never binary/args)
+- [x] **DREG-06**: Either AI can query the other's full command registry (name, description, tier — never binary/args)
 
 ### Shell Relay
 
@@ -34,7 +34,7 @@ Requirements for full bidirectional dynamic execution between James and Bono.
 - [x] **CHAIN-06**: Named chain templates loadable from config file, invocable by name
 - [x] **CHAIN-07**: Output templating: {{prev_stdout}} in step args substituted with previous step output
 - [x] **CHAIN-08**: Per-step retry with configurable count and backoff
-- [ ] **CHAIN-09**: Chain state survives WebSocket disconnects — pause/resume across reconnects
+- [x] **CHAIN-09**: Chain state survives WebSocket disconnects — pause/resume across reconnects
 
 ### Claude-to-Claude Delegation
 
@@ -73,7 +73,7 @@ None — all features scoped into v18.0.
 | DREG-03 | Phase 130 | Complete |
 | DREG-04 | Phase 130 | Complete |
 | DREG-05 | Phase 130 | Complete |
-| DREG-06 | Phase 134 | Pending |
+| DREG-06 | Phase 134 | Complete |
 | SHRL-01 | Phase 131 | Complete |
 | SHRL-02 | Phase 131 | Complete |
 | SHRL-03 | Phase 131 | Complete |
@@ -87,7 +87,7 @@ None — all features scoped into v18.0.
 | CHAIN-06 | Phase 134 | Complete |
 | CHAIN-07 | Phase 134 | Complete |
 | CHAIN-08 | Phase 134 | Complete |
-| CHAIN-09 | Phase 134 | Pending |
+| CHAIN-09 | Phase 134 | Complete |
 | DELEG-01 | Phase 133 | Complete |
 | DELEG-02 | Phase 133 | Complete |
 | DELEG-03 | Phase 133 | Complete |

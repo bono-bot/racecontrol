@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v18.0
 milestone_name: Advanced Chain Features Integration Hardening
 status: in_progress
-stopped_at: Completed 134-01-PLAN.md
-last_updated: "2026-03-22T23:31:00.000Z"
+stopped_at: Completed 134-02-PLAN.md
+last_updated: "2026-03-22T23:11:00.000Z"
 progress:
   total_phases: 96
   completed_phases: 68
   total_plans: 170
-  completed_plans: 167
+  completed_plans: 168
 decisions:
   - "133-02: AuditLogger instantiated before execHandler/shellRelay (closures capture at construction time)"
   - "133-02: Executor-side audit fires before sending delegate_result to guarantee log entry survives network failures"
@@ -19,6 +19,10 @@ decisions:
   - "134-01: Inline steps take precedence over template name when both provided"
   - "134-01: Retry does not re-attempt on broker timeout, only on non-zero exitCode"
   - "134-01: Fresh execId per retry to avoid ExecResultBroker dedup blocking retries"
+  - "134-02: pause() returns deep copy -- caller can JSON.stringify without affecting #activeState"
+  - "134-02: resume() takes full steps array in savedState so audit indices are absolute positions"
+  - "134-02: bono chain state hooks in wss connection/close events (symmetric to james ConnectionMode)"
+  - "134-02: buildIntrospectionResponse exposes only name/description/tier/timeoutMs -- never binary/args"
 ---
 
 ---
