@@ -107,6 +107,16 @@ export default function PassportPage() {
   const [data, setData] = useState<PassportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [daysLeft, setDaysLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!data?.passport?.summary?.grace_expires_date) return;
+    const expires = new Date(
+      data.passport.summary.grace_expires_date + "T23:59:59+05:30"
+    );
+    const diffMs = expires.getTime() - Date.now();
+    setDaysLeft(Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24))));
+  }, [data?.passport?.summary?.grace_expires_date]);
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -186,12 +196,36 @@ export default function PassportPage() {
               {summary.total_laps}
             </p>
           </div>
-          <div className="bg-rp-card border border-rp-border rounded-xl p-4">
-            <p className="text-xs text-rp-grey mb-1">Week Streak</p>
-            <p className="text-2xl font-bold text-white">
-              {summary.streak_weeks}
-            </p>
-          </div>
+          {/* Streak card — red border when at risk, days remaining + best streak */}
+          {(() => {
+            const streakAtRisk =
+              daysLeft !== null &&
+              daysLeft <= 7 &&
+              (summary.streak_weeks ?? 0) >= 1;
+            const longestStreak = summary.longest_streak ?? 0;
+            return (
+              <div
+                className={`bg-rp-card border rounded-xl p-4 ${
+                  streakAtRisk ? "border-[#E10600]" : "border-rp-border"
+                }`}
+              >
+                <p className="text-xs text-rp-grey mb-1">Week Streak</p>
+                <p className="text-2xl font-bold text-white">
+                  {summary.streak_weeks}
+                </p>
+                {streakAtRisk && daysLeft !== null && (
+                  <p className="text-xs text-[#E10600] mt-1 font-medium">
+                    {daysLeft === 0 ? "Expires today!" : `${daysLeft}d left`}
+                  </p>
+                )}
+                {longestStreak > (summary.streak_weeks ?? 0) && (
+                  <p className="text-xs text-rp-grey mt-1">
+                    Best: {longestStreak}w
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Circuits section — Starter Circuits / Explorer Circuits / Legend Circuits */}
