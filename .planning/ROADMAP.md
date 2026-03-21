@@ -1622,13 +1622,11 @@ Plans:
   2. Multi-angle enrollment captures 3-5 quality frames from different angles, rejecting images that fail quality gates, and stores embeddings in SQLite
   3. Staff can update or delete a person's face profile, and the in-memory embedding gallery reflects changes immediately
   4. Duplicate detection prevents enrolling the same person twice by checking new embeddings against existing ones
-**Plans**: 4 plans
+**Plans**: 2 plans
 
 Plans:
-- [ ] 115-01: Person and embedding database schema (SQLite)
-- [ ] 115-02: Enrollment API endpoints and photo processing
-- [ ] 115-03: Multi-angle capture with quality validation
-- [ ] 115-04: In-memory gallery sync and duplicate detection
+- [ ] 115-01-PLAN.md -- Data layer: extend DB CRUD (phone, get/list/update/delete) + gallery mutations + enrollment types
+- [ ] 115-02-PLAN.md -- Enrollment API: HTTP handlers, photo processing pipeline, duplicate detection, main.rs wiring
 
 ### Phase 116: Attendance Engine
 **Goal**: Automatically log attendance when recognized faces appear on camera, with staff shift tracking
