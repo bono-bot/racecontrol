@@ -398,3 +398,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 10:55 IST | James | 71e75b7 | feat(99-02): add last_preflight_alert field to AppState — Option<Instant> for STAFF-04 rate-limiting |
 | 2026-03-21 10:55 IST | James | afed1c2 | feat(99-02): wire PreFlightFailed alert rate-limiting (STAFF-04) — 60s cooldown in BillingStarted, retry loop confirmed no-alert by design, reset on Pass |
 | 2026-03-21 10:56 IST | James | 21c5ee5 | docs(99-02): complete alert rate-limiting plan — 99-02-SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md |
+| 2026-03-21 11:15 IST | James | 5f27c06 | feat(84-02): wire IracingAdapter and PlayableSignal — main.rs IRacing arm, event_loop.rs IsOnTrack billing trigger, 90s fallback retained for other sims |
+| 2026-03-21 11:15 IST | James | a4337d7 | docs(84-02): complete iRacing wiring plan — 84-02-SUMMARY.md, STATE.md, ROADMAP.md, phase 84 complete |
