@@ -1515,6 +1515,103 @@ fn default_warn_before_kill() -> bool {
     true
 }
 
+// ─── Sentry Crash Diagnostics ────────────────────────────────────────────────
+
+/// Result of a single diagnostic fix attempt by rc-sentry.
+/// Mirrors AutoFixResult from ai_debugger.rs but lives in rc-common
+/// so both rc-sentry and racecontrol can use it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrashDiagResult {
+    /// Fix category (e.g. "zombie_kill", "port_wait", "config_repair")
+    pub fix_type: String,
+    /// Human-readable detail of what was done
+    pub detail: String,
+    /// Whether the fix succeeded
+    pub success: bool,
+}
+
+/// Crash report sent from rc-sentry to racecontrol after an rc-agent crash.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentryCrashReport {
+    /// Pod identifier (e.g. "pod_8")
+    pub pod_id: String,
+    /// Pod number (1-8)
+    #[serde(default)]
+    pub pod_number: u8,
+    /// When the crash was detected (ISO 8601)
+    pub crash_timestamp: String,
+    /// Extracted crash context from logs (panic message, exit code, last phase)
+    #[serde(default)]
+    pub crash_context: String,
+    /// Which tier resolved the crash (1=deterministic, 2=memory, 3=ollama, 0=none)
+    #[serde(default)]
+    pub resolution_tier: u8,
+    /// Fixes attempted and their results
+    #[serde(default)]
+    pub fixes_applied: Vec<CrashDiagResult>,
+    /// Number of restarts in current escalation window
+    #[serde(default)]
+    pub restart_count: u32,
+    /// Whether the pod has been escalated to maintenance mode
+    #[serde(default)]
+    pub escalated: bool,
+}
+
+#[cfg(test)]
+mod sentry_types_tests {
+    use super::*;
+
+    #[test]
+    fn crash_diag_result_roundtrip() {
+        let result = CrashDiagResult {
+            fix_type: "zombie_kill".to_string(),
+            detail: "Killed 2 zombie rc-agent processes".to_string(),
+            success: true,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: CrashDiagResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.fix_type, "zombie_kill");
+        assert!(parsed.success);
+    }
+
+    #[test]
+    fn sentry_crash_report_roundtrip() {
+        let report = SentryCrashReport {
+            pod_id: "pod_8".to_string(),
+            pod_number: 8,
+            crash_timestamp: "2026-03-21T16:00:00Z".to_string(),
+            crash_context: "thread 'main' panicked at 'index out of bounds'".to_string(),
+            resolution_tier: 1,
+            fixes_applied: vec![CrashDiagResult {
+                fix_type: "zombie_kill".to_string(),
+                detail: "Killed stale process".to_string(),
+                success: true,
+            }],
+            restart_count: 1,
+            escalated: false,
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let parsed: SentryCrashReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.pod_id, "pod_8");
+        assert_eq!(parsed.pod_number, 8);
+        assert_eq!(parsed.resolution_tier, 1);
+        assert_eq!(parsed.fixes_applied.len(), 1);
+        assert!(!parsed.escalated);
+    }
+
+    #[test]
+    fn sentry_crash_report_defaults() {
+        let json = r#"{"pod_id":"pod_1","crash_timestamp":"2026-03-21T16:00:00Z"}"#;
+        let parsed: SentryCrashReport = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.pod_number, 0);
+        assert_eq!(parsed.crash_context, "");
+        assert_eq!(parsed.resolution_tier, 0);
+        assert!(parsed.fixes_applied.is_empty());
+        assert_eq!(parsed.restart_count, 0);
+        assert!(!parsed.escalated);
+    }
+}
+
 #[cfg(test)]
 mod process_guard_types_tests {
     use super::*;
