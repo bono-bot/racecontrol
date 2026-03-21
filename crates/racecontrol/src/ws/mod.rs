@@ -162,7 +162,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 let mut games = state.game_launcher.active_games.write().await;
                                 let pod_game_state = pod_info.game_state.unwrap_or(GameState::Idle);
                                 match pod_game_state {
-                                    GameState::Running | GameState::Launching => {
+                                    GameState::Running | GameState::Launching | GameState::Loading => {
                                         // Pod reports a game is active — ensure tracker exists
                                         if let Some(tracker) = games.get_mut(&pod_info.id) {
                                             tracker.game_state = pod_game_state;
@@ -339,6 +339,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             );
                             let gs_action = match info.game_state {
                                 GameState::Running => "Game Running",
+                                GameState::Loading => "Game Loading",
                                 GameState::Error => "Game Crashed",
                                 GameState::Idle => "Game Stopped",
                                 GameState::Launching => "Game Launching",
