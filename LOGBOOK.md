@@ -507,3 +507,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 03:43 IST | James | b9dd5df | docs(130-02): SUMMARY + STATE + ROADMAP + REQUIREMENTS updates |
 | 2026-03-22 04:10 IST | James | 4102750 | docs(02-02): complete PWA cloud deployment plan (PWA live, API pending racecontrol on VPS) |
 | 2026-03-21 22:04 IST | James | 5dacfa5 | fix: prevent false MAINTENANCE_MODE from self-monitor graceful restarts |
+| 2026-03-21 22:06 IST | James | 4d940e7 | docs: add cross-process recovery standing rules from pod 6 incident |
