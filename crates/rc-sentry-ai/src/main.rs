@@ -156,6 +156,26 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             alerts::engine::run(alert_rx, atx).await;
         });
+
+        // Spawn toast notification engine (Windows desktop notifications)
+        let toast_rx = alert_tx.subscribe();
+        tokio::spawn(alerts::toast::run(toast_rx));
+        tracing::info!("toast notification engine started");
+
+        // Spawn unknown person alert engine
+        let unknown_rx = unknown_tx.subscribe();
+        tokio::spawn(alerts::unknown::run(
+            unknown_rx,
+            alert_tx.clone(),
+            config.alerts.face_crop_dir.clone(),
+            config.alerts.face_crop_quality,
+            config.alerts.unknown_rate_limit_secs,
+        ));
+        tracing::info!(
+            crop_dir = %config.alerts.face_crop_dir,
+            rate_limit_secs = config.alerts.unknown_rate_limit_secs,
+            "unknown person alert engine started"
+        );
     }
 
     // Spawn attendance engine (if enabled)
