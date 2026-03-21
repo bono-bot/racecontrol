@@ -42,7 +42,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 102-01-PLAN.md — ProcessGuardConfig structs in racecontrol/src/config.rs (AllowedProcess, ProcessGuardOverride, ProcessGuardConfig) + racecontrol.toml populated with 185 global entries and 3 per-machine override sections
-- [ ] 102-02-PLAN.md — racecontrol/src/process_guard.rs with merge_for_machine() logic and GET /api/v1/guard/whitelist/{machine_id} endpoint; wired into lib.rs and api/routes.rs
+- [x] 102-02-PLAN.md — racecontrol/src/process_guard.rs with merge_for_machine() logic and GET /api/v1/guard/whitelist/{machine_id} endpoint; wired into lib.rs and api/routes.rs
 
 ### Phase 103: Pod Guard Module
 **Goal**: All 8 pods run a background process guard that scans every 60 seconds, kills confirmed violations after two consecutive scan cycles, removes non-whitelisted Run keys and Startup shortcuts, and streams every violation to the server via WebSocket
@@ -54,7 +54,11 @@ Plans:
   3. A non-whitelisted HKCU Run key added to a pod is removed within 5 minutes and logged; a backup file is written before removal
   4. Pod binary guard detects `racecontrol.exe` running on a pod and emits a CRITICAL severity violation with zero grace period
   5. Process audit log rotates at 512KB without data loss and without crashing rc-agent
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 103-01-PLAN.md — ProcessGuardConfig in config.rs + walkdir dep + guard_whitelist/guard_violation_tx/rx fields in AppState and main.rs
+- [ ] 103-02-PLAN.md — core process_guard.rs module: scan loop, grace period, taskkill, PID identity, CRITICAL zero-grace, log rotation, AgentMessage::ProcessViolation dispatch
+- [ ] 103-03-PLAN.md — autostart audit (Run keys + Startup folder) added to process_guard.rs + whitelist fetch on WS connect in main.rs + guard_violation_rx drain in event_loop.rs + UpdateProcessWhitelist handler in ws_handler.rs
 
 ### Phase 104: Server Guard Module + Alerts
 **Goal**: The racecontrol server receives all pod violations, displays an active-violation badge on the staff kiosk, escalates repeat offenders to email, and surfaces violation counts in the fleet health endpoint
@@ -85,8 +89,8 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 101. Protocol Foundation | 1/1 | Complete | 2026-03-21 |
-| 102. Whitelist Schema + Config + Fetch Endpoint | 1/2 | In progress | - |
-| 103. Pod Guard Module | 0/TBD | Not started | - |
+| 102. Whitelist Schema + Config + Fetch Endpoint | 2/2 | Complete | 2026-03-21 |
+| 103. Pod Guard Module | 0/3 | Not started | - |
 | 104. Server Guard Module + Alerts | 0/TBD | Not started | - |
 | 105. Port Audit + Scheduled Tasks + James Binary | 0/TBD | Not started | - |
 
