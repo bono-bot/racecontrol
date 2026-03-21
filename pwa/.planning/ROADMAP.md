@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: Cloud Infrastructure** - DNS, Caddy reverse proxy, Docker Compose, firewall, and swap on VPS
 - [ ] **Phase 2: API + PWA Cloud Deploy** - Customer PWA and cloud API live at racingpoint.cloud with HTTPS
-- [ ] **Phase 3: Sync Hardening** - Reservations table, wallet authority, anti-loop tags, sync health endpoint
+- [x] **Phase 3: Sync Hardening** - Reservations table, wallet authority, anti-loop tags, sync health endpoint
 - [ ] **Phase 4: Remote Booking + PIN Generation** - Customer books from phone, receives 6-char PIN via WhatsApp
 - [ ] **Phase 5: Kiosk PIN Launch** - Customer enters PIN at venue kiosk, pod assigned, game auto-launches
 - [ ] **Phase 6: Admin Panel Cloud Deploy** - Business admin panel live at admin.racingpoint.cloud
@@ -69,9 +69,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Schema foundation: reservations + debit_intents tables, origin_id config, SCHEMA_VERSION bump
-- [ ] 03-02-PLAN.md — Sync integration: sync_changes/sync_push handlers, origin filter, debit intent processing
-- [ ] 03-03-PLAN.md — Sync health enhancement: lag_seconds, health status tiers, per-table staleness
+- [x] 03-01-PLAN.md — Schema foundation: reservations + debit_intents tables, origin_id config, SCHEMA_VERSION bump
+- [x] 03-02-PLAN.md — Sync integration: sync_changes/sync_push handlers, origin filter, debit intent processing
+- [x] 03-03-PLAN.md — Sync health enhancement: lag_seconds, health status tiers, per-table staleness
 
 ### Phase 4: Remote Booking + PIN Generation
 **Goal**: Customer can book an experience from their phone at home and receive a PIN for venue redemption

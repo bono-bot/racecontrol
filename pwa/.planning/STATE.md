@@ -43,7 +43,7 @@ Progress: [██████████] 100%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 03-sync-hardening | 2 | 6 min | 3 min |
+| 03-sync-hardening | 3 | 10 min | 3 min |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -63,6 +63,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Phases 8+9 can run anytime after Phase 1 (infrastructure-only dependencies)
 - [03-01]: Placed new table migrations at end of run_migrations() before final Ok(())
 - [03-01]: origin_id defaults to "local" via serde default function
+- [03-02]: Origin filter placed before all upsert blocks in sync_push for early rejection
+- [03-02]: Debit intents processed after sync pull, before push, so results push back same cycle
+- [03-02]: Wallet debit uses debit_session txn_type with reservation_id as reference
 - [03-03]: Status field changed from static "ok" to computed health_status (healthy/degraded/critical/unknown)
 - [03-03]: Lag thresholds: healthy <= 60s, degraded <= 300s, critical > 300s, unknown when no sync data
 
@@ -78,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T12:17:06Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-03-21T12:18:00Z
+Stopped at: Completed 03-02-PLAN.md (Phase 03 fully complete)
 Resume file: None
