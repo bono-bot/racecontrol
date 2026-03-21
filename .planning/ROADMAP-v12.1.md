@@ -57,7 +57,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [x] 103-01-PLAN.md — ProcessGuardConfig in config.rs + walkdir dep + guard_whitelist/guard_violation_tx/rx fields in AppState and main.rs
-- [ ] 103-02-PLAN.md — core process_guard.rs module: scan loop, grace period, taskkill, PID identity, CRITICAL zero-grace, log rotation, AgentMessage::ProcessViolation dispatch
+- [x] 103-02-PLAN.md — core process_guard.rs module: scan loop, grace period, taskkill, PID identity, CRITICAL zero-grace, log rotation, AgentMessage::ProcessViolation dispatch
 - [ ] 103-03-PLAN.md — autostart audit (Run keys + Startup folder) added to process_guard.rs + whitelist fetch on WS connect in main.rs + guard_violation_rx drain in event_loop.rs + UpdateProcessWhitelist handler in ws_handler.rs
 
 ### Phase 104: Server Guard Module + Alerts

@@ -17,11 +17,11 @@
 
 ### Process Enforcement
 
-- [ ] **PROC-01**: Continuous process scan (configurable interval, default 60s) comparing running processes against whitelist
-- [ ] **PROC-02**: Auto-kill non-whitelisted processes with self-exclusion safety (never kill guard, rc-agent, racecontrol)
-- [ ] **PROC-03**: PID identity verification (name + creation time) before kill to prevent PID reuse race
-- [ ] **PROC-04**: Pod binary guard — detect rc-agent/racecontrol running on wrong machine (standing rule #2), CRITICAL severity with zero grace period
-- [ ] **PROC-05**: Severity tiers per violation: KILL (immediate), ESCALATE (warn staff, auto-kill after TTL), MONITOR (log only)
+- [x] **PROC-01**: Continuous process scan (configurable interval, default 60s) comparing running processes against whitelist
+- [x] **PROC-02**: Auto-kill non-whitelisted processes with self-exclusion safety (never kill guard, rc-agent, racecontrol)
+- [x] **PROC-03**: PID identity verification (name + creation time) before kill to prevent PID reuse race
+- [x] **PROC-04**: Pod binary guard — detect rc-agent/racecontrol running on wrong machine (standing rule #2), CRITICAL severity with zero grace period
+- [x] **PROC-05**: Severity tiers per violation: KILL (immediate), ESCALATE (warn staff, auto-kill after TTL), MONITOR (log only)
 
 ### Auto-Start Enforcement
 
@@ -37,10 +37,10 @@
 
 ### Reporting & Alerting
 
-- [ ] **ALERT-01**: Violation report via WebSocket to racecontrol on every kill/escalation
+- [x] **ALERT-01**: Violation report via WebSocket to racecontrol on every kill/escalation
 - [ ] **ALERT-02**: Staff kiosk notification badge for active violations
 - [ ] **ALERT-03**: Email escalation on repeat offenders (N kills in time window)
-- [ ] **ALERT-04**: Append-only audit log per machine (`process-guard.log`, 512KB rotation)
+- [x] **ALERT-04**: Append-only audit log per machine (`process-guard.log`, 512KB rotation)
 - [ ] **ALERT-05**: Fleet-wide violation summary in `GET /api/v1/fleet/health` (violation_count_24h, last_violation_at)
 
 ### Deployment
@@ -78,21 +78,21 @@ Deferred to future release.
 | GUARD-04 | Phase 101 | Complete |
 | GUARD-05 | Phase 101 | Complete |
 | GUARD-06 | Phase 102 | Pending |
-| PROC-01 | Phase 103 | Pending |
-| PROC-02 | Phase 103 | Pending |
-| PROC-03 | Phase 103 | Pending |
-| PROC-04 | Phase 103 | Pending |
-| PROC-05 | Phase 103 | Pending |
+| PROC-01 | Phase 103 | Complete (103-02) |
+| PROC-02 | Phase 103 | Complete (103-02) |
+| PROC-03 | Phase 103 | Complete (103-02) |
+| PROC-04 | Phase 103 | Complete (103-02) |
+| PROC-05 | Phase 103 | Complete (103-02) |
 | AUTO-01 | Phase 103 | Pending |
 | AUTO-02 | Phase 103 | Pending |
 | AUTO-03 | Phase 105 | Pending |
 | AUTO-04 | Phase 103 | Pending |
 | PORT-01 | Phase 105 | Pending |
 | PORT-02 | Phase 105 | Pending |
-| ALERT-01 | Phase 103 | Pending |
+| ALERT-01 | Phase 103 | Complete (103-02) |
 | ALERT-02 | Phase 104 | Pending |
 | ALERT-03 | Phase 104 | Pending |
-| ALERT-04 | Phase 103 | In progress (103-01) |
+| ALERT-04 | Phase 103 | Complete (103-02) |
 | ALERT-05 | Phase 104 | Pending |
 | DEPLOY-01 | Phase 103 | In progress (103-01) |
 | DEPLOY-02 | Phase 104 | Pending |

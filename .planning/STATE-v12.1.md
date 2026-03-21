@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 103 of 105 (Pod Guard Module) — IN PROGRESS
-Plan: 1 of 3 complete
-Status: Phase 103 Plan 01 complete — ProcessGuardConfig, walkdir dep, AppState guard fields
-Last activity: 2026-03-21 — Phase 103 Plan 01 executed: compile-time foundations for process guard module
+Plan: 2 of 3 complete
+Status: Phase 103 Plan 02 complete — process_guard.rs scanner with spawn_blocking sysinfo, grace period, PID-verified kill, 512KB log rotation
+Last activity: 2026-03-21 — Phase 103 Plan 02 executed: core process scanning daemon
 
-Progress: [████░░░░░░] 44%
+Progress: [█████░░░░░] 55%
 
 ## Performance Metrics
 
@@ -29,7 +29,7 @@ Progress: [████░░░░░░] 44%
 |-------|-------|-------|----------|
 | 101-protocol-foundation | 1 | 35 min | 35 min |
 | 102-whitelist-schema-config-fetch-endpoint | 2 | 55 min | 27 min |
-| 103-pod-guard-module | 1 (of 3) | 18 min | 18 min |
+| 103-pod-guard-module | 2 (of 3) | 36 min | 18 min |
 
 *Updated after each plan completion*
 
@@ -62,6 +62,10 @@ Progress: [████░░░░░░] 44%
 - [103-01]: ProcessGuardConfig reuses existing default_true() fn — no second copy added (plan enforced)
 - [103-01]: guard_violation channel capacity=32 — matches ws_exec_result channel pattern
 - [103-01]: guard_whitelist initialized to MachineWhitelist::default() (report_only, empty lists) — safe no-op until WS fetch
+- [103-02]: sysinfo 0.33 processes() returns &HashMap — must call .iter().filter() (not direct .filter())
+- [103-02]: parent_pid sentinel=0 (sysinfo 0.33 has no parent PID API) — name exclusion is primary self-exclusion guard
+- [103-02]: own_pid excluded inline in scan loop (pid == own_pid continue) not in is_self_excluded helper
+- [103-02]: grace_counts.retain() after each cycle prevents unbounded HashMap growth over long uptime
 
 ### Pending Todos
 
@@ -75,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21 14:18 IST
-Stopped at: 103-01-PLAN.md complete — ProcessGuardConfig, walkdir dep, AppState guard_whitelist + violation channel
+Last session: 2026-03-21 14:43 IST
+Stopped at: 103-02-PLAN.md complete — process_guard.rs scanner module with all helpers and 9 passing tests
 Resume file: None
