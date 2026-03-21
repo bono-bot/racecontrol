@@ -405,6 +405,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 11:55 IST | James | 0156d19 | docs(100-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updates |
 | 2026-03-21 12:30 IST | James | 1161d80 | feat(85-01): LmuAdapter — rF2 shared memory reader for Le Mans Ultimate (Scoring + Telemetry buffers, torn-read guard, sector splits, first-packet safety, session transition, 6 unit tests) |
 | 2026-03-21 12:32 IST | James | 487c6a7 | docs(85-01): 85-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
+| 2026-03-21 14:15 IST | James | e32391f | feat(85-02): wire LmuAdapter into main.rs — import + SimType::LeMansUltimate arm |
+| 2026-03-21 14:16 IST | James | 3fa9de5 | feat(85-02): add LMU PlayableSignal arm in event_loop.rs — replaces 90s fallback with IsOnTrack |
+| 2026-03-21 14:18 IST | James | 5c724a3 | docs(85-02): 85-02-SUMMARY.md + STATE.md + ROADMAP.md — phase 85 complete |
 | 2026-03-21 11:41 IST | James | 4b9e6a8 | feat(100-02): add in_maintenance+maintenance_failures to PodFleetStatus TypeScript type; api.clearMaintenance method (STAFF-01, STAFF-02) |
 | 2026-03-21 11:55 IST | James | af45623 | feat(100-02): fleet page Racing Red Maintenance badge + PIN-gated modal + Clear Maintenance button (STAFF-01, STAFF-02) |
 | 2026-03-21 11:57 IST | James | 58c3a36 | docs(100-02): 100-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — phase 100 complete |
