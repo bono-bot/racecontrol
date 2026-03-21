@@ -53,6 +53,9 @@ use kiosk::KioskManager;
 use lock_screen::{LockScreenEvent, LockScreenManager};
 use overlay::OverlayManager;
 
+const LOG_TARGET: &str = "rc-agent";
+const BUILD_ID: &str = env!("GIT_HASH");
+
 // LaunchState and CrashRecoveryState moved to event_loop.rs (74-04)
 // WS_MAX_CONCURRENT_EXECS, WS_EXEC_SEMAPHORE, and handle_ws_exec moved to ws_handler.rs (74-03)
 
@@ -90,10 +93,10 @@ async fn allowlist_poll_loop(core_http_url: String, client: reqwest::Client) {
             Ok(names) => {
                 let count = names.len();
                 kiosk::set_server_allowlist(names);
-                tracing::info!("[allowlist] Updated: {} entries from server", count);
+                tracing::info!(target: LOG_TARGET, "allowlist updated: {} entries from server", count);
             }
             Err(e) => {
-                tracing::warn!("[allowlist] Fetch failed (will retry in 5 min): {}", e);
+                tracing::warn!(target: LOG_TARGET, "allowlist fetch failed (will retry in 5 min): {}", e);
             }
         }
     }
@@ -288,17 +291,21 @@ async fn main() -> Result<()> {
         .init();
 
     // Enter pod span — all subsequent logs carry pod_id in span context
-    let _pod_span = tracing::info_span!("rc-agent", pod_id = %pod_id_str).entered();
-    tracing::info!("Structured logging initialized for {}", pod_id_str);
+    let _pod_span = tracing::info_span!(
+        "rc-agent",
+        pod_id = %pod_id_str,
+        build_id = BUILD_ID,
+    ).entered();
+    tracing::info!(target: LOG_TARGET, "Structured logging initialized for {}", pod_id_str);
 
     let agent_start_time = std::time::Instant::now();
-    tracing::info!("Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
-    tracing::info!("Core server: {}", config.core.url);
+    tracing::info!(target: LOG_TARGET, "Pod #{}: {} (sim: {})", config.pod.number, config.pod.name, config.pod.sim);
+    tracing::info!(target: LOG_TARGET, "Core server: {}", config.core.url);
 
     // Clean up orphaned game processes from previous rc-agent instance
     let orphans_cleaned = game_process::cleanup_orphaned_games();
     if orphans_cleaned > 0 {
-        tracing::warn!("Cleaned up {} orphaned game processes on startup", orphans_cleaned);
+        tracing::warn!(target: LOG_TARGET, "Cleaned up {} orphaned game processes on startup", orphans_cleaned);
     }
 
     let pod_id = format!("pod_{}", config.pod.number);
@@ -309,14 +316,14 @@ async fn main() -> Result<()> {
         "f1_25" | "f1" => SimType::F125,
         "forza" => SimType::Forza,
         other => {
-            tracing::error!("Unknown sim type: {}", other);
+            tracing::error!(target: LOG_TARGET, "Unknown sim type: {}", other);
             return Ok(());
         }
     };
 
     // Determine installed games from config
     let installed_games = detect_installed_games(&config.games);
-    tracing::info!("Installed games: {:?}", installed_games);
+    tracing::info!(target: LOG_TARGET, "Installed games: {:?}", installed_games);
 
     // Build pod info
     let pod_info = PodInfo {
@@ -343,10 +350,10 @@ async fn main() -> Result<()> {
     // Firewall auto-config — ensure ICMP + TCP 8090 rules exist (FW-01, FW-02, FW-03)
     match firewall::configure() {
         firewall::FirewallResult::Configured => {
-            tracing::info!("Firewall configured");
+            tracing::info!(target: LOG_TARGET, "Firewall configured");
         }
         firewall::FirewallResult::Failed(msg) => {
-            tracing::warn!("Firewall config failed: {} — continuing anyway", msg);
+            tracing::warn!(target: LOG_TARGET, "Firewall config failed: {} — continuing anyway", msg);
         }
     }
     startup_log::write_phase("firewall", "");
@@ -386,9 +393,9 @@ async fn main() -> Result<()> {
         let ffb_cap = ffb.clone();
         tokio::task::spawn_blocking(move || {
             match ffb_cap.set_gain(80) {
-                Ok(true) => tracing::info!("FFB: venue power cap set to 80%"),
-                Ok(false) => tracing::debug!("FFB: no wheelbase found — power cap skipped"),
-                Err(e) => tracing::warn!("FFB: failed to set power cap: {}", e),
+                Ok(true) => tracing::info!(target: LOG_TARGET, "FFB: venue power cap set to 80%"),
+                Ok(false) => tracing::debug!(target: LOG_TARGET, "FFB: no wheelbase found — power cap skipped"),
+                Err(e) => tracing::warn!(target: LOG_TARGET, "FFB: failed to set power cap: {}", e),
             }
         }).await.ok();
     }
@@ -420,7 +427,7 @@ async fn main() -> Result<()> {
             sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new_rally(pod_id.clone()),
         )),
         _ => {
-            tracing::warn!("Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
+            tracing::warn!(target: LOG_TARGET, "Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
             None
         }
     };
@@ -445,9 +452,9 @@ async fn main() -> Result<()> {
     // Try to connect to sim (for telemetry/laps — separate from billing detection)
     if let Some(ref mut adp) = adapter {
         match adp.connect() {
-            Ok(()) => tracing::info!("Connected to {} telemetry", sim_type),
+            Ok(()) => tracing::info!(target: LOG_TARGET, "Connected to {} telemetry", sim_type),
             Err(e) => {
-                tracing::warn!("Could not connect to sim: {}. Will retry...", e);
+                tracing::warn!(target: LOG_TARGET, "Could not connect to sim: {}. Will retry...", e);
             }
         }
     }
@@ -469,9 +476,9 @@ async fn main() -> Result<()> {
     let mut kiosk = KioskManager::new();
     if kiosk_enabled {
         kiosk.activate();
-        tracing::info!("Kiosk mode ENABLED");
+        tracing::info!(target: LOG_TARGET, "Kiosk mode ENABLED");
     } else {
-        tracing::info!("Kiosk mode DISABLED (set kiosk.enabled=true in config to enable)");
+        tracing::info!(target: LOG_TARGET, "Kiosk mode DISABLED (set kiosk.enabled=true in config to enable)");
     }
 
     // Lock screen for customer authentication (PIN / QR)
@@ -490,19 +497,19 @@ async fn main() -> Result<()> {
         lock_screen_rx,
     ).await {
         Ok(Ok(Ok(port))) => {
-            tracing::info!("Lock screen server bound on port {}", port);
+            tracing::info!(target: LOG_TARGET, "Lock screen server bound on port {}", port);
             true
         }
         Ok(Ok(Err(e))) => {
-            tracing::error!("FATAL: Lock screen bind failed: {}", e);
+            tracing::error!(target: LOG_TARGET, "FATAL: Lock screen bind failed: {}", e);
             std::process::exit(1);
         }
         Ok(Err(_)) => {
-            tracing::error!("FATAL: Lock screen bind result channel dropped");
+            tracing::error!(target: LOG_TARGET, "FATAL: Lock screen bind result channel dropped");
             std::process::exit(1);
         }
         Err(_) => {
-            tracing::error!("FATAL: Lock screen bind timed out after 5s");
+            tracing::error!(target: LOG_TARGET, "FATAL: Lock screen bind timed out after 5s");
             std::process::exit(1);
         }
     };
@@ -514,7 +521,7 @@ async fn main() -> Result<()> {
     // Racing HUD overlay for in-session display
     let mut overlay = OverlayManager::new();
     overlay.start_server();
-    tracing::info!("Overlay server started on port 18925");
+    tracing::info!(target: LOG_TARGET, "Overlay server started on port 18925");
 
     // Shared state for last game launch error (visible in debug console)
     let last_launch_error: debug_server::LastLaunchError =
@@ -536,7 +543,7 @@ async fn main() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(8)).await;
             ffb_controller::safe_session_end(&ffb_startup_cleanup).await;
             tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-            tracing::info!("Startup: safe state enforced — pod clean for first customer");
+            tracing::info!(target: LOG_TARGET, "Startup: safe state enforced — pod clean for first customer");
         });
     }
 
@@ -562,11 +569,11 @@ async fn main() -> Result<()> {
             udp_heartbeat::run(hb_ip, hb_pod, hb_status, hb_tx).await;
         });
     }
-    tracing::info!("UDP heartbeat started → {}:{}", core_ip, rc_common::udp_protocol::HEARTBEAT_PORT);
+    tracing::info!(target: LOG_TARGET, "UDP heartbeat started → {}:{}", core_ip, rc_common::udp_protocol::HEARTBEAT_PORT);
 
     // ─── Self-Monitor (CLOSE_WAIT detection + LLM-gated relaunch) ───────────
     self_monitor::spawn(config.ai_debugger.clone(), heartbeat_status.clone());
-    tracing::info!("Self-monitor started (check interval: 5min)");
+    tracing::info!(target: LOG_TARGET, "Self-monitor started (check interval: 5min)");
 
     // ─── Failure Monitor (game freeze, launch timeout, USB reconnect) ────────
     failure_monitor::spawn(
@@ -576,7 +583,7 @@ async fn main() -> Result<()> {
         pod_id.clone(),
         config.pod.number as u32,
     );
-    tracing::info!("Failure monitor started (poll interval: 5s)");
+    tracing::info!(target: LOG_TARGET, "Failure monitor started (poll interval: 5s)");
 
     // ─── Billing Guard (stuck session + idle drift detection) ────────────────
     // Site billing_guard: spawn billing anomaly detection task (shares watch receiver)
@@ -596,7 +603,7 @@ async fn main() -> Result<()> {
         core_http_base,
         config.auto_end_orphan_session_secs,
     );
-    tracing::info!("Billing guard started (orphan_timeout={}s)", config.auto_end_orphan_session_secs);
+    tracing::info!(target: LOG_TARGET, "Billing guard started (orphan_timeout={}s)", config.auto_end_orphan_session_secs);
 
     // ─── Server Allowlist Poll Loop (dynamic kiosk allowlist) ─────────────────
     // Derive HTTP base URL from WebSocket URL: ws://host:port/path → http://host:port
@@ -615,7 +622,7 @@ async fn main() -> Result<()> {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         tokio::spawn(allowlist_poll_loop(core_http_url, http_client));
-        tracing::info!("Allowlist poll loop started (refresh every {}s)", kiosk::ALLOWLIST_REFRESH_SECS);
+        tracing::info!(target: LOG_TARGET, "Allowlist poll loop started (refresh every {}s)", kiosk::ALLOWLIST_REFRESH_SECS);
     }
 
     // SAFETY-02: Wait for remote ops bind result — exit on failure.
@@ -625,19 +632,19 @@ async fn main() -> Result<()> {
         remote_ops_rx,
     ).await {
         Ok(Ok(Ok(port))) => {
-            tracing::info!("Remote ops server bound on port {}", port);
+            tracing::info!(target: LOG_TARGET, "Remote ops server bound on port {}", port);
             true
         }
         Ok(Ok(Err(e))) => {
-            tracing::error!("FATAL: Remote ops bind failed: {}", e);
+            tracing::error!(target: LOG_TARGET, "FATAL: Remote ops bind failed: {}", e);
             std::process::exit(1);
         }
         Ok(Err(_)) => {
-            tracing::error!("FATAL: Remote ops bind result channel dropped");
+            tracing::error!(target: LOG_TARGET, "FATAL: Remote ops bind result channel dropped");
             std::process::exit(1);
         }
         Err(_) => {
-            tracing::error!("FATAL: Remote ops bind timed out after 35s");
+            tracing::error!(target: LOG_TARGET, "FATAL: Remote ops bind timed out after 35s");
             std::process::exit(1);
         }
     };
@@ -657,6 +664,7 @@ async fn main() -> Result<()> {
         .count()
         .min(255) as u8;
     tracing::info!(
+        target: LOG_TARGET,
         "Startup self-test: verdict={:?} failures={}",
         startup_verdict.level,
         startup_probe_failures
@@ -683,21 +691,21 @@ async fn main() -> Result<()> {
             Ok(resp) if resp.status().is_success() => {
                 match resp.json::<rc_common::types::MachineWhitelist>().await {
                     Ok(wl) => {
-                        tracing::info!("Process guard: whitelist fetched ({} processes)", wl.processes.len());
+                        tracing::info!(target: LOG_TARGET, "Process guard: whitelist fetched ({} processes)", wl.processes.len());
                         wl
                     }
                     Err(e) => {
-                        tracing::warn!("Process guard: whitelist parse error: {} — using default (report_only)", e);
+                        tracing::warn!(target: LOG_TARGET, "Process guard: whitelist parse error: {} — using default (report_only)", e);
                         rc_common::types::MachineWhitelist::default()
                     }
                 }
             }
             Ok(resp) => {
-                tracing::warn!("Process guard: whitelist fetch {} — using default (report_only)", resp.status());
+                tracing::warn!(target: LOG_TARGET, "Process guard: whitelist fetch {} — using default (report_only)", resp.status());
                 rc_common::types::MachineWhitelist::default()
             }
             Err(e) => {
-                tracing::warn!("Process guard: whitelist fetch error: {} — using default (report_only)", e);
+                tracing::warn!(target: LOG_TARGET, "Process guard: whitelist fetch error: {} — using default (report_only)", e);
                 rc_common::types::MachineWhitelist::default()
             }
         }
@@ -755,7 +763,7 @@ async fn main() -> Result<()> {
         state.guard_violation_tx.clone(),
         state.pod_id.clone(),
     );
-    tracing::info!("Process guard spawned (interval={}s)", state.config.process_guard.scan_interval_secs);
+    tracing::info!(target: LOG_TARGET, "Process guard spawned (interval={}s)", state.config.process_guard.scan_interval_secs);
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
@@ -787,7 +795,7 @@ async fn main() -> Result<()> {
 
         // Connect to core server — read active_url on each iteration (Phase 68: runtime switching)
         let url = active_url.read().await.clone();
-        tracing::info!("Connecting to RaceControl core at {}...", url);
+        tracing::info!(target: LOG_TARGET, "Connecting to RaceControl core at {}...", url);
         let ws_result = tokio::time::timeout(
             Duration::from_secs(10),
             connect_async(&url),
@@ -801,7 +809,7 @@ async fn main() -> Result<()> {
             }
             Ok(Err(e)) => {
                 let delay = reconnect_delay_for_attempt(reconnect_attempt);
-                tracing::warn!("Failed to connect to core: {}. Attempt {}. Retrying in {:?}...", e, reconnect_attempt, delay);
+                tracing::warn!(target: LOG_TARGET, "Failed to connect to core: {}. Attempt {}. Retrying in {:?}...", e, reconnect_attempt, delay);
                 // SESSION-04: Only show Disconnected after 30s grace window
                 {
                     let disconnected_for = ws_disconnected_at
@@ -810,7 +818,7 @@ async fn main() -> Result<()> {
                     if disconnected_for > Duration::from_secs(30) {
                         state.lock_screen.show_disconnected();
                     } else {
-                        tracing::info!("[ws-grace] Disconnected {}s — within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
+                        tracing::info!(target: LOG_TARGET, "ws-grace: Disconnected {}s — within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
                     }
                 }
                 tokio::time::sleep(delay).await;
@@ -819,7 +827,7 @@ async fn main() -> Result<()> {
             }
             Err(_) => {
                 let delay = reconnect_delay_for_attempt(reconnect_attempt);
-                tracing::warn!("Connection to core timed out. Attempt {}. Retrying in {:?}...", reconnect_attempt, delay);
+                tracing::warn!(target: LOG_TARGET, "Connection to core timed out. Attempt {}. Retrying in {:?}...", reconnect_attempt, delay);
                 // SESSION-04: Only show Disconnected after 30s grace window
                 {
                     let disconnected_for = ws_disconnected_at
@@ -828,7 +836,7 @@ async fn main() -> Result<()> {
                     if disconnected_for > Duration::from_secs(30) {
                         state.lock_screen.show_disconnected();
                     } else {
-                        tracing::info!("[ws-grace] Timed out {}s — within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
+                        tracing::info!(target: LOG_TARGET, "ws-grace: Timed out {}s — within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
                     }
                 }
                 tokio::time::sleep(delay).await;
@@ -851,12 +859,12 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string(&register_msg)?;
         if ws_tx.send(Message::Text(json.into())).await.is_err() {
             let delay = reconnect_delay_for_attempt(reconnect_attempt);
-            tracing::warn!("Failed to register with core. Attempt {}. Reconnecting in {:?}...", reconnect_attempt, delay);
+            tracing::warn!(target: LOG_TARGET, "Failed to register with core. Attempt {}. Reconnecting in {:?}...", reconnect_attempt, delay);
             tokio::time::sleep(delay).await;
             reconnect_attempt += 1;
             continue;
         }
-        tracing::info!("Connected and registered as Pod #{}", state.config.pod.number);
+        tracing::info!(target: LOG_TARGET, "Connected and registered as Pod #{}", state.config.pod.number);
         if !startup_complete_logged {
             startup_log::write_phase("websocket", &format!("connected pod={}", state.config.pod.number));
             startup_log::write_phase("complete", "");
@@ -890,21 +898,21 @@ async fn main() -> Result<()> {
             };
             if let Ok(json) = serde_json::to_string(&startup_report) {
                 if ws_tx.send(Message::Text(json.into())).await.is_ok() {
-                    tracing::info!("Sent startup report to core (crash_recovery={})", state.crash_recovery_startup);
+                    tracing::info!(target: LOG_TARGET, "Sent startup report to core (crash_recovery={})", state.crash_recovery_startup);
                     startup_report_sent = true;
                 } else {
-                    tracing::warn!("Failed to send startup report — will retry next connect");
+                    tracing::warn!(target: LOG_TARGET, "Failed to send startup report — will retry next connect");
                 }
             }
         }
 
         // Send content manifest after registration so core knows what's installed
         let manifest = content_scanner::scan_ac_content();
-        tracing::info!("Scanned AC content: {} cars, {} tracks", manifest.cars.len(), manifest.tracks.len());
+        tracing::info!(target: LOG_TARGET, "Scanned AC content: {} cars, {} tracks", manifest.cars.len(), manifest.tracks.len());
         let manifest_msg = AgentMessage::ContentManifest(manifest);
         if let Ok(json) = serde_json::to_string(&manifest_msg) {
             if ws_tx.send(Message::Text(json.into())).await.is_err() {
-                tracing::warn!("Failed to send content manifest");
+                tracing::warn!(target: LOG_TARGET, "Failed to send content manifest");
             }
         }
 
@@ -923,13 +931,13 @@ async fn main() -> Result<()> {
             &active_url,
             &split_brain_probe,
         ).await {
-            tracing::warn!("Event loop error: {}", e);
+            tracing::warn!(target: LOG_TARGET, "Event loop error: {}", e);
         }
 
 
         // Connection lost — update UDP heartbeat status and show disconnected
         state.heartbeat_status.ws_connected.store(false, std::sync::atomic::Ordering::Relaxed);
-        tracing::warn!("Disconnected from core server");
+        tracing::warn!(target: LOG_TARGET, "Disconnected from core server");
 
         // SESSION-04: Record disconnect time if not already set (grace window starts here)
         if ws_disconnected_at.is_none() {
@@ -938,11 +946,11 @@ async fn main() -> Result<()> {
 
         // If no billing active, enforce safe state on disconnect — kill any orphaned games
         if !state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
-            tracing::info!("No active billing on disconnect — enforcing safe state");
+            tracing::info!(target: LOG_TARGET, "No active billing on disconnect — enforcing safe state");
             state.overlay.deactivate();
             // SAFETY: Safe session-end sequence before game cleanup
             ffb_controller::safe_session_end(&state.ffb).await;
-            tracing::info!("FFB safety sequence complete on disconnect (ws_tx unavailable for FfbZeroed message)");
+            tracing::info!(target: LOG_TARGET, "FFB safety sequence complete on disconnect (ws_tx unavailable for FfbZeroed message)");
             if let Some(ref mut game) = state.game_process {
                 let _ = game.stop();
                 state.game_process = None;
@@ -958,12 +966,12 @@ async fn main() -> Result<()> {
             if disconnected_for > Duration::from_secs(30) {
                 state.lock_screen.show_disconnected();
             } else {
-                tracing::info!("[ws-grace] WS dropped {}s — billing active, within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
+                tracing::info!(target: LOG_TARGET, "ws-grace: WS dropped {}s — billing active, within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
             }
         }
 
         let delay = reconnect_delay_for_attempt(reconnect_attempt);
-        tracing::warn!("Attempt {}. Reconnecting in {:?}...", reconnect_attempt, delay);
+        tracing::warn!(target: LOG_TARGET, "Attempt {}. Reconnecting in {:?}...", reconnect_attempt, delay);
         tokio::time::sleep(delay).await;
         reconnect_attempt += 1;
     } // end reconnection loop
@@ -1019,13 +1027,13 @@ async fn run_hid_monitor(
         let api = match result {
             Ok(Ok(api)) => api,
             Ok(Err(e)) => {
-                tracing::warn!("Failed to initialize HID API: {}", e);
+                tracing::warn!(target: LOG_TARGET, "Failed to initialize HID API: {}", e);
                 let _ = signal_tx.send(DetectorSignal::HidDisconnected).await;
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 continue;
             }
             Err(e) => {
-                tracing::error!("HID task panic: {}", e);
+                tracing::error!(target: LOG_TARGET, "HID task panic: {}", e);
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 continue;
             }
@@ -1036,6 +1044,7 @@ async fn run_hid_monitor(
         match device {
             Ok(dev) => {
                 tracing::info!(
+                    target: LOG_TARGET,
                     "Connected to wheelbase HID device (VID:{:#06x} PID:{:#06x})",
                     vid, pid
                 );
@@ -1068,7 +1077,7 @@ async fn run_hid_monitor(
                             tokio::time::sleep(Duration::from_millis(10)).await;
                         }
                         Err(e) => {
-                            tracing::warn!("HID read error: {}", e);
+                            tracing::warn!(target: LOG_TARGET, "HID read error: {}", e);
                             let _ = signal_tx.send(DetectorSignal::HidDisconnected).await;
                             break;
                         }
@@ -1077,6 +1086,7 @@ async fn run_hid_monitor(
             }
             Err(_) => {
                 tracing::debug!(
+                    target: LOG_TARGET,
                     "Wheelbase HID device not found (VID:{:#06x} PID:{:#06x}), retrying...",
                     vid, pid
                 );
@@ -1110,7 +1120,7 @@ fn bind_udp_reusable(port: u16) -> Option<tokio::net::UdpSocket> {
         let sock_handle = raw.as_raw_socket() as usize;
         let ok = unsafe { SetHandleInformation(sock_handle as *mut _, HANDLE_FLAG_INHERIT, 0) };
         if ok == 0 {
-            tracing::warn!("UDP port {}: SetHandleInformation failed", port);
+            tracing::warn!(target: LOG_TARGET, "UDP port {}: SetHandleInformation failed", port);
         }
     }
 
@@ -1127,11 +1137,12 @@ async fn run_udp_monitor(ports: Vec<u16>, signal_tx: mpsc::Sender<DetectorSignal
         tokio::spawn(async move {
             let sock = match bind_udp_reusable(port) {
                 Some(s) => {
-                    tracing::info!("Listening for game telemetry on UDP port {} (SO_REUSEADDR)", port);
+                    tracing::info!(target: LOG_TARGET, "Listening for game telemetry on UDP port {} (SO_REUSEADDR)", port);
                     s
                 }
                 None => {
                     tracing::warn!(
+                        target: LOG_TARGET,
                         "Could not bind UDP port {} with SO_REUSEADDR (game may already be using it)",
                         port
                     );
@@ -1149,7 +1160,7 @@ async fn run_udp_monitor(ports: Vec<u16>, signal_tx: mpsc::Sender<DetectorSignal
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        tracing::warn!("UDP recv error on port {}: {}", port, e);
+                        tracing::warn!(target: LOG_TARGET, "UDP recv error on port {}: {}", port, e);
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
