@@ -1,5 +1,24 @@
 ---
 gsd_state_version: 1.0
+milestone: v18.0
+milestone_name: Task Delegation Audit Trail
+status: in_progress
+stopped_at: Completed 133-02-PLAN.md
+last_updated: "2026-03-21T22:47:30.000Z"
+progress:
+  total_phases: 96
+  completed_phases: 67
+  total_plans: 168
+  completed_plans: 165
+decisions:
+  - "133-02: AuditLogger instantiated before execHandler/shellRelay (closures capture at construction time)"
+  - "133-02: Executor-side audit fires before sending delegate_result to guarantee log entry survives network failures"
+  - "133-02: Requester-side audit uses chainId_step_i as execId for cross-machine correlation"
+  - "133-02: bonoAuditLogger returned from wireBono() for testability"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
