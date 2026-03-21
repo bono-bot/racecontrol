@@ -36,7 +36,7 @@ rc-sentry is a pure-std no-tokio binary and must stay that way. The "no new crat
 The feature set divides cleanly into a fully-specified MVP and two deferred layers. All MVP features are interdependent — TS-1 is the trigger for everything; nothing else activates without crash detection.
 
 **Must have (v11.2 core — all P1):**
-- TS-1: Health endpoint polling (`localhost:8090/health` every 5s, 2+ consecutive failures = crash) — anti-cheat safe
+- TS-1: Health endpoint polling (`localhost:8090/health` every 5s, N=3 consecutive failures = crash) — anti-cheat safe
 - TS-2: Post-crash log reading (startup_log, stderr capture, rc-bot-events.log from known disk paths)
 - TS-3: Tier 1 deterministic fixes before restart (kill zombie rc-agent, clean stale sockets, repair config, clear shader cache)
 - TS-4: Crash pattern memory — read `debug-memory.json` for instant fix replay (skip Ollama if match with success_count > 0)
@@ -123,7 +123,7 @@ Based on the combined research, the build order is determined by two constraints
 **Rationale:** The fleet reporter in rc-sentry tries to POST to `192.168.31.23:8080/api/v1/sentry/crash`. This endpoint must exist and be deployed before the sentry is tested end-to-end. Deploy server first, smoke-test with curl, then proceed to integration testing.
 **Delivers:** `FleetHealthStore::last_sentry_crash` field. `POST /api/v1/sentry/crash` handler in `fleet_health.rs`. Route registered in `api/routes.rs`. WS broadcast of `DashboardEvent::PodCrashDiagnostic` to staff kiosk. WhatsApp alert via `whatsapp_alerter.rs` when `restart_verified = false`.
 **Uses:** `SentryCrashReport` from rc-common (Phase 1).
-**Avoids:** Pitfall related to fire-and-forget blocking (10s timeout, never blocks restart).
+**Avoids:** Fire-and-forget blocking (10s timeout, never blocks restart).
 
 ### Phase 4: bat File + Stderr Capture
 
@@ -166,7 +166,7 @@ Phases with well-established patterns (skip additional research):
 |------|------------|-------|
 | Stack | HIGH | All dep versions verified against actual `Cargo.toml` files. No new crate lock entries needed — chrono and anyhow already workspace-locked. Implementation patterns verified against existing `ai_debugger.rs` and `self_monitor.rs`. |
 | Features | HIGH | Feature set sourced from direct codebase audit of rc-sentry, rc-agent, ai_debugger.rs, self_monitor.rs, and PROJECT.md. Anti-cheat constraints confirmed from EAC/iRacing official sources. MVP is a direct port of proven patterns. |
-| Architecture | HIGH | Build order derived from compiler dependency graph. All integration points read from actual source files. Anti-patterns confirmed against existing codebase. 5-phase build order matches the ARCHITECTURE.md's recommended sequence. |
+| Architecture | HIGH | Build order derived from compiler dependency graph. All integration points read from actual source files. Anti-patterns confirmed against existing codebase. 5-phase build order matches the ARCHITECTURE.md recommended sequence. |
 | Pitfalls | HIGH | 9 pitfalls documented with specific prevention steps and phase assignments. EAC kernel scan behavior confirmed from Microsoft Learn and iRacing official docs. Race conditions and timing issues sourced from rust-lang/rust GitHub issues. |
 
 **Overall confidence:** HIGH

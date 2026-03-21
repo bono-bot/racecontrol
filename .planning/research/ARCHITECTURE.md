@@ -1,8 +1,8 @@
 # Architecture Research
 
-**Domain:** RC Sentry AI Debugger — crash diagnostics as external watchdog in rc-sentry
+**Domain:** Anti-cheat safe mode integration into existing rc-agent pod software
 **Researched:** 2026-03-21
-**Confidence:** HIGH (based on direct codebase inspection of rc-sentry/src/main.rs, rc-agent/src/ai_debugger.rs, rc-agent/src/startup_log.rs, rc-common/src/protocol.rs, racecontrol/src/fleet_health.rs)
+**Confidence:** HIGH (based on direct codebase inspection + anti-cheat behaviour research)
 
 ---
 
@@ -15,519 +15,562 @@ Understanding the current system is essential before describing what changes.
 ```
 Pod (Windows 11, 192.168.31.x)
   rc-agent.exe         port 8090   Axum HTTP + WebSocket client to racecontrol
-  rc-sentry.exe        port 8091   Pure std::net TCP, no tokio, no async
+  rc-sentry.exe        port 8091   Pure std::net TCP, no tokio, 6 endpoints
 ```
 
-**rc-sentry current state (v11.0):**
-- Single-threaded std::net TCP server with per-connection threads
-- 6 endpoints: /ping, /exec, /health, /version, /files, /processes
-- No tokio, no async — explicit design choice for minimal deps and crash isolation
-- 4-slot concurrency cap via AtomicUsize SlotGuard
-- 64KB body truncation, 30s timeouts
-- Reads rc-common::exec::run_cmd_sync for /exec
-- Runs as a Windows service, independent of rc-agent lifecycle
+**rc-agent current state (v11.0 decomposed):**
+- `main.rs` spawns all subsystems and enters the WebSocket reconnect loop
+- `app_state.rs` — all long-lived state that survives WS reconnections
+- `ws_handler.rs` — dispatches `CoreToAgentMessage` from racecontrol
+- `event_loop.rs` — main `tokio::select!` loop, heartbeat, telemetry, game lifecycle
+- `kiosk.rs` — process allowlist enforcement, LLM classifier, kill-path
+- `process_guard.rs` — continuous whitelist scan, autostart audit, kill-path
+- `game_process.rs` — spawn/kill/monitor game child process
+- `sims/` — `SimAdapter` trait + per-game adapters (AC, F1 25, iRacing, LMU, AC EVO)
 
-**rc-agent current state (decomposed in v11.0):**
-- `ai_debugger.rs` — 4-tier debug: deterministic fixes, pattern memory, Ollama, cloud Claude
-- `startup_log.rs` — writes `C:\RacingPoint\rc-agent-startup.log` per boot; detect_crash_recovery() reads it
-- `self_heal.rs` — repairs config, start script, registry key on every boot
-- `failure_monitor.rs` — detects consecutive crash events
-- `debug-memory.json` — persisted DebugMemory struct (pattern key → fix mapping)
+**Game launch flow (existing):**
 
-**The fundamental problem:** ai_debugger.rs lives inside rc-agent. When rc-agent crashes, the debugger dies with it. rc-sentry survives the crash and can read logs, run commands, and restart the agent — making it the correct host for post-crash diagnostics.
+```
+Staff kiosk → POST /api/v1/fleet/launch
+    ↓
+racecontrol → WS CoreToAgentMessage::LaunchGame { sim_type, launch_args }
+    ↓
+ws_handler.rs::handle_ws_message (LaunchGame arm)
+    → game_process::launch()
+    → persist_pid(pid)
+    ↓
+event_loop.rs game_check_interval (every 2s)
+    → game_process.is_running()
+    → adapter.connect() (when not connected)
+    → adapter.read_telemetry() (100ms)
+```
+
+**Shared memory adapters (existing, relevant to anti-cheat):**
+- `sims/iracing.rs` — opens `IRSDKMemMapFileName` via `OpenFileMapping` + `MapViewOfFile`
+- `sims/lmu.rs` — opens `$rFactor2SMMP_Scoring$` and `$rFactor2SMMP_Telemetry$` same way
+- `sims/assetto_corsa.rs` — opens `acpmf_physics`, `acpmf_graphics`, `acpmf_static`
+- `sims/f1_25.rs` — UDP only (port 20777), no shared memory, no anti-cheat risk
+- All adapters use `adapter.connect()` called lazily from event_loop when `!adapter.is_connected()`
+
+**Subsystems with anti-cheat risk (existing):**
+- `kiosk.rs` — uses `sysinfo::System::refresh_processes()` to scan running processes. Can kill any non-whitelisted process. Risky if it scans and kills while an anti-cheat driver is watching.
+- `process_guard.rs` — same process scanning, runs every 60s. More aggressive: kills CRITICAL binaries with zero grace.
+- `overlay.rs` — creates a Win32 overlay window on top of game. Rendered as a separate process window (not DLL injection). Lower risk than SetWindowsHookEx, but EA Javelin may flag unusual window layering.
+- Keyboard hook (`SetWindowsHookEx WH_KEYBOARD_LL`) — system-wide low-level keyboard hook installed by rc-agent. This is the **highest risk** behaviour for kernel-level anti-cheat systems. EAC and Javelin actively monitor `SetWindowsHookEx` calls as a known injection vector.
 
 ---
 
-## System Overview: v11.2 Integration
+## System Overview: v15.0 Safe Mode Integration
 
 ```
-+----------------------------------------------+
-|  Pod (192.168.31.x)                          |
-|                                              |
-|  +------------------------------------------+
-|  |  rc-sentry.exe  (port 8091)               |
-|  |                                            |
-|  |  [existing: TCP accept loop, main thread]  |
-|  |                                            |
-|  |  [NEW: watchdog_thread]                    |
-|  |   spawn at startup via std::thread::spawn  |
-|  |   |                                        |
-|  |   +-> poll GET localhost:8090/health (5s)  |
-|  |   |   using std::net::TcpStream            |
-|  |   |                                        |
-|  |   +-> on crash detected:                   |
-|  |       1. read_crash_logs()                 |
-|  |          - rc-agent-startup.log            |
-|  |          - rc-agent-stderr.log             |
-|  |       2. load_debug_memory()               |
-|  |          - debug-memory.json               |
-|  |       3. Tier 1: run_deterministic_fixes() |
-|  |          - kill_zombie_rcagent()           |
-|  |          - clean_stale_sockets()           |
-|  |          - repair_config()                 |
-|  |          - clear_shader_cache()            |
-|  |       4. Tier 2: instant_fix() from memory |
-|  |       5. Tier 3: query_ollama()            |
-|  |          - POST James .27:11434            |
-|  |       6. restart_rcagent()                 |
-|  |          - run start-rcagent.bat via exec  |
-|  |       7. report_to_server()               |
-|  |          - HTTP POST .23:8080/api/v1/...   |
-|  |          - fire-and-forget (no WS)         |
-|  +------------------------------------------+
-|                                              |
-|  [rc-agent.exe -- may be crashed]            |
-|   port 8090  (polled by watchdog)            |
-+----------------------------------------------+
-         |                        |
-         | HTTP (LAN)             | HTTP POST
-         v                        v
-+----------------+      +----------------------+
-| James .27:11434|      | racecontrol :8080    |
-| Ollama         |      | (new crash endpoint) |
-| qwen3:0.6b     |      | fleet_health.rs      |
-+----------------+      +----------------------+
++----------------------------------------------------------------------+
+| racecontrol (server :8080)                                            |
+|  LaunchGame WS → { sim_type: F125, launch_args }                     |
++----------------------------------------------------------------------+
+                              |  WebSocket
++----------------------------------------------------------------------+
+| rc-agent (pod :8090)                                                  |
+|                                                                       |
+|  ws_handler.rs — LaunchGame dispatch                                  |
+|    existing: conn.current_sim_type = Some(launch_sim)                 |
+|    NEW:      if safe_mode::requires_safe_mode(launch_sim) {           |
+|                  state.safe_mode.enter(launch_sim);                   |
+|              }                                                        |
+|    existing: game_process::launch() [unchanged]                       |
+|                            |                                          |
+|                  AppState mutation                                     |
+|                            |                                          |
+|  +-------------------------v-------------------------------------+    |
+|  |  AppState                                                     |    |
+|  |    existing: sim_type, game_process, adapter, ...             |    |
+|  |    NEW:      safe_mode: SafeModeState                         |    |
+|  |               { active: bool,                                 |    |
+|  |                 game: Option<SimType>,                        |    |
+|  |                 entered_at: Option<Instant> }                 |    |
+|  +---+---------------+------------------+------------------+----+    |
+|      |               |                  |                  |         |
+|  +---v----+  +-------v------+  +--------v---+  +----------v----+     |
+|  |kiosk.rs|  |process_guard |  |game_process|  |sims/ adapters  |    |
+|  |        |  |.rs           |  |.rs         |  |(iracing, lmu)  |    |
+|  |GATED:  |  |GATED:        |  |UNCHANGED   |  |DEFERRED:       |    |
+|  |skip    |  |skip kill_and |  |            |  |connect() after |    |
+|  |kill in |  |report when   |  |            |  |game is live    |    |
+|  |safe    |  |safe_mode     |  |            |  |+ 5s grace      |    |
+|  |mode    |  |active        |  |            |  |                |    |
+|  +--------+  +--------------+  +------------+  +----------------+    |
+|                                                                       |
+|  event_loop.rs — game exit detection                                  |
+|    existing: game_process.is_running() → false → arm exit_grace_timer|
+|    NEW: on exit_grace fire → safe_mode.exit()                         |
+|    belt-and-suspenders: ws_handler BillingStopped → safe_mode.exit() |
++----------------------------------------------------------------------+
 ```
 
 ---
 
 ## Component Responsibilities
 
-| Component | Location | Status | Responsibility |
-|-----------|----------|--------|----------------|
-| `watchdog_thread` | `rc-sentry/src/main.rs` | NEW | Background std::thread. Polls rc-agent health, drives crash detection FSM, sequences fix tiers, restarts agent |
-| `crash_logs.rs` | `rc-sentry/src/crash_logs.rs` | NEW MODULE | Read startup_log, stderr, panic output from known paths. Returns structured CrashContext |
-| `debug_memory.rs` | `rc-sentry/src/debug_memory.rs` | NEW MODULE | Load/save/query `debug-memory.json`. Port of DebugMemory from rc-agent — same file path, compatible JSON |
-| `tier1_fixes.rs` | `rc-sentry/src/tier1_fixes.rs` | NEW MODULE | Deterministic fixes: kill zombie rc-agent, clean stale sockets, repair config, clear shader cache |
-| `ollama.rs` | `rc-sentry/src/ollama.rs` | NEW MODULE | HTTP POST to James .27:11434/api/generate. Blocking std::net call, no tokio |
-| `fleet_reporter.rs` | `rc-sentry/src/fleet_reporter.rs` | NEW MODULE | HTTP POST crash diagnostic report to racecontrol. Blocking call, fire-and-forget |
-| `rc-agent/ai_debugger.rs` | `rc-agent/src/ai_debugger.rs` | UNCHANGED | Game-crash debugging (process alive). Remove agent-crash paths only if they duplicate sentry |
-| `protocol.rs` (rc-common) | `rc-common/src/protocol.rs` | MODIFIED | Add `AgentMessage::SentryCrashReport` variant — sent via HTTP from sentry, not WS |
-| `fleet_health.rs` (racecontrol) | `racecontrol/src/fleet_health.rs` | MODIFIED | New HTTP endpoint + store field for sentry crash reports |
-| `types.rs` (rc-common) | `rc-common/src/types.rs` | MODIFIED | New `SentryCrashReport` type, `CrashDiagResult` enum |
+| Component | Status | Anti-cheat Role |
+|-----------|--------|-----------------|
+| `safe_mode.rs` | **NEW** | SafeModeState struct, `enter()`/`exit()` transitions, `requires_safe_mode(sim)` classification table |
+| `app_state.rs` | MODIFIED | Holds `safe_mode: SafeModeState` — persists across WS reconnections (game stays running during transient disconnect) |
+| `ws_handler.rs` LaunchGame arm | MODIFIED | Calls `safe_mode.enter(sim)` before `game_process::launch()` |
+| `ws_handler.rs` BillingStopped/SessionEnded | MODIFIED | Calls `safe_mode.exit()` as belt-and-suspenders |
+| `event_loop.rs` exit grace path | MODIFIED | Calls `safe_mode.exit()` when `exit_grace_timer` fires |
+| `event_loop.rs` telemetry branch | MODIFIED | Guards `adapter.connect()` — defers shm connect for protected games until 5s after game is live |
+| `kiosk.rs` kill-path | MODIFIED | Checks `state.safe_mode.active` before killing unknown processes |
+| `process_guard.rs` kill-path | MODIFIED | Checks `state.safe_mode.active` before `kill_and_report` |
+| `game_process.rs` | UNCHANGED | Process spawn/kill/monitor is not anti-cheat risky (killing our own child) |
+| `sims/iracing.rs` | reference | `connect()` opens `IRSDKMemMapFileName` — caller in event_loop must gate the call |
+| `sims/lmu.rs` | reference | `connect()` opens rF2 shared memory — same gate |
+| `sims/assetto_corsa.rs` | reference | AC has no kernel anti-cheat — connect immediately, no gate needed |
+| `sims/f1_25.rs` | reference | UDP only, no memory reads — no gate needed |
+| `config.rs` | MODIFIED | Add `[anti_cheat]` TOML section with enable flag and per-pod overrides |
 
 ---
 
 ## Recommended Project Structure
 
-New files in rc-sentry:
+The safe mode feature adds one new module and modifies four existing ones. No new crate is needed.
 
 ```
-crates/rc-sentry/src/
-├── main.rs                    MODIFIED — spawn watchdog_thread at startup
-├── crash_logs.rs              NEW — read startup_log + stderr from known paths
-├── debug_memory.rs            NEW — DebugMemory load/save/query (sentry-side mirror)
-├── tier1_fixes.rs             NEW — deterministic fix functions
-├── ollama.rs                  NEW — blocking HTTP to Ollama (std::net, no tokio)
-└── fleet_reporter.rs          NEW — blocking HTTP POST to racecontrol
+crates/rc-agent/src/
+├── safe_mode.rs          NEW — SafeModeState, enter/exit, requires_safe_mode() table
+├── app_state.rs          MODIFIED — add safe_mode: SafeModeState field
+├── ws_handler.rs         MODIFIED — enter on LaunchGame, exit on BillingStopped/SessionEnded
+├── event_loop.rs         MODIFIED — exit on game death; gate adapter.connect()
+├── kiosk.rs              MODIFIED — gate kill-path on safe_mode.active
+├── process_guard.rs      MODIFIED — gate kill-path on safe_mode.active
+└── config.rs             MODIFIED — add [anti_cheat] config section
 ```
 
-Modified files in rc-common:
+### Structure Rationale
 
-```
-crates/rc-common/src/
-├── types.rs                   + SentryCrashReport struct, CrashDiagResult enum
-└── protocol.rs                + SentryCrashReport type used by racecontrol endpoint
-```
-
-Modified files in racecontrol:
-
-```
-crates/racecontrol/src/
-├── fleet_health.rs            + FleetHealthStore::last_crash_report field
-│                              + POST /api/v1/sentry/crash handler
-└── api/routes.rs              + register new POST /api/v1/sentry/crash route
-```
-
-No new crate. No new binary. No tokio added to rc-sentry.
+- **`safe_mode.rs` as a new module:** Keeps the classification table (which sims need protection) in one auditable place. An exhaustive `match` in `requires_safe_mode()` ensures a compile error when a new `SimType` variant is added without updating this table.
+- **`AppState` as owner:** Safe mode state must survive WebSocket reconnections — the game keeps running through a transient WS drop and must stay in safe mode throughout. Same rationale as all other `AppState` fields.
+- **No new crate:** All logic is boolean flag propagation and a lookup table. No external dependencies are needed.
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: std::thread Watchdog (not tokio)
+### Pattern 1: Safe Mode State Machine
 
-**What:** rc-sentry has no tokio runtime — deliberate. The watchdog is a `std::thread::spawn` loop, sleeping 5s between polls. Health checks use `std::net::TcpStream::connect_timeout` + manual HTTP write/read.
+**What:** `SafeModeState` is a plain struct with three fields — `active: bool`, `game: Option<SimType>`, `entered_at: Option<Instant>`. It is entered on `LaunchGame` for protected sims and exited when the game process dies. All gated subsystems check the `active` flag before performing risky operations.
 
-**When to use:** This is the only option given the constraint "no new crate dependencies" and the existing no-tokio design. Adding tokio to rc-sentry would require a full Cargo.toml change and binary size increase.
+**When to use:** Any subsystem that calls `kill_process` / `kill_and_report` on processes that are not the active game, or that opens a shared memory handle into the game's address space.
 
-**Trade-offs:**
-- Pro: Matches existing rc-sentry threading model perfectly. No runtime coordination.
-- Pro: Watchdog thread failure is isolated — does not affect the TCP accept loop or request handling.
-- Con: Blocking HTTP calls in the watchdog thread are acceptable (it's the only work that thread does). Not a concern here.
+**Trade-offs:** Single bool check adds zero measurable latency. The risk is forgetting to add a check when new risky behaviour is introduced in future phases. Mitigation: document the gating requirement in `safe_mode.rs` module doc.
 
-**Key implementation detail:** Use `AtomicBool WATCHDOG_SHUTDOWN` (same pattern as existing `SHUTDOWN_REQUESTED`) so the main loop can signal the watchdog to exit cleanly on Ctrl+C.
-
+**Example:**
 ```rust
-// In main():
-let _watchdog = std::thread::Builder::new()
-    .name("sentry-watchdog".into())
-    .spawn(|| watchdog_loop())
-    .expect("watchdog thread");
+// safe_mode.rs
+
+pub struct SafeModeState {
+    pub active: bool,
+    pub game: Option<SimType>,
+    pub entered_at: Option<std::time::Instant>,
+}
+
+impl SafeModeState {
+    pub fn new() -> Self {
+        Self { active: false, game: None, entered_at: None }
+    }
+
+    pub fn enter(&mut self, sim: SimType) {
+        if self.active {
+            tracing::warn!(target: "safe-mode", "enter() called while already active — idempotent");
+            self.game = Some(sim);
+            return;
+        }
+        self.active = true;
+        self.game = Some(sim);
+        self.entered_at = Some(std::time::Instant::now());
+        tracing::info!(target: "safe-mode", sim = ?sim, "Anti-cheat safe mode ENTERED");
+    }
+
+    pub fn exit(&mut self) {
+        if !self.active {
+            return; // idempotent
+        }
+        tracing::info!(target: "safe-mode", game = ?self.game,
+            elapsed_secs = ?self.entered_at.map(|t| t.elapsed().as_secs()),
+            "Anti-cheat safe mode EXITED");
+        self.active = false;
+        self.game = None;
+        self.entered_at = None;
+    }
+}
+
+/// Which sims require safe mode?
+/// Exhaustive match — compile error when new SimType added without updating this table.
+pub fn requires_safe_mode(sim: SimType) -> bool {
+    match sim {
+        SimType::F125            => true,  // EA Javelin (kernel) — scans external process memory
+        SimType::IRacing         => true,  // Epic EOS — bans for unauthorized memory access
+        SimType::LeMansUltimate  => true,  // Epic EOS (rF2 engine) — same enforcement
+        SimType::AssettoCorsaEvo => true,  // Unknown AC (Early Access) — default protected
+        SimType::AssettoCorsa    => false, // No kernel AC — hooks and scanning safe
+        SimType::AssettoCorsaRally => false, // No AC confirmed
+        SimType::Forza           => false, // No ban risk confirmed for LAN/offline play
+        SimType::ForzaHorizon5   => false, // Same
+    }
+}
 ```
 
-### Pattern 2: Health Poll FSM (hysteresis before crash declaration)
+### Pattern 2: Guard Suspension via Flag Check
 
-**What:** A simple 3-state FSM — `Healthy`, `Suspect(consecutive_fail_count)`, `Crashed`. Declare crash only after N consecutive poll failures (N=3, giving 15s window). This avoids false positives from brief rc-agent pauses during game launch or shader compilation.
+**What:** Gated subsystems check `state.safe_mode.active` at the top of their kill-path before executing. Scanning continues — only the kill action is suppressed. This preserves observability without risking a ban.
 
-**When to use:** Required. A single missed health check must not trigger diagnostics.
+**When to use:** In `kiosk.rs` before the WARN_BEFORE_ACTION kill path, and in `process_guard.rs` before `kill_and_report`.
 
-**Trade-offs:**
-- 3 failures × 5s = 15s crash declaration latency. Acceptable — self-healing is not real-time.
-- State lives in the watchdog thread local variables (not shared atomic) — no contention.
+**Critical exception:** `process_guard.rs` CRITICAL tier (racecontrol.exe on a pod) must still kill even in safe mode — this protects against standing rule #2 violations regardless of session state.
 
-```
-[Healthy]
-  poll OK -> stay Healthy
-  poll FAIL -> transition to Suspect(1)
-
-[Suspect(n)]
-  poll OK -> transition to Healthy
-  poll FAIL, n < 3 -> Suspect(n+1)
-  poll FAIL, n == 3 -> transition to Crashed -> run_diagnostics()
-
-[Crashed]
-  After restart + verify OK -> transition to Healthy
-  After restart + N retries failed -> escalate (log + report, do not loop forever)
+**Example:**
+```rust
+// In process_guard.rs run_scan_cycle(), before kill_and_report():
+if safe_mode_active {
+    tracing::info!(target: LOG_TARGET,
+        process = %pname,
+        "Safe mode active — logging violation but NOT killing (anti-cheat gate)");
+    // Still send ProcessViolation to server for logging, but with kill=false
+    return;
+}
+// Normal kill path continues below
 ```
 
-### Pattern 3: Crash Log Collection from Known Paths
+### Pattern 3: Deferred Shared Memory Connect
 
-**What:** rc-sentry reads logs from hardcoded paths that rc-agent writes to. No inter-process communication — pure file reads after rc-agent is confirmed dead.
+**What:** `SimAdapter::connect()` for iRacing and LMU is deferred until the game has been confirmed live (game is in `GameState::Running`) AND a 5-second grace period has elapsed. A new `shm_connect_allowed(state, conn)` guard in `event_loop.rs` controls this.
 
-**Known log paths (from codebase inspection):**
-- `C:\RacingPoint\rc-agent-startup.log` — written by `startup_log.rs::write_phase()`
-- `C:\RacingPoint\rc-agent-stderr.log` — if start-rcagent.bat redirects stderr (currently it does not — add `2>> rc-agent-stderr.log` to the bat script as part of this milestone)
-- `C:\RacingPoint\debug-memory.json` — DebugMemory JSON, written by ai_debugger.rs
+**When to use:** Only for `SimType::IRacing` and `SimType::LeMansUltimate`. F1 25 uses UDP only. AC has no anti-cheat concern.
 
-**When to use:** Always read all three before running fixes. Logs are small (startup log: ~20 lines per boot). Reading is fast and cheap.
+**Trade-offs:** 5-second telemetry delay at session start. Acceptable because billing starts from `PlayableSignal` (game confirmed live), not from process spawn. The 5s is conservative — the key risk window is anti-cheat driver initialization which completes within the first 3-5 seconds of the game process.
 
-**Trade-offs:**
-- Requires bat file change to capture stderr. One-time change, captured in self_heal.rs so it self-repairs.
-- startup_log.rs truncates on each new rc-agent startup — sentry must read it while rc-agent is still down.
+**Example:**
+```rust
+// In event_loop.rs telemetry_interval branch:
+let Some(ref mut adapter) = state.adapter else { continue };
+if !adapter.is_connected() {
+    if shm_connect_allowed(&state, &conn) {
+        if adapter.connect().is_ok() {
+            state.overlay.set_max_rpm(adapter.max_rpm());
+        }
+    }
+    continue;
+}
 
-### Pattern 4: Shared debug-memory.json (sentry reads, agent writes)
-
-**What:** `debug-memory.json` is currently written by rc-agent's `ai_debugger.rs::DebugMemory::save()`. rc-sentry gains a read-only port of `DebugMemory` — loads the same file, runs `instant_fix()` to get a cached fix suggestion. Sentry also writes back after successful fixes (updating `success_count` and `last_seen`).
-
-**When to use:** Tier 2 lookup. After Tier 1 deterministic fixes run and before Ollama query.
-
-**Trade-offs:**
-- File-based sharing is safe because rc-agent is crashed (not running) when sentry reads.
-- Sentry and agent never write simultaneously — sentry only writes during the crash window.
-- JSON format is compatible — sentry uses the same `DebugMemory` struct (copy, not shared dep, since rc-sentry avoids rc-common's tokio feature).
-
-**Concrete implementation:** Copy the `DebugMemory`, `DebugIncident` struct definitions into `debug_memory.rs`. Do not import from rc-agent (cross-crate dependency). The structs are ~50 lines of pure serde — acceptable duplication to avoid pulling in rc-agent's tokio dependency chain.
-
-### Pattern 5: Blocking HTTP for Ollama (std::net, no reqwest)
-
-**What:** Ollama query uses raw `std::net::TcpStream` + hand-written HTTP/1.1 POST, same as rc-sentry's existing `handle_exec` plumbing. No reqwest, no tokio.
-
-**When to use:** Only when Tier 1 and Tier 2 fail. Ollama is at James .27:11434 — LAN hop, low latency, but may be unavailable.
-
-**Trade-offs:**
-- 30s timeout on TcpStream covers slow model inference. qwen3:0.6b responds in under 2s typically.
-- If James is unreachable (network partition), the function returns `Err` and sentry proceeds to restart without AI suggestion. Never blocks the restart indefinitely.
-- Prompt: short crash context (last 5 lines of startup_log + stderr). Same structure as rc-agent's `query_ollama()`.
-
-### Pattern 6: Fleet Report via HTTP (not WebSocket)
-
-**What:** After diagnostics, rc-sentry POSTs a crash report directly to racecontrol's HTTP API. rc-sentry has no WebSocket and no rc-agent state — HTTP is the only option.
-
-**Endpoint:** `POST http://192.168.31.23:8080/api/v1/sentry/crash`
-
-**Payload structure (`SentryCrashReport` in rc-common::types):**
+// Separate helper:
+fn shm_connect_allowed(state: &AppState, conn: &ConnectionState) -> bool {
+    if !state.safe_mode.active {
+        return true; // unprotected sim — connect immediately
+    }
+    // Protected sim: require game live and 5s elapsed since game_check confirmed Running
+    // conn.current_sim_type.is_some() && game_process running is already checked by adapter connect path
+    // Use safe_mode.entered_at as proxy — game was launched when safe mode entered
+    state.safe_mode.entered_at
+        .map(|t| t.elapsed().as_secs() >= 5)
+        .unwrap_or(false)
+}
 ```
-pod_id: String
-crash_detected_at: String  (RFC3339)
-last_startup_log_lines: Vec<String>
-stderr_tail: Vec<String>
-tier1_fixes_applied: Vec<String>
-tier1_success: bool
-tier2_instant_fix: Option<String>
-tier3_ollama_suggestion: Option<String>
-restart_attempted: bool
-restart_verified: bool
-sentry_version: String
-```
-
-**Trade-offs:**
-- Fire-and-forget with 10s timeout. If racecontrol is unreachable, log locally and proceed with restart. Never block restart on report delivery.
-- No auth required — LAN-only endpoint, same as all other internal HTTP calls in this codebase.
 
 ---
 
 ## Data Flow
 
-### Normal Operation (rc-agent healthy)
+### Safe Mode Entry Flow (LaunchGame)
 
 ```
-watchdog_loop
-  every 5s: HTTP GET localhost:8090/health
-  response 200 -> reset FSM to Healthy, sleep 5s, repeat
+Server → WS CoreToAgentMessage::LaunchGame { sim_type: F125, launch_args }
+    ↓ ws_handler.rs handle_ws_message
+conn.current_sim_type = Some(F125)          [existing]
+if safe_mode::requires_safe_mode(F125) {    [NEW]
+    state.safe_mode.enter(F125);
+}
+    ↓ (side effects, immediate)
+kiosk:        kill-path suppressed this session
+process_guard: kill_and_report suppressed (except CRITICAL binaries)
+adapter:       connect() gated until 5s post-launch
+    ↓
+game_process::launch() → spawns F1_25.exe   [existing, unchanged]
+    ↓ 5s later (event_loop telemetry interval)
+shm_connect_allowed() returns true
+adapter.connect() → opens UDP bind or shm handle
 ```
 
-### Crash Detection and Response Flow
+### Safe Mode Exit Flow (Game Death)
 
 ```
-watchdog_loop
-  poll FAIL x3 (15s elapsed)
-  -> declare Crashed
-  -> collect_crash_context():
-       read C:\RacingPoint\rc-agent-startup.log   (startup_log.rs output)
-       read C:\RacingPoint\rc-agent-stderr.log    (stderr redirect, new)
-       parse last_phase, panic_line, error_pattern
-  -> load_debug_memory():
-       read C:\RacingPoint\debug-memory.json
-       -> DebugMemory { incidents: [...] }
-  -> Tier 1: run_deterministic_fixes(crash_context):
-       kill_zombie_rcagent()    taskkill /F /IM rc-agent.exe
-       clean_stale_sockets()    netsh int ip reset or TCPView parse
-       repair_config()          re-write rc-agent.toml from embedded template
-       clear_shader_cache()     delete C:\Users\...\shader cache dirs
-       -> Vec<AutoFixResult>
-  -> Tier 2: debug_memory.instant_fix(pattern_key):
-       if known pattern -> apply cached suggestion text
-  -> Tier 3 (only if Tier 1+2 insufficient):
-       query_ollama(crash_context, James .27:11434)
-       -> Option<String> (AI suggestion)
-  -> restart_rcagent():
-       run_cmd_sync("start-rcagent.bat", 30s)
-       wait 10s
-       poll health again to verify restart
-  -> update debug_memory if fix succeeded (write back to debug-memory.json)
-  -> fleet_reporter::post_crash_report(SentryCrashReport):
-       HTTP POST .23:8080/api/v1/sentry/crash
-       10s timeout, fire-and-forget
-  -> if restart_verified: transition FSM to Healthy
-  -> if not verified after 3 attempts: log + report ESCALATION, stop restart loop
+event_loop.rs game_check_interval (every 2s)
+    → game_process.is_running() → false
+    ↓ [existing exit_grace_timer logic]
+exit_grace_timer armed (30s)
+    ↓ on timer fire:
+GameStatusUpdate::Off sent to server            [existing]
+safe_mode.exit()                                [NEW — inserted here]
+    ↓ (side effects, immediate)
+kiosk:        kill-path restored
+process_guard: kill_and_report restored
+adapter:       already disconnected by BillingStopped path
 ```
 
-### Server-Side Report Ingestion
+### Belt-and-Suspenders Exit (BillingStopped / SessionEnded)
 
 ```
-racecontrol receives POST /api/v1/sentry/crash
-  -> deserialize SentryCrashReport
-  -> FleetHealthStore::record_crash_report(pod_id, report)
-     (new field: last_sentry_crash: Option<SentryCrashReport>)
-  -> broadcast DashboardEvent::PodCrashDiagnostic to staff kiosk
-     (existing WS broadcast infrastructure)
-  -> if !restart_verified: WhatsApp alert via whatsapp_alerter.rs
+ws_handler.rs BillingStopped or SessionEnded arm
+    → [existing: stop game, disconnect adapter, ffb zero, lock screen]
+    → safe_mode.exit()   [NEW — added at end of these handlers]
 ```
+
+These run in parallel with the exit_grace path. `exit()` is idempotent — calling it twice is safe.
+
+### State Ownership Summary
+
+```
+AppState.safe_mode: SafeModeState
+    Written (enter) by:   ws_handler.rs LaunchGame arm
+    Written (exit) by:    event_loop.rs exit_grace fire
+                          ws_handler.rs BillingStopped arm
+                          ws_handler.rs SessionEnded arm
+    Read by:              kiosk.rs (before kill-path)
+                          process_guard.rs (before kill_and_report)
+                          event_loop.rs (before adapter.connect())
+```
+
+---
+
+## New vs Modified Components
+
+### New Components
+
+| Component | File | Justification |
+|-----------|------|---------------|
+| `SafeModeState` struct | `safe_mode.rs` | Centralises state transitions and classification. Single source of truth for which sims need protection. |
+| `requires_safe_mode(sim)` fn | `safe_mode.rs` | Exhaustive `match` on `SimType` — compile error prevents silent omissions when new games are added in v13.0. |
+| `[anti_cheat]` TOML section | `config.rs` | Allows per-pod override (Pod 8 canary testing with forced safe mode on AC to verify no regression). Fields: `enabled: bool`, `shm_defer_secs: u64`. |
+
+### Modified Components
+
+| Component | Change | Risk |
+|-----------|--------|------|
+| `app_state.rs` | Add `safe_mode: SafeModeState` field | LOW — additive, no existing code broken |
+| `ws_handler.rs` LaunchGame arm | Insert `safe_mode.enter()` after `conn.current_sim_type` assignment, before `game_process::launch()` | LOW — non-blocking, no ordering issue |
+| `ws_handler.rs` BillingStopped / SessionEnded | Insert `safe_mode.exit()` at end of each handler | LOW — belt-and-suspenders, idempotent |
+| `event_loop.rs` exit_grace fire path | Insert `safe_mode.exit()` alongside existing `GameStatusUpdate::Off` emission | LOW — single line addition at correct lifecycle point |
+| `event_loop.rs` telemetry interval adapter connect | Wrap `adapter.connect()` call with `shm_connect_allowed()` guard | LOW-MEDIUM — must preserve existing AC connect behaviour (AC returns `true` immediately) |
+| `kiosk.rs` kill-path | Check `state.safe_mode.active` before kill in `enforce()` | MEDIUM — must not gate the game process itself (already excluded by existing self-exclusion) |
+| `process_guard.rs` kill-path | Check `state.safe_mode.active` before `kill_and_report` | MEDIUM — CRITICAL binaries must bypass the gate |
 
 ---
 
 ## Integration Points
 
-### New in rc-common/src/types.rs
+### Primary Integration Point: `ws_handler.rs` LaunchGame
 
+This is where detection and safe mode entry happens. The existing code at line ~283 already has:
 ```rust
-pub struct SentryCrashReport {
-    pub pod_id: String,
-    pub crash_detected_at: String,
-    pub last_startup_log_lines: Vec<String>,
-    pub stderr_tail: Vec<String>,
-    pub tier1_fixes_applied: Vec<String>,
-    pub tier1_success: bool,
-    pub tier2_instant_fix: Option<String>,
-    pub tier3_ollama_suggestion: Option<String>,
-    pub restart_attempted: bool,
-    pub restart_verified: bool,
-    pub sentry_version: String,
-}
+conn.current_sim_type = Some(launch_sim);  // existing
+```
 
-pub enum CrashDiagResult {
-    FixedAndRestarted,
-    RestartedWithoutFix,
-    RestartFailed { attempts: u8 },
-    EscalationRequired,
+The new call inserts immediately after this, before any game launch logic:
+```rust
+if safe_mode::requires_safe_mode(launch_sim) {
+    state.safe_mode.enter(launch_sim);
 }
 ```
 
-### New HTTP Endpoint in racecontrol
+This is the single source of entry — nothing else calls `safe_mode.enter()`.
 
-| Endpoint | Method | Auth | Purpose |
-|----------|--------|------|---------|
-| `/api/v1/sentry/crash` | POST | None (LAN-only) | Receive crash diagnostic report from rc-sentry |
+### Secondary Integration Point: `event_loop.rs` exit_grace fire
 
-### Modified racecontrol/src/fleet_health.rs
+The existing exit_grace path already handles:
+1. `emit GameStatusUpdate::Off`
+2. clear `exit_grace_armed`
 
-Add to `FleetHealthStore`:
+Safe mode exit inserts as step 3:
+3. `state.safe_mode.exit()`
+
+The `exit_grace_timer` fires 30 seconds after `is_running()` returns false — this is exactly when the anti-cheat driver has fully cleaned up after the game exit.
+
+### Tertiary Integration Point: `event_loop.rs` telemetry branch, adapter.connect()
+
+The existing pattern:
 ```rust
-pub last_sentry_crash: Option<SentryCrashReport>
-pub last_sentry_crash_at: Option<DateTime<Utc>>
+if !adapter.is_connected() {
+    if adapter.connect().is_ok() { ... }
+    continue;
+}
 ```
 
-Existing `fleet_health_handler` response already serializes the store — the new fields will appear in `GET /api/v1/fleet/health` automatically.
-
-### rc-agent/src/ai_debugger.rs — NO CHANGE
-
-Game-crash debugging remains in rc-agent. The distinction is clean:
-- rc-agent ai_debugger.rs: agent is alive, game crashed (process disappeared)
-- rc-sentry watchdog: agent is crashed (health poll fails)
-
-Do not touch ai_debugger.rs in this milestone. The only coordination point is the shared `debug-memory.json` file, which sentry reads via its own `debug_memory.rs` module.
-
-### rc-agent/src/startup_log.rs — NO CHANGE
-
-startup_log.rs already writes to `C:\RacingPoint\rc-agent-startup.log` per the existing implementation. rc-sentry reads this path directly — no API needed.
-
-### start-rcagent.bat — MINOR CHANGE
-
-Add stderr redirect so rc-sentry can read crash output:
-```bat
-start "" /D C:\RacingPoint rc-agent.exe 2>> C:\RacingPoint\rc-agent-stderr.log
+Becomes:
+```rust
+if !adapter.is_connected() {
+    if shm_connect_allowed(&state, &conn) && adapter.connect().is_ok() { ... }
+    continue;
+}
 ```
 
-self_heal.rs `START_SCRIPT_CONTENT` constant in rc-agent must be updated to match — otherwise self-heal will revert the bat file to the old version without stderr capture.
+For non-protected sims (AC, Forza, F1 25), `shm_connect_allowed` returns `true` immediately — existing behaviour preserved.
+
+### Subsystem Gate Placement: `kiosk.rs`
+
+The kill-path in `kiosk.rs` runs inside `KioskManager::enforce()` when an unknown process exceeds `WARN_BEFORE_ACTION_COUNT`. The gate inserts before the kill call:
+```rust
+if app_state_safe_mode_active {
+    tracing::info!(target: LOG_TARGET, process = %name, "Safe mode: skip kill");
+    return;
+}
+```
+
+Note: `KioskManager` does not currently hold a reference to `AppState` — it operates on passed parameters. The safe mode flag is best passed as a `bool` argument to `enforce()` from `event_loop.rs` where `AppState` is available.
+
+### Subsystem Gate Placement: `process_guard.rs`
+
+`process_guard::spawn()` runs as a detached `tokio::spawn` task. It currently receives only `ProcessGuardConfig`, `whitelist`, `tx`, and `machine_id`. To gate on safe mode, a `Arc<AtomicBool>` shared safe mode indicator should be passed to the spawn function — OR — process_guard can check a new shared atomic that `AppState` exposes, matching the pattern of `heartbeat_status` (which is already an `Arc<HeartbeatStatus>` with atomics).
+
+Recommended: add `safe_mode_active: Arc<AtomicBool>` to the `process_guard::spawn()` signature, sourced from a new `AppState::safe_mode_flag: Arc<AtomicBool>` that is `store(true/false)` in parallel with `SafeModeState`.
 
 ---
 
-## Build Order
+## Anti-cheat System Classification
 
-Dependencies determine the sequence. rc-common compiles first (both binaries import it). racecontrol endpoint must be live before rc-sentry tries to POST reports. rc-sentry watchdog can be tested in isolation before racecontrol receives its reports.
+| Game | Anti-cheat | Kernel Level | Risk to rc-agent | Notes |
+|------|------------|--------------|------------------|-------|
+| F1 25 | **EA Javelin** (not EAC — confirmed) | YES | CRITICAL | Javelin scans external process memory access, monitors SetWindowsHookEx as injection vector. UDP telemetry (port 20777) is explicitly the official telemetry channel — safe to use. |
+| iRacing | **Epic EOS** (migrated from EAC in May 2024) | YES | HIGH | iRacing SDK shared memory (`IRSDKMemMapFileName`) is the official telemetry API — used by iOverlay, RaceLab, Crew Chief without bans. Risk is in timing: opening handle during EOS driver init. Defer connect by 5s. |
+| LMU | **Epic EOS** (rF2/LMU common engine) | YES | HIGH | rF2SharedMemoryMapPlugin is official. Same connect-timing caution as iRacing. |
+| AC EVO | **Unknown** (Early Access, Kunos/505 Games) | UNKNOWN | HIGH by default | Treat as protected until Pod 8 canary confirms safe. May use EAC, Javelin, or Kunos custom. |
+| Assetto Corsa (classic) | **None** | NO | SAFE | No kernel anti-cheat. SetWindowsHookEx, process scanning, and shared memory all safe. |
+| AC Rally | **None confirmed** | NO | SAFE | Small Kunos EA title, no AC reported. |
+| Forza Motorsport | Unknown | UNCLEAR | LOW | Xbox/Microsoft title — bans require online play. LAN/offline sessions unlikely to trigger detection. |
+| Forza Horizon 5 | Unknown | UNCLEAR | LOW | Same reasoning as Forza Motorsport. |
 
-### Phase 1: Types Foundation (rc-common)
+**Key finding on F1 25:** EA Javelin is NOT Easy Anti-Cheat (EAC). The PROJECT.md currently says "EAC" — this is incorrect. Javelin is EA's own kernel-level anti-cheat. The risk profile is similar to EAC but the detection triggers differ. Javelin is known to block: external process memory reads, unsigned DLL injection, SetWindowsHookEx system-wide hooks. UDP telemetry on port 20777 is not flagged — it is the official developer-provided channel.
 
-Add to `rc-common/src/types.rs`:
-- `SentryCrashReport` struct
-- `CrashDiagResult` enum
-
-**Reason first:** Both racecontrol (for the HTTP endpoint) and rc-sentry (for the fleet reporter) need these types. rc-sentry currently does not depend on rc-common for any types — adding this dependency is acceptable and consistent with the existing `run_cmd_sync` usage.
-
-Verify: `cargo test -p rc-common` passes.
-
-### Phase 2: Sentry Watchdog Core (rc-sentry)
-
-Create in order within `crates/rc-sentry/src/`:
-
-1. `crash_logs.rs` — `collect_crash_context()`, pure file reads, fully testable with temp files
-2. `debug_memory.rs` — DebugMemory load/save/query, testable with temp dir
-3. `tier1_fixes.rs` — fix functions with `#[cfg(test)]` guards (same discipline as ai_debugger.rs)
-4. `ollama.rs` — blocking HTTP POST to Ollama, 30s timeout, graceful fail on unreachable
-5. `fleet_reporter.rs` — blocking HTTP POST, 10s timeout, fire-and-forget
-
-Then modify `main.rs`:
-- Add `WatchdogState` enum (Healthy, Suspect(u8), Crashed)
-- Add `watchdog_loop()` function
-- Spawn watchdog thread in `main()` before TCP accept loop
-- Add `WATCHDOG_SHUTDOWN` AtomicBool, signal it in `ctrl_handler`
-
-**Reason second:** All new sentry modules are self-contained. `crash_logs.rs` and `debug_memory.rs` can be tested without a running rc-agent. `tier1_fixes.rs` uses `#[cfg(test)]` guards so tests never fire real taskkill. Build and run `cargo test -p rc-sentry` before deploying.
-
-### Phase 3: Server Endpoint (racecontrol)
-
-1. Modify `fleet_health.rs` — add `last_sentry_crash` fields to `FleetHealthStore`
-2. Create handler for `POST /api/v1/sentry/crash` (inline in `fleet_health.rs` or separate handler file)
-3. Register route in `api/routes.rs`
-4. Add WS broadcast of `DashboardEvent::PodCrashDiagnostic` (new variant or reuse existing event type)
-5. Add escalation path to `whatsapp_alerter.rs` for `restart_verified = false`
-
-Build and deploy to server .23. Verify endpoint with:
-```
-curl -X POST http://192.168.31.23:8080/api/v1/sentry/crash \
-  -H "Content-Type: application/json" \
-  -d '{"pod_id":"pod1","crash_detected_at":"...","tier1_fixes_applied":[],...}'
-```
-
-**Reason third:** racecontrol must be live before rc-sentry tries to POST reports. Deploy server first, test endpoint independently.
-
-### Phase 4: rc-agent bat file change
-
-Update `self_heal.rs` `START_SCRIPT_CONTENT` to add `2>> C:\RacingPoint\rc-agent-stderr.log`.
-Build rc-agent, deploy to Pod 8, verify stderr log file appears at `C:\RacingPoint\rc-agent-stderr.log`.
-
-**Reason fourth:** This is a simple one-line change with low risk. Deploy after the sentry watchdog is ready so the first crash test can read the stderr log immediately.
-
-### Phase 5: Integration Test on Pod 8 (canary)
-
-Deploy updated rc-sentry to Pod 8. Simulate crash:
-```
-# Via sentry /exec:
-taskkill /F /IM rc-agent.exe
-```
-Observe:
-- Watchdog declares crash within 15s
-- Crash logs read from `C:\RacingPoint\`
-- Tier 1 fixes run (check sentry stdout/tracing)
-- Restart-rcagent.bat invoked
-- Health poll confirms rc-agent back up
-- `GET http://192.168.31.23:8080/api/v1/fleet/health` shows `last_sentry_crash` populated
-
-Then roll to remaining 7 pods.
+**Key finding on iRacing:** iRacing migrated from EAC to Epic EOS in May 2024. The SDK shared memory interface is officially supported and commercially used by dozens of overlay tools without bans. The risk is not the API itself but the timing of opening the handle.
 
 ---
 
-## Anti-Patterns
+## Shared Memory + Anti-cheat Interaction (Detailed)
 
-### Anti-Pattern 1: Adding tokio to rc-sentry for async watchdog
+### iRacing
 
-**What people do:** Import tokio and spawn an `async fn watchdog_loop()` to use `tokio::time::interval` and `reqwest`.
+`IracingAdapter::connect()` opens `IRSDKMemMapFileName` using `OpenFileMapping(FILE_MAP_READ, FALSE, "Local\\IRSDKMemMapFileName")`. This is the official iRacing SDK pattern. Commercial tools (iOverlay, RaceLab, Crew Chief) do this continuously without bans.
 
-**Why it's wrong:** rc-sentry deliberately avoids tokio. Adding it increases binary size, adds a dep not in the existing Cargo.toml, and violates the constraint "no new crate dependencies." The existing std::thread + AtomicBool pattern handles shutdown cleanly.
+**Risk window:** The 5-10 seconds immediately after `iRacingSim64DX11.exe` spawns, while EOS is initializing and scanning the process environment. Opening a new shared memory handle during this window may appear suspicious in combination with other rc-agent behaviors (process scanning, keyboard hook).
 
-**Do this instead:** `std::thread::spawn` + `std::net::TcpStream` for health polls and Ollama calls. Same blocking model already used in every handler in rc-sentry.
+**Mitigation:** Defer `IracingAdapter::connect()` until `shm_connect_allowed()` returns true (5s after safe mode entered). By that point, EOS initialization is complete and the handle open looks like a normal telemetry reader.
 
-### Anti-Pattern 2: Sharing rc-agent's DebugMemory via rc-common
+**Additional safety:** `IracingAdapter::disconnect()` closes the `MapViewOfFile` and `CloseHandle` handles. Verify this runs on game exit (it is called via `BillingStopped` handler: `if let Some(ref mut adp) = state.adapter { adp.disconnect(); }`). Confirmed via `ws_handler.rs` lines 239, 273.
 
-**What people do:** Move `DebugMemory` from `rc-agent/src/ai_debugger.rs` into `rc-common/src/types.rs` so rc-sentry can import it.
+### LMU / rFactor 2
 
-**Why it's wrong:** `ai_debugger.rs` imports `tokio::sync::mpsc` and `crate::ffb_controller::FfbController`. Moving DebugMemory to rc-common would pull these into rc-common's public surface. rc-sentry does not use tokio. The structs are 50 lines of pure serde — copy them.
+`LmuAdapter` opens `$rFactor2SMMP_Scoring$` and `$rFactor2SMMP_Telemetry$`. These are exposed by the rF2SharedMemoryMapPlugin — a DLL that must be installed in the game's `Plugins/` folder. rc-agent does not install this DLL; that is an ops setup step per pod.
 
-**Do this instead:** Define a minimal `DebugMemory` + `DebugIncident` in `rc-sentry/src/debug_memory.rs` — same JSON shape, compatible with the existing file on disk. rc-sentry reads and writes; rc-agent reads and writes. File locking is not needed (they never run concurrently during the crash window).
+**Risk:** Same timing window as iRacing. Same 5-second defer mitigation applies.
 
-### Anti-Pattern 3: Blocking the restart on Ollama response
+**Note:** If the rF2 plugin is not installed, `OpenFileMapping` returns `NULL` and `LmuAdapter::connect()` returns an error. The adapter retries every 100ms via the existing `!adapter.is_connected()` path. This is benign.
 
-**What people do:** `query_ollama()` with no timeout, waiting for model inference before restarting rc-agent.
+### AC EVO
 
-**Why it's wrong:** qwen3:0.6b on James is shared. If James is under load or unreachable, the pod stays down indefinitely. The customer session is interrupted for the duration of the AI query.
+AC EVO shares memory via the `acpmf_*` named maps (same as classic AC). Whether Kunos has added kernel-level anti-cheat to the Early Access title is unconfirmed as of 2026-03-21. Treating it as protected (safe mode active, deferred connect) is the conservative default. The Pod 8 canary validation phase will confirm the actual risk level before any `requires_safe_mode(AssettoCorsaEvo)` change.
 
-**Do this instead:** Hard 30s timeout on the TcpStream. If Ollama does not respond within 30s, proceed to restart with the best available fix from Tiers 1+2. Record the Ollama attempt as `None` in the crash report. The restart never waits on inference.
+---
 
-### Anti-Pattern 4: Restarting rc-agent in a tight loop on repeated crashes
+## Build Order (Phase Dependencies)
 
-**What people do:** After each failed restart (health still failing), immediately retry with a short sleep.
+| Phase | Work | Depends On | Notes |
+|-------|------|------------|-------|
+| 1 | `safe_mode.rs` — `SafeModeState` struct + `requires_safe_mode()` table | Nothing | Standalone new module. Write tests for exhaustive SimType coverage. |
+| 2 | `app_state.rs` — add `safe_mode: SafeModeState` + `safe_mode_flag: Arc<AtomicBool>` | Phase 1 | Additive field. `safe_mode_flag` is the shared atomic for process_guard. |
+| 3 | `process_guard.rs` — accept `safe_mode_flag: Arc<AtomicBool>`, gate kill-path | Phase 2 | CRITICAL tier bypasses gate. |
+| 4 | `kiosk.rs` — accept `safe_mode_active: bool` parameter in `enforce()`, gate kill-path | Phase 2 | Passed from event_loop which has AppState access. |
+| 5 | `ws_handler.rs` — `safe_mode.enter()` in LaunchGame; `safe_mode.exit()` in BillingStopped/SessionEnded | Phase 2 | Primary entry/exit wiring. |
+| 6 | `event_loop.rs` — `safe_mode.exit()` on exit_grace fire; `shm_connect_allowed()` guard | Phase 5 | Exit path wiring + adapter connect gate. |
+| 7 | `config.rs` — add `[anti_cheat]` section | Phase 1 | Simple config extension. |
+| 8 | Keyboard hook replacement — policy-based lockdown for protected games | After Phase 5-6 | Independent from 1-6 but safe_mode state available for per-game dispatch. Requires design work separate from the flag-gating above. |
+| 9 | Code signing — procure cert, sign `rc-agent.exe` and `rc-sentry.exe` | Independent | Procurement + build pipeline task. Highest impact mitigation (unsigned binaries are flagged by most anti-cheat). Can run in parallel with Phases 1-8. |
+| 10 | Pod 8 canary validation — per-game test sessions, anti-cheat matrix documentation | All phases complete | Pod 8 canary-first per standing policy. |
 
-**Why it's wrong:** If rc-agent crashes on startup due to a config error or missing binary, a tight loop hammers the disk and CPU, potentially making recovery harder. It also masks the real problem from staff.
+Phases 1-7 form the safe mode mechanism and should ship as one milestone phase. Phase 8 (keyboard hook replacement) is a separate phase requiring its own research (what policy-based alternative to use). Phase 9 (code signing) is a procurement task that should start immediately — certificate issuance takes 1-7 days.
 
-**Do this instead:** Max 3 restart attempts with 10s, 30s, 60s backoff (matching the `EscalatingBackoff` already in rc-common). After 3 failures, log `ESCALATION` and POST a report to racecontrol with `restart_verified: false`. Stop attempting. Staff sees the alert and intervenes. rc-sentry continues serving its 6 HTTP endpoints — it is not compromised by the failed restarts.
+---
 
-### Anti-Pattern 5: Reading rc-agent logs while rc-agent might still be running
+## Anti-patterns to Avoid
 
-**What people do:** Read `rc-agent-startup.log` and `debug-memory.json` immediately on first poll failure, before crash is confirmed.
+### Anti-Pattern 1: Disabling All rc-agent Behaviour During Safe Mode
 
-**Why it's wrong:** rc-agent writes to both files during its normal startup phase. Reading mid-write produces partial data and false crash patterns.
+**What people do:** Treat safe mode as "minimal mode" — disable billing, lock screen, overlay, and WS heartbeat to "be safe."
 
-**Do this instead:** Only read logs after the FSM transitions to `Crashed` (3 consecutive poll failures). At that point, rc-agent has been unresponsive for 15s — either crashed or wedged. File reads are safe.
+**Why it's wrong:** Billing, lock screen, overlay (separate window, not DLL injection), and WebSocket heartbeats are not anti-cheat risks. They do not inspect game memory, inject DLLs, or install system-wide hooks. Disabling them breaks the core business logic while providing no protection benefit.
+
+**Do this instead:** Gate only the two specific risky paths: (a) process kill in `kiosk.rs` and `process_guard.rs`, and (b) shared memory connect timing for iRacing and LMU. Everything else runs normally.
+
+### Anti-Pattern 2: Permanent Removal of Keyboard Hook
+
+**What people do:** Remove `SetWindowsHookEx WH_KEYBOARD_LL` entirely to eliminate the anti-cheat risk.
+
+**Why it's wrong:** The hook provides kiosk lockdown for ALL games — it prevents customers from pressing Win key, Alt+F4, Alt+Tab, etc. during sessions. Removing it entirely weakens kiosk security for unprotected games (AC, Forza) where it is safe to use.
+
+**Do this instead:** Suspend the hook when safe mode is active (protected game is running), restore it on safe mode exit. For protected games, use policy-based lockdown: Edge kiosk flags (`--kiosk`, `--kiosk-printing`), `SetForegroundWindow` enforcement loop, and Windows Group Policy to disable Win key — none of which use `SetWindowsHookEx`.
+
+### Anti-Pattern 3: Re-entrant Safe Mode Without Idempotency
+
+**What people do:** Call `safe_mode.enter()` in LaunchGame without checking if already active. If a second LaunchGame fires (crash recovery relaunch), safe mode enters twice but only exits once, leaving the pod permanently in safe mode after the session ends.
+
+**Do this instead:** Make `enter()` and `exit()` idempotent. `enter()` when already active updates the game field but does not double-arm. `exit()` when already inactive is a no-op. See the `enter()` implementation in Pattern 1 above.
+
+### Anti-Pattern 4: Racing Shared Memory Handles Against Anti-cheat Init
+
+**What people do:** Call `adapter.connect()` immediately when the game process appears in `game_check_interval` (i.e., when `game_process.is_running()` first returns true).
+
+**Why it's wrong:** The game process appearing does not mean EOS/Javelin has finished its own initialization scan. Opening a new file mapping handle during the first 3-5 seconds of game launch is the highest-risk window.
+
+**Do this instead:** The 5-second defer in `shm_connect_allowed()`. For iRacing specifically, the adapter already has a natural delay — `IsOnTrack` must be true before meaningful telemetry exists, which takes 15-30 seconds from launch. The 5-second gate is conservative and still well within the natural connect window.
+
+### Anti-Pattern 5: Holding Shared Memory Handles After Game Exit
+
+**What people do:** Leave `IracingAdapter` or `LmuAdapter` in connected state after the billing session ends, relying on the next session's `disconnect()` call to clean up.
+
+**Why it's wrong:** Some anti-cheat systems perform a cleanup scan after the game exits. An open `MapViewOfFile` handle into their memory region during that scan can trigger false positives in future sessions.
+
+**Do this instead:** Confirm that `BillingStopped` and `SessionEnded` handlers call `adp.disconnect()` promptly (they do — lines 239, 273 in `ws_handler.rs`). Verify that `IracingAdapter::disconnect()` and `LmuAdapter::disconnect()` call both `UnmapViewOfFile` and `CloseHandle`. Add a test assertion.
 
 ---
 
 ## Scaling Considerations
 
-Fixed 8-pod fleet. Scaling is not a concern. The relevant operational considerations are:
+Fixed 8-pod fleet. Traditional scaling does not apply. The relevant operational considerations:
 
-| Concern | Current (8 pods) | Notes |
-|---------|-----------------|-------|
-| Watchdog thread overhead | 1 thread per pod (runs in rc-sentry) | Sleep 5s between polls — negligible CPU |
-| Crash report storage | racecontrol holds `Option<SentryCrashReport>` per pod in memory | Last crash only; no crash history DB needed for v11.2 |
-| Ollama contention | qwen3:0.6b on James, single-threaded | Crashes are rare; concurrent pod crashes queuing for Ollama is a non-issue in practice |
-| Startup log size | ~20 lines per boot, truncated each boot | Read entirely into memory — never a size concern |
-| debug-memory.json size | Capped at 100 incidents in DebugMemory | Max ~20KB on disk |
+| Concern | Impact | Mitigation |
+|---------|--------|------------|
+| `safe_mode.active` check in kiosk scan | Single bool read per 5s scan | Negligible |
+| `safe_mode_flag.load()` in process_guard | Single atomic load per 60s scan | Negligible |
+| 5s deferred shm connect | Telemetry missing for first 5s of protected game session | Acceptable — billing starts from PlayableSignal, not lap 1 |
+| `requires_safe_mode()` match | Called once per game launch (LaunchGame WS message) | Negligible |
+| Safe mode persisting through WS reconnect | AppState owns the field — reconnect loop never resets AppState | Correct by design |
 
 ---
 
 ## Sources
 
-- Direct inspection: `crates/rc-sentry/src/main.rs` — complete source, existing endpoint and thread model
-- Direct inspection: `crates/rc-agent/src/ai_debugger.rs` — DebugMemory, PodStateSnapshot, 4-tier architecture, fix patterns
-- Direct inspection: `crates/rc-agent/src/startup_log.rs` — log paths, write_phase, detect_crash_recovery
-- Direct inspection: `crates/rc-agent/src/self_heal.rs` — START_SCRIPT_CONTENT, repair patterns
-- Direct inspection: `crates/rc-common/src/protocol.rs` — AgentMessage variants, StartupReport fields
-- Direct inspection: `crates/racecontrol/src/fleet_health.rs` — FleetHealthStore, existing crash_recovery field
-- Project context: `.planning/PROJECT.md` — v11.2 target features, anti-cheat constraints, existing milestone state
-- Confidence: HIGH — all claims based on reading actual source files
+- Direct codebase inspection: `crates/rc-agent/src/app_state.rs` — all AppState fields, confirmed no existing safe_mode field
+- Direct codebase inspection: `crates/rc-agent/src/ws_handler.rs` — LaunchGame dispatch, BillingStopped, SessionEnded handlers; `disconnect()` calls at lines 239, 273
+- Direct codebase inspection: `crates/rc-agent/src/event_loop.rs` — ConnectionState, game_check_interval, exit_grace_timer, adapter.connect() call site
+- Direct codebase inspection: `crates/rc-agent/src/game_process.rs` — all SimType process names, is_running(), stop()
+- Direct codebase inspection: `crates/rc-agent/src/kiosk.rs` — WARN_BEFORE_ACTION_COUNT kill-path
+- Direct codebase inspection: `crates/rc-agent/src/process_guard.rs` — spawn() signature, CRITICAL_BINARIES, kill_and_report path
+- Direct codebase inspection: `crates/rc-agent/src/sims/iracing.rs` — IRSDKMemMapFileName, connect() implementation
+- Direct codebase inspection: `crates/rc-agent/src/sims/lmu.rs` — rF2SharedMemoryMapPlugin handle names, connect() implementation
+- Direct codebase inspection: `crates/rc-agent/src/config.rs` — AgentConfig structure, existing config sections
+- [iRacing EAC to EOS migration (official support)](https://support.iracing.com/support/solutions/articles/31000173103-anticheat-not-installed-uninstalling-eac-and-installing-eos-) — confirms iRacing uses EOS not EAC since May 2024 (HIGH confidence, official source)
+- [F1 25 PCGamingWiki](https://www.pcgamingwiki.com/wiki/F1_25) — confirms EA Javelin anti-cheat, not EAC (MEDIUM confidence)
+- [EA Anti-Cheat overview](https://players.com.ua/en/ea-anticheat-a-beginner-s-guidea-brief-look-at-the-world-of-cheats-and-anti-cheats-using-f1-as-an-example/) — Javelin detection: process memory reads, external injection, DLL hash (MEDIUM confidence, third-party analysis)
+- [iRacing SDK docs](https://sajax.github.io/irsdkdocs/) — confirms IRSDKMemMapFileName is official API (MEDIUM confidence)
+- [SetWindowsHookExA MSDN](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowshookexa) — WH_KEYBOARD_LL is system-wide hook, monitored by anti-cheat as injection vector (HIGH confidence, official)
+- PROJECT.md — v15.0 requirements, constraints, SimType inventory (HIGH confidence, source of truth)
 
 ---
 
-*Architecture research for: v11.2 RC Sentry AI Debugger — crash diagnostics in rc-sentry*
+*Architecture research for: v15.0 AntiCheat Compatibility — rc-agent safe mode integration*
 *Researched: 2026-03-21 IST*
