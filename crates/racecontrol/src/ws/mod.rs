@@ -705,6 +705,14 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             );
                         }
                         // Phase 50: Agent returns self-test probe results.
+                        AgentMessage::PreFlightPassed { pod_id } => {
+                            tracing::info!("Pod {} pre-flight checks passed", pod_id);
+                            log_pod_activity(&state, pod_id, "system", "Pre-flight Passed", "All checks passed before session start", "agent");
+                        }
+                        AgentMessage::PreFlightFailed { pod_id, failures, .. } => {
+                            tracing::warn!("Pod {} pre-flight checks failed: {:?}", pod_id, failures);
+                            log_pod_activity(&state, pod_id, "system", "Pre-flight Failed", &format!("Failures: {:?}", failures), "agent");
+                        }
                         AgentMessage::SelfTestResult { pod_id, request_id, report } => {
                             tracing::info!(
                                 "[self-test] Pod {} returned self-test results for request_id={}",
