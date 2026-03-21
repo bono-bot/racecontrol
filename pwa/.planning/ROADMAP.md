@@ -117,8 +117,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md — Config prep: fix compose.yml admin build args, add server-side env vars, fix port, add admin to Caddy depends_on
+- [ ] 06-02-PLAN.md — VPS deployment: send instructions to Bono, verify admin panel live at admin.racingpoint.cloud
 
 ### Phase 7: Dashboard Cloud Deploy
 **Goal**: Uday can monitor live venue operations from dashboard.racingpoint.cloud
