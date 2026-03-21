@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn default_orphan_threshold_is_300s() {
-        assert_eq!(crate::default_auto_end_orphan_session_secs(), 300);
+        assert_eq!(crate::config::default_auto_end_orphan_session_secs(), 300);
     }
 
     #[test]
