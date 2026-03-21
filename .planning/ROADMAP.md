@@ -1561,7 +1561,7 @@ Transform Racing Point's existing 13-camera Dahua setup into an automated face-r
 - [x] **Phase 116: Attendance Engine** - Auto-log entry timestamps on recognition, staff clock-in/clock-out with shift tracking (completed 2026-03-21)
 - [x] **Phase 117: Alerts & Notifications** - Dashboard notifications, desktop popups, and unknown person alerts (completed 2026-03-21)
 - [x] **Phase 118: Live Camera Feeds** - MJPEG proxy for real-time camera viewing in dashboard (completed 2026-03-21)
-- [ ] **Phase 119: NVR Playback Proxy** - Query Dahua NVR API for stored footage, serve through dashboard with event markers
+- [x] **Phase 119: NVR Playback Proxy** - Query Dahua NVR API for stored footage, serve through dashboard with event markers (completed 2026-03-21)
 
 ## v16.0 Security Camera AI & Attendance -- Phase Details
 
@@ -1701,4 +1701,4 @@ Plans:
 | 116. Attendance Engine | 3/3 | Complete    | 2026-03-21 |
 | 117. Alerts & Notifications | 3/3 | Complete    | 2026-03-21 |
 | 118. Live Camera Feeds | 2/2 | Complete    | 2026-03-21 |
-| 119. NVR Playback Proxy | 2/3 | In Progress|  |
+| 119. NVR Playback Proxy | 3/3 | Complete   | 2026-03-21 |
