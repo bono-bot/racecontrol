@@ -751,11 +751,27 @@ async fn main() -> Result<()> {
         last_ac_status: None,
         ac_status_stable_since: None,
         in_maintenance: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        safe_mode: safe_mode::SafeMode::new(),
+        safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        wmi_rx: None, // Set below after WMI watcher spawn
+        safe_mode_cooldown_timer: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(86400))),
+        safe_mode_cooldown_armed: false,
         last_preflight_alert: None,
         guard_whitelist,
         guard_violation_tx,
         guard_violation_rx,
     };
+
+    // ─── Safe Mode: startup detection ─────────────────────────────────────────
+    if let Some(sim) = safe_mode::detect_running_protected_game() {
+        state.safe_mode.enter(sim);
+        state.safe_mode_active.store(true, std::sync::atomic::Ordering::Relaxed);
+        tracing::warn!(target: LOG_TARGET, "Protected game already running at startup — safe mode ACTIVE");
+    }
+
+    // ─── Safe Mode: WMI process watcher ───────────────────────────────────────
+    state.wmi_rx = Some(safe_mode::spawn_wmi_watcher());
+    tracing::info!(target: LOG_TARGET, "WMI safe mode watcher spawned");
 
     // ─── Process Guard: spawn background task ───────────────────────────────
     process_guard::spawn(
@@ -763,6 +779,7 @@ async fn main() -> Result<()> {
         state.guard_whitelist.clone(),
         state.guard_violation_tx.clone(),
         state.pod_id.clone(),
+        std::sync::Arc::clone(&state.safe_mode_active),  // safe mode flag
     );
     tracing::info!(target: LOG_TARGET, "Process guard spawned (interval={}s)", state.config.process_guard.scan_interval_secs);
 

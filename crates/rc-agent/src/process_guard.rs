@@ -9,6 +9,7 @@
 //! - Log: C:\RacingPoint\process-guard.log with 512KB rotation
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,6 +39,7 @@ pub fn spawn(
     whitelist: Arc<RwLock<MachineWhitelist>>,
     tx: mpsc::Sender<AgentMessage>,
     machine_id: String,
+    _safe_mode_active: Arc<AtomicBool>, // Plan 02 will wire this into the scan loop
 ) {
     if !config.enabled {
         tracing::info!(target: LOG_TARGET, "Process guard DISABLED (process_guard.enabled=false)");

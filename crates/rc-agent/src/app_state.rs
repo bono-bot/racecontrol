@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch, RwLock};
+use crate::safe_mode;
 use crate::config::AgentConfig;
 use rc_common::types::MachineWhitelist;
 use crate::driving_detector::{DetectorSignal, DrivingDetector};
@@ -64,6 +65,18 @@ pub struct AppState {
     pub(crate) last_ac_status: Option<AcStatus>,
     pub(crate) ac_status_stable_since: Option<std::time::Instant>,
     pub(crate) in_maintenance: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Safe mode state machine — gates risky subsystems during protected game sessions.
+    /// Lives in AppState (not ConnectionState) to survive WebSocket reconnections.
+    pub(crate) safe_mode: safe_mode::SafeMode,
+    /// Shadow flag for cross-task safe mode checks (process_guard reads this).
+    /// Must be kept in sync with safe_mode.active on every state transition.
+    pub(crate) safe_mode_active: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// WMI process start event receiver — None if WMI watcher failed to start.
+    pub(crate) wmi_rx: Option<std::sync::mpsc::Receiver<String>>,
+    /// Cooldown timer — fires 30s after protected game exits.
+    pub(crate) safe_mode_cooldown_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
+    /// Whether the cooldown timer is armed (should be polled in select!).
+    pub(crate) safe_mode_cooldown_armed: bool,
     /// STAFF-04: Tracks when the last PreFlightFailed WS alert was sent.
     /// None = never alerted. Alerts are suppressed within a 60s cooldown window.
     pub(crate) last_preflight_alert: Option<std::time::Instant>,
