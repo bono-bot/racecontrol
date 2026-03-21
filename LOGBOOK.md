@@ -464,3 +464,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 17:11 IST | James | 01f44eb | test(105-03): TDD RED — failing tests for is_james_self_excluded, is_james_critical, parse helpers |
 | 2026-03-21 17:46 IST | James | e83b33e | feat(105-03): rc-process-guard standalone binary — 10 tests pass, 4.0MB static CRT, HTTP POST violations |
 | 2026-03-21 17:46 IST | James | 93c6f1c | docs(105-03): complete rc-process-guard plan — DEPLOY-03 closed, STATE/ROADMAP updated |
+| 2026-03-21 18:10 IST | James | 205ce52 | docs: complete v15.0 AntiCheat Compatibility research — STACK, FEATURES, ARCHITECTURE, PITFALLS, SUMMARY-v15 |
