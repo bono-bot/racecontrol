@@ -47,6 +47,7 @@ use sims::SimAdapter;
 use sims::assetto_corsa::AssettoCorsaAdapter;
 use sims::f1_25::F125Adapter;
 use sims::iracing::IracingAdapter;
+use sims::lmu::LmuAdapter;
 use kiosk::KioskManager;
 use lock_screen::{LockScreenEvent, LockScreenManager};
 use overlay::OverlayManager;
@@ -405,6 +406,9 @@ async fn main() -> Result<()> {
             Some(signal_tx.clone()),
         ))),
         SimType::IRacing => Some(Box::new(IracingAdapter::new(
+            pod_id.clone(),
+        ))),
+        SimType::LeMansUltimate => Some(Box::new(LmuAdapter::new(
             pod_id.clone(),
         ))),
         _ => {
