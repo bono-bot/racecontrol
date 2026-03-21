@@ -1,6 +1,8 @@
 mod config;
+mod detection;
 mod frame;
 mod health;
+mod privacy;
 mod relay;
 mod stream;
 
@@ -35,6 +37,12 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let frame_buf = FrameBuffer::new();
+
+    // Initialize audit writer (single-writer pattern for Windows file locking)
+    let (audit_writer, _audit_handle) = privacy::audit::AuditWriter::new(
+        config.privacy.audit_log_path.clone(),
+    );
+    let audit_writer = Arc::new(audit_writer);
 
     // Spawn one task per camera for independent RTSP streaming
     for camera in config.cameras.iter() {
