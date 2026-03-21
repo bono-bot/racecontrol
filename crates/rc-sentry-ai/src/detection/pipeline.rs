@@ -6,6 +6,11 @@ use tokio::sync::RwLock;
 
 use super::scrfd::ScrfdDetector;
 use crate::frame::FrameBuffer;
+use crate::recognition::arcface::ArcfaceRecognizer;
+use crate::recognition::gallery::Gallery;
+use crate::recognition::quality::QualityGates;
+use crate::recognition::tracker::FaceTracker;
+use crate::recognition::{alignment, clahe};
 
 /// Shared detection stats visible to health endpoint.
 pub struct DetectionStats {
@@ -34,6 +39,10 @@ pub async fn run(
     detector: Arc<ScrfdDetector>,
     conf_threshold: f32,
     stats: Arc<DetectionStats>,
+    recognizer: Option<Arc<ArcfaceRecognizer>>,
+    quality_gates: QualityGates,
+    gallery: Arc<Gallery>,
+    tracker: Arc<FaceTracker>,
 ) {
     let mut decoder = match super::decoder::FrameDecoder::new() {
         Ok(d) => d,
@@ -110,7 +119,78 @@ pub async fn run(
             );
         }
 
-        // Future phases will consume faces via broadcast channel.
-        // For Phase 113, logging is sufficient.
+        // Run recognition pipeline if recognizer is available
+        if let Some(ref recognizer) = recognizer {
+            // Convert decoded RGB to grayscale for quality checks
+            let decoded_gray: Vec<u8> = decoded
+                .rgb
+                .chunks_exact(3)
+                .map(|px| {
+                    (0.299 * px[0] as f64 + 0.587 * px[1] as f64 + 0.114 * px[2] as f64)
+                        as u8
+                })
+                .collect();
+
+            for face in &faces {
+                // 1. Quality gate check
+                if let Err(reason) = quality_gates.check(
+                    face,
+                    &decoded_gray,
+                    decoded.width,
+                    decoded.height,
+                ) {
+                    tracing::debug!(
+                        camera = %camera_name,
+                        reason = ?reason,
+                        "face rejected by quality gates"
+                    );
+                    continue;
+                }
+
+                // 2. Align face to 112x112 using landmarks
+                let aligned = alignment::align_face(
+                    &decoded.rgb,
+                    decoded.width,
+                    decoded.height,
+                    &face.landmarks,
+                );
+
+                // 3. Apply CLAHE for lighting normalization
+                let clahe_face = clahe::apply_clahe(&aligned);
+
+                // 4. Preprocess for ArcFace
+                let tensor =
+                    crate::recognition::arcface::preprocess(&clahe_face);
+
+                // 5. Extract embedding
+                let embedding = match recognizer.extract_embedding(tensor).await {
+                    Ok(emb) => emb,
+                    Err(e) => {
+                        tracing::warn!(
+                            camera = %camera_name,
+                            error = %e,
+                            "ArcFace embedding extraction failed"
+                        );
+                        continue;
+                    }
+                };
+
+                // 6. Gallery match
+                if let Some((person_id, person_name, confidence)) =
+                    gallery.find_match(&embedding).await
+                {
+                    // 7. Tracker cooldown check
+                    if tracker.should_report(person_id) {
+                        tracing::info!(
+                            camera = %camera_name,
+                            person_name = %person_name,
+                            person_id = person_id,
+                            confidence = confidence,
+                            "face recognized"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

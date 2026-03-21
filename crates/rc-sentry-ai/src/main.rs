@@ -11,6 +11,10 @@ use std::sync::Arc;
 
 use config::Config;
 use frame::FrameBuffer;
+use recognition::arcface::ArcfaceRecognizer;
+use recognition::gallery::Gallery;
+use recognition::quality::QualityGates;
+use recognition::tracker::FaceTracker;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -42,6 +46,72 @@ async fn main() -> anyhow::Result<()> {
     // Initialize detection stats (shared with health endpoint regardless of detection enabled)
     let detection_stats = Arc::new(detection::pipeline::DetectionStats::new());
 
+    // Initialize recognition components (if enabled)
+    let recognizer: Option<Arc<ArcfaceRecognizer>> = if config.recognition.enabled {
+        match ArcfaceRecognizer::new(&config.recognition.model_path) {
+            Ok(r) => {
+                tracing::info!(
+                    model = %config.recognition.model_path,
+                    threshold = config.recognition.similarity_threshold,
+                    "ArcFace recognizer initialized"
+                );
+                Some(Arc::new(r))
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to initialize ArcFace recognizer, recognition disabled");
+                None
+            }
+        }
+    } else {
+        tracing::info!("face recognition disabled in config");
+        None
+    };
+
+    // Initialize gallery from SQLite (if recognition enabled)
+    let gallery = if config.recognition.enabled {
+        let db_path = config.recognition.gallery_db_path.clone();
+        let threshold = config.recognition.similarity_threshold;
+        match tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<recognition::types::GalleryEntry>> {
+            let conn = rusqlite::Connection::open(&db_path)?;
+            recognition::db::create_tables(&conn)?;
+            let entries = recognition::db::load_gallery(&conn)?;
+            Ok(entries)
+        }).await? {
+            Ok(entries) => {
+                tracing::info!(entries = entries.len(), "face gallery loaded from SQLite");
+                Arc::new(Gallery::new(entries, threshold))
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to load face gallery, starting empty");
+                Arc::new(Gallery::new(vec![], config.recognition.similarity_threshold))
+            }
+        }
+    } else {
+        Arc::new(Gallery::new(vec![], config.recognition.similarity_threshold))
+    };
+
+    // Initialize face tracker
+    let tracker = Arc::new(FaceTracker::new(config.recognition.tracker_cooldown_secs));
+
+    // Initialize quality gates from config
+    let quality_gates_config = QualityGates {
+        min_face_size: config.recognition.min_face_size,
+        min_laplacian_var: config.recognition.min_laplacian_var,
+        max_yaw_degrees: config.recognition.max_yaw_degrees,
+    };
+
+    // Spawn periodic tracker cleanup (every 5 minutes)
+    {
+        let tracker_cleanup = Arc::clone(&tracker);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                tracker_cleanup.cleanup();
+            }
+        });
+    }
+
     // Initialize SCRFD detector and spawn per-camera detection tasks
     if config.detection.enabled {
         match detection::scrfd::ScrfdDetector::new(&config.detection.model_path) {
@@ -60,8 +130,19 @@ async fn main() -> anyhow::Result<()> {
                     let det = Arc::clone(&detector);
                     let conf = config.detection.confidence_threshold;
                     let stats = Arc::clone(&detection_stats);
+                    let rec = recognizer.clone();
+                    let qg = QualityGates {
+                        min_face_size: quality_gates_config.min_face_size,
+                        min_laplacian_var: quality_gates_config.min_laplacian_var,
+                        max_yaw_degrees: quality_gates_config.max_yaw_degrees,
+                    };
+                    let gal = Arc::clone(&gallery);
+                    let trk = Arc::clone(&tracker);
                     tokio::spawn(async move {
-                        detection::pipeline::run(cam_name, buf, det, conf, stats).await;
+                        detection::pipeline::run(
+                            cam_name, buf, det, conf, stats, rec, qg, gal, trk,
+                        )
+                        .await;
                     });
                 }
             }

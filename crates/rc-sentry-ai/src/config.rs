@@ -10,6 +10,8 @@ pub struct Config {
     pub privacy: PrivacyConfig,
     #[serde(default)]
     pub detection: DetectionConfig,
+    #[serde(default)]
+    pub recognition: RecognitionConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,6 +94,73 @@ impl Default for DetectionConfig {
             model_path: default_model_path(),
             confidence_threshold: default_confidence(),
             nms_threshold: default_nms_threshold(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RecognitionConfig {
+    #[serde(default = "default_recognition_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_recognition_model_path")]
+    pub model_path: String,
+    #[serde(default = "default_similarity_threshold")]
+    pub similarity_threshold: f32,
+    #[serde(default = "default_min_face_size")]
+    pub min_face_size: u32,
+    #[serde(default = "default_min_laplacian_var")]
+    pub min_laplacian_var: f64,
+    #[serde(default = "default_max_yaw_degrees")]
+    pub max_yaw_degrees: f64,
+    #[serde(default = "default_tracker_cooldown_secs")]
+    pub tracker_cooldown_secs: u64,
+    #[serde(default = "default_gallery_db_path")]
+    pub gallery_db_path: String,
+}
+
+fn default_recognition_enabled() -> bool {
+    true
+}
+
+fn default_recognition_model_path() -> String {
+    r"C:\RacingPoint\models\glintr100.onnx".to_string()
+}
+
+fn default_similarity_threshold() -> f32 {
+    0.45
+}
+
+fn default_min_face_size() -> u32 {
+    80
+}
+
+fn default_min_laplacian_var() -> f64 {
+    100.0
+}
+
+fn default_max_yaw_degrees() -> f64 {
+    45.0
+}
+
+fn default_tracker_cooldown_secs() -> u64 {
+    60
+}
+
+fn default_gallery_db_path() -> String {
+    r"C:\RacingPoint\data\faces.db".to_string()
+}
+
+impl Default for RecognitionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_recognition_enabled(),
+            model_path: default_recognition_model_path(),
+            similarity_threshold: default_similarity_threshold(),
+            min_face_size: default_min_face_size(),
+            min_laplacian_var: default_min_laplacian_var(),
+            max_yaw_degrees: default_max_yaw_degrees(),
+            tracker_cooldown_secs: default_tracker_cooldown_secs(),
+            gallery_db_path: default_gallery_db_path(),
         }
     }
 }
