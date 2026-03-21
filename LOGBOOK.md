@@ -334,3 +334,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 06:24 IST | James | 92bd65b | feat(69-02): add POST /api/v1/failover/broadcast endpoint to racecontrol |
 | 2026-03-21 06:25 IST | James | 02030f4 | feat(69-02): add split-brain guard to rc-agent SwitchController handler |
 | 2026-03-21 06:25 IST | James | 67ffcab | docs(69-02): complete failover-broadcast + split-brain guard plan |
+| 2026-03-21 06:28 IST | James | d1e2048 | feat(78-01): harden Edge kiosk flags + keyboard hook (KIOSK-01, KIOSK-02) |
+| 2026-03-21 06:29 IST | James | 1a5bbe3 | feat(78-01): extend pod-lockdown with USB, accessibility, TaskMgr lockdown (KIOSK-03, KIOSK-04) |
+| 2026-03-21 06:30 IST | James | cdc3755 | docs(78-01): complete kiosk session hardening plan |
