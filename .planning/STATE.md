@@ -197,12 +197,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 81 of 81 (game-launch-core)
-Plan: 01 of 01 complete
+Phase: 74 of 81 (rc-agent-decomposition)
+Plan: 03 of 04 complete
 Status: In Progress
-Last activity: 2026-03-21 -- 81-01 complete: non-AC crash auto-relaunch via GameProcess::launch() + DashboardEvent::GameLaunchRequested + POST /api/v1/customer/game-request PWA endpoint (LAUNCH-02, LAUNCH-04, LAUNCH-05)
+Last activity: 2026-03-21 -- 74-03 complete: ws_handler.rs extracted with handle_ws_message() dispatching 22 CoreToAgentMessage variants; select! ws_rx arm reduced to 27-line delegation; main.rs down from 3009 to 2037 lines (DECOMP-03)
 
-Progress: [██████████] 93% (73/81 plans complete)
+Progress: [██████████] 93% (75/81 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -211,7 +211,7 @@ Progress: [██████████] 93% (73/81 plans complete)
 | 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Complete (2/2 plans done) |
 | 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Complete (2/2 plans done) |
 | 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Complete (2/2 plans done) |
-| 74 | rc-agent Decomposition | DECOMP-01..04 | In Progress (1/4 plans done) |
+| 74 | rc-agent Decomposition | DECOMP-01..04 | In Progress (3/4 plans done) |
 
 **Phase 71:** rc-common exec.rs with feature gate (SHARED) + rc-sentry timeout, truncation, concurrency cap, partial read fix, structured logging (SHARD). No rc-agent changes. Verify `cargo tree -p rc-sentry` shows no tokio after every rc-common change.
 **Phase 72:** rc-sentry endpoint expansion (/health, /version, /files, /processes, graceful shutdown) + TcpStream-based integration tests on ephemeral port.
@@ -280,6 +280,7 @@ Progress: [██████████] 93% (73/81 plans complete)
 - 78-01: Defense-in-depth for DevTools: both --disable-dev-tools browser flag AND F12/Ctrl+Shift+I/J keyboard hook blocks; USBSTOR Start=4 disables mass storage only (HID unaffected); accessibility Flags 506/122/58 disable hotkeys not features (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
 - 74-01: AgentConfig fields all pub (not pub(crate)) for cross-module access in later extractions; load_config pub; validate_config + detect_installed_games pub(crate); billing_guard.rs required crate::config:: path fix after root extraction (DECOMP-01)
 - 74-02: AppState fields all pub(crate) not pub -- crate-internal (matches config.rs pattern); crash_recovery bool renamed crash_recovery_startup to avoid collision with CrashRecoveryState inner-loop local; SelfHealResult (not HealResult) -- self_heal.rs uses that name; AiDebugSuggestion from rc_common::types (already a shared type); ws_tx/ws_rx stay loop-local (borrow conflict per RESEARCH.md Pitfall); DECOMP-02 complete
+- 74-03: HandleResult::Break/Continue enum (not bool) for self-documenting loop control; anyhow::Result<HandleResult> for serde_json ? propagation; SwitchController params (primary_url/failover_url/active_url/split_brain_probe) passed separately to handle_ws_message -- outer-loop locals not in AppState; LaunchState + CrashRecoveryState made pub(crate) for ws_handler.rs cross-module access; Python file truncation deleted 972-line dead code block (lines 1699-2670); DECOMP-03 complete
 - 78-03: Option<String> with #[serde(default)] for session_token -- backward compat with older agents; direct SQL UPDATE for emergency billing pause avoids circular HTTP dependency; LazyLock<Mutex<HashMap>> for per-pod security alert debounce (5min cooldown) (SESS-04, SESS-05)
 - 81-01: Non-AC crash recovery else branch: match last_sim_type to config.games field (7 variants), clone base_config, override args from last_launch_args, call GameProcess::launch() -- mirrors LaunchGame handler exactly (LAUNCH-02 complete)
 - 81-01: DashboardEvent::GameLaunchRequested added at end of enum using existing SimType -- no new imports needed (LAUNCH-04 complete)
@@ -306,7 +307,7 @@ Progress: [██████████] 93% (73/81 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:40:49Z
-Stopped at: Completed 81-01-PLAN.md
-Resume file: .planning/phases/81-game-launch-core/81-01-SUMMARY.md
-Next action: Phase 81 Plan 02 -- game launcher UI wiring (if any remaining plans in phase 81)
+Last session: 2026-03-21T01:48:00Z
+Stopped at: Completed 74-03-PLAN.md
+Resume file: .planning/phases/74-rc-agent-decomposition/74-03-SUMMARY.md
+Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)
