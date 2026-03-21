@@ -1048,10 +1048,10 @@ Plans:
   1. AC EVO shared memory is read using ACC-format struct layout when data is available
   2. If telemetry fields are unpopulated or the API changes, the adapter logs a warning and continues without crashing
   3. When lap data is available, it is emitted as LapCompleted with sim_type = AC_EVO
-**Plans**: 2 (researched + planned 2026-03-21)
+**Plans**: 1 (planned 2026-03-21)
 
 Plans:
-- [ ] 86-01: TBD
+- [ ] 86-01-PLAN.md -- AssettoCorsaEvoAdapter with zero-guard shared memory reads + main.rs wiring
 
 ### Phase 87: EA WRC Telemetry
 **Goal**: EA WRC stage times are captured via UDP and mapped to the lap schema for leaderboard compatibility
