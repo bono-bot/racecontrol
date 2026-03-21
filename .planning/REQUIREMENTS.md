@@ -40,13 +40,13 @@ Requirements for full bidirectional dynamic execution between James and Bono.
 
 - [ ] **DELEG-01**: James can send a chain_request to Bono; Bono executes and returns chain_result
 - [ ] **DELEG-02**: Bono can send a chain_request to James; James executes and returns chain_result
-- [ ] **DELEG-03**: Delegation is transparent — requesting AI integrates response without exposing relay to user
+- [x] **DELEG-03**: Delegation is transparent — requesting AI integrates response without exposing relay to user
 
 ### Observability
 
-- [ ] **AUDIT-01**: Every remote execution logged to append-only audit file on both machines
-- [ ] **AUDIT-02**: Audit entries include: timestamp, execId, command, requester, exitCode, durationMs, tier
-- [ ] **AUDIT-03**: Chain executions include chainId and stepIndex in audit entries
+- [x] **AUDIT-01**: Every remote execution logged to append-only audit file on both machines
+- [x] **AUDIT-02**: Audit entries include: timestamp, execId, command, requester, exitCode, durationMs, tier
+- [x] **AUDIT-03**: Chain executions include chainId and stepIndex in audit entries
 
 ## Future Requirements (v18.1+)
 
@@ -90,10 +90,10 @@ None — all features scoped into v18.0.
 | CHAIN-09 | Phase 134 | Pending |
 | DELEG-01 | Phase 133 | Pending |
 | DELEG-02 | Phase 133 | Pending |
-| DELEG-03 | Phase 133 | Pending |
-| AUDIT-01 | Phase 133 | Pending |
-| AUDIT-02 | Phase 133 | Pending |
-| AUDIT-03 | Phase 133 | Pending |
+| DELEG-03 | Phase 133 | Complete |
+| AUDIT-01 | Phase 133 | Complete |
+| AUDIT-02 | Phase 133 | Complete |
+| AUDIT-03 | Phase 133 | Complete |
 
 **Coverage:**
 - v18.0 requirements: 26 total
