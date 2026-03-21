@@ -1357,7 +1357,10 @@ Plans:
   3. Every 30 seconds while in MaintenanceRequired, the pod re-runs pre-flight silently; if all checks pass, the pod self-clears to Idle state without staff action — auto-retry loop works
   4. When racecontrol sends a ClearMaintenance message to a pod, the pod transitions from MaintenanceRequired to Idle and accepts the next BillingStarted — staff manual clear path works
   5. A GET to http://localhost:18923 returns HTTP 200 and the window rect of the lock screen Edge window is centered within 5% of the primary monitor center — display checks pass on a healthy pod
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 98-01-PLAN.md — MaintenanceRequired LockScreenState variant + AppState flag + ws_handler wiring
+- [ ] 98-02-PLAN.md — DISP-01 HTTP probe + DISP-02 GetWindowRect checks + 30s auto-retry loop
 
 ### Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring
 **Goal**: All remaining checks are live (billing stuck-session, disk, memory, WebSocket stability) and the pre-flight gate is wired into ws_handler.rs — every BillingStarted now triggers the complete concurrent check gate before any session state is mutated; staff alerts fire exactly once per MaintenanceRequired entry, not once per failure
