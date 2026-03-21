@@ -1,3 +1,47 @@
+// ─── Standing Rules ──────────────────────────────────────────────────────────
+//
+// ARCHITECTURE — 4-Tier Debug Order (always follow this sequence):
+//   Tier 1: DETERMINISTIC — try_auto_fix(). Keyword match → direct fix.
+//           Stale sockets, game cleanup, temp files, WerFault. No LLM needed.
+//   Tier 2: MEMORY — DebugMemory::instant_fix(). Check debug-memory.json for
+//           identical past incidents. Apply proven fix first, verify.
+//   Tier 3: LOCAL OLLAMA — query_ollama(). Only after Tiers 1+2 fail.
+//   Tier 4: CLOUD CLAUDE — last resort, NOT auto-triggered.
+//
+// TIER 1 RULES (for all fix_* functions and new patterns):
+//   - Every fix_* MUST have a `#[cfg(test)]` guard returning a mock result.
+//     Real system commands (taskkill, cmd /C start, sfc, netsh, powercfg,
+//     remove_dir_all) must NEVER execute during `cargo test`.
+//   - Billing gate: destructive fixes that kill game processes (fix_frozen_game,
+//     fix_launch_timeout) MUST check snapshot.billing_active before acting.
+//     Don't kill a customer's running game without an active billing session.
+//   - Pattern ordering: more specific patterns MUST come before generic ones.
+//     e.g. "game frozen...relaunch" (Pattern 3a) before "relaunch game" (Pattern 4).
+//   - Pod-only: these fixes run on pods via rc-agent. They must NEVER be
+//     executed on James (.27). The `#[cfg(test)]` guards prevent this during
+//     `cargo test`, but never add startup-time or init-time calls to fix_* fns.
+//   - Idempotent: every fix must be safe to run multiple times without harm.
+//     No fix should assume it runs only once per incident.
+//
+// LEARN FROM PAST FIXES: Before deep-diving into a bug, check debug-memory.json,
+//   LOGBOOK.md, and commit history for similar solved issues.
+//
+// GREP BEFORE TRACING: When a rogue process has a specific command line,
+//   `grep -rn` the codebase for that exact string FIRST. A literal match finds
+//   the source in seconds. Only trace process trees after grep comes up empty.
+//
+// CATEGORY AUDIT: When you find one side-effectful function running during
+//   `cargo test`, immediately grep for ALL similar calls in the crate
+//   (CreateWindowExW, SetWindowsHookExW, hide_taskbar, taskkill, netsh, etc.).
+//   Don't wait for each symptom to appear separately.
+//
+// TEST GUARDS: All fix_* functions that execute real system commands MUST have
+//   `#[cfg(test)]` guards returning mock AutoFixResult. Without these guards,
+//   `cargo test` on the dev machine will fire taskkill, spawn Steam, hide the
+//   taskbar, install keyboard hooks, delete shader caches, etc.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;

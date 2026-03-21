@@ -22,8 +22,10 @@ const LOG_TARGET: &str = "self-heal";
 const CONFIG_TEMPLATE: &str = include_str!("../../../deploy/rc-agent.template.toml");
 
 /// Full start-rcagent.bat content with CRLF line endings.
+/// v11.2: Added RUST_BACKTRACE=1 and stderr redirect for sentry crash analysis.
 const START_SCRIPT_CONTENT: &str = "@echo off\r\n\
     cd /d C:\\RacingPoint\r\n\
+    set RUST_BACKTRACE=1\r\n\
     netsh advfirewall firewall add rule name=\"RCAgent\" dir=in action=allow protocol=TCP localport=8090 1>nul 2>nul\r\n\
     taskkill /F /IM rc-agent.exe 1>nul 2>nul\r\n\
     timeout /t 3 /nobreak 1>nul\r\n\
@@ -33,7 +35,7 @@ const START_SCRIPT_CONTENT: &str = "@echo off\r\n\
         if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul\r\n\
         move rc-agent-new.exe rc-agent.exe 1>nul\r\n\
     )\r\n\
-    start \"\" /D C:\\RacingPoint rc-agent.exe\r\n";
+    start \"\" /D C:\\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log\r\n";
 
 /// Result of the self-heal check-and-repair cycle.
 #[derive(Debug)]

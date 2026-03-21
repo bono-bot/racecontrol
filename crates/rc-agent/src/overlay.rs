@@ -826,7 +826,7 @@ impl OverlayManager {
             data.active = true;
         }
 
-        #[cfg(windows)]
+        #[cfg(all(windows, not(test)))]
         self.open_window();
     }
 
@@ -848,7 +848,7 @@ impl OverlayManager {
             };
         }
 
-        #[cfg(windows)]
+        #[cfg(all(windows, not(test)))]
         self.open_window();
     }
 
@@ -987,8 +987,9 @@ impl OverlayManager {
             let mut data = self.state.lock().unwrap_or_else(|e| e.into_inner());
             data.active = false;
         }
-        #[cfg(windows)]
+        #[cfg(all(windows, not(test)))]
         self.close_window();
+        #[cfg(not(test))]
         crate::kiosk::hide_taskbar(false);
     }
 

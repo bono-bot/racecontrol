@@ -59,6 +59,8 @@ pub struct FleetHealthStore {
     pub violation_count_24h: u32,
     /// Phase 104: ISO-8601 timestamp of most recent violation for this pod.
     pub violation_count_last_at: Option<String>,
+    /// Phase 105 (v11.2): Last crash report from rc-sentry on this pod.
+    pub last_sentry_crash: Option<rc_common::types::SentryCrashReport>,
 }
 
 /// Per-pod violation history. Capped at 100 entries (FIFO eviction).
@@ -378,6 +380,34 @@ pub async fn fleet_health_handler(
     }))
 }
 
+// ── Phase 105 (v11.2): Sentry crash report endpoint ──────────────────────────
+
+/// POST /api/v1/sentry/crash — accept crash report from rc-sentry on a pod.
+/// LAN-only, no auth (consistent with all internal fleet endpoints).
+pub async fn sentry_crash_handler(
+    State(state): State<Arc<AppState>>,
+    Json(report): Json<rc_common::types::SentryCrashReport>,
+) -> axum::http::StatusCode {
+    tracing::info!(
+        target: "fleet-health",
+        "sentry crash report from {}: tier={}, escalated={}, restarts={}",
+        report.pod_id, report.resolution_tier, report.escalated, report.restart_count
+    );
+
+    // Store in fleet health
+    let mut fleet = state.pod_fleet_health.write().await;
+    if let Some(store) = fleet.get_mut(&report.pod_id) {
+        store.last_sentry_crash = Some(report);
+    } else {
+        let mut new_store = FleetHealthStore::default();
+        let pod_id = report.pod_id.clone();
+        new_store.last_sentry_crash = Some(report);
+        fleet.insert(pod_id, new_store);
+    }
+
+    axum::http::StatusCode::OK
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -598,5 +628,11 @@ mod tests {
         assert_eq!(store.remote_ops_port_bound, None);
         assert_eq!(store.hid_detected, None);
         assert_eq!(store.udp_ports_bound, None);
+    }
+
+    #[test]
+    fn test_sentry_crash_field_default() {
+        let store = FleetHealthStore::default();
+        assert!(store.last_sentry_crash.is_none());
     }
 }

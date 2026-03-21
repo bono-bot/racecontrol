@@ -56,6 +56,7 @@ fn auth_rate_limited_routes() -> Router<Arc<AppState>> {
         .route("/customer/verify-otp", post(customer_verify_otp))
         .route("/auth/validate-pin", post(validate_pin))
         .route("/auth/kiosk/validate-pin", post(kiosk_validate_pin))
+        .route("/kiosk/redeem-pin", post(kiosk_redeem_pin))
         .route("/staff/validate-pin", post(staff_validate_pin))
         .route("/auth/admin-login", post(auth::admin::admin_login))
         .layer(auth::rate_limit::auth_rate_limit_layer())
@@ -67,6 +68,7 @@ fn public_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
+        .route("/sentry/crash", post(fleet_health::sentry_crash_handler))
         .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
         .route("/venue", get(venue_info))
         .route("/customer/register", post(customer_register))
@@ -4285,6 +4287,24 @@ async fn kiosk_validate_pin(
         })),
         Err(e) => {
             state.record_api_error("auth/kiosk-validate-pin");
+            Json(json!({ "error": e }))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct KioskRedeemPinRequest {
+    pin: String,
+}
+
+async fn kiosk_redeem_pin(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<KioskRedeemPinRequest>,
+) -> Json<Value> {
+    match reservation::redeem_pin(&state, &req.pin).await {
+        Ok(result) => Json(result),
+        Err(e) => {
+            state.record_api_error("kiosk/redeem-pin");
             Json(json!({ "error": e }))
         }
     }
