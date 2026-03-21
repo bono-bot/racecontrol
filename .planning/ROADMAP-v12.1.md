@@ -84,7 +84,11 @@ Plans:
   2. A non-whitelisted scheduled task on a pod is flagged in the audit log with task name, task path, and action taken (LOG or REMOVE per enforcement stage)
   3. `rc-process-guard.exe` runs on James .27, scans on the same interval as rc-agent guard, and POSTs `ProcessViolation` payloads to `http://192.168.31.23:8080/api/v1/guard/report` via Tailscale — it never connects via WebSocket
   4. The James whitelist covers Ollama, node, python, VS Code, comms-link, cargo, and deploy tooling without false positives on the first run
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 105-01-PLAN.md — Port audit (netstat -ano parse + kill) + scheduled task audit (schtasks CSV parse + disable) added to rc-agent process_guard.rs; wired into audit_interval.tick() arm
+- [ ] 105-02-PLAN.md — POST /api/v1/guard/report endpoint in racecontrol (X-Guard-Token auth, stores to pod_violations ViolationStore); report_secret field in ProcessGuardConfig
+- [ ] 105-03-PLAN.md — New crates/rc-process-guard/ workspace member; standalone binary with fetch whitelist + scan loop + HTTP POST violations; JAMES_CRITICAL_BINARIES enforcement
 
 ## Progress
 
@@ -96,7 +100,7 @@ Plans:
 | 102. Whitelist Schema + Config + Fetch Endpoint | 2/2 | Complete | 2026-03-21 |
 | 103. Pod Guard Module | 3/3 | Complete | 2026-03-21 |
 | 104. Server Guard Module + Alerts | 0/3 | Not started | - |
-| 105. Port Audit + Scheduled Tasks + James Binary | 0/TBD | Not started | - |
+| 105. Port Audit + Scheduled Tasks + James Binary | 0/3 | Not started | - |
 
 ---
 *Roadmap created: 2026-03-21 IST*
