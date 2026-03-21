@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Montserrat } from "next/font/google";
 import "./globals.css";
+import RpToaster from "@/components/Toaster";
 
 const montserrat = Montserrat({
   variable: "--font-montserrat",
@@ -45,6 +46,7 @@ export default function RootLayout({
         `}} />
       </head>
       <body className={`${montserrat.variable} min-h-screen bg-rp-dark text-white antialiased font-sans`}>
+        <RpToaster />
         {children}
       </body>
     </html>
