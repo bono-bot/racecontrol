@@ -4,6 +4,22 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
 stopped_at: Completed 100-02-PLAN.md
+last_updated: "2026-03-21T06:33:17.824Z"
+last_activity: "2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)"
+progress:
+  total_phases: 65
+  completed_phases: 41
+  total_plans: 108
+  completed_plans: 104
+  percent: 96
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
+stopped_at: Completed 100-02-PLAN.md
 last_updated: "2026-03-21T06:24:44Z"
 last_activity: "2026-03-21 -- 100-02 complete: Fleet page Racing Red Maintenance badge, PIN-gated modal with failure list, Clear Maintenance button calling POST /pods/{id}/clear-maintenance (STAFF-01, STAFF-02)"
 progress:
