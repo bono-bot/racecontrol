@@ -1684,10 +1684,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 119-01: Dahua NVR API integration and footage query
-- [ ] 119-02: Playback proxy streaming through rc-sentry-ai
-- [ ] 119-03: Event marker overlay on playback timeline
-
+- [ ] 119-01-PLAN.md -- NVR CGI API client and config (nvr.rs, NvrConfig, digest auth)
+- [ ] 119-02-PLAN.md -- Playback proxy endpoints (search, stream, events)
+- [ ] 119-03-PLAN.md -- Dashboard playback page with timeline and event markers
 ## v16.0 Progress
 
 **Execution Order:** 112 -> 113 -> 114 -> 115 -> 116 -> 117 -> 118 -> 119
