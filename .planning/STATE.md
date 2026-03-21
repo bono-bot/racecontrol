@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 84-01-PLAN.md
+last_updated: "2026-03-21T05:27:15.878Z"
+last_activity: "2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)"
+progress:
+  total_phases: 65
+  completed_phases: 39
+  total_plans: 104
+  completed_plans: 100
+  percent: 96
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Completed 99-02-PLAN.md
 last_updated: "2026-03-21T05:25:55.665Z"
 last_activity: "2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified"
 progress:
-  total_phases: 65
+  [██████████] 96%
   completed_phases: 39
   total_plans: 104
   completed_plans: 99
@@ -397,10 +413,10 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 99 (system-network-billing-checks-handler-wiring)
-Plan: 02 of 02 complete
-Status: Complete
-Last activity: 2026-03-21 -- 99-02 complete: PreFlightFailed alert rate-limiting (60s cooldown, Option<Instant> on AppState); lock screen + in_maintenance always fire; retry loop confirmed no-alert by design (STAFF-04)
+Phase: 84 (iracing-telemetry)
+Plan: 01 of 02 complete
+Status: In Progress
+Last activity: 2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -524,7 +540,7 @@ Last activity: 2026-03-21 -- 99-02 complete: PreFlightFailed alert rate-limiting
 
 ## Session Continuity
 
-Last session: 2026-03-21T05:25:55.658Z
-Stopped at: Completed 99-02-PLAN.md
+Last session: 2026-03-21T05:27:15.872Z
+Stopped at: Completed 84-01-PLAN.md
 Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
