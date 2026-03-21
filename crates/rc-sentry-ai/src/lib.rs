@@ -17,3 +17,7 @@ pub mod recognition {
     pub mod tracker;
     pub mod types;
 }
+
+pub mod enrollment {
+    pub mod types;
+}

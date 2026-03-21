@@ -58,6 +58,18 @@ impl Gallery {
     pub async fn entry_count(&self) -> usize {
         self.entries.read().await.len()
     }
+
+    /// Add a single entry to the gallery (used after enrollment, avoids full reload).
+    pub async fn add_entry(&self, entry: GalleryEntry) {
+        let mut entries = self.entries.write().await;
+        entries.push(entry);
+    }
+
+    /// Remove all entries for a person (used after person deletion).
+    pub async fn remove_person(&self, person_id: i64) {
+        let mut entries = self.entries.write().await;
+        entries.retain(|e| e.person_id != person_id);
+    }
 }
 
 #[cfg(test)]
@@ -141,5 +153,59 @@ mod tests {
         let gallery = Gallery::new(entries, 0.45);
         let result = gallery.find_match(&b).await;
         assert!(result.is_none(), "orthogonal embedding should not match");
+    }
+
+    #[tokio::test]
+    async fn test_add_entry() {
+        let gallery = Gallery::new(vec![], 0.45);
+        assert_eq!(gallery.entry_count().await, 0);
+
+        gallery
+            .add_entry(GalleryEntry {
+                person_id: 1,
+                person_name: "Alice".to_string(),
+                embedding: make_embedding(1.0),
+            })
+            .await;
+
+        assert_eq!(gallery.entry_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_remove_person() {
+        let entries = vec![
+            GalleryEntry {
+                person_id: 1,
+                person_name: "Alice".to_string(),
+                embedding: make_embedding(1.0),
+            },
+            GalleryEntry {
+                person_id: 1,
+                person_name: "Alice".to_string(),
+                embedding: make_embedding(0.9),
+            },
+            GalleryEntry {
+                person_id: 2,
+                person_name: "Bob".to_string(),
+                embedding: make_embedding(0.5),
+            },
+        ];
+        let gallery = Gallery::new(entries, 0.45);
+        assert_eq!(gallery.entry_count().await, 3);
+
+        gallery.remove_person(1).await;
+        assert_eq!(gallery.entry_count().await, 1, "only Bob's entry should remain");
+    }
+
+    #[tokio::test]
+    async fn test_remove_person_nonexistent() {
+        let entries = vec![GalleryEntry {
+            person_id: 1,
+            person_name: "Alice".to_string(),
+            embedding: make_embedding(1.0),
+        }];
+        let gallery = Gallery::new(entries, 0.45);
+        gallery.remove_person(999).await;
+        assert_eq!(gallery.entry_count().await, 1, "should not remove anything");
     }
 }
