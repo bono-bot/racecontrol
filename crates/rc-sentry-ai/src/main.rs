@@ -230,9 +230,17 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("enrollment photo processing unavailable (missing detector or recognizer); CRUD endpoints still work");
     }
 
+    // Initialize attendance API state
+    let attendance_state = Arc::new(attendance::routes::AttendanceState {
+        db_path: config.recognition.gallery_db_path.clone(),
+        present_timeout_secs: config.attendance.present_timeout_secs,
+        min_shift_hours: config.attendance.min_shift_hours,
+    });
+
     let app = health::health_router(state)
         .merge(health::privacy_router(audit_writer.clone()))
-        .merge(enrollment::routes::enrollment_router(enrollment_state));
+        .merge(enrollment::routes::enrollment_router(enrollment_state))
+        .merge(attendance::routes::attendance_router(attendance_state));
     let addr = format!("{}:{}", config.service.host, config.service.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("rc-sentry-ai health endpoint listening on {addr}");
