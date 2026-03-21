@@ -1,7 +1,7 @@
 # Requirements: v16.0 Security Camera AI & Attendance
 
 **Defined:** 2026-03-21
-**Core Value:** Automatically identify and log every person entering Racing Point HQ — customers get recognized and their visit is logged without manual check-in, staff attendance is tracked hands-free.
+**Core Value:** Automatically identify and log every person entering Racing Point HQ -- customers get recognized and their visit is logged without manual check-in, staff attendance is tracked hands-free.
 
 ## v1 Requirements
 
@@ -40,7 +40,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Monitoring
 
 - [ ] **MNTR-01**: Live camera feed viewing in dashboard (MJPEG proxy)
-- [ ] **MNTR-02**: Timeline-based recording playback with event markers
+- [ ] **MNTR-02**: NVR playback proxy -- query Dahua NVR (.18) API for stored footage, serve through dashboard with event markers
 
 ### Privacy
 
@@ -54,11 +54,6 @@ Deferred to future release. Tracked but not in current roadmap.
 
 - **NOTF-01**: Telegram bot alerts for attendance and security events
 - **NOTF-02**: Mobile push notifications to Uday's phone
-
-### Recording
-
-- **RECD-01**: 30-day continuous recording with local retention
-- **RECD-02**: Cloud backup of recordings to Bono VPS
 
 ### Attendance (Extended)
 
@@ -80,6 +75,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | WhatsApp Business API | Meta verification, per-message costs, template approval overhead |
 | Biometric PIN verification for staff | Face-only is sufficient for clock-in/out |
 | On-camera face detection (Dahua AI) | Inconsistent across camera models, prefer unified pipeline |
+| Separate recording pipeline | NVR at .18 already records all 13 cameras -- use NVR API for playback |
+| Cloud backup of recordings | NVR handles retention; no need to duplicate to Bono VPS |
 
 ## Traceability
 
@@ -87,30 +84,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CAM-01 | — | Pending |
-| CAM-02 | — | Pending |
-| CAM-03 | — | Pending |
-| CAM-04 | — | Pending |
-| FACE-01 | — | Pending |
-| FACE-02 | — | Pending |
-| FACE-03 | — | Pending |
-| FACE-04 | — | Pending |
-| ENRL-01 | — | Pending |
-| ENRL-02 | — | Pending |
-| ATTN-01 | — | Pending |
-| ATTN-02 | — | Pending |
-| ALRT-01 | — | Pending |
-| ALRT-02 | — | Pending |
-| ALRT-03 | — | Pending |
-| MNTR-01 | — | Pending |
-| MNTR-02 | — | Pending |
-| PRIV-01 | — | Pending |
+| CAM-01 | Phase 1 | Pending |
+| CAM-02 | Phase 1 | Pending |
+| CAM-03 | Phase 1 | Pending |
+| CAM-04 | Phase 1 | Pending |
+| FACE-01 | Phase 2 | Pending |
+| FACE-02 | Phase 3 | Pending |
+| FACE-03 | Phase 3 | Pending |
+| FACE-04 | Phase 3 | Pending |
+| ENRL-01 | Phase 4 | Pending |
+| ENRL-02 | Phase 4 | Pending |
+| ATTN-01 | Phase 5 | Pending |
+| ATTN-02 | Phase 5 | Pending |
+| ALRT-01 | Phase 6 | Pending |
+| ALRT-02 | Phase 6 | Pending |
+| ALRT-03 | Phase 6 | Pending |
+| MNTR-01 | Phase 7 | Pending |
+| MNTR-02 | Phase 8 | Pending |
+| PRIV-01 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after initial definition*
+*Last updated: 2026-03-21 after roadmap creation -- all 18 requirements mapped to phases*
