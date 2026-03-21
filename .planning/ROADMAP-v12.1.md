@@ -56,7 +56,7 @@ Plans:
   5. Process audit log rotates at 512KB without data loss and without crashing rc-agent
 **Plans**: 3 plans
 Plans:
-- [ ] 103-01-PLAN.md — ProcessGuardConfig in config.rs + walkdir dep + guard_whitelist/guard_violation_tx/rx fields in AppState and main.rs
+- [x] 103-01-PLAN.md — ProcessGuardConfig in config.rs + walkdir dep + guard_whitelist/guard_violation_tx/rx fields in AppState and main.rs
 - [ ] 103-02-PLAN.md — core process_guard.rs module: scan loop, grace period, taskkill, PID identity, CRITICAL zero-grace, log rotation, AgentMessage::ProcessViolation dispatch
 - [ ] 103-03-PLAN.md — autostart audit (Run keys + Startup folder) added to process_guard.rs + whitelist fetch on WS connect in main.rs + guard_violation_rx drain in event_loop.rs + UpdateProcessWhitelist handler in ws_handler.rs
 
@@ -90,7 +90,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 101. Protocol Foundation | 1/1 | Complete | 2026-03-21 |
 | 102. Whitelist Schema + Config + Fetch Endpoint | 2/2 | Complete | 2026-03-21 |
-| 103. Pod Guard Module | 0/3 | Not started | - |
+| 103. Pod Guard Module | 1/3 | In progress | 103-01 complete |
 | 104. Server Guard Module + Alerts | 0/TBD | Not started | - |
 | 105. Port Audit + Scheduled Tasks + James Binary | 0/TBD | Not started | - |
 

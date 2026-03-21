@@ -92,9 +92,9 @@ Deferred to future release.
 | ALERT-01 | Phase 103 | Pending |
 | ALERT-02 | Phase 104 | Pending |
 | ALERT-03 | Phase 104 | Pending |
-| ALERT-04 | Phase 103 | Pending |
+| ALERT-04 | Phase 103 | In progress (103-01) |
 | ALERT-05 | Phase 104 | Pending |
-| DEPLOY-01 | Phase 103 | Pending |
+| DEPLOY-01 | Phase 103 | In progress (103-01) |
 | DEPLOY-02 | Phase 104 | Pending |
 | DEPLOY-03 | Phase 105 | Pending |
 
