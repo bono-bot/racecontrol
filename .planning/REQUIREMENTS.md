@@ -41,7 +41,7 @@ Pre-flight checks that run before every customer session, auto-fix failures, and
 - [ ] **STAFF-01**: Kiosk dashboard shows pre-flight status badge per pod (pass/fail/maintenance)
 - [ ] **STAFF-02**: Staff can manually clear MaintenanceRequired state from kiosk dashboard
 - [ ] **STAFF-03**: Pod marked unavailable in fleet health while in MaintenanceRequired state
-- [ ] **STAFF-04**: Pre-flight failure alerts rate-limited (no flood on repeated failures)
+- [x] **STAFF-04**: Pre-flight failure alerts rate-limited (no flood on repeated failures)
 
 ## v12.0+ Requirements
 
@@ -83,7 +83,7 @@ Deferred to future release.
 | SYS-03 | Phase 99 | Complete |
 | SYS-04 | Phase 99 | Complete |
 | NET-01 | Phase 99 | Complete |
-| STAFF-04 | Phase 99 | Pending |
+| STAFF-04 | Phase 99 | Complete |
 | STAFF-01 | Phase 100 | Pending |
 | STAFF-02 | Phase 100 | Pending |
 | STAFF-03 | Phase 100 | Pending |

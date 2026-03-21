@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 99-02-PLAN.md
+last_updated: "2026-03-21T05:25:55.665Z"
+last_activity: "2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified"
+progress:
+  total_phases: 65
+  completed_phases: 39
+  total_plans: 104
+  completed_plans: 99
+  percent: 95
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Completed 99-01-PLAN.md
 last_updated: "2026-03-21T05:20:01.351Z"
 last_activity: "2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified"
 progress:
-  total_phases: 65
+  [██████████] 95%
   completed_phases: 38
   total_plans: 104
   completed_plans: 98
@@ -381,10 +397,10 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 83 (f1-25-telemetry)
-Plan: 01 of 01 complete
+Phase: 99 (system-network-billing-checks-handler-wiring)
+Plan: 02 of 02 complete
 Status: Complete
-Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified
+Last activity: 2026-03-21 -- 99-02 complete: PreFlightFailed alert rate-limiting (60s cooldown, Option<Instant> on AppState); lock screen + in_maintenance always fire; retry loop confirmed no-alert by design (STAFF-04)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -485,6 +501,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 - 98-01: failure_strings.clone() before AgentMessage send — keeps original for show_maintenance_required() in ws_handler; debug_server.rs exhaustive match needed MaintenanceRequired arm (Rule 1 auto-fix, caught immediately on first compile)
 - 98-02: check_lock_screen_http_on(addr) helper for port-param testability (option b — cleaner); PreFlightPassed has only pod_id field (no timestamp) — corrected from plan snippet at compile time (Rule 1 auto-fix); Window not found returns Warn (advisory, not a blocker)
 - 99-01: ws_connect_elapsed_secs passed as u64 parameter to run() — decouples pre_flight module from ConnectionState; Disk check Warn (not Fail) if C: not found — graceful on non-standard disk layouts; WS stability is Warn not Fail per NET-01 spec — advisory only (SYS-02, SYS-03, SYS-04, NET-01 complete)
+- 99-02: Option<Instant> on AppState for PreFlightFailed cooldown — safe in single-threaded select! loop, no Arc/Mutex needed; retry loop does NOT send alerts (correct by design from 98-02, only logs + refreshes lock screen); reset to None on Pass ensures first failure after recovery always alerts (STAFF-04 complete)
 
 ### Blockers/Concerns
 
@@ -507,7 +524,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 
 ## Session Continuity
 
-Last session: 2026-03-21T05:20:01.344Z
-Stopped at: Completed 99-01-PLAN.md
+Last session: 2026-03-21T05:25:55.658Z
+Stopped at: Completed 99-02-PLAN.md
 Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
