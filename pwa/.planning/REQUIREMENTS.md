@@ -54,10 +54,10 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Kiosk PIN Launch
 
 - [ ] **KIOSK-01**: Kiosk displays PIN entry screen for walk-in customers with remote bookings
-- [ ] **KIOSK-02**: PIN validated against local server's synced reservations
-- [ ] **KIOSK-03**: Valid PIN triggers pod assignment (first available) and game launch
-- [ ] **KIOSK-04**: Rate limiting on PIN entry: max 5 attempts per minute, lockout after 10 failures
-- [ ] **KIOSK-05**: PIN is one-time use — marked as redeemed immediately on successful validation
+- [x] **KIOSK-02**: PIN validated against local server's synced reservations
+- [x] **KIOSK-03**: Valid PIN triggers pod assignment (first available) and game launch
+- [x] **KIOSK-04**: Rate limiting on PIN entry: max 5 attempts per minute, lockout after 10 failures
+- [x] **KIOSK-05**: PIN is one-time use — marked as redeemed immediately on successful validation
 - [ ] **KIOSK-06**: Customer sees assigned pod number and game loading status after PIN entry
 
 ### Sync Hardening
@@ -142,10 +142,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | BOOK-06 | Phase 4 | Complete |
 | BOOK-07 | Phase 4 | Complete |
 | KIOSK-01 | Phase 5 | Pending |
-| KIOSK-02 | Phase 5 | Pending |
-| KIOSK-03 | Phase 5 | Pending |
-| KIOSK-04 | Phase 5 | Pending |
-| KIOSK-05 | Phase 5 | Pending |
+| KIOSK-02 | Phase 5 | Complete |
+| KIOSK-03 | Phase 5 | Complete |
+| KIOSK-04 | Phase 5 | Complete |
+| KIOSK-05 | Phase 5 | Complete |
 | KIOSK-06 | Phase 5 | Pending |
 | SYNC-01 | Phase 3 | Complete |
 | SYNC-02 | Phase 3 | Complete |

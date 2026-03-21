@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-03-21T13:11:43.738Z"
-last_activity: 2026-03-21 — Plan 04-03 complete (PWA remote booking flow + reservations page)
+status: in_progress
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-21T13:32:25Z"
+last_activity: 2026-03-21 — Plan 05-01 complete (kiosk PIN redemption endpoint + lockout)
 progress:
   total_phases: 10
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_plans: 8
+  completed_plans: 7
+  percent: 88
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers book and pay from anywhere, walk in with a PIN, and race — while Uday sees everything live from his phone without being on-site.
-**Current focus:** Phase 4: Remote Booking & PIN Generation
+**Current focus:** Phase 5: Kiosk PIN Launch
 
 ## Current Position
 
-Phase: 4 of 10 (Remote Booking & PIN Generation)
-Plan: 3 of 3 in current phase (04-03 complete)
-Status: Phase 04 complete, all 3 plans done
-Last activity: 2026-03-21 — Plan 04-03 complete (PWA remote booking flow + reservations page)
+Phase: 5 of 10 (Kiosk PIN Launch)
+Plan: 1 of 2 in current phase (05-01 complete)
+Status: Phase 05 in progress
+Last activity: 2026-03-21 — Plan 05-01 complete (kiosk PIN redemption endpoint + lockout)
 
-Progress: [██████████] 100%
+Progress: [████████░░] 88%
 
 ## Performance Metrics
 
@@ -45,13 +45,14 @@ Progress: [██████████] 100%
 |-------|-------|-------|----------|
 | 03-sync-hardening | 3 | 10 min | 3 min |
 | 04-remote-booking-pin-generation | 3 | 8 min | 3 min |
+| 05-kiosk-pin-launch | 1 | 5 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 3, 3, 3, 4, 5 min
+- Trend: stable
 
 *Updated after each plan completion*
-| Phase 04 P03 | 4 | 2 tasks | 3 files |
+| Phase 05 P01 | 5 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,10 @@ Recent decisions affecting current work:
 - [04-02]: Negative amount_paise signals refund in debit_intents table
 - [Phase 04]: Cloud mode detected via NEXT_PUBLIC_IS_CLOUD env var rather than URL sniffing
 - [Phase 04]: Modify reservation uses inline form on /reservations page rather than navigating to /book
+- [05-01]: Redeem-pin route in auth_rate_limited_routes (5/min tower-governor) since customers use directly
+- [05-01]: Pod availability checked BEFORE consuming PIN to avoid losing reservation on full venue
+- [05-01]: Lockout uses LazyLock static HashMap rather than AppState field
+- [05-01]: Pricing tier resolved via kiosk_experiences table
 
 ### Pending Todos
 
@@ -91,6 +96,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T13:06:28.911Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-03-21T13:32:25Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
