@@ -17,6 +17,7 @@ mod lock_screen;
 mod overlay;
 mod pre_flight;
 mod remote_ops;
+mod safe_mode;
 mod self_heal;
 mod process_guard;
 mod self_monitor;
