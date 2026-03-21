@@ -907,12 +907,12 @@ Plans:
   4. Kiosk PWA cannot navigate to /admin or /staff routes -- server rejects with 403
   5. When a billing session ends, the kiosk locks automatically within 10 seconds -- no continued access
   6. A kiosk escape attempt (unauthorized process detected, DevTools open) triggers automatic session pause and WhatsApp alert
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 78-01: TBD
-- [ ] 78-02: TBD
-- [ ] 78-03: TBD
+- [ ] 78-01-PLAN.md — Pod lockdown: Edge kiosk flags, keyboard hook enhancement, USB/accessibility/TaskMgr registry (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
+- [ ] 78-02-PLAN.md — Network source tagging middleware + staff route protection from pod IPs (KIOSK-07, KIOSK-05)
+- [ ] 78-03-PLAN.md — Session-scoped kiosk tokens + KioskLockdown auto-pause billing + WhatsApp alert (SESS-04, SESS-05)
 
 ### Phase 79: Data Protection
 **Goal**: Customer PII is encrypted at rest and scrubbed from logs, with self-service data export and deletion
