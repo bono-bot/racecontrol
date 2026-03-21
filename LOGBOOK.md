@@ -438,3 +438,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 15:45 IST | James | bc2e18f | docs(106-01): SUMMARY.md + STATE.md + ROADMAP.md — LOG-01, LOG-02, LOG-03 complete |
 | 2026-03-21 16:15 IST | James | 00e0bd3 | feat(106-02): migrate ws_handler.rs (60) and event_loop.rs (53) to structured target: labels |
 | 2026-03-21 16:20 IST | James | 578d053 | feat(106-02): migrate ac_launcher.rs (51 calls) to structured target: labels — 164 total migrated |
+| 2026-03-21 17:01 IST | James | 99412bc | feat(106-04): migrate remote_ops.rs, self_monitor.rs, self_heal.rs to structured log labels |
+| 2026-03-21 17:01 IST | James | b4d0588 | feat(106-04): migrate game_process.rs, overlay.rs, billing_guard.rs, pre_flight.rs to structured log labels |
+| 2026-03-21 17:01 IST | James | a47847f | docs(106-04): complete structured log labels plan 04 — 79 tracing calls in 7 files migrated |
