@@ -1852,7 +1852,7 @@ Parallel after 122: 125+126 | Parallel after 120: 127+128 | 129 after 124+125
 - [x] **Phase 131: Shell Relay** - Separate APPROVE-only handler for arbitrary binary execution with hardened approval gate (completed 2026-03-21)
 - [x] **Phase 132: Chain Orchestration** - ExecResultBroker + ChainOrchestrator for sequential multi-step execution (completed 2026-03-21)
 - [x] **Phase 133: Task Delegation + Audit Trail** - Claude-to-Claude Promise delegation and append-only exec audit log (completed 2026-03-21)
-- [ ] **Phase 134: Advanced Chain Features + Integration Hardening** - Templates, output templating, per-step retry, pause/resume, registry introspection
+- [x] **Phase 134: Advanced Chain Features + Integration Hardening** - Templates, output templating, per-step retry, pause/resume, registry introspection (completed 2026-03-21)
 
 ### Phase 130: Protocol Foundation + Dynamic Registry
 **Goal**: All new message types are defined and either side can register runtime commands without touching the static registry
@@ -1939,4 +1939,4 @@ Plans:
 | 131. Shell Relay | 1/1 | Complete    | 2026-03-21 |
 | 132. Chain Orchestration | 2/2 | Complete    | 2026-03-21 |
 | 133. Task Delegation + Audit Trail | 2/2 | Complete    | 2026-03-21 |
-| 134. Advanced Chain Features + Integration Hardening | 2/2 | Complete | 2026-03-22 |
+| 134. Advanced Chain Features + Integration Hardening | 2/2 | Complete    | 2026-03-21 |
