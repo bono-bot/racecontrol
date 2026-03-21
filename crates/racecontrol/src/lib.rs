@@ -23,6 +23,7 @@ pub mod fleet_health;
 pub mod friends;
 pub mod game_launcher;
 pub mod multiplayer;
+pub mod network_source;
 pub mod port_allocator;
 pub mod lap_tracker;
 pub mod pod_healer;
