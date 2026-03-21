@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 83-01-PLAN.md
-last_updated: "2026-03-21T04:35:45.409Z"
+stopped_at: Phase 84 context gathered
+last_updated: "2026-03-21T04:42:16.643Z"
 last_activity: "2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified"
 progress:
   total_phases: 65
@@ -473,7 +473,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 
 ## Session Continuity
 
-Last session: 2026-03-21T04:32:00.078Z
-Stopped at: Completed 83-01-PLAN.md
-Resume file: None
+Last session: 2026-03-21T04:42:16.636Z
+Stopped at: Phase 84 context gathered
+Resume file: .planning/phases/84-iracing-telemetry/84-CONTEXT.md
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
