@@ -4,7 +4,7 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 79-01-PLAN.md
-last_updated: "2026-03-21T02:12:15.115Z"
+last_updated: "2026-03-21T02:14:52.070Z"
 last_activity: "2026-03-21 -- 74-04 complete: event_loop.rs extracted with ConnectionState struct (17 fields), run() with 13 select! arms; handle_ws_message() 18->8 params; main.rs 2037->1179 lines (DECOMP-04)"
 progress:
   total_phases: 61

@@ -1292,7 +1292,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 71. rc-common Foundation + rc-sentry Core Hardening | 2/2 | Complete    | 2026-03-20 | - |
 | 72. rc-sentry Endpoint Expansion + Integration Tests | 2/2 | Complete    | 2026-03-20 | - |
 | 73. Critical Business Tests | 2/2 | Complete    | 2026-03-20 | - |
-| 74. rc-agent Decomposition | 4/4 | Complete   | 2026-03-21 | - |
+| 74. rc-agent Decomposition | 4/4 | Complete    | 2026-03-21 | - |
 | 75. Security Audit & Foundations | 2/2 | Complete    | 2026-03-20 | - |
 | 76. API Authentication & Admin Protection | 6/6 | Complete    | 2026-03-20 | - |
 | 77. Transport Security | 2/2 | Complete    | 2026-03-20 | - |
