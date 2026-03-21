@@ -83,12 +83,12 @@ Plans:
   3. Customer receives PIN via WhatsApp message after booking
   4. Customer can view, cancel, or modify their reservation from the PWA before arriving
   5. Expired reservations (past 24h TTL) are automatically cleaned up and wallet is refunded if debited
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
-- [ ] 04-03: TBD
+- [ ] 04-01-PLAN.md — Backend reservation module + API endpoints (create/get/modify/cancel) + PIN generation + WhatsApp delivery
+- [ ] 04-02-PLAN.md — Scheduler expiry cleanup + automatic wallet refund for expired reservations
+- [ ] 04-03-PLAN.md — PWA remote booking flow + /reservations management page
 
 ### Phase 5: Kiosk PIN Launch
 **Goal**: Customer enters PIN at venue kiosk and the game auto-launches on an assigned pod with zero staff interaction
@@ -182,7 +182,7 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 |-------|----------------|--------|-----------|
 | 1. Cloud Infrastructure | 0/2 | Not started | - |
 | 2. API + PWA Cloud Deploy | 0/2 | Not started | - |
-| 3. Sync Hardening | 0/3 | Not started | - |
+| 3. Sync Hardening | 3/3 | Complete | 2026-03-21 |
 | 4. Remote Booking + PIN Generation | 0/3 | Not started | - |
 | 5. Kiosk PIN Launch | 0/2 | Not started | - |
 | 6. Admin Panel Cloud Deploy | 0/2 | Not started | - |
