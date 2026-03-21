@@ -26,7 +26,7 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 
 ### Hardening
 
-- [ ] **HARD-01**: SetWindowsHookEx keyboard hook (Phase 78) is fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr)
+- [x] **HARD-01**: SetWindowsHookEx keyboard hook (Phase 78) is fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr)
 - [ ] **HARD-02**: rc-agent.exe and rc-sentry.exe are code signed with an OV certificate via signtool in the deploy pipeline
 - [ ] **HARD-03**: Shared memory telemetry readers defer MapViewOfFile connect until 5 seconds after game process is stable (anti-cheat init window)
 - [ ] **HARD-04**: UDP telemetry sockets are created only when the corresponding game is active and destroyed on game exit
@@ -36,7 +36,7 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 
 - [ ] **VALID-01**: Each protected game (F1 25, iRacing, LMU) completes a full staff test session on Pod 8 with safe mode active and no anti-cheat warnings
 - [ ] **VALID-02**: Billing lifecycle (start, ticks, end) works correctly during safe mode with no gaps or incorrect amounts
-- [ ] **VALID-03**: Kiosk lockdown remains effective (no Win key, no Alt+Tab, no Task Manager) after keyboard hook replacement
+- [x] **VALID-03**: Kiosk lockdown remains effective (no Win key, no Alt+Tab, no Task Manager) after keyboard hook replacement
 
 ## Future Requirements
 
@@ -70,14 +70,14 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 | SAFE-05 | Phase 109 | Pending |
 | SAFE-06 | Phase 109 | Pending |
 | SAFE-07 | Phase 109 | Pending |
-| HARD-01 | Phase 108 | Pending |
+| HARD-01 | Phase 108 | Complete |
 | HARD-02 | Phase 111 | Pending |
 | HARD-03 | Phase 110 | Pending |
 | HARD-04 | Phase 110 | Pending |
 | HARD-05 | Phase 110 | Pending |
 | VALID-01 | Phase 111 | Pending |
 | VALID-02 | Phase 111 | Pending |
-| VALID-03 | Phase 108 | Pending |
+| VALID-03 | Phase 108 | Complete |
 
 **Coverage:**
 - v15.0 requirements: 19 total

@@ -46,16 +46,16 @@ gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: AntiCheat Compatibility
 status: in_progress
-stopped_at: Completed 107-01-PLAN.md (checkpoint:human-action -- awaiting Uday cert purchase)
-last_updated: "2026-03-21T19:08:00.000Z"
+stopped_at: Completed 108-01-PLAN.md Task 1 (checkpoint:human-verify -- awaiting Pod 8 canary test)
+last_updated: "2026-03-21T16:08:28.000Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
-  percent: 20
-current_phase: 107
-current_phase_name: Behavior Audit + Certificate Procurement
+  completed_plans: 3
+  percent: 30
+current_phase: 108
+current_phase_name: Keyboard Hook Replacement
 phases:
   - "107: Behavior Audit + Certificate Procurement (AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04)"
   - "108: Keyboard Hook Replacement (HARD-01, VALID-03)"
@@ -77,6 +77,9 @@ decisions:
   - "107-01: All sim adapters use OpenFileMappingW + MapViewOfFile (correct safe pattern, not ReadProcessMemory)"
   - "107-01: OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) in game_process.rs:321 is HIGH risk -- even query-only handles to game PID are detectable by EAAC/EOS/EAC"
   - "107-01: Phase 108 MUST use GPO registry keys (NoWinKeys=1 + DisableTaskMgr=1) -- pods are Windows 11 Pro, Keyboard Filter requires IoT Enterprise LTSC"
+  - "108-01: GPO via reg.exe (no winreg crate) chosen -- matches lock_screen.rs pattern, zero new dependencies"
+  - "108-01: keyboard-hook Cargo feature preserves rollback -- cargo build --features keyboard-hook restores SetWindowsHookEx behavior"
+  - "108-01: imports (AtomicPtr, Ordering, LPARAM, LRESULT, WPARAM) also gated behind cfg(feature) to prevent unused import warnings"
 ---
 
 ---
