@@ -126,7 +126,8 @@ mod tests {
             .await
             .expect("in-memory sqlite pool");
 
-        Arc::new(AppState::new(config, pool))
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, pool, field_cipher))
     }
 
     fn test_router(state: Arc<AppState>) -> Router {

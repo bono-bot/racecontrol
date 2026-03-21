@@ -617,7 +617,8 @@ mod tests {
         .await;
 
         let config = Config::default_test();
-        Arc::new(AppState::new(config, db))
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, field_cipher))
     }
 
     // ── LIFE-02: Billing gate tests ──────────────────────────────────────────

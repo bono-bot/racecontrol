@@ -70,6 +70,13 @@ impl FieldCipher {
     }
 }
 
+/// Create a FieldCipher with deterministic test keys (NOT for production use).
+/// Exposed for unit and integration tests (integration tests are separate binaries
+/// that cannot access #[cfg(test)] items from the library).
+pub fn test_field_cipher() -> FieldCipher {
+    FieldCipher::new(&[0x42u8; 32], &[0x7Fu8; 32])
+}
+
 /// Load encryption keys from environment variables.
 ///
 /// Requires:

@@ -10,6 +10,7 @@ use crate::ac_camera::CameraController;
 use crate::ac_server::AcServerManager;
 use crate::billing::BillingManager;
 use crate::config::Config;
+use crate::crypto::encryption::FieldCipher;
 use crate::email_alerts::EmailAlerter;
 use crate::fleet_health::FleetHealthStore;
 use crate::game_launcher::GameManager;
@@ -170,10 +171,13 @@ pub struct AppState {
     /// Latest venue config snapshot from on-premise server (via comms-link sync_push).
     /// None until first config_snapshot received.
     pub venue_config: RwLock<Option<VenueConfigSnapshot>>,
+    /// Field-level encryption cipher for PII columns (AES-256-GCM + HMAC-SHA256).
+    /// Loaded from RACECONTROL_ENCRYPTION_KEY and RACECONTROL_HMAC_KEY env vars at startup.
+    pub field_cipher: FieldCipher,
 }
 
 impl AppState {
-    pub fn new(config: Config, db: SqlitePool) -> Self {
+    pub fn new(config: Config, db: SqlitePool, field_cipher: FieldCipher) -> Self {
         let (dashboard_tx, _) = broadcast::channel(1024);
         let (bono_event_tx, _) = broadcast::channel(256);
         // Extract email alert config before config is moved into the struct
@@ -222,6 +226,7 @@ impl AppState {
             relay_available: AtomicBool::new(false),
             pod_fleet_health: RwLock::new(HashMap::new()),
             venue_config: RwLock::new(None),
+            field_cipher,
         }
     }
 
