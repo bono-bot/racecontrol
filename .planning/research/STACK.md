@@ -1,245 +1,276 @@
-# Technology Stack: Security Hardening
+# Stack Research: Pre-Flight Session Checks (v11.1)
 
-**Project:** Racing Point Operations Security (v12)
-**Researched:** 2026-03-20
-**Scope:** Adding API auth, admin PIN protection, HTTPS, customer data protection, and PWA hardening to existing Rust/Axum + Next.js system
+**Domain:** rc-agent Windows service — pre-session health gate
+**Researched:** 2026-03-21
+**Confidence:** HIGH
+
+---
 
 ## Existing Stack (Do Not Change)
 
-These are already in place and must be extended, not replaced:
+Everything below is already compiled into rc-agent. Do not add duplicates.
 
-| Technology | Version | Role |
-|------------|---------|------|
-| Rust (edition 2024) | 1.93.1 | Backend language |
-| Axum | 0.8 | HTTP framework (ws, macros) |
-| Tower / tower-http | 0.5 / 0.6 | Middleware (cors, fs, trace) |
-| SQLx + SQLite | 0.8 | Database |
-| jsonwebtoken | 9 | JWT creation/validation (already in workspace) |
-| Next.js | 16.1.6 | PWA + web dashboard |
-| React | 19.2.3 | Frontend |
-| Tailwind CSS | 4 | Styling |
+| Technology | Version | Already Used For |
+|------------|---------|-----------------|
+| `tokio` (full) | 1 | Async runtime, `spawn_blocking`, `select!`, intervals, timers |
+| `winapi` | 0.3 | HID, process, winuser, wingdi — features already include `winuser` + `wingdi` |
+| `sysinfo` | 0.33 | Disk, memory, process scan (used in `self_test.rs`, `kiosk.rs`, `game_process.rs`) |
+| `hidapi` | 2 | Wheelbase HID detection (`ffb_controller.rs`) |
+| `reqwest` | 0.12 | HTTP client for orphan session end, Ollama queries |
+| `tokio-tungstenite` | 0.26 | WebSocket client (WS connectivity already tracked in `AppState`) |
+| `anyhow` + `thiserror` | 1 / 2 | Error handling throughout |
+| `tracing` | 0.1 | Structured logging |
+| `serde` + `serde_json` | 1 | Message serialization for WS notification |
 
----
-
-## Recommended Security Stack
-
-### 1. API Authentication Middleware
-
-**Already have:** `jsonwebtoken = "9"` in workspace, `auth/mod.rs` with JWT Claims, token creation, PIN validation.
-**Missing:** Axum middleware layer that enforces auth on protected routes.
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `axum::middleware::from_fn` | (built-in to axum 0.8) | Auth middleware layer | Native Axum pattern. No extra crate needed. Use `from_fn` to create a layer that extracts Bearer token from Authorization header, validates JWT via existing `jsonwebtoken` crate, and injects claims into request extensions. Already have the JWT infra -- just need the middleware wiring. |
-| `tower-http` (existing) | 0.6 | Sensitive header marking | Already a dependency. Use `SetSensitiveHeadersLayer` to mark Authorization headers as sensitive in traces so tokens don't leak to logs. |
-
-**Confidence:** HIGH -- axum::middleware::from_fn is the documented, idiomatic approach for custom auth in Axum 0.8. No third-party auth crate needed given existing JWT setup.
-
-**What NOT to use:**
-- `axum-jwt-auth` crate -- adds complexity for JWKS/remote key support you don't need. Your JWT secret is local in `racecontrol.toml`.
-- `tower-http`'s `ValidateRequestHeaderLayer` -- too simplistic for JWT validation (only does basic auth/bearer presence check, no claims parsing).
-- Auth0/Keycloak/any external identity provider -- massive overkill for single-venue, single-admin operation.
-
-### 2. Admin PIN / Password Hashing
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `argon2` | 0.5 | Admin PIN hashing | RustCrypto's pure-Rust Argon2id implementation. OWASP-recommended algorithm for password hashing. Argon2id is memory-hard, making GPU/ASIC brute-force impractical. Use for hashing Uday's admin PIN at rest in config/DB. The `password-hash` trait it implements gives PHC string format output (algorithm + salt + hash in one string). |
-
-**Confidence:** HIGH -- `argon2` (RustCrypto) is the standard Rust crate. Version 0.5.3 is latest stable.
-
-**What NOT to use:**
-- `rust-argon2` (different crate, `sru-systems`) -- less maintained, confusing name overlap.
-- `bcrypt` -- Argon2id is strictly better (memory-hard, won PHC competition). bcrypt has a 72-byte password limit.
-- Plain SHA-256/SHA-512 -- not a password hash; no salt, no work factor, trivially brute-forced.
-- Storing PIN in plaintext in `racecontrol.toml` -- must be hashed.
-
-### 3. HTTPS / TLS
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `axum-server` | 0.8 | TLS termination for Axum | Drop-in replacement for `axum::serve` that adds rustls TLS. Feature flag `tls-rustls` enables `bind_rustls()`. Loads PEM cert+key files. Works with self-signed certs for LAN use. |
-| `rcgen` | 0.14 | Self-signed certificate generation | Pure Rust X.509 cert generator. `generate_simple_self_signed(&["192.168.31.23", "localhost"])` produces cert+key for the server IP. Part of the rustls ecosystem (maintained by same org). Use at first startup to auto-generate certs if none exist. |
-| `rustls` | (transitive via axum-server) | TLS implementation | Pure Rust, no OpenSSL dependency. Already works with static CRT builds (important -- pods use +crt-static). No vcruntime or OpenSSL DLL needed on pods. |
-
-**Confidence:** HIGH -- axum-server 0.8 with tls-rustls is the documented approach for HTTPS with Axum. rcgen is maintained by the rustls team.
-
-**What NOT to use:**
-- `openssl` / `native-tls` -- requires OpenSSL DLLs on Windows. Breaks your static CRT requirement. Pain to cross-compile.
-- Let's Encrypt / ACME -- requires public DNS and port 80/443 accessible from internet. Your server is on a private LAN (192.168.31.x). Self-signed is correct for LAN-only services.
-- Reverse proxy (nginx/caddy) -- adds operational complexity for a Windows-based setup. Axum-native TLS is simpler.
-- No TLS at all (relying on "it's a LAN") -- kiosk pods are customer-accessible machines. Anyone on WiFi can sniff HTTP traffic. HTTPS prevents session hijacking and credential theft on the local network.
-
-### 4. Security Headers
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `tower-helmet` | 0.2 | Security HTTP headers | Sets CSP, X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security, etc. in one middleware layer. Tower-native, works directly with your existing tower-http stack. Default config is sane -- enable and customize CSP for your PWA's needs. |
-
-**Confidence:** MEDIUM -- tower-helmet is small but well-maintained. Alternative is manually setting headers via tower-http's `SetResponseHeaderLayer`, which works but is verbose.
-
-### 5. Rate Limiting
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `tower_governor` | 0.4 | API rate limiting | Wraps the `governor` crate (GCRA algorithm) as a Tower layer. Prevents brute-force attacks on PIN/auth endpoints. Configure per-IP limits: e.g., 5 requests/minute on `/api/v1/auth/*` endpoints. Already Tower-native, slots into your existing middleware stack. |
-
-**Confidence:** MEDIUM -- tower_governor is the most popular rate limiting layer for Tower. Version needs verification at build time.
-
-**What NOT to use:**
-- Rolling your own rate limiter -- GCRA is non-trivial to implement correctly. governor is battle-tested.
-- Global rate limiting only -- need per-IP limits to prevent one actor from locking everyone out.
-
-### 6. Data-at-Rest Protection (SQLite)
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Column-level encryption via `aes-gcm` | 0.10 | Encrypt PII columns in SQLite | Encrypt phone numbers, emails, payment details before storing in SQLite. AES-256-GCM provides authenticated encryption (tamper detection). Key stored in `racecontrol.toml` (separate from DB file). Simpler than SQLCipher for your use case -- only PII columns need encryption, not the entire DB. |
-
-**Confidence:** MEDIUM -- Column-level encryption is pragmatic for your scale. Full-DB encryption (SQLCipher) requires rebuilding SQLx with `bundled-sqlcipher` feature and adds significant build complexity on Windows.
-
-**What NOT to use:**
-- SQLCipher (`sqlx-sqlite-cipher`) -- requires linking against SQLCipher C library. Build complexity on Windows is high (need pre-built SQLCipher DLL or compile from source). Overkill when only ~5 columns contain PII. If you later need full-DB encryption, revisit.
-- No encryption at all -- customer phone numbers and payment details are in plaintext SQLite files on a multi-user Windows machine. Anyone with file access can read them.
-- Filesystem-level encryption (BitLocker) -- helps but doesn't protect against other processes or logged-in users reading the DB while the system is running.
-
-### 7. PWA Route Protection (Next.js 16)
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Next.js `proxy.ts` (was `middleware.ts`) | Built-in (Next.js 16) | Route-level auth checks | Next.js 16 renamed middleware.ts to proxy.ts. Use it to check for session cookie existence and redirect unauthenticated users. Lightweight -- only checks cookie presence, no DB calls. |
-| Server-side session validation | Custom (fetch to racecontrol API) | Validate session on data access | Never trust proxy.ts alone (CVE-2025-29927 showed middleware bypass). Validate JWT on every API call from the PWA to racecontrol. The Rust backend is the source of truth. |
-| `HttpOnly` + `Secure` + `SameSite=Strict` cookies | Built-in | Session cookie security | Store JWT in HttpOnly cookie (not localStorage). Prevents XSS from stealing tokens. SameSite=Strict prevents CSRF. Secure flag requires HTTPS (see TLS section). |
-
-**Confidence:** HIGH -- This is standard Next.js auth pattern. The CVE-2025-29927 middleware bypass reinforces that backend validation is mandatory.
-
-**What NOT to use:**
-- Auth.js / NextAuth -- designed for OAuth/social login flows. You have a simple PIN-to-JWT flow. Adding NextAuth adds complexity without value.
-- Clerk / Auth0 / any SaaS auth -- external dependency for a LAN-only app. Breaks when internet is down.
-- localStorage for JWT storage -- XSS-vulnerable. HttpOnly cookies are strictly safer.
-
-### 8. Kiosk Escape Prevention
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Chrome `--kiosk` flags | N/A (Chrome CLI) | Browser lockdown | `--kiosk --disable-extensions --disable-dev-tools --disable-pinch --noerrdialogs --disable-translate --no-first-run --autoplay-policy=no-user-gesture-required`. Already partially in use via rc-agent kiosk module. |
-| Windows Group Policy | N/A (OS) | OS-level lockdown | Disable Ctrl+Alt+Del task manager access, Alt+Tab, Windows key via Group Policy on pod machines. Filter keyboard shortcuts. Already noted as pending in CLAUDE.md (USB mass storage lockdown). |
-| CSP headers on kiosk PWA | Via tower-helmet | Prevent script injection | Strict Content-Security-Policy: only allow scripts from self, no inline scripts, no eval. Prevents any injected content from executing. |
-
-**Confidence:** HIGH -- Chrome kiosk flags + Group Policy is the standard approach for Windows kiosk lockdown. rc-agent already has kiosk module infrastructure.
+**Key insight:** Zero new Rust crates are needed. Every capability required for pre-flight checks is already in the dependency graph.
 
 ---
 
-## Supporting Libraries (Already in Stack)
+## New Capabilities Needed and How to Implement Them
 
-These existing dependencies serve security purposes -- no changes needed:
+### 1. Display Validation — Window Position Check
 
-| Library | Version | Security Role |
-|---------|---------|--------------|
-| `jsonwebtoken` | 9 | JWT encode/decode -- already handles HS256 signing |
-| `uuid` | 1 (v4) | Cryptographically random token IDs |
-| `rand` | 0.8 | Random PIN generation, JWT secret generation |
-| `tower-http` (cors) | 0.6 | CORS policy enforcement -- restrict origins to known kiosk/PWA domains |
-| `reqwest` | 0.12 | HTTPS client for cloud sync (already uses rustls by default) |
+**Requirement:** Verify the lock screen Edge window is visible and positioned at (0,0) on the primary monitor, not hidden off-screen or on a wrong monitor.
+
+**Approach: `winapi::um::winuser::GetWindowRect` + `FindWindowW`**
+
+Both `FindWindowW` and `GetWindowRect` are in `winapi::um::winuser`, already enabled via the `"winuser"` feature in `rc-agent/Cargo.toml`. No feature additions needed.
+
+`FindWindowW` is already called in `ac_launcher.rs` (line 1352), `ffb_controller.rs` (line 383), and `kiosk.rs` (line 913). `GetWindowRect` is in the same `winuser` module — it takes an `HWND` and returns a `RECT` with `left`, `top`, `right`, `bottom` fields.
+
+`get_virtual_screen_bounds()` already exists in `lock_screen.rs` and uses `GetSystemMetrics` (SM_XVIRTUALSCREEN etc.) to get the primary monitor origin. Reuse it directly.
+
+**What to check:**
+- `FindWindowW(NULL, "Racing Point\0")` returns non-null HWND — lock screen Edge is running
+- `GetWindowRect(hwnd, &mut rect)` succeeds — window handle is valid
+- `rect.left` and `rect.top` match the virtual screen origin from `get_virtual_screen_bounds()` (within ±50px tolerance for resize border artifacts per Microsoft DwmGetWindowAttribute note)
+- `rect.right - rect.left` >= primary monitor width (window is maximized, not minimized/partial)
+
+**Call site:** Must be in `tokio::task::spawn_blocking` — Win32 calls are blocking and the same pattern is used throughout the codebase (see `failure_monitor.rs` `is_game_process_hung()`).
+
+**Confidence:** HIGH — `winuser` feature confirmed in `Cargo.toml` line 62. `FindWindowW` + `GetWindowRect` confirmed available in `winapi 0.3 winuser` module.
+
+**What NOT to do:**
+- Do NOT take a screenshot and do pixel comparison — GDI `GetDC`/`GetPixel` is overkill. Window position check is sufficient and faster.
+- Do NOT add the `windows` crate (Microsoft's newer binding) — you already have `winapi 0.3` and mixing them causes duplicate symbol issues.
+- Do NOT add `win-screenshot` or any external screenshot crate — not needed.
 
 ---
 
-## Alternatives Considered
+### 2. ConspitLink Hardware Check — Process + HID
 
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Auth middleware | `axum::middleware::from_fn` | `axum-jwt-auth` crate | Extra dep for JWKS features we don't need |
-| Password hashing | `argon2` (RustCrypto) | `bcrypt`, `rust-argon2` | bcrypt has 72-byte limit; rust-argon2 is less maintained |
-| TLS | `axum-server` + `rustls` | `openssl` / `native-tls` | OpenSSL DLLs break static CRT; Windows build pain |
-| Cert generation | `rcgen` | Manual openssl CLI | rcgen is pure Rust, can auto-generate at startup |
-| Rate limiting | `tower_governor` | Custom implementation | GCRA is complex; governor is proven |
-| DB encryption | Column-level `aes-gcm` | SQLCipher | SQLCipher Windows build complexity; only ~5 PII columns |
-| Security headers | `tower-helmet` | Manual `SetResponseHeader` | tower-helmet is one line vs 8 manual layers |
-| PWA auth | Cookie-based JWT + backend validation | NextAuth / Auth.js | Overkill for PIN-to-JWT flow |
-| Frontend storage | HttpOnly cookies | localStorage | localStorage is XSS-vulnerable |
+**Requirement:** Verify ConspitLink is running and the wheelbase HID device is present.
+
+**Approach: `sysinfo` (processes) + existing `hidapi`**
+
+ConspitLink process check: `sysinfo::System::new()` + `refresh_processes()` scan for `ConspitLink.exe` by name. This is the exact pattern used in `kiosk.rs` (`enforce_process_whitelist_blocking`) and `game_process.rs` (`find_game_pid`). Copy that pattern.
+
+Wheelbase HID check: `AppState.hid_detected` is already set at startup in `main.rs`. For pre-flight, re-probe `FfbController::probe_hid()` (or equivalent in `ffb_controller.rs`) to get current state rather than using stale startup state. `hidapi` is already a dep.
+
+**Auto-fix:** If ConspitLink is not running, shell-launch it via `std::process::Command` (same approach as `ac_launcher.rs` game launch). The ConspitLink exe path is in `AgentConfig`.
+
+**Call site:** `spawn_blocking` — both `sysinfo::refresh_processes()` and `hidapi` enumeration are blocking (same warning comment in `kiosk.rs` line 619-621).
+
+**Confidence:** HIGH — direct reuse of established patterns in the codebase.
 
 ---
 
-## Installation
+### 3. Network Check — WebSocket + UDP Heartbeat
 
-### Rust (add to workspace Cargo.toml)
+**Requirement:** Confirm WS is connected and UDP heartbeat is alive before the session starts.
 
-```toml
-[workspace.dependencies]
-# Security additions
-argon2 = "0.5"
-aes-gcm = "0.10"
+**Approach: Read from existing `AppState` atomics**
 
-# Existing (no changes)
-jsonwebtoken = "9"
-rand = "0.8"
+- WS connectivity: `AppState` already tracks the connection. In `ws_handler.rs`, the pre-flight check runs inside the established WS connection handler for `BillingStarted` — so if we receive `BillingStarted`, WS is by definition connected. No additional check needed.
+- UDP heartbeat: `AppState.heartbeat_status` is an `Arc<HeartbeatStatus>` with `billing_active` atomic already. Check `udp_heartbeat::HeartbeatStatus` for last-seen timestamp or alive flag. Look at what fields exist on `HeartbeatStatus` to read UDP liveness. This is a lock-free atomic read — no `spawn_blocking` needed.
+
+**Confidence:** HIGH — state already maintained, just needs to be read at BillingStarted time.
+
+---
+
+### 4. Game Check — Orphaned Process Detection
+
+**Requirement:** Kill any orphaned AC/F1 processes before the new session starts.
+
+**Approach: `game_process::find_orphaned_game_processes()` (or equivalent)**
+
+The pattern is already in `game_process.rs`: `sysinfo` scan for known game process names. Wrap in `spawn_blocking`. If found, kill via `taskkill /F /IM <name>.exe` (same approach as `ac_launcher.rs` cleanup). This is the existing orphan detection path — pre-flight just triggers it proactively.
+
+**Confidence:** HIGH — direct reuse of `game_process.rs` + `kiosk.rs` patterns.
+
+---
+
+### 5. Billing Check — Stuck Session Detection
+
+**Requirement:** Verify no billing session is already active when `BillingStarted` fires.
+
+**Approach: Read `FailureMonitorState.billing_active`**
+
+`AppState.failure_monitor_tx` is a `watch::Sender<FailureMonitorState>`. Subscribe a receiver and read `billing_active`. If `true` when `BillingStarted` arrives, the previous session is stuck. Auto-fix: trigger orphan-end HTTP call (same path as `billing_guard.rs` `attempt_orphan_end()`).
+
+**Confidence:** HIGH — reuses `billing_guard.rs` pattern directly.
+
+---
+
+### 6. System Checks — Disk + Memory
+
+**Requirement:** Disk > 1GB on C:, free memory > 2GB.
+
+**Approach: `sysinfo::Disks` + `sysinfo::System::refresh_memory()`**
+
+These are the exact probes already in `self_test.rs` (`probe_disk()` line 342, `probe_memory()` line 385). Copy them verbatim into the pre-flight module. The thresholds match the milestone spec.
+
+**Confidence:** HIGH — code already exists in `self_test.rs`, copy-paste with attribution.
+
+---
+
+### 7. Pre-Flight Gate Pattern
+
+**Requirement:** Run all checks concurrently, block on results, then either proceed or show "Maintenance Required" screen.
+
+**Approach: `tokio::join!` over async check fns, each wrapping `spawn_blocking` for Win32/sysinfo calls**
+
+```rust
+// Inside ws_handler.rs BillingStarted arm, before existing session setup:
+let (display_ok, hw_ok, game_ok, billing_ok, system_ok) = tokio::join!(
+    preflight::check_display(&state),
+    preflight::check_hardware(&state),
+    preflight::check_game_orphans(),
+    preflight::check_billing(&state),
+    preflight::check_system(),
+);
 ```
 
-### Rust (add to crates/racecontrol/Cargo.toml)
+Each `check_*` function returns a `PreflightResult { ok: bool, detail: String, auto_fixed: bool }`. Aggregate: if any `ok == false && !auto_fixed`, show `MaintenanceRequired` lock screen state and send WS alert. If all pass (or auto-fixed), continue into existing `BillingStarted` handling.
 
-```toml
-[dependencies]
-# TLS
-axum-server = { version = "0.8", features = ["tls-rustls"] }
-rcgen = "0.14"
+This is a pure Rust async pattern using `tokio::join!` — no new crate needed.
 
-# Security middleware
-tower-helmet = "0.2"
-tower_governor = "0.4"
+**Confidence:** HIGH — `tokio::join!` is idiomatic for concurrent independent async tasks. Pattern matches existing `self_test.rs` probe runner (which runs probes concurrently with `tokio::time::timeout`).
 
-# Password hashing
-argon2 = { workspace = true }
+---
 
-# PII encryption
-aes-gcm = { workspace = true }
+### 8. "Maintenance Required" Lock Screen State
+
+**Requirement:** New `LockScreenState` variant that blocks the pod and shows a staff-callout message.
+
+**Approach: Add variant to existing `LockScreenState` enum in `lock_screen.rs`**
+
+```rust
+/// Pod blocked — pre-flight check failed and auto-fix could not resolve.
+/// Only cleared by staff action (PIN or server command).
+MaintenanceRequired {
+    reason: String,        // human-readable failure description
+    failed_checks: Vec<String>,  // list of check names that failed
+},
 ```
 
-### Next.js PWA (no new dependencies)
+Add to the existing enum in `lock_screen.rs`. The HTML template served by the lock screen HTTP server gets a new template branch. The existing `LockScreenManager::show_*` pattern handles state transitions — add `show_maintenance(reason, failed_checks)`.
 
-No new npm packages needed. Security is achieved through:
-- Renaming `middleware.ts` to `proxy.ts` (Next.js 16 convention)
-- Setting `HttpOnly` / `Secure` / `SameSite` cookie attributes on JWT
-- CSP headers served by the Rust backend via tower-helmet
+**Confidence:** HIGH — trivial enum extension, same pattern as existing `ConfigError { message }` and `Lockdown { message }` variants already in the enum.
 
 ---
 
-## Architecture Integration Notes
+### 9. Staff Notification
 
-1. **Middleware ordering matters:** Rate limiting (tower_governor) -> Security headers (tower-helmet) -> CORS (existing) -> Auth (from_fn) -> Route handlers. Rate limiting must be outermost to prevent brute-force before any processing.
+**Requirement:** Alert staff via WS + kiosk dashboard badge when pre-flight fails and auto-fix doesn't resolve.
 
-2. **Two auth tiers:**
-   - **Customer auth:** PIN -> JWT (existing flow, needs middleware enforcement)
-   - **Admin auth:** Uday's PIN -> separate admin JWT with `role: "admin"` claim. Same `jsonwebtoken` crate, different claim type.
+**Approach: Existing `AgentMessage` WS protocol**
 
-3. **HTTPS rollout:** Start with self-signed certs via rcgen. Pods trust the self-signed CA by installing it to Windows cert store (rc-installer can do this). No browser warnings on kiosk Chrome if cert is trusted at OS level.
+Send an `AgentMessage::PodFailureAlert` (or define a new `PreflightFailed` variant in `rc-common/src/protocol.rs`) over the established WS connection. The server-side kiosk dashboard already processes `AgentMessage` variants to update the fleet view. A new message variant is the correct extension point.
 
-4. **Backward compatibility:** During rollout, support both HTTP and HTTPS on different ports (8080 HTTP, 8443 HTTPS). Migrate pods one at a time. Kill HTTP listener only after all pods are on HTTPS.
+For the kiosk dashboard badge: racecontrol server receives the `PreflightFailed` message and marks the pod status accordingly in the fleet health state. Pods in `MaintenanceRequired` state show a distinct badge in the kiosk fleet view.
+
+**Confidence:** HIGH — established WS message protocol, existing `AgentMessage` enum in rc-common. Pattern matches `BillingAnomaly`, `PodFailure` message types.
 
 ---
 
-## Version Verification Status
+## New Module: `preflight.rs`
 
-| Crate | Claimed Version | Verified | Source |
-|-------|----------------|----------|--------|
-| axum-server | 0.8 | YES | docs.rs shows 0.8.0, released 2025-12-06 |
-| rcgen | 0.14 | YES | docs.rs shows 0.14.6, released 2025-12-13 |
-| argon2 | 0.5 | YES | docs.rs shows 0.5.3 |
-| aes-gcm | 0.10 | MEDIUM | Training data; verify at build time |
-| tower-helmet | 0.2 | MEDIUM | Training data; verify at build time |
-| tower_governor | 0.4 | MEDIUM | Training data; verify at build time |
+Create `crates/rc-agent/src/preflight.rs`. This module:
+- Owns the `PreflightResult` struct and `PreflightCheckName` enum
+- Contains all `check_*` async functions
+- Exposes a single `run_all(state: &AppState) -> Vec<PreflightResult>` function
+- Called from `ws_handler.rs` in the `BillingStarted` arm
+
+No new files anywhere else. No changes to `Cargo.toml`. No changes to `rc-common` unless a new `AgentMessage` variant is added (which it should be for server-side tracking).
+
+---
+
+## What NOT to Add
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `windows` crate (Microsoft) | Conflicts with existing `winapi 0.3`. Two different Win32 bindings in one binary cause symbol conflicts. | `winapi 0.3` — already present, already has `winuser` + `wingdi` features |
+| `win-screenshot` / `screenshots` crate | GDI screenshot for display validation is >10x more code and slower than `GetWindowRect` position check | `GetWindowRect` via existing `winapi::um::winuser` |
+| `image` crate | No pixel analysis needed — window position check is sufficient | N/A |
+| Any new HTTP client | Already have `reqwest 0.12` for staff notification fallback | `reqwest` (existing) |
+| `async-std` | tokio is already the runtime | `tokio` (existing) |
+| Separate `preflight` crate | Overkill for a single module | `preflight.rs` inside `rc-agent/src/` |
+| Polling pre-flight every N seconds | Pre-flight runs once on `BillingStarted`, not continuously | Event-driven: trigger on `BillingStarted` |
+| External health-check framework | No value over direct tokio::join! | `tokio::join!` (built-in) |
+
+---
+
+## Cargo.toml Changes Required
+
+**rc-agent/Cargo.toml:** None. Zero new dependencies.
+
+**winapi features (already present, no changes):**
+```toml
+winapi = { version = "0.3", features = [
+    "processthreadsapi", "winnt", "handleapi",
+    "winuser",   # FindWindowW, GetWindowRect, GetSystemMetrics — already here
+    "memoryapi", "basetsd", "synchapi", "errhandlingapi",
+    "winerror",
+    "wingdi",    # GetDC, GetPixel if needed — already here
+    "libloaderapi"
+]}
+```
+
+**rc-common/Cargo.toml:** Add `PreflightFailed` variant to `AgentMessage` enum (source change, not dep change).
+
+---
+
+## Integration Points
+
+| Where | What Changes |
+|-------|-------------|
+| `ws_handler.rs` `BillingStarted` arm | Insert `preflight::run_all(&state).await` call before existing session setup code. If any check fails unrecoverably, call `state.lock_screen.show_maintenance(...)` and return early from the arm. |
+| `lock_screen.rs` `LockScreenState` enum | Add `MaintenanceRequired { reason, failed_checks }` variant. Add HTML template branch. Add `LockScreenManager::show_maintenance()` method. |
+| `rc-common/src/protocol.rs` `AgentMessage` | Add `PreflightFailed { pod_id, failed_checks, timestamp }` variant. |
+| `app_state.rs` | No changes — all needed state is already in `AppState`. |
+| New file: `rc-agent/src/preflight.rs` | All check logic lives here. |
+
+---
+
+## Version Compatibility
+
+All capabilities are built on existing, already-compiled dependencies. No version compatibility concerns.
+
+| Capability | Dep | Version | Status |
+|------------|-----|---------|--------|
+| `GetWindowRect` | `winapi::um::winuser` | 0.3 | Already in Cargo.toml |
+| `FindWindowW` | `winapi::um::winuser` | 0.3 | Already used in ac_launcher.rs |
+| Process scan | `sysinfo` | 0.33 | Already used in kiosk.rs |
+| Disk/memory | `sysinfo::Disks` / `System` | 0.33 | Already used in self_test.rs |
+| HID probe | `hidapi` | 2 | Already in ffb_controller.rs |
+| Async gate | `tokio::join!` | 1 | Already the runtime |
+| WS message | `tokio-tungstenite` | 0.26 | Already the WS client |
 
 ---
 
 ## Sources
 
-- [Axum middleware documentation](https://docs.rs/axum/latest/axum/middleware/index.html) -- from_fn pattern
-- [axum-server TLS rustls docs](https://docs.rs/axum-server/latest/axum_server/tls_rustls/index.html) -- bind_rustls API
-- [axum TLS example](https://github.com/tokio-rs/axum/blob/main/examples/tls-rustls/src/main.rs) -- official example
-- [rcgen docs](https://docs.rs/rcgen/latest/rcgen/) -- self-signed cert generation
-- [tower-helmet](https://github.com/Atrox/tower-helmet) -- security headers middleware
-- [tower_governor](https://github.com/benwis/tower-governor) -- rate limiting for Tower
-- [argon2 (RustCrypto)](https://crates.io/crates/argon2) -- password hashing
-- [CVE-2025-29927 analysis](https://projectdiscovery.io/blog/nextjs-middleware-authorization-bypass) -- Next.js middleware bypass
-- [Next.js 16 auth changes](https://auth0.com/blog/whats-new-nextjs-16/) -- proxy.ts rename
-- [Kiosk escape techniques](https://github.com/ikarus23/kiosk-mode-breakout) -- what to defend against
-- [Chrome kiosk hardening](https://smartupworld.com/chromium-kiosk-mode/) -- enterprise display security
+- `crates/rc-agent/Cargo.toml` — confirmed `winuser` and `wingdi` features already present (line 62)
+- `crates/rc-agent/src/lock_screen.rs` — confirmed `FindWindowW` / `GetWindowRect` available, `get_virtual_screen_bounds()` exists for monitor origin
+- `crates/rc-agent/src/self_test.rs` — confirmed disk/memory probe pattern via `sysinfo 0.33`
+- `crates/rc-agent/src/kiosk.rs` — confirmed `sysinfo` process scan pattern in `spawn_blocking`
+- `crates/rc-agent/src/failure_monitor.rs` — confirmed `EnumWindows` / `spawn_blocking` pattern for Win32 from async context
+- `crates/rc-agent/src/billing_guard.rs` — confirmed `attempt_orphan_end()` HTTP call pattern for auto-fix
+- [winapi 0.3 docs — GetWindowRect](https://docs.rs/winapi/latest/winapi/um/winuser/fn.GetWindowRect.html) — confirmed in `winuser` module
+- [Rust forum — GetWindowRect window position](https://users.rust-lang.org/t/how-to-get-window-position-and-size-of-a-different-process/79224) — MEDIUM confidence (community source, consistent with docs)
+
+---
+
+*Stack research for: v11.1 Pre-Flight Session Checks (rc-agent)*
+*Researched: 2026-03-21 IST*

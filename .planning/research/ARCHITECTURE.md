@@ -1,491 +1,441 @@
-# Architecture Patterns: Security Layers for Racing Point Operations
+# Architecture Research
 
-**Domain:** Security hardening for distributed eSports cafe operations system
-**Researched:** 2026-03-20
-**Confidence:** HIGH (based on direct codebase analysis, not external sources)
-
----
-
-## Current System Topology
-
-```
-                    INTERNET
-                       |
-              [Bono VPS :443]          <-- app.racingpoint.cloud (HTTPS)
-              Cloud API + Gateway       <-- PostgreSQL cloud DB
-                       |
-            ~~~~ WAN / Tailscale ~~~~
-                       |
-         [Router 192.168.31.1]         <-- Local network boundary
-                       |
-       +---------------+---------------+
-       |               |               |
-[James .27]    [Server .23]      [Pods .28-.91]
-RTX 4070       racecontrol:8080  rc-agent:8090 (x8)
-Ollama:11434   kiosk:3300        rc-sentry:8091
-webterm:9999   dashboard:3200    lock-screen (local)
-               rc-sentry:8091
-               SQLite DB
-```
-
-### Communication Channels (Current State)
-
-| Channel | Protocol | Auth | Encrypted |
-|---------|----------|------|-----------|
-| Pod agent <-> Server | WebSocket :8080 | None (pod_id in first message) | No (HTTP) |
-| Pod remote_ops | HTTP :8090 | None | No |
-| rc-sentry (all nodes) | HTTP :8091 | None | No |
-| Customer PWA <-> Server | HTTP :8080 | JWT (customer_sessions table) | No |
-| Staff Dashboard <-> Server | HTTP/WS :8080 | None | No |
-| Kiosk <-> Server | HTTP :3300 proxied via :8080 | None | No |
-| Server <-> Cloud VPS | HTTPS :443 | terminal_secret header | Yes |
-| Cloud sync (relay mode) | HTTP localhost :8765/8766 | None (localhost only) | No |
-| Bono relay | HTTP over Tailscale | x-api-key header | Tailscale encrypted |
-| Remote terminal (cloud) | HTTPS :443 | terminal_secret | Yes |
-| WhatsApp (Evolution API) | HTTPS | evolution_api_key | Yes |
+**Domain:** Pre-flight session checks integration into rc-agent
+**Researched:** 2026-03-21
+**Confidence:** HIGH — based on direct source code inspection of all named files
 
 ---
 
-## Recommended Security Architecture
+## System Overview
 
-### Layered Defense Model
-
-Security layers apply from outside-in. Each layer is independent -- a breach of one does not compromise others.
+### Current rc-agent Architecture (Baseline)
 
 ```
-Layer 1: Network Boundary         Router firewall + no port forwarding
-Layer 2: Transport Security       HTTPS/TLS for all data in transit
-Layer 3: API Authentication       Bearer tokens + HMAC for service-to-service
-Layer 4: Authorization             Role-based route guards (admin/staff/customer)
-Layer 5: Data Protection           Encryption at rest, PII audit, minimal retention
-Layer 6: Kiosk Hardening          OS-level lockdown, PWA escape prevention
+main.rs (startup + reconnect loop)
+    │
+    ├── self_heal.rs          [startup only — config/script/registry repair]
+    ├── self_test.rs          [startup only — 22 probes, SelfTestReport]
+    ├── LockScreenManager     [HTTP server on :18923, Edge kiosk window]
+    │       └── LockScreenState enum (13 states)
+    │
+    └── event_loop::run()     [per-connection lifetime]
+            │
+            ├── ConnectionState   [reset on each WS reconnect]
+            └── tokio::select! loop
+                    │
+                    ├── ws_rx.next()  ──→  ws_handler::handle_ws_message()
+                    │                           │
+                    │                           ├── BillingStarted ──→ [GATE GOES HERE]
+                    │                           ├── BillingTick
+                    │                           ├── BillingStopped
+                    │                           ├── SessionEnded
+                    │                           ├── LaunchGame
+                    │                           ├── SwitchController
+                    │                           └── ExecRequest
+                    │
+                    ├── heartbeat_interval.tick()
+                    ├── telemetry_interval.tick()
+                    ├── game_check_interval.tick()
+                    ├── kiosk_interval.tick()
+                    ├── overlay_topmost_interval.tick()
+                    ├── blank_timer (sleep)
+                    ├── lock_event_rx.recv()
+                    └── signal_rx.recv()
 ```
 
-**What this project covers:** Layers 2-6. Layer 1 (network/firewall/VLANs) is out of scope per PROJECT-v12.md.
+### Proposed Architecture with Pre-Flight Gate
+
+```
+BillingStarted received (ws_handler.rs)
+    │
+    ▼
+pre_flight::run(&state, &config)          ← NEW MODULE
+    │
+    ├── Check: WS connected               (HeartbeatStatus.ws_connected)
+    ├── Check: UDP heartbeat alive        (HeartbeatStatus)
+    ├── Check: HID wheelbase present      (reuse self_test probe_hid logic)
+    ├── Check: ConspitLink running        (process list scan)
+    ├── Check: No orphaned game PIDs      (game_process::find_game_pid)
+    ├── Check: AC content accessible      (content_scanner or path stat)
+    ├── Check: No stuck billing session   (AppState billing state)
+    ├── Check: Disk > 1GB free            (reuse self_test probe_disk logic)
+    ├── Check: Memory > 2GB free          (reuse self_test probe_memory logic)
+    ├── Check: Lock screen visible/centered (LockScreenState check)
+    │
+    ├── For each FAIL → auto_fix::try_fix(check)  ← NEW (or extend self_heal)
+    │       ├── Restart ConspitLink
+    │       ├── Kill orphaned game
+    │       └── Re-check after fix attempt
+    │
+    ├── All pass (or fixed) → PreFlightResult::Ok
+    │       └── ws_handler continues with existing BillingStarted logic
+    │               (lock_screen.show_pin_screen, overlay.activate, etc.)
+    │
+    └── Any unfixable → PreFlightResult::MaintenanceRequired { reasons }
+            ├── lock_screen.show_maintenance_required(reasons)  ← NEW STATE
+            ├── send AgentMessage::PreFlightFailed to server    ← NEW PROTOCOL MSG
+            └── return HandleResult::Continue (do NOT process BillingStarted further)
+```
 
 ---
 
-## Component Boundaries
+## Component Responsibilities
 
-### Component 1: API Authentication Middleware (racecontrol)
+| Component | Responsibility | Status |
+|-----------|----------------|--------|
+| `ws_handler.rs` | Dispatch `CoreToAgentMessage` variants — BillingStarted triggers gate | MODIFY |
+| `pre_flight.rs` | Run all checks, attempt auto-fixes, return pass/fail verdict | NEW |
+| `lock_screen.rs` | Add `MaintenanceRequired` state to `LockScreenState` enum | MODIFY |
+| `self_test.rs` | Source of reusable probe logic (HID, disk, memory, process scan) | UNCHANGED |
+| `app_state.rs` | Source of truth for HID state, billing state, game state | UNCHANGED |
+| `failure_monitor.rs` | Background failure detection — unaffected by pre-flight | UNCHANGED |
+| `rc_common/protocol.rs` | Add `PreFlightFailed` / `PreFlightPassed` `AgentMessage` variants | MODIFY |
 
-**Responsibility:** Verify identity of every HTTP/WS request before it reaches route handlers.
+---
 
-**Communicates with:** All clients (pods, dashboard, PWA, kiosk, cloud, bots)
+## Where the Gate Goes
 
-**Current state:** JWT infrastructure exists (`jsonwebtoken` crate, `Claims` struct, `auth/mod.rs`) but is only used for customer PWA sessions and terminal auth. Staff dashboard and billing endpoints have zero authentication.
+**The gate belongs in `ws_handler.rs`, inside the `BillingStarted` match arm.**
 
-**Target state:**
-```
-                       Request arrives at :8080
-                              |
-                    [CORS Layer] (existing)
-                              |
-                    [Auth Middleware Layer]  <-- NEW
-                       /      |      \
-                 Public    Authed    Service
-                 routes    routes    routes
-                   |         |         |
-                /health   /billing   /sync/push
-                /venue    /pods      /ws (agent)
-                /kiosk/*  /admin/*
-```
+Rationale:
+- `ws_handler.rs` already owns all `CoreToAgentMessage` dispatch
+- `BillingStarted` is the single correct trigger point — it fires exactly once per session start
+- `event_loop.rs` should not contain business logic; it is the select! dispatch layer only
+- A new file `pre_flight.rs` keeps the check logic isolated and testable
 
-**Implementation pattern:** Axum middleware layer using `tower::Layer` + `axum::middleware::from_fn`. Three tiers:
+The gate is NOT placed in `event_loop.rs` because event_loop is structural (select! wiring), not behavioral.
 
-| Tier | Routes | Auth Method |
-|------|--------|-------------|
-| Public | `/health`, `/venue`, `/kiosk/*` proxy, `/customer/login`, `/customer/register` | None |
-| Customer | `/customer/*` (except login/register) | JWT Bearer token from customer_sessions |
-| Staff/Admin | `/billing/*`, `/pods/*`, `/drivers/*`, `/admin/*`, `/wallet/*`, etc. | Admin PIN -> JWT, or daily-rotating employee PIN -> JWT |
-| Service | `/ws` (agent), `/sync/*`, `/fleet/*` | HMAC shared secret or pre-shared key |
-
-**Key design decision:** Use Axum's nested Router with different middleware stacks rather than a single middleware that checks every route. This is idiomatic Axum 0.8 and avoids a giant allowlist.
+**Code location in ws_handler.rs:**
 
 ```rust
-// Pseudostructure (not literal code)
-let public_routes = Router::new()
-    .route("/health", get(health))
-    .route("/venue", get(venue_info));
-
-let customer_routes = Router::new()
-    .route("/customer/profile", get(profile))
-    .layer(from_fn(require_customer_jwt));
-
-let staff_routes = Router::new()
-    .route("/billing/start", post(start_billing))
-    .layer(from_fn(require_staff_jwt));
-
-let service_routes = Router::new()
-    .route("/sync/push", post(sync_push))
-    .layer(from_fn(require_service_hmac));
-
-let app = Router::new()
-    .merge(public_routes)
-    .merge(customer_routes)
-    .merge(staff_routes)
-    .merge(service_routes);
-```
-
-### Component 2: Admin Authentication (racecontrol auth module)
-
-**Responsibility:** Gate all admin/staff operations behind PIN-based authentication. Uday enters PIN once, gets JWT valid for shift duration.
-
-**Communicates with:** Staff dashboard (web), terminal auth, bot commands
-
-**Current state:** `terminal_auth` endpoint exists with daily-rotating PIN. `staff_validate_pin` exists. No middleware enforcement -- these are optional entry points that return JWTs, but downstream routes do not check for them.
-
-**Target state:** Staff JWT required on all non-public, non-customer routes. Admin PIN entered once per browser session (stored in httpOnly cookie or localStorage). JWT expiry = 12 hours (one shift).
-
-**Design:**
-- Reuse existing `jsonwebtoken` infrastructure
-- Add `role` claim to JWT: `{ sub: "admin", role: "staff", exp, iat }`
-- Staff login: `POST /auth/admin-login` with `{ pin: "1234" }` -> returns JWT
-- Middleware extracts `Authorization: Bearer <jwt>` and validates role
-
-### Component 3: Service-to-Service Auth (rc-agent <-> racecontrol)
-
-**Responsibility:** Prevent unauthorized devices from connecting as pods or issuing commands.
-
-**Communicates with:** rc-agent instances on pods, rc-sentry on all nodes
-
-**Current state:** WebSocket connections from pods are unauthenticated. Any device on the LAN can connect to `:8080/ws` and impersonate a pod. rc-agent `:8090` and rc-sentry `:8091` accept commands from any LAN device with zero auth.
-
-**Target state:** Pre-shared key (PSK) authentication for all service-to-service communication.
-
-**Design:**
-- Shared secret in `racecontrol.toml` (`[auth].service_secret`) and `rc-agent.toml` (`[core].service_secret`)
-- WebSocket: Agent sends HMAC(pod_id + timestamp, secret) in first message. Server validates within 30s window.
-- HTTP (remote_ops :8090): `X-Service-Key: <secret>` header on all requests. Middleware rejects without it.
-- rc-sentry: Same `X-Service-Key` header. This is the highest-risk endpoint (raw shell exec with no auth).
-
-**Why PSK over mTLS:** PSK is simple to deploy, simple to rotate, and adequate for a trusted LAN. mTLS adds certificate management complexity that is not justified for 8 pods on a private subnet. If the network grows beyond the venue, revisit.
-
-### Component 4: HTTPS / TLS (transport layer)
-
-**Responsibility:** Encrypt all data in transit between PWA browsers and the server.
-
-**Communicates with:** All browser-based clients (customer PWA, staff dashboard, kiosk)
-
-**Current state:** All local traffic is plain HTTP. Cloud traffic to VPS is HTTPS. Customer PII (phone, name, payment info) travels in plaintext on the LAN.
-
-**Target state:** TLS termination at racecontrol `:8080` for all browser traffic.
-
-**Design options (choose one):**
-
-| Option | Pros | Cons | Recommendation |
-|--------|------|------|----------------|
-| Self-signed cert on server | Simple, no external deps | Browser warnings, PWA install issues | No |
-| Caddy/nginx reverse proxy with Let's Encrypt | Automatic TLS, well-tested | Adds another service, needs domain pointed at LAN IP | Maybe (if external access needed) |
-| `axum-server` with `rustls` + self-signed CA | In-process TLS, no extra services | Must distribute CA cert to pod browsers, more Rust code | **Yes** |
-| mkcert (local CA) | Trusted certs for LAN | Manual CA distribution | Good complement to option 3 |
-
-**Recommended approach:** Use `mkcert` to generate a local CA + server cert for `192.168.31.23` and `racingpoint.local`. Install the CA cert on all pod browsers (one-time setup via deploy script). Configure Axum with `axum-server` + `rustls` to serve HTTPS. This gives trusted TLS without external dependencies or browser warnings.
-
-**For the cloud path:** Already HTTPS via VPS. No changes needed.
-
-**WebSocket upgrade:** Once HTTPS is enabled, WebSocket connections automatically upgrade to WSS. No code changes needed in rc-agent beyond changing `ws://` to `wss://` in the connection URL.
-
-### Component 5: Data Protection (SQLite + cloud)
-
-**Responsibility:** Protect customer PII at rest and limit exposure.
-
-**Communicates with:** SQLite on server, PostgreSQL on cloud VPS
-
-**Current state:** SQLite file on server `.23` stores phone numbers, names, emails, OTP codes, wallet balances, session history in plaintext. Cloud sync replicates drivers table (with PII) to cloud PostgreSQL.
-
-**Target state:**
-- PII fields encrypted at application level before SQLite storage
-- OTP codes cleared after verification (already done in `verify_otp`)
-- Minimal PII retention policy
-- SQLite file permissions locked to service account
-
-**Design:**
-- **Application-level encryption** for `drivers.phone`, `drivers.email` using AES-256-GCM with a key from `racecontrol.toml`
-- **NOT SQLite-level encryption** (SQLCipher) -- adds build complexity, breaks sqlx compatibility, and does not protect against application-level leaks
-- Encryption key stored in config file (which should have restricted file permissions)
-- Phone number stored as encrypted blob + last-4-digits hash for lookup
-- Cloud sync: encrypted fields stay encrypted in transit and at rest on cloud DB
-
-### Component 6: Kiosk Hardening (rc-agent + OS)
-
-**Responsibility:** Prevent customers from escaping the kiosk PWA to access the underlying Windows OS or network.
-
-**Communicates with:** rc-agent kiosk module, Windows Group Policy, browser configuration
-
-**Current state:** `kiosk.rs` module exists with process allowlisting, keyboard hook stubs (unused), and debug mode. Kiosk browser runs in kiosk/fullscreen mode but escape vectors exist (Alt+Tab, Ctrl+Alt+Del, task manager).
-
-**Target state:** Defense-in-depth kiosk lockdown:
-1. Windows Shell replacement (browser as shell instead of explorer.exe)
-2. Group Policy: disable Task Manager, disable Ctrl+Alt+Del options, disable USB mass storage
-3. rc-agent process monitor kills unauthorized processes
-4. Browser configured with `--kiosk` flag + disabled dev tools + disabled right-click
-
----
-
-## Data Flow Diagrams
-
-### Flow 1: Customer Session (Current -- No Auth on Admin)
-
-```
-Staff Dashboard                racecontrol:8080              Pod rc-agent
-     |                              |                            |
-     |--POST /auth/assign--------->|                            |
-     |  {pod, driver, tier}        |--WS: ShowPinLockScreen--->|
-     |                              |                            |
-     |                              |<--WS: PinEntered----------|
-     |                              |   (customer types PIN)     |
-     |                              |                            |
-     |                              |--validate_pin()            |
-     |                              |--start_billing()           |
-     |                              |--WS: LaunchGame---------->|
-     |<--WS: DashboardEvent--------|                            |
-     |  (session_started)          |                            |
-```
-
-### Flow 2: Customer Session (Target -- Auth on Admin)
-
-```
-Staff Dashboard                racecontrol:8080              Pod rc-agent
-     |                              |                            |
-     |--POST /auth/admin-login---->|                            |
-     |  {pin: "1234"}             |                            |
-     |<--{jwt: "eyJ..."}----------|                            |
-     |                              |                            |
-     |--POST /auth/assign--------->|                            |
-     |  Authorization: Bearer jwt  |                            |
-     |  {pod, driver, tier}        |--WSS: ShowPinLockScreen-->|
-     |                              |  (HMAC-authed WS)         |
-     |                              |                            |
-     |                              |<--WSS: PinEntered---------|
-     |                              |                            |
-     |                              |--validate_pin()            |
-     |                              |--start_billing()           |
-     |<--WSS: DashboardEvent-------|                            |
-```
-
-### Flow 3: Cloud Sync (Current -- terminal_secret only)
-
-```
-racecontrol (venue)          Cloud VPS
-     |                          |
-     |--GET /sync/changes------>|
-     |  X-Terminal-Secret: xxx  |
-     |<--{drivers, pricing}-----|
-     |                          |
-     |--POST /sync/push-------->|
-     |  X-Terminal-Secret: xxx  |
-     |  {laps, billing, pods}   |
-     |                          |
-```
-
-Cloud sync already uses a shared secret. This is adequate -- just ensure the secret is strong and rotated periodically.
-
-### Flow 4: Bot Command (Discord/WhatsApp -> Cloud -> Venue)
-
-```
-WhatsApp/Discord              Cloud VPS              racecontrol (venue)
-     |                          |                          |
-     |--"start pod 3"--------->|                          |
-     |                          |--POST /actions---------->|
-     |                          |  X-Terminal-Secret: xxx  |
-     |                          |                          |
-     |                          |<--POST /actions/ack------|
-     |<--"Session started"------|                          |
-```
-
-Bot commands already flow through cloud with terminal_secret auth. The gap is that the cloud side needs to verify the bot command came from an authorized user (Uday). This is a cloud/bot-side concern, not venue-side.
-
----
-
-## Build Order (Dependency Graph)
-
-Security components have a specific dependency order. Building out of order causes rework.
-
-```
-Phase 1: Security Audit
-    |     (discover current state -- what's actually exposed)
-    |
-Phase 2: API Auth Middleware + Admin PIN
-    |     (depends on: nothing. Biggest hole, biggest impact)
-    |     Enables: staff JWT required for billing/pod control
-    |
-Phase 3: Service-to-Service Auth (PSK for pods)
-    |     (depends on: Phase 2 pattern for middleware)
-    |     Enables: pods authenticate to server, remote_ops locked
-    |
-Phase 4: HTTPS / TLS
-    |     (depends on: nothing technically, but Phase 2-3 first
-    |      because auth tokens in plaintext HTTP are still better
-    |      than no auth at all)
-    |     Enables: encrypted transport for all browser traffic
-    |
-Phase 5: Data Protection
-    |     (depends on: Phase 4 for transit security)
-    |     Enables: PII encrypted at rest
-    |
-Phase 6: Kiosk Hardening
-          (independent of other phases, can run in parallel)
-          Enables: customer escape prevention
-```
-
-### Why This Order
-
-1. **Audit first** because the PROJECT-v12.md itself says "Security audit -- discover current auth state, data storage locations, HTTPS coverage." You cannot fix what you have not measured. The audit also validates/invalidates assumptions in this architecture doc.
-
-2. **API auth before HTTPS** because unauthenticated endpoints are a bigger risk than unencrypted transport on a private LAN. An attacker on the LAN can `curl POST /billing/start` right now -- that is worse than sniffing encrypted but unauthenticated traffic.
-
-3. **Service auth after API auth** because the middleware pattern established in Phase 2 (Axum layer-based auth) directly applies to Phase 3. The pod PSK middleware follows the same `from_fn` pattern.
-
-4. **HTTPS after auth** because TLS without auth still allows unauthorized access (just encrypted unauthorized access). Auth without TLS at least prevents unauthorized access (tokens can be sniffed but this requires active LAN presence).
-
-5. **Data protection last** (of the main phases) because encrypted PII at rest is lower priority than preventing unauthorized API access. If someone can call `/billing/start` without auth, encrypted phone numbers do not matter.
-
-6. **Kiosk hardening is parallel** because it is an OS/browser concern independent of the API security stack. It can proceed alongside any other phase.
-
----
-
-## Patterns to Follow
-
-### Pattern 1: Axum Middleware Tower for Auth
-
-**What:** Use Axum's `middleware::from_fn` with state injection to compose auth layers.
-
-**When:** Every route group that needs authentication.
-
-```rust
-use axum::{middleware, extract::Request, http::StatusCode, response::Response};
-
-async fn require_staff_jwt(
-    req: Request,
-    next: middleware::Next,
-) -> Result<Response, StatusCode> {
-    let auth_header = req.headers()
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let token = auth_header.strip_prefix("Bearer ")
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    // Validate JWT using existing jsonwebtoken crate
-    let claims = jsonwebtoken::decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::default(),
-    ).map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    // Inject claims into request extensions for downstream use
-    req.extensions_mut().insert(claims.claims);
-    Ok(next.run(req).await)
+CoreToAgentMessage::BillingStarted {
+    billing_session_id, driver_name, allocated_seconds, ..
+} => {
+    // NEW: Run pre-flight before any session setup
+    let pf_result = pre_flight::run(state, &state.config).await;
+    match pf_result {
+        PreFlightResult::Ok => {
+            // Existing BillingStarted logic continues unchanged
+            state.lock_screen.show_pin_screen(...);
+            ...
+        }
+        PreFlightResult::MaintenanceRequired { reasons } => {
+            state.lock_screen.show_maintenance_required(reasons.clone());
+            let msg = AgentMessage::PreFlightFailed {
+                pod_id: state.pod_id.clone(),
+                reasons,
+            };
+            let _ = ws_tx.send(Message::Text(serde_json::to_string(&msg)?.into())).await;
+            // Return HandleResult::Continue — do NOT break the WS loop
+        }
+    }
 }
 ```
 
-**Why:** This is idiomatic Axum. The project already uses `tower` and `tower-http` layers (CORS, trace). Adding auth as another layer is consistent with existing patterns.
+---
 
-### Pattern 2: PSK with HMAC for Service Auth
+## LockScreenState: New MaintenanceRequired State
 
-**What:** Pre-shared key validated via HMAC signature rather than raw key comparison.
+**File: `lock_screen.rs`**
 
-**When:** Pod agent WebSocket connection, rc-sentry commands, remote_ops HTTP.
+Add one variant to the existing `LockScreenState` enum:
 
 ```rust
-// Agent sends: HMAC-SHA256(pod_id + timestamp, shared_secret)
-// Server validates: recompute HMAC, check timestamp within 30s window
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
+/// Pod cannot start a session — hardware or system failure detected by pre-flight.
+/// Shows reasons to staff. Only cleared by server-sent ClearMaintenance message
+/// or manual rc-agent restart.
+MaintenanceRequired {
+    reasons: Vec<String>,
+},
+```
 
-type HmacSha256 = Hmac<Sha256>;
+**Why this fits the existing pattern:**
+- All other states (`Lockdown`, `ConfigError`, `Disconnected`) follow the same shape: an enum variant with a message field, rendered by the existing HTTP server as an HTML page
+- `show_maintenance_required()` method follows the same pattern as `show_lockdown()` and `show_config_error()`
+- The existing 3-second browser auto-reload picks up the state change automatically — no new mechanism needed
+- Unlike `Lockdown` (cleared by PIN), `MaintenanceRequired` is cleared only by `ClearMaintenance` server command or restart
 
-fn validate_service_auth(
-    pod_id: &str, timestamp: u64, signature: &str, secret: &str
-) -> bool {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH).unwrap().as_secs();
-    if now.abs_diff(timestamp) > 30 { return false; }
+**New method on LockScreenManager:**
 
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
-    mac.update(format!("{}{}", pod_id, timestamp).as_bytes());
-    let expected = hex::encode(mac.finalize().into_bytes());
-    expected == signature
+```rust
+pub fn show_maintenance_required(&mut self, reasons: Vec<String>) {
+    let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    *state = LockScreenState::MaintenanceRequired { reasons };
+    // Do NOT call self.launch_browser() — browser already running
 }
 ```
 
-**Why raw PSK is insufficient:** If the secret is sent as a header, any LAN sniffer captures it. HMAC with timestamp prevents replay attacks even on plaintext HTTP (which is the state before Phase 4 TLS).
+---
 
-### Pattern 3: Route Grouping by Auth Level
+## New Module: pre_flight.rs
 
-**What:** Split the current monolithic `api_routes()` function into grouped routers with different auth layers.
+**Location:** `crates/rc-agent/src/pre_flight.rs`
 
-**When:** Phase 2 implementation.
+**Public interface:**
 
-**Current:** Single `api_routes()` function returns one Router with 100+ routes, no auth middleware.
+```rust
+pub enum PreFlightResult {
+    Ok,
+    MaintenanceRequired { reasons: Vec<String> },
+}
 
-**Target:** Multiple router functions, each with appropriate auth layer, merged at the top level.
+pub async fn run(state: &mut AppState, config: &AgentConfig) -> PreFlightResult;
+```
 
-This also addresses the CONCERNS.md issue of the 9,515-line `routes.rs` monolith -- security refactoring naturally forces route decomposition.
+**Internals:**
+
+```rust
+struct CheckResult {
+    name: &'static str,
+    passed: bool,
+    auto_fix_applied: bool,
+    detail: String,
+}
+
+async fn check_ws_connected(state: &AppState) -> CheckResult;
+async fn check_udp_alive(state: &AppState) -> CheckResult;
+async fn check_hid_present() -> CheckResult;           // reuses self_test probe_hid logic
+async fn check_conspitlink_running() -> CheckResult;   // process scan via sysinfo or tasklist
+async fn check_no_orphaned_game(state: &AppState) -> CheckResult;
+async fn check_ac_content(config: &AgentConfig) -> CheckResult;
+async fn check_no_stuck_billing(state: &AppState) -> CheckResult;
+async fn check_disk_space() -> CheckResult;            // reuses self_test probe_disk logic
+async fn check_memory() -> CheckResult;                // reuses self_test probe_memory logic
+async fn check_lock_screen_visible(state: &AppState) -> CheckResult;
+
+async fn try_fix_conspitlink() -> bool;   // spawn ConspitLink.exe, verify process appears
+async fn try_fix_orphaned_game() -> bool; // game_process::kill_orphaned_game()
+```
+
+**Design rules:**
+- All checks run concurrently with `tokio::join!` (no sequential dependencies for read-only checks)
+- Auto-fix attempts run sequentially after all checks complete (to avoid race between concurrent fixes)
+- Re-check after each fix to verify it worked before moving on
+- Total time budget: 5 seconds (10s would block the customer UX too long)
+- Non-fatal failures (overlay render, shader cache) are WARN-level only, never block
 
 ---
 
-## Anti-Patterns to Avoid
+## Data Flow: Pre-Flight Integration
 
-### Anti-Pattern 1: Auth Checks Inside Route Handlers
+### Pass Path
 
-**What:** Calling `verify_jwt()` at the top of each handler function.
+```
+BillingStarted (WS) → ws_handler.rs
+    → pre_flight::run() [~1-5s]
+        → all checks pass (or auto-fixed)
+    → PreFlightResult::Ok
+    → existing BillingStarted logic unchanged:
+        state.overlay.activate_v2(driver_name)
+        state.lock_screen.show_active_session(driver_name, allocated_seconds)
+        failure_monitor_tx.send_modify(billing_active = true)
+        heartbeat_status.billing_active.store(true)
+```
 
-**Why bad:** Easy to forget on new routes. One missed check = security hole. The existing codebase already has `jwt_error_to_401` middleware that post-processes responses -- this is a symptom of handler-level auth where the JWT check happens inside the handler and returns a 200 with an error message.
+### Fail Path
 
-**Instead:** Middleware layer that rejects before the handler runs. Handlers never see unauthenticated requests.
+```
+BillingStarted (WS) → ws_handler.rs
+    → pre_flight::run() [~1-5s]
+        → check(s) fail, auto-fix attempted, still failed
+    → PreFlightResult::MaintenanceRequired { reasons }
+    → state.lock_screen.show_maintenance_required(reasons)
+    → AgentMessage::PreFlightFailed { pod_id, reasons } → WS to racecontrol
+    → racecontrol → kiosk dashboard badge (existing alert pathway)
+    → ws_handler returns HandleResult::Continue (no panic, no state corruption)
+    → billing_active stays FALSE — customer NOT charged
+```
 
-### Anti-Pattern 2: Global CORS Allow-All
+### Server Protocol Changes (rc-common)
 
-**What:** Setting `CorsLayer::permissive()` or `Access-Control-Allow-Origin: *`.
+Two new `AgentMessage` variants (agent to server):
 
-**Why bad:** Allows any website to make API calls to the racecontrol server if a browser on the LAN visits a malicious page.
+```rust
+PreFlightFailed {
+    pod_id: String,
+    reasons: Vec<String>,
+    timestamp: DateTime<Utc>,
+},
 
-**Instead:** Restrict CORS origins to known frontends: `http://192.168.31.23:3300` (kiosk), `http://192.168.31.23:3200` (dashboard), `https://app.racingpoint.cloud`.
+PreFlightPassed {
+    pod_id: String,
+    timestamp: DateTime<Utc>,
+    checks_ran: u8,
+},
+```
 
-### Anti-Pattern 3: Storing Secrets in Code or Default Config Values
+One new `CoreToAgentMessage` variant (server to agent, optional):
 
-**What:** The existing `default_jwt_secret()` function returns a hardcoded string.
+```rust
+ClearMaintenance {
+    pod_id: String,
+},
+```
 
-**Why bad:** If config omits `jwt_secret`, anyone who reads the source code can forge tokens.
+`ClearMaintenance` allows staff to clear the maintenance screen from the kiosk dashboard without requiring a pod restart. Handle in ws_handler.rs by transitioning lock screen to `Hidden` or `StartupConnecting`.
 
-**Instead:** Fail to start if `jwt_secret` is not set. Panic on startup with clear error message.
+---
 
-### Anti-Pattern 4: Encrypting the Entire Database
+## Reuse from self_test.rs
 
-**What:** Using SQLCipher or full-disk encryption as the primary data protection strategy.
+`pre_flight.rs` should NOT call `self_test::run()` directly — `self_test::run()` is designed for on-demand diagnostic runs (triggered by server command), not low-latency per-session gates. Instead:
 
-**Why bad:** Protects against disk theft but not against application-level access. If the app can read the DB, so can any process running as the same user. Adds build complexity (SQLCipher requires native compilation).
+- Extract shared probe logic into free functions in `self_test.rs` marked `pub(crate)`
+- `pre_flight.rs` calls those functions directly with its own timeout budget
+- This keeps `self_test.rs` as the single source of probe implementations
 
-**Instead:** Application-level field encryption for specific PII columns. Simpler, targeted, and protects against SQL injection or DB file copying.
+Specific reuse candidates:
+
+| Pre-flight check | self_test.rs source |
+|-----------------|---------------------|
+| HID wheelbase | `probe_hid()` — extract HID enumerate as `pub(crate) fn check_hid_device()` |
+| Disk space | `probe_disk()` — extract sysinfo call as `pub(crate) fn available_disk_gb()` |
+| Memory | `probe_memory()` — extract as `pub(crate) fn available_memory_gb()` |
+| Process scan | Pattern already in kiosk.rs (allowlist scan) — reuse via `sysinfo::System::processes()` |
+
+---
+
+## Architectural Patterns
+
+### Pattern 1: Gate Inside Handler, Not in Loop
+
+**What:** The pre-flight gate lives inside `ws_handler::handle_ws_message()`, not in `event_loop::run()`.
+
+**When to use:** When a check must run at a specific message boundary (BillingStarted) rather than on a timer.
+
+**Trade-off:** Adds async await inside the WS message handler (currently synchronous-style dispatch). Acceptable because BillingStarted is a rare event (once per customer session), never on a hot path.
+
+### Pattern 2: Enum-Driven Lock Screen State
+
+**What:** Add `MaintenanceRequired` variant to existing `LockScreenState` enum. The existing HTTP server reads the state and renders appropriate HTML via the 3-second auto-reload loop.
+
+**When to use:** All lock screen UI already follows this pattern — new states cost one enum variant plus one match arm in the HTML generator.
+
+**Trade-off:** No new mechanism needed. The HTML template is embedded in the binary (see existing `ConfigError` and `Lockdown` rendering).
+
+### Pattern 3: Concurrent Checks, Sequential Fixes
+
+**What:** Run all pre-flight checks concurrently with `tokio::join!`. When failures are found, apply auto-fixes sequentially (one at a time, re-verify after each).
+
+**When to use:** Concurrent reads are safe and fast. Sequential fixes prevent race conditions where two fixes interfere (e.g., killing orphaned game while also restarting ConspitLink).
+
+**Trade-off:** Slightly longer fix time vs. parallel fixes. Correct behavior is worth the tradeoff.
+
+### Pattern 4: Non-Blocking via HandleResult::Continue
+
+**What:** When pre-flight fails, `ws_handler.rs` returns `HandleResult::Continue` (not `Break`, not `Err`). The select loop keeps running — the agent remains connected and responsive.
+
+**When to use:** Always when handling a failure that should not disconnect the agent.
+
+**Trade-off:** None. `HandleResult::Break` would disconnect the WS and trigger reconnect, which would reconnect without fixing anything.
+
+---
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Running Pre-Flight in event_loop.rs
+
+**What people do:** Add the gate as a new select! branch or inject it before the reconnect loop.
+
+**Why it's wrong:** `event_loop.rs` is structural wiring (select! dispatch), not the place for session business logic. The gate must fire on BillingStarted specifically, not on a timer or at loop entry.
+
+**Do this instead:** Put the gate inside the `BillingStarted` match arm in `ws_handler.rs`.
+
+### Anti-Pattern 2: Importing self_test::run() in pre_flight.rs
+
+**What people do:** Call `self_test::run(&heartbeat_status, ...)` from pre_flight.rs to reuse probe logic.
+
+**Why it's wrong:** `self_test::run()` runs all 22 probes with Ollama LLM verdict — that is 10+ seconds and wrong scope. Pre-flight needs 5-10 targeted checks in under 5 seconds.
+
+**Do this instead:** Extract `pub(crate)` helper functions from self_test.rs probe implementations. Call them directly from pre_flight.rs with a tighter timeout budget.
+
+### Anti-Pattern 3: Blocking the Customer PIN Entry UX
+
+**What people do:** Make the lock screen show pre-flight progress, block BillingStarted until all checks complete.
+
+**Why it's wrong:** The PIN entry screen is the customer's first touch. A visible 3-5 second delay before the screen appears degrades UX. The customer should not see the check happen.
+
+**Do this instead:** Run pre-flight in the `BillingStarted` handler (which happens before `show_pin_screen`). If pre-flight passes, `show_pin_screen` fires immediately as today. If pre-flight fails, `show_maintenance_required` fires instead. From the customer's view: they scan QR, brief wait (same as today), then either PIN screen or maintenance screen. No visible intermediate state.
+
+### Anti-Pattern 4: Charging Before Pre-Flight Completes
+
+**What people do:** Set `billing_active = true` on `HeartbeatStatus` before the pre-flight gate resolves.
+
+**Why it's wrong:** If pre-flight fails and the session is blocked, billing must not start. The customer would be charged for time on a pod that cannot deliver a session.
+
+**Do this instead:** The existing `billing_active.store(true)` call stays exactly where it is — after the `PreFlightResult::Ok` branch. The fail branch never reaches that line.
+
+---
+
+## Integration Points
+
+### Internal Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| `ws_handler.rs` to `pre_flight.rs` | Direct async fn call | `pre_flight::run(&mut state, &config)` |
+| `pre_flight.rs` to `self_test.rs` | Extracted `pub(crate)` helpers | HID, disk, memory probes |
+| `pre_flight.rs` to `lock_screen.rs` | Indirect via `AppState.lock_screen` | Passed via `&mut state` |
+| `pre_flight.rs` to `game_process` | Direct call to find/kill orphaned PIDs | Existing `game_process::find_game_pid()` |
+| `ws_handler.rs` to `rc_common::protocol` | New `AgentMessage::PreFlightFailed` variant | Requires rc-common change first |
+| `racecontrol` server | Receives `PreFlightFailed`, shows badge on kiosk dashboard | Server-side work scope |
+
+### External Services
+
+| Service | Integration | Notes |
+|---------|-------------|-------|
+| ConspitLink.exe | Process check (sysinfo) + spawn via `std::process::Command` | Pre-flight check + auto-fix |
+| HID (OpenFFBoard) | Enumerate only — do NOT open device | Same contract as self_test probe_hid |
+| AC content path | `Path::exists()` check on AC install directory | Config-driven path from AgentConfig |
+
+---
+
+## Suggested Build Order
+
+Build order derived from dependency graph. Each step must compile and test before the next.
+
+| Step | File(s) | Work | Dependencies |
+|------|---------|------|--------------|
+| 1 | `rc_common/protocol.rs` | Add `PreFlightFailed`, `PreFlightPassed`, `ClearMaintenance` message variants | None — rc-common has no deps on rc-agent |
+| 2 | `lock_screen.rs` | Add `MaintenanceRequired` variant to `LockScreenState` enum + `show_maintenance_required()` + HTML render branch | None — lock_screen is self-contained |
+| 3 | `self_test.rs` | Extract `pub(crate)` helper functions: `check_hid_device()`, `available_disk_gb()`, `available_memory_gb()` | None — preparatory refactor, no behavior change |
+| 4 | `pre_flight.rs` | New module: all check functions, auto-fix attempts, `PreFlightResult` enum, `run()` | Steps 1–3 complete; AppState, game_process, config access |
+| 5 | `ws_handler.rs` | Add pre-flight gate inside `BillingStarted` arm; handle `ClearMaintenance` message | Steps 1–4 complete |
+| 6 | `main.rs` | Add `mod pre_flight;` declaration | Step 4 complete |
+| 7 | `racecontrol` server | Handle `PreFlightFailed` message, show kiosk dashboard badge | Steps 1 + 5 complete |
+
+**Step 1 first** because `rc_common` is a shared lib — any protocol changes must exist before rc-agent code that uses them will compile.
+
+**Step 2 before 4** because `pre_flight.rs` calls `state.lock_screen.show_maintenance_required()` — that method must exist.
+
+**Step 3 before 4** to avoid duplicating probe logic in the new module.
+
+**Step 7 last and decoupled** — racecontrol can gracefully ignore unknown `AgentMessage` variants during the deployment window, so pre-flight can be deployed to pods before the server upgrade without breakage.
 
 ---
 
 ## Scalability Considerations
 
-| Concern | Current (8 pods) | At 16 pods | At 32+ pods (multi-venue) |
-|---------|-------------------|------------|---------------------------|
-| Auth overhead | Negligible (JWT validation is CPU-cheap) | Negligible | Negligible |
-| PSK management | 1 shared secret in config | Same | Per-venue secrets, key rotation needed |
-| TLS certificates | 1 self-signed CA, install on 8 browsers | Same CA, 16 browsers | Per-venue CAs or proper PKI |
-| PII encryption | AES-256-GCM per field, ~1ms/field | Same | Same, but key management needs centralization |
-| CORS origins | 3 origins | Same | Per-venue origin lists |
-
-The recommended architecture scales to 2-3 venues without rework. Beyond that, centralized key management and proper PKI would be needed.
+| Concern | Current (8 pods) | Future |
+|---------|-----------------|--------|
+| Pre-flight duration | ~1-5s per session start is acceptable | If check count grows past 15, parallelize with join! per category |
+| Auto-fix side effects | Sequential fixes safe at 1 per session | No concurrency issue — one session starts at a time per pod |
+| Staff notification | WS message to kiosk badge is sufficient | If pod count grows, aggregate fleet view already in /fleet/health |
 
 ---
 
 ## Sources
 
-- Direct codebase analysis of `crates/racecontrol/src/auth/mod.rs` (JWT, PIN, OTP implementation)
-- Direct codebase analysis of `crates/racecontrol/src/api/routes.rs` (route structure, no auth middleware)
-- Direct codebase analysis of `crates/rc-agent/src/remote_ops.rs` (unauthenticated remote exec)
-- Direct codebase analysis of `crates/rc-sentry/src/main.rs` (unauthenticated shell exec)
-- Direct codebase analysis of `crates/racecontrol/src/main.rs` (middleware stack, proxy setup)
-- `.planning/codebase/CONCERNS.md` (known security debt, hardcoded JWT secret)
-- `.planning/codebase/ARCHITECTURE.md` (system structure, sync patterns)
-- `racecontrol.toml` (jwt_secret configured, terminal_secret, evolution_api_key)
-- Axum 0.8 middleware patterns (HIGH confidence -- `tower` and `axum::middleware` already in dependencies)
-- `jsonwebtoken` crate (HIGH confidence -- already in workspace dependencies, actively used)
+- Direct inspection: `crates/rc-agent/src/event_loop.rs` (select! loop structure, ConnectionState)
+- Direct inspection: `crates/rc-agent/src/ws_handler.rs` (BillingStarted dispatch, handle_ws_message signature)
+- Direct inspection: `crates/rc-agent/src/lock_screen.rs` (LockScreenState enum, all 13 states, show_* methods)
+- Direct inspection: `crates/rc-agent/src/app_state.rs` (AppState 34 fields)
+- Direct inspection: `crates/rc-agent/src/self_test.rs` (22 probes, ProbeResult, SelfTestReport, VerdictLevel)
+- Direct inspection: `crates/rc-agent/src/self_heal.rs` (startup repair pattern)
+- Direct inspection: `crates/rc-agent/src/failure_monitor.rs` (FailureMonitorState, watch channel pattern)
+- Direct inspection: `crates/rc-agent/src/main.rs` (startup sequence, module declarations)
+
+---
+
+*Architecture research for: rc-agent v11.1 Pre-Flight Session Checks*
+*Researched: 2026-03-21 IST*

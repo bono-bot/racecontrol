@@ -1,266 +1,286 @@
 # Pitfalls Research
 
-**Domain:** Security hardening for a live eSports cafe operations stack (Rust/Axum server, React/TS kiosk PWA, 8-pod fleet, Linux VPS)
-**Researched:** 2026-03-20
-**Confidence:** HIGH for operational and API pitfalls (well-documented domain), MEDIUM for India-specific PII compliance (DPDP Act still maturing)
+**Domain:** Pre-flight session health gates added to an existing kiosk/agent system (rc-agent on Windows gaming pods)
+**Researched:** 2026-03-21
+**Confidence:** HIGH — all pitfalls grounded in the actual rc-agent codebase (ws_handler.rs, self_test.rs, lock_screen.rs, billing_guard.rs, failure_monitor.rs)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Big-Bang Auth Rollout Bricks the Pod Fleet
+### Pitfall 1: Blocking BillingStarted with Synchronous Checks
 
 **What goes wrong:**
-Server-side API authentication is enabled on racecontrol (:8080) in a single deploy. All 8 rc-agent pods and the kiosk PWA (:3300) are still sending unauthenticated requests. Every pod instantly fails health checks, billing calls, and session management. The cafe is down during peak hours until every pod binary and the PWA are rebuilt and redeployed -- which requires the fleet exec system that is itself now broken by the auth change.
+Pre-flight checks are awaited synchronously inside the `BillingStarted` arm of `handle_ws_message`. Each check takes up to 1-2 seconds (HID enumeration, ConspitLink process scan, disk space query). Total: 5-10 seconds of blocking on the critical path. The WebSocket receive loop is stalled. BillingTick messages queue up or are dropped. The lock screen never transitions from QrDisplay/PinEntry to ActiveSession. The customer sits at the PIN screen while the staff see billing as "started."
 
 **Why it happens:**
-The natural instinct is "flip the switch" -- add an auth middleware to the Axum router and deploy. In a monolith this works. In a distributed fleet where the server, 8 agents, and a PWA are deployed independently, the server and clients are never updated atomically. The deploy tool (fleet exec via racecontrol) itself goes through the API that just broke.
+The `BillingStarted` handler in ws_handler.rs currently does fast in-memory work only (set atomics, send to failure_monitor_tx, call lock_screen.show_active_session). Adding `await` calls for I/O in-line feels natural but the handler runs on the single WS receive task — there is no separate executor for it.
 
 **How to avoid:**
-Implement auth in three discrete steps, each independently deployable:
-1. **Server accepts both** -- add auth middleware that checks for a token BUT allows unauthenticated requests through (log a warning). Deploy server. Verify all pods still work.
-2. **Clients send tokens** -- update rc-agent and PWA to include the auth token in requests. Deploy agents pod-by-pod (Pod 8 first per deploy rules). Verify each pod authenticates successfully.
-3. **Server rejects unauthenticated** -- once all clients send tokens AND logs show zero unauthenticated requests for 24h, flip the middleware to reject. This is the only breaking change and by now nothing should break.
+Spawn the pre-flight check as a `tokio::spawn` from within the `BillingStarted` arm. The handler returns immediately; the check runs concurrently. Result is communicated back via a channel (the existing `ws_exec_result_tx` pattern or a new `preflight_result_tx`). Lock screen shows a transitional state ("Preparing your session...") during the check window. If checks pass within 3 seconds, transition to ActiveSession. If they fail, transition to MaintenanceRequired.
 
-This is the "expand-migrate-contract" pattern. Each step is independently reversible.
+The `self_test::run_all_probes()` already uses `join_all` with individual timeouts — that pattern must be reused, not a serial await chain.
 
 **Warning signs:**
-- Planning doc says "add auth middleware" as a single task rather than three
-- No mention of a "dual mode" or "grace period" for the auth middleware
-- Deploy plan does not sequence server-before-clients or mention Pod 8 canary
+- Pre-flight check code is written as `let result = run_checks().await;` inside the `BillingStarted` match arm
+- No `tokio::spawn` or channel around the check invocation
+- BillingTick processing stops during the check window
 
 **Phase to address:**
-Phase 1 (API Authentication) -- this must be the explicit structure of the phase, not a single requirement.
+Phase 1 (Pre-flight framework) — the concurrency model must be established before any individual checks are written.
 
 ---
 
-### Pitfall 2: Shared Secret Hardcoded in Source or Config Files
+### Pitfall 2: Auto-Fix Kills a Game on a Pod That Is Mid-Session
 
 **What goes wrong:**
-The API token or HMAC secret is placed in `racecontrol.toml`, committed to git, or baked into the rc-agent binary. Anyone with repo access (including CI artifacts, deploy-staging directory, or the pendrive at `D:\pod-deploy\`) can extract the secret. Since the repo is on James's workstation and synced to GitHub, the secret is effectively public to anyone with repo access.
+The "no orphaned game processes" check finds `acs.exe` running and auto-kills it. But the pod is between splits (BetweenSessions state) where the customer is still billed and expects to continue. The game kill ends their session. The customer loses their in-progress time. Staff have to issue a refund.
+
+More subtle: the check runs during BillingStarted for pod N. Pod N's billing session just started. But the game kill logic uses `taskkill /F /IM acs.exe` without confirming the PID belongs to this pod's session. On a shared network segment, if there is any shared state, wrong assumptions compound.
 
 **Why it happens:**
-For a LAN-only system with a single developer, putting the secret in the config file feels "good enough." The threat model underestimates insider access -- but the config files are on every pod, the server, the POS PC, and the pendrive. That is 12+ copies of the secret across devices that customers physically sit in front of.
+Orphan detection in billing_guard.rs correctly checks `billing_active=true + game_pid=None` before killing. But the pre-flight check runs at BillingStarted — billing IS active (billing_active just became true). The new code doesn't have access to the same suppression logic yet. It sees a game PID and calls it an orphan.
 
 **How to avoid:**
-- Store secrets in environment variables, not config files. On Windows pods: set via `setx` in the install script, read via `std::env::var("RACECONTROL_API_SECRET")` at startup.
-- The `.bat` start scripts (`start-racecontrol.bat`, `start-rcagent.bat`) should reference the env var, not contain the value.
-- Add `*secret*`, `*token*`, `*key*` patterns to `.gitignore` as a safety net.
-- For the kiosk PWA: the token is inevitably in the browser (it must be sent in requests). Accept this -- the kiosk token grants kiosk-level permissions only, not admin. Separate the admin token (Uday's PIN) from the kiosk API token.
+Pre-flight game checks must use `AppState.game_process` (the agent's authoritative game PID record) not a raw process list scan. If `state.game_process` is `Some(_)`, the game is agent-managed and must NOT be killed. Only kill processes not tracked by `state.game_process`. Cross-check: game PID from `game_process.pid()` must differ from any PID found by the orphan scan.
+
+Also: re-use `billing_guard`'s `recovery_in_progress` suppression gate. If `failure_monitor_tx.borrow().recovery_in_progress == true`, pre-flight auto-fix must be suppressed entirely.
 
 **Warning signs:**
-- `grep -r "secret\|token\|api_key" *.toml` finds plaintext values
-- The deploy pendrive contains a file with the secret in cleartext
-- rc-agent.toml on any pod contains authentication credentials
+- Pre-flight orphan check uses `tasklist | find "acs.exe"` without checking `state.game_process`
+- Auto-fix kills processes by name without PID verification
+- No check for `BetweenSessions` lock screen state before killing
 
 **Phase to address:**
-Phase 1 (API Authentication) -- secret management must be designed before the first token is issued.
+Phase 1 (Pre-flight framework) — safe-kill rules must be written before any auto-fix logic ships.
 
 ---
 
-### Pitfall 3: Admin PIN Stored as Plaintext in Config or Database
+### Pitfall 3: "Maintenance Required" State Has No Exit Path
 
 **What goes wrong:**
-Uday's admin PIN is stored as `admin_pin = "1234"` in racecontrol.toml or as a plaintext column in SQLite. Anyone who can read the config file or database (which includes anyone with shell access to the server, or anyone who exploits the currently-unauthenticated API to read files) can bypass admin authentication entirely.
+A new `MaintenanceRequired` lock screen state is added. A check fails, the pod enters MaintenanceRequired. Staff fix the issue (reconnect the wheelbase, restart ConspitLink). But MaintenanceRequired has no automatic recovery path. The pod stays in maintenance mode until staff find the rc-agent restart option in the kiosk dashboard, or until rc-agent is manually restarted. Customers cannot use the pod for the rest of the shift even though the hardware is fine.
 
 **Why it happens:**
-"It's just a PIN, not a password" reasoning. PINs feel too simple to hash. But the PIN protects billing manipulation and customer data access -- the highest-privilege operation in the system.
+The lock screen state machine (13 states in `LockScreenState`) currently transitions on explicit server commands (`BillingStarted`, `SessionEnded`, `BillingStopped`) or on local events (PinEntered, blank timer). Adding a state without adding exit transitions is easy to miss — Rust's match blocks will compile with `_ => {}` fallthrough.
 
 **How to avoid:**
-- Hash the PIN with argon2 (use the `argon2` crate -- it is the current recommended password hashing algorithm for Rust). Store only the hash.
-- On first setup: prompt Uday to set a PIN, hash it, store the hash. Never log the plaintext PIN.
-- Rate-limit PIN attempts (5 failures = 5-minute lockout) to prevent brute-force on a 4-6 digit PIN.
-- The admin panel (web dashboard :3200) must enforce the PIN check server-side, not just client-side. A `fetch('/api/admin/billing')` without the PIN header must return 401, regardless of what the React app does.
+MaintenanceRequired must have two explicit exit transitions:
+1. **Staff clearance:** A new `CoreToAgentMessage::ClearMaintenance` command from racecontrol (triggered by staff pressing "Clear Maintenance" on the kiosk dashboard). This transitions to `StartupConnecting` or `Hidden` and re-enables billing.
+2. **Auto-retry:** A background task re-runs the failed checks every 30 seconds. If all checks pass, the pod self-clears MaintenanceRequired and sends `AgentMessage::MaintenanceCleared` to racecontrol. Staff are notified.
+
+The auto-retry approach is critical — manual staff clearance adds toil and defeats the purpose of automated pre-flight.
 
 **Warning signs:**
-- Config file contains `pin`, `password`, or `admin` fields with plaintext values
-- Admin API endpoints return 200 when called without credentials from curl
-- No rate-limiting on the admin auth endpoint
+- MaintenanceRequired is added to the `LockScreenState` enum without a corresponding `ClearMaintenance` message in the protocol
+- No background task scheduled to re-probe the failed check
+- The kiosk dashboard shows the maintenance badge but has no "Clear" button
 
 **Phase to address:**
-Phase 2 (Admin Panel Protection) -- but the hashing approach should be decided in Phase 1 when the auth library is chosen.
+Phase 2 (Lock screen integration) — exit paths must be designed alongside the state addition, not as a follow-up.
 
 ---
 
-### Pitfall 4: HTTPS Breaks WebSocket Connections to Pod Agents
+### Pitfall 4: Self-Test Probes Designed for Cold Boot Fail on Warm System
 
 **What goes wrong:**
-HTTPS is enabled on racecontrol (:8080). The server now speaks TLS. But the WebSocket connections from rc-agent pods use `ws://192.168.31.23:8080/ws` (plain WS). The TLS handshake fails silently -- rc-agent sees "connection reset" and enters its reconnect loop. All 8 pods disconnect and cycle through reconnection attempts. Fleet management is blind.
-
-The kiosk PWA has the same issue: if the PWA is served over HTTPS, browsers enforce that all WebSocket connections must also be `wss://` -- mixed content is blocked. The PWA silently fails to connect.
+Several probes in `self_test.rs` assume a cold-start context. The `udp_port_AC` probe (Probe 6) checks whether the AC telemetry port is bound. At startup, nothing binds it — pass means "game not running yet." Between sessions, if AC crashed without cleanup, the port may still be bound by a zombie process — now the probe gives a false pass (port bound = must be OK) when the socket is actually dead. The CLOSE_WAIT probe checks `:8090` — between sessions, legitimate CLOSE_WAIT sockets accumulate during normal operation and do not indicate a problem.
 
 **Why it happens:**
-HTTPS and WSS are treated as separate concerns but they share the same TLS listener. Enabling TLS on the HTTP port automatically requires TLS on the WebSocket path. This is not obvious when planning "add HTTPS" as a line item.
+`self_test.rs` was written for startup verification after rc-agent starts — a cold system context. Between-session use is a "warm system" context with different baseline state. The probes were not designed with that context in mind.
 
 **How to avoid:**
-- **LAN traffic stays HTTP/WS.** The pods and server are on a private 192.168.31.x network behind a router. TLS on the LAN adds complexity (self-signed certs, cert distribution to 8 pods) with minimal security benefit -- the threat is not network sniffing on a wired LAN, it is unauthenticated API access.
-- **HTTPS only for external-facing traffic** -- the cloud API (app.racingpoint.cloud on Bono's VPS) and any public-facing endpoint. Bono's VPS already has a domain and can use Let's Encrypt.
-- **If HTTPS on LAN is required:** use a reverse proxy (nginx/caddy on the server) that terminates TLS and forwards to racecontrol on localhost:8080. Pods connect to the proxy. This isolates the TLS concern from the application code.
-- Do NOT attempt to add TLS directly to the Axum server while pods are connecting -- it is a breaking change with no grace period.
+Pre-flight checks must be a separate module from `self_test.rs`, designed for warm-system semantics:
+- UDP port checks: between sessions, a bound telemetry port means an orphaned game socket. The probe must invert its success condition: bound = fail (orphan), unbound = pass.
+- CLOSE_WAIT: use a higher threshold for between-session checks (normal warm-system accumulation) vs. startup checks.
+- Disk/memory: these are context-agnostic and safe to reuse.
+- WS connected: safe to reuse — this is a live check regardless of context.
+
+Do not call `self_test::run_all_probes()` from pre-flight. Create `preflight::run_checks()` that implements context-appropriate versions.
 
 **Warning signs:**
-- Requirements list says "HTTPS for all communication" without distinguishing LAN vs. external
-- Self-signed certificate generation is planned for the server without a cert distribution plan for 8 pods
-- WSS is not mentioned alongside HTTPS in the same requirement
+- Pre-flight imports and calls `self_test::run_all_probes()` without filtering or adapting probes
+- UDP port check reports pass when a game is not expected to be running
+- CLOSE_WAIT threshold is the same 20-socket limit used at startup
 
 **Phase to address:**
-Phase 3 (Data in Transit) -- must explicitly scope LAN vs. external and decide before implementation.
+Phase 1 (Pre-flight framework) — the probe semantics decision (reuse vs. new module) must be made upfront.
 
 ---
 
-### Pitfall 5: Kiosk Escape via Developer Tools, Hotkeys, or URL Bar
+### Pitfall 5: Staff Notification Flood on Repeated Check Failures
 
 **What goes wrong:**
-The kiosk PWA runs in a browser on pod machines. A tech-savvy customer presses F12 (DevTools), Ctrl+L (URL bar), Ctrl+Shift+I (inspector), Alt+Tab (task switch), or Win+R (run dialog) and escapes the kiosk. From there they can access the filesystem, open another browser tab to the admin panel, or curl the unauthenticated API directly. This is the most common attack vector in eSports cafes -- the customers are gamers who know keyboard shortcuts.
+BillingStarted fires 8 times in 10 minutes as staff tests pods before opening. Each fires a pre-flight check. Checks fail (wheelbase cable was knocked). Each failure sends a WhatsApp/WS alert. Uday receives 8 identical "Pod 3 Maintenance Required" messages within 60 seconds. He ignores them as spam. The real failure that happens 2 hours later is also ignored.
+
+The existing `email_alerts.rs` has rate limiting (`ALERT-02`) but staff notifications via WS dashboard badge and WhatsApp alerter do not share that rate limiter.
 
 **Why it happens:**
-The PWA is "fullscreen" but the browser is not in a true kiosk lockdown mode. Standard Chrome fullscreen (F11) does not disable DevTools, task switching, or keyboard shortcuts. The developer assumes fullscreen = locked, but it is not.
+Each pre-flight check is a new event — the alert system sees each as a distinct trigger, not as a repeated condition. There is no "is the same alert already active?" check.
 
 **How to avoid:**
-- Use Chrome's `--kiosk` flag (already may be in use) but supplement with:
-  - `--disable-dev-tools` (or `--auto-open-devtools-for-tabs` disabled)
-  - Group Policy on Windows to disable Task Manager (Ctrl+Alt+Del), Run dialog (Win+R), and Explorer shell
-  - A process monitor (rc-agent already has `kiosk.rs` with process scanning) that kills unauthorized processes (explorer.exe, cmd.exe, powershell.exe, taskmgr.exe) when a session is active
-  - Disable USB mass storage via Group Policy (already noted as pending in CLAUDE.md) to prevent booting from USB
-- The keyboard shortcut lockdown must happen at the OS level (Group Policy or a keyboard hook), not in the browser -- JavaScript cannot intercept Ctrl+Alt+Del or Win+key combinations.
-- Test the lockdown by having someone actually try to escape. Automated tests cannot catch all escape vectors.
+Pre-flight alerts must use a per-pod, per-failure-type deduplication window. Pattern from `failure_monitor.rs`: use `stuck_fired` / `idle_fired` boolean guards in the task-local state. For pre-flight: maintain a `HashMap<(pod_id, check_name), Instant>` of last-alerted times. Re-alert only after the pod has recovered and failed again, or after a 30-minute silence window.
+
+The `MaintenanceRequired` state itself is the natural deduplication gate: only alert when entering MaintenanceRequired, not on every re-check failure.
 
 **Warning signs:**
-- Kiosk launch script uses `--kiosk` but no `--disable-` flags
-- No Group Policy or registry hardening on pod machines
-- rc-agent's process allowlist has not been updated to kill escape tools
-- No manual escape testing documented
+- Pre-flight failure handler calls `send_staff_alert()` directly without checking last-alert time
+- No shared state between successive BillingStarted invocations for alert deduplication
+- WhatsApp alerter receives multiple identical pod+failure messages within 60 seconds
 
 **Phase to address:**
-Phase 4 (Kiosk Hardening) -- but the process allowlist update in rc-agent should be coordinated with Phase 1 (API auth) so that even if a customer escapes the kiosk, API calls require authentication.
+Phase 3 (Staff notification) — rate limiting logic must be specified before any notification call site is written.
 
 ---
 
-### Pitfall 6: PII Audit Finds Data in Unexpected Locations
+### Pitfall 6: ConspitLink "Running" Check Passes but Process Is Hung
 
 **What goes wrong:**
-The security audit discovers customer phone numbers, names, and payment details scattered across: SQLite databases on the server, log files (`RUST_LOG=debug` includes request bodies), the cloud sync to Bono's VPS, Discord/WhatsApp bot message history, session backup files, and possibly browser localStorage on pod machines. The audit was scoped to "check the database" but PII leaked into 6+ locations over months of development.
+The ConspitLink check finds `ConspitLink.exe` in the process list via `tasklist`. Check passes. Session starts. Customer sits down. FFB wheel does not respond because ConspitLink's internal state is corrupted — it is running but not processing USB events. The customer complains, staff manually restart ConspitLink, session time is lost.
 
 **Why it happens:**
-PII spreads through systems like water through cracks. Every `debug!()` log statement that includes a request body, every cloud sync payload, every bot notification that says "Customer Rahul (9876543210) started session" creates a new copy. Developers focus on the primary storage (SQLite) and miss the secondary copies.
+Process existence check (`tasklist | find "ConspitLink.exe"`) is a necessary but not sufficient health check. A hung process appears alive in the process list. The existing `kiosk.rs` already distinguishes between allowed processes and process health, but ConspitLink specifically has no liveness probe beyond presence.
 
 **How to avoid:**
-- The security audit (listed as a requirement) must be a full-system PII trace, not just a database check. Grep for phone number patterns (`\d{10}`), email patterns, and name fields across:
-  - All SQLite databases (server + cloud)
-  - All log files and log configuration
-  - Discord/WhatsApp bot message templates
-  - Cloud sync payloads (what fields are sent to Bono's VPS?)
-  - Browser localStorage/sessionStorage on pods
-  - Backup files and deploy artifacts
-- After the audit: establish a PII boundary. Define which components are allowed to hold PII (the server database, the admin panel) and which must never contain it (logs, bot messages, cloud sync of billing data). Enforce the boundary with code review rules.
-- Replace PII in logs with redacted versions: phone `987***3210`, name `R***l`.
+ConspitLink health check must be two-stage:
+1. Process exists (`tasklist`)
+2. HID device is responding: enumerate HID devices (already in `self_test::probe_hid()`) and confirm OpenFFBoard VID:0x1209 PID:0xFFB0 is present
+
+If both pass, the combination is a reasonable (not perfect) proxy for ConspitLink health. If the process exists but HID is absent, classify as ConspitLink hung — kill and restart it.
+
+Note: do NOT open the HID device for a write/read test — `probe_hid()` explicitly enumerates only. Opening the HID device during a live session can cause ConspitLink to lose its handle. Enumerate only.
 
 **Warning signs:**
-- `grep -r "phone\|mobile\|email\|name" crates/` finds PII fields in log statements
-- Bot messages include customer names or phone numbers
-- Cloud sync payload definition includes PII fields
-- No log redaction middleware in the Axum server
+- ConspitLink check is `tasklist | find "ConspitLink.exe"` and nothing more
+- No HID cross-check for ConspitLink liveness
+- Auto-fix restarts ConspitLink even when `state.game_process` is `Some(_)` (mid-session)
 
 **Phase to address:**
-Phase 0 (Security Audit) -- this must happen BEFORE any data protection work. You cannot protect what you have not found.
+Phase 1 (Hardware checks) — liveness definition for ConspitLink must be established before the check is coded.
 
 ---
 
-### Pitfall 7: Auth Tokens Have No Expiry or Rotation Mechanism
+### Pitfall 7: Pre-Flight Check Takes >5 Seconds and Customer Sees Blank Lock Screen
 
 **What goes wrong:**
-A static API token is generated once and embedded in all 8 pods, the PWA, and the server. It works forever. If the token is ever leaked (a customer reads it from a pod's environment, a backup is compromised, a dismissed staff member remembers it), there is no way to revoke it without simultaneously updating all 8 pods, the PWA, and the server -- which is the same big-bang problem from Pitfall 1.
+A ConspitLink restart (auto-fix) takes 3 seconds. HID re-enumeration after restart takes 2 more seconds. Disk space check via `std::fs::metadata` on a spinning drive takes 1 second. Total: 6 seconds. The lock screen transitions to a loading state but the HTTP server serving it has no "checking..." page — it shows the last state (PinEntry or SessionSummary). The customer sees a stale screen with no indication anything is happening.
 
 **Why it happens:**
-Token rotation adds complexity that feels unnecessary for a small LAN system. "We'll rotate it if it's compromised" -- but without a rotation mechanism built in, rotating under pressure means downtime.
+The lock screen HTML pages are static per-state. There is no "loading" sub-state for PinEntry. The 5-second hard budget from the milestone context is not enforced by any timeout in the framework.
 
 **How to avoid:**
-- Design token rotation from day one, even if you do not rotate frequently:
-  - The server accepts tokens from a list (current + previous). This allows a rolling update where new tokens are deployed pod-by-pod while the old token still works.
-  - Token storage on pods is in an environment variable (not compiled in), so rotation = update env var + restart rc-agent.
-  - A `/admin/rotate-token` endpoint (behind admin PIN auth) generates a new token, adds it to the accept list, and returns it. Uday deploys it to pods. After 24h, the old token is removed from the accept list.
-- For the MVP: even if you do not build the rotation endpoint, the "accept multiple tokens" pattern in the middleware costs almost nothing and makes future rotation possible without downtime.
+1. **Enforce the budget:** wrap the entire `preflight::run_checks()` in `tokio::time::timeout(Duration::from_secs(5), ...)`. If it times out, fail fast with `PreflightResult::Timeout` and let the session proceed (timeout = probably fine, not definitely broken).
+2. **Show a transitional state:** Add `LockScreenState::PreflightChecking { driver_name }` or reuse `LaunchSplash` as the holding state during the 0-5 second window. The lock screen HTTP server already handles all states from a shared `Arc<Mutex<LockScreenState>>` — a state transition during the check window is safe.
+3. **Time-box individual checks:** HID enum ≤ 1s, process scan ≤ 0.5s, ConspitLink restart ≤ 2s, disk check ≤ 0.2s. Any check exceeding its sub-budget is skipped and logged as "check skipped: timeout."
 
 **Warning signs:**
-- Token validation is `if token == THE_TOKEN` (single value) rather than `if VALID_TOKENS.contains(&token)`
-- No documented procedure for "what to do if the API token is compromised"
-- Token has been the same value for more than 90 days with no rotation
+- No `tokio::time::timeout` wrapping the overall pre-flight call
+- Lock screen state is not updated before checks begin
+- Individual checks have no per-check timeout (they rely on OS-level timeouts which may be 30+ seconds)
 
 **Phase to address:**
-Phase 1 (API Authentication) -- the multi-token acceptance pattern must be in the initial middleware design.
+Phase 1 (Pre-flight framework) — timeouts and the transitional lock screen state are foundational, not bolt-ons.
 
 ---
 
-### Pitfall 8: Session Bypass via Direct Pod Communication
+### Pitfall 8: Billing Check Detects "Stuck Session" Because Cleanup Hasn't Finished
 
 **What goes wrong:**
-API auth is added to racecontrol (:8080). But rc-agent on each pod listens on :8090 for direct HTTP commands (`remote_ops.rs`). A customer who escapes the kiosk (Pitfall 5) can `curl http://localhost:8090/exec -d '{"cmd":"start game.exe"}'` to launch a game directly on the pod, bypassing billing entirely. The auth on the central server is irrelevant -- the pod agent accepts commands locally.
+BillingStarted fires. Pre-flight billing check queries the database: "is there an active billing session for this pod?" It finds one — from the session that just ended 500ms ago. The `BillingStopped` processing (session cleanup, database update) is asynchronous on the server side. The pre-flight check races the cleanup and sees stale state. It classifies the pod as having a stuck session and blocks the new session.
 
 **Why it happens:**
-Security hardening focuses on the "front door" (the central API) and forgets that every pod has its own API listener. rc-agent's remote_ops endpoint was designed for fleet management from the server, but it listens on `0.0.0.0:8090` -- accessible from localhost on the pod itself.
+The new session's BillingStarted is sent by racecontrol only after it has started the new session, but the previous session's database row may not yet be marked complete (async commit). The pre-flight check hits the same database 100ms later and finds two "active" sessions.
 
 **How to avoid:**
-- rc-agent :8090 must also require authentication. The simplest approach: the same API token used for racecontrol, validated in the remote_ops handler.
-- Alternatively: bind rc-agent's HTTP listener to the server's IP only (`--allowed-source 192.168.31.23`) and reject connections from other IPs. This is defense-in-depth -- auth + IP restriction.
-- rc-sentry (:8091) has the same exposure. It was deliberately designed as "no auth, LAN-only" but if kiosk escape is a threat, local access to :8091 is also a threat.
-- The rc-agent process allowlist in `kiosk.rs` should kill `curl.exe`, `powershell.exe`, and `cmd.exe` during active sessions -- but this is a secondary defense. Auth is primary.
+Billing stuck-session check must use the agent's local state (`state.heartbeat_status.billing_active` atomic) not an HTTP query to the server. The agent knows when its own billing started — the `billing_active` atomic is set in `BillingStarted` before pre-flight runs. A stuck session from a previous customer would be caught by `billing_guard.rs` (already in production) before BillingStarted fires for a new session.
+
+If a server-side check is required, add a grace period: only flag stuck if the prior session has been active for more than 10 seconds at the time of BillingStarted. Sessions that ended < 5 seconds ago are not stuck.
 
 **Warning signs:**
-- `curl http://localhost:8090/exec` from a pod returns 200 without any token
-- rc-agent binds to `0.0.0.0` instead of a specific interface
-- Security requirements mention "API auth" without specifying which APIs (central only, or pod agents too)
+- Pre-flight billing check makes an HTTP call to `/api/v1/billing/active?pod_id=X` rather than reading local atomic state
+- No grace period between `BillingStopped` and the stuck-session threshold
+- Test shows false positives when two sessions start within 2 seconds of each other
 
 **Phase to address:**
-Phase 1 (API Authentication) -- pod agent auth must be in scope alongside central server auth. If deferred, there is a window where the central API is locked but every pod is wide open.
+Phase 1 (Billing checks) — use local state first, server state only as secondary with a time-grace.
 
 ---
 
-### Pitfall 9: SQLite Encryption Breaks Existing Queries and Tooling
+### Pitfall 9: "Maintenance Required" Breaks State Machine Transitions for Server
 
 **What goes wrong:**
-SQLCipher or similar encryption is added to the customer database. All existing tooling that reads the database directly -- Uday's ad-hoc queries, backup scripts, the cloud sync process, any `sqlite3` CLI usage -- breaks because the database is now encrypted. The cloud sync to Bono's VPS fails silently (it reads the raw file, which is now ciphertext). Backups still run but produce encrypted files that cannot be restored without the key.
+Pod enters MaintenanceRequired. Racecontrol still has the pod marked as "available" in its pod reservation system. Staff try to book the pod — racecontrol sends BillingStarted. Ws_handler receives BillingStarted while in MaintenanceRequired state. The BillingStarted handler runs anyway (ws_handler has no state guard for MaintenanceRequired). Lock screen tries to transition from MaintenanceRequired to ActiveSession — the HTML page for that combination is not defined. Browser shows a blank page or the wrong state.
 
 **Why it happens:**
-Encryption at rest is treated as a database concern ("just swap the SQLite driver") without auditing everything that touches the database file. SQLCipher is a drop-in replacement for the SQLite library but NOT for any external tool or process that reads the raw .db file.
+The lock screen state machine in `lock_screen.rs` does not currently guard against illegal transitions. States transition whenever `set_state()` is called — there is no "transition allowed?" check. Adding MaintenanceRequired without adding transition guards leaves illegal paths open.
 
 **How to avoid:**
-- Before encrypting: inventory every process that reads or writes the database file. Include backup scripts, cloud sync, CLI tools, and any monitoring.
-- Consider field-level encryption instead of full-database encryption for the MVP: encrypt only PII columns (phone, email, payment details) using application-level encryption (AES-256-GCM via the `aes-gcm` crate). The database remains a normal SQLite file, all tooling works, but PII is encrypted in the columns.
-- If full-database encryption is chosen: migrate all external tools to use the SQLCipher-aware library. Test backup restore with the encryption key. Document the key storage location.
-- Key management: the encryption key must NOT be in `racecontrol.toml` alongside the database. Use a separate environment variable or a key file with restricted permissions.
+Two defenses:
+1. **Server-side gate:** When a pod sends `AgentMessage::MaintenanceRequired`, racecontrol's pod reservation system must mark the pod as unavailable. BillingStarted for a maintenance pod must be rejected at the server. Kiosk dashboard shows the maintenance badge and disables "Start Session" for that pod.
+2. **Agent-side guard:** In `ws_handler`'s BillingStarted arm, check if `state.lock_screen` is in MaintenanceRequired state. If so, send `AgentMessage::MaintenanceActive { pod_id }` back to racecontrol and return without starting the session.
+
+Both defenses are needed — the server guard prevents the race, the agent guard is the safety net.
 
 **Warning signs:**
-- Cloud sync starts returning empty or garbled data after encryption is enabled
-- `sqlite3 customer.db .tables` fails with "file is not a database"
-- Backup files grow in size (encrypted) but no one has tested restoring them
-- Encryption key is in the same config file as the database path
+- No `AgentMessage::MaintenanceRequired` type defined in `rc_common::protocol`
+- racecontrol's pod_reservation.rs is not updated to handle maintenance state
+- BillingStarted handler in ws_handler.rs has no early-return guard for MaintenanceRequired
 
 **Phase to address:**
-Phase 5 (Data at Rest) -- must include a tool/process audit before any encryption work begins.
+Phase 2 (Lock screen integration) and Phase 3 (Server-side pod state) must be sequenced together — the server pod state must be updated in the same phase as the lock screen state.
 
 ---
 
-### Pitfall 10: Security Hardening Introduces Latency That Breaks Real-Time Billing
+### Pitfall 10: Screenshot-Based Display Validation Is Unreliable Between Sessions
 
 **What goes wrong:**
-Auth middleware adds token validation to every API call. If validation involves a database lookup or crypto operation on every request, the billing endpoints (`/api/v1/billing/start`, `/api/v1/billing/end`) gain 5-50ms latency. The billing system is timing-sensitive -- sessions are billed by the second, and the 10-second idle threshold is checked via periodic API calls. Added latency causes billing inaccuracy or session timeout false positives.
+A display validation check takes a screenshot and checks whether the lock screen is centered and visible. Between sessions, the previous customer may have changed display scaling (via Windows Display Settings — possible if kiosk lockdown is incomplete). The screenshot-based check uses pixel coordinates that assume 1920x1080 at 100% DPI. At 125% scaling, coordinates shift. The check reports "lock screen off-center" and blocks the session. In reality, the lock screen is fine.
+
+Additional failure mode: taking a screenshot on Windows requires GDI+ API calls from a process running in Session 1 (the user session). rc-agent runs as a Windows Service in Session 0. Session 0 cannot capture Session 1 screenshots without additional WTS API calls.
 
 **Why it happens:**
-Security middleware is added as a global layer (`Router::layer`) without considering the performance profile of different endpoint types. A health check endpoint can tolerate 50ms auth overhead. A billing endpoint called every few seconds from 8 pods simultaneously cannot.
+Screenshots seem like the obvious way to verify "the lock screen is showing." But the Session 0/1 boundary and DPI scaling make it unreliable. The existing `lock_screen.rs` uses `GetSystemMetrics` to handle multi-monitor bounds — it already handles this complexity for positioning, but not for validation.
 
 **How to avoid:**
-- Use HMAC token validation (symmetric, no database lookup, sub-microsecond on modern hardware) rather than JWT with database-backed session validation.
-- Profile the auth middleware latency before deploying to production. Target: < 1ms overhead per request.
-- If using Axum's middleware system: apply auth selectively. Health/version endpoints can skip auth. Billing endpoints must have auth but with the fastest validation path.
-- Load test with 8 concurrent pods making billing calls every 5 seconds. Measure p99 latency with and without auth middleware.
+Skip screenshot-based validation entirely. The lock screen HTTP server at `127.0.0.1:18923` is a reliable liveness signal. The display check should be:
+1. TCP connect to `127.0.0.1:18923` — confirms the HTTP server is running
+2. HTTP GET `/` — confirms it returns 200 and the expected state HTML
+3. Check that the Edge browser process hosting the lock screen is alive (`tasklist | find "msedge.exe"` with the `--kiosk` flag in its command line)
+
+These three checks together confirm "lock screen is serving and browser is showing it" without requiring a screenshot.
 
 **Warning signs:**
-- Auth middleware does a database query on every request (e.g., "is this token in the valid_tokens table?")
-- Billing timing tests pass in dev (single pod) but fail under fleet load
-- Session end times drift by seconds compared to pre-auth behavior
+- Display check code imports a screenshot crate or uses `BitBlt`/GDI calls
+- Check assumes fixed pixel coordinates (1920, 1080)
+- No fallback when screenshot fails (returns false negative)
 
 **Phase to address:**
-Phase 1 (API Authentication) -- token validation method must be chosen with latency in mind from the start.
+Phase 2 (Display checks) — define the check methodology before coding. HTTP probe is correct, screenshot is wrong.
+
+---
+
+### Pitfall 11: Auto-Fix ConspitLink Restart Mid-Session When Another Billing Is Active
+
+**What goes wrong:**
+Pod 3 pre-flight check detects ConspitLink is not running (it crashed between sessions). Auto-fix restarts it. Pod 4 happens to have an active session — ConspitLink on Pod 4 is unaffected (it's a per-pod process). But if the restart script uses a machine-wide ConspitLink path and the USB device is shared (unlikely but possible with a USB hub), the restart on Pod 3 causes a brief USB enumeration that disrupts Pod 4's active FFB feedback. The Pod 4 customer loses force feedback for 2-3 seconds.
+
+More realistic version: the restart script kills all `ConspitLink.exe` instances on the pod (`taskkill /F /IM ConspitLink.exe`) instead of the specific PID. If multiple instances are running (from a previous failed start), it kills the wrong one.
+
+**How to avoid:**
+ConspitLink restart must be PID-targeted, not name-targeted:
+1. Get the PID of the non-responsive ConspitLink from `tasklist /FO CSV`
+2. Kill only that PID: `taskkill /F /PID <pid>`
+3. Start a new ConspitLink with full path from config
+
+Auto-fix must also check `state.heartbeat_status.billing_active` before restarting ConspitLink. If billing is active (another customer is in-session on this pod — unlikely given pre-flight fires at BillingStarted, but possible if a stuck session persists), do not restart ConspitLink. Send MaintenanceRequired instead.
+
+**Warning signs:**
+- Auto-fix uses `taskkill /F /IM ConspitLink.exe` (name-based, kills all instances)
+- No billing_active check before the ConspitLink restart
+- ConspitLink path is hardcoded rather than read from config
+
+**Phase to address:**
+Phase 1 (Hardware checks + auto-fix) — PID-targeted kill must be the default pattern for all auto-fix process restarts.
 
 ---
 
@@ -268,12 +288,12 @@ Phase 1 (API Authentication) -- token validation method must be chosen with late
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Static token with no expiry | Simple to implement, no rotation logic | Compromised token = full system access until manual rotation across 10+ devices | Only in Phase 1 MVP, must add rotation mechanism within 30 days |
-| Client-side-only admin PIN check | Quick to add in React, no server changes | Anyone who opens DevTools bypasses the PIN | Never -- server-side validation is non-negotiable for admin auth |
-| HTTPS on LAN via self-signed certs | Encrypts traffic without a CA | Every pod needs the cert, cert expiry breaks connections, browsers show warnings | Only if regulatory requirement demands it -- prefer HTTP on LAN + auth tokens |
-| `#[allow(unused)]` on auth fields during dual-mode rollout | Silences warnings during the transition period | Forgotten dual-mode code stays in production | Acceptable for 2 weeks during rollout, remove after migration complete |
-| Field-level encryption instead of full-database encryption | Existing tooling still works, simpler key management | Does not protect non-PII data, schema is visible | Acceptable for current scale -- full encryption is overkill for 8 pods |
-| Shared API token (same for all pods) | One token to manage | Compromising any pod compromises all | Acceptable for MVP, but design for per-pod tokens eventually |
+| Reuse `self_test::run_all_probes()` for pre-flight | No new code | Cold-boot probes give wrong results in warm-system context (UDP port semantics inverted) | Never — create separate `preflight::run_checks()` |
+| Inline await in BillingStarted handler | Simple code | Blocks WS receive loop, customer waits at lock screen | Never — always spawn |
+| Name-based process kill (`taskkill /IM`) | Simpler command | Kills wrong instance, disrupts active sessions | Never for ConspitLink auto-fix; acceptable for game process cleanup when no session is active |
+| HTTP query to server for billing state check | Authoritative server data | Races async cleanup, causes false stuck-session positives | Acceptable only with a 5+ second grace period gate |
+| Screenshot for display validation | Intuitive approach | Session 0 cannot capture Session 1 display; DPI scaling breaks coordinates | Never — use HTTP probe to lock screen server instead |
+| Single alert per failure (no deduplication) | Simple alert code | Notification flood on repeated failures | Never in production — add deduplication from day one |
 
 ---
 
@@ -281,12 +301,12 @@ Phase 1 (API Authentication) -- token validation method must be chosen with late
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Axum auth middleware + WebSocket upgrade | Auth middleware rejects the WS upgrade request because it does not carry a Bearer token in headers (WS upgrades are HTTP requests) | Handle WS auth via a query parameter (`?token=X`) or the first WS message, not HTTP headers |
-| rc-agent + new auth headers | rc-agent's HTTP client (reqwest) does not include auth headers in existing calls | Add a wrapper function `authenticated_request()` that injects the token; update all call sites |
-| Cloud sync (Bono's VPS) + auth | Cloud sync pushes/pulls via HTTP to racecontrol -- adding auth breaks the sync if the VPS does not have the token | Include cloud sync in the auth rollout plan; Bono's VPS needs the token before server rejects unauthenticated |
-| Discord/WhatsApp bot + session commands | Bot sends session launch commands via the API -- bot must authenticate too | Bot service account gets its own token; bot token should have limited scope (session ops only, not admin) |
-| kiosk PWA + CORS | Adding auth headers to fetch requests triggers CORS preflight (OPTIONS) that the server may not handle | Ensure Axum CORS middleware allows the Authorization header; test from a real browser, not just curl |
-| admin dashboard (:3200) + same auth | Dashboard runs on same server as racecontrol but is a separate Next.js app -- it needs auth too | Dashboard uses the admin PIN for elevated access; regular API calls use the kiosk token |
+| `ws_handler` + pre-flight spawn | Borrowing `state` into the spawned task (not `Send`-safe) | Clone only the fields needed by the check (Arc refs, config values); do not move `state` into the spawn |
+| `LockScreenManager.set_state()` from spawned task | `LockScreenManager` holds `Arc<Mutex<>>` internally so it IS Send; but calling it from a spawn requires the manager reference to be cloned before spawn | Clone the `Arc` ref to the lock screen manager before spawning the pre-flight task |
+| `failure_monitor_tx` watch channel + pre-flight | Pre-flight reading `billing_active` via `failure_monitor_tx.borrow()` races with BillingStarted setting it | Read the `heartbeat_status.billing_active` atomic directly — it is set synchronously in BillingStarted before the spawn |
+| racecontrol `pod_reservation.rs` + MaintenanceRequired | Server has no maintenance pod concept; adding it requires changes to pod state enum, kiosk API, and dashboard | Server-side pod state update must be in scope for the lock screen integration phase, not deferred |
+| `whatsapp_alerter` + pre-flight failures | alerter has no per-pod cooldown for maintenance alerts | Add maintenance alert cooldown at the call site; do not rely on the alerter to deduplicate |
+| HID enumeration + open session | `hidapi::HidApi::new()` is safe (enumerate only); but if any code path calls `device.open()` on the HID device during a session, ConspitLink loses its handle | Never open the HID device; enumerate only. Add a code review rule. |
 
 ---
 
@@ -294,23 +314,11 @@ Phase 1 (API Authentication) -- token validation method must be chosen with late
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Per-request DB lookup for token validation | Billing endpoint latency increases 10-50ms under load | Use HMAC validation (compute-only, no I/O) | At 8 concurrent pods polling every 5s = 1.6 req/s (low, but latency matters) |
-| Argon2 hash on every admin PIN check | Admin panel feels sluggish (argon2 is deliberately slow: 100-500ms) | Hash once on login, issue a session cookie; do not re-hash on every admin API call | On first use -- argon2 is designed to be slow |
-| Encryption/decryption of PII on every customer lookup | Customer list page takes seconds to load as every phone/email is decrypted | Decrypt in batch, cache decrypted values in memory for the session; or use deterministic encryption for search | At 500+ customer records |
-| TLS handshake overhead on LAN connections | Pod reconnection time increases (TLS adds 1-2 RTT) | Keep LAN traffic as plain HTTP + auth tokens; TLS only for external | At pod restart -- every reconnect pays TLS cost |
-
----
-
-## Security Mistakes
-
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Auth token in URL query string (logged by proxies/browsers) | Token appears in server logs, browser history, and any intermediary | Use Authorization header for HTTP; for WebSocket, send token in first message after upgrade |
-| Admin PIN attempts not rate-limited | 4-digit PIN brute-forced in < 30 minutes at 1 attempt/ms | Rate limit: 5 failures = 5-minute lockout; log all failed attempts |
-| Error messages reveal auth internals | "Invalid token: expected HMAC-SHA256" tells attacker the algorithm | Generic 401 response: "Authentication required" -- no details about method |
-| Forgetting to auth the /exec endpoint on rc-agent | Pod agent accepts arbitrary commands from localhost | Auth on rc-agent :8090 + bind to server IP only + process allowlist kills curl on pods |
-| PII in structured logs shipped to monitoring | Phone numbers in Netdata/log aggregation | Log redaction middleware: mask PII before logging; never log request bodies containing PII fields |
-| Session cookie without HttpOnly/Secure flags | XSS in the admin panel steals the session | Set `HttpOnly`, `Secure` (if HTTPS), `SameSite=Strict` on all auth cookies |
+| Serial pre-flight checks | Total check time = sum of all check times (5-15s) | Run all checks concurrently with `tokio::join!` or `join_all`, same as `self_test::run_all_probes()` | Immediately — even 3 serial 2s checks exceed the 5s budget |
+| `netstat -ano` called multiple times | Each call takes 200-500ms on Windows; calling it for UDP check AND CLOSE_WAIT check means 1s+ overhead | Call `netstat -ano` once, cache output, parse for all checks that need it | First time — the overhead is immediate |
+| HID enumeration on every pre-flight | `HidApi::new()` enumerates all USB devices, takes 200-500ms | Cache result in `AppState.hid_detected` (already exists); only re-enumerate if the cached result is negative | Always — unnecessary if cached state is fresh |
+| ConspitLink process scan with full `tasklist` | `tasklist` outputs all processes; parsing takes 50-200ms | Use `tasklist /FI "IMAGENAME eq ConspitLink.exe" /FO CSV` to filter at the OS level | At 100+ running processes — common on gaming pods |
+| Disk space check on spinning HDD | `std::fs::metadata("C:")` blocks the thread; HDD seek time adds 20-100ms | Run in `tokio::task::spawn_blocking`; it already IS blocking I/O | Always on HDD pods (check if pods have SSDs) |
 
 ---
 
@@ -318,25 +326,25 @@ Phase 1 (API Authentication) -- token validation method must be chosen with late
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Auth failure shows generic "Error" to kiosk customer | Customer thinks the system is broken, calls staff | Kiosk should never show auth errors to customers; if auth fails, show "Connecting..." and retry silently; alert staff via bot |
-| Admin PIN required on every page navigation | Uday enters PIN 50 times per day | Issue a session cookie after PIN entry; session lasts 8 hours (one business day) |
-| Kiosk lockdown blocks game overlays (Steam, Discord) | Games fail to launch or crash because overlay processes are killed | Process allowlist must include game-required overlay processes; test with each game title |
-| Security audit disrupts cafe operations | Audit requires pod downtime for testing | Run audit on Pod 8 only (canary); production pods continue serving customers |
+| No lock screen state during check window | Customer sees stale PIN entry screen or session summary for 2-5 seconds; confusing | Add `LaunchSplash` or a "Preparing your session..." message immediately on BillingStarted, before checks begin |
+| MaintenanceRequired shows technical error details | Customer sees "ConspitLink.exe PID 4821 not found" — confusing and unprofessional | Show only branded message: "Pod maintenance in progress. Staff have been notified." Technical details go to logs only. |
+| Staff notified before auto-fix is attempted | Staff rush to the pod before the agent has had a chance to fix it | Attempt auto-fix first; notify staff only if auto-fix fails (same pattern as existing `failure_monitor` → `ai_debugger` → alert flow) |
+| Maintenance badge visible to customers on kiosk dashboard TV | Kiosk dashboard is sometimes on a TV visible to customers in the venue | Maintenance details (pod number, failure reason) should require staff PIN to view; public view shows only "Pod unavailable" |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **API Auth:** Test with curl from a pod machine (not just the server). Verify `curl http://localhost:8090/exec` is rejected -- pod-local access must also require auth.
-- [ ] **Admin PIN:** Test by calling admin endpoints directly with curl (no browser). Server-side must reject -- client-side React check is not sufficient.
-- [ ] **HTTPS scope:** Verify LAN traffic decision is documented. If HTTP on LAN: document why. If HTTPS on LAN: verify all 8 pods have certificates and WSS works.
-- [ ] **Kiosk lockdown:** Have a real person (not the developer) try to escape. Automated tests miss physical-access escape vectors like Ctrl+Alt+Del.
-- [ ] **PII audit:** Check log files for customer data, not just the database. `grep -r "\d{10}" logs/` catches leaked phone numbers.
-- [ ] **Token rotation:** Verify the middleware accepts 2+ tokens simultaneously. Test by adding a new token while the old one is still in use on pods.
-- [ ] **Data at rest:** After encryption, run `sqlite3 customer.db .tables` from the CLI. If it works, encryption is not active.
-- [ ] **Cloud sync:** After auth is enabled, verify Bono's VPS sync still works. Check the sync log for 401 errors.
-- [ ] **Bot auth:** Send a session command via Discord/WhatsApp. Verify the bot includes auth credentials and the session actually starts.
-- [ ] **Rate limiting:** Hit the admin PIN endpoint 10 times with wrong PINs. Verify lockout activates.
+- [ ] **Timing budget:** Run a stopwatch test. Book a session on a healthy pod. Measure time from BillingStarted to lock screen showing "ActiveSession." Must be under 5 seconds wall-clock.
+- [ ] **Concurrency:** Check that BillingTick messages are processed normally while pre-flight is running. Look for dropped ticks in logs.
+- [ ] **MaintenanceRequired exit:** Manually trigger a failure on Pod 8, confirm MaintenanceRequired state. Then fix the issue. Verify the pod auto-clears within 60 seconds without a manual restart.
+- [ ] **False positive test:** Run pre-flight on a fully healthy pod 20 times consecutively. Zero should report failure.
+- [ ] **Safe-kill verification:** Start an active session on Pod 8. Manually set `game_process = None` in a test. Verify pre-flight does NOT kill the game that is actually running.
+- [ ] **Notification deduplication:** Trigger a failure that persists. Confirm only one staff notification is sent, not one per BillingStarted attempt.
+- [ ] **Server pod state:** After MaintenanceRequired, verify racecontrol marks the pod unavailable. Try booking the pod from the kiosk — it must be blocked.
+- [ ] **Warm-system UDP probe:** Run pre-flight immediately after a session ends (game just closed). The UDP telemetry port should NOT be bound; if it is, it's an orphan. Verify the check catches this correctly.
+- [ ] **ConspitLink restart race:** Kill ConspitLink manually on Pod 8. Start a new session. Verify ConspitLink is restarted and working before the lock screen shows ActiveSession.
+- [ ] **Check module separation:** Verify `preflight::run_checks()` is a different function from `self_test::run_all_probes()`. No shared call path.
 
 ---
 
@@ -344,14 +352,12 @@ Phase 1 (API Authentication) -- token validation method must be chosen with late
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Big-bang auth breaks fleet | HIGH | Revert server binary to pre-auth version (`git revert` + deploy via pendrive if fleet exec is broken). All pods resume unauthenticated operation. |
-| Leaked API token | MEDIUM | Generate new token, deploy to server (accepts both old+new), deploy new token to pods one-by-one, remove old token from server accept list after all pods updated. |
-| Admin PIN forgotten | LOW | SSH to server, update the hashed PIN in config/DB directly. Or: add a "reset PIN via console" command to racecontrol CLI. |
-| HTTPS breaks WS connections | MEDIUM | Revert to HTTP on the server (`git revert` TLS config). Pods reconnect automatically via WS. Then plan a proper TLS rollout. |
-| Kiosk escape exploited during session | LOW | Immediate: rc-agent kills unauthorized processes automatically. Long-term: add the escape vector to the Group Policy blocklist. |
-| PII found in logs after audit | MEDIUM | Purge log files containing PII. Add log redaction middleware. Re-run PII grep to verify. No customer notification needed if logs were server-local only. |
-| SQLite encryption breaks cloud sync | MEDIUM | Disable encryption temporarily (`PRAGMA key` removal), restore sync, then fix sync to use SQLCipher-aware client before re-enabling encryption. |
-| Auth latency breaks billing | LOW | Remove auth middleware from billing endpoints temporarily (they are the most latency-sensitive). Fix: switch to HMAC validation and re-enable. |
+| BillingStarted blocks WS loop | HIGH | Roll back pre-flight to a pass-through (disable checks temporarily). The `disable_preflight` config flag should exist from day one for exactly this scenario. |
+| MaintenanceRequired with no exit | MEDIUM | Restart rc-agent on the pod (racecontrol fleet exec → `sc stop rc-agent && sc start rc-agent`). Pod comes back in StartupConnecting state. |
+| False positive blocks healthy pod | MEDIUM | Staff uses "Clear Maintenance" button in kiosk dashboard. Temporarily raise check thresholds in config until false positive source is identified. |
+| ConspitLink restart kills active session | HIGH | Immediately issue BillingPause for the affected pod. Apply manual FFB restart via rc-sentry `/exec` endpoint. Session time compensation is manual. |
+| Notification flood | LOW | Add a `preflight_alert_cooldown_secs` config field. Set to 1800 (30 minutes) in production. Restart racecontrol to apply. |
+| Pre-flight timeout causes all checks to skip | LOW | Increase `preflight_timeout_secs` in config. Checks revert to pass-through until timeout is resolved. No customer impact. |
 
 ---
 
@@ -359,36 +365,31 @@ Phase 1 (API Authentication) -- token validation method must be chosen with late
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Big-bang auth bricks fleet | Phase 1: API Authentication | Deploy dual-mode middleware; verify pods work unauthenticated; then add tokens; then reject unauthenticated |
-| Secret hardcoded in source | Phase 1: API Authentication | `grep -r "secret\|token" *.toml crates/` returns zero hits; secrets only in env vars |
-| Admin PIN stored plaintext | Phase 2: Admin Panel Protection | `sqlite3` or `grep` on config shows only argon2 hashes, never plaintext PINs |
-| HTTPS breaks WebSocket | Phase 3: Data in Transit | Document LAN/external split decision; if HTTPS on LAN: test WSS from all 8 pods before enabling |
-| Kiosk escape vectors | Phase 4: Kiosk Hardening | Manual escape test by non-developer; process allowlist kills cmd/powershell/taskmgr during session |
-| PII in unexpected locations | Phase 0: Security Audit | PII trace report lists every location; all non-authorized locations remediated |
-| Tokens have no rotation | Phase 1: API Authentication | Middleware accepts token list (not single value); rotation procedure documented |
-| Pod agent bypass | Phase 1: API Authentication | `curl http://pod:8090/exec` without token returns 401 |
-| SQLite encryption breaks tooling | Phase 5: Data at Rest | Cloud sync, backup restore, and CLI tools tested after encryption enabled |
-| Auth latency hits billing | Phase 1: API Authentication | p99 latency on billing endpoints < 5ms with auth enabled; load test with 8 concurrent pods |
+| Blocking BillingStarted with sync checks | Phase 1: Framework | BillingTick messages arrive normally during pre-flight; no dropped ticks in log |
+| Auto-fix kills game mid-session | Phase 1: Framework | Safe-kill checklist test: game not killed when `state.game_process` is Some |
+| MaintenanceRequired has no exit path | Phase 2: Lock screen integration | Manual test: fix a failure, pod auto-clears within 60s without restart |
+| Self-test probes wrong in warm context | Phase 1: Framework | Create separate `preflight::run_checks()`; no call to `self_test::run_all_probes()` |
+| Staff notification flood | Phase 3: Notifications | 20 consecutive failures → 1 staff notification, not 20 |
+| ConspitLink check passes but process hung | Phase 1: Hardware checks | HID liveness cross-check code present; code review confirms no `device.open()` |
+| >5s check blocks customer at lock screen | Phase 1: Framework | Stopwatch test: BillingStarted to ActiveSession under 5s on healthy pod |
+| Billing check races session cleanup | Phase 1: Billing checks | Local atomic used for billing state; no HTTP query to server |
+| MaintenanceRequired breaks server pod state | Phase 2 + Protocol | racecontrol marks pod unavailable on `AgentMessage::MaintenanceRequired`; kiosk blocks booking |
+| Screenshot-based display validation | Phase 2: Display checks | HTTP probe to :18923 used; no screenshot/GDI calls in codebase |
+| ConspitLink restart kills wrong process | Phase 1: Hardware checks | PID-targeted kill in all auto-fix code; name-based kill only for confirmed orphan games |
 
 ---
 
 ## Sources
 
-- [Mastering API Changes and Rollbacks Without Breaking Trust - Zuplo](https://zuplo.com/learning-center/api-changes-and-rollbacks) -- expand-migrate-contract pattern for API auth rollout
-- [Managing API Changes: 8 Strategies That Reduce Disruption - Theneo](https://www.theneo.io/blog/managing-api-changes-strategies) -- phased rollout strategies
-- [Android Kiosk Mode Security Hardening - VantageMDM](https://vantagemdm.wixsite.com/vantagemdm/post/android-kiosk-mode-security-hardening-technical-best-practices-2025) -- kiosk escape vectors and OS-level lockdown
-- [Hexnode Windows Kiosk Security](https://www.hexnode.com/blogs/hardening-windows-kiosk-mode-security-best-practices-for-enterprise-protection/) -- Windows-specific kiosk hardening
-- [Kiosk Hack Tips - Kiosk Industry](https://kioskindustry.org/kiosk-hacking-tips-to-harden-your-kiosk/) -- escape prevention techniques
-- [Small Business PII Guide - Comparitech](https://www.comparitech.com/blog/information-security/small-business-pii/) -- PII handling for small businesses
-- [6 Mistakes Handling PII - Integrate.io](https://www.integrate.io/blog/6-mistakes-to-avoid-when-handling-pii/) -- PII spread and audit practices
-- [PII Compliance Checklist 2026 - Improvado](https://improvado.io/blog/what-is-personally-identifiable-information-pii) -- India DPDP Act fines up to 500 crore
-- [SQLite Encryption and Secure Storage - SQLite Forum](https://www.sqliteforum.com/p/sqlite-encryption-and-secure-storage) -- SQLCipher pitfalls and key management
-- [SQLite Security Hardening - ZuniWeb](https://zuniweb.com/blog/sqlite-security-and-hardening-encryption-backups-and-owasp-best-practices/) -- encryption-at-rest implementation gotchas
-- [Zero-Downtime Schema Migration - Medium](https://medium.com/@systemdesignwithsage/the-schema-migration-strategy-that-finally-worked-without-downtime-36657492b8e2) -- dual-version compatibility during migration
-- [Rust Axum JWT Auth - LogRocket](https://blog.logrocket.com/using-rust-axum-build-jwt-authentication-api/) -- Axum middleware patterns for auth
-- [Axum Middleware Docs](https://docs.rs/axum/latest/axum/middleware/index.html) -- Router::layer and route-specific middleware application
-- Project context: `.planning/PROJECT-v12.md`, `CLAUDE.md` (system architecture, fleet topology, deploy rules)
+- `crates/rc-agent/src/ws_handler.rs` — BillingStarted handler structure, critical path analysis
+- `crates/rc-agent/src/self_test.rs` — existing probe implementations, timeout patterns
+- `crates/rc-agent/src/lock_screen.rs` — LockScreenState enum (13 states), state machine structure
+- `crates/rc-agent/src/billing_guard.rs` — suppression gate patterns (recovery_in_progress, billing_paused)
+- `crates/rc-agent/src/failure_monitor.rs` — FailureMonitorState, debounce patterns (stuck_fired), CRASH-01/02 detection rules
+- `crates/rc-agent/src/app_state.rs` — AppState structure, game_process field, hid_detected field
+- `.planning/PROJECT.md` — v11.1 milestone goals, constraint list, existing system capabilities
+- `CLAUDE.md` — Windows Service context, Session 0/1 boundary, ConspitLink VID:PID, deploy rules
 
 ---
-*Pitfalls research for: Security hardening of live eSports cafe operations stack*
-*Researched: 2026-03-20*
+*Pitfalls research for: Pre-flight session health gates added to existing kiosk/agent system*
+*Researched: 2026-03-21*

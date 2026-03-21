@@ -1,170 +1,190 @@
-# Feature Landscape: eSports Cafe Operations Security
+# Feature Research: Pre-Flight Session Checks
 
-**Domain:** Security hardening for eSports cafe operations (billing, kiosk, admin, customer data)
-**Researched:** 2026-03-20
-**Confidence:** HIGH (based on codebase audit + industry research + India DPDP Act requirements)
+**Domain:** Pre-session health gate for kiosk/sim racing pod agent (rc-agent)
+**Researched:** 2026-03-21
+**Confidence:** HIGH (based on direct codebase audit + domain analysis of kiosk/arcade/sim racing health-gate patterns)
 
 ---
 
-## Table Stakes
+## Feature Landscape
 
-Features that are non-negotiable. Without these, the system is actively vulnerable to exploitation by anyone on the LAN.
+### Table Stakes (Staff Expect These)
 
-| # | Feature | Why Expected | Complexity | Notes |
-|---|---------|--------------|------------|-------|
-| TS-1 | **API authentication on billing/session endpoints** | Anyone on the LAN can `curl` billing/start, add credits, launch sessions. Direct financial loss vector. All 80+ API routes are completely open. | Medium | Shared secret or API key for server-to-server (agent, cloud sync); JWT for customer-facing. Current state: zero middleware protection on any route. |
-| TS-2 | **Admin panel authentication** | Admin panel has zero auth. Any device on the network can access wallet topups, pricing changes, pod control, fleet exec, terminal commands. | Low | Simple PIN/password gate. Uday-only access is sufficient. Session cookie or short-lived JWT after PIN entry. Staff already have `/staff/validate-pin` and `/employee/daily-pin` -- just not enforced as middleware. |
-| TS-3 | **HTTPS for PWA and admin traffic** | Customer PII (phone, name, email), PINs, and JWTs transit in plaintext over HTTP. Trivially sniffable on shared WiFi. | Medium | Self-signed cert for LAN is acceptable. Let's Encrypt for cloud endpoints (racingpoint.cloud). Kiosk-to-server on wired LAN is lower priority than PWA traffic over WiFi. |
-| TS-4 | **Customer JWT enforcement on all /customer/* routes** | JWT infrastructure exists (jsonwebtoken crate, Claims struct, `extract_driver_id` helper) but routes do not uniformly enforce it via middleware. Customer endpoints may be accessible without a valid token. | Low | Axum middleware layer that rejects requests without valid JWT on all `/customer/*` routes. The infrastructure is already built -- just needs consistent enforcement via `axum_mw::from_fn`. |
-| TS-5 | **Rate limiting on auth endpoints** | PIN validation and OTP endpoints have no rate limiting. Brute-force a 4-6 digit PIN in minutes. Customer PIN lockout exists (5 attempts per CUSTOMER_PIN_LOCKOUT_THRESHOLD) but no IP/device-level throttle exists on staff or admin endpoints. | Low | Per-IP rate limit on `/auth/validate-pin`, `/customer/login`, `/customer/verify-otp`, `/staff/validate-pin`. tower-governor crate or simple in-memory counter with sliding window. |
-| TS-6 | **Kiosk escape prevention hardening** | Current kiosk.rs has process allowlisting (good), but known escape vectors are unaddressed: keyboard shortcuts (Win+R, Ctrl+Alt+Del, Alt+Tab, Alt+F4), USB mass storage attacks, file dialog escapes, Sticky Keys accessibility exploit, file:// protocol in browser, barcode/QR scanner emulation. | Medium | Disable hotkeys via low-level keyboard hook (Windows SetWindowsHookEx API). Disable USB mass storage via Group Policy (already noted as pending in CLAUDE.md). Block file:// protocol in Chrome kiosk flags. Disable Sticky Keys via registry. |
-| TS-7 | **PII storage audit and encryption** | Phone numbers, emails, names, guardian phone stored as plaintext in SQLite (drivers table). India's DPDP Act 2023 (Rules published Nov 2025, main compliance deadline May 2027) mandates encryption, access logging, and breach notification for personal data. Penalties up to 250 crore INR. | Medium | Audit all PII columns: drivers.phone, drivers.email, drivers.name, drivers.guardian_phone. At minimum: encrypt phone/email at application level before SQLite write. Hash phone for OTP lookups (deterministic), encrypt for display (reversible with key). |
-| TS-8 | **Bot command payment verification** | Discord/WhatsApp bots can trigger session launches via bot_coordinator.rs. Must verify wallet balance or pending payment before session launch -- not just accept the command. | Low | Partially exists. Audit: every bot-initiated path must check `wallet.balance >= session_cost` before calling `billing::start`. No bypass for "staff override" via bot -- staff override only through admin panel. |
-| TS-9 | **Session launch integrity** | Prevent session start without valid payment. Multiple attack vectors: direct API call to `/billing/start`, kiosk manipulation, bot command, replay of expired auth token, race condition between token validation and billing start. | Medium | Auth tokens must be single-use (mark consumed in DB), time-bounded (expiry already exists), validated server-side before billing starts. Database transaction wrapping token consumption + billing creation to prevent TOCTOU races. |
-| TS-10 | **Secrets management** | JWT signing key, database credentials, API keys likely in plaintext in racecontrol.toml. If config file is readable (it lives at C:\RacingPoint\racecontrol.toml on the server), all JWT tokens are forgeable. | Low | Move JWT secret to environment variable. Generate a cryptographically random key on first run if not set. Never commit secrets to git. Rotate key if compromise suspected (invalidates all active JWTs -- acceptable for single-location). |
+Features that a pre-flight gate must have. Missing any of these means the gate cannot do its job — it either blocks valid sessions, misses real failures, or produces noise that staff learn to ignore.
 
-## Differentiators
+| # | Feature | Why Expected | Complexity | Existing Dependency |
+|---|---------|--------------|------------|---------------------|
+| TS-1 | **Triggered on BillingStarted, runs before session begins** | The gate must intercept the session lifecycle at the right point. A gate that runs at startup or on a cron is not a pre-flight check — it's a background monitor. | LOW | `ws_handler.rs` BillingStarted handler — the hook point already exists. Insert pre-flight call before `state.lock_screen.show_active_session()`. |
+| TS-2 | **WebSocket connected to racecontrol** | If the WS is down when a session starts, billing ticks cannot arrive, overlay will not update, and BillingStopped will be missed. A pod with a dead WS should not enter a customer session. | LOW | `HeartbeatStatus.ws_connected` atomic already exists. Read it. |
+| TS-3 | **UDP heartbeat alive (last packet < threshold)** | Telemetry silence means no lap times are being captured. For a sim racing pod, no telemetry = no laps = no leaderboard. The customer paid for nothing. | LOW | `HeartbeatStatus` already tracks UDP. `FailureMonitorState.last_udp_secs_ago` exists. Check it (warn if > 30s, but this is soft-fail since no session is running yet). |
+| TS-4 | **Wheelbase HID connected (Conspit Ares VID:0x1209 PID:0xFFB0)** | Customer cannot steer without the wheelbase. If HID is missing at session start, they get an unusable pod. Auto-fix: rescan HID. If still missing after rescan, alert staff and block. | LOW | `FailureMonitorState.hid_connected` exists. Auto-fix: re-enumerate HID via `ffb_controller`. |
+| TS-5 | **No orphaned game process from previous session** | A lingering `acs.exe` or `F12025.exe` from a crashed previous session means the new session will either fail to launch or the customer will walk into someone else's in-progress game. | LOW | `game_process.rs` has process detection. Auto-fix: `kill_orphaned_game()` — this pattern already exists in `ai_debugger.rs`. |
+| TS-6 | **Billing clear — no active session from previous customer** | If the previous session was not cleanly ended (billing_guard missed the orphan or the HTTP call failed), starting a new session on top of an active one corrupts billing state. | LOW | `FailureMonitorState.billing_active` and `active_billing_session_id` exist. Auto-fix: attempt HTTP orphan-end with existing `attempt_orphan_end()` logic. |
+| TS-7 | **Disk space > 1GB free on system drive** | AC replays, log files, and temp files accumulate. If disk is full, AC cannot write session data, Windows Update may fail mid-session, and game launch can fail silently. 1GB is the minimum safe floor. | LOW | `self_test.rs` already has disk probe logic — reuse it. |
+| TS-8 | **Memory > 2GB free** | AC + CSP + overlay + rc-agent together consume ~4-6GB. Less than 2GB free at session start means the customer will hit frame drops or OOM crashes mid-session. | LOW | `self_test.rs` already has memory probe logic — reuse it. |
+| TS-9 | **ConspitLink process running** | ConspitLink is the bridge between the Conspit Ares wheelbase firmware and AC. Without it, FFB is dead even if HID is connected. | LOW | `self_test.rs` already has process detection. Auto-fix: spawn ConspitLink. |
+| TS-10 | **Auto-fix failures before alerting** | A gate that alerts staff on every transient failure is noise. Staff will disable it or ignore it. Auto-fix first — restart the process, kill the orphan, rescan HID — then only alert if auto-fix cannot resolve. | MEDIUM | `ai_debugger.rs` `try_auto_fix()` with canonical keywords. Pattern already established. |
+| TS-11 | **"Maintenance Required" lock screen when unfixable** | If auto-fix fails, the pod should show a clear "Maintenance Required" screen and block the session. The customer should not be handed a broken pod. Staff need a visible signal. | LOW | `LockScreen` already has states for special displays. New state: `MaintenanceRequired` with failure summary text. |
+| TS-12 | **Staff notification via WebSocket on unresolved failure** | Staff at the kiosk dashboard need to know which pod blocked and why without walking to the pod. The WS channel is the established mechanism. | LOW | `AgentMessage` enum — add `PreFlightFailed` variant. Server receives, routes to kiosk dashboard badge. |
 
-Extra protection that goes beyond plugging obvious holes. Valuable but not urgent.
+### Differentiators (Competitive Advantage)
+
+Features that go beyond the basic gate and make the system genuinely better for operations. Not required for the gate to work, but high value.
 
 | # | Feature | Value Proposition | Complexity | Notes |
 |---|---------|-------------------|------------|-------|
-| D-1 | **Audit trail for admin actions** | Know who did what, when. "Who topped up that wallet at 2am?" Essential for incident investigation and DPDP Act compliance (access logging). | Medium | Log all admin actions (wallet topup, pricing change, session override, fleet exec, terminal command) to an append-only audit_log table with timestamp, source IP, actor identifier, action, and payload. |
-| D-2 | **Session-scoped kiosk tokens** | Instead of relying on process-level lockdown alone, issue a session token that rc-agent validates. When session ends, token expires, kiosk locks automatically. Prevents "session ended but kiosk still unlocked" window. | Medium | Ties kiosk unlock state to billing session lifecycle. Server issues token on billing start, agent validates on each kiosk action, agent locks on token expiry or billing end event. |
-| D-3 | **Network source tagging** | Tag API requests by source: wired LAN (pod/server), WiFi (customer PWA), WAN (cloud sync). Apply different trust levels per source. | Medium | Not full VLAN (out of scope) but application-level IP range checks. Pods (192.168.31.x wired) get agent-level trust. WiFi devices get customer-only access. Cloud (Bono VPS IP) gets sync-level access. |
-| D-4 | **Automated session cleanup on security anomaly** | If rc-agent detects kiosk escape attempt, unauthorized process surviving kills, or hardware tamper, auto-pause billing and alert staff via WhatsApp. | Low | Extend kiosk.rs to emit security events over WebSocket. Server-side: pause billing on security alert. WhatsApp alert to Uday (already have whatsapp_alerter.rs). |
-| D-5 | **Customer data export and deletion** | DPDP Act grants data principals the right to erasure and data portability. Provide mechanism to export and delete a customer's data on request. | Low | SQL cascade delete from drivers table. Export as JSON dump. Not urgent at current scale but required by May 2027 deadline. |
-| D-6 | **Staff PIN rotation** | Employee daily PIN already exists (`/employee/daily-pin`). Extend to auto-rotate admin PIN periodically or after suspected compromise. | Low | Ensure admin PIN is not static forever. Add last_changed timestamp. Alert if PIN unchanged for >30 days. |
-| D-7 | **Cloud sync request signing** | Cloud sync (pull/push every 30s via cloud_sync.rs) between local server and Bono's VPS. Intercepted or replayed sync payloads could inject fake billing data. | Medium | HMAC-SHA256 signature on sync payloads. Timestamp + nonce to prevent replay. Shared secret between server and VPS (separate from JWT key). |
-| D-8 | **Security response headers** | Prevent XSS, clickjacking, MIME sniffing in the kiosk PWA and admin dashboard. | Low | Add CSP, X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security headers via Axum middleware layer. Blocks script injection and framing attacks. |
+| D-1 | **Structured pre-flight result with per-check status** | Instead of a single pass/fail, the gate returns a structured result: which checks passed, which failed, what auto-fix was attempted, what the fix outcome was. Server logs this per session. Staff can see "pod 3: HID rescan needed (auto-fixed)" rather than just "failure". | MEDIUM | Model after existing `SelfTestReport` / `ProbeResult` types in `self_test.rs`. Pre-flight result serializes to JSON, sent as `PreFlightResult` AgentMessage. |
+| D-2 | **Configurable failure policy per check (hard vs soft block)** | Some checks (WS connected, HID connected, no active session) are hard blocks — do not start the session. Others (UDP heartbeat, disk space approaching limit) are soft warnings — start the session but flag the pod in the dashboard. Config-driven via `rc-agent.toml`. | MEDIUM | Adds `[preflight]` section to config. `hard_block_checks = ["ws", "hid", "billing_clear"]`, `soft_warn_checks = ["udp", "disk"]`. |
+| D-3 | **Pre-flight result visible in fleet health dashboard** | Uday and staff should see a "last pre-flight" field per pod in the fleet health view — timestamp, pass/fail, which check triggered. Adds operational visibility without requiring staff to watch logs. | MEDIUM | Extend `PodFleetStatus` with `last_preflight_at`, `last_preflight_ok`, `last_preflight_detail`. Server already has `/api/v1/fleet/health`. |
+| D-4 | **Kiosk dashboard badge on pre-flight failure** | When a pod's pre-flight fails, the pod card in the kiosk dashboard shows a badge (e.g. "Maintenance Required") in Racing Red (#E10600) until staff acknowledge or the pod self-clears. | MEDIUM | Requires server-side state (preflight_blocked: bool per pod) and kiosk frontend badge render. Not complex, but crosses the Rust/Next.js boundary. |
+| D-5 | **Overlay renders correctly check** | Verify the overlay process is alive and responding before the session starts. A dead overlay means the customer has no HUD. Auto-fix: restart overlay process. | LOW | `self_test.rs` already has TCP probe for overlay port. Reuse it. Restart via `overlay.rs`. |
+| D-6 | **AC content accessible check** | Verify the AC install directory and at least one car/track is present. A corrupted or missing content install will fail at launch, but the error message is cryptic. A pre-flight check surfaces this cleanly. | MEDIUM | Check `C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\content\cars` exists and is non-empty. This is a soft-fail (warn, don't block) unless content is completely absent. |
+| D-7 | **CLOSE_WAIT socket cleanup before session** | `self_test.rs` already detects CLOSE_WAIT leaks. Run this as a pre-flight check and auto-clean before the session starts rather than waiting for the self-test cron. Prevents "port 8090 already in use" on session start. | LOW | Reuse existing CLOSE_WAIT detection logic. Auto-fix: `netsh int ip delete tcpconnections` or process restart. |
 
-## Anti-Features
-
-Things to deliberately NOT build. Either overkill for current scale, introduce complexity that hurts operations, or create false sense of security.
+### Anti-Features (Do Not Build)
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **Full PCI-DSS certification** | Overkill for a single-location cafe. Payments processed via third-party (UPI/Razorpay). No card numbers stored locally. The wallet stores credits, not payment instruments. | Follow PCI best practices (no card storage, HTTPS for payment flows) without formal certification. |
-| **Role-based access control (RBAC)** | Single owner (Uday). Adding roles, permissions, and access matrices adds complexity with zero users to benefit. Staff already have a limited daily PIN. | Binary access model: admin (Uday PIN) or staff (daily PIN) or customer (JWT). No need for permission matrices. |
-| **External penetration testing** | Premature before basic hardening is done. Findings will be "you have no auth on your APIs" -- which is already known. Money wasted. | Internal hardening first across all table stakes. Consider pen test only after all TS features are deployed and stable. |
-| **Biometric authentication** | No biometric hardware on pods or kiosks. Adds cost and hardware dependency for a walk-in cafe. | PIN + OTP is sufficient for customer auth. Staff use admin PIN. Physical presence at the venue is itself a factor. |
-| **End-to-end encryption for all internal traffic** | Pods are on a private wired LAN behind a router. Encrypting pod-to-server WebSocket and HTTP adds latency to real-time telemetry (UDP ports 9996/20777/5300/6789/5555) and kiosk control. | HTTPS for customer-facing traffic (PWA over WiFi). Plain HTTP acceptable for wired pod-to-server on private LAN. Monitor for rogue devices instead. |
-| **OAuth2/OIDC with external identity provider** | No Google/Facebook login needed. Customers auth via phone OTP (already implemented). Adding OAuth2 complexity for staff auth serving 1 user is engineering for engineering's sake. | Phone OTP for customers (exists). Static/rotating PIN for admin (simple). |
-| **Web Application Firewall (WAF)** | Local server (192.168.31.23) has no public internet exposure. Cloud endpoints are behind Bono's VPS (72.60.101.58). No inbound traffic from the internet to the cafe server. | Existing CORS policy + rate limiting + input validation is sufficient for the threat model. |
-| **Immutable audit log (blockchain/append-only DB)** | Buzzword solution. At this scale, a regular SQL table with an auto-increment ID and created_at timestamp is tamper-evident enough. The threat actor is a curious customer, not a sophisticated attacker. | Simple audit_log table. If tamper-evidence is later needed, add SHA-256 chain hash (hash of previous row included in current row). |
-| **Client-side encryption in PWA** | Encrypting data in the browser before sending to server adds complexity. The server must decrypt to process. Does not protect against a compromised server. Gives false sense of security. | Server-side encryption at rest (TS-7) and HTTPS in transit (TS-3) cover the actual threat vectors. |
+| **GPU temperature check** | GPU temp varies 30-80°C legitimately during normal operation. Checking temp at BillingStarted tells you nothing useful — it will always pass after idle and always spike during gaming. Creates noise without action criteria. | Monitor GPU temperature continuously in the background if thermal management is needed (future milestone). Not a session gate. |
+| **Full 22-probe self_test on every BillingStarted** | self_test.rs runs 22 probes with a 10-second per-probe timeout. Running all of them on every session start adds up to 10+ seconds of latency before a customer can play. Some probes (Ollama, Steam API ping) are irrelevant to session readiness. | Run only the 8-10 session-relevant checks. Reuse probe functions but do not invoke the full self_test pipeline. |
+| **Customer-visible error messages** | The pre-flight failure screen should target staff, not customers. A customer seeing "HID device VID:0x1209 PID:0xFFB0 not found" is confusing and undermines trust in the venue. | Lock screen shows "Setting Up Your Pod — Please Wait" during pre-flight. On hard failure, show "Maintenance Required — Staff Notified." No technical details to customers. |
+| **Blocking the WS send to racecontrol while pre-flight runs** | Pre-flight runs async. Blocking the WS event loop during pre-flight would prevent BillingTick, ping/pong, and other messages from arriving. This would cause the WS to drop due to keepalive timeout. | Pre-flight runs in a tokio::spawn (or spawn_blocking for sync probes). The WS event loop continues. Pre-flight completion triggers a single WS message (PreFlightResult) to the server. |
+| **Per-check timeouts > 5 seconds** | A pre-flight check that takes 5+ seconds per probe will make session start feel sluggish. Customers are standing at the pod waiting. | Cap all pre-flight probes at 2 seconds. Self_test already uses 10s timeouts for startup (acceptable then, not for session start). |
+| **Retry loops inside the auto-fix** | billing_guard already has a 3-attempt retry loop for orphan auto-end. Adding retry loops inside each pre-flight auto-fix creates unbounded wait time before staff are alerted. | Auto-fix attempts once. If it fails, send PreFlightFailed immediately. Do not retry in the pre-flight path — the retry logic belongs in the background monitors (failure_monitor, billing_guard). |
+| **Pre-flight cancellation on new BillingStarted** | If a second BillingStarted arrives while pre-flight is running (race condition or double-click from staff), running two concurrent pre-flights creates corrupted state. | Pre-flight acquires a per-pod mutex/atomic flag. Second BillingStarted is queued or rejected until pre-flight completes. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-TS-10 (Secrets management) ──> TS-1 (API auth)
-    API auth tokens derive from JWT key. Key must be securely stored first.
+BillingStarted (ws_handler.rs)
+    └──triggers──> PreFlight framework (pre_flight.rs — new)
+                       ├──reads──> FailureMonitorState (hid_connected, billing_active, last_udp_secs_ago)
+                       ├──reads──> HeartbeatStatus (ws_connected)
+                       ├──reuses──> self_test.rs probe functions (disk, memory, tcp port)
+                       ├──reuses──> game_process.rs (orphan detection)
+                       ├──reuses──> ai_debugger.rs try_auto_fix() (auto-fix dispatch)
+                       ├──writes──> LockScreen (MaintenanceRequired state — new state)
+                       └──sends──> AgentMessage::PreFlightFailed (new variant)
+                                       └──routed by server──> kiosk dashboard badge (D-4)
 
-TS-1 (API auth) ──> TS-4 (JWT enforcement on customer routes)
-    JWT middleware depends on auth infrastructure and key management.
+TS-11 (MaintenanceRequired state)
+    └──requires──> lock_screen.rs show_maintenance_required() method (new)
 
-TS-5 (Rate limiting) ──> TS-2 (Admin auth)
-    Rate limiting protects the admin PIN from brute-force.
-    Implement together or rate limiting first.
+D-3 (Fleet dashboard pre-flight field)
+    └──requires──> PodFleetStatus extended with preflight fields
+                       └──requires──> AgentMessage::PreFlightResult variant
 
-TS-3 (HTTPS) ──> TS-7 (PII encryption at rest)
-    Encrypting data at rest is undermined if it transits in plaintext.
-    HTTPS first, then at-rest encryption.
-
-TS-1 (API auth) ──> TS-9 (Session launch integrity)
-    Cannot verify session launch integrity without authenticated requests.
-
-TS-6 (Kiosk hardening) ──> D-2 (Session-scoped tokens)
-    Kiosk process lockdown is the foundation; session tokens refine it.
-
-D-1 (Audit trail) ──> D-4 (Automated cleanup on anomaly)
-    Need event logging before you can trigger automated responses.
-
-TS-1 (API auth) ──> D-7 (Cloud sync signing)
-    Sync signing builds on the auth key infrastructure.
-
-TS-2 (Admin auth) ──> D-1 (Audit trail)
-    Must know WHO performed an action (admin identity) to log it meaningfully.
+D-4 (Kiosk badge)
+    └──requires──> Server-side preflight_blocked state per pod
+    └──requires──> D-3 (fleet status integration)
 ```
 
----
+### Dependency Notes
 
-## MVP Recommendation
-
-**Phase 1 -- Plug the Biggest Holes (immediate financial risk):**
-1. TS-10: Secrets management -- foundation for all auth
-2. TS-1: API authentication on billing/session endpoints
-3. TS-2: Admin panel PIN protection
-4. TS-5: Rate limiting on auth endpoints
-
-**Rationale:** These four features close the "anyone on the LAN can steal money" gap. TS-10 first because API auth tokens need a secure signing key. TS-1 is the highest-impact single change. TS-2 locks the admin door. TS-5 prevents brute-forcing the new locks.
-
-**Phase 2 -- Protect Customer Data (legal compliance + trust):**
-5. TS-3: HTTPS for PWA and admin traffic
-6. TS-4: JWT enforcement on all customer routes
-7. TS-7: PII storage audit and encryption
-
-**Rationale:** India's DPDP Act compliance deadline is May 2027. These features address the legal requirement. HTTPS first (transit), then JWT enforcement (access control), then at-rest encryption (storage).
-
-**Phase 3 -- Harden the Kiosk (physical exploitation prevention):**
-8. TS-6: Kiosk escape prevention hardening
-9. TS-8: Bot command payment verification
-10. TS-9: Session launch integrity
-
-**Rationale:** Physical exploitation requires being at the venue -- lower blast radius than remote API abuse. But tech-savvy customers WILL try Win+R, USB sticks, and Sticky Keys. This phase hardens the physical attack surface.
-
-**Phase 4 -- Defense in Depth (differentiators):**
-11. D-1: Audit trail for admin actions
-12. D-8: Security response headers (CSP, etc.)
-13. D-2: Session-scoped kiosk tokens
-14. D-4: Automated session cleanup on anomaly
-
-**Defer indefinitely:** D-3 (network source tagging), D-5 (data export/deletion -- implement closer to May 2027), D-6 (staff PIN rotation -- low risk), D-7 (cloud sync signing -- implement if cloud sync volume grows).
+- **TS-10 (auto-fix) requires TS-5, TS-6, TS-4**: Cannot auto-fix what you cannot detect. Each check must produce a structured result before auto-fix can be dispatched.
+- **TS-11 (MaintenanceRequired screen) requires TS-10 (auto-fix)**: Only show the hard-blocked state after auto-fix has been attempted and failed.
+- **TS-12 (staff WS notification) requires TS-11 (lock screen block)**: Notify staff only when the pod is actually blocked, not on transient failures that auto-fix resolved.
+- **D-3 and D-4 are independent of each other** but both require the `PreFlightResult` AgentMessage variant to carry structured data to the server.
 
 ---
 
-## Current State Assessment
+## MVP Definition
 
-Based on direct codebase audit of routes.rs, auth/mod.rs, main.rs, kiosk.rs, db/mod.rs:
+### Launch With (v11.1 core)
 
-| Area | Current State | Gap Severity |
-|------|--------------|--------------|
-| API Auth | Zero middleware protection. All 80+ routes open to any LAN device. Single `jwt_error_to_401` middleware exists but only converts JWT errors -- does NOT require JWT. | CRITICAL |
-| Admin Auth | No authentication gate. Dashboard, terminal, fleet exec, wallet operations all accessible without credentials. | CRITICAL |
-| Customer Auth | JWT infrastructure exists (jsonwebtoken crate, Claims struct, extract_driver_id helper). OTP login flow exists. But no Axum middleware enforcing JWT on /customer/* routes. | HIGH |
-| Kiosk Security | Process allowlisting via kiosk.rs (allowlist + sightings + learned list). Good foundation. Hotkey, USB, file dialog, accessibility escape vectors unaddressed. USB lockdown noted as pending in CLAUDE.md. | MEDIUM |
-| HTTPS | All traffic is HTTP. No TLS configured on any service. CORS allows 192.168.31.* origins over HTTP. | HIGH |
-| PII Storage | Phone, email, name, guardian_phone as plaintext TEXT columns in SQLite. No encryption, no access logging. | HIGH |
-| Rate Limiting | Customer PIN lockout at 5 failures (CUSTOMER_PIN_LOCKOUT_THRESHOLD). No IP-level throttle. No protection on /staff/validate-pin or admin endpoints. | MEDIUM |
-| Secrets | JWT key in racecontrol.toml (C:\RacingPoint\racecontrol.toml on server). Plaintext on disk. | MEDIUM |
-| Audit Trail | None. No record of who performed admin actions, when, or from where. | LOW (no current incidents reported, but complete blind spot) |
-| Cloud Sync | Plain HTTP between server and VPS. No request signing. No replay protection. | LOW (sync is bidirectional with conflict resolution, not directly exploitable without LAN access) |
+Minimum gate that justifies the milestone. Covers the failure modes that actually bite operations — orphan sessions, dead wheelbases, dead WS.
+
+- [ ] **TS-1** — BillingStarted hook in ws_handler.rs calls pre_flight::run() before show_active_session()
+- [ ] **TS-2** — WS connected check (hard block)
+- [ ] **TS-4** — HID connected check with one HID rescan auto-fix attempt (hard block if rescan fails)
+- [ ] **TS-5** — Orphan game process check with kill auto-fix (hard block if kill fails)
+- [ ] **TS-6** — No active billing session check with orphan-end auto-fix (hard block if HTTP call fails)
+- [ ] **TS-7** — Disk space > 1GB check (hard block)
+- [ ] **TS-8** — Memory > 2GB check (soft warn, do not block)
+- [ ] **TS-9** — ConspitLink process running with spawn auto-fix (hard block if spawn fails)
+- [ ] **TS-10** — Auto-fix attempted before any alert
+- [ ] **TS-11** — MaintenanceRequired lock screen state on hard block
+- [ ] **TS-12** — PreFlightFailed AgentMessage to server on hard block
+
+### Add After Validation (v11.1 polish)
+
+- [ ] **TS-3** — UDP heartbeat soft-warn (add after core checks proven stable — this is low-signal before any session has run)
+- [ ] **D-1** — Structured PreFlightResult with per-check status (add when staff ask "which check failed?")
+- [ ] **D-5** — Overlay TCP port check with restart auto-fix
+
+### Future Consideration (v11.2+)
+
+- [ ] **D-2** — Configurable hard/soft policy per check via toml config
+- [ ] **D-3** — Fleet dashboard pre-flight field (requires frontend work)
+- [ ] **D-4** — Kiosk badge on pre-flight failure (requires server state + Next.js changes)
+- [ ] **D-6** — AC content directory existence check
+- [ ] **D-7** — CLOSE_WAIT pre-session cleanup
+
+---
+
+## Feature Prioritization Matrix
+
+| Feature | Operational Value | Implementation Cost | Priority |
+|---------|-------------------|---------------------|----------|
+| TS-1 BillingStarted hook | HIGH — enables everything | LOW — one call site | P1 |
+| TS-4 HID check + rescan | HIGH — #1 cause of "pod not working" complaints | LOW — state already tracked | P1 |
+| TS-5 Orphan game kill | HIGH — prevents "walk into someone's game" | LOW — kill logic exists | P1 |
+| TS-6 Billing clear | HIGH — prevents billing corruption | LOW — state + HTTP exist | P1 |
+| TS-9 ConspitLink running | HIGH — no FFB without it | LOW — process check + spawn | P1 |
+| TS-11 Maintenance screen | HIGH — staff need visible signal | LOW — new lock screen state | P1 |
+| TS-12 Staff WS notification | HIGH — dashboard visibility | LOW — new AgentMessage variant | P1 |
+| TS-7 Disk space | MEDIUM — rare but catastrophic when it hits | LOW — reuse self_test logic | P1 |
+| TS-2 WS check | MEDIUM — WS reconnect usually self-heals | LOW — atomic read | P1 |
+| TS-8 Memory check | MEDIUM — soft warn only | LOW — reuse self_test logic | P1 |
+| D-1 Structured result | MEDIUM — better debugging | MEDIUM — new type + serialize | P2 |
+| D-5 Overlay check | LOW — overlay rarely dies at session start | LOW — TCP probe reuse | P2 |
+| TS-3 UDP check | LOW — no session running yet, false signal | LOW | P2 |
+| D-2 Config-driven policy | LOW — nice to have | MEDIUM | P3 |
+| D-3 Fleet dashboard field | MEDIUM — Uday visibility | MEDIUM — crosses Rust/Next.js | P3 |
+| D-4 Kiosk badge | MEDIUM — staff UX | HIGH — server state + frontend | P3 |
+| D-6 AC content check | LOW — content rarely disappears | MEDIUM | P3 |
+| D-7 CLOSE_WAIT cleanup | LOW — background monitor handles it | LOW | P3 |
+
+---
+
+## Granularity Decision
+
+The right granularity for pre-flight is **pod-state checks, not probe-everything**. The distinction:
+
+**In scope (session-blocking conditions):**
+- Process running / not running (ConspitLink, orphaned game)
+- Hardware connected / not connected (HID)
+- Billing state clean / dirty (active session lingering)
+- Connectivity up / down (WebSocket)
+- Resources available / exhausted (disk, memory)
+
+**Out of scope (background monitoring, not session gates):**
+- GPU temperature (continuous background concern)
+- Ollama availability (debugging aid, not session-critical)
+- Steam process (not needed for AC to run once launched)
+- CLOSE_WAIT count (background leak, not a session blocker at normal counts)
+- Full TCP port scan of all agent ports (only session-relevant ports matter)
+
+Each check should complete in under 2 seconds. The full pre-flight set should complete in under 5 seconds total (concurrent execution). Anything that cannot meet this SLA should not be in the pre-flight path.
 
 ---
 
 ## Sources
 
 - **Codebase audit (HIGH confidence):**
-  - `crates/racecontrol/src/api/routes.rs` -- 80+ routes, zero auth middleware, JWT helper exists but not enforced
-  - `crates/racecontrol/src/auth/mod.rs` -- JWT Claims, PIN validation, lockout threshold
-  - `crates/racecontrol/src/main.rs` -- CORS config, jwt_error_to_401 middleware, no TLS
-  - `crates/rc-agent/src/kiosk.rs` -- process allowlisting, no hotkey/USB protection
-  - `crates/racecontrol/src/db/mod.rs` -- plaintext PII columns in drivers table
-- **Kiosk escape research (HIGH confidence):**
-  - [Kiosk escape techniques - InternalAllTheThings](https://swisskyrepo.github.io/InternalAllTheThings/cheatsheets/escape-breakout/)
-  - [Kiosk mode breakout repository](https://github.com/ikarus23/kiosk-mode-breakout)
-  - [Kiosk bypass prevention - Payatu](https://payatu.com/blog/how-to-prevent-hacking-out-of-kiosk/)
-- **India data protection (MEDIUM confidence -- law is enacted, rules published, enforcement timeline confirmed):**
-  - [India DPDP Act overview - DLA Piper](https://www.dlapiperdataprotection.com/?t=law&c=IN)
-  - [DPDP Rules 2025 guide](https://www.dpdpa.com/dpdparules.html)
-  - [India DPDP Rules 2025 - Deloitte](https://www.deloitte.com/in/en/services/consulting/about/indias-dpdp-rules-2025-leading-digital-privacy-compliance.html)
-  - [India data protection report 2025-2026 - ICLG](https://iclg.com/practice-areas/data-protection-laws-and-regulations/india)
-- **API security best practices (MEDIUM confidence):**
-  - [API Security Best Practices - StackHawk](https://www.stackhawk.com/blog/api-security-best-practices-ultimate-guide/)
-  - [API Security Best Practices - Axway](https://blog.axway.com/learning-center/digital-security/keys-oauth/api-security-best-practices)
+  - `crates/rc-agent/src/self_test.rs` — 22 probes, ProbeResult/SelfTestReport types, reusable probe functions
+  - `crates/rc-agent/src/failure_monitor.rs` — FailureMonitorState, existing check conditions
+  - `crates/rc-agent/src/billing_guard.rs` — attempt_orphan_end(), existing orphan detection patterns
+  - `crates/rc-agent/src/ws_handler.rs` — BillingStarted hook point, existing session lifecycle
+  - `crates/rc-agent/src/lock_screen.rs` — LockScreen state machine, show_active_session() call site
+  - `crates/rc-agent/src/ai_debugger.rs` — try_auto_fix() pattern, canonical keyword dispatch
+  - `crates/rc-agent/src/game_process.rs` — orphan game process detection
+- **Domain analysis (MEDIUM confidence — derived from kiosk/arcade operational patterns):**
+  - Kiosk/sim-racing health gate patterns are well-established in arcade operations: check hardware, check connectivity, check software state, block if unresolvable. No novel research needed — this is applied codebase knowledge.
 
 ---
-*Feature research for: v12.0 Racing Point Operations Security*
-*Researched: 2026-03-20*
+
+*Feature research for: v11.1 Pre-Flight Session Checks (rc-agent)*
+*Researched: 2026-03-21*
