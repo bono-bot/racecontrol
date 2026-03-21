@@ -30,7 +30,65 @@ impl QualityGates {
         frame_w: u32,
         frame_h: u32,
     ) -> Result<(), RejectReason> {
-        todo!("implement quality gate chain")
+        self.check_size(face)?;
+        self.check_blur(face, frame_gray, frame_w, frame_h)?;
+        self.check_pose(face)?;
+        Ok(())
+    }
+
+    /// Reject faces with bounding box smaller than minimum size.
+    fn check_size(&self, face: &DetectedFace) -> Result<(), RejectReason> {
+        let width = (face.bbox[2] - face.bbox[0]) as u32;
+        let height = (face.bbox[3] - face.bbox[1]) as u32;
+        if width < self.min_face_size || height < self.min_face_size {
+            return Err(RejectReason::TooSmall { width, height });
+        }
+        Ok(())
+    }
+
+    /// Reject faces with low Laplacian variance (blurry).
+    fn check_blur(
+        &self,
+        face: &DetectedFace,
+        frame_gray: &[u8],
+        frame_w: u32,
+        frame_h: u32,
+    ) -> Result<(), RejectReason> {
+        // Extract face crop coordinates, clamped to frame bounds
+        let x1 = (face.bbox[0] as u32).min(frame_w.saturating_sub(1));
+        let y1 = (face.bbox[1] as u32).min(frame_h.saturating_sub(1));
+        let x2 = (face.bbox[2] as u32).min(frame_w);
+        let y2 = (face.bbox[3] as u32).min(frame_h);
+
+        let crop_w = x2.saturating_sub(x1);
+        let crop_h = y2.saturating_sub(y1);
+
+        if crop_w < 3 || crop_h < 3 {
+            return Err(RejectReason::TooBlurry { laplacian_var: 0.0 });
+        }
+
+        // Extract face crop from grayscale frame
+        let mut crop = Vec::with_capacity((crop_w * crop_h) as usize);
+        for y in y1..y2 {
+            let row_start = (y * frame_w + x1) as usize;
+            let row_end = (y * frame_w + x2) as usize;
+            crop.extend_from_slice(&frame_gray[row_start..row_end]);
+        }
+
+        let var = laplacian_variance(&crop, crop_w, crop_h);
+        if var < self.min_laplacian_var {
+            return Err(RejectReason::TooBlurry { laplacian_var: var });
+        }
+        Ok(())
+    }
+
+    /// Reject faces with excessive yaw angle (side profile).
+    fn check_pose(&self, face: &DetectedFace) -> Result<(), RejectReason> {
+        let yaw = estimate_yaw(&face.landmarks);
+        if yaw > self.max_yaw_degrees {
+            return Err(RejectReason::ExcessiveYaw { estimated_yaw: yaw });
+        }
+        Ok(())
     }
 }
 
@@ -39,7 +97,36 @@ impl QualityGates {
 /// The Laplacian highlights edges. High variance = sharp image. Low variance = blurry.
 /// Threshold of 100.0 is standard for surveillance-quality cameras.
 pub fn laplacian_variance(gray: &[u8], width: u32, height: u32) -> f64 {
-    todo!("implement laplacian variance")
+    if width < 3 || height < 3 {
+        return 0.0;
+    }
+
+    let w = width as usize;
+    let h = height as usize;
+    let mut sum = 0.0_f64;
+    let mut sum_sq = 0.0_f64;
+    let mut count = 0u64;
+
+    // 3x3 Laplacian kernel: [0, 1, 0; 1, -4, 1; 0, 1, 0]
+    for y in 1..(h - 1) {
+        for x in 1..(w - 1) {
+            let val = gray[y * w + x] as f64 * -4.0
+                + gray[(y - 1) * w + x] as f64
+                + gray[(y + 1) * w + x] as f64
+                + gray[y * w + (x - 1)] as f64
+                + gray[y * w + (x + 1)] as f64;
+            sum += val;
+            sum_sq += val * val;
+            count += 1;
+        }
+    }
+
+    if count == 0 {
+        return 0.0;
+    }
+
+    let mean = sum / count as f64;
+    (sum_sq / count as f64) - (mean * mean) // variance
 }
 
 /// Estimate yaw angle from 5-point facial landmarks.
@@ -47,7 +134,23 @@ pub fn laplacian_variance(gray: &[u8], width: u32, height: u32) -> f64 {
 /// Uses the ratio of left-eye-to-nose vs. nose-to-right-eye horizontal distances.
 /// Returns estimated absolute yaw in degrees (0 = frontal, 90 = full profile).
 pub fn estimate_yaw(landmarks: &[[f32; 2]; 5]) -> f64 {
-    todo!("implement yaw estimation")
+    let left_eye = landmarks[0];
+    let right_eye = landmarks[1];
+    let nose = landmarks[2];
+
+    let left_dist = (nose[0] - left_eye[0]).abs();
+    let right_dist = (right_eye[0] - nose[0]).abs();
+
+    if left_dist + right_dist < 1.0 {
+        return 90.0; // degenerate case
+    }
+
+    // Ratio: 1.0 = frontal, 0.0 = full profile
+    let ratio = left_dist.min(right_dist) / left_dist.max(right_dist);
+
+    // Map ratio to approximate yaw angle
+    // ratio ~1.0 -> 0 degrees, ratio ~0.0 -> 90 degrees
+    ((1.0 - ratio) as f64) * 90.0
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ mod detection;
 mod frame;
 mod health;
 mod privacy;
+mod recognition;
 mod relay;
 mod stream;
 
