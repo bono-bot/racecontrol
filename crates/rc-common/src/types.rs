@@ -1432,3 +1432,144 @@ mod tests {
     }
 
 }
+
+// ─── Process Guard ────────────────────────────────────────────────────────────
+
+/// Classification of what kind of entity violated the process whitelist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViolationType {
+    /// A running process was not in the approved whitelist.
+    Process,
+    /// A listening port was not in the approved port list.
+    Port,
+    /// A Run key or Startup folder entry was not in the approved auto-start list.
+    AutoStart,
+    /// A pod-only binary (rc-agent.exe, racecontrol.exe) was detected on the wrong machine.
+    WrongMachineBinary,
+}
+
+/// A single process guard violation record — carried in AgentMessage::ProcessViolation
+/// and POST /api/v1/guard/violations (James HTTP reporter).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessViolation {
+    /// Machine identifier: "pod-1" through "pod-8", "server", or "james".
+    pub machine_id: String,
+    /// What kind of violation was detected.
+    pub violation_type: ViolationType,
+    /// Process name (e.g. "steam.exe"), port number as string (e.g. "4444"), or Run key name.
+    pub name: String,
+    /// Full path to the executable, if known. None for port/autostart violations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exe_path: Option<String>,
+    /// What the guard did: "reported", "killed", "removed", "flagged".
+    pub action_taken: String,
+    /// ISO 8601 UTC timestamp of detection (use chrono::Utc::now().to_rfc3339()).
+    pub timestamp: String,
+    /// How many consecutive scan cycles this violation has been seen (1 = first sighting).
+    pub consecutive_count: u32,
+}
+
+/// The merged per-machine whitelist fetched from racecontrol on WS connect.
+/// Server merges global_whitelist + per-machine overrides before returning this.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineWhitelist {
+    /// Machine this whitelist applies to (matches machine_id in ProcessViolation).
+    #[serde(default)]
+    pub machine_id: String,
+    /// Approved process names (exact match, case-insensitive on Windows).
+    #[serde(default)]
+    pub processes: Vec<String>,
+    /// Approved listening port numbers.
+    #[serde(default)]
+    pub ports: Vec<u16>,
+    /// Approved Run key / Startup folder entry names.
+    #[serde(default)]
+    pub autostart_keys: Vec<String>,
+    /// Enforcement mode: "report_only" or "kill_and_report".
+    #[serde(default = "default_violation_action")]
+    pub violation_action: String,
+    /// If true, log first occurrence only — kill on second consecutive scan.
+    #[serde(default = "default_warn_before_kill")]
+    pub warn_before_kill: bool,
+}
+
+impl Default for MachineWhitelist {
+    fn default() -> Self {
+        Self {
+            machine_id: String::new(),
+            processes: Vec::new(),
+            ports: Vec::new(),
+            autostart_keys: Vec::new(),
+            violation_action: default_violation_action(),
+            warn_before_kill: default_warn_before_kill(),
+        }
+    }
+}
+
+fn default_violation_action() -> String {
+    "report_only".to_string()
+}
+
+fn default_warn_before_kill() -> bool {
+    true
+}
+
+#[cfg(test)]
+mod process_guard_types_tests {
+    use super::*;
+
+    #[test]
+    fn machine_whitelist_default_has_report_only_action() {
+        let wl = MachineWhitelist::default();
+        assert_eq!(wl.violation_action, "report_only");
+        assert!(wl.warn_before_kill);
+        assert!(wl.processes.is_empty());
+    }
+
+    #[test]
+    fn violation_type_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&ViolationType::Process).unwrap(),
+            r#""process""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ViolationType::WrongMachineBinary).unwrap(),
+            r#""wrong_machine_binary""#
+        );
+    }
+
+    #[test]
+    fn process_violation_round_trips() {
+        let v = ProcessViolation {
+            machine_id: "pod-8".to_string(),
+            violation_type: ViolationType::Process,
+            name: "steam.exe".to_string(),
+            exe_path: Some("C:\\Program Files (x86)\\Steam\\steam.exe".to_string()),
+            action_taken: "killed".to_string(),
+            timestamp: "2026-03-21T12:00:00Z".to_string(),
+            consecutive_count: 2,
+        };
+        let json = serde_json::to_string(&v).unwrap();
+        let v2: ProcessViolation = serde_json::from_str(&json).unwrap();
+        assert_eq!(v2.machine_id, "pod-8");
+        assert_eq!(v2.name, "steam.exe");
+        assert_eq!(v2.consecutive_count, 2);
+        assert!(v2.exe_path.is_some());
+    }
+
+    #[test]
+    fn process_violation_omits_none_exe_path() {
+        let v = ProcessViolation {
+            machine_id: "pod-1".to_string(),
+            violation_type: ViolationType::AutoStart,
+            name: "SteamAutoStart".to_string(),
+            exe_path: None,
+            action_taken: "removed".to_string(),
+            timestamp: "2026-03-21T12:00:00Z".to_string(),
+            consecutive_count: 1,
+        };
+        let json = serde_json::to_string(&v).unwrap();
+        assert!(!json.contains("exe_path"), "exe_path should be omitted when None: {json}");
+    }
+}
