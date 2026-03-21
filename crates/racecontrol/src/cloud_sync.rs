@@ -775,19 +775,50 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
         }
     }
 
+    // Encrypt incoming PII before storing
+    let incoming_name = driver.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+    let incoming_phone = driver.get("phone").and_then(|v| v.as_str());
+    let incoming_email = driver.get("email").and_then(|v| v.as_str());
+    let incoming_guardian_phone = driver.get("guardian_phone").and_then(|v| v.as_str());
+
+    let phone_hash: Option<String> = incoming_phone.filter(|p| !p.is_empty())
+        .map(|p| state.field_cipher.hash_phone(p));
+    let phone_enc: Option<String> = incoming_phone.filter(|p| !p.is_empty())
+        .map(|p| state.field_cipher.encrypt_field(p))
+        .transpose().map_err(|e| anyhow::anyhow!("encrypt phone: {}", e))?;
+    let email_enc: Option<String> = incoming_email.filter(|e| !e.is_empty())
+        .map(|e| state.field_cipher.encrypt_field(e))
+        .transpose().map_err(|e| anyhow::anyhow!("encrypt email: {}", e))?;
+    let name_enc: Option<String> = if !incoming_name.is_empty() {
+        Some(state.field_cipher.encrypt_field(incoming_name)
+            .map_err(|e| anyhow::anyhow!("encrypt name: {}", e))?)
+    } else { None };
+    let guardian_phone_hash: Option<String> = incoming_guardian_phone.filter(|p| !p.is_empty())
+        .map(|p| state.field_cipher.hash_phone(p));
+    let guardian_phone_enc: Option<String> = incoming_guardian_phone.filter(|p| !p.is_empty())
+        .map(|p| state.field_cipher.encrypt_field(p))
+        .transpose().map_err(|e| anyhow::anyhow!("encrypt guardian_phone: {}", e))?;
+
     // Upsert — cloud wins for customer-owned fields, preserve local-only fields (otp_code etc.)
+    // PII stored in _enc/_hash columns only; plaintext columns set to NULL.
     sqlx::query(
-        "INSERT INTO drivers (id, customer_id, name, email, phone, steam_guid, iracing_id, avatar_url,
+        "INSERT INTO drivers (id, customer_id, name, name_enc, phone_hash, phone_enc, email_enc,
+            steam_guid, iracing_id, avatar_url,
             total_laps, total_time_ms, has_used_trial, unlimited_trials, pin_hash, phone_verified,
             dob, waiver_signed, waiver_signed_at, waiver_version,
-            guardian_name, guardian_phone, registration_completed, signature_data,
+            guardian_name, guardian_phone_hash, guardian_phone_enc, registration_completed, signature_data,
             created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
         ON CONFLICT(id) DO UPDATE SET
             customer_id = COALESCE(excluded.customer_id, drivers.customer_id),
             name = excluded.name,
-            email = excluded.email,
-            phone = excluded.phone,
+            name_enc = excluded.name_enc,
+            phone_hash = excluded.phone_hash,
+            phone_enc = excluded.phone_enc,
+            email_enc = excluded.email_enc,
+            phone = NULL,
+            email = NULL,
+            guardian_phone = NULL,
             steam_guid = COALESCE(excluded.steam_guid, drivers.steam_guid),
             iracing_id = COALESCE(excluded.iracing_id, drivers.iracing_id),
             avatar_url = COALESCE(excluded.avatar_url, drivers.avatar_url),
@@ -800,35 +831,39 @@ async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Result<
             waiver_signed_at = excluded.waiver_signed_at,
             waiver_version = excluded.waiver_version,
             guardian_name = excluded.guardian_name,
-            guardian_phone = excluded.guardian_phone,
+            guardian_phone_hash = excluded.guardian_phone_hash,
+            guardian_phone_enc = excluded.guardian_phone_enc,
             registration_completed = excluded.registration_completed,
             signature_data = COALESCE(excluded.signature_data, drivers.signature_data),
             updated_at = excluded.updated_at",
     )
-    .bind(id)
-    .bind(driver.get("customer_id").and_then(|v| v.as_str()))
-    .bind(driver.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"))
-    .bind(driver.get("email").and_then(|v| v.as_str()))
-    .bind(driver.get("phone").and_then(|v| v.as_str()))
-    .bind(driver.get("steam_guid").and_then(|v| v.as_str()))
-    .bind(driver.get("iracing_id").and_then(|v| v.as_str()))
-    .bind(driver.get("avatar_url").and_then(|v| v.as_str()))
-    .bind(driver.get("total_laps").and_then(|v| v.as_i64()).unwrap_or(0))
-    .bind(driver.get("total_time_ms").and_then(|v| v.as_i64()).unwrap_or(0))
-    .bind(driver.get("has_used_trial").and_then(|v| v.as_i64()).unwrap_or(0))
-    .bind(driver.get("unlimited_trials").and_then(|v| v.as_i64()).unwrap_or(0))
-    .bind(driver.get("pin_hash").and_then(|v| v.as_str()))
-    .bind(driver.get("phone_verified").and_then(|v| v.as_i64()).unwrap_or(0))
-    .bind(driver.get("dob").and_then(|v| v.as_str()))
-    .bind(driver.get("waiver_signed").and_then(|v| v.as_i64()).unwrap_or(0))
-    .bind(driver.get("waiver_signed_at").and_then(|v| v.as_str()))
-    .bind(driver.get("waiver_version").and_then(|v| v.as_str()))
-    .bind(driver.get("guardian_name").and_then(|v| v.as_str()))
-    .bind(driver.get("guardian_phone").and_then(|v| v.as_str()))
-    .bind(driver.get("registration_completed").and_then(|v| v.as_i64()).unwrap_or(0))
-    .bind(driver.get("signature_data").and_then(|v| v.as_str()))
-    .bind(driver.get("created_at").and_then(|v| v.as_str()))
-    .bind(cloud_updated)
+    .bind(id)                                                                   // ?1
+    .bind(driver.get("customer_id").and_then(|v| v.as_str()))                   // ?2
+    .bind(incoming_name)                                                        // ?3 name (keep for leaderboard)
+    .bind(&name_enc)                                                            // ?4 name_enc
+    .bind(&phone_hash)                                                          // ?5 phone_hash
+    .bind(&phone_enc)                                                           // ?6 phone_enc
+    .bind(&email_enc)                                                           // ?7 email_enc
+    .bind(driver.get("steam_guid").and_then(|v| v.as_str()))                    // ?8
+    .bind(driver.get("iracing_id").and_then(|v| v.as_str()))                    // ?9
+    .bind(driver.get("avatar_url").and_then(|v| v.as_str()))                    // ?10
+    .bind(driver.get("total_laps").and_then(|v| v.as_i64()).unwrap_or(0))       // ?11
+    .bind(driver.get("total_time_ms").and_then(|v| v.as_i64()).unwrap_or(0))    // ?12
+    .bind(driver.get("has_used_trial").and_then(|v| v.as_i64()).unwrap_or(0))   // ?13
+    .bind(driver.get("unlimited_trials").and_then(|v| v.as_i64()).unwrap_or(0)) // ?14
+    .bind(driver.get("pin_hash").and_then(|v| v.as_str()))                      // ?15
+    .bind(driver.get("phone_verified").and_then(|v| v.as_i64()).unwrap_or(0))   // ?16
+    .bind(driver.get("dob").and_then(|v| v.as_str()))                           // ?17
+    .bind(driver.get("waiver_signed").and_then(|v| v.as_i64()).unwrap_or(0))    // ?18
+    .bind(driver.get("waiver_signed_at").and_then(|v| v.as_str()))              // ?19
+    .bind(driver.get("waiver_version").and_then(|v| v.as_str()))                // ?20
+    .bind(driver.get("guardian_name").and_then(|v| v.as_str()))                 // ?21
+    .bind(&guardian_phone_hash)                                                 // ?22
+    .bind(&guardian_phone_enc)                                                  // ?23
+    .bind(driver.get("registration_completed").and_then(|v| v.as_i64()).unwrap_or(0)) // ?24
+    .bind(driver.get("signature_data").and_then(|v| v.as_str()))                // ?25
+    .bind(driver.get("created_at").and_then(|v| v.as_str()))                    // ?26
+    .bind(cloud_updated)                                                        // ?27
     .execute(&state.db)
     .await?;
 
@@ -880,10 +915,11 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
             let email = wallet.get("email").and_then(|v| v.as_str()).unwrap_or("");
 
             let resolved = if !phone.is_empty() {
+                let ph = state.field_cipher.hash_phone(phone);
                 sqlx::query_as::<_, (String,)>(
-                    "SELECT id FROM drivers WHERE phone = ?",
+                    "SELECT id FROM drivers WHERE phone_hash = ?",
                 )
-                .bind(phone)
+                .bind(&ph)
                 .fetch_optional(&state.db)
                 .await?
             } else {

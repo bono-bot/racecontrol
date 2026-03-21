@@ -13,6 +13,7 @@ use tower_helmet::HelmetLayer;
 
 use racecontrol_crate::config::Config;
 use racecontrol_crate::crypto::encryption::load_encryption_keys;
+use racecontrol_crate::db::migrate_pii_encryption;
 use racecontrol_crate::network_source::classify_source_middleware;
 use racecontrol_crate::tls;
 use racecontrol_crate::error_rate::{ErrorCountLayer, ErrorRateConfig, error_rate_alerter_task};
@@ -403,6 +404,10 @@ async fn main() -> anyhow::Result<()> {
     // Load encryption keys for PII field-level encryption
     let field_cipher = load_encryption_keys()
         .expect("Encryption keys required. Set RACECONTROL_ENCRYPTION_KEY and RACECONTROL_HMAC_KEY env vars (64 hex chars each). Generate with: openssl rand -hex 32");
+
+    // Migrate existing plaintext PII to encrypted columns (idempotent)
+    migrate_pii_encryption(&pool, &field_cipher).await
+        .expect("PII migration failed");
 
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);

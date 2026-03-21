@@ -8,6 +8,7 @@ use rc_common::protocol::{CoreToAgentMessage, DashboardCommand, DashboardEvent};
 use rc_common::types::{BillingSessionInfo, BillingSessionStatus, DrivingState};
 
 use crate::activity_log::log_pod_activity;
+use crate::crypto::redaction::redact_phone;
 use crate::state::AppState;
 
 /// Look up dynamic pricing rules and compute an adjusted price.
@@ -2261,13 +2262,13 @@ async fn send_whatsapp_receipt(state: &Arc<AppState>, session_id: &str, driver_i
 
         match client.post(&url).header("apikey", evo_key).json(&body).send().await {
             Ok(resp) if resp.status().is_success() => {
-                tracing::info!("WhatsApp receipt sent to {} for session {}", wa_phone, session_id);
+                tracing::info!("WhatsApp receipt sent to {} for session {}", redact_phone(&wa_phone), session_id);
             }
             Ok(resp) => {
-                tracing::warn!("Evolution API returned {} for receipt to {}", resp.status(), wa_phone);
+                tracing::warn!("Evolution API returned {} for receipt to {}", resp.status(), redact_phone(&wa_phone));
             }
             Err(e) => {
-                tracing::warn!("Failed to send WhatsApp receipt to {}: {}", wa_phone, e);
+                tracing::warn!("Failed to send WhatsApp receipt to {}: {}", redact_phone(&wa_phone), e);
             }
         }
     } else {
