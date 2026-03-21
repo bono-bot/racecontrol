@@ -1,6 +1,7 @@
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, watch, RwLock};
 use crate::config::AgentConfig;
+use rc_common::types::MachineWhitelist;
 use crate::driving_detector::{DetectorSignal, DrivingDetector};
 use crate::ffb_controller::FfbController;
 use crate::kiosk::KioskManager;
@@ -41,6 +42,13 @@ pub struct AppState {
     pub(crate) ai_result_tx: mpsc::Sender<AiDebugSuggestion>,
     pub(crate) ws_exec_result_rx: mpsc::Receiver<AgentMessage>,
     pub(crate) ws_exec_result_tx: mpsc::Sender<AgentMessage>,
+    /// Process guard shared whitelist — fetched on WS connect, read each scan cycle.
+    /// Defaults to MachineWhitelist::default() (report_only, empty lists) until fetched.
+    pub(crate) guard_whitelist: Arc<RwLock<MachineWhitelist>>,
+    /// Sender half — process_guard module sends AgentMessage::ProcessViolation here.
+    pub(crate) guard_violation_tx: mpsc::Sender<AgentMessage>,
+    /// Receiver half — event_loop.rs drains this and forwards to WebSocket.
+    pub(crate) guard_violation_rx: mpsc::Receiver<AgentMessage>,
     pub(crate) failure_monitor_tx: watch::Sender<failure_monitor::FailureMonitorState>,
     pub(crate) heartbeat_status: Arc<udp_heartbeat::HeartbeatStatus>,
     pub(crate) last_launch_error: debug_server::LastLaunchError,

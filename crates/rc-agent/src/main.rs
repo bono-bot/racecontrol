@@ -662,6 +662,8 @@ async fn main() -> Result<()> {
     );
 
     // ─── Bundle pre-loop state into AppState ────────────────────────────────
+    let (guard_violation_tx, guard_violation_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(32);
+    let guard_whitelist = std::sync::Arc::new(RwLock::new(MachineWhitelist::default()));
     let mut state = AppState {
         pod_id,
         pod_info,
@@ -699,6 +701,9 @@ async fn main() -> Result<()> {
         ac_status_stable_since: None,
         in_maintenance: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         last_preflight_alert: None,
+        guard_whitelist,
+        guard_violation_tx,
+        guard_violation_rx,
     };
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
