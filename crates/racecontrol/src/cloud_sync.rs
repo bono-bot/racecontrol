@@ -13,7 +13,12 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
 use crate::state::AppState;
+
+type HmacSha256 = Hmac<Sha256>;
 
 const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens";
 
@@ -25,6 +30,42 @@ const RELAY_INTERVAL_SECS: u64 = 2;
 /// and M consecutive successes before declaring relay up.
 const RELAY_DOWN_THRESHOLD: u32 = 3; // 3 failures × 2s = 6s grace
 const RELAY_UP_THRESHOLD: u32 = 2;   // 2 successes × 2s = 4s to confirm
+
+// ─── HMAC-SHA256 Sync Payload Signing (AUTH-07) ─────────────────────────────
+
+/// Sign an outbound sync request body with HMAC-SHA256 + timestamp + nonce.
+/// Returns (hex_signature, unix_timestamp, nonce_string).
+fn sign_sync_request(body: &[u8], key: &[u8]) -> (String, i64, String) {
+    let timestamp = chrono::Utc::now().timestamp();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(&timestamp.to_be_bytes());
+    mac.update(nonce.as_bytes());
+    mac.update(body);
+    let signature = hex::encode(mac.finalize().into_bytes());
+    (signature, timestamp, nonce)
+}
+
+/// Verify an inbound sync request's HMAC-SHA256 signature.
+/// Rejects if timestamp is more than 5 minutes from current time (replay prevention).
+pub(crate) fn verify_sync_signature(
+    body: &[u8],
+    key: &[u8],
+    timestamp: i64,
+    nonce: &str,
+    signature: &str,
+) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    if (now - timestamp).abs() > 300 {
+        tracing::warn!(target: "cloud_sync", "HMAC timestamp expired: {}s difference", (now - timestamp).abs());
+        return false;
+    }
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(&timestamp.to_be_bytes());
+    mac.update(nonce.as_bytes());
+    mac.update(body);
+    mac.verify_slice(&hex::decode(signature).unwrap_or_default()).is_ok()
+}
 
 /// Normalize ISO timestamps ("2026-03-07T23:48:38.123+00:00") to SQLite format ("2026-03-07 23:48:38").
 /// SQLite's datetime('now') uses space separator, but sync_state stores ISO with 'T'.
@@ -88,6 +129,13 @@ pub fn spawn(state: Arc<AppState>) {
 
     let has_relay = cloud.comms_link_url.is_some();
     let fallback_interval_secs = cloud.sync_interval_secs;
+
+    // Log HMAC signing status (AUTH-07)
+    if cloud.sync_hmac_key.is_some() {
+        tracing::info!("Cloud sync HMAC signing enabled");
+    } else {
+        tracing::warn!("Cloud sync HMAC signing NOT configured -- using x-terminal-secret only");
+    }
 
     if has_relay {
         tracing::info!(
@@ -485,6 +533,16 @@ async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Resul
         req = req.header("x-terminal-secret", secret);
     }
 
+    // HMAC-SHA256 signing for GET request (AUTH-07) -- sign query string as body
+    if let Some(hmac_key) = &state.config.cloud.sync_hmac_key {
+        let query_body = format!("since={}&tables={}", last_synced, SYNC_TABLES);
+        let (signature, timestamp, nonce) = sign_sync_request(query_body.as_bytes(), hmac_key.as_bytes());
+        req = req
+            .header("x-sync-timestamp", timestamp.to_string())
+            .header("x-sync-nonce", &nonce)
+            .header("x-sync-signature", &signature);
+    }
+
     let resp = req.send().await?;
 
     if !resp.status().is_success() {
@@ -643,13 +701,24 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
 
     // POST to cloud
     let push_url = format!("{}/sync/push", cloud_url);
+    let body_bytes = serde_json::to_vec(&payload)?;
     let mut req = state.http_client
         .post(&push_url)
-        .json(&payload)
+        .header("content-type", "application/json")
+        .body(body_bytes.clone())
         .timeout(std::time::Duration::from_secs(30));
 
     if let Some(secret) = &state.config.cloud.terminal_secret {
         req = req.header("x-terminal-secret", secret);
+    }
+
+    // HMAC-SHA256 signing (AUTH-07)
+    if let Some(hmac_key) = &state.config.cloud.sync_hmac_key {
+        let (signature, timestamp, nonce) = sign_sync_request(&body_bytes, hmac_key.as_bytes());
+        req = req
+            .header("x-sync-timestamp", timestamp.to_string())
+            .header("x-sync-nonce", &nonce)
+            .header("x-sync-signature", &signature);
     }
 
     let resp = match req.send().await {

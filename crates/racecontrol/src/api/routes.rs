@@ -6953,6 +6953,36 @@ async fn sync_changes(
             return Json(serde_json::json!({ "error": "Unauthorized" }));
         }
     }
+
+    // HMAC-SHA256 verification on GET -- permissive mode (AUTH-07)
+    // TODO: Switch to strict mode after Bono deploys matching HMAC key
+    if let Some(hmac_key) = &state.config.cloud.sync_hmac_key {
+        let sig = headers.get("x-sync-signature").and_then(|v| v.to_str().ok());
+        let ts = headers.get("x-sync-timestamp").and_then(|v| v.to_str().ok());
+        let nonce = headers.get("x-sync-nonce").and_then(|v| v.to_str().ok());
+
+        match (sig, ts, nonce) {
+            (Some(sig), Some(ts_str), Some(nonce)) => {
+                if let Ok(timestamp) = ts_str.parse::<i64>() {
+                    // For GET requests, reconstruct query string as signed body
+                    let since_val = params.since.as_deref().unwrap_or("1970-01-01T00:00:00Z");
+                    let tables_val = params.tables.as_deref().unwrap_or("drivers,wallets,pricing_tiers,kiosk_experiences");
+                    let query_body = format!("since={}&tables={}", since_val, tables_val);
+                    if !crate::cloud_sync::verify_sync_signature(
+                        query_body.as_bytes(), hmac_key.as_bytes(), timestamp, nonce, sig,
+                    ) {
+                        tracing::warn!(target: "sync", "HMAC verification failed on sync_changes (permissive -- allowing)");
+                    }
+                } else {
+                    tracing::warn!(target: "sync", "Invalid x-sync-timestamp header on sync_changes");
+                }
+            }
+            _ => {
+                tracing::warn!(target: "sync", "HMAC headers missing on sync_changes (permissive -- allowing)");
+            }
+        }
+    }
+
     // Normalize ISO timestamps (2026-03-07T23:48:38Z) to SQLite format (2026-03-07 23:48:38)
     // SQLite's datetime('now') uses space, but sync_state stores ISO with 'T'.
     // String comparison: space (0x20) < 'T' (0x54), so "2026-03-07 23:59" < "2026-03-07T00:00"
@@ -7207,15 +7237,48 @@ pub(crate) fn parse_config_snapshot(config_snap: &serde_json::Value) -> VenueCon
 async fn sync_push(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
-    Json(body): Json<Value>,
+    body_bytes: axum::body::Bytes,
 ) -> Json<Value> {
-    // Auth check
+    // Auth check (x-terminal-secret)
     if let Some(secret) = state.config.cloud.terminal_secret.as_deref() {
         let provided = headers.get("x-terminal-secret").and_then(|v| v.to_str().ok());
         if provided != Some(secret) {
             return Json(json!({ "error": "Unauthorized" }));
         }
     }
+
+    // HMAC-SHA256 verification -- permissive mode (AUTH-07)
+    // TODO: Switch to strict mode after Bono deploys matching HMAC key
+    if let Some(hmac_key) = &state.config.cloud.sync_hmac_key {
+        let sig = headers.get("x-sync-signature").and_then(|v| v.to_str().ok());
+        let ts = headers.get("x-sync-timestamp").and_then(|v| v.to_str().ok());
+        let nonce = headers.get("x-sync-nonce").and_then(|v| v.to_str().ok());
+
+        match (sig, ts, nonce) {
+            (Some(sig), Some(ts_str), Some(nonce)) => {
+                if let Ok(timestamp) = ts_str.parse::<i64>() {
+                    if !crate::cloud_sync::verify_sync_signature(
+                        &body_bytes, hmac_key.as_bytes(), timestamp, nonce, sig,
+                    ) {
+                        tracing::warn!(target: "sync", "HMAC verification failed on sync_push (permissive -- allowing)");
+                    }
+                } else {
+                    tracing::warn!(target: "sync", "Invalid x-sync-timestamp header on sync_push");
+                }
+            }
+            _ => {
+                tracing::warn!(target: "sync", "HMAC headers missing on sync_push (permissive -- allowing)");
+            }
+        }
+    }
+
+    // Parse JSON body
+    let body: Value = match serde_json::from_slice(&body_bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            return Json(json!({ "error": format!("Invalid JSON: {}", e) }));
+        }
+    };
 
     let mut total = 0u64;
 
