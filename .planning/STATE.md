@@ -3,11 +3,59 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 78-01-PLAN.md
+last_updated: "2026-03-21T01:01:47.774Z"
+last_activity: "2026-03-21 -- 78-01 complete: Edge kiosk hardened with 12 security flags + keyboard hook blocks (F12/Ctrl+Shift+I/J/Ctrl+L) + pod-lockdown USB/accessibility/TaskMgr lockdown (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)"
+progress:
+  total_phases: 53
+  completed_phases: 27
+  total_plans: 76
+  completed_plans: 69
+  percent: 91
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 74-01-PLAN.md
+last_updated: "2026-03-21T01:01:17.895Z"
+last_activity: "2026-03-21 -- 78-01 complete: Edge kiosk hardened with 12 security flags + keyboard hook blocks (F12/Ctrl+Shift+I/J/Ctrl+L) + pod-lockdown USB/accessibility/TaskMgr lockdown (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)"
+progress:
+  [█████████░] 91%
+  completed_phases: 26
+  total_plans: 76
+  completed_plans: 68
+  percent: 89
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 69-02-PLAN.md
+last_updated: "2026-03-21T01:00:37.615Z"
+last_activity: "2026-03-21 -- 69-02 complete: failover_broadcast endpoint + split-brain guard in rc-agent SwitchController (ORCH-02, ORCH-03)"
+progress:
+  [█████████░] 89%
+  completed_phases: 26
+  total_plans: 76
+  completed_plans: 67
+  percent: 88
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Phase 81 context gathered
 last_updated: "2026-03-21T00:56:28.952Z"
 last_activity: "2026-03-20 -- 77-02 complete: dual-port HTTPS 8443 + tower-helmet security headers + protocol-aware kiosk API_BASE (TLS-01, TLS-03, TLS-04, KIOSK-06)"
 progress:
-  total_phases: 53
+  [█████████░] 88%
   completed_phases: 26
   total_plans: 76
   completed_plans: 66
@@ -99,16 +147,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** v12.0 Security Audit & Hardening -- Phase 77 Transport Security (1/2 plans done)
+**Current focus:** v12.0 Security Audit & Hardening -- Phase 78 Kiosk Session Hardening (1/3 plans done)
 
 ## Current Position
 
-Phase: 69 of 80 (Health Monitor & Failover Orchestration)
-Plan: 02 of 02 complete
-Status: Phase 69 Plan 02 complete
-Last activity: 2026-03-21 -- 69-02 complete: failover_broadcast endpoint + split-brain guard in rc-agent SwitchController (ORCH-02, ORCH-03)
+Phase: 78 of 81 (Kiosk Session Hardening)
+Plan: 01 of 03 complete
+Status: Phase 78 Plan 01 complete
+Last activity: 2026-03-21 -- 78-01 complete: Edge kiosk hardened with 12 security flags + keyboard hook blocks (F12/Ctrl+Shift+I/J/Ctrl+L) + pod-lockdown USB/accessibility/TaskMgr lockdown (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
 
-Progress: [█████████░] 87% (66/76 plans complete)
+Progress: [█████████░] 88% (67/76 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -181,6 +229,7 @@ Progress: [█████████░] 87% (66/76 plans complete)
 - 69-02: failover_broadcast uses simple != for terminal_secret comparison (consistent with all existing service routes -- no subtle crate); split_brain_probe reqwest::Client created once before outer reconnect loop; guard probes :8090/ping with 2s timeout before honoring SwitchController (ORCH-02, ORCH-03)
 - 69-01: ONE cycleOk boolean per 5s tick in HealthMonitor -- consecutiveFailures increments by exactly 1 per cycle, not per probe attempt; guarantees DOWN_THRESHOLD=12 = 60s sustained outage (HLTH-01, HLTH-02, HLTH-03 complete)
 - 69-01: notify_failover via exec_request to Bono -- server .23 is down so James cannot use .23 email_alerts; FailoverOrchestrator delegates notification to Bono (ORCH-01, ORCH-04 complete)
+- 78-01: Defense-in-depth for DevTools: both --disable-dev-tools browser flag AND F12/Ctrl+Shift+I/J keyboard hook blocks; USBSTOR Start=4 disables mass storage only (HID unaffected); accessibility Flags 506/122/58 disable hotkeys not features (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
 
 ### Blockers/Concerns
 
@@ -201,7 +250,7 @@ Progress: [█████████░] 87% (66/76 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T00:55:38Z
-Stopped at: Completed 69-02-PLAN.md
-Resume file: .planning/phases/69-health-monitor-failover-orchestration/69-02-SUMMARY.md
-Next action: Phase 69 complete (2/2 plans done)
+Last session: 2026-03-21T01:01:47.765Z
+Stopped at: Completed 78-01-PLAN.md
+Resume file: None
+Next action: Phase 78 Plan 02 next
