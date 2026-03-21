@@ -26,11 +26,11 @@ Requirements for full bidirectional dynamic execution between James and Bono.
 
 ### Execution Chains
 
-- [ ] **CHAIN-01**: Multi-step chains: step N+1 receives step N output, executed sequentially
-- [ ] **CHAIN-02**: Chain aborts on step failure by default (exit code != 0)
-- [ ] **CHAIN-03**: Per-step continue_on_error flag overrides abort behavior
-- [ ] **CHAIN-04**: Structured chain_result returns all step outputs as single response
-- [ ] **CHAIN-05**: Chain-level timeout caps entire chain duration regardless of step count
+- [x] **CHAIN-01**: Multi-step chains: step N+1 receives step N output, executed sequentially
+- [x] **CHAIN-02**: Chain aborts on step failure by default (exit code != 0)
+- [x] **CHAIN-03**: Per-step continue_on_error flag overrides abort behavior
+- [x] **CHAIN-04**: Structured chain_result returns all step outputs as single response
+- [x] **CHAIN-05**: Chain-level timeout caps entire chain duration regardless of step count
 - [ ] **CHAIN-06**: Named chain templates loadable from config file, invocable by name
 - [ ] **CHAIN-07**: Output templating: {{prev_stdout}} in step args substituted with previous step output
 - [ ] **CHAIN-08**: Per-step retry with configurable count and backoff
@@ -79,11 +79,11 @@ None — all features scoped into v18.0.
 | SHRL-03 | Phase 131 | Complete |
 | SHRL-04 | Phase 131 | Complete |
 | SHRL-05 | Phase 131 | Complete |
-| CHAIN-01 | Phase 132 | Pending |
-| CHAIN-02 | Phase 132 | Pending |
-| CHAIN-03 | Phase 132 | Pending |
-| CHAIN-04 | Phase 132 | Pending |
-| CHAIN-05 | Phase 132 | Pending |
+| CHAIN-01 | Phase 132 | Complete |
+| CHAIN-02 | Phase 132 | Complete |
+| CHAIN-03 | Phase 132 | Complete |
+| CHAIN-04 | Phase 132 | Complete |
+| CHAIN-05 | Phase 132 | Complete |
 | CHAIN-06 | Phase 134 | Pending |
 | CHAIN-07 | Phase 134 | Pending |
 | CHAIN-08 | Phase 134 | Pending |
