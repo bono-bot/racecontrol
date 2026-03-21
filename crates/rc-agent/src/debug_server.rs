@@ -91,6 +91,7 @@ async fn serve_status(
         LockScreenState::StartupConnecting => "startup_connecting",
         LockScreenState::ConfigError { .. } => "config_error",
         LockScreenState::Lockdown { .. } => "lockdown",
+        LockScreenState::MaintenanceRequired { .. } => "maintenance_required",
     };
 
     let launch_err = last_launch_error.lock().unwrap_or_else(|e| e.into_inner()).clone();

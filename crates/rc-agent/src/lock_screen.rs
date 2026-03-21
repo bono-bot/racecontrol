@@ -129,6 +129,10 @@ pub enum LockScreenState {
     Lockdown {
         message: String,
     },
+    /// Pre-flight checks failed — pod blocked until staff clears or auto-retry succeeds.
+    MaintenanceRequired {
+        failures: Vec<String>,
+    },
 }
 
 /// Events emitted by the lock screen to the agent main loop.
@@ -450,7 +454,7 @@ impl LockScreenManager {
 
     pub fn is_idle_or_blanked(&self) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked | LockScreenState::Disconnected | LockScreenState::StartupConnecting)
+        matches!(*state, LockScreenState::Hidden | LockScreenState::ScreenBlanked | LockScreenState::Disconnected | LockScreenState::StartupConnecting | LockScreenState::MaintenanceRequired { .. })
     }
 
     /// Returns true if the lock screen is showing something to a customer (not hidden/blanked).
@@ -520,6 +524,23 @@ impl LockScreenManager {
             };
         }
         self.launch_browser();
+    }
+
+    /// Show maintenance required screen — pre-flight checks failed.
+    /// Displays a branded error page with failure details. Pod remains blocked
+    /// until staff sends ClearMaintenance or auto-retry passes pre-flight.
+    pub fn show_maintenance_required(&mut self, failures: Vec<String>) {
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::MaintenanceRequired { failures };
+        }
+        self.launch_browser();
+    }
+
+    /// Returns true if the lock screen is currently showing the MaintenanceRequired page.
+    pub fn is_maintenance_required(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        matches!(*state, LockScreenState::MaintenanceRequired { .. })
     }
 
     pub fn clear(&mut self) {
@@ -930,6 +951,7 @@ fn render_page(state: &LockScreenState, wallpaper_url: Option<&str>) -> String {
         LockScreenState::StartupConnecting => render_startup_connecting_page(),
         LockScreenState::ConfigError { .. } => render_config_error_page(),
         LockScreenState::Lockdown { message } => render_lockdown_page(message),
+        LockScreenState::MaintenanceRequired { failures } => render_maintenance_required_page(failures),
     }
 }
 
@@ -1021,6 +1043,29 @@ fn render_lockdown_page(message: &str) -> String {
 <style>@keyframes pulse {{ 0%,100% {{ opacity:1 }} 50% {{ opacity:0.6 }} }}</style>
 <script>setTimeout(function(){{location.reload()}},5000)</script>"#,
             escaped
+        ),
+    )
+}
+
+fn render_maintenance_required_page(failures: &[String]) -> String {
+    let failure_items: String = failures
+        .iter()
+        .map(|f| format!("<li style=\"margin-bottom:8px\">{}</li>", html_escape(f)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    page_shell(
+        "Racing Point — Maintenance",
+        &format!(
+            r#"<div style="text-align:center;padding-top:20vh">
+<div style="font-family:Enthocentric,sans-serif;font-size:2.5em;color:#E10600;margin-bottom:20px">MAINTENANCE REQUIRED</div>
+<div style="font-size:1.2em;color:#fff;margin-bottom:24px;max-width:600px;margin-left:auto;margin-right:auto">Staff have been notified. This pod is temporarily unavailable.</div>
+<ul style="text-align:left;display:inline-block;background:#222;border:1px solid #333;border-radius:8px;padding:20px 30px;margin-bottom:24px;color:#fff;font-size:1em">
+{failure_items}
+</ul>
+<div style="margin-top:20px;font-size:0.9em;color:#5A5A5A">This pod will automatically recover once the issue is resolved.</div>
+</div>
+<script>setTimeout(function(){{location.reload()}},5000)</script>"#,
+            failure_items = failure_items,
         ),
     )
 }
@@ -1295,6 +1340,7 @@ pub fn health_response_body(state: &LockScreenState) -> String {
             | LockScreenState::Disconnected
             | LockScreenState::StartupConnecting
             | LockScreenState::ConfigError { .. }
+            | LockScreenState::MaintenanceRequired { .. }
     );
     let status_str = if is_active { "ok" } else { "degraded" };
     format!(r#"{{"status":"{}"}}"#, status_str)
