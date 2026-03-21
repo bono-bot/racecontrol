@@ -511,3 +511,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 03:46 IST | James | 8abcf0d | feat(131-01): ShellRelayHandler class -- binary allowlist, hardcoded APPROVE tier, 14 tests passing |
 | 2026-03-22 03:46 IST | James | 513f7c6 | feat(131-01): wire ShellRelayHandler into James/Bono WS routing + HTTP /relay/shell endpoint |
 | 2026-03-22 03:46 IST | James | a5e42e0 | docs(131-01): SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-03-21 22:16 IST | James | 734b6d7 | docs: strengthen rule 8 — push/notify/inbox is atomic sequence |
