@@ -479,3 +479,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 20:41 IST | James | d79a9b0 | feat(112-02): create rc-sentry-ai crate scaffold — config, frame buffer, TOML parsing for 3 cameras |
 | 2026-03-21 20:41 IST | James | a614213 | feat(112-02): per-camera retina RTSP stream extraction — reconnect loops, H.264 NAL frames, rate limiting |
 | 2026-03-21 20:41 IST | James | 79e87de | docs(112-02): complete rc-sentry-ai crate plan — SUMMARY, STATE, ROADMAP updated |
+| 2026-03-21 20:50 IST | James | 87d4ced | feat(112-04): people tracker migrated to go2rtc relay — rtsp_url override in config.yaml + main.py |
+| 2026-03-21 20:55 IST | James | f342cb2 | docs(112-04): complete people tracker RTSP relay migration plan — SUMMARY, STATE, ROADMAP updated |
