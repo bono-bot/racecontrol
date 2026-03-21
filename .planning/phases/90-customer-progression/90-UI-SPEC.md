@@ -49,7 +49,6 @@ Exceptions:
 | 64px (`h-16`) | BottomNav fixed height | Existing convention across all PWA pages — do not modify |
 | 48px (`pt-12`) | Page top padding | Clears device status bar — existing convention across all PWA pages |
 | 80px (`pb-20`) | Page bottom padding | BottomNav clearance — 16px above BottomNav height (64px) + nav itself; existing convention |
-| 6px (`h-1.5`) | Tier progress bar track and fill height | Decorative element height, not a layout spacing value — exempt from 8-point scale |
 
 Source: detected from `profile/page.tsx`, `stats/page.tsx`, `BottomNav.tsx`
 
@@ -62,16 +61,14 @@ Two weights only: 400 (regular) and 700 (bold).
 | Role | Size | Weight | Line Height | Notes |
 |------|------|--------|-------------|-------|
 | Body | 14px (`text-sm`) | 400 regular | 1.5 | Main content text |
-| Label | 12px (`text-xs`) | 400 regular | 1.4 | Secondary labels, tier progress counters, badge counts — visual distinction from body comes from size, not weight |
+| Label | 12px (`text-xs`) | 400 regular | 1.4 | Secondary labels, tier progress counters, badge counts, badge names, CollectionTile secondary text — visual distinction from body comes from size, not weight |
 | Heading | 24px (`text-2xl`) | 700 bold | 1.2 | Page headings, stat values in summary card |
 | Display | 20px (`text-xl`) | 700 bold | 1.2 | Section headings |
 
-Additional micro-sizes (do not add new weights):
+Notes:
 
-- BottomNav tab names: 10px (`text-[10px]`) weight **400** — existing convention, collapsed from 500 to 400 to comply with 2-weight limit
-- Badge name labels under icons: 10px (`text-[10px]`) weight **400** — matches existing badge grid pattern
-- Tier progress counters (e.g. "12 / 36"): 12px (`text-xs`) weight **400** — distinguished from heading by size, not weight
 - All type is white (`text-white`) or muted grey (`text-rp-grey: #5A5A5A`) — no mid-grey exceptions
+- BottomNav tab names use `text-[10px]` weight 400 — this is a pre-existing convention inherited from the existing BottomNav component and is outside this phase's scope. It is not counted in the declared 4-size scale above.
 
 Source: detected from `profile/page.tsx`, `stats/page.tsx`, `globals.css`
 
@@ -137,8 +134,8 @@ One section per collection type. Each section:
 - Each tier: tier label row (`text-xs text-rp-grey mb-2`) + progress bar + item grid
 
 Tier progress bar:
-- Container: `bg-rp-border rounded-full h-1.5 mb-3`
-- Fill: `bg-rp-red rounded-full h-1.5` with inline `width: N%` style
+- Container: `bg-rp-border rounded-full h-1 mb-3`
+- Fill: `bg-rp-red rounded-full h-1` with inline `width: N%` style
 - Do NOT animate progress bar — static is sufficient for this phase
 
 ### New: CollectionTile (track or car item)
@@ -146,15 +143,15 @@ Tier progress bar:
 Driven state (full opacity):
 ```
 bg-rp-card border border-rp-border rounded-xl p-3 flex flex-col gap-1
-  span.text-xs.font-medium.text-white    — item name
-  span.text-[10px].text-rp-grey          — category / best lap or lap count
+  span.text-xs.text-white         — item name
+  span.text-xs.text-rp-grey       — category / best lap or lap count
 ```
 
 Undriven state (same structure, add `opacity-30`):
 ```
 bg-rp-card border border-rp-border rounded-xl p-3 opacity-30 flex flex-col gap-1
-  span.text-xs.font-medium.text-white    — item name
-  span.text-[10px].text-rp-grey          — category
+  span.text-xs.text-white         — item name
+  span.text-xs.text-rp-grey       — category
 ```
 
 Grid layout: `grid grid-cols-3 gap-2` for tracks (wider names), `grid grid-cols-3 gap-2` for cars.
@@ -182,7 +179,7 @@ Earned state:
 div.flex.flex-col.items-center
   div.w-12.h-12.rounded-full.bg-rp-red/20.flex.items-center.justify-center.mb-1
     {inline SVG icon 20x20, stroke currentColor, text-rp-red}
-  span.text-[10px].text-center.text-rp-grey  — badge name
+  span.text-xs.text-center.text-rp-grey  — badge name
 ```
 
 Locked state (add `opacity-30` to outer div):
