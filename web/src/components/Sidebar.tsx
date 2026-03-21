@@ -20,6 +20,7 @@ const nav = [
   { href: "/bookings", label: "Bookings", icon: "&#128197;" },
   { href: "/ai", label: "AI Insights", icon: "&#129302;" },
   { href: "/cameras", label: "Cameras", icon: "&#128247;" },
+  { href: "/cameras/playback", label: "Playback", icon: "&#9202;" },
   { href: "/settings", label: "Settings", icon: "&#9874;" },
 ];
 
