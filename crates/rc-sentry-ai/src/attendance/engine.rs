@@ -69,29 +69,43 @@ pub async fn run(
                 let ist_time = event.timestamp.with_timezone(&ist_offset);
                 let day = ist_time.format("%Y-%m-%d").to_string();
 
-                // Insert attendance record
+                // Insert attendance record and process staff shift
                 let insert_path = db_path.clone();
                 let person_id = event.person_id;
                 let person_name = event.person_name.clone();
                 let camera = event.camera.clone();
                 let confidence = event.confidence;
                 let day_clone = day.clone();
+                let ist_timestamp = ist_time.format("%Y-%m-%d %H:%M:%S").to_string();
+                let min_shift_hours = config.min_shift_hours;
 
                 let insert_result = tokio::task::spawn_blocking(move || {
                     let conn = rusqlite::Connection::open(&insert_path)?;
-                    super::db::insert_attendance(
+                    let row_id = super::db::insert_attendance(
                         &conn,
                         person_id,
                         &person_name,
                         &camera,
                         confidence,
                         &day_clone,
-                    )
+                    )?;
+
+                    // Process staff shift tracking
+                    let shift_action = super::shifts::process_staff_recognition(
+                        &conn,
+                        person_id,
+                        &person_name,
+                        &day_clone,
+                        &ist_timestamp,
+                        min_shift_hours,
+                    )?;
+
+                    Ok::<(i64, Option<super::db::ShiftAction>), rusqlite::Error>((row_id, shift_action))
                 })
                 .await;
 
                 match insert_result {
-                    Ok(Ok(row_id)) => {
+                    Ok(Ok((row_id, shift_action))) => {
                         dedup_map.insert(event.person_id, now);
                         tracing::info!(
                             person_name = %event.person_name,
@@ -101,6 +115,25 @@ pub async fn run(
                             row_id = row_id,
                             "attendance logged"
                         );
+
+                        // Log staff shift actions
+                        match shift_action {
+                            Some(super::db::ShiftAction::ClockIn) => {
+                                tracing::info!(
+                                    person_name = %event.person_name,
+                                    day = %day,
+                                    "staff clock-in"
+                                );
+                            }
+                            Some(super::db::ShiftAction::Update) => {
+                                tracing::debug!(
+                                    person_name = %event.person_name,
+                                    day = %day,
+                                    "staff shift updated"
+                                );
+                            }
+                            None => {}
+                        }
                     }
                     Ok(Err(e)) => {
                         tracing::error!(
