@@ -74,7 +74,7 @@ pub fn spawn(
                 _ = audit_interval.tick() => {
                     run_autostart_audit(&whitelist, &tx, &machine_id).await;
                     run_port_audit(&whitelist, &tx, &machine_id).await;
-                    // run_schtasks_audit wired in Task 2
+                    run_schtasks_audit(&whitelist, &tx, &machine_id).await;
                 }
             }
         }
@@ -623,6 +623,150 @@ pub(crate) async fn run_port_audit(
     }
 }
 
+/// Parse `schtasks /query /fo CSV /nh` stdout into (task_path, task_name) tuples.
+///
+/// Format per line (no-header CSV):  "\\TaskPath","TaskName","Status","..."
+/// - Skips blank lines
+/// - Skips header lines where col[0] stripped of quotes starts with "TaskName"
+/// - Skips lines with fewer than 2 fields
+///
+/// Simple CSV split strategy: split on `","` (literal comma-quote boundary), then strip
+/// remaining leading/trailing quotes from the first and last fields.
+pub(crate) fn parse_schtasks_csv(stdout: &str) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Split on `","` to handle quoted CSV fields
+        // Each field is separated by `","`, with the first having a leading `"` and last a trailing `"`
+        let raw_fields: Vec<&str> = trimmed.split("\",\"").collect();
+
+        // Strip surrounding quotes from first and last fields
+        let fields: Vec<String> = raw_fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let mut s = f.to_string();
+                if i == 0 {
+                    s = s.trim_start_matches('"').to_string();
+                }
+                if i == raw_fields.len() - 1 {
+                    s = s.trim_end_matches('"').to_string();
+                }
+                s
+            })
+            .collect();
+
+        if fields.len() < 2 {
+            continue;
+        }
+        let task_path = fields[0].clone();
+        let task_name = fields[1].clone();
+
+        // Skip header line (some Windows versions emit it even with /nh)
+        if task_path.starts_with("TaskName") || task_name.starts_with("Status") {
+            continue;
+        }
+        // Skip empty path/name
+        if task_path.is_empty() || task_name.is_empty() {
+            continue;
+        }
+
+        result.push((task_path, task_name));
+    }
+    result
+}
+
+/// Run one scheduled task audit cycle: shell-out to schtasks /query /fo CSV /nh,
+/// compare task names against whitelist.autostart_keys, flag or disable violations.
+/// System tasks under \\Microsoft\\ are always skipped unconditionally.
+pub(crate) async fn run_schtasks_audit(
+    whitelist: &Arc<RwLock<MachineWhitelist>>,
+    tx: &mpsc::Sender<AgentMessage>,
+    machine_id: &str,
+) {
+    // Read whitelist fields under brief read lock, then drop
+    let (allowed_keys, violation_action) = {
+        let wl = whitelist.read().await;
+        let keys: Vec<String> = wl.autostart_keys.iter().map(|s| s.to_lowercase()).collect();
+        (keys, wl.violation_action.clone())
+    };
+
+    // Shell-out schtasks in spawn_blocking
+    let output = tokio::task::spawn_blocking(|| {
+        #[cfg(windows)]
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("schtasks");
+        cmd.args(["/query", "/fo", "CSV", "/nh"]);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.output()
+    })
+    .await;
+
+    let stdout = match output {
+        Ok(Ok(out)) => String::from_utf8_lossy(&out.stdout).to_string(),
+        _ => return,
+    };
+
+    let entries = parse_schtasks_csv(&stdout);
+
+    for (task_path, task_name) in entries {
+        // Skip Windows system tasks unconditionally
+        if task_path.starts_with("\\Microsoft\\") {
+            continue;
+        }
+        // Skip whitelisted task names
+        if is_autostart_whitelisted(&task_name, &allowed_keys) {
+            continue;
+        }
+
+        log_guard_event(&format!(
+            "SCHTASK_FLAGGED path={} name={}",
+            task_path, task_name
+        ));
+
+        let action_taken = if violation_action == "kill_and_report" {
+            // Attempt to disable the task
+            let path_clone = task_path.clone();
+            let disable_result = tokio::task::spawn_blocking(move || {
+                #[cfg(windows)]
+                use std::os::windows::process::CommandExt;
+                let mut cmd = std::process::Command::new("schtasks");
+                cmd.args(["/change", "/tn", &path_clone, "/disable"]);
+                #[cfg(windows)]
+                cmd.creation_flags(0x08000000);
+                cmd.output()
+            })
+            .await;
+
+            if disable_result
+                .map(|r| r.map(|o| o.status.success()).unwrap_or(false))
+                .unwrap_or(false)
+            {
+                "disabled"
+            } else {
+                "flagged"
+            }
+        } else {
+            "flagged"
+        };
+
+        let violation = ProcessViolation {
+            machine_id: machine_id.to_string(),
+            violation_type: ViolationType::AutoStart,
+            name: task_name.clone(),
+            exe_path: None,
+            action_taken: action_taken.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            consecutive_count: 1,
+        };
+        let _ = tx.send(AgentMessage::ProcessViolation(violation)).await;
+    }
+}
+
 /// Write entry info to the autostart backup file before removal.
 /// Appends a JSON line to C:\RacingPoint\autostart-backup.json.
 fn backup_autostart_entry(entry_name: &str, source: &str) {
@@ -775,6 +919,56 @@ mod tests {
         let stdout = "  TCP    [::]:8090    [::]:0    LISTENING    999\n";
         let result = parse_netstat_listening(stdout);
         assert_eq!(result, vec![(8090u16, 999u32)]);
+    }
+
+    // ── Task 2: parse_schtasks_csv tests ──────────────────────────────────
+
+    #[test]
+    fn parse_schtasks_csv_basic() {
+        let stdout = "\"\\RacingPoint\\Kiosk\",\"RacingPoint-Kiosk\",\"Ready\"\n";
+        let result = parse_schtasks_csv(stdout);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "\\RacingPoint\\Kiosk");
+        assert_eq!(result[0].1, "RacingPoint-Kiosk");
+    }
+
+    #[test]
+    fn parse_schtasks_csv_skips_header() {
+        let stdout = concat!(
+            "\"TaskName\",\"Status\",\"Next Run Time\"\n",
+            "\"\\SomeTask\",\"SomeTask\",\"Ready\"\n",
+        );
+        let result = parse_schtasks_csv(stdout);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1, "SomeTask");
+    }
+
+    #[test]
+    fn parse_schtasks_csv_multiple_tasks() {
+        let stdout = concat!(
+            "\"\\RacingPoint\\Kiosk\",\"RacingPoint-Kiosk\",\"Ready\"\n",
+            "\"\\SomeTask\",\"NotWhitelisted\",\"Ready\"\n",
+        );
+        let result = parse_schtasks_csv(stdout);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].1, "RacingPoint-Kiosk");
+        assert_eq!(result[1].1, "NotWhitelisted");
+    }
+
+    #[test]
+    fn parse_schtasks_csv_empty_lines_skipped() {
+        let stdout = "\n\"\\SomeTask\",\"SomeTask\",\"Ready\"\n\n";
+        let result = parse_schtasks_csv(stdout);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn parse_schtasks_csv_insufficient_fields_skipped() {
+        let stdout = "\"only-one-field\"\n\"\\ValidPath\",\"ValidName\",\"Ready\"\n";
+        let result = parse_schtasks_csv(stdout);
+        // First line has only 1 field — skip it
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1, "ValidName");
     }
 
     // ── Task 1: log_rotation_truncates_at_512kb ────────────────────────────
