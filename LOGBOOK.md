@@ -457,3 +457,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 IST | James | 512166f | feat(105-02): post_guard_report_handler + report_secret config field — X-Guard-Token auth, ViolationStore reuse |
 | 2026-03-21 IST | James | bd2f78e | feat(105-02): register POST /guard/report in service_routes() — rc-process-guard James HTTP intake |
 | 2026-03-21 IST | James | 961276b | docs(105-02): complete guard/report intake endpoint plan — SUMMARY, STATE, ROADMAP |
+| 2026-03-21 IST | James | 8663a45 | feat(105-01): add parse_netstat_listening + run_port_audit with TDD — IPv4/IPv6, kill+fallback, 6 tests |
+| 2026-03-21 IST | James | 53f4551 | feat(105-01): add parse_schtasks_csv + run_schtasks_audit with TDD — Microsoft skip, disable action, 5 tests |
+| 2026-03-21 IST | James | f486cd0 | docs(105-01): complete port audit + schtasks audit plan — PORT-01, PORT-02, AUTO-03 closed |
