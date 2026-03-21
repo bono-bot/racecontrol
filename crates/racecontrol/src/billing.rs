@@ -63,21 +63,23 @@ pub struct BillingRateTier {
     /// Upper boundary in minutes for this tier. 0 = unlimited (covers remaining time).
     pub threshold_minutes: u32,
     pub rate_per_min_paise: i64,
+    /// None = universal rate. Some(SimType) = game-specific.
+    pub sim_type: Option<rc_common::types::SimType>,
 }
 
 /// Default billing rate tiers (used before first DB load).
 pub fn default_billing_rate_tiers() -> Vec<BillingRateTier> {
     vec![
-        BillingRateTier { tier_order: 1, tier_name: "Standard".into(), threshold_minutes: 30, rate_per_min_paise: 2500 },
-        BillingRateTier { tier_order: 2, tier_name: "Extended".into(), threshold_minutes: 60, rate_per_min_paise: 2000 },
-        BillingRateTier { tier_order: 3, tier_name: "Marathon".into(), threshold_minutes: 0, rate_per_min_paise: 1500 },
+        BillingRateTier { tier_order: 1, tier_name: "Standard".into(), threshold_minutes: 30, rate_per_min_paise: 2500, sim_type: None },
+        BillingRateTier { tier_order: 2, tier_name: "Extended".into(), threshold_minutes: 60, rate_per_min_paise: 2000, sim_type: None },
+        BillingRateTier { tier_order: 3, tier_name: "Marathon".into(), threshold_minutes: 0, rate_per_min_paise: 1500, sim_type: None },
     ]
 }
 
 /// Refresh the in-memory rate tier cache from the database.
 pub async fn refresh_rate_tiers(state: &Arc<AppState>) {
-    let rows = sqlx::query_as::<_, (i64, String, i64, i64)>(
-        "SELECT tier_order, tier_name, threshold_minutes, rate_per_min_paise
+    let rows = sqlx::query_as::<_, (i64, String, i64, i64, Option<String>)>(
+        "SELECT tier_order, tier_name, threshold_minutes, rate_per_min_paise, sim_type
          FROM billing_rates WHERE is_active = 1 ORDER BY tier_order ASC",
     )
     .fetch_all(&state.db)
@@ -87,11 +89,15 @@ pub async fn refresh_rate_tiers(state: &Arc<AppState>) {
         if !rows.is_empty() {
             let tiers: Vec<BillingRateTier> = rows
                 .into_iter()
-                .map(|(order, name, thresh, rate)| BillingRateTier {
-                    tier_order: order as u32,
-                    tier_name: name,
-                    threshold_minutes: thresh as u32,
-                    rate_per_min_paise: rate,
+                .map(|(order, name, thresh, rate, sim_str)| {
+                    let sim_type = sim_str.as_deref().and_then(|s| serde_json::from_value(serde_json::Value::String(s.to_string())).ok());
+                    BillingRateTier {
+                        tier_order: order as u32,
+                        tier_name: name,
+                        threshold_minutes: thresh as u32,
+                        rate_per_min_paise: rate,
+                        sim_type,
+                    }
                 })
                 .collect();
             *state.billing.rate_tiers.write().await = tiers;
@@ -170,6 +176,19 @@ pub fn compute_session_cost(elapsed_seconds: u32, tiers: &[BillingRateTier]) -> 
     }
 }
 
+/// Get tiers for a specific game. Falls back to universal tiers if no game-specific tiers exist.
+pub fn get_tiers_for_game<'a>(tiers: &'a [BillingRateTier], sim_type: Option<rc_common::types::SimType>) -> Vec<&'a BillingRateTier> {
+    let game_specific: Vec<_> = tiers.iter()
+        .filter(|t| sim_type.is_some() && t.sim_type == sim_type)
+        .collect();
+    if !game_specific.is_empty() {
+        game_specific
+    } else {
+        // Fall back to universal tiers (sim_type = None)
+        tiers.iter().filter(|t| t.sim_type.is_none()).collect()
+    }
+}
+
 // ─── BillingTimer ───────────────────────────────────────────────────────────
 
 /// In-memory timer for an active billing session on a pod
@@ -209,6 +228,8 @@ pub struct BillingTimer {
     pub pause_seconds: u32,
     /// Hard maximum session length in seconds (default 10800 = 3 hours)
     pub max_session_seconds: u32,
+    /// Game sim_type for per-game rate lookup. None = use universal rates.
+    pub sim_type: Option<rc_common::types::SimType>,
 }
 
 impl BillingTimer {
@@ -265,7 +286,11 @@ impl BillingTimer {
 
     /// Get the current session cost based on elapsed seconds and rate tiers.
     pub fn current_cost(&self, tiers: &[BillingRateTier]) -> SessionCost {
-        compute_session_cost(self.elapsed_seconds, tiers)
+        let filtered: Vec<BillingRateTier> = get_tiers_for_game(tiers, self.sim_type)
+            .into_iter()
+            .cloned()
+            .collect();
+        compute_session_cost(self.elapsed_seconds, &filtered)
     }
 
     /// Create a minimal BillingTimer for unit tests.
@@ -296,6 +321,7 @@ impl BillingTimer {
             elapsed_seconds: 0,
             pause_seconds: 0,
             max_session_seconds: 1800,
+            sim_type: None,
         }
     }
 }
@@ -319,6 +345,8 @@ pub struct WaitingForGameEntry {
     /// When Some, billing waits for all group members to reach LIVE before starting.
     /// When None, billing starts immediately on LIVE (single-player backward compat).
     pub group_session_id: Option<String>,
+    /// Game sim_type for per-game rate lookup. Set when AcStatus::Live received.
+    pub sim_type: Option<rc_common::types::SimType>,
 }
 
 // ─── MultiplayerBillingWait ─────────────────────────────────────────────────
@@ -408,6 +436,7 @@ pub async fn defer_billing_start(
         waiting_since: std::time::Instant::now(),
         attempt: 1,
         group_session_id: group_session_id.clone(),
+        sim_type: None,
     };
     if group_session_id.is_some() {
         tracing::info!("Billing deferred to WaitingForGame for pod {} (multiplayer group)", pod_id);
@@ -426,7 +455,7 @@ pub async fn handle_game_status_update(
     state: &Arc<AppState>,
     pod_id: &str,
     ac_status: rc_common::types::AcStatus,
-    _sim_type: Option<rc_common::types::SimType>,
+    sim_type: Option<rc_common::types::SimType>,
     _cmd_tx: &tokio::sync::mpsc::Sender<CoreToAgentMessage>,
 ) {
     use rc_common::types::AcStatus;
@@ -434,7 +463,12 @@ pub async fn handle_game_status_update(
         AcStatus::Live => {
             // Check if this pod is in waiting_for_game -- if so, start billing
             let entry = state.billing.waiting_for_game.write().await.remove(pod_id);
-            if let Some(entry) = entry {
+            if let Some(mut entry) = entry {
+                // Update sim_type from the GameStatusUpdate message
+                if sim_type.is_some() {
+                    entry.sim_type = sim_type;
+                }
+                let entry = entry;
                 if let Some(ref group_id) = entry.group_session_id {
                     // ── Multiplayer: coordinate billing across group ──────────
                     let group_id = group_id.clone();
@@ -1350,6 +1384,7 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             elapsed_seconds: driving_secs,
             pause_seconds: 0,
             max_session_seconds: allocated_secs,
+            sim_type: None,
         };
 
         tracing::info!(
@@ -1614,6 +1649,7 @@ pub async fn start_billing_session(
         elapsed_seconds: 0,
         pause_seconds: 0,
         max_session_seconds: allocated_seconds,
+        sim_type: None,
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;
@@ -2595,6 +2631,7 @@ mod tests {
             elapsed_seconds: 0,
             pause_seconds: 0,
             max_session_seconds: 1800,
+            sim_type: None,
         };
 
         // Should count when driving
@@ -2639,6 +2676,7 @@ mod tests {
             elapsed_seconds: 2,
             pause_seconds: 0,
             max_session_seconds: 3,
+            sim_type: None,
         };
 
         // One more tick should expire
@@ -2673,6 +2711,7 @@ mod tests {
             elapsed_seconds: 1000,
             pause_seconds: 0,
             max_session_seconds: 3600,
+            sim_type: None,
         };
 
         assert_eq!(timer.remaining_seconds(), 2600);
@@ -2704,6 +2743,7 @@ mod tests {
             elapsed_seconds: 100,
             pause_seconds: 0,
             max_session_seconds: 1800,
+            sim_type: None,
         };
 
         // Active tick — driving_seconds should increment
@@ -2745,6 +2785,7 @@ mod tests {
             elapsed_seconds: 500,
             pause_seconds: 0,
             max_session_seconds: 1800,
+            sim_type: None,
         };
 
         // Should NOT be able to pause again (pause_count >= 3)
@@ -2869,6 +2910,7 @@ mod tests {
             elapsed_seconds: 0,
             pause_seconds: 0,
             max_session_seconds: 10800,
+            sim_type: None,
         };
 
         assert!(!timer.tick());
@@ -2905,6 +2947,7 @@ mod tests {
             elapsed_seconds: 100,
             pause_seconds: 0,
             max_session_seconds: 10800,
+            sim_type: None,
         };
 
         assert!(!timer.tick());
@@ -2938,6 +2981,7 @@ mod tests {
             elapsed_seconds: 10799,
             pause_seconds: 0,
             max_session_seconds: 10800,
+            sim_type: None,
         };
 
         assert!(timer.tick()); // Should return true (elapsed == max)
@@ -2970,6 +3014,7 @@ mod tests {
             elapsed_seconds: 500,
             pause_seconds: 599,
             max_session_seconds: 10800,
+            sim_type: None,
         };
 
         // One more tick should hit 600s pause timeout
@@ -3005,6 +3050,7 @@ mod tests {
             elapsed_seconds: 900,
             pause_seconds: 0,
             max_session_seconds: 10800,
+            sim_type: None,
         };
 
         let cost = timer.current_cost(&rate_tiers);
@@ -3040,6 +3086,7 @@ mod tests {
             elapsed_seconds: 900,
             pause_seconds: 0,
             max_session_seconds: 10800,
+            sim_type: None,
         };
 
         let info = timer.to_info(&rate_tiers);
@@ -3068,6 +3115,7 @@ mod tests {
             waiting_since: std::time::Instant::now(),
             attempt: 1,
             group_session_id: None,
+        sim_type: None,
         };
         assert_eq!(entry.pod_id, "pod1");
         assert_eq!(entry.attempt, 1);
@@ -3185,6 +3233,7 @@ mod tests {
                 waiting_since: std::time::Instant::now(),
                 attempt: 1,
                 group_session_id: None,
+                sim_type: None,
             });
         }
         // Simulate Live: remove from waiting_for_game
@@ -3216,6 +3265,7 @@ mod tests {
                 waiting_since: std::time::Instant::now(),
                 attempt: 1,
                 group_session_id: None,
+            sim_type: None,
             };
             // Simulate time passing by using checked_sub
             entry.waiting_since = std::time::Instant::now() - std::time::Duration::from_secs(181);
@@ -3245,6 +3295,7 @@ mod tests {
                 waiting_since: std::time::Instant::now() - std::time::Duration::from_secs(181),
                 attempt: 2, // second attempt
                 group_session_id: None,
+            sim_type: None,
             };
             waiting.insert("p8".to_string(), entry);
         }
@@ -3291,6 +3342,7 @@ mod tests {
             elapsed_seconds: 0,
             pause_seconds: 0,
             max_session_seconds: 10800,
+            sim_type: None,
         }
     }
 
@@ -3310,6 +3362,7 @@ mod tests {
             waiting_since: std::time::Instant::now(),
             attempt: 1,
             group_session_id: group_session_id.map(|s| s.to_string()),
+        sim_type: None,
         }
     }
 
@@ -3754,6 +3807,7 @@ mod tests {
             elapsed_seconds: 0,
             pause_seconds: 0,
             max_session_seconds: 10800,
+            sim_type: None,
         };
 
         assert!(!timer.tick());
@@ -3886,4 +3940,75 @@ mod tests {
             "session_id must embed pod_id for traceability"
         );
     }
+    // ── Phase 82-01: Per-game rate lookup tests ────────────────────────────
+
+    fn make_tier(order: u32, threshold: u32, rate: i64, sim: Option<rc_common::types::SimType>) -> BillingRateTier {
+        BillingRateTier {
+            tier_order: order,
+            tier_name: format!("Tier {}", order),
+            threshold_minutes: threshold,
+            rate_per_min_paise: rate,
+            sim_type: sim,
+        }
+    }
+
+    #[test]
+    fn test_get_tiers_for_game_specific() {
+        use rc_common::types::SimType;
+        // 2 universal + 2 F1-specific tiers
+        let tiers = vec![
+            make_tier(1, 30, 2500, None),
+            make_tier(2, 0,  2000, None),
+            make_tier(1, 30, 3000, Some(SimType::F125)),
+            make_tier(2, 0,  2500, Some(SimType::F125)),
+        ];
+        let result = get_tiers_for_game(&tiers, Some(SimType::F125));
+        assert_eq!(result.len(), 2, "Should return 2 F1-specific tiers");
+        assert_eq!(result[0].rate_per_min_paise, 3000, "First F1 tier rate");
+        assert_eq!(result[1].rate_per_min_paise, 2500, "Second F1 tier rate");
+    }
+
+    #[test]
+    fn test_get_tiers_for_game_fallback() {
+        use rc_common::types::SimType;
+        // Only universal tiers, no iRacing tiers
+        let tiers = vec![
+            make_tier(1, 30, 2500, None),
+            make_tier(2, 0,  2000, None),
+        ];
+        let result = get_tiers_for_game(&tiers, Some(SimType::IRacing));
+        assert_eq!(result.len(), 2, "Should fall back to 2 universal tiers");
+        assert_eq!(result[0].rate_per_min_paise, 2500);
+    }
+
+    #[test]
+    fn test_get_tiers_for_game_none() {
+        use rc_common::types::SimType;
+        let tiers = vec![
+            make_tier(1, 30, 2500, None),
+            make_tier(2, 0,  2000, None),
+            make_tier(1, 30, 3000, Some(SimType::F125)),
+        ];
+        // sim_type=None should return only universal tiers
+        let result = get_tiers_for_game(&tiers, None);
+        assert_eq!(result.len(), 2, "sim_type=None returns only universal tiers");
+    }
+
+    #[test]
+    fn test_billing_rate_tier_sim_type_roundtrip() {
+        use rc_common::types::SimType;
+        // Simulate serde roundtrip: SimType -> str -> SimType (as DB would store)
+        let sim = SimType::F125;
+        let as_json = serde_json::to_value(&sim).unwrap();
+        let as_str = as_json.as_str().unwrap();
+        assert_eq!(as_str, "f1_25");
+        let parsed: SimType = serde_json::from_value(serde_json::Value::String(as_str.to_string())).unwrap();
+        assert_eq!(parsed, SimType::F125, "SimType roundtrip via string");
+
+        // A tier with sim_type set
+        let tier = make_tier(1, 30, 3000, Some(SimType::F125));
+        assert_eq!(tier.sim_type, Some(SimType::F125));
+        assert_eq!(tier.rate_per_min_paise, 3000);
+    }
+
 }
