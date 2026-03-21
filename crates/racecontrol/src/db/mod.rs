@@ -2038,6 +2038,178 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_alert_incidents_started ON alert_incidents(started_at)")
         .execute(pool).await?;
 
+    // --- Psychology Foundation (Phase 1) ---
+
+    // Table 1: achievements (badge/achievement definitions with JSON criteria)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS achievements (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            category TEXT NOT NULL DEFAULT 'general'
+                CHECK(category IN ('milestone', 'skill', 'dedication', 'social', 'special')),
+            criteria_json TEXT NOT NULL,
+            badge_icon TEXT,
+            reward_credits_paise INTEGER DEFAULT 0,
+            sort_order INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Table 2: driver_achievements (which drivers earned which badges)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS driver_achievements (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            achievement_id TEXT NOT NULL REFERENCES achievements(id),
+            earned_at TEXT DEFAULT (datetime('now')),
+            notified INTEGER DEFAULT 0,
+            UNIQUE(driver_id, achievement_id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Table 3: streaks (weekly visit streak tracking per driver)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS streaks (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL UNIQUE REFERENCES drivers(id),
+            current_streak INTEGER NOT NULL DEFAULT 0,
+            longest_streak INTEGER NOT NULL DEFAULT 0,
+            last_visit_date TEXT,
+            grace_expires_date TEXT,
+            streak_started_at TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Table 4: driving_passport (track/car completion progress per driver)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS driving_passport (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            track TEXT NOT NULL,
+            car TEXT NOT NULL,
+            first_driven_at TEXT DEFAULT (datetime('now')),
+            best_lap_ms INTEGER,
+            lap_count INTEGER DEFAULT 1,
+            UNIQUE(driver_id, track, car)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Table 5: nudge_queue (notification priority queue with channel routing)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS nudge_queue (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            channel TEXT NOT NULL CHECK(channel IN ('whatsapp', 'discord', 'pwa')),
+            priority INTEGER NOT NULL DEFAULT 5,
+            template TEXT NOT NULL,
+            payload_json TEXT DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'sent', 'failed', 'expired', 'throttled')),
+            scheduled_at TEXT DEFAULT (datetime('now')),
+            expires_at TEXT,
+            sent_at TEXT,
+            error_text TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Table 6: staff_badges (staff skill badges)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS staff_badges (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            criteria_json TEXT NOT NULL,
+            badge_icon TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Table 7: staff_challenges (team challenges with collective goals)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS staff_challenges (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            goal_type TEXT NOT NULL,
+            goal_target INTEGER NOT NULL,
+            reward_description TEXT,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            current_progress INTEGER DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active'
+                CHECK(status IN ('active', 'completed', 'expired')),
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // Psychology Foundation indexes
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_driver_achievements_driver ON driver_achievements(driver_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_driver_achievements_achievement ON driver_achievements(achievement_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_streaks_driver ON streaks(driver_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_driving_passport_driver ON driving_passport(driver_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_driving_passport_track ON driving_passport(track, car)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_nudge_queue_status ON nudge_queue(status, priority, scheduled_at)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_nudge_queue_driver ON nudge_queue(driver_id, channel, sent_at)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_staff_challenges_status ON staff_challenges(status)",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
