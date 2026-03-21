@@ -5,30 +5,30 @@
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** No stale or unauthorized processes survive on any Racing Point machine — whitelist-enforced, continuously monitored, auto-killed.
-**Current focus:** Phase 102 — Whitelist Schema + Config + Fetch Endpoint
+**Current focus:** Phase 103 — Process Scanner (rc-agent side)
 
 ## Current Position
 
-Phase: 102 of 105 (Whitelist Schema + Config + Fetch Endpoint)
-Plan: 1 of TBD in current phase
-Status: Plan 01 complete — ready for Plan 02 (HTTP endpoint)
-Last activity: 2026-03-21 — Phase 102 Plan 01 executed: ProcessGuardConfig structs + racecontrol.toml whitelist
+Phase: 102 of 105 (Whitelist Schema + Config + Fetch Endpoint) — COMPLETE
+Plan: 2 of 2 complete
+Status: Phase 102 complete — ready for Phase 103 (rc-agent process scanner)
+Last activity: 2026-03-21 — Phase 102 Plan 02 executed: GET /api/v1/guard/whitelist/{machine_id} endpoint
 
-Progress: [██░░░░░░░░] 10%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 35 min
-- Total execution time: 1.2 hours
+- Total plans completed: 3
+- Average duration: 30 min
+- Total execution time: 1.5 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 101-protocol-foundation | 1 | 35 min | 35 min |
-| 102-whitelist-schema-config-fetch-endpoint | 1 | 35 min | 35 min |
+| 102-whitelist-schema-config-fetch-endpoint | 2 | 55 min | 27 min |
 
 *Updated after each plan completion*
 
@@ -56,6 +56,8 @@ Progress: [██░░░░░░░░] 10%
 - [102-01]: Steam in pod deny_processes only (not global allowed) — enforces v12.1 trigger incident rule
 - [102-01]: ollama.exe in both global allowed (machines=["pod"]) AND james allow_extra_processes — needed on both
 - [102-01]: cargo package name is `racecontrol-crate` not `racecontrol` — use `-p racecontrol-crate` for test/build
+- [102-02]: No guard_config field on AppState — handler reads state.config.process_guard directly, consistent with watchdog/bono/gmail pattern
+- [102-02]: Route in public_routes() (no auth) — pods call this before any auth session exists on WS connect
 
 ### Pending Todos
 
@@ -70,5 +72,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-21
-Stopped at: 102-01-PLAN.md complete — ProcessGuardConfig structs + racecontrol.toml whitelist shipped
+Stopped at: 102-02-PLAN.md complete — GET /api/v1/guard/whitelist/{machine_id} endpoint shipped; phase 102 done
 Resume file: None
