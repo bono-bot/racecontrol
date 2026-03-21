@@ -69,7 +69,11 @@ Plans:
   2. `GET /api/v1/fleet/health` response includes `violation_count_24h` and `last_violation_at` fields for each pod
   3. A process killed three or more times within a 5-minute window on any pod triggers an email to Uday with the machine ID, process name, and kill count
   4. racecontrol's own process guard module runs on server .23, logs to `C:\RacingPoint\process-guard.log`, and reports CRITICAL if rc-agent.exe is detected running on the server
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 104-01-PLAN.md — ViolationStore in fleet_health.rs + pod_violations field on AppState + ProcessViolation WS handler + fleet/health violation fields + email escalation on repeat offenders
+- [ ] 104-02-PLAN.md — spawn_server_guard() in process_guard.rs + sysinfo scan loop on server + rc-agent.exe CRITICAL detection + wired into lib.rs
+- [ ] 104-03-PLAN.md — PodFleetStatus TypeScript type updated + violation badge on kiosk fleet grid (Racing Red #E10600)
 
 ### Phase 105: Port Audit + Scheduled Tasks + James Binary
 **Goal**: Listening ports are audited against the approved port list, non-whitelisted scheduled tasks are flagged, and James workstation runs a standalone rc-process-guard binary that reports via HTTP instead of WebSocket (standing rule: never run pod binaries on James)
@@ -90,8 +94,8 @@ Plans:
 |-------|----------------|--------|-----------|
 | 101. Protocol Foundation | 1/1 | Complete | 2026-03-21 |
 | 102. Whitelist Schema + Config + Fetch Endpoint | 2/2 | Complete | 2026-03-21 |
-| 103. Pod Guard Module | 1/3 | In progress | 103-01 complete |
-| 104. Server Guard Module + Alerts | 0/TBD | Not started | - |
+| 103. Pod Guard Module | 3/3 | Complete | 2026-03-21 |
+| 104. Server Guard Module + Alerts | 0/3 | Not started | - |
 | 105. Port Audit + Scheduled Tasks + James Binary | 0/TBD | Not started | - |
 
 ---
