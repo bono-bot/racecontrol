@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+const LOG_TARGET: &str = "lock-screen";
+
 /// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
 /// Used for background utilities (taskkill, reg, powershell). NOT for browser launches.
 fn hidden_cmd(program: &str) -> std::process::Command {
@@ -212,7 +214,7 @@ impl LockScreenManager {
             }
             let listener = match socket.listen(128) {
                 Ok(l) => {
-                    tracing::info!("Lock screen server listening on http://127.0.0.1:{}", port);
+                    tracing::info!(target: LOG_TARGET, "Lock screen server listening on http://127.0.0.1:{}", port);
                     let _ = tx.send(Ok(port));
                     l
                 }
@@ -246,12 +248,13 @@ impl LockScreenManager {
 
             match timeout_result {
                 Ok(Ok(_stream)) => {
-                    tracing::info!("Lock screen HTTP server ready on port {}", self.port);
+                    tracing::info!(target: LOG_TARGET, "Lock screen HTTP server ready on port {}", self.port);
                     return;
                 }
                 _ => {
                     if tokio::time::Instant::now() >= deadline {
                         tracing::warn!(
+                            target: LOG_TARGET,
                             "Lock screen HTTP server not ready after 5s on port {} — continuing anyway",
                             self.port
                         );
@@ -609,6 +612,7 @@ impl LockScreenManager {
                 Ok(child) => {
                     self.browser_process = Some(child);
                     tracing::info!(
+                        target: LOG_TARGET,
                         "Lock screen browser launched at {} using {} (virtual screen: {}x{} at {},{})",
                         url, edge_path, vw, vh, vx, vy
                     );
@@ -626,20 +630,20 @@ impl LockScreenManager {
                             let hwnd = unsafe { FindWindowA(b"Chrome_WidgetWin_1\0".as_ptr(), std::ptr::null()) };
                             if hwnd != 0 {
                                 let ok = unsafe { MoveWindow(hwnd, fx, fy, fw, fh, 1) };
-                                tracing::info!("MoveWindow(Edge, {},{},{},{}) = {}", fx, fy, fw, fh, ok);
+                                tracing::info!(target: LOG_TARGET, "MoveWindow(Edge, {},{},{},{}) = {}", fx, fy, fw, fh, ok);
                             } else {
-                                tracing::warn!("Edge window not found for MoveWindow resize");
+                                tracing::warn!(target: LOG_TARGET, "Edge window not found for MoveWindow resize");
                             }
                         });
                     }
                     return;
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to launch Edge from {}: {}", edge_path, e);
+                    tracing::warn!(target: LOG_TARGET, "Failed to launch Edge from {}: {}", edge_path, e);
                 }
             }
         }
-        tracing::error!("Could not launch Edge from any known path");
+        tracing::error!(target: LOG_TARGET, "Could not launch Edge from any known path");
     }
 
     #[cfg(not(windows))]
@@ -657,13 +661,13 @@ impl LockScreenManager {
         for (browser, args) in &browsers {
             match std::process::Command::new(browser).args(args).spawn() {
                 Ok(_child) => {
-                    tracing::info!("Lock screen browser launched ({}) at {}", browser, url);
+                    tracing::info!(target: LOG_TARGET, "Lock screen browser launched ({}) at {}", browser, url);
                     return;
                 }
                 Err(_) => continue,
             }
         }
-        tracing::error!("Lock screen: no browser found. Install chromium or microsoft-edge.");
+        tracing::error!(target: LOG_TARGET, "Lock screen: no browser found. Install chromium or microsoft-edge.");
     }
 
     #[cfg(windows)]
@@ -671,7 +675,7 @@ impl LockScreenManager {
         if let Some(ref mut child) = self.browser_process {
             let _ = child.kill();
             let _ = child.wait();
-            tracing::info!("Lock screen browser closed (child handle)");
+            tracing::info!(target: LOG_TARGET, "Lock screen browser closed (child handle)");
         }
         self.browser_process = None;
 
@@ -688,10 +692,10 @@ impl LockScreenManager {
             {
                 Ok(status) => {
                     if status.success() {
-                        tracing::info!("Killed all {} processes", exe);
+                        tracing::info!(target: LOG_TARGET, "Killed all {} processes", exe);
                     }
                 }
-                Err(e) => tracing::warn!("Failed to run taskkill for {}: {}", exe, e),
+                Err(e) => tracing::warn!(target: LOG_TARGET, "Failed to run taskkill for {}: {}", exe, e),
             }
         }
         // Brief pause to let processes fully exit and release ports
@@ -738,7 +742,7 @@ fn suppress_notifications(suppress: bool) {
             .args(["-NoProfile", "-Command",
                 "Get-Process -Name 'ShellExperienceHost' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"])
             .output();
-        tracing::info!("Notifications suppressed for blanking screen");
+        tracing::info!(target: LOG_TARGET, "Notifications suppressed for blanking screen");
     } else {
         // Re-enable toast notifications
         let _ = hidden_cmd("reg")
@@ -760,7 +764,7 @@ fn suppress_notifications(suppress: bool) {
                 "/f",
             ])
             .output();
-        tracing::info!("Notifications restored after blanking screen cleared");
+        tracing::info!(target: LOG_TARGET, "Notifications restored after blanking screen cleared");
     }
 }
 
@@ -804,22 +808,22 @@ async fn serve_lock_screen(
     let socket = match tokio::net::TcpSocket::new_v4() {
         Ok(s) => s,
         Err(e) => {
-            tracing::error!("Lock screen: failed to create socket: {}", e);
+            tracing::error!(target: LOG_TARGET, "Lock screen: failed to create socket: {}", e);
             return;
         }
     };
     let _ = socket.set_reuseaddr(true);
     if let Err(e) = socket.bind(addr) {
-        tracing::error!("Lock screen server failed to bind port {}: {}", port, e);
+        tracing::error!(target: LOG_TARGET, "Lock screen server failed to bind port {}: {}", port, e);
         return;
     }
     let listener = match socket.listen(128) {
         Ok(l) => {
-            tracing::info!("Lock screen server listening on http://127.0.0.1:{}", port);
+            tracing::info!(target: LOG_TARGET, "Lock screen server listening on http://127.0.0.1:{}", port);
             l
         }
         Err(e) => {
-            tracing::error!("Lock screen server failed to listen on port {}: {}", port, e);
+            tracing::error!(target: LOG_TARGET, "Lock screen server failed to listen on port {}: {}", port, e);
             return;
         }
     };
@@ -1334,7 +1338,7 @@ fn generate_qr_svg(data: &str) -> String {
             .build(),
         Err(e) => {
             let msg: String = e.to_string();
-            tracing::error!("QR code generation failed: {}", msg);
+            tracing::error!(target: LOG_TARGET, "QR code generation failed: {}", msg);
             format!(
                 "<p style=\"color:#000;font-size:14px\">QR Error: {}</p>",
                 html_escape(&msg)

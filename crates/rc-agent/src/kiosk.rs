@@ -11,6 +11,8 @@ use sysinfo::System;
 use tracing;
 use serde_json;
 
+const LOG_TARGET: &str = "kiosk";
+
 /// How often (seconds) rc-agent polls the server for the dynamic allowlist.
 pub const ALLOWLIST_REFRESH_SECS: u64 = 300; // 5 minutes
 
@@ -438,7 +440,7 @@ impl KioskManager {
         let learned_count = learned_allowlist().lock()
             .map(|l| l.len()).unwrap_or(0);
         if learned_count > 0 {
-            tracing::info!("Kiosk: loaded {} learned-allowlist entries", learned_count);
+            tracing::info!(target: LOG_TARGET, "Kiosk: loaded {} learned-allowlist entries", learned_count);
         }
 
         Self {
@@ -457,7 +459,7 @@ impl KioskManager {
             return;
         }
         self.active.store(true, Ordering::SeqCst);
-        tracing::info!("Kiosk mode ACTIVATED — blocking unauthorized access");
+        tracing::info!(target: LOG_TARGET, "Kiosk mode ACTIVATED — blocking unauthorized access");
 
         #[cfg(windows)]
         {
@@ -472,7 +474,7 @@ impl KioskManager {
             return;
         }
         self.active.store(false, Ordering::SeqCst);
-        tracing::info!("Kiosk mode DEACTIVATED — restoring normal access");
+        tracing::info!(target: LOG_TARGET, "Kiosk mode DEACTIVATED — restoring normal access");
 
         #[cfg(windows)]
         {
@@ -499,13 +501,13 @@ impl KioskManager {
     pub fn enter_debug_mode(&mut self) {
         self.debug_mode = true;
         self.deactivate();
-        tracing::info!("Kiosk: EMPLOYEE DEBUG MODE — Content Manager and all apps allowed");
+        tracing::info!(target: LOG_TARGET, "Kiosk: EMPLOYEE DEBUG MODE — Content Manager and all apps allowed");
     }
 
     /// Exit employee debug mode — re-engages kiosk restrictions.
     pub fn exit_debug_mode(&mut self) {
         self.debug_mode = false;
-        tracing::info!("Kiosk: exiting debug mode");
+        tracing::info!(target: LOG_TARGET, "Kiosk: exiting debug mode");
     }
 
     /// Check if in debug mode
@@ -517,13 +519,13 @@ impl KioskManager {
     pub fn enter_freedom_mode(&mut self) {
         self.freedom_mode = true;
         self.deactivate();
-        tracing::info!("Kiosk: FREEDOM MODE — all apps allowed, monitoring active");
+        tracing::info!(target: LOG_TARGET, "Kiosk: FREEDOM MODE — all apps allowed, monitoring active");
     }
 
     /// Exit freedom mode — re-engages kiosk restrictions.
     pub fn exit_freedom_mode(&mut self) {
         self.freedom_mode = false;
-        tracing::info!("Kiosk: exiting freedom mode");
+        tracing::info!(target: LOG_TARGET, "Kiosk: exiting freedom mode");
     }
 
     /// Check if in freedom mode
@@ -537,7 +539,7 @@ impl KioskManager {
         if let Ok(mut r) = self.lockdown_reason.lock() {
             *r = reason.to_string();
         }
-        tracing::warn!("Kiosk: LOCKDOWN — {}", reason);
+        tracing::warn!(target: LOG_TARGET, "Kiosk: LOCKDOWN — {}", reason);
     }
 
     /// Exit lockdown mode (e.g., after employee PIN entry).
@@ -546,7 +548,7 @@ impl KioskManager {
         if let Ok(mut r) = self.lockdown_reason.lock() {
             r.clear();
         }
-        tracing::info!("Kiosk: lockdown cleared");
+        tracing::info!(target: LOG_TARGET, "Kiosk: lockdown cleared");
     }
 
     /// Check if kiosk is in lockdown mode.
@@ -576,7 +578,7 @@ impl KioskManager {
             save_learned_allowlist(&learned);
         }
 
-        tracing::info!("Kiosk: process '{}' APPROVED — added to learned allowlist", name);
+        tracing::info!(target: LOG_TARGET, "Kiosk: process '{}' APPROVED — added to learned allowlist", name);
     }
 
     /// Server rejected a process — remove from temp, kill it, trigger lockdown.
@@ -593,7 +595,7 @@ impl KioskManager {
             sightings.remove(&name_lower);
         }
 
-        tracing::warn!("Kiosk: process '{}' REJECTED — will be killed on next scan", name);
+        tracing::warn!(target: LOG_TARGET, "Kiosk: process '{}' REJECTED — will be killed on next scan", name);
         true // caller should trigger lockdown
     }
 
@@ -686,6 +688,7 @@ impl KioskManager {
             if count < WARN_BEFORE_ACTION_COUNT {
                 // Watching phase — log but don't act
                 tracing::warn!(
+                    target: LOG_TARGET,
                     "Kiosk: unknown process '{}' (PID {}) — seen {}/{} times, watching",
                     name, pid, count, WARN_BEFORE_ACTION_COUNT
                 );
@@ -694,6 +697,7 @@ impl KioskManager {
                 let mut temp = temp_allowlist().lock().unwrap_or_else(|e| e.into_inner());
                 if !temp.contains_key(&name) {
                     tracing::warn!(
+                        target: LOG_TARGET,
                         "Kiosk: temporarily allowing '{}' (PID {}) — requesting server approval",
                         name, pid
                     );
@@ -733,6 +737,7 @@ impl KioskManager {
 
             for name in &expired {
                 tracing::warn!(
+                    target: LOG_TARGET,
                     "Kiosk: temp allowlist for '{}' EXPIRED ({}s) — triggering lockdown",
                     name, TEMP_ALLOW_TTL_SECS
                 );
@@ -819,7 +824,7 @@ pub async fn classify_process(
     {
         Ok(c) => c,
         Err(e) => {
-            tracing::warn!("[kiosk-llm] Failed to build HTTP client for '{}': {}", process_name, e);
+            tracing::warn!(target: "kiosk-llm", "Failed to build HTTP client for '{}': {}", process_name, e);
             return ProcessVerdict::Ask;
         }
     };
@@ -850,7 +855,8 @@ pub async fn classify_process(
                     ProcessVerdict::Ask
                 } else {
                     tracing::warn!(
-                        "[kiosk-llm] Unparseable LLM response for '{}': {}",
+                        target: "kiosk-llm",
+                        "Unparseable LLM response for '{}': {}",
                         process_name, response_text
                     );
                     ProcessVerdict::Ask // Default to ASK if unclear — never auto-kill
@@ -860,7 +866,7 @@ pub async fn classify_process(
             }
         }
         Err(e) => {
-            tracing::warn!("[kiosk-llm] Ollama query failed for '{}': {}", process_name, e);
+            tracing::warn!(target: "kiosk-llm", "Ollama query failed for '{}': {}", process_name, e);
             ProcessVerdict::Ask // Default to ASK on failure — never auto-kill
         }
     }
@@ -875,6 +881,7 @@ mod windows_impl {
     use winapi::shared::minwindef::{LPARAM, LRESULT, WPARAM};
     use winapi::shared::windef::HWND;
     use winapi::um::winuser;
+    use super::LOG_TARGET;
 
     static HOOK_HANDLE: AtomicPtr<winapi::shared::windef::HHOOK__> =
         AtomicPtr::new(ptr::null_mut());
@@ -956,9 +963,9 @@ mod windows_impl {
             );
             if !hook.is_null() {
                 HOOK_HANDLE.store(hook, Ordering::SeqCst);
-                tracing::info!("Kiosk: keyboard hook installed (Win/Alt+Tab/Alt+F4 blocked)");
+                tracing::info!(target: LOG_TARGET, "Kiosk: keyboard hook installed (Win/Alt+Tab/Alt+F4 blocked)");
             } else {
-                tracing::error!("Kiosk: failed to install keyboard hook");
+                tracing::error!(target: LOG_TARGET, "Kiosk: failed to install keyboard hook");
             }
         }
     }
@@ -969,7 +976,7 @@ mod windows_impl {
             unsafe {
                 winuser::UnhookWindowsHookEx(hook);
             }
-            tracing::info!("Kiosk: keyboard hook removed");
+            tracing::info!(target: LOG_TARGET, "Kiosk: keyboard hook removed");
         }
     }
 
@@ -985,6 +992,7 @@ mod windows_impl {
                 };
                 winuser::ShowWindow(hwnd, cmd);
                 tracing::info!(
+                    target: LOG_TARGET,
                     "Kiosk: taskbar {}",
                     if hide { "hidden" } else { "restored" }
                 );
