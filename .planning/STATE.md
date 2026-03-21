@@ -46,16 +46,16 @@ gsd_state_version: 1.0
 milestone: v18.0
 milestone_name: Seamless Execution
 status: in_progress
-stopped_at: Completed 131-01-PLAN.md
-last_updated: "2026-03-22T03:45:50.000Z"
+stopped_at: Completed 132-02-PLAN.md
+last_updated: "2026-03-22T04:28:00.000Z"
 progress:
   completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
-  percent: 15
-current_phase: 131
-current_phase_name: Shell Relay
-current_plan: 1
+  total_plans: 4
+  completed_plans: 4
+  percent: 30
+current_phase: 132
+current_phase_name: Chain Orchestration
+current_plan: 2
 decisions:
   - "130-01: Object.freeze(new Set()) for ALLOWED_BINARIES — test uses Object.isFrozen() since freeze doesn't block Set.add()"
   - "130-01: DynamicCommandRegistry uses private class fields (#commands, #safeEnv) for true encapsulation"
@@ -67,6 +67,10 @@ decisions:
   - "131-01: Binary allowlist check fires before notifyFn -- disallowed binary rejected silently (no notification leak)"
   - "131-01: bono/index.js exec_approval handler added (was missing) -- placed before exec_request handler"
   - "131-01: Dedup covers both pendingApprovals (in-flight) and completedExecs (finished) -- prevents replay"
+  - "132-01: ExecResultBroker is pure standalone utility with zero imports -- no dependency on protocol.js or any other comms-link module"
+  - "132-01: ChainOrchestrator uses Promise.race between stepLoopPromise and chainTimeout timer -- avoids AbortController complexity"
+  - "132-02: FailoverOrchestrator #pending Map fully removed -- broker is single source of truth for exec_result resolution"
+  - "132-02: exec_result on Bono side calls BOTH bonoExecResultBroker.handleResult AND wss.emit -- backward compat preserved"
 ---
 
 ---
