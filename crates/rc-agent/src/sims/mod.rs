@@ -1,5 +1,6 @@
 pub mod assetto_corsa;
 pub mod f1_25;
+pub mod iracing;
 
 use anyhow::Result;
 use rc_common::types::{AcStatus, SimType, TelemetryFrame, SessionInfo, LapData};
@@ -35,4 +36,9 @@ pub trait SimAdapter: Send + Sync {
 
     /// Read current assist state: (abs_level, tc_level, auto_shifter). Only meaningful for AC.
     fn read_assist_state(&self) -> Option<(u8, u8, bool)> { None }
+
+    /// Read whether the player is currently on track. Only meaningful for iRacing.
+    /// Returns Some(true) when iRacing's IsOnTrack variable is set.
+    /// Default: None (not applicable for other sims).
+    fn read_is_on_track(&self) -> Option<bool> { None }
 }

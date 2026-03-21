@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 98-02-PLAN.md
-last_updated: "2026-03-21T05:01:24.263Z"
+stopped_at: Completed 99-01-PLAN.md
+last_updated: "2026-03-21T05:20:01.351Z"
 last_activity: "2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified"
 progress:
   total_phases: 65
   completed_phases: 38
-  total_plans: 102
-  completed_plans: 97
+  total_plans: 104
+  completed_plans: 98
 ---
 
 ---
@@ -484,6 +484,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 - 83-01: No production code changes needed — existing F1 25 adapter already satisfies TEL-F1-01/02/03; 6 unit tests added to prove it. adapter.connected=true set directly in session_type_mapping test to avoid binding port 20777 in unit test environment
 - 98-01: failure_strings.clone() before AgentMessage send — keeps original for show_maintenance_required() in ws_handler; debug_server.rs exhaustive match needed MaintenanceRequired arm (Rule 1 auto-fix, caught immediately on first compile)
 - 98-02: check_lock_screen_http_on(addr) helper for port-param testability (option b — cleaner); PreFlightPassed has only pod_id field (no timestamp) — corrected from plan snippet at compile time (Rule 1 auto-fix); Window not found returns Warn (advisory, not a blocker)
+- 99-01: ws_connect_elapsed_secs passed as u64 parameter to run() — decouples pre_flight module from ConnectionState; Disk check Warn (not Fail) if C: not found — graceful on non-standard disk layouts; WS stability is Warn not Fail per NET-01 spec — advisory only (SYS-02, SYS-03, SYS-04, NET-01 complete)
 
 ### Blockers/Concerns
 
@@ -506,7 +507,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 
 ## Session Continuity
 
-Last session: 2026-03-21T04:56:25.212Z
-Stopped at: Completed 98-02-PLAN.md
+Last session: 2026-03-21T05:20:01.344Z
+Stopped at: Completed 99-01-PLAN.md
 Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)

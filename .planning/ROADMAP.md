@@ -1397,5 +1397,5 @@ Plans:
 |-------|----------------|--------|-----------|
 | 97. rc-common Protocol + Framework + Hardware | 2/2 | Complete    | 2026-03-21 |
 | 98. MaintenanceRequired Lock Screen + Display | 2/2 | Complete    | 2026-03-21 |
-| 99. System + Network + Billing + Handler Wiring | 0/2 | Not started | - |
+| 99. System + Network + Billing + Handler Wiring | 1/2 | In Progress|  |
 | 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |

@@ -26,10 +26,10 @@ Pre-flight checks that run before every customer session, auto-fix failures, and
 ### System & Network Checks
 
 - [x] **SYS-01**: No orphaned game process from previous session (kill if found)
-- [ ] **SYS-02**: No stuck billing session (billing_active should be false before new session)
-- [ ] **SYS-03**: Disk space > 1GB free
-- [ ] **SYS-04**: Memory > 2GB free
-- [ ] **NET-01**: WebSocket connected and stable (connected for >10s, not flapping)
+- [x] **SYS-02**: No stuck billing session (billing_active should be false before new session)
+- [x] **SYS-03**: Disk space > 1GB free
+- [x] **SYS-04**: Memory > 2GB free
+- [x] **NET-01**: WebSocket connected and stable (connected for >10s, not flapping)
 
 ### Display Checks
 
@@ -79,10 +79,10 @@ Deferred to future release.
 | PF-06 | Phase 98 | Complete |
 | DISP-01 | Phase 98 | Complete |
 | DISP-02 | Phase 98 | Complete |
-| SYS-02 | Phase 99 | Pending |
-| SYS-03 | Phase 99 | Pending |
-| SYS-04 | Phase 99 | Pending |
-| NET-01 | Phase 99 | Pending |
+| SYS-02 | Phase 99 | Complete |
+| SYS-03 | Phase 99 | Complete |
+| SYS-04 | Phase 99 | Complete |
+| NET-01 | Phase 99 | Complete |
 | STAFF-04 | Phase 99 | Pending |
 | STAFF-01 | Phase 100 | Pending |
 | STAFF-02 | Phase 100 | Pending |
