@@ -409,6 +409,9 @@ async fn main() -> anyhow::Result<()> {
     migrate_pii_encryption(&pool, &field_cipher).await
         .expect("PII migration failed");
 
+    // Track admin PIN hash for rotation alerting (ADMIN-06)
+    db::check_pin_rotation(&pool, &config).await;
+
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     let state = Arc::new(AppState::new(config, pool, field_cipher));

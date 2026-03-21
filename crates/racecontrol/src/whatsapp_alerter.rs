@@ -20,6 +20,8 @@ struct P0State {
     error_rate_since: Option<Instant>,
     last_error_rate_alert: Option<Instant>,
     error_rate_last_signal: Option<Instant>,
+    /// Tracks when we last checked PIN rotation age (once per 24h).
+    last_pin_rotation_check: Option<Instant>,
 }
 
 impl P0State {
@@ -30,6 +32,7 @@ impl P0State {
             error_rate_since: None,
             last_error_rate_alert: None,
             error_rate_last_signal: None,
+            last_pin_rotation_check: None,
         }
     }
 }
@@ -96,6 +99,13 @@ async fn send_whatsapp(config: &Config, message: &str) {
             tracing::warn!(target: "whatsapp_alerter", "WA alert send failed: {}", e);
         }
     }
+}
+
+/// Send a WhatsApp alert for sensitive admin actions (login, topup, fleet exec).
+/// Best-effort: uses existing send_whatsapp() + ist_now_string().
+pub(crate) async fn send_admin_alert(config: &Config, action: &str, details: &str) {
+    let msg = format!("[ADMIN] {} -- {} | {}", action, details, ist_now_string());
+    send_whatsapp(config, &msg).await;
 }
 
 /// Record a new incident in the alert_incidents table.
@@ -276,7 +286,45 @@ pub async fn whatsapp_alerter_task(
                         p0.error_rate_last_signal = None;
                     }
                 }
+
+                // PIN rotation check: once per 24 hours (ADMIN-06)
+                let should_check_pin = p0.last_pin_rotation_check
+                    .map_or(true, |t| t.elapsed() > Duration::from_secs(86400));
+                if should_check_pin {
+                    check_pin_rotation_age(&state, &mut p0).await;
+                }
             }
         }
     }
+}
+
+/// Check if the admin PIN has not been changed in 30+ days and alert Uday.
+async fn check_pin_rotation_age(state: &Arc<AppState>, p0: &mut P0State) {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT updated_at FROM system_settings WHERE key = 'admin_pin_hash_sha256'",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((updated_at,)) = row {
+        // Parse SQLite datetime format "YYYY-MM-DD HH:MM:SS"
+        if let Ok(changed_at) = chrono::NaiveDateTime::parse_from_str(&updated_at, "%Y-%m-%d %H:%M:%S") {
+            let now = chrono::Utc::now().naive_utc();
+            let days_since = (now - changed_at).num_days();
+            if days_since > 30 {
+                let msg = format!(
+                    "[SECURITY] Staff PIN has not been changed in {} days. Please update your admin PIN. {}",
+                    days_since, ist_now_string()
+                );
+                send_whatsapp(&state.config, &msg).await;
+                tracing::warn!(target: "whatsapp_alerter", "PIN rotation alert: {} days since last change", days_since);
+            } else {
+                tracing::debug!(target: "whatsapp_alerter", "PIN rotation OK: changed {} days ago", days_since);
+            }
+        }
+    }
+
+    p0.last_pin_rotation_check = Some(Instant::now());
 }

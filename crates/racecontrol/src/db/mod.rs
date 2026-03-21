@@ -1602,6 +1602,36 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── audit_log: add action_type column (Phase 80 migration) ─────────────
+    {
+        let has_col: bool = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM pragma_table_info('audit_log') WHERE name = 'action_type'"
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0) > 0;
+
+        if !has_col {
+            sqlx::query("ALTER TABLE audit_log ADD COLUMN action_type TEXT")
+                .execute(pool)
+                .await?;
+        }
+    }
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_log_action_type ON audit_log(action_type)")
+        .execute(pool)
+        .await?;
+
+    // ─── System Settings (PIN rotation tracking, etc.) ────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     // ─── Double-Entry Bookkeeping: Chart of Accounts ──────────────────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS accounts (
@@ -2248,6 +2278,73 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 
     tracing::info!("Database migrations complete");
     Ok(())
+}
+
+/// Track the admin PIN hash in system_settings for rotation alerting.
+/// Called at startup after migrations. Records the SHA-256 of the current
+/// admin_pin_hash so the alerter can detect when it was last changed.
+pub async fn check_pin_rotation(
+    pool: &SqlitePool,
+    config: &crate::config::Config,
+) -> Option<String> {
+    let pin_hash = match config.auth.admin_pin_hash.as_deref() {
+        Some(h) if !h.is_empty() => h,
+        _ => {
+            tracing::debug!("No admin_pin_hash configured, skipping PIN rotation tracking");
+            return None;
+        }
+    };
+
+    // Hash the current admin_pin_hash to detect changes without storing the actual hash
+    use sha2::Digest;
+    let current_hash = hex::encode(sha2::Sha256::digest(pin_hash.as_bytes()));
+
+    // Check existing record
+    let existing: Option<(String, String)> = sqlx::query_as(
+        "SELECT value, updated_at FROM system_settings WHERE key = 'admin_pin_hash_sha256'",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    match existing {
+        Some((stored_hash, updated_at)) if stored_hash == current_hash => {
+            // PIN unchanged since last recorded
+            tracing::info!(
+                "Admin PIN unchanged since {}",
+                &updated_at
+            );
+            Some(updated_at)
+        }
+        _ => {
+            // PIN changed (or first run) -- upsert new hash with current timestamp
+            if let Err(e) = sqlx::query(
+                "INSERT INTO system_settings (key, value, updated_at) VALUES ('admin_pin_hash_sha256', ?, datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+            )
+            .bind(&current_hash)
+            .execute(pool)
+            .await
+            {
+                tracing::error!("Failed to upsert admin_pin_hash_sha256: {}", e);
+                return None;
+            }
+
+            let action = if existing.is_some() { "rotated" } else { "recorded" };
+            tracing::info!("Admin PIN hash {} in system_settings", action);
+
+            // Return the new updated_at
+            let row: Option<(String,)> = sqlx::query_as(
+                "SELECT updated_at FROM system_settings WHERE key = 'admin_pin_hash_sha256'",
+            )
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+            row.map(|r| r.0)
+        }
+    }
 }
 
 /// Migrate existing plaintext PII to encrypted columns.
