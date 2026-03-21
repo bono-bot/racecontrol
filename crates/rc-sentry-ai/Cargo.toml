@@ -37,3 +37,4 @@ imageproc = "0.26"
 clahe = "0.1"
 chrono = { workspace = true }
 uuid = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled"] }

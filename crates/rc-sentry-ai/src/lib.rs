@@ -11,6 +11,9 @@ pub mod detection {
 pub mod recognition {
     pub mod alignment;
     pub mod clahe;
+    pub mod db;
+    pub mod gallery;
     pub mod quality;
+    pub mod tracker;
     pub mod types;
 }
