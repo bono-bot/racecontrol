@@ -43,10 +43,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Remote Booking
 
-- [ ] **BOOK-01**: Customer can book an experience from PWA at home (select game, car/track, duration tier)
-- [ ] **BOOK-02**: Booking creates a pod-agnostic reservation (no specific pod assigned at booking time)
-- [ ] **BOOK-03**: 6-character alphanumeric PIN generated on booking, displayed to customer
-- [ ] **BOOK-04**: PIN delivered to customer via WhatsApp message
+- [x] **BOOK-01**: Customer can book an experience from PWA at home (select game, car/track, duration tier)
+- [x] **BOOK-02**: Booking creates a pod-agnostic reservation (no specific pod assigned at booking time)
+- [x] **BOOK-03**: 6-character alphanumeric PIN generated on booking, displayed to customer
+- [x] **BOOK-04**: PIN delivered to customer via WhatsApp message
 - [ ] **BOOK-05**: Customer can view, cancel, or modify their reservation from PWA
 - [x] **BOOK-06**: Reservations expire after configurable TTL (default: 24 hours)
 - [x] **BOOK-07**: Expired reservations auto-cleaned up with wallet refund if debited
@@ -75,7 +75,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **API-01**: Cloud racecontrol API accessible at api.racingpoint.cloud with HTTPS
 - [ ] **API-02**: All existing customer API endpoints work on cloud instance with synced data
 - [ ] **API-03**: All existing admin API endpoints work on cloud instance
-- [ ] **API-04**: New reservation endpoints: create, cancel, modify, redeem (PIN validation)
+- [x] **API-04**: New reservation endpoints: create, cancel, modify, redeem (PIN validation)
 - [ ] **API-05**: Rate limiting on authentication endpoints (login, OTP verify, PIN entry)
 
 ## v2 Requirements
@@ -134,10 +134,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | DASH-03 | Phase 7 | Pending |
 | DASH-04 | Phase 7 | Pending |
 | DASH-05 | Phase 7 | Pending |
-| BOOK-01 | Phase 4 | Pending |
-| BOOK-02 | Phase 4 | Pending |
-| BOOK-03 | Phase 4 | Pending |
-| BOOK-04 | Phase 4 | Pending |
+| BOOK-01 | Phase 4 | Complete |
+| BOOK-02 | Phase 4 | Complete |
+| BOOK-03 | Phase 4 | Complete |
+| BOOK-04 | Phase 4 | Complete |
 | BOOK-05 | Phase 4 | Pending |
 | BOOK-06 | Phase 4 | Complete |
 | BOOK-07 | Phase 4 | Complete |
@@ -157,7 +157,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | API-01 | Phase 2 | Pending |
 | API-02 | Phase 2 | Pending |
 | API-03 | Phase 6 | Pending |
-| API-04 | Phase 4 | Pending |
+| API-04 | Phase 4 | Complete |
 | API-05 | Phase 10 | Pending |
 
 **Coverage:**

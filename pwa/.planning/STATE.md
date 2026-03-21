@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in-progress
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-21T12:48:00.000Z"
+status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-21T12:55:13.790Z"
 last_activity: 2026-03-21 — Plan 04-02 complete (reservation expiry cleanup in scheduler)
 progress:
   total_phases: 10
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
-  percent: 100
+  completed_plans: 5
+  percent: 67
 ---
 
 # Project State
@@ -69,6 +69,9 @@ Recent decisions affecting current work:
 - [03-02]: Wallet debit uses debit_session txn_type with reservation_id as reference
 - [03-03]: Status field changed from static "ok" to computed health_status (healthy/degraded/critical/unknown)
 - [03-03]: Lag thresholds: healthy <= 60s, degraded <= 300s, critical > 300s, unknown when no sync data
+- [04-01]: Used separate route paths for body-accepting handlers due to Axum MethodRouter chaining limitations
+- [04-01]: Table is kiosk_experiences not experiences - corrected queries
+- [04-01]: ThreadRng scoped to non-async block to avoid Send trait issues
 - [04-02]: Refund debit_intents use origin='local' so cloud sync picks them up
 - [04-02]: Both pending_debit and confirmed statuses can expire; pending intents cancelled, completed get refund
 - [04-02]: Negative amount_paise signals refund in debit_intents table
@@ -85,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T12:48:00Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-03-21T12:55:13.787Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
