@@ -2289,6 +2289,27 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     // sim_type in their PRIMARY KEY so F1 25 / iRacing / AC records are independent.
     migrate_leaderboard_sim_type(pool).await?;
 
+    // Phase 92: variable_reward_log — audit trail for RET-06 monthly cap enforcement
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS variable_reward_log (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            amount_paise INTEGER NOT NULL,
+            trigger TEXT NOT NULL CHECK(trigger IN ('pb', 'milestone')),
+            month TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_variable_reward_driver_month
+            ON variable_reward_log(driver_id, month)",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
