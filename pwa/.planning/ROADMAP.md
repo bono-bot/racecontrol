@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Config files: Caddyfile, compose.yml, Dockerfile port fix, verification script
-- [ ] 01-02-PLAN.md — VPS deployment: DNS, firewall, swap, Docker Compose up (coordinate with Bono)
+- [x] 01-02-PLAN.md — VPS deployment: DNS, firewall, swap, Docker Compose up (coordinate with Bono)
 
 ### Phase 2: API + PWA Cloud Deploy
 **Goal**: Customers can access the PWA from any device and use existing features (login, wallet, sessions, leaderboards) via the cloud API
@@ -53,8 +53,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — Config prep: fix compose.yml build args (API URL + IS_CLOUD), remove premature Caddy deps, add Dockerfile build arg, verify manifest
+- [ ] 02-02-PLAN.md — VPS deployment: send instructions to Bono, verify PWA + API live at racingpoint.cloud
 
 ### Phase 3: Sync Hardening
 **Goal**: Cloud-local sync is financially correct, loop-free, and exposes health status for all tables needed by admin and dashboard
