@@ -10,24 +10,24 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 101 of 105 (Protocol Foundation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-21 — Roadmap created, 25 requirements mapped to 5 phases
+Plan: 1 of TBD in current phase
+Status: Plan 01 complete — ready for Plan 02 (or next phase plan)
+Last activity: 2026-03-21 — Phase 101 Plan 01 executed: rc-common types + protocol variants
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 35 min
+- Total execution time: 0.6 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 101-protocol-foundation | 1 | 35 min | 35 min |
 
 *Updated after each plan completion*
 
@@ -49,6 +49,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Research]: Do NOT upgrade sysinfo past 0.33 — breaking API in 0.38 affects kiosk.rs, game_process.rs, self_test.rs
 - [Research]: Two new crates — `netstat2 0.11` (Phase 105) and `walkdir 2` (Phase 103)
 - [Research]: Do NOT add `windows = "0.58"` — conflicts with existing `winapi 0.3`
+- [101-01]: Manual Default impl required for MachineWhitelist — serde `default =` functions not called by `#[derive(Default)]`
+- [101-01]: Wildcard arm added to racecontrol ws/mod.rs AgentMessage match — process guard handling deferred to Phase 103/104
 
 ### Pending Todos
 
@@ -63,5 +65,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-21
-Stopped at: Roadmap written — ready to run /gsd:plan-phase 101
+Stopped at: 101-01-PLAN.md complete — rc-common types + protocol variants shipped
 Resume file: None

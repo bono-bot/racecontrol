@@ -27,7 +27,7 @@ Five phases converting the deny-by-default whitelist concept into a running enfo
   4. Neither racecontrol nor rc-agent require changes to compile after rc-common is updated (no breaking changes to existing variants)
 **Plans**: 1 plan
 Plans:
-- [ ] 101-01-PLAN.md — Add MachineWhitelist/ViolationType/ProcessViolation types to rc-common/src/types.rs and three protocol variants to rc-common/src/protocol.rs; TDD with 9 tests; confirm downstream compile
+- [x] 101-01-PLAN.md — Add MachineWhitelist/ViolationType/ProcessViolation types to rc-common/src/types.rs and three protocol variants to rc-common/src/protocol.rs; TDD with 9 tests; confirm downstream compile
 
 ### Phase 102: Whitelist Schema + Config + Fetch Endpoint
 **Goal**: Staff can open racecontrol.toml and see a populated deny-by-default process whitelist with per-machine sections, and any pod can curl the fetch endpoint to receive its merged whitelist
@@ -81,7 +81,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 101. Protocol Foundation | 0/1 | Not started | - |
+| 101. Protocol Foundation | 1/1 | Complete | 2026-03-21 |
 | 102. Whitelist Schema + Config + Fetch Endpoint | 0/TBD | Not started | - |
 | 103. Pod Guard Module | 0/TBD | Not started | - |
 | 104. Server Guard Module + Alerts | 0/TBD | Not started | - |
