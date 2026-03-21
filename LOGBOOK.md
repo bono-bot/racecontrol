@@ -394,3 +394,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 09:59 IST | James | 4f14435 | docs(83-01): complete F1 25 telemetry test coverage plan — 83-01-SUMMARY.md, STATE.md, ROADMAP.md |
 | 2026-03-21 10:48 IST | James | 9a4234b | feat(99-01): 4 new pre-flight checks (billing_stuck, disk_space, memory, ws_stability) + 9-way tokio::join! runner (SYS-02, SYS-03, SYS-04, NET-01) |
 | 2026-03-21 10:49 IST | James | dad850c | docs(99-01): complete system/network billing checks plan — 99-01-SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md |
+| 2026-03-21 11:30 IST | James | 651249d | feat(84-01): IracingAdapter — shared memory, lap detection, session transitions, pre-flight, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04) |
+| 2026-03-21 10:55 IST | James | 71e75b7 | feat(99-02): add last_preflight_alert field to AppState — Option<Instant> for STAFF-04 rate-limiting |
+| 2026-03-21 10:55 IST | James | afed1c2 | feat(99-02): wire PreFlightFailed alert rate-limiting (STAFF-04) — 60s cooldown in BillingStarted, retry loop confirmed no-alert by design, reset on Pass |
+| 2026-03-21 10:56 IST | James | 21c5ee5 | docs(99-02): complete alert rate-limiting plan — 99-02-SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md |
