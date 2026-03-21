@@ -1387,7 +1387,10 @@ Plans:
   3. Clicking "Clear Maintenance" on the kiosk dashboard (with PIN) sends ClearMaintenance to the pod, the pod transitions to Idle, and the dashboard badge disappears within one polling cycle
   4. In the fleet health dashboard (/api/v1/fleet/health), a pod in MaintenanceRequired shows status "maintenance" (not "healthy" or "offline") — fleet visibility is accurate
   5. If a pod enters MaintenanceRequired repeatedly within the preflight_alert_cooldown_secs window, only one WhatsApp/email alert fires — Uday does not receive notification floods from rapid re-entry
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 100-01-PLAN.md — Server-side maintenance state tracking in FleetHealthStore + clear-maintenance endpoint
+- [ ] 100-02-PLAN.md — Kiosk fleet page maintenance badge with PIN-gated details and clear button
 
 ## Progress
 
