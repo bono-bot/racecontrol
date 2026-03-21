@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 89-03-PLAN.md
-last_updated: "2026-03-21T02:29:20.428Z"
+stopped_at: Completed 90-01-PLAN.md
+last_updated: "2026-03-21T04:05:27.882Z"
 progress:
-  total_phases: 71
-  completed_phases: 65
-  total_plans: 177
-  completed_plans: 170
+  total_phases: 72
+  completed_phases: 68
+  total_plans: 179
+  completed_plans: 175
 ---
 
 ---
@@ -192,12 +192,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** Phase 89 — Psychology Foundation
+**Current focus:** Phase 90 — Customer Progression
 
 ## Current Position
 
-Phase: 89 (Psychology Foundation) — COMPLETE (3/3 plans done)
-Plan: 3 of 3 (complete)
+Phase: 90 (Customer Progression) — EXECUTING
+Plan: 2 of 2
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -307,7 +307,7 @@ Plan: 3 of 3 (complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T02:23:56.119Z
-Stopped at: Completed 89-03-PLAN.md
+Last session: 2026-03-21T04:05:27.876Z
+Stopped at: Completed 90-01-PLAN.md
 Resume file: None
 Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)
