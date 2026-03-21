@@ -1516,7 +1516,11 @@ Plans:
   2. The LMU (rFactor 2) shared memory adapter applies the same 5-second deferred connect -- log shows shm_connect deferred for LMU on launch
   3. UDP telemetry sockets for F1 25 (port 20777) and iRacing (port 6789) are bound only while their respective game is in Running state and are closed within 5 seconds of game exit -- netstat on Pod 8 confirms no orphaned UDP bindings after game closes
   4. When racecontrol.toml has ac_evo_telemetry_enabled = false (the default), no shared memory mapping attempt is made for AC EVO even when the game is running -- feature flag is enforced at the adapter initialization path
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 110-01-PLAN.md -- Shared memory deferred connect (5s) + AC EVO feature flag (HARD-03, HARD-05)
+- [ ] 110-02-PLAN.md -- UDP socket lifecycle gating to Running state (HARD-04)
 
 ### Phase 111: Code Signing + Per-Game Canary Validation
 **Goal**: rc-agent.exe and rc-sentry.exe are code signed with an OV certificate and signtool is integrated into the deploy pipeline; each protected game (F1 25, iRacing, LMU) completes a full staff test session on Pod 8 with safe mode active, signed binaries running, and no anti-cheat warnings logged -- billing continuity is verified throughout
@@ -1538,7 +1542,7 @@ Plans:
 | 107. Behavior Audit + Certificate Procurement | 2/2 | Complete    | 2026-03-21 |
 | 108. Keyboard Hook Replacement | 1/1 | Complete    | 2026-03-21 |
 | 109. Safe Mode State Machine | 2/2 | Complete    | 2026-03-21 |
-| 110. Telemetry Gating | TBD | Not started | - |
+| 110. Telemetry Gating | 0/2 | Planning complete | - |
 | 111. Code Signing + Per-Game Canary Validation | TBD | Not started | - |
 
 
