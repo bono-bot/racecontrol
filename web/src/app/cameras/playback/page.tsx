@@ -109,8 +109,8 @@ export default function PlaybackPage() {
           setEvents([]);
           return;
         }
-        const data: AttendanceEntry[] = await res.json();
-        setEvents(data);
+        const data = await res.json();
+        setEvents(data.events || []);
       } catch {
         setEvents([]);
       }
