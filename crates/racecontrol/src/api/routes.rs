@@ -401,6 +401,9 @@ fn service_routes() -> Router<Arc<AppState>> {
         .route("/failover/broadcast", post(failover_broadcast))
         // Failback data reconciliation (Phase 70: import cloud sessions during failback)
         .route("/sync/import-sessions", post(import_sessions))
+        // Process guard intake (Phase 105: rc-process-guard on James reports via HTTP)
+        // Auth: X-Guard-Token header checked against config.process_guard.report_secret
+        .route("/guard/report", post(process_guard::post_guard_report_handler))
 }
 
 const BUILD_ID: &str = env!("GIT_HASH");
