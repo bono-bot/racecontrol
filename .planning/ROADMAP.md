@@ -1699,7 +1699,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 112. RTSP Infrastructure & Camera Pipeline | 4/4 | Complete    | 2026-03-21 |
 | 113. Face Detection & Privacy Foundation | 3/3 | Complete    | 2026-03-21 |
-| 114. Face Recognition & Quality Gates | 3/3 | Complete   | 2026-03-21 |
+| 114. Face Recognition & Quality Gates | 3/3 | Complete    | 2026-03-21 |
 | 115. Face Enrollment System | 0/4 | Not started | - |
 | 116. Attendance Engine | 0/3 | Not started | - |
 | 117. Alerts & Notifications | 0/3 | Not started | - |
