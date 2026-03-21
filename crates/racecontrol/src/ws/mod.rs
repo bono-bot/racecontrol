@@ -708,10 +708,24 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                         AgentMessage::PreFlightPassed { pod_id } => {
                             tracing::info!("Pod {} pre-flight checks passed", pod_id);
                             log_pod_activity(&state, pod_id, "system", "Pre-flight Passed", "All checks passed before session start", "agent");
+                            // Phase 100 (STAFF-03): Clear maintenance state — pod is healthy.
+                            {
+                                let mut fleet = state.pod_fleet_health.write().await;
+                                let store = fleet.entry(pod_id.clone()).or_default();
+                                store.in_maintenance = false;
+                                store.maintenance_failures.clear();
+                            }
                         }
                         AgentMessage::PreFlightFailed { pod_id, failures, .. } => {
                             tracing::warn!("Pod {} pre-flight checks failed: {:?}", pod_id, failures);
                             log_pod_activity(&state, pod_id, "system", "Pre-flight Failed", &format!("Failures: {:?}", failures), "agent");
+                            // Phase 100 (STAFF-03): Mark pod as in maintenance with failure details.
+                            {
+                                let mut fleet = state.pod_fleet_health.write().await;
+                                let store = fleet.entry(pod_id.clone()).or_default();
+                                store.in_maintenance = true;
+                                store.maintenance_failures = failures.clone();
+                            }
                         }
                         AgentMessage::SelfTestResult { pod_id, request_id, report } => {
                             tracing::info!(

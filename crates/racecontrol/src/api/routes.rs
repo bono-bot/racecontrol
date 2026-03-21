@@ -193,6 +193,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/pods/lockdown-all", post(lockdown_all_pods))
         .route("/pods/{id}/exec", post(ws_exec_pod))
         .route("/pods/{id}/self-test", get(pod_self_test))
+        .route("/pods/{id}/clear-maintenance", post(clear_maintenance_pod))
         .route("/pods/{pod_id}/transmission", post(set_pod_transmission))
         .route("/pods/{pod_id}/ffb", post(set_pod_ffb))
         .route("/pods/{pod_id}/assists", post(set_pod_assists))
@@ -954,6 +955,41 @@ async fn pod_self_test(
             (axum::http::StatusCode::GATEWAY_TIMEOUT, Json(json!({"error": "self-test timed out after 30s"}))).into_response()
         }
     }
+}
+
+// POST /pods/{id}/clear-maintenance — Send ClearMaintenance to pod agent (STAFF-02)
+//
+// Clears the pod's maintenance state both on the server (optimistic) and by sending
+// ClearMaintenance to the agent so it can re-run pre-flight checks on next session start.
+async fn clear_maintenance_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    // Send ClearMaintenance via WS.
+    let agent_senders = state.agent_senders.read().await;
+    match agent_senders.get(&id) {
+        Some(sender) => {
+            let _ = sender.send(CoreToAgentMessage::ClearMaintenance).await;
+        }
+        None => {
+            return Json(json!({ "error": format!("Pod {} not connected", id) }));
+        }
+    }
+    drop(agent_senders);
+
+    // Also clear server-side maintenance state immediately (optimistic update).
+    {
+        let mut fleet = state.pod_fleet_health.write().await;
+        if let Some(store) = fleet.get_mut(&id) {
+            store.in_maintenance = false;
+            store.maintenance_failures.clear();
+        }
+    }
+
+    tracing::info!("ClearMaintenance sent to pod {} (STAFF-02)", id);
+    crate::activity_log::log_pod_activity(&state, &id, "system", "Maintenance Cleared", "Staff cleared maintenance via dashboard", "staff");
+
+    Json(json!({ "ok": true, "pod_id": id }))
 }
 
 #[cfg(test)]
