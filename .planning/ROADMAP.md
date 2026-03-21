@@ -821,7 +821,7 @@ Plans:
   4. `curl http://192.168.31.89:8091/processes` returns running processes with PID, name, and memory -- staff can confirm rc-agent.exe is running when WS is down
   5. `cargo test -p rc-sentry` passes all endpoint integration tests (/ping, /exec, /health, /version, /files, /processes) against an ephemeral port
   6. Sending SIGTERM or Ctrl+C to rc-sentry causes it to drain active connections before exiting -- no abrupt mid-response kills
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 72-01: TBD
@@ -957,7 +957,7 @@ Plans:
   2. Admin login and sensitive actions (wallet topup, fleet exec) trigger a WhatsApp notification to Uday
   3. If the admin PIN has not been changed in 30+ days, Uday receives an alert prompting rotation
   4. Cloud sync payloads are signed with HMAC-SHA256 including timestamp and nonce -- replayed or tampered payloads are rejected
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 80-01: TBD
@@ -991,7 +991,7 @@ Plans:
   2. Each game has a configurable credit-per-minute rate in the billing_rates table
   3. When a game exits normally, crashes, or the session ends, billing stops automatically
   4. The full session lifecycle (launch, loading, playable, gameplay, exit, cleanup) is observable in logs and kiosk state
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 82-01: TBD
@@ -1005,7 +1005,7 @@ Plans:
   1. F1 25 UDP telemetry is received on port 20777 during gameplay
   2. Lap times and sector splits are extracted from telemetry packets after each completed lap
   3. Each completed lap emits an AgentMessage::LapCompleted with sim_type = F1_25
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 83-01: TBD
@@ -1019,7 +1019,7 @@ Plans:
   2. When iRacing transitions between races, the adapter re-opens the shared memory handle without losing data
   3. Lap times and sector splits are extracted and emitted as LapCompleted events with correct timing
   4. On launch, the adapter checks irsdkEnableMem=1 in app.ini and warns staff if missing
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 84-01: TBD
@@ -1033,7 +1033,7 @@ Plans:
   1. LMU shared memory is read using rFactor 2 shared memory plugin mapped files ($rFactor2SMMP_*)
   2. Lap times and sector splits are extracted from rF2 scoring data after each completed lap
   3. Each completed lap emits a LapCompleted event with sim_type = LMU
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 85-01: TBD
@@ -1046,7 +1046,7 @@ Plans:
   1. AC EVO shared memory is read using ACC-format struct layout when data is available
   2. If telemetry fields are unpopulated or the API changes, the adapter logs a warning and continues without crashing
   3. When lap data is available, it is emitted as LapCompleted with sim_type = AC_EVO
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 86-01: TBD
@@ -1059,7 +1059,7 @@ Plans:
   1. EA WRC UDP telemetry is received on port 20432 using JSON-configured packet format
   2. Stage completion times are captured and mapped to the laps schema
   3. If WRC telemetry config is unavailable, the game still launches and billing works
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 87-01: TBD
@@ -1072,7 +1072,7 @@ Plans:
   1. Lap/stage times from all adapters are stored in the existing laps table with a sim_type field
   2. A track name mapping table translates per-game track identifiers to Racing Point canonical track names
   3. Existing leaderboard endpoints serve multi-game data and support filtering by sim_type
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 88-01: TBD
@@ -1108,11 +1108,11 @@ Plans:
   2. Passport displays tiered collections (Starter/Explorer/Legend) so newcomers see achievable near-term goals
   3. Returning customers see their existing lap history already backfilled into the passport on first load
   4. Customers earn badges for milestones (first lap, 10 tracks, 100 laps, PB streak) and can view them on their profile page
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 90-01: TBD
-- [ ] 90-02: TBD
+- [ ] 90-01: Backend — driving passport upsert in persist_lap, backfill function, catalog accessors, customer API endpoints (/customer/passport, /customer/badges)
+- [ ] 90-02: Frontend — PWA /passport page with tiered collections, badge showcase on /profile, api.ts methods
 
 ### Phase 91: Session Experience
 **Goal**: Every sim racing session ends on a high note with PB celebrations and peak-end-optimized reports
@@ -1123,7 +1123,7 @@ Plans:
   2. Session-end reports show the best moment first before displaying averages
   3. Session-end report includes percentile ranking ("faster than 73% of drivers")
   4. Customer sees a real-time toast notification in the PWA when they set a PB during an active session
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 91-01: TBD
@@ -1138,7 +1138,7 @@ Plans:
   3. Customers occasionally receive surprise bonus credits on PBs (15%) or milestones (10%), capped at 5% of spend
   4. Membership expiry warnings use loss-framed copy
   5. Streak-at-risk WhatsApp nudge sent 2 days before grace period expires
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 92-01: TBD
@@ -1153,7 +1153,7 @@ Plans:
   2. When a new track record is set, the Discord bot announces it within 1 hour
   3. All customer-facing copy uses "RacingPoint Driver" instead of "customer"
   4. Discord has weekly time trial challenge posts and tournament bracket update posts
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 93-01: TBD
@@ -1168,7 +1168,7 @@ Plans:
   2. Booking wizard shows real-time pod availability from live RaceControl data
   3. System tracks each customer's commitment ladder position and surfaces next-step nudges
   4. Booking page displays real social proof using actual data
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 94-01: TBD
@@ -1183,7 +1183,7 @@ Plans:
   3. Team challenges with collective goals appear with progress tracking
   4. Staff can give kudos to colleagues visible in dashboard
   5. Participation is per-employee opt-in, never mandatory
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 95-01: TBD
@@ -1199,7 +1199,7 @@ Plans:
   3. WhatsApp campaign templates use Cialdini principles (3+ ready-to-send)
   4. Review nudge copy uses loss-framed messaging with peak-end timing
   5. Admin dashboard has employee recognition page
-**Plans**: TBD
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
 - [ ] 96-01: TBD
