@@ -19,6 +19,8 @@ pub struct AgentConfig {
     pub ai_debugger: AiDebuggerConfig,
     #[serde(default)]
     pub kiosk: KioskConfig,
+    #[serde(default)]
+    pub preflight: PreflightConfig,
     /// Orphan billing auto-end timeout in seconds (SESSION-01).
     /// If billing is active but no game PID detected for this duration, session auto-ends.
     /// Configurable via TOML, default 300s (5 minutes).
@@ -41,6 +43,18 @@ impl Default for KioskConfig {
 }
 
 fn default_true() -> bool { true }
+
+#[derive(Debug, Deserialize)]
+pub struct PreflightConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for PreflightConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
 
 #[derive(Debug, Default, Deserialize)]
 pub struct GamesConfig {
@@ -282,6 +296,7 @@ mod tests {
             games: GamesConfig::default(),
             ai_debugger: AiDebuggerConfig::default(),
             kiosk: KioskConfig::default(),
+            preflight: PreflightConfig::default(),
             auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
         }
     }
