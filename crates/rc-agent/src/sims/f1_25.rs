@@ -571,7 +571,7 @@ impl SimAdapter for F125Adapter {
     fn disconnect(&mut self) {
         self.socket = None;
         self.connected = false;
-        tracing::info!(target: LOG_TARGET, "F1 25 adapter disconnected");
+        tracing::info!(target: LOG_TARGET, "F1 25 UDP socket closed (port 20777) — game exit cleanup");
     }
 }
 
