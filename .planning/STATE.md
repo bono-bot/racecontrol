@@ -260,6 +260,8 @@ Progress: [█████████░] 92% (70/76 plans complete)
 - 76-01: StaffClaims uses role="staff" field -- customer JWTs lacking role field are auto-rejected by deserialization
 - 76-01: api_routes() split into 4 tiers (public/customer/staff/service) with state parameter for middleware
 
+- 78-02: kiosk_routes separated from staff_routes -- pods need JWT-protected kiosk endpoints (experiences GET, settings GET, pod-launch, book-multiplayer) but must not access admin routes; layer order JWT first (401) then pod source check (403) (KIOSK-07, KIOSK-05)
+
 ### Pending Todos
 
 - Pod 3 still not verified running after fix-pod.bat -- needs physical reboot + verification
@@ -269,7 +271,7 @@ Progress: [█████████░] 92% (70/76 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:05:35Z
-Stopped at: Completed 78-03-PLAN.md
-Resume file: .planning/phases/78-kiosk-session-hardening/78-03-SUMMARY.md
-Next action: Phase 78 complete (3/3 plans done)
+Last session: 2026-03-21T01:07:00Z
+Stopped at: Completed 78-02-PLAN.md
+Resume file: .planning/phases/78-kiosk-session-hardening/78-02-SUMMARY.md
+Next action: Phase 78 complete (3/3 plans done) -- all plans including 78-02 now have summaries
