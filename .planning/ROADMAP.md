@@ -1893,7 +1893,10 @@ Plans:
   3. A step with continue_on_error: true allows the chain to proceed to the next step even when that step exits non-zero
   4. A single chain_result message is returned after all steps complete, containing every step's stdout, stderr, exitCode, and durationMs in a structured array
   5. A chain that exceeds its chain-level timeout is aborted mid-execution and returns a chain_result with a TIMEOUT status
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 132-01-PLAN.md — TDD ExecResultBroker + ChainOrchestrator classes
+- [ ] 132-02-PLAN.md — Wire into james/index.js + bono/index.js + refactor FailoverOrchestrator
 
 ### Phase 133: Task Delegation + Audit Trail
 **Goal**: Either AI can transparently delegate a chain to the other machine and receive results, with every execution logged to an append-only audit file on both sides
@@ -1928,6 +1931,6 @@ Plans:
 |-------|----------------|--------|-----------|
 | 130. Protocol Foundation + Dynamic Registry | 2/2 | Complete    | 2026-03-21 |
 | 131. Shell Relay | 1/1 | Complete    | 2026-03-21 |
-| 132. Chain Orchestration | 0/? | Not started | - |
+| 132. Chain Orchestration | 0/2 | Planned | - |
 | 133. Task Delegation + Audit Trail | 0/? | Not started | - |
 | 134. Advanced Chain Features + Integration Hardening | 0/? | Not started | - |
