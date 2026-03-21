@@ -1,3 +1,4 @@
+mod attendance;
 mod config;
 mod detection;
 mod enrollment;
@@ -135,6 +136,21 @@ async fn main() -> anyhow::Result<()> {
             None
         };
 
+    // Create broadcast channel for recognition events (attendance, future consumers)
+    let (recognition_tx, _) =
+        tokio::sync::broadcast::channel::<recognition::types::RecognitionResult>(256);
+
+    // Spawn attendance engine (if enabled)
+    if config.attendance.enabled {
+        let attendance_rx = recognition_tx.subscribe();
+        let att_db_path = config.recognition.gallery_db_path.clone();
+        let att_config = config.attendance.clone();
+        tokio::spawn(async move {
+            attendance::engine::run(attendance_rx, att_db_path, att_config).await;
+        });
+        tracing::info!("attendance engine started");
+    }
+
     // Spawn per-camera detection tasks (if detector available)
     if let Some(ref detector) = shared_detector {
         for camera in config.cameras.iter() {
@@ -151,9 +167,10 @@ async fn main() -> anyhow::Result<()> {
             };
             let gal = Arc::clone(&gallery);
             let trk = Arc::clone(&tracker);
+            let tx = recognition_tx.clone();
             tokio::spawn(async move {
                 detection::pipeline::run(
-                    cam_name, buf, det, conf, stats, rec, qg, gal, trk, None,
+                    cam_name, buf, det, conf, stats, rec, qg, gal, trk, Some(tx),
                 )
                 .await;
             });

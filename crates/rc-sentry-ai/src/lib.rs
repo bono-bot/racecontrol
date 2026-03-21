@@ -24,5 +24,5 @@ pub mod enrollment {
 
 pub mod attendance {
     pub mod db;
-    pub mod engine;
+    // engine depends on config (binary-only module), excluded from lib target
 }
