@@ -1737,7 +1737,11 @@ Plans:
   2. All four containers (Caddy + 3 frontends) are running via Docker Compose with memory limits and healthchecks
   3. VPS firewall blocks all inbound ports except 80 and 443
   4. VPS has 2GB swap enabled and containers survive under memory pressure
-**Plans**: TBD
+**Plans**: 2 plans (Wave 1: config files + verify script, Wave 2: Bono VPS deployment)
+
+Plans:
+- [ ] 01-01: Caddyfile, compose.yml, Dockerfile port fix, verification script (INFRA-02, INFRA-03)
+- [ ] 01-02: Bono VPS deployment — DNS, firewall, swap, compose up, cert switch (INFRA-01, INFRA-06, INFRA-07)
 
 ### Phase 121: API + PWA Cloud Deploy
 **Goal**: Customers can access the PWA from any device and use existing features (login, wallet, sessions, leaderboards) via the cloud API
@@ -1826,7 +1830,7 @@ Parallel after 122: 125+126 | Parallel after 120: 127+128 | 129 after 124+125
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 120. Cloud Infrastructure | 0/? | Not started | - |
+| 120. Cloud Infrastructure | 0/2 | Planned | - |
 | 121. API + PWA Cloud Deploy | 0/? | Not started | - |
 | 122. Sync Hardening | 3/3 | Complete | 2026-03-21 |
 | 123. Remote Booking + PIN Generation | 3/3 | Complete | 2026-03-21 |
