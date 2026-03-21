@@ -318,7 +318,7 @@ export interface AcCatalog {
 
 // ─── Side Panel ──────────────────────────────────────────────────────
 
-export type PanelMode = "setup" | "live_session" | "waiting" | "wallet_topup" | null;
+export type PanelMode = "setup" | "live_session" | "waiting" | "wallet_topup" | "game_picker" | null;
 
 export type SetupStep =
   | "register_driver"

@@ -11,6 +11,7 @@ import { LiveSessionPanel } from "@/components/LiveSessionPanel";
 import { WalletTopupPanel } from "@/components/WalletTopupPanel";
 import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { AssistanceAlert } from "@/components/AssistanceAlert";
+import { GamePickerPanel } from "@/components/GamePickerPanel";
 import { api } from "@/lib/api";
 import type { AuthTokenInfo, PanelMode } from "@/lib/types";
 
@@ -345,6 +346,8 @@ export default function StaffTerminal() {
         return `Waiting — Pod ${selectedPod.number}`;
       case "wallet_topup":
         return `Top Up Wallet`;
+      case "game_picker":
+        return `Select Game — Pod ${selectedPod.number}`;
       default:
         return "";
     }
@@ -415,9 +418,8 @@ export default function StaffTerminal() {
                     onCancelAssignment={handleCancelAssignment}
                     onLaunchGame={(podId) => {
                       setSelectedPodId(podId);
-                      setPanelMode("setup");
-                      wizard.reset();
-                      wizard.goToStep("select_game");
+                      // Show game picker panel — non-AC launches directly, AC opens wizard
+                      setPanelMode("game_picker");
                     }}
                     onRelaunchGame={async (podId) => {
                       try {
@@ -474,6 +476,35 @@ export default function StaffTerminal() {
               onLaunch={handleGameLaunch}
               buildLaunchArgs={wizard.buildLaunchArgs}
               onCancel={closePanel}
+            />
+          )}
+
+          {/* Game Picker — direct launch for non-AC games, wizard for AC */}
+          {panelMode === "game_picker" && selectedPod && (
+            <GamePickerPanel
+              podId={selectedPodId!}
+              podNumber={selectedPod.number}
+              installedGames={selectedPod.installed_games ?? ["assetto_corsa"]}
+              onLaunch={async (podId, simType) => {
+                if (simType === "assetto_corsa") {
+                  // AC uses the full setup wizard
+                  setPanelMode("setup");
+                  wizard.reset();
+                  wizard.goToStep("select_game");
+                } else {
+                  // Non-AC: direct launch with no launch args
+                  try {
+                    await api.launchGame(podId, simType, undefined);
+                  } catch (err) {
+                    alert(
+                      `Launch failed. Check pod connection and try again. (${err instanceof Error ? err.message : "Network error"})`
+                    );
+                    return;
+                  }
+                  setPanelMode("live_session");
+                }
+              }}
+              onClose={closePanel}
             />
           )}
 

@@ -10,6 +10,7 @@ import type {
   AuthTokenInfo,
   KioskPodState,
 } from "@/lib/types";
+import { GAME_DISPLAY } from "@/lib/gameDisplayInfo";
 import { LiveTelemetry } from "./LiveTelemetry";
 import { api } from "@/lib/api";
 
@@ -39,6 +40,33 @@ interface KioskPodCardProps {
   onWakePod?: (podId: string) => void;
   onRestartPod?: (podId: string) => void;
   onShutdownPod?: (podId: string) => void;
+}
+
+// Game logo with abbreviation chip fallback
+function GameLogo({ simType }: { simType: string }) {
+  const entry = GAME_DISPLAY[simType];
+  const [imgFailed, setImgFailed] = useState(false);
+
+  if (!entry || imgFailed) {
+    return (
+      <span
+        className="w-10 h-10 flex items-center justify-center rounded-md text-xs font-semibold text-white flex-shrink-0"
+        style={{ backgroundColor: "#333333" }}
+      >
+        {entry?.abbr ?? "?"}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={entry.logo}
+      alt={entry.name}
+      title={entry.name}
+      className="w-10 h-10 rounded-md object-contain flex-shrink-0"
+      onError={() => setImgFailed(true)}
+    />
+  );
 }
 
 function derivePodState(
@@ -297,6 +325,8 @@ export const KioskPodCard = React.memo(function KioskPodCard({
               </svg>
             </button>
           )}
+          {/* Unrestrict toggle — available when online */}
+          {!isOffline && <UnrestrictButton podId={pod.id} />}
           {/* Blank screen toggle — available when online */}
           {!isOffline && <BlankScreenButton podId={pod.id} screenBlanked={pod.screen_blanked} />}
           <StateLabel state={state} isOffline={isOffline} gameInfo={gameInfo} />
@@ -367,7 +397,12 @@ export const KioskPodCard = React.memo(function KioskPodCard({
               Launching Game
             </p>
             {gameInfo && (
-              <p className="text-sm text-white">{gameInfo.sim_type}</p>
+              <div className="flex items-center gap-2">
+                <GameLogo simType={gameInfo.sim_type} />
+                <p className="text-sm text-white">
+                  {GAME_DISPLAY[gameInfo.sim_type]?.name ?? gameInfo.sim_type}
+                </p>
+              </div>
             )}
             <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
           </div>
@@ -376,11 +411,16 @@ export const KioskPodCard = React.memo(function KioskPodCard({
         {/* ON TRACK */}
         {state === "on_track" && billing && (
           <div className="flex-1 flex flex-col gap-2">
-            {/* Driver + Experience */}
-            <div>
-              <p className="text-white font-semibold text-sm truncate">
-                {billing.driver_name}
-              </p>
+            {/* Driver + Running Game */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-semibold text-sm truncate">
+                  {billing.driver_name}
+                </p>
+              </div>
+              {gameInfo && (gameInfo.game_state === "running" || gameInfo.game_state === "launching") && (
+                <GameLogo simType={gameInfo.sim_type} />
+              )}
             </div>
 
             {/* Launch Game button — shown when billing active but no game running */}
@@ -630,6 +670,49 @@ function FfbToggle({ podId, currentPreset }: { podId: string; currentPreset?: st
       }`}
     >
       {FFB_LABELS[preset] || "FFB Mid"}
+    </button>
+  );
+}
+
+function UnrestrictButton({ podId }: { podId: string }) {
+  const [unrestricted, setUnrestricted] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !unrestricted;
+    const action = next ? "unrestrict" : "re-restrict";
+    if (!confirm(`${next ? "Unrestrict" : "Re-restrict"} ${podId}? This will ${next ? "disable kiosk enforcement and allow all programs" : "re-enable kiosk lockdown and blank the screen"}.`)) return;
+    setBusy(true);
+    try {
+      const res = await api.unrestrictPod(podId, next);
+      if (res.ok) {
+        setUnrestricted(next);
+      }
+    } catch (err) {
+      alert(`Failed to ${action}: ${err instanceof Error ? err.message : "Network error"}`);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
+        unrestricted
+          ? "bg-amber-600/40 text-amber-300 hover:bg-amber-500/50"
+          : "bg-zinc-800 text-rp-grey hover:bg-zinc-700 hover:text-white"
+      }`}
+      title={unrestricted ? "Re-restrict pod (re-enable kiosk)" : "Unrestrict pod (employee training)"}
+    >
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        {unrestricted ? (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+        ) : (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        )}
+      </svg>
     </button>
   );
 }
