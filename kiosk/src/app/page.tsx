@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { api } from "@/lib/api";
+import PinRedeemScreen from "@/components/PinRedeemScreen";
 import type { Pod, TelemetryFrame, BillingSession, GameLaunchInfo, Lap } from "@/lib/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -57,6 +58,9 @@ export default function CustomerLanding() {
     billingTimers,
     gameStates,
   } = useKioskSocket();
+
+  // PIN redeem overlay (remote booking flow)
+  const [showPinRedeem, setShowPinRedeem] = useState(false);
 
   // PIN modal state
   const [selectedPodId, setSelectedPodId] = useState<string | null>(null);
@@ -319,9 +323,12 @@ export default function CustomerLanding() {
         >
           Book a Session
         </Link>
-        <span className="text-xs text-rp-grey">
-          Already booked? Tap your rig above and enter your PIN
-        </span>
+        <button
+          onClick={() => setShowPinRedeem(true)}
+          className="px-6 py-2 bg-[#222222] hover:bg-[#333333] text-white font-semibold rounded-lg text-sm transition-colors border border-[#333333]"
+        >
+          Have a PIN?
+        </button>
       </footer>
 
       {/* ─── PIN Modal Overlay ─────────────────────────────────────────── */}
@@ -345,6 +352,11 @@ export default function CustomerLanding() {
             setPin("");
           }}
         />
+      )}
+
+      {/* ─── PIN Redeem Overlay (remote booking) ────────────────────────── */}
+      {showPinRedeem && (
+        <PinRedeemScreen onClose={() => setShowPinRedeem(false)} />
       )}
     </div>
   );
