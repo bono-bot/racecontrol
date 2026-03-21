@@ -695,7 +695,8 @@ pub async fn run(
                 }
                 tracing::info!("Maintenance retry: re-running pre-flight checks");
                 let ffb_ref: &dyn crate::ffb_controller::FfbBackend = state.ffb.as_ref();
-                match crate::pre_flight::run(state, ffb_ref).await {
+                let ws_elapsed = conn.ws_connect_time.elapsed().as_secs();
+                match crate::pre_flight::run(state, ffb_ref, ws_elapsed).await {
                     crate::pre_flight::PreFlightResult::Pass => {
                         tracing::info!("Maintenance retry: pre-flight passed — clearing maintenance");
                         state.in_maintenance.store(false, std::sync::atomic::Ordering::Relaxed);

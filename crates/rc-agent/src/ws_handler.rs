@@ -140,7 +140,8 @@ pub async fn handle_ws_message(
             // Pre-flight gate (PF-01): check hardware before starting session
             if state.config.preflight.enabled {
                 let ffb_ref: &dyn crate::ffb_controller::FfbBackend = state.ffb.as_ref();
-                match pre_flight::run(state, ffb_ref).await {
+                let ws_elapsed = conn.ws_connect_time.elapsed().as_secs();
+                match pre_flight::run(state, ffb_ref, ws_elapsed).await {
                     pre_flight::PreFlightResult::Pass => {
                         tracing::info!("Pre-flight passed, proceeding with session");
                     }

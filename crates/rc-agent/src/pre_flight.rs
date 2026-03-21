@@ -49,7 +49,7 @@ pub enum PreFlightResult {
 /// Checks run concurrently. On failure, auto-fix is attempted (ConspitLink only).
 /// Returns `Pass` if all checks are Pass or Warn after fixes.
 /// Returns `MaintenanceRequired` if any check remains Fail after auto-fix.
-pub async fn run(state: &AppState, ffb: &dyn FfbBackend) -> PreFlightResult {
+pub async fn run(state: &AppState, ffb: &dyn FfbBackend, ws_connect_elapsed_secs: u64) -> PreFlightResult {
     // Capture billing_active flag before the borrow of state for checks.
     // This is read-only and atomic, so safe to capture before the join.
     let billing_active = state.heartbeat_status.billing_active.load(Ordering::Relaxed);
@@ -59,7 +59,7 @@ pub async fn run(state: &AppState, ffb: &dyn FfbBackend) -> PreFlightResult {
     // 5-second hard timeout on the concurrent checks
     let join_result = timeout(
         Duration::from_secs(5),
-        run_concurrent_checks(ffb, billing_active, has_game_process, game_pid),
+        run_concurrent_checks(ffb, billing_active, has_game_process, game_pid, ws_connect_elapsed_secs),
     )
     .await;
 
@@ -118,15 +118,20 @@ async fn run_concurrent_checks(
     billing_active: bool,
     has_game_process: bool,
     game_pid: Option<u32>,
+    ws_connect_elapsed_secs: u64,
 ) -> Vec<CheckResult> {
-    let (hid, conspit, orphan, http, rect) = tokio::join!(
+    let (hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab) = tokio::join!(
         check_hid(ffb),
         check_conspit(),
         check_orphan_game(billing_active, has_game_process, game_pid),
         check_lock_screen_http(),
         check_window_rect(),
+        check_billing_stuck(billing_active),
+        check_disk_space(),
+        check_memory(),
+        check_ws_stability(ws_connect_elapsed_secs),
     );
-    vec![hid, conspit, orphan, http, rect]
+    vec![hid, conspit, orphan, http, rect, billing, disk, memory, ws_stab]
 }
 
 // ─── Individual Check Functions ───────────────────────────────────────────────
@@ -456,6 +461,145 @@ async fn check_window_rect() -> CheckResult {
     }
 }
 
+// ─── SYS-02: Billing Stuck Check ─────────────────────────────────────────────
+
+/// Check that no billing session is stuck from a previous customer.
+///
+/// Pure logic, no I/O. billing_active=true at BillingStarted time means the
+/// previous session was never ended — blocks the new session from starting.
+async fn check_billing_stuck(billing_active: bool) -> CheckResult {
+    if billing_active {
+        CheckResult {
+            name: "billing_stuck",
+            status: CheckStatus::Fail,
+            detail: "Billing session still active from previous customer (stuck session)".into(),
+        }
+    } else {
+        CheckResult {
+            name: "billing_stuck",
+            status: CheckStatus::Pass,
+            detail: "No stuck billing session".into(),
+        }
+    }
+}
+
+// ─── SYS-03: Disk Space Check ─────────────────────────────────────────────────
+
+/// Check that C: drive has at least 1GB free.
+///
+/// Uses spawn_blocking + sysinfo::Disks (same pattern as self_test probe_disk).
+/// Threshold: 1GB (1_000_000_000 bytes) — lower than self_test (2GB) to avoid
+/// blocking sessions on low-but-functional disk conditions.
+async fn check_disk_space() -> CheckResult {
+    let result = spawn_blocking(|| {
+        use sysinfo::Disks;
+        let disks = Disks::new_with_refreshed_list();
+        disks
+            .into_iter()
+            .find(|d| {
+                d.mount_point()
+                    .to_str()
+                    .map(|s| s == "C:\\" || s == "C:" || s == "/")
+                    .unwrap_or(false)
+            })
+            .map(|d| d.available_space())
+    })
+    .await;
+
+    match result {
+        Ok(Some(available)) => {
+            if available >= 1_000_000_000 {
+                CheckResult {
+                    name: "disk_space",
+                    status: CheckStatus::Pass,
+                    detail: format!("C: drive: {}GB free", available / 1_073_741_824),
+                }
+            } else {
+                CheckResult {
+                    name: "disk_space",
+                    status: CheckStatus::Fail,
+                    detail: format!("C: drive low: {}MB free (< 1GB)", available / 1_048_576),
+                }
+            }
+        }
+        Ok(None) => CheckResult {
+            name: "disk_space",
+            status: CheckStatus::Warn,
+            detail: "C: drive not found in sysinfo disk list".into(),
+        },
+        Err(e) => CheckResult {
+            name: "disk_space",
+            status: CheckStatus::Fail,
+            detail: format!("spawn_blocking panicked in disk_space check: {}", e),
+        },
+    }
+}
+
+// ─── SYS-04: Memory Check ─────────────────────────────────────────────────────
+
+/// Check that the system has at least 2GB available RAM.
+///
+/// Uses spawn_blocking + sysinfo::System (same pattern as self_test probe_memory).
+/// Threshold: 2GB (2_147_483_648 bytes) — higher than self_test (1GB) because
+/// sim racing games require substantial RAM headroom.
+async fn check_memory() -> CheckResult {
+    let result = spawn_blocking(|| {
+        use sysinfo::System;
+        let mut system = System::new();
+        system.refresh_memory();
+        system.available_memory()
+    })
+    .await;
+
+    match result {
+        Ok(available) => {
+            if available >= 2_147_483_648 {
+                CheckResult {
+                    name: "memory",
+                    status: CheckStatus::Pass,
+                    detail: format!("{}GB RAM available", available / 1_073_741_824),
+                }
+            } else {
+                CheckResult {
+                    name: "memory",
+                    status: CheckStatus::Fail,
+                    detail: format!("Low memory: {}MB available (< 2GB)", available / 1_048_576),
+                }
+            }
+        }
+        Err(e) => CheckResult {
+            name: "memory",
+            status: CheckStatus::Fail,
+            detail: format!("spawn_blocking panicked in memory check: {}", e),
+        },
+    }
+}
+
+// ─── NET-01: WebSocket Stability Check ───────────────────────────────────────
+
+/// Check that the WebSocket connection has been stable for at least 10 seconds.
+///
+/// Pure logic, no I/O. ws_connect_elapsed_secs < 10 returns Warn (NOT Fail)
+/// per NET-01 spec — advisory only, a recent reconnect does not block sessions.
+async fn check_ws_stability(ws_connect_elapsed_secs: u64) -> CheckResult {
+    if ws_connect_elapsed_secs >= 10 {
+        CheckResult {
+            name: "ws_stability",
+            status: CheckStatus::Pass,
+            detail: format!("WebSocket stable ({}s connected)", ws_connect_elapsed_secs),
+        }
+    } else {
+        CheckResult {
+            name: "ws_stability",
+            status: CheckStatus::Warn,
+            detail: format!(
+                "WebSocket recently reconnected ({}s ago, < 10s stability threshold)",
+                ws_connect_elapsed_secs
+            ),
+        }
+    }
+}
+
 // ─── Auto-Fix Functions ───────────────────────────────────────────────────────
 
 /// Attempt to restart ConspitLink.exe.
@@ -613,14 +757,118 @@ mod tests {
         assert_eq!(result.name, "lock_screen_window_rect");
     }
 
-    // ─── Concurrent runner test ───────────────────────────────────────────────
+    // ─── Concurrent runner tests ──────────────────────────────────────────────
 
     #[tokio::test]
     async fn test_concurrent_checks_returns_five() {
+        // Historical name kept; now expects 9 after the 99-01 expansion.
         let mut mock = MockHidBackend::new();
         mock.expect_zero_force().returning(|| Ok(true));
-        let results = run_concurrent_checks(&mock, false, false, None).await;
-        assert_eq!(results.len(), 5,
-            "run_concurrent_checks must return exactly 5 results (was 3, now 5 with DISP-01 + DISP-02)");
+        let results = run_concurrent_checks(&mock, false, false, None, 60).await;
+        assert_eq!(
+            results.len(),
+            9,
+            "run_concurrent_checks now returns 9 results (4 new checks in 99-01)"
+        );
+    }
+
+    // ─── SYS-02: Billing stuck tests ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_billing_stuck_pass() {
+        let result = check_billing_stuck(false).await;
+        assert!(
+            matches!(result.status, CheckStatus::Pass),
+            "billing_active=false must be Pass, got: {:?} ({})",
+            result.status,
+            result.detail
+        );
+        assert_eq!(result.name, "billing_stuck");
+    }
+
+    #[tokio::test]
+    async fn test_billing_stuck_fail() {
+        let result = check_billing_stuck(true).await;
+        assert!(
+            matches!(result.status, CheckStatus::Fail),
+            "billing_active=true must be Fail, got: {:?} ({})",
+            result.status,
+            result.detail
+        );
+        assert!(
+            result.detail.to_lowercase().contains("stuck"),
+            "detail must mention 'stuck', got: {}",
+            result.detail
+        );
+    }
+
+    // ─── SYS-03: Disk space tests ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_disk_space_pass() {
+        // Dev machine always has >1GB on C: — verifies real sysinfo probing works.
+        let result = check_disk_space().await;
+        assert!(
+            matches!(result.status, CheckStatus::Pass | CheckStatus::Warn),
+            "disk_space on dev machine must Pass or Warn, got: {:?} ({})",
+            result.status,
+            result.detail
+        );
+        assert_eq!(result.name, "disk_space");
+    }
+
+    // ─── SYS-04: Memory tests ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_memory_pass() {
+        // Dev machine (RTX 4070 workstation) always has >2GB available RAM.
+        let result = check_memory().await;
+        assert!(
+            matches!(result.status, CheckStatus::Pass),
+            "memory on dev machine must Pass (>2GB available), got: {:?} ({})",
+            result.status,
+            result.detail
+        );
+        assert_eq!(result.name, "memory");
+    }
+
+    // ─── NET-01: WS stability tests ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_ws_stability_stable() {
+        let result = check_ws_stability(60).await;
+        assert!(
+            matches!(result.status, CheckStatus::Pass),
+            "ws_connect_elapsed_secs=60 must be Pass, got: {:?} ({})",
+            result.status,
+            result.detail
+        );
+        assert_eq!(result.name, "ws_stability");
+    }
+
+    #[tokio::test]
+    async fn test_ws_stability_flapping() {
+        let result = check_ws_stability(3).await;
+        assert!(
+            matches!(result.status, CheckStatus::Warn),
+            "ws_connect_elapsed_secs=3 must be Warn (not Fail), got: {:?} ({})",
+            result.status,
+            result.detail
+        );
+        assert_eq!(result.name, "ws_stability");
+    }
+
+    // ─── 9-way concurrent runner test ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_concurrent_checks_returns_nine() {
+        let mut mock = MockHidBackend::new();
+        mock.expect_zero_force().returning(|| Ok(true));
+        let results = run_concurrent_checks(&mock, false, false, None, 60).await;
+        assert_eq!(
+            results.len(),
+            9,
+            "run_concurrent_checks must return exactly 9 results after 4 new checks"
+        );
     }
 }
