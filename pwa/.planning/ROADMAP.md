@@ -12,7 +12,7 @@ Deploy three existing web properties (customer PWA, admin panel, live dashboard)
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Cloud Infrastructure** - DNS, Caddy reverse proxy, Docker Compose, firewall, and swap on VPS
+- [x] **Phase 1: Cloud Infrastructure** - DNS, Caddy reverse proxy, Docker Compose, firewall, and swap on VPS (completed 2026-03-21)
 - [ ] **Phase 2: API + PWA Cloud Deploy** - Customer PWA and cloud API live at racingpoint.cloud with HTTPS
 - [x] **Phase 3: Sync Hardening** - Reservations table, wallet authority, anti-loop tags, sync health endpoint
 - [x] **Phase 4: Remote Booking + PIN Generation** - Customer books from phone, receives 6-char PIN via WhatsApp (completed 2026-03-21)
@@ -180,7 +180,7 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Cloud Infrastructure | 1/2 | In progress | - |
+| 1. Cloud Infrastructure | 2/2 | Complete   | 2026-03-21 |
 | 2. API + PWA Cloud Deploy | 0/2 | Not started | - |
 | 3. Sync Hardening | 3/3 | Complete | 2026-03-21 |
 | 4. Remote Booking + PIN Generation | 3/3 | Complete   | 2026-03-21 |
