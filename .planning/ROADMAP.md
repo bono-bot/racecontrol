@@ -925,12 +925,12 @@ Plans:
   3. Application logs and bot messages contain no raw phone numbers, emails, or names -- all PII is redacted
   4. A customer can request a JSON export of their own data via the PWA
   5. A customer can request deletion of their account and all associated data
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 79-01: TBD
-- [ ] 79-02: TBD
-- [ ] 79-03: TBD
+- [ ] 79-01-PLAN.md -- Crypto foundation: FieldCipher + key management + AppState wiring
+- [ ] 79-02-PLAN.md -- Schema migration + query updates + log redaction
+- [ ] 79-03-PLAN.md -- Customer data export + deletion endpoints
 
 ### Phase 80: Audit Trail & Defense in Depth
 **Goal**: Every sensitive admin action is logged and alertable, with remaining security gaps closed
