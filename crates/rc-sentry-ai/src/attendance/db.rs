@@ -25,6 +25,15 @@ pub struct ShiftEntry {
     pub shift_minutes: Option<i64>,
 }
 
+/// A person currently present (seen within recency window).
+#[derive(Debug, Clone, Serialize)]
+pub struct PresentPerson {
+    pub person_id: i64,
+    pub person_name: String,
+    pub last_seen: String,
+    pub sighting_count: i64,
+}
+
 /// Result of an upsert_shift operation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShiftAction {
@@ -249,6 +258,32 @@ pub fn get_shifts_for_person(
     Ok(entries)
 }
 
+/// Get all persons seen since the given timestamp on the given day.
+pub fn get_present_persons(
+    conn: &Connection,
+    day: &str,
+    since: &str,
+) -> rusqlite::Result<Vec<PresentPerson>> {
+    let mut stmt = conn.prepare(
+        "SELECT person_id, person_name, MAX(logged_at) as last_seen, COUNT(*) as sighting_count
+         FROM attendance_log
+         WHERE day = ?1 AND logged_at >= ?2
+         GROUP BY person_id
+         ORDER BY last_seen DESC",
+    )?;
+    let entries = stmt
+        .query_map(rusqlite::params![day, since], |row| {
+            Ok(PresentPerson {
+                person_id: row.get(0)?,
+                person_name: row.get(1)?,
+                last_seen: row.get(2)?,
+                sighting_count: row.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(entries)
+}
+
 /// Check if a person has the 'staff' role in the persons table.
 ///
 /// Returns `false` if the person does not exist or has a different role.
@@ -415,6 +450,41 @@ mod tests {
         // Should be ordered by day DESC
         assert_eq!(shifts[0].day, "2026-03-21");
         assert_eq!(shifts[1].day, "2026-03-20");
+    }
+
+    #[test]
+    fn test_get_present_persons() {
+        let conn = setup_db();
+
+        // Insert entries with explicit timestamps
+        conn.execute(
+            "INSERT INTO attendance_log (person_id, person_name, camera_id, confidence, logged_at, day)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![1, "Alice", "entrance", 0.95, "2026-03-21 10:00:00", "2026-03-21"],
+        ).expect("insert");
+        conn.execute(
+            "INSERT INTO attendance_log (person_id, person_name, camera_id, confidence, logged_at, day)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![1, "Alice", "reception", 0.92, "2026-03-21 10:15:00", "2026-03-21"],
+        ).expect("insert");
+        conn.execute(
+            "INSERT INTO attendance_log (person_id, person_name, camera_id, confidence, logged_at, day)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![2, "Bob", "entrance", 0.88, "2026-03-21 09:30:00", "2026-03-21"],
+        ).expect("insert");
+
+        // Since 10:00 — should find Alice (2 sightings) but not Bob (09:30 < 10:00)
+        let present = get_present_persons(&conn, "2026-03-21", "2026-03-21 10:00:00")
+            .expect("query");
+        assert_eq!(present.len(), 1, "only Alice should be present since 10:00");
+        assert_eq!(present[0].person_name, "Alice");
+        assert_eq!(present[0].sighting_count, 2);
+        assert_eq!(present[0].last_seen, "2026-03-21 10:15:00");
+
+        // Since 09:00 — should find both
+        let present_all = get_present_persons(&conn, "2026-03-21", "2026-03-21 09:00:00")
+            .expect("query");
+        assert_eq!(present_all.len(), 2);
     }
 
     #[test]
