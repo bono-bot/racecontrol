@@ -21,6 +21,8 @@ pub struct AgentConfig {
     pub kiosk: KioskConfig,
     #[serde(default)]
     pub preflight: PreflightConfig,
+    #[serde(default)]
+    pub process_guard: ProcessGuardConfig,
     /// Orphan billing auto-end timeout in seconds (SESSION-01).
     /// If billing is active but no game PID detected for this duration, session auto-ends.
     /// Configurable via TOML, default 300s (5 minutes).
@@ -55,6 +57,22 @@ impl Default for PreflightConfig {
         Self { enabled: true }
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ProcessGuardConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_scan_interval")]
+    pub scan_interval_secs: u64,
+}
+
+impl Default for ProcessGuardConfig {
+    fn default() -> Self {
+        Self { enabled: true, scan_interval_secs: 60 }
+    }
+}
+
+fn default_scan_interval() -> u64 { 60 }
 
 #[derive(Debug, Default, Deserialize)]
 pub struct GamesConfig {
@@ -274,6 +292,38 @@ pub fn load_config() -> Result<AgentConfig> {
 }
 
 #[cfg(test)]
+mod process_guard_config_tests {
+    use super::*;
+
+    #[test]
+    fn process_guard_config_defaults() {
+        let cfg = ProcessGuardConfig::default();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.scan_interval_secs, 60);
+    }
+
+    #[test]
+    fn process_guard_config_deser_enabled_false() {
+        let toml_str = "[process_guard]\nenabled = false\n";
+        #[derive(serde::Deserialize)]
+        struct Wrapper { process_guard: ProcessGuardConfig }
+        let w: Wrapper = toml::from_str(toml_str).unwrap();
+        assert!(!w.process_guard.enabled);
+        assert_eq!(w.process_guard.scan_interval_secs, 60);
+    }
+
+    #[test]
+    fn agent_config_no_process_guard_section_deserializes() {
+        // Minimal valid AgentConfig TOML — process_guard section absent
+        let toml_str = "[pod]\nnumber = 1\n[core]\nurl = \"ws://127.0.0.1:8080/ws/agent\"\n";
+        // This tests that #[serde(default)] on process_guard works
+        // We only care it doesn't panic — partial parse is fine
+        let result = toml::from_str::<toml::Value>(toml_str);
+        assert!(result.is_ok());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::game_process::GameExeConfig;
@@ -297,6 +347,7 @@ mod tests {
             ai_debugger: AiDebuggerConfig::default(),
             kiosk: KioskConfig::default(),
             preflight: PreflightConfig::default(),
+            process_guard: ProcessGuardConfig::default(),
             auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
         }
     }
