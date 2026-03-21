@@ -1007,10 +1007,10 @@ Plans:
   1. F1 25 UDP telemetry is received on port 20777 during gameplay
   2. Lap times and sector splits are extracted from telemetry packets after each completed lap
   3. Each completed lap emits an AgentMessage::LapCompleted with sim_type = F1_25
-**Plans**: 2 (researched + planned 2026-03-21)
+**Plans**: 1 plan
 
 Plans:
-- [ ] 83-01: TBD
+- [ ] 83-01-PLAN.md — Verify F1 25 adapter meets TEL-F1-01/02/03 + add lap completion unit tests
 
 ### Phase 84: iRacing Telemetry
 **Goal**: iRacing lap times and sector splits are captured via shared memory with reliable session transition handling
