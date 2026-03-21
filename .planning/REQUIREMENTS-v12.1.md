@@ -46,7 +46,7 @@
 ### Deployment
 
 - [ ] **DEPLOY-01**: Process guard module in rc-agent (all 8 pods), report-only mode for safe rollout
-- [ ] **DEPLOY-02**: Process guard module in racecontrol (server .23)
+- [x] **DEPLOY-02**: Process guard module in racecontrol (server .23)
 - [ ] **DEPLOY-03**: Standalone `rc-process-guard` binary for James (.27), reports via Tailscale HTTP
 
 ## v12.2+ Requirements
@@ -95,7 +95,7 @@ Deferred to future release.
 | ALERT-04 | Phase 103 | Complete (103-02) |
 | ALERT-05 | Phase 104 | Complete (104-01) |
 | DEPLOY-01 | Phase 103 | Complete (103-03) |
-| DEPLOY-02 | Phase 104 | Pending |
+| DEPLOY-02 | Phase 104 | Complete (104-02) |
 | DEPLOY-03 | Phase 105 | Pending |
 
 **Coverage:**

@@ -72,7 +72,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [x] 104-01-PLAN.md — ViolationStore in fleet_health.rs + pod_violations field on AppState + ProcessViolation WS handler + fleet/health violation fields + email escalation on repeat offenders
-- [ ] 104-02-PLAN.md — spawn_server_guard() in process_guard.rs + sysinfo scan loop on server + rc-agent.exe CRITICAL detection + wired into lib.rs
+- [x] 104-02-PLAN.md — spawn_server_guard() in process_guard.rs + sysinfo scan loop on server + rc-agent.exe CRITICAL detection + wired into main.rs
 - [ ] 104-03-PLAN.md — PodFleetStatus TypeScript type updated + violation badge on kiosk fleet grid (Racing Red #E10600)
 
 ### Phase 105: Port Audit + Scheduled Tasks + James Binary

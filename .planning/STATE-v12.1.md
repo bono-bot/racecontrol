@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** No stale or unauthorized processes survive on any Racing Point machine — whitelist-enforced, continuously monitored, auto-killed.
-**Current focus:** Phase 104 — Server Guard Module Alerts
+**Current focus:** Phase 105 — Port Scan Audit
 
 ## Current Position
 
-Phase: 104 of 105 (Server Guard Module Alerts) — IN PROGRESS
-Plan: 1 of 1 complete
-Status: Phase 104 Plan 01 complete — ViolationStore, pod_violations AppState field, ProcessViolation WS handler, email escalation
-Last activity: 2026-03-21 — Phase 104 Plan 01 executed: server-side violation tracking and email escalation wired
+Phase: 104 of 105 (Server Guard Module Alerts) — COMPLETE
+Plan: 2 of 2 complete
+Status: Phase 104 complete — server guard scan loop, CRITICAL rc-agent.exe detection, pod_violations["server"], log rotation
+Last activity: 2026-03-21 — Phase 104 Plan 02 executed: spawn_server_guard() in process_guard.rs, wired into main.rs
 
-Progress: [███████░░░] 70%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -30,7 +30,7 @@ Progress: [███████░░░] 70%
 | 101-protocol-foundation | 1 | 35 min | 35 min |
 | 102-whitelist-schema-config-fetch-endpoint | 2 | 55 min | 27 min |
 | 103-pod-guard-module | 3 (of 3) | 47 min | 16 min |
-| 104-server-guard-module-alerts | 1 (of 1) | 18 min | 18 min |
+| 104-server-guard-module-alerts | 2 (of 2) | 40 min | 20 min |
 
 *Updated after each plan completion*
 
@@ -75,6 +75,9 @@ Progress: [███████░░░] 70%
 - [104-01]: repeat_offender_check uses >= 2 prior kills in history (not >= 3) because current violation is pushed after the check
 - [104-01]: pod_key uses registered_pod_id (underscore format) over machine_id (dash format) for consistent HashMap keying
 - [104-01]: ProcessGuardStatus arm is log-only — storage deferred to future phase if needed
+- [104-02]: sysinfo 0.33 actual API: System::new() + refresh_processes(ProcessesToUpdate::All, true) — NOT System::new_all() + refresh_processes()
+- [104-02]: spawn_server_guard() wired in main.rs (not lib.rs) — start_probe_loop is in main.rs; process_guard added to use racecontrol_crate::{ ... } block
+- [104-02]: Server guard self-excludes racecontrol.exe by name (own binary) + own PID inline; rc-agent.exe = SERVER_CRITICAL_BINARIES zero grace
 
 ### Pending Todos
 
@@ -88,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21 16:20 IST
-Stopped at: 104-01-PLAN.md complete — server violation tracking, fleet/health API extension, email escalation wired
+Last session: 2026-03-21 17:02 IST
+Stopped at: 104-02-PLAN.md complete — server guard scan loop, CRITICAL rc-agent.exe detection, violations in pod_violations["server"]
 Resume file: None
