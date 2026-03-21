@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 89-01-PLAN.md
-last_updated: "2026-03-21T02:08:59.807Z"
+stopped_at: Completed 89-02-PLAN.md
+last_updated: "2026-03-21T02:17:00.512Z"
 progress:
   total_phases: 71
   completed_phases: 64
   total_plans: 177
-  completed_plans: 168
+  completed_plans: 169
 ---
 
 ---
@@ -197,7 +197,7 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 89 (Psychology Foundation) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -278,6 +278,7 @@ Plan: 2 of 3
 - 74-02: AppState fields all pub(crate) not pub -- crate-internal (matches config.rs pattern); crash_recovery bool renamed crash_recovery_startup to avoid collision with CrashRecoveryState inner-loop local; SelfHealResult (not HealResult) -- self_heal.rs uses that name; AiDebugSuggestion from rc_common::types (already a shared type); ws_tx/ws_rx stay loop-local (borrow conflict per RESEARCH.md Pitfall); DECOMP-02 complete
 - 74-03: HandleResult::Break/Continue enum (not bool) for self-documenting loop control; anyhow::Result<HandleResult> for serde_json ? propagation; SwitchController params (primary_url/failover_url/active_url/split_brain_probe) passed separately to handle_ws_message -- outer-loop locals not in AppState; LaunchState + CrashRecoveryState made pub(crate) for ws_handler.rs cross-module access; Python file truncation deleted 972-line dead code block (lines 1699-2670); DECOMP-03 complete
 - 78-03: Option<String> with #[serde(default)] for session_token -- backward compat with older agents; direct SQL UPDATE for emergency billing pause avoids circular HTTP dependency; LazyLock<Mutex<HashMap>> for per-pod security alert debounce (5min cooldown) (SESS-04, SESS-05)
+- 89-02: format_wa_phone promoted to pub(crate) in billing.rs -- single phone formatting source for both billing and psychology modules; STREAK_GRACE_DAYS+7=14d total window for weekly visit streaks; send_pwa_notification uses DB-record pattern (not WebSocket), deferred to Phase 3 (FOUND-01, FOUND-02, FOUND-04)
 - 81-01: Non-AC crash recovery else branch: match last_sim_type to config.games field (7 variants), clone base_config, override args from last_launch_args, call GameProcess::launch() -- mirrors LaunchGame handler exactly (LAUNCH-02 complete)
 - 81-01: DashboardEvent::GameLaunchRequested added at end of enum using existing SimType -- no new imports needed (LAUNCH-04 complete)
 - 81-01: pwa_game_request uses extract_driver_id() in-handler (customer JWT); validates pod in state.pods + installed_games; fire-and-forget broadcast; no AppState mutation (LAUNCH-05 complete)
@@ -305,7 +306,7 @@ Plan: 2 of 3
 
 ## Session Continuity
 
-Last session: 2026-03-21T02:08:59.803Z
-Stopped at: Completed 89-01-PLAN.md
+Last session: 2026-03-21T02:17:00.506Z
+Stopped at: Completed 89-02-PLAN.md
 Resume file: None
 Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)
