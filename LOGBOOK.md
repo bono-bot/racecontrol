@@ -403,3 +403,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 11:42 IST | James | 65f6c4e | feat(100-01): add in_maintenance + maintenance_failures to FleetHealthStore + PodFleetStatus + 2 unit tests (STAFF-03) |
 | 2026-03-21 11:50 IST | James | f9688ec | feat(100-01): wire PreFlightFailed/Passed WS handlers + POST /pods/{id}/clear-maintenance endpoint (STAFF-02, STAFF-03) |
 | 2026-03-21 11:55 IST | James | 0156d19 | docs(100-01): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updates |
+| 2026-03-21 12:30 IST | James | 1161d80 | feat(85-01): LmuAdapter — rF2 shared memory reader for Le Mans Ultimate (Scoring + Telemetry buffers, torn-read guard, sector splits, first-packet safety, session transition, 6 unit tests) |
+| 2026-03-21 12:32 IST | James | 487c6a7 | docs(85-01): 85-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
