@@ -1038,7 +1038,8 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 85-01: TBD
+- [ ] 85-01-PLAN.md — LmuAdapter core: rF2 shared memory, fixed-offset struct reading, torn-read guard, sector derivation, lap detection + 6 unit tests
+- [ ] 85-02-PLAN.md — Integration wiring: mod.rs registration, main.rs adapter creation, event_loop.rs LMU PlayableSignal
 
 ### Phase 86: AC EVO Telemetry
 **Goal**: AC EVO telemetry is captured on a best-effort basis with graceful degradation when data is unavailable
