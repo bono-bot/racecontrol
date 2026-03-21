@@ -340,6 +340,26 @@ pub enum BillingSessionStatus {
     Cancelled,
 }
 
+/// Signal that a game is in a playable state -- triggers billing start.
+/// AC uses AcStatus::Live (unchanged). Other sims emit PlayableSignal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayableSignal {
+    /// Telemetry adapter detected live session (e.g., F1 25 first UDP packet)
+    TelemetryLive { sim_type: SimType },
+    /// Process-based fallback: exe detected + delay elapsed (90s default)
+    ProcessFallback { sim_type: SimType },
+}
+
+impl PlayableSignal {
+    pub fn sim_type(&self) -> SimType {
+        match self {
+            PlayableSignal::TelemetryLive { sim_type } => *sim_type,
+            PlayableSignal::ProcessFallback { sim_type } => *sim_type,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillingSessionInfo {
     pub id: String,
@@ -389,7 +409,9 @@ pub enum GameState {
     Idle,
     /// Game executable is being launched
     Launching,
-    /// Game process is running (PID tracked)
+    /// Game process detected, waiting for PlayableSignal (billing not yet started)
+    Loading,
+    /// PlayableSignal received -- billing active
     Running,
     /// Game is being stopped/killed
     Stopping,
@@ -1357,4 +1379,53 @@ mod tests {
         let r2 = r; // Copy — no move
         assert_eq!(r, r2);
     }
+    // -- Phase 82 Plan 01: GameState::Loading + PlayableSignal serde --------
+
+    #[test]
+    fn game_state_loading_serde_roundtrip() {
+        let state = GameState::Loading;
+        let json = serde_json::to_string(&state).unwrap();
+        assert_eq!(json, "\"loading\"", "Loading should serialize as 'loading'");
+        let parsed: GameState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, GameState::Loading);
+    }
+
+    #[test]
+    fn game_state_all_variants_roundtrip() {
+        let variants = vec![
+            (GameState::Idle, "\"idle\""),
+            (GameState::Launching, "\"launching\""),
+            (GameState::Loading, "\"loading\""),
+            (GameState::Running, "\"running\""),
+            (GameState::Stopping, "\"stopping\""),
+            (GameState::Error, "\"error\""),
+        ];
+        for (variant, expected) in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(json, expected, "Serialize failed for {:?}", variant);
+            let parsed: GameState = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, variant, "Roundtrip failed for {:?}", variant);
+        }
+    }
+
+    #[test]
+    fn playable_signal_telemetry_live_roundtrip() {
+        let signal = PlayableSignal::TelemetryLive { sim_type: SimType::F125 };
+        let json = serde_json::to_string(&signal).unwrap();
+        assert!(json.contains("telemetry_live"), "Expected 'telemetry_live' in: {}", json);
+        assert!(json.contains("f1_25"), "Expected 'f1_25' in: {}", json);
+        let parsed: PlayableSignal = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.sim_type(), SimType::F125);
+    }
+
+    #[test]
+    fn playable_signal_process_fallback_roundtrip() {
+        let signal = PlayableSignal::ProcessFallback { sim_type: SimType::IRacing };
+        let json = serde_json::to_string(&signal).unwrap();
+        assert!(json.contains("process_fallback"), "Expected 'process_fallback' in: {}", json);
+        assert!(json.contains("iracing"), "Expected 'iracing' in: {}", json);
+        let parsed: PlayableSignal = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.sim_type(), SimType::IRacing);
+    }
+
 }

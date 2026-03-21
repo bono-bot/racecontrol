@@ -99,6 +99,11 @@ pub struct CloudConfig {
     /// real-time 2s sync instead of 30s HTTP polling.
     #[serde(default)]
     pub comms_link_url: Option<String>,
+    /// HMAC-SHA256 key for signing cloud sync payloads (AUTH-07).
+    /// When set, outbound sync requests include x-sync-signature, x-sync-timestamp,
+    /// x-sync-nonce headers. Inbound requests are verified (permissive mode initially).
+    #[serde(default)]
+    pub sync_hmac_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -509,6 +514,12 @@ impl Config {
             if !val.is_empty() {
                 tracing::info!("Overriding gmail.refresh_token from RACECONTROL_GMAIL_REFRESH_TOKEN env var");
                 self.gmail.refresh_token = Some(val);
+            }
+        }
+        if let Ok(val) = std::env::var("RACECONTROL_SYNC_HMAC_KEY") {
+            if !val.is_empty() {
+                tracing::info!("Overriding sync_hmac_key from RACECONTROL_SYNC_HMAC_KEY env var");
+                self.cloud.sync_hmac_key = Some(val);
             }
         }
     }

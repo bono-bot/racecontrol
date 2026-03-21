@@ -162,7 +162,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 let mut games = state.game_launcher.active_games.write().await;
                                 let pod_game_state = pod_info.game_state.unwrap_or(GameState::Idle);
                                 match pod_game_state {
-                                    GameState::Running | GameState::Launching => {
+                                    GameState::Running | GameState::Launching | GameState::Loading => {
                                         // Pod reports a game is active — ensure tracker exists
                                         if let Some(tracker) = games.get_mut(&pod_info.id) {
                                             tracker.game_state = pod_game_state;
@@ -339,6 +339,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             );
                             let gs_action = match info.game_state {
                                 GameState::Running => "Game Running",
+                                GameState::Loading => "Game Loading",
                                 GameState::Error => "Game Crashed",
                                 GameState::Idle => "Game Stopped",
                                 GameState::Launching => "Game Launching",
@@ -412,10 +413,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 }
                             }
                         }
-                        AgentMessage::GameStatusUpdate { pod_id, ac_status } => {
+                        AgentMessage::GameStatusUpdate { pod_id, ac_status, sim_type } => {
                             tracing::info!("Pod {} AC STATUS: {:?}", pod_id, ac_status);
                             log_pod_activity(&state, pod_id, "game", &format!("AC Status: {:?}", ac_status), "", "agent");
-                            billing::handle_game_status_update(&state, pod_id, *ac_status, &cmd_tx).await;
+                            billing::handle_game_status_update(&state, pod_id, *ac_status, *sim_type, &cmd_tx).await;
                         }
                         AgentMessage::FfbZeroed { pod_id } => {
                             tracing::info!("Pod {} FFB zeroed (safety action completed)", pod_id);
@@ -704,6 +705,14 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                             );
                         }
                         // Phase 50: Agent returns self-test probe results.
+                        AgentMessage::PreFlightPassed { pod_id } => {
+                            tracing::info!("Pod {} pre-flight checks passed", pod_id);
+                            log_pod_activity(&state, pod_id, "system", "Pre-flight Passed", "All checks passed before session start", "agent");
+                        }
+                        AgentMessage::PreFlightFailed { pod_id, failures, .. } => {
+                            tracing::warn!("Pod {} pre-flight checks failed: {:?}", pod_id, failures);
+                            log_pod_activity(&state, pod_id, "system", "Pre-flight Failed", &format!("Failures: {:?}", failures), "agent");
+                        }
                         AgentMessage::SelfTestResult { pod_id, request_id, report } => {
                             tracing::info!(
                                 "[self-test] Pod {} returned self-test results for request_id={}",

@@ -368,6 +368,11 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:38 IST | Bono | a620a52 | feat(89-01): psychology.rs module skeleton — NotificationChannel, NudgeStatus, MetricType, Operator, BadgeCriteria, parse_criteria_json, evaluate_criteria, 5 async stubs, 13 unit tests passing |
 | 2026-03-21 07:38 IST | Bono | 865e1fb | docs(89-01): 89-01-SUMMARY.md + STATE.md update |
 | 2026-03-21 07:38 IST | Bono | f26032a | docs(89-01): ROADMAP.md phase 89 progress update |
+| 2026-03-21 08:26 IST | James | c4411f7 | feat(79-03): DPDP data export + cascade delete endpoints with 8 tests |
+| 2026-03-21 08:26 IST | James | dfa7742 | docs(79-03): complete DPDP data rights plan -- export + cascade delete |
 | 2026-03-21 09:34 IST | Bono | 4486468 | feat(90-01): update_driving_passport() + backfill_driving_passport() in psychology.rs; get_featured_tracks/cars_for_passport() in catalog.rs; persist_lap wired to upsert passport on every valid lap |
 | 2026-03-21 09:34 IST | Bono | 104a22c | feat(90-01): GET /customer/passport (lazy backfill + Starter/Explorer/Legend tiers) + GET /customer/badges (earned + available with progress) endpoints in routes.rs; fix pre-existing AppState::new arity in psychology tests |
 | 2026-03-21 09:34 IST | Bono | 0c9d28c | docs(90-01): 90-01-SUMMARY.md + STATE.md + ROADMAP.md |
+| 2026-03-21 11:00 IST | James | 60f7d9e | feat(82-01): shared types -- GameState::Loading, PlayableSignal, protocol sim_type |
+| 2026-03-21 11:00 IST | James | 80f32d1 | feat(82-01): DB migration + per-game billing engine + API sim_type |
+| 2026-03-21 11:00 IST | James | 2080395 | docs(82-01): complete server-side billing foundation plan |

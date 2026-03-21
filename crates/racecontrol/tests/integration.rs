@@ -901,6 +901,7 @@ async fn test_billing_timer_counting() {
         elapsed_seconds: 0,
         pause_seconds: 0,
         max_session_seconds: 1800,
+        sim_type: None,
     };
 
     // Tick 30 times
@@ -940,6 +941,7 @@ async fn test_billing_manual_pause() {
         elapsed_seconds: 0,
         pause_seconds: 0,
         max_session_seconds: 1800,
+        sim_type: None,
     };
 
     // Drive 10 seconds
@@ -986,6 +988,7 @@ async fn test_billing_disconnect_pause() {
         elapsed_seconds: 0,
         pause_seconds: 0,
         max_session_seconds: 1800,
+        sim_type: None,
     };
 
     // Drive 5 seconds
@@ -1044,6 +1047,7 @@ async fn test_billing_max_pauses() {
         elapsed_seconds: 0,
         pause_seconds: 0,
         max_session_seconds: 1800,
+        sim_type: None,
     };
 
     // With pause_count = 3 and status = Active, tick should still count

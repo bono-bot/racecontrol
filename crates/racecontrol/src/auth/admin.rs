@@ -90,10 +90,20 @@ pub async fn admin_login(
     // Generate 12-hour staff JWT
     let secret = &state.config.auth.jwt_secret;
     match super::middleware::create_staff_jwt(secret, "admin", 12) {
-        Ok(token) => Ok(Json(AdminLoginResponse {
-            token,
-            expires_in: 43200, // 12 hours in seconds
-        })),
+        Ok(token) => {
+            // Audit trail + WhatsApp alert for admin login
+            crate::accounting::log_admin_action(
+                &state, "admin_login", "Admin login successful", None, None,
+            ).await;
+            crate::whatsapp_alerter::send_admin_alert(
+                &state.config, "Admin Login", "Successful admin login",
+            ).await;
+
+            Ok(Json(AdminLoginResponse {
+                token,
+                expires_in: 43200, // 12 hours in seconds
+            }))
+        }
         Err(e) => {
             tracing::error!("admin_login: JWT creation failed: {}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)

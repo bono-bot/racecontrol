@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::ac_server;
 use crate::accounting;
 use crate::auth;
+use crate::whatsapp_alerter;
 use crate::psychology;
 use crate::auth::middleware::require_staff_jwt;
 use crate::network_source::require_non_pod_source;
@@ -141,6 +142,9 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/ai/chat", post(customer_ai_chat))
         // Game launch request (PWA -- customer requests staff-confirmed game launch)
         .route("/customer/game-request", post(pwa_game_request))
+        // DPDP Act data rights (Plan 79-03)
+        .route("/customer/data-export", get(customer_data_export))
+        .route("/customer/data-delete", axum::routing::delete(customer_data_delete))
         // Driving Passport (PWA)
         .route("/customer/passport", get(customer_passport))
         .route("/customer/badges", get(customer_badges))
@@ -876,6 +880,20 @@ async fn ws_exec_pod(
     };
     let timeout_ms = body["timeout_ms"].as_u64().unwrap_or(30_000);
 
+    // Truncate command preview to 100 chars for audit
+    let cmd_preview: String = cmd.chars().take(100).collect();
+
+    // Audit trail + WhatsApp alert for fleet exec (HIGH sensitivity)
+    accounting::log_admin_action(
+        &state, "fleet_exec",
+        &json!({"pod_id": id, "command": cmd_preview}).to_string(),
+        None, None,
+    ).await;
+    whatsapp_alerter::send_admin_alert(
+        &state.config, "Fleet Exec",
+        &format!("Pod {}: {}", id, cmd_preview),
+    ).await;
+
     match crate::ws::ws_exec_on_pod(&state, &id, cmd, timeout_ms).await {
         Ok((success, stdout, stderr)) => {
             Json(json!({ "success": success, "stdout": stdout, "stderr": stderr }))
@@ -1275,13 +1293,32 @@ async fn create_driver(
     let phone = body.get("phone").and_then(|v| v.as_str());
     let steam_guid = body.get("steam_guid").and_then(|v| v.as_str());
 
+    // Encrypt PII fields
+    let phone_hash = phone.filter(|p| !p.is_empty()).map(|p| state.field_cipher.hash_phone(p));
+    let phone_enc = match phone.filter(|p| !p.is_empty()).map(|p| state.field_cipher.encrypt_field(p)) {
+        Some(Ok(v)) => Some(v),
+        Some(Err(e)) => return Json(json!({ "error": format!("Encrypt error: {}", e) })),
+        None => None,
+    };
+    let email_enc = match email.filter(|e| !e.is_empty()).map(|e| state.field_cipher.encrypt_field(e)) {
+        Some(Ok(v)) => Some(v),
+        Some(Err(e)) => return Json(json!({ "error": format!("Encrypt error: {}", e) })),
+        None => None,
+    };
+    let name_enc = match state.field_cipher.encrypt_field(name) {
+        Ok(v) => Some(v),
+        Err(e) => return Json(json!({ "error": format!("Encrypt error: {}", e) })),
+    };
+
     let result = sqlx::query(
-        "INSERT INTO drivers (id, name, email, phone, steam_guid, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
+        "INSERT INTO drivers (id, name, name_enc, phone_hash, phone_enc, email_enc, steam_guid, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))"
     )
     .bind(&id)
-    .bind(name)
-    .bind(email)
-    .bind(phone)
+    .bind(name) // Keep plaintext name for leaderboard backward compat
+    .bind(&name_enc)
+    .bind(&phone_hash)
+    .bind(&phone_enc)
+    .bind(&email_enc)
     .bind(steam_guid)
     .execute(&state.db)
     .await;
@@ -1756,7 +1793,14 @@ async fn create_pricing_tier(
     .await;
 
     match result {
-        Ok(_) => Json(json!({ "id": id, "name": name })),
+        Ok(_) => {
+            accounting::log_admin_action(
+                &state, "pricing_create",
+                &json!({"tier_id": id, "name": name, "duration_minutes": duration_minutes, "price_paise": price_paise}).to_string(),
+                None, None,
+            ).await;
+            Json(json!({ "id": id, "name": name }))
+        }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
@@ -1815,6 +1859,11 @@ async fn update_pricing_tier(
                 &state, "pricing_tiers", &id, "update",
                 old_snapshot.as_deref(), new_values.as_deref(), None,
             ).await;
+            accounting::log_admin_action(
+                &state, "pricing_update",
+                &json!({"tier_id": id, "changes": body}).to_string(),
+                None, None,
+            ).await;
             Json(json!({ "ok": true }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -1838,6 +1887,11 @@ async fn delete_pricing_tier(
                 &state, "pricing_tiers", &id, "delete",
                 old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
             ).await;
+            accounting::log_admin_action(
+                &state, "pricing_delete",
+                &json!({"tier_id": id}).to_string(),
+                None, None,
+            ).await;
             Json(json!({ "ok": true }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -1847,8 +1901,8 @@ async fn delete_pricing_tier(
 // ─── Billing Rate Tiers (per-minute rates) ──────────────────────────────────
 
 async fn list_billing_rates(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, i64, String, i64, i64, bool)>(
-        "SELECT id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active
+    let rows = sqlx::query_as::<_, (String, i64, String, i64, i64, bool, Option<String>)>(
+        "SELECT id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active, sim_type
          FROM billing_rates ORDER BY tier_order ASC",
     )
     .fetch_all(&state.db)
@@ -1862,7 +1916,7 @@ async fn list_billing_rates(State(state): State<Arc<AppState>>) -> Json<Value> {
                     json!({
                         "id": r.0, "tier_order": r.1, "tier_name": r.2,
                         "threshold_minutes": r.3, "rate_per_min_paise": r.4,
-                        "is_active": r.5,
+                        "is_active": r.5, "sim_type": r.6,
                     })
                 })
                 .collect();
@@ -1882,15 +1936,18 @@ async fn create_billing_rate(
     let threshold_minutes = body.get("threshold_minutes").and_then(|v| v.as_i64()).unwrap_or(0);
     let rate_per_min_paise = body.get("rate_per_min_paise").and_then(|v| v.as_i64()).unwrap_or(2500);
 
+    let sim_type = body.get("sim_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+
     let result = sqlx::query(
-        "INSERT INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, sim_type)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(tier_order)
     .bind(tier_name)
     .bind(threshold_minutes)
     .bind(rate_per_min_paise)
+    .bind(&sim_type)
     .execute(&state.db)
     .await;
 
@@ -1915,6 +1972,8 @@ async fn update_billing_rate(
     let threshold_minutes = body.get("threshold_minutes").and_then(|v| v.as_i64());
     let rate_per_min_paise = body.get("rate_per_min_paise").and_then(|v| v.as_i64());
     let is_active = body.get("is_active").and_then(|v| v.as_bool());
+    // sim_type: present in body = update (even if null to clear); absent = don't touch
+    let sim_type_in_body = body.get("sim_type").map(|v| v.as_str().map(|s| s.to_string()));
 
     let mut updates = Vec::new();
     let mut binds: Vec<String> = Vec::new();
@@ -1939,6 +1998,14 @@ async fn update_billing_rate(
         updates.push("is_active = ?");
         binds.push(if a { "1".to_string() } else { "0".to_string() });
     }
+    let sim_type_val: Option<String> = if let Some(opt_s) = sim_type_in_body {
+        updates.push("sim_type = ?");
+        binds.push(opt_s.clone().unwrap_or_default());
+        opt_s
+    } else {
+        None
+    };
+    let _ = sim_type_val; // used via binds above
 
     if updates.is_empty() {
         return Json(json!({ "error": "No fields to update" }));
@@ -4178,9 +4245,9 @@ async fn customer_verify_otp(
         Ok(jwt) => {
             // Check registration status
             let registered = sqlx::query_as::<_, (bool,)>(
-                "SELECT COALESCE(registration_completed, 0) FROM drivers WHERE phone = ?",
+                "SELECT COALESCE(registration_completed, 0) FROM drivers WHERE phone_hash = ?",
             )
-            .bind(&req.phone)
+            .bind(state.field_cipher.hash_phone(&req.phone))
             .fetch_optional(&state.db)
             .await
             .ok()
@@ -4810,18 +4877,19 @@ async fn check_waiver(
     }
 
     let row = if let Some(phone) = phone {
-        // Normalize: strip non-digits, use last 10
+        // Normalize: strip non-digits, use last 10 for hash lookup (full match only)
         let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
         let last10 = if digits.len() >= 10 { &digits[digits.len() - 10..] } else { &digits };
+        let ph = state.field_cipher.hash_phone(last10);
         sqlx::query_as::<_, (String, String, Option<String>, bool)>(
-            "SELECT id, name, phone, COALESCE(waiver_signed, 0) FROM drivers WHERE phone LIKE '%' || ?",
+            "SELECT id, name, phone_enc, COALESCE(waiver_signed, 0) FROM drivers WHERE phone_hash = ?",
         )
-        .bind(last10)
+        .bind(&ph)
         .fetch_optional(&state.db)
         .await
     } else if let Some(email) = email {
         sqlx::query_as::<_, (String, String, Option<String>, bool)>(
-            "SELECT id, name, phone, COALESCE(waiver_signed, 0) FROM drivers WHERE LOWER(email) = LOWER(?)",
+            "SELECT id, name, phone_enc, COALESCE(waiver_signed, 0) FROM drivers WHERE LOWER(email) = LOWER(?)",
         )
         .bind(email)
         .fetch_optional(&state.db)
@@ -4831,10 +4899,13 @@ async fn check_waiver(
     };
 
     match row {
-        Ok(Some((id, name, phone, signed))) => Json(json!({
-            "signed": signed,
-            "driver": { "id": id, "name": name, "phone": phone },
-        })),
+        Ok(Some((id, name, phone_enc, signed))) => {
+            let phone = phone_enc.and_then(|enc| state.field_cipher.decrypt_field(&enc).ok());
+            Json(json!({
+                "signed": signed,
+                "driver": { "id": id, "name": name, "phone": phone },
+            }))
+        }
         Ok(None) => Json(json!({ "signed": false, "driver": null })),
         Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
     }
@@ -5464,6 +5535,17 @@ async fn topup_wallet(
     } else {
         0
     };
+
+    // Audit trail + WhatsApp alert for wallet topup (HIGH sensitivity)
+    accounting::log_admin_action(
+        &state, "wallet_topup",
+        &json!({"driver_id": driver_id, "amount_paise": req.amount_paise, "method": req.method}).to_string(),
+        req.staff_id.as_deref(), None,
+    ).await;
+    whatsapp_alerter::send_admin_alert(
+        &state.config, "Wallet Topup",
+        &format!("{} paise for driver {}", req.amount_paise, driver_id),
+    ).await;
 
     Json(json!({
         "status": "ok",
@@ -6930,6 +7012,36 @@ async fn sync_changes(
             return Json(serde_json::json!({ "error": "Unauthorized" }));
         }
     }
+
+    // HMAC-SHA256 verification on GET -- permissive mode (AUTH-07)
+    // TODO: Switch to strict mode after Bono deploys matching HMAC key
+    if let Some(hmac_key) = &state.config.cloud.sync_hmac_key {
+        let sig = headers.get("x-sync-signature").and_then(|v| v.to_str().ok());
+        let ts = headers.get("x-sync-timestamp").and_then(|v| v.to_str().ok());
+        let nonce = headers.get("x-sync-nonce").and_then(|v| v.to_str().ok());
+
+        match (sig, ts, nonce) {
+            (Some(sig), Some(ts_str), Some(nonce)) => {
+                if let Ok(timestamp) = ts_str.parse::<i64>() {
+                    // For GET requests, reconstruct query string as signed body
+                    let since_val = params.since.as_deref().unwrap_or("1970-01-01T00:00:00Z");
+                    let tables_val = params.tables.as_deref().unwrap_or("drivers,wallets,pricing_tiers,kiosk_experiences");
+                    let query_body = format!("since={}&tables={}", since_val, tables_val);
+                    if !crate::cloud_sync::verify_sync_signature(
+                        query_body.as_bytes(), hmac_key.as_bytes(), timestamp, nonce, sig,
+                    ) {
+                        tracing::warn!(target: "sync", "HMAC verification failed on sync_changes (permissive -- allowing)");
+                    }
+                } else {
+                    tracing::warn!(target: "sync", "Invalid x-sync-timestamp header on sync_changes");
+                }
+            }
+            _ => {
+                tracing::warn!(target: "sync", "HMAC headers missing on sync_changes (permissive -- allowing)");
+            }
+        }
+    }
+
     // Normalize ISO timestamps (2026-03-07T23:48:38Z) to SQLite format (2026-03-07 23:48:38)
     // SQLite's datetime('now') uses space, but sync_state stores ISO with 'T'.
     // String comparison: space (0x20) < 'T' (0x54), so "2026-03-07 23:59" < "2026-03-07T00:00"
@@ -7184,15 +7296,48 @@ pub(crate) fn parse_config_snapshot(config_snap: &serde_json::Value) -> VenueCon
 async fn sync_push(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
-    Json(body): Json<Value>,
+    body_bytes: axum::body::Bytes,
 ) -> Json<Value> {
-    // Auth check
+    // Auth check (x-terminal-secret)
     if let Some(secret) = state.config.cloud.terminal_secret.as_deref() {
         let provided = headers.get("x-terminal-secret").and_then(|v| v.to_str().ok());
         if provided != Some(secret) {
             return Json(json!({ "error": "Unauthorized" }));
         }
     }
+
+    // HMAC-SHA256 verification -- permissive mode (AUTH-07)
+    // TODO: Switch to strict mode after Bono deploys matching HMAC key
+    if let Some(hmac_key) = &state.config.cloud.sync_hmac_key {
+        let sig = headers.get("x-sync-signature").and_then(|v| v.to_str().ok());
+        let ts = headers.get("x-sync-timestamp").and_then(|v| v.to_str().ok());
+        let nonce = headers.get("x-sync-nonce").and_then(|v| v.to_str().ok());
+
+        match (sig, ts, nonce) {
+            (Some(sig), Some(ts_str), Some(nonce)) => {
+                if let Ok(timestamp) = ts_str.parse::<i64>() {
+                    if !crate::cloud_sync::verify_sync_signature(
+                        &body_bytes, hmac_key.as_bytes(), timestamp, nonce, sig,
+                    ) {
+                        tracing::warn!(target: "sync", "HMAC verification failed on sync_push (permissive -- allowing)");
+                    }
+                } else {
+                    tracing::warn!(target: "sync", "Invalid x-sync-timestamp header on sync_push");
+                }
+            }
+            _ => {
+                tracing::warn!(target: "sync", "HMAC headers missing on sync_push (permissive -- allowing)");
+            }
+        }
+    }
+
+    // Parse JSON body
+    let body: Value = match serde_json::from_slice(&body_bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            return Json(json!({ "error": format!("Invalid JSON: {}", e) }));
+        }
+    };
 
     let mut total = 0u64;
 
@@ -7492,8 +7637,9 @@ async fn sync_push(
             let email = w.get("email").and_then(|v| v.as_str()).unwrap_or("");
 
             let resolved: Option<(String,)> = if !phone.is_empty() {
-                sqlx::query_as("SELECT id FROM drivers WHERE phone = ?")
-                    .bind(phone)
+                let ph = state.field_cipher.hash_phone(phone);
+                sqlx::query_as("SELECT id FROM drivers WHERE phone_hash = ?")
+                    .bind(&ph)
                     .fetch_optional(&state.db)
                     .await
                     .ok()
@@ -7800,6 +7946,14 @@ async fn terminal_submit(
     match result {
         Ok(_) => {
             tracing::info!("Terminal command queued: {} ({})", id, req.cmd);
+
+            // Audit trail for terminal command (MEDIUM sensitivity)
+            let cmd_truncated: String = req.cmd.chars().take(200).collect();
+            accounting::log_admin_action(
+                &state, "terminal_command",
+                &json!({"command_id": id, "command": cmd_truncated}).to_string(),
+                None, None,
+            ).await;
 
             // Execute locally in background for instant results (no cloud poll delay)
             let exec_state = state.clone();
@@ -10137,6 +10291,11 @@ async fn create_pricing_rule(
                 &state, "pricing_rules", &id, "create",
                 None, new_values.as_deref(), None,
             ).await;
+            accounting::log_admin_action(
+                &state, "pricing_rule_create",
+                &json!({"rule_id": id, "rule_type": rule_type}).to_string(),
+                None, None,
+            ).await;
             Json(json!({ "id": id }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -10179,6 +10338,11 @@ async fn update_pricing_rule(
                 &state, "pricing_rules", &id, "update",
                 old_snapshot.as_deref(), new_values.as_deref(), None,
             ).await;
+            accounting::log_admin_action(
+                &state, "pricing_rule_update",
+                &json!({"rule_id": id, "changes": body}).to_string(),
+                None, None,
+            ).await;
             Json(json!({ "ok": true }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -10200,6 +10364,11 @@ async fn delete_pricing_rule(
     accounting::log_audit(
         &state, "pricing_rules", &id, "delete",
         old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
+    ).await;
+    accounting::log_admin_action(
+        &state, "pricing_rule_delete",
+        &json!({"rule_id": id}).to_string(),
+        None, None,
     ).await;
 
     Json(json!({ "ok": true }))
@@ -11206,11 +11375,12 @@ async fn bot_lookup(
         return Json(json!({ "error": "Phone number required" }));
     }
 
-    // Look up driver by phone
+    // Look up driver by phone hash
+    let ph = state.field_cipher.hash_phone(phone);
     let driver = sqlx::query_as::<_, (String, String, Option<String>, bool)>(
-        "SELECT id, name, phone, COALESCE(has_used_trial, 0) FROM drivers WHERE phone = ?",
+        "SELECT id, name, phone_enc, COALESCE(has_used_trial, 0) FROM drivers WHERE phone_hash = ?",
     )
-    .bind(phone)
+    .bind(&ph)
     .fetch_optional(&state.db)
     .await;
 
@@ -11283,11 +11453,12 @@ async fn bot_book(
         return e;
     }
 
-    // Look up driver by phone
+    // Look up driver by phone hash
+    let ph = state.field_cipher.hash_phone(&req.phone);
     let driver = sqlx::query_as::<_, (String, String, bool, bool)>(
-        "SELECT id, name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE phone = ?",
+        "SELECT id, name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE phone_hash = ?",
     )
-    .bind(&req.phone)
+    .bind(&ph)
     .fetch_optional(&state.db)
     .await;
 
@@ -11588,11 +11759,12 @@ async fn bot_customer_stats(
 
     let phone = params.phone.trim();
 
+    let ph = state.field_cipher.hash_phone(phone);
     let driver = sqlx::query_as::<_, (String, String, i64, i64)>(
         "SELECT id, name, COALESCE(total_laps, 0), COALESCE(total_time_ms, 0)
-         FROM drivers WHERE phone = ?"
+         FROM drivers WHERE phone_hash = ?"
     )
-    .bind(phone)
+    .bind(&ph)
     .fetch_optional(&state.db)
     .await;
 
@@ -14291,6 +14463,359 @@ async fn test_nudge(
     psychology::queue_notification(&state, driver_id, ch, 5, message, "{}").await;
 
     Json(json!({ "ok": true, "queued_for": driver_id, "channel": channel }))
+}
+
+// ─── DPDP Act: Customer Data Rights (Plan 79-03) ────────────────────────────
+
+/// GET /api/v1/customer/data-export
+/// Returns a JSON dump of all customer data with decrypted PII fields.
+/// Requires valid customer JWT.
+async fn customer_data_export(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<(axum::http::StatusCode, Json<Value>), (axum::http::StatusCode, Json<Value>)> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => {
+            return Err((
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e })),
+            ))
+        }
+    };
+
+    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64)>(
+        "SELECT id, name, email, phone, name_enc, email_enc, phone_enc, total_laps, total_time_ms FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let d = match driver {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return Err((
+                axum::http::StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Driver not found" })),
+            ))
+        }
+        Err(e) => {
+            tracing::error!("data_export DB error for driver {}: {}", driver_id, e);
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            ));
+        }
+    };
+
+    // Decrypt PII fields; fallback to plaintext columns if decryption fails or enc is NULL
+    let name = d.4.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or_else(|| Some(d.1.clone()));
+    let email = d.5.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or(d.2.clone());
+    let phone = d.6.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or(d.3.clone());
+
+    // Fetch nickname
+    let nickname: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT nickname FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|r| r.0);
+
+    // Fetch wallet balance
+    let wallet_balance: i64 = sqlx::query_as::<_, (i64,)>(
+        "SELECT COALESCE(balance, 0) FROM wallets WHERE driver_id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    let exported_at = chrono::Utc::now().to_rfc3339();
+    tracing::info!("Data export requested by driver {}", driver_id);
+
+    Ok((
+        axum::http::StatusCode::OK,
+        Json(json!({
+            "driver_id": d.0,
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "nickname": nickname,
+            "total_laps": d.7,
+            "total_time_ms": d.8,
+            "wallet_balance": wallet_balance,
+            "exported_at": exported_at,
+        })),
+    ))
+}
+
+/// DELETE /api/v1/customer/data-delete
+/// Cascades deletion to all child tables and the driver record in a single transaction.
+/// Requires valid customer JWT.
+async fn customer_data_delete(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::http::StatusCode, (axum::http::StatusCode, Json<Value>)> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => {
+            return Err((
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e })),
+            ))
+        }
+    };
+
+    // Verify driver exists
+    let exists = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match exists {
+        Ok(None) => {
+            return Err((
+                axum::http::StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Driver not found" })),
+            ))
+        }
+        Err(e) => {
+            tracing::error!("data_delete lookup error for driver {}: {}", driver_id, e);
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            ));
+        }
+        Ok(Some(_)) => {}
+    }
+
+    // Begin transaction -- cascade delete all child tables
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("data_delete transaction start error for driver {}: {}", driver_id, e);
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            ));
+        }
+    };
+
+    // Delete from child tables (children first, then parent)
+    // wallet_transactions before wallets (wallet_transactions references wallets)
+    let _ = sqlx::query("DELETE FROM wallet_transactions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM wallets WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM billing_sessions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM laps WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM customer_sessions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM friend_requests WHERE sender_id = ? OR receiver_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM friendships WHERE driver_a_id = ? OR driver_b_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM group_session_members WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM tournament_registrations WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM pod_reservations WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM auth_tokens WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM personal_bests WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM event_entries WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM session_feedback WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM coupon_redemptions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM memberships WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM referrals WHERE referrer_id = ? OR referee_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM session_highlights WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM review_nudges WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM multiplayer_results WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM driver_ratings WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+
+    // Delete the driver record itself
+    let _ = sqlx::query("DELETE FROM drivers WHERE id = ?").bind(&driver_id).execute(&mut *tx).await;
+
+    // Commit transaction
+    if let Err(e) = tx.commit().await {
+        tracing::error!("data_delete commit error for driver {}: {}", driver_id, e);
+        return Err((
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Database error" })),
+        ));
+    }
+
+    tracing::info!("Customer {} deleted their data (DPDP compliance)", driver_id);
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod data_rights_tests {
+    use super::*;
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use std::sync::Arc;
+
+    async fn make_state_with_db() -> Arc<AppState> {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        // Create required tables
+        sqlx::query("CREATE TABLE IF NOT EXISTS drivers (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT, phone TEXT, name_enc TEXT, email_enc TEXT, phone_enc TEXT, nickname TEXT, total_laps INTEGER DEFAULT 0, total_time_ms INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT)").execute(&db).await.expect("create drivers");
+        sqlx::query("CREATE TABLE IF NOT EXISTS wallets (driver_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 0)").execute(&db).await.expect("create wallets");
+        sqlx::query("CREATE TABLE IF NOT EXISTS wallet_transactions (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create wallet_transactions");
+        sqlx::query("CREATE TABLE IF NOT EXISTS billing_sessions (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create billing_sessions");
+        sqlx::query("CREATE TABLE IF NOT EXISTS laps (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create laps");
+        sqlx::query("CREATE TABLE IF NOT EXISTS customer_sessions (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create customer_sessions");
+        sqlx::query("CREATE TABLE IF NOT EXISTS friend_requests (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, receiver_id TEXT NOT NULL)").execute(&db).await.expect("create friend_requests");
+        sqlx::query("CREATE TABLE IF NOT EXISTS friendships (id TEXT PRIMARY KEY, driver_a_id TEXT NOT NULL, driver_b_id TEXT NOT NULL)").execute(&db).await.expect("create friendships");
+        sqlx::query("CREATE TABLE IF NOT EXISTS group_session_members (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create group_session_members");
+        sqlx::query("CREATE TABLE IF NOT EXISTS tournament_registrations (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create tournament_registrations");
+        sqlx::query("CREATE TABLE IF NOT EXISTS pod_reservations (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create pod_reservations");
+        sqlx::query("CREATE TABLE IF NOT EXISTS auth_tokens (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create auth_tokens");
+        sqlx::query("CREATE TABLE IF NOT EXISTS personal_bests (driver_id TEXT NOT NULL, track TEXT NOT NULL, car TEXT NOT NULL)").execute(&db).await.expect("create personal_bests");
+        sqlx::query("CREATE TABLE IF NOT EXISTS event_entries (event_id TEXT NOT NULL, driver_id TEXT NOT NULL)").execute(&db).await.expect("create event_entries");
+        sqlx::query("CREATE TABLE IF NOT EXISTS session_feedback (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create session_feedback");
+        sqlx::query("CREATE TABLE IF NOT EXISTS coupon_redemptions (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create coupon_redemptions");
+        sqlx::query("CREATE TABLE IF NOT EXISTS memberships (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create memberships");
+        sqlx::query("CREATE TABLE IF NOT EXISTS referrals (id TEXT PRIMARY KEY, referrer_id TEXT NOT NULL, referee_id TEXT, code TEXT NOT NULL)").execute(&db).await.expect("create referrals");
+        sqlx::query("CREATE TABLE IF NOT EXISTS session_highlights (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create session_highlights");
+        sqlx::query("CREATE TABLE IF NOT EXISTS review_nudges (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create review_nudges");
+        sqlx::query("CREATE TABLE IF NOT EXISTS multiplayer_results (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create multiplayer_results");
+        sqlx::query("CREATE TABLE IF NOT EXISTS driver_ratings (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create driver_ratings");
+
+        let config = crate::config::Config::default_test();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, field_cipher))
+    }
+
+    fn make_auth_headers(state: &AppState, driver_id: &str) -> axum::http::HeaderMap {
+        let token = crate::auth::create_jwt(driver_id, &state.config.auth.jwt_secret)
+            .expect("generate test JWT");
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        headers
+    }
+
+    #[tokio::test]
+    async fn data_export_without_jwt_returns_401() {
+        let state = make_state_with_db().await;
+        let headers = axum::http::HeaderMap::new();
+        let result = customer_data_export(State(state), headers).await;
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn data_export_with_valid_jwt_returns_200() {
+        let state = make_state_with_db().await;
+        sqlx::query("INSERT INTO drivers (id, name, email, phone, total_laps, total_time_ms) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind("d-001").bind("Test Driver").bind("test@example.com").bind("9876543210").bind(42i64).bind(360000i64)
+            .execute(&state.db).await.expect("insert driver");
+        sqlx::query("INSERT INTO wallets (driver_id, balance) VALUES (?, ?)")
+            .bind("d-001").bind(5000i64)
+            .execute(&state.db).await.expect("insert wallet");
+        let headers = make_auth_headers(&state, "d-001");
+        let result = customer_data_export(State(state), headers).await;
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
+        let (status, Json(body)) = result.unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["driver_id"], "d-001");
+        assert_eq!(body["total_laps"], 42);
+        assert_eq!(body["wallet_balance"], 5000);
+        assert!(body["exported_at"].as_str().is_some());
+        assert_eq!(body["name"], "Test Driver");
+    }
+
+    #[tokio::test]
+    async fn data_export_driver_not_found_returns_404() {
+        let state = make_state_with_db().await;
+        let headers = make_auth_headers(&state, "nonexistent");
+        let result = customer_data_export(State(state), headers).await;
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn data_export_decrypts_encrypted_fields() {
+        let state = make_state_with_db().await;
+        let name_enc = state.field_cipher.encrypt_field("Encrypted Name").expect("encrypt name");
+        let email_enc = state.field_cipher.encrypt_field("secret@email.com").expect("encrypt email");
+        let phone_enc = state.field_cipher.encrypt_field("9999999999").expect("encrypt phone");
+        sqlx::query("INSERT INTO drivers (id, name, name_enc, email_enc, phone_enc, total_laps, total_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .bind("d-enc").bind("Plaintext Name").bind(&name_enc).bind(&email_enc).bind(&phone_enc).bind(10i64).bind(100000i64)
+            .execute(&state.db).await.expect("insert driver with enc");
+        let headers = make_auth_headers(&state, "d-enc");
+        let result = customer_data_export(State(state), headers).await;
+        assert!(result.is_ok());
+        let (_, Json(body)) = result.unwrap();
+        assert_eq!(body["name"], "Encrypted Name");
+        assert_eq!(body["email"], "secret@email.com");
+        assert_eq!(body["phone"], "9999999999");
+    }
+
+    #[tokio::test]
+    async fn data_delete_without_jwt_returns_401() {
+        let state = make_state_with_db().await;
+        let headers = axum::http::HeaderMap::new();
+        let result = customer_data_delete(State(state), headers).await;
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn data_delete_driver_not_found_returns_404() {
+        let state = make_state_with_db().await;
+        let headers = make_auth_headers(&state, "nonexistent");
+        let result = customer_data_delete(State(state), headers).await;
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn data_delete_cascades_all_child_tables() {
+        let state = make_state_with_db().await;
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)").bind("d-del").bind("Delete Me").execute(&state.db).await.expect("insert driver");
+        sqlx::query("INSERT INTO wallets (driver_id, balance) VALUES (?, ?)").bind("d-del").bind(1000i64).execute(&state.db).await.expect("insert wallet");
+        sqlx::query("INSERT INTO wallet_transactions (id, driver_id) VALUES (?, ?)").bind("wt-1").bind("d-del").execute(&state.db).await.expect("insert wallet_txn");
+        sqlx::query("INSERT INTO laps (id, driver_id) VALUES (?, ?)").bind("l-1").bind("d-del").execute(&state.db).await.expect("insert lap");
+        sqlx::query("INSERT INTO auth_tokens (id, driver_id) VALUES (?, ?)").bind("at-1").bind("d-del").execute(&state.db).await.expect("insert auth_token");
+        let headers = make_auth_headers(&state, "d-del");
+        let result = customer_data_delete(State(state.clone()), headers).await;
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM drivers WHERE id = ?").bind("d-del").fetch_one(&state.db).await.expect("count drivers");
+        assert_eq!(count.0, 0, "Driver should be deleted");
+        let wallet_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM wallets WHERE driver_id = ?").bind("d-del").fetch_one(&state.db).await.expect("count wallets");
+        assert_eq!(wallet_count.0, 0, "Wallet should be deleted");
+        let lap_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM laps WHERE driver_id = ?").bind("d-del").fetch_one(&state.db).await.expect("count laps");
+        assert_eq!(lap_count.0, 0, "Laps should be deleted");
+    }
+
+    #[tokio::test]
+    async fn data_delete_returns_204_no_content() {
+        let state = make_state_with_db().await;
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)").bind("d-204").bind("204 Test").execute(&state.db).await.expect("insert driver");
+        let headers = make_auth_headers(&state, "d-204");
+        let result = customer_data_delete(State(state), headers).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+    }
 }
 
 // ─── Customer Passport + Badges (PWA) ────────────────────────────────────────

@@ -341,6 +341,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     // Determine event type for logging
     let event_type = match info.game_state {
         GameState::Running => "running",
+        GameState::Loading => "loading",
         GameState::Error => "crashed",
         GameState::Idle => "stopped",
         GameState::Launching => "launched",

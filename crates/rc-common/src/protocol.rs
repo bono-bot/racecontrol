@@ -56,7 +56,12 @@ pub enum AgentMessage {
     Pong { id: u64, #[serde(default)] agent_delay_us: Option<u64> },
 
     /// Agent reports AC shared memory STATUS change (Off/Replay/Live/Pause)
-    GameStatusUpdate { pod_id: String, ac_status: AcStatus },
+    GameStatusUpdate {
+        pod_id: String,
+        ac_status: AcStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sim_type: Option<SimType>,
+    },
 
     /// Agent reports FFB safety action completed (zeroed wheelbase torque)
     FfbZeroed { pod_id: String },
@@ -206,6 +211,18 @@ pub enum AgentMessage {
         request_id: String,
         /// Serialized SelfTestReport — avoids protocol crate needing self_test types
         report: serde_json::Value,
+    },
+
+    /// Phase 97: Pre-flight checks passed before session start.
+    PreFlightPassed {
+        pod_id: String,
+    },
+
+    /// Phase 97: Pre-flight checks failed after auto-fix attempt.
+    PreFlightFailed {
+        pod_id: String,
+        failures: Vec<String>,
+        timestamp: String,
     },
 }
 
@@ -406,6 +423,9 @@ pub enum CoreToAgentMessage {
     SwitchController {
         target_url: String,
     },
+
+    /// Phase 97: Server clears MaintenanceRequired state on a pod (handler in Phase 98).
+    ClearMaintenance,
 }
 
 fn default_exec_timeout_ms() -> u64 {
@@ -1100,12 +1120,13 @@ mod tests {
         let msg = AgentMessage::GameStatusUpdate {
             pod_id: "pod_3".to_string(),
             ac_status: AcStatus::Live,
+            sim_type: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("game_status_update"), "Expected 'game_status_update' in: {}", json);
         assert!(json.contains("\"ac_status\":\"live\""));
         let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
-        if let AgentMessage::GameStatusUpdate { pod_id, ac_status } = parsed {
+        if let AgentMessage::GameStatusUpdate { pod_id, ac_status, .. } = parsed {
             assert_eq!(pod_id, "pod_3");
             assert_eq!(ac_status, AcStatus::Live);
         } else {
@@ -1120,6 +1141,7 @@ mod tests {
             let msg = AgentMessage::GameStatusUpdate {
                 pod_id: "pod_1".to_string(),
                 ac_status: status,
+                sim_type: None,
             };
             let json = serde_json::to_string(&msg).unwrap();
             let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
@@ -2252,5 +2274,42 @@ mod tests {
             }
             other => panic!("Expected SwitchController, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_pre_flight_variants_round_trip() {
+        let passed = AgentMessage::PreFlightPassed {
+            pod_id: "pod-8".to_string(),
+        };
+        let json = serde_json::to_string(&passed).unwrap();
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::PreFlightPassed { pod_id } = parsed {
+            assert_eq!(pod_id, "pod-8");
+        } else {
+            panic!("Wrong variant after roundtrip: expected PreFlightPassed");
+        }
+
+        let failed = AgentMessage::PreFlightFailed {
+            pod_id: "pod-3".to_string(),
+            failures: vec!["HID wheelbase not connected".to_string()],
+            timestamp: "2026-03-21T10:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&failed).unwrap();
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::PreFlightFailed { pod_id, failures, timestamp } = parsed {
+            assert_eq!(pod_id, "pod-3");
+            assert_eq!(failures.len(), 1);
+            assert_eq!(timestamp, "2026-03-21T10:00:00Z");
+        } else {
+            panic!("Wrong variant after roundtrip: expected PreFlightFailed");
+        }
+    }
+
+    #[test]
+    fn test_clear_maintenance_round_trip() {
+        let msg = CoreToAgentMessage::ClearMaintenance;
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, CoreToAgentMessage::ClearMaintenance));
     }
 }

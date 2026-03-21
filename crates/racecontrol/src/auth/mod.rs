@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::billing;
+use crate::crypto::redaction::{redact_phone, redact_otp};
 use crate::pod_reservation;
 use crate::state::AppState;
 use rc_common::protocol::{CoreToAgentMessage, DashboardEvent};
@@ -995,11 +996,12 @@ pub fn verify_jwt(token: &str, secret: &str) -> Result<String, String> {
 // ─── OTP ───────────────────────────────────────────────────────────────────
 
 pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, String> {
-    // Find or create driver by phone
+    // Find or create driver by phone (lookup via HMAC hash)
+    let phone_hash = state.field_cipher.hash_phone(phone);
     let driver = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, name FROM drivers WHERE phone = ?",
+        "SELECT id, name FROM drivers WHERE phone_hash = ?",
     )
-    .bind(phone)
+    .bind(&phone_hash)
     .fetch_optional(&state.db)
     .await
     .map_err(|e| format!("DB error: {}", e))?;
@@ -1021,12 +1023,16 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, Stri
             .unwrap_or(0) as u32;
             let customer_id = format!("RP{:03}", max_num + 1);
 
+            let phone_enc = state.field_cipher.encrypt_field(phone)
+                .map_err(|e| format!("Encrypt error: {}", e))?;
+
             sqlx::query(
-                "INSERT INTO drivers (id, name, phone, customer_id, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
+                "INSERT INTO drivers (id, name, phone_hash, phone_enc, customer_id, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
             )
             .bind(&id)
             .bind(format!("Customer {}", &phone[phone.len().saturating_sub(4)..]))
-            .bind(phone)
+            .bind(&phone_hash)
+            .bind(&phone_enc)
             .bind(&customer_id)
             .execute(&state.db)
             .await
@@ -1073,27 +1079,28 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<String, Stri
         let client = reqwest::Client::new();
         match client.post(&url).header("apikey", evo_key).json(&body).send().await {
             Ok(resp) if resp.status().is_success() => {
-                tracing::info!("OTP sent via WhatsApp to {}", wa_phone);
+                tracing::info!("OTP sent via WhatsApp to {}", redact_phone(&wa_phone));
             }
             Ok(resp) => {
-                tracing::warn!("Evolution API returned {}: OTP for {} is {}", resp.status(), phone, otp_str);
+                tracing::warn!("Evolution API returned {}: OTP for {}", resp.status(), redact_phone(phone));
             }
             Err(e) => {
-                tracing::warn!("Failed to send OTP via WhatsApp: {}. OTP for {} is {}", e, phone, otp_str);
+                tracing::warn!("Failed to send OTP via WhatsApp: {}. OTP for {}", e, redact_phone(phone));
             }
         }
     } else {
-        tracing::info!("OTP for phone {}: {} (Evolution API not configured)", phone, otp_str);
+        tracing::info!("OTP sent for {} (Evolution API not configured)", redact_phone(phone));
     }
 
     Ok(driver_id)
 }
 
 pub async fn verify_otp(state: &Arc<AppState>, phone: &str, otp: &str) -> Result<String, String> {
+    let phone_hash = state.field_cipher.hash_phone(phone);
     let driver = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
-        "SELECT id, otp_code, otp_expires_at FROM drivers WHERE phone = ?",
+        "SELECT id, otp_code, otp_expires_at FROM drivers WHERE phone_hash = ?",
     )
-    .bind(phone)
+    .bind(&phone_hash)
     .fetch_optional(&state.db)
     .await
     .map_err(|e| format!("DB error: {}", e))?

@@ -189,7 +189,7 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-20)
+See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
 **Current focus:** Phase 90 — Customer Progression
@@ -285,6 +285,8 @@ Plan: 2 of 2
 - 81-01: pwa_game_request uses extract_driver_id() in-handler (customer JWT); validates pod in state.pods + installed_games; fire-and-forget broadcast; no AppState mutation (LAUNCH-05 complete)
 - 70-02: server_recovery uses prev === 'down' guard -- prevents spurious failback on degraded->healthy; only full outage recovery triggers failback sequence (BACK-01, BACK-03, BACK-04 complete)
 - 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
+- 80-02: SHA-256 of admin_pin_hash stored in system_settings for change detection without duplicating sensitive hash; 24h check in alerter loop sends WhatsApp if >30 days (ADMIN-06)
+- 80-02: HMAC verification in permissive mode initially -- warns but allows mismatches for deployment transition; GET signing uses reconstructed query string as body (AUTH-07)
 
 ### Blockers/Concerns
 
@@ -310,4 +312,4 @@ Plan: 2 of 2
 Last session: 2026-03-21T04:05:27.876Z
 Stopped at: Completed 90-01-PLAN.md
 Resume file: None
-Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)
+Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
