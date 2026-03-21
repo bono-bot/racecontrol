@@ -491,3 +491,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 22:25 IST | James | 185b4c3 | feat(110-01): add AC EVO telemetry feature flag (HARD-05) — defaults false, gates adapter creation |
 | 2026-03-21 22:30 IST | James | 1d2507d | feat(110-01): 5-second deferred SHM connect (HARD-03) — game_running_since + shm_connect_allowed() |
 | 2026-03-21 22:32 IST | James | 16a390c | docs(110-01): complete telemetry-gating plan 01 — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-03-21 22:47 IST | James | 3c0d39a | feat(111-01): build rc-agent from HEAD (243f03d) and deploy to Pod 8 canary — 11MB, ws_connected, uptime>30s |

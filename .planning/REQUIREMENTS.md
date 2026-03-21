@@ -34,7 +34,7 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 
 ### Validation
 
-- [ ] **VALID-01**: Each protected game (F1 25, iRacing, LMU) completes a full staff test session on Pod 8 with safe mode active and no anti-cheat warnings
+- [x] **VALID-01**: Each protected game (F1 25, iRacing, LMU) completes a full staff test session on Pod 8 with safe mode active and no anti-cheat warnings
 - [ ] **VALID-02**: Billing lifecycle (start, ticks, end) works correctly during safe mode with no gaps or incorrect amounts
 - [x] **VALID-03**: Kiosk lockdown remains effective (no Win key, no Alt+Tab, no Task Manager) after keyboard hook replacement
 
@@ -75,7 +75,7 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 | HARD-03 | Phase 110 | Complete |
 | HARD-04 | Phase 110 | Complete |
 | HARD-05 | Phase 110 | Complete |
-| VALID-01 | Phase 111 | Pending |
+| VALID-01 | Phase 111 | Complete |
 | VALID-02 | Phase 111 | Pending |
 | VALID-03 | Phase 108 | Complete |
 

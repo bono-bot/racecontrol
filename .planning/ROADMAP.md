@@ -1547,7 +1547,7 @@ Plans:
 | 108. Keyboard Hook Replacement | 1/1 | Complete    | 2026-03-21 |
 | 109. Safe Mode State Machine | 2/2 | Complete    | 2026-03-21 |
 | 110. Telemetry Gating | 2/2 | Complete    | 2026-03-21 |
-| 111. Code Signing + Per-Game Canary Validation | TBD | Not started | - |
+| 111. Code Signing + Per-Game Canary Validation | 1/2 | In Progress|  |
 
 
 ## v16.0 Security Camera AI & Attendance
