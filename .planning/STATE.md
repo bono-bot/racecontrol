@@ -287,6 +287,9 @@ Plan: 2 of 2
 - 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
 - 80-02: SHA-256 of admin_pin_hash stored in system_settings for change detection without duplicating sensitive hash; 24h check in alerter loop sends WhatsApp if >30 days (ADMIN-06)
 - 80-02: HMAC verification in permissive mode initially -- warns but allows mismatches for deployment transition; GET signing uses reconstructed query string as body (AUTH-07)
+- 97-01: pod_id: String (not u32) for PreFlightPassed/PreFlightFailed -- CONTEXT.md had u32 but RESEARCH.md identified deserialization-breaking mismatch; all existing AgentMessage variants use String
+- 97-01: ClearMaintenance is a unit variant (no fields) -- CoreToAgentMessage is always routed to a specific pod via its WS connection, pod_id redundant
+- 97-01: PreflightConfig follows KioskConfig serde(default) pattern exactly -- reuses existing default_true() fn (PF-07)
 
 ### Blockers/Concerns
 

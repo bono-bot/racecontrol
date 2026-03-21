@@ -1389,7 +1389,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 97. rc-common Protocol + Framework + Hardware | TBD | Not started | - |
+| 97. rc-common Protocol + Framework + Hardware | 1/2 | In Progress|  |
 | 98. MaintenanceRequired Lock Screen + Display | TBD | Not started | - |
 | 99. System + Network + Billing + Handler Wiring | TBD | Not started | - |
 | 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |

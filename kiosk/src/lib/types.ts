@@ -29,7 +29,7 @@ export interface DeployProgressEvent {
 
 export type PodStatus = "offline" | "idle" | "in_session" | "error" | "disabled";
 export type DrivingState = "active" | "idle" | "no_device";
-export type GameState = "idle" | "launching" | "running" | "stopping" | "error";
+export type GameState = "idle" | "launching" | "loading" | "running" | "stopping" | "error";
 export type BillingStatus = "pending" | "active" | "paused_manual" | "completed" | "ended_early" | "cancelled";
 export type AuthType = "pin" | "qr";
 export type AuthTokenStatus = "pending" | "consumed" | "expired" | "cancelled";
@@ -347,6 +347,7 @@ export type KioskPodState =
   | "registering"
   | "waiting"
   | "selecting"
+  | "loading"      // game process detected, billing not yet started
   | "on_track"
   | "crashed"
   | "join_failed"

@@ -84,6 +84,7 @@ function derivePodState(
   // Active billing session
   if (billing) {
     if (billing.status === "completed" || billing.status === "ended_early") return "ending";
+    if (gameInfo?.game_state === "loading") return "loading";
     if (gameInfo?.game_state === "running") return "on_track";
     if (gameInfo?.game_state === "launching") return "selecting";
     if (gameInfo?.game_state === "error") {
@@ -160,6 +161,26 @@ export const KioskPodCard = React.memo(function KioskPodCard({
   }, [billing?.id, billing?.status]);
   const displayRemaining = billing ? localRemaining : 0;
 
+  // Loading count-up timer
+  const [loadingElapsed, setLoadingElapsed] = useState(0);
+  const loadingStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (state === "loading") {
+      if (loadingStartRef.current === null) {
+        loadingStartRef.current = Date.now();
+      }
+      const interval = setInterval(() => {
+        if (loadingStartRef.current !== null) {
+          setLoadingElapsed(Math.floor((Date.now() - loadingStartRef.current) / 1000));
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      loadingStartRef.current = null;
+      setLoadingElapsed(0);
+    }
+  }, [state]);
+
   // Stabilize car/track display — AC shared memory can flicker between cars
   const stableCarRef = useRef<{ sessionId: string; car: string; track: string } | null>(null);
   if (billing && telemetry?.car) {
@@ -193,6 +214,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           ${state === "on_track" && !isSelected ? "bg-rp-card border-rp-red/40" : ""}
           ${state === "waiting" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
           ${state === "selecting" && !isSelected ? "bg-rp-card border-blue-500/40" : ""}
+          ${state === "loading" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
           ${state === "crashed" && !isSelected ? "bg-rp-card border-red-600/60" : ""}
           ${state === "join_failed" && !isSelected ? "bg-rp-card border-orange-500/40" : ""}
           ${state === "ending" && !isSelected ? "bg-rp-card border-green-500/40" : ""}
@@ -226,6 +248,13 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           )}
           {isOffline && (
             <p className="text-zinc-600 text-xs">Offline</p>
+          )}
+
+          {/* Loading count-up timer (compact) */}
+          {state === "loading" && (
+            <span className="text-amber-400 font-mono text-xs px-2 py-1">
+              {Math.floor(loadingElapsed / 60)}:{(loadingElapsed % 60).toString().padStart(2, "0")}
+            </span>
           )}
 
           {/* Timer bar (compact) */}
@@ -274,6 +303,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
         ${state === "on_track" && !isSelected ? "bg-rp-card border-rp-red/40 glow-active" : ""}
         ${state === "waiting" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
         ${state === "selecting" && !isSelected ? "bg-rp-card border-blue-500/40" : ""}
+        ${state === "loading" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
         ${state === "crashed" && !isSelected ? "bg-rp-card border-red-600/60" : ""}
         ${state === "join_failed" && !isSelected ? "bg-rp-card border-orange-600/60" : ""}
         ${state === "ending" && !isSelected ? "bg-rp-card border-green-500/40" : ""}
@@ -408,6 +438,27 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           </div>
         )}
 
+        {/* LOADING — game process detected, billing not yet started */}
+        {state === "loading" && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            <p className="text-amber-400 text-xs font-medium uppercase tracking-wider">
+              Loading Game
+            </p>
+            {gameInfo && (
+              <div className="flex items-center gap-2">
+                <GameLogo simType={gameInfo.sim_type} />
+                <p className="text-sm text-white">
+                  {GAME_DISPLAY[gameInfo.sim_type]?.name ?? gameInfo.sim_type}
+                </p>
+              </div>
+            )}
+            <span className="text-amber-400 font-mono text-xs px-2 py-1">
+              {Math.floor(loadingElapsed / 60)}:{(loadingElapsed % 60).toString().padStart(2, "0")}
+            </span>
+            <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
         {/* ON TRACK */}
         {state === "on_track" && billing && (
           <div className="flex-1 flex flex-col gap-2">
@@ -418,7 +469,7 @@ export const KioskPodCard = React.memo(function KioskPodCard({
                   {billing.driver_name}
                 </p>
               </div>
-              {gameInfo && (gameInfo.game_state === "running" || gameInfo.game_state === "launching") && (
+              {gameInfo && (gameInfo.game_state === "running" || gameInfo.game_state === "launching" || gameInfo.game_state === "loading") && (
                 <GameLogo simType={gameInfo.sim_type} />
               )}
             </div>
@@ -772,17 +823,23 @@ function StateLabel({ state, isOffline, gameInfo }: { state: KioskPodState; isOf
     registering: "text-blue-400 bg-blue-400/10",
     waiting: "text-amber-400 bg-amber-400/10",
     selecting: "text-blue-400 bg-blue-400/10",
+    loading: "text-amber-400 bg-amber-400/10",
     on_track: "text-rp-red bg-rp-red/10",
     crashed: "text-red-500 bg-red-500/10",
     join_failed: "text-orange-500 bg-orange-500/10",
     ending: "text-green-400 bg-green-400/10",
   };
 
+  const loadingLabel = gameInfo?.sim_type
+    ? `Loading ${GAME_DISPLAY[gameInfo.sim_type]?.name || gameInfo.sim_type}...`
+    : "Loading...";
+
   const labels: Record<KioskPodState, string> = {
     idle: "Idle",
     registering: "Registering",
     waiting: "Waiting",
     selecting: "Launching",
+    loading: loadingLabel,
     on_track: "On Track",
     crashed: gameInfo?.diagnostics?.cm_attempted ? "Launch Failed" : "Crashed",
     join_failed: "Join Failed",

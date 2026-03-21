@@ -376,3 +376,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 11:00 IST | James | 60f7d9e | feat(82-01): shared types -- GameState::Loading, PlayableSignal, protocol sim_type |
 | 2026-03-21 11:00 IST | James | 80f32d1 | feat(82-01): DB migration + per-game billing engine + API sim_type |
 | 2026-03-21 11:00 IST | James | 2080395 | docs(82-01): complete server-side billing foundation plan |
+| 2026-03-21 09:24 IST | James | be61b1f | feat(97-01): add PreFlightPassed, PreFlightFailed, ClearMaintenance protocol variants |
+| 2026-03-21 09:34 IST | James | 70612c2 | feat(97-01): add PreflightConfig struct and wire into AgentConfig |
+| 2026-03-21 09:34 IST | James | 411b779 | docs(97-01): complete protocol variants + PreflightConfig plan |

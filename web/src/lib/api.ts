@@ -437,6 +437,7 @@ export interface BillingRate {
   threshold_minutes: number;
   rate_per_min_paise: number;
   is_active: boolean;
+  sim_type: string | null;  // null = "All games" (universal rate)
 }
 
 export interface BillingEvent {
