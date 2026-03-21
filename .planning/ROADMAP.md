@@ -1602,14 +1602,12 @@ Plans:
   2. Quality gates reject blurry frames (Laplacian variance below threshold), extreme side-profile poses (yaw > 30 degrees), and faces smaller than 200x200px before sending to recognition
   3. Lighting normalization handles entrance camera backlight conditions -- recognition accuracy remains consistent across morning, midday, and evening lighting
   4. Face tracker deduplicates across frames so the same person walking through is recognized once per cooldown period, not on every frame
-**Plans**: 5 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 114-01: ArcFace model loading and embedding extraction
-- [ ] 114-02: Face alignment via 5-point landmark affine transform
-- [ ] 114-03: Quality gates (blur, pose, size filtering)
-- [ ] 114-04: Lighting normalization and cross-condition testing
-- [ ] 114-05: Face tracker with recognition cooldown
+- [ ] 114-01-PLAN.md -- Quality gates (blur, pose, size) and CLAHE lighting normalization
+- [ ] 114-02-PLAN.md -- ArcFace recognizer and face alignment
+- [ ] 114-03-PLAN.md -- Embedding gallery, face tracker, config, and pipeline integration
 
 ### Phase 115: Face Enrollment System
 **Goal**: Staff can add, update, and remove face profiles to build the recognition database
