@@ -1,6 +1,10 @@
 mod config;
 mod frame;
+mod health;
+mod relay;
 mod stream;
+
+use std::sync::Arc;
 
 use config::Config;
 use frame::FrameBuffer;
@@ -42,11 +46,18 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Health endpoint added in Plan 03
+    // Health endpoint (Plan 03)
+    let state = Arc::new(health::AppState {
+        frame_buf: frame_buf.clone(),
+        relay_api_url: config.relay.api_url.clone(),
+        start_time: std::time::Instant::now(),
+    });
 
-    tracing::info!("rc-sentry-ai running, press Ctrl+C to stop");
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("rc-sentry-ai shutting down");
+    let app = health::health_router(state);
+    let addr = format!("{}:{}", config.service.host, config.service.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!("rc-sentry-ai health endpoint listening on {addr}");
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
