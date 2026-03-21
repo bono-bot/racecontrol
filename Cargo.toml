@@ -9,6 +9,7 @@ members = [
     "crates/rc-sentry",
     "crates/weekly-report",
     "crates/rc-process-guard",
+    "crates/rc-sentry-ai",
 ]
 
 [workspace.package]
