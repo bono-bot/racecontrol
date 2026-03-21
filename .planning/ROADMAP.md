@@ -926,11 +926,12 @@ Plans:
   2. Each game has a configurable credit-per-minute rate in the billing_rates table
   3. When a game exits normally, crashes, or the session ends, billing stops automatically
   4. The full session lifecycle (launch, loading, playable, gameplay, exit, cleanup) is observable in logs and kiosk state
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 82-01: TBD
-- [ ] 82-02: TBD
+- [ ] 82-01-PLAN.md — Server billing foundation: shared types, DB migration, per-game rate engine, protocol update
+- [ ] 82-02-PLAN.md — Agent PlayableSignal dispatch: per-sim billing triggers, 30s exit grace timer, Loading state
+- [ ] 82-03-PLAN.md — UI updates: admin pricing Game column, kiosk Loading state badge with count-up timer
 
 ### Phase 83: F1 25 Telemetry
 **Goal**: F1 25 lap times and sector splits are captured and emitted as structured events
