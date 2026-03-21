@@ -344,3 +344,10 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 06:28 IST | James | e6d2ff4 | feat(78-02): network source classification middleware with IP tagging (KIOSK-07) |
 | 2026-03-21 06:37 IST | James | 62b603a | feat(78-02): wire source middleware and protect staff routes from pod access (KIOSK-05) |
 | 2026-03-21 06:37 IST | James | 69b9508 | docs(78-02): complete network source tagging plan summary and state updates |
+
+## 2026-03-21
+
+| Timestamp | Author | Commit | Summary |
+|-----------|--------|--------|---------|
+| 2026-03-21 07:08 IST | James | 7ce7abf (comms-link) | feat(69-04): notify_failover COMMAND_REGISTRY + EXEC_REASON + send-email.js + watchdog fix + email on both failover paths (ORCH-04) |
+| 2026-03-21 07:10 IST | James | e5d5f78 (racecontrol) | docs(69-04): SUMMARY.md + STATE.md + ROADMAP.md update |
