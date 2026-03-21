@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Phase 84 context gathered
-last_updated: "2026-03-21T04:42:16.643Z"
-last_activity: "2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified"
+stopped_at: Completed 98-01-PLAN.md
+last_updated: "2026-03-21T04:47:06.000Z"
+last_activity: "2026-03-21 -- 98-01 complete: MaintenanceRequired LockScreenState variant + in_maintenance AtomicBool on AppState + ClearMaintenance ws_handler (PF-04, PF-05)"
 progress:
   total_phases: 65
   completed_phases: 37
   total_plans: 100
-  completed_plans: 95
+  completed_plans: 96
 ---
 
 ---
@@ -451,6 +451,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 - 97-02: billing_active.store(true) at line 167 in ws_handler.rs -- confirmed AFTER pre_flight gate block (lines 141-165); customers on failed pod never billed (PF-01, HW-01, HW-02, HW-03, SYS-01 complete)
 - 82-03: GameState union must include 'loading' for TypeScript to accept game_state === 'loading' comparisons in kiosk KioskPodCard; SIM_TYPE_LABELS + SIM_TYPE_OPTIONS module-level pattern for consistent sim_type display (BILL-03, BILL-05)
 - 83-01: No production code changes needed — existing F1 25 adapter already satisfies TEL-F1-01/02/03; 6 unit tests added to prove it. adapter.connected=true set directly in session_type_mapping test to avoid binding port 20777 in unit test environment
+- 98-01: failure_strings.clone() before AgentMessage send — keeps original for show_maintenance_required() in ws_handler; debug_server.rs exhaustive match needed MaintenanceRequired arm (Rule 1 auto-fix, caught immediately on first compile)
 
 ### Blockers/Concerns
 
@@ -473,7 +474,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 
 ## Session Continuity
 
-Last session: 2026-03-21T04:42:16.636Z
-Stopped at: Phase 84 context gathered
-Resume file: .planning/phases/84-iracing-telemetry/84-CONTEXT.md
+Last session: 2026-03-21T04:48:23.418Z
+Stopped at: Completed 98-01-PLAN.md
+Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)

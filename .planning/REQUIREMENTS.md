@@ -12,8 +12,8 @@ Pre-flight checks that run before every customer session, auto-fix failures, and
 - [x] **PF-01**: Pre-flight checks run on every BillingStarted before PIN entry is shown
 - [x] **PF-02**: All checks run concurrently via tokio::join! with 5-second hard timeout
 - [x] **PF-03**: Failed checks attempt one auto-fix before reporting failure
-- [ ] **PF-04**: Lock screen shows "Maintenance Required" state when pre-flight fails after auto-fix
-- [ ] **PF-05**: PreFlightFailed AgentMessage sent to racecontrol with failed check details
+- [x] **PF-04**: Lock screen shows "Maintenance Required" state when pre-flight fails after auto-fix
+- [x] **PF-05**: PreFlightFailed AgentMessage sent to racecontrol with failed check details
 - [ ] **PF-06**: Pod auto-retries pre-flight every 30s while in MaintenanceRequired state
 - [x] **PF-07**: Pre-flight can be disabled per-pod via rc-agent.toml config flag
 
@@ -74,8 +74,8 @@ Deferred to future release.
 | HW-02 | Phase 97 | Complete |
 | HW-03 | Phase 97 | Complete |
 | SYS-01 | Phase 97 | Complete |
-| PF-04 | Phase 98 | Pending |
-| PF-05 | Phase 98 | Pending |
+| PF-04 | Phase 98 | Complete |
+| PF-05 | Phase 98 | Complete |
 | PF-06 | Phase 98 | Pending |
 | DISP-01 | Phase 98 | Pending |
 | DISP-02 | Phase 98 | Pending |
