@@ -379,6 +379,8 @@ fn service_routes() -> Router<Arc<AppState>> {
         .route("/logs", get(get_server_logs))
         // Failover orchestration (Phase 69: broadcast SwitchController to all pods)
         .route("/failover/broadcast", post(failover_broadcast))
+        // Failback data reconciliation (Phase 70: import cloud sessions during failback)
+        .route("/sync/import-sessions", post(import_sessions))
 }
 
 const BUILD_ID: &str = env!("GIT_HASH");
@@ -943,7 +945,8 @@ mod lockdown_tests {
             .await
             .expect("in-memory sqlite");
         let config = crate::config::Config::default_test();
-        Arc::new(AppState::new(config, db))
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, field_cipher))
     }
 
     #[tokio::test]
@@ -1109,7 +1112,8 @@ mod pod_status_summary_tests {
             .await
             .expect("in-memory sqlite");
         let config = crate::config::Config::default_test();
-        Arc::new(AppState::new(config, db))
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, field_cipher))
     }
 
     #[tokio::test]
@@ -11888,6 +11892,94 @@ async fn failover_broadcast(
     Json(serde_json::json!({ "ok": true, "sent": sent, "total": total })).into_response()
 }
 
+// ─── Failback Data Reconciliation (Phase 70) ─────────────────────────────
+
+/// POST /api/v1/sync/import-sessions
+/// Body: { "sessions": [ { ...billing_session fields... } ] }
+/// Auth: x-terminal-secret header (same as sync_push).
+/// Inserts cloud-created billing sessions that were created during failover.
+/// Uses INSERT OR IGNORE so duplicate UUIDs are silently skipped.
+async fn import_sessions(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    // Auth: x-terminal-secret check (consistent with sync_push pattern)
+    if let Some(secret) = state.config.cloud.terminal_secret.as_deref() {
+        let provided = headers.get("x-terminal-secret").and_then(|v| v.to_str().ok());
+        if provided != Some(secret) {
+            return Json(json!({ "error": "Unauthorized" }));
+        }
+    }
+
+    let sessions = match body.get("sessions").and_then(|v| v.as_array()) {
+        Some(s) => s,
+        None => return Json(json!({ "error": "missing sessions array" })),
+    };
+
+    let mut imported = 0u64;
+    let mut skipped = 0u64;
+
+    for s in sessions {
+        let id = s.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        if id.is_empty() { continue; }
+
+        let r = sqlx::query(
+            "INSERT OR IGNORE INTO billing_sessions (
+                id, driver_id, pod_id, pricing_tier_id,
+                allocated_seconds, driving_seconds, status, custom_price_paise, notes,
+                started_at, ended_at, created_at, experience_id, car, track, sim_type,
+                split_count, split_duration_minutes,
+                wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason,
+                pause_count, total_paused_seconds, refund_paise)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)",
+        )
+        .bind(id)
+        .bind(s.get("driver_id").and_then(|v| v.as_str()))
+        .bind(s.get("pod_id").and_then(|v| v.as_str()))
+        .bind(s.get("pricing_tier_id").and_then(|v| v.as_str()))
+        .bind(s.get("allocated_seconds").and_then(|v| v.as_i64()).unwrap_or(0))
+        .bind(s.get("driving_seconds").and_then(|v| v.as_i64()).unwrap_or(0))
+        .bind(s.get("status").and_then(|v| v.as_str()).unwrap_or("pending"))
+        .bind(s.get("custom_price_paise").and_then(|v| v.as_i64()))
+        .bind(s.get("notes").and_then(|v| v.as_str()))
+        .bind(s.get("started_at").and_then(|v| v.as_str()))
+        .bind(s.get("ended_at").and_then(|v| v.as_str()))
+        .bind(s.get("created_at").and_then(|v| v.as_str()))
+        .bind(s.get("experience_id").and_then(|v| v.as_str()))
+        .bind(s.get("car").and_then(|v| v.as_str()))
+        .bind(s.get("track").and_then(|v| v.as_str()))
+        .bind(s.get("sim_type").and_then(|v| v.as_str()))
+        .bind(s.get("split_count").and_then(|v| v.as_i64()))
+        .bind(s.get("split_duration_minutes").and_then(|v| v.as_i64()))
+        .bind(s.get("wallet_debit_paise").and_then(|v| v.as_i64()))
+        .bind(s.get("discount_paise").and_then(|v| v.as_i64()))
+        .bind(s.get("coupon_id").and_then(|v| v.as_str()))
+        .bind(s.get("original_price_paise").and_then(|v| v.as_i64()))
+        .bind(s.get("discount_reason").and_then(|v| v.as_str()))
+        .bind(s.get("pause_count").and_then(|v| v.as_i64()))
+        .bind(s.get("total_paused_seconds").and_then(|v| v.as_i64()))
+        .bind(s.get("refund_paise").and_then(|v| v.as_i64()))
+        .execute(&state.db)
+        .await;
+
+        match r {
+            Ok(result) if result.rows_affected() > 0 => imported += 1,
+            Ok(_) => skipped += 1,
+            Err(e) => {
+                tracing::warn!("[import_sessions] Failed to insert session {}: {}", id, e);
+                skipped += 1;
+            }
+        }
+    }
+
+    Json(json!({
+        "imported": imported,
+        "skipped": skipped,
+        "synced_at": chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
 // ─── Debug System ────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -13867,7 +13959,8 @@ mod watchdog_crash_report_tests {
             .await
             .expect("in-memory sqlite");
         let config = crate::config::Config::default_test();
-        Arc::new(AppState::new(config, db))
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, field_cipher))
     }
 
     #[tokio::test]
