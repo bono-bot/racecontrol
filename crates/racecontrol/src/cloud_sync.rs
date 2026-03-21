@@ -285,6 +285,102 @@ async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Process pending debit intents received from cloud.
+/// Called after sync pull to process wallet debits on the local server.
+/// Local is the single writer for wallet debits -- cloud NEVER directly modifies wallet.
+pub(crate) async fn process_debit_intents(state: &Arc<AppState>) -> anyhow::Result<u64> {
+    let pending = sqlx::query_as::<_, (String, String, i64, String)>(
+        "SELECT id, driver_id, amount_paise, reservation_id
+         FROM debit_intents WHERE status = 'pending' ORDER BY created_at ASC",
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    if pending.is_empty() {
+        return Ok(0);
+    }
+
+    let mut processed = 0u64;
+    for (intent_id, driver_id, amount, reservation_id) in &pending {
+        let balance = sqlx::query_as::<_, (i64,)>(
+            "SELECT balance_paise FROM wallets WHERE driver_id = ?",
+        )
+        .bind(driver_id)
+        .fetch_optional(&state.db)
+        .await?;
+
+        match balance {
+            Some((bal,)) if bal >= *amount => {
+                let new_balance = bal - amount;
+                let txn_id = uuid::Uuid::new_v4().to_string();
+
+                // Debit wallet
+                sqlx::query(
+                    "UPDATE wallets SET balance_paise = ?, total_debited_paise = total_debited_paise + ?,
+                     updated_at = datetime('now') WHERE driver_id = ?",
+                )
+                .bind(new_balance).bind(amount).bind(driver_id)
+                .execute(&state.db).await?;
+
+                // Record wallet transaction
+                sqlx::query(
+                    "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise,
+                     txn_type, reference_id, notes, created_at)
+                     VALUES (?, ?, ?, ?, 'debit_session', ?, 'Remote booking debit', datetime('now'))",
+                )
+                .bind(&txn_id).bind(driver_id).bind(-amount).bind(new_balance).bind(reservation_id)
+                .execute(&state.db).await?;
+
+                // Mark intent completed
+                sqlx::query(
+                    "UPDATE debit_intents SET status = 'completed', wallet_txn_id = ?,
+                     processed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+                )
+                .bind(&txn_id).bind(intent_id)
+                .execute(&state.db).await?;
+
+                // Update reservation to confirmed
+                sqlx::query(
+                    "UPDATE reservations SET status = 'confirmed', updated_at = datetime('now')
+                     WHERE id = ?",
+                )
+                .bind(reservation_id)
+                .execute(&state.db).await?;
+
+                tracing::info!(target: "sync", "Debit intent {} completed: {} paise from driver {}",
+                    intent_id, amount, driver_id);
+                processed += 1;
+            }
+            _ => {
+                // Insufficient balance or no wallet
+                let reason = if balance.is_none() { "no_wallet" } else { "insufficient_balance" };
+                sqlx::query(
+                    "UPDATE debit_intents SET status = 'failed', failure_reason = ?,
+                     processed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+                )
+                .bind(reason).bind(intent_id)
+                .execute(&state.db).await?;
+
+                sqlx::query(
+                    "UPDATE reservations SET status = 'failed', updated_at = datetime('now')
+                     WHERE id = ?",
+                )
+                .bind(reservation_id)
+                .execute(&state.db).await?;
+
+                tracing::warn!(target: "sync", "Debit intent {} failed ({}): {} paise from driver {}",
+                    intent_id, reason, amount, driver_id);
+                processed += 1;
+            }
+        }
+    }
+
+    if processed > 0 {
+        tracing::info!(target: "sync", "Processed {} debit intents", processed);
+    }
+    Ok(processed)
+}
+
 /// Collect the push payload (shared between relay and HTTP push paths).
 /// Returns (payload, has_data).
 /// Schema version bumped when tables/columns change.
@@ -511,6 +607,54 @@ async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, b
         has_data = true;
     }
 
+    // Collect reservation status updates (local updates: redeemed, expired status changes)
+    let reservations = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'driver_id', driver_id, 'experience_id', experience_id,
+            'pin', pin, 'status', status, 'pod_number', pod_number,
+            'debit_intent_id', debit_intent_id,
+            'created_at', created_at, 'expires_at', expires_at,
+            'redeemed_at', redeemed_at, 'cancelled_at', cancelled_at,
+            'updated_at', updated_at
+        ) FROM reservations WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !reservations.is_empty() {
+        let items: Vec<serde_json::Value> = reservations.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} reservations", items.len());
+        payload["reservations"] = serde_json::json!(items);
+        has_data = true;
+    }
+
+    // Collect debit intent status updates (local processes: completed/failed results)
+    let intents = sqlx::query_as::<_, (String,)>(
+        "SELECT json_object(
+            'id', id, 'driver_id', driver_id, 'amount_paise', amount_paise,
+            'reservation_id', reservation_id, 'status', status,
+            'failure_reason', failure_reason, 'wallet_txn_id', wallet_txn_id,
+            'origin', origin,
+            'created_at', created_at, 'processed_at', processed_at,
+            'updated_at', updated_at
+        ) FROM debit_intents WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500",
+    )
+    .bind(&last_push)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !intents.is_empty() {
+        let items: Vec<serde_json::Value> = intents.iter()
+            .filter_map(|r| serde_json::from_str(&r.0).ok())
+            .collect();
+        tracing::info!("Cloud sync push: {} debit_intents", items.len());
+        payload["debit_intents"] = serde_json::json!(items);
+        has_data = true;
+    }
+
     Ok((payload, has_data))
 }
 
@@ -684,6 +828,11 @@ async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Resul
         tracing::info!("Cloud sync pull: upserted {} records", total_upserted);
     } else {
         tracing::debug!("Cloud sync pull: no new changes");
+    }
+
+    // Process any pending debit intents received from cloud
+    if let Err(e) = process_debit_intents(state).await {
+        tracing::error!(target: "sync", "Failed to process debit intents: {}", e);
     }
 
     // Phase 2: Push venue data to cloud
