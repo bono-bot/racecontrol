@@ -16,6 +16,7 @@
 //! this is a remote admin tool equivalent to SSH, scoped to venue hardware.
 
 mod watchdog;
+mod tier1_fixes;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -103,17 +104,28 @@ fn main() {
     // v11.2: Spawn watchdog thread to monitor rc-agent health
     let crash_rx = watchdog::spawn(&SHUTDOWN_REQUESTED);
 
-    // Drain crash events in a background thread (Phase 103 will add fix logic here)
+    // Drain crash events in a background thread — run Tier 1 fixes + restart
     std::thread::Builder::new()
         .name("sentry-crash-handler".to_string())
         .spawn(move || {
+            let mut tracker = tier1_fixes::RestartTracker::new();
             while let Ok(ctx) = crash_rx.recv() {
                 tracing::warn!(
                     target: "crash-handler",
                     "rc-agent crash detected: panic={:?}, exit_code={:?}, last_phase={:?}",
                     ctx.panic_message, ctx.exit_code, ctx.last_phase
                 );
-                // Phase 103: Tier 1 fixes + restart logic will be wired here
+
+                let (results, restarted) = tier1_fixes::handle_crash(&ctx, &mut tracker);
+
+                tracing::info!(
+                    target: "crash-handler",
+                    "crash handled: {} fixes applied, restarted={}",
+                    results.len(), restarted
+                );
+
+                // Phase 104: Pattern memory update will be added here
+                // Phase 105: Fleet reporting will be added here
             }
         })
         .expect("spawn crash handler thread");
