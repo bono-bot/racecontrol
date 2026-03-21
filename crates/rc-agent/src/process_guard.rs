@@ -73,6 +73,8 @@ pub fn spawn(
                 }
                 _ = audit_interval.tick() => {
                     run_autostart_audit(&whitelist, &tx, &machine_id).await;
+                    run_port_audit(&whitelist, &tx, &machine_id).await;
+                    // run_schtasks_audit wired in Task 2
                 }
             }
         }
@@ -491,6 +493,136 @@ pub(crate) fn is_autostart_whitelisted(name: &str, allowed: &[String]) -> bool {
     allowed.iter().any(|a| a == &lower)
 }
 
+/// Parse `netstat -ano` stdout into a list of (port, pid) tuples.
+/// Only TCP LISTENING lines are returned. UDP and non-LISTENING lines are skipped.
+/// Handles both IPv4 (0.0.0.0:8080) and IPv6 ([::]:8080) address formats by taking
+/// the last ':' segment as the port number.
+pub(crate) fn parse_netstat_listening(stdout: &str) -> Vec<(u16, u32)> {
+    let mut result = Vec::new();
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        // Expect: TCP  <local_addr>  <remote_addr>  LISTENING  <pid>
+        if parts.len() < 5 {
+            continue;
+        }
+        // Only TCP lines
+        if !parts[0].eq_ignore_ascii_case("TCP") {
+            continue;
+        }
+        // Only LISTENING state (column 3)
+        if !parts[3].eq_ignore_ascii_case("LISTENING") {
+            continue;
+        }
+        // Parse port from local address (last segment after ':')
+        let local_addr = parts[1];
+        let port_str = match local_addr.rfind(':') {
+            Some(idx) => &local_addr[idx + 1..],
+            None => continue,
+        };
+        let port: u16 = match port_str.parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        // Parse PID from column 4
+        let pid: u32 = match parts[4].parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        result.push((port, pid));
+    }
+    result
+}
+
+/// Run one port audit cycle: shell-out to netstat -ano, compare listening ports against
+/// whitelist.ports, kill or report violations.
+pub(crate) async fn run_port_audit(
+    whitelist: &Arc<RwLock<MachineWhitelist>>,
+    tx: &mpsc::Sender<AgentMessage>,
+    machine_id: &str,
+) {
+    // Read whitelist fields under brief read lock, then drop
+    let (allowed_ports, violation_action) = {
+        let wl = whitelist.read().await;
+        (wl.ports.clone(), wl.violation_action.clone())
+    };
+
+    // Shell-out netstat in spawn_blocking to avoid blocking the async runtime
+    let output = tokio::task::spawn_blocking(|| {
+        #[cfg(windows)]
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("netstat");
+        cmd.args(["-ano"]);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.output()
+    })
+    .await;
+
+    let stdout = match output {
+        Ok(Ok(out)) => String::from_utf8_lossy(&out.stdout).to_string(),
+        _ => return,
+    };
+
+    let entries = parse_netstat_listening(&stdout);
+
+    for (port, pid) in entries {
+        // Skip whitelisted ports
+        if allowed_ports.contains(&port) {
+            continue;
+        }
+
+        log_guard_event(&format!("PORT_VIOLATION port={} pid={}", port, pid));
+
+        let action_taken = if violation_action == "kill_and_report" {
+            // Attempt kill: try kill_process_verified with sysinfo start_time first
+            let start_time_opt = tokio::task::spawn_blocking(move || {
+                let mut sys = sysinfo::System::new();
+                sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                sys.process(sysinfo::Pid::from_u32(pid))
+                    .map(|p| p.start_time())
+            })
+            .await
+            .unwrap_or(None);
+
+            let killed = if let Some(start_time) = start_time_opt {
+                // Use PID-identity-verified kill
+                let name_for_kill = format!("port-owner-pid-{}", pid);
+                kill_process_verified(pid, name_for_kill, start_time).await
+            } else {
+                // Fallback: direct taskkill when sysinfo can't find the PID
+                let kill_result = tokio::task::spawn_blocking(move || {
+                    #[cfg(windows)]
+                    use std::os::windows::process::CommandExt;
+                    let mut cmd = std::process::Command::new("taskkill");
+                    cmd.args(["/F", "/PID", &pid.to_string()]);
+                    #[cfg(windows)]
+                    cmd.creation_flags(0x08000000);
+                    cmd.output()
+                })
+                .await;
+                kill_result
+                    .map(|r| r.map(|o| o.status.success()).unwrap_or(false))
+                    .unwrap_or(false)
+            };
+
+            if killed { "killed" } else { "reported" }
+        } else {
+            "reported"
+        };
+
+        let violation = ProcessViolation {
+            machine_id: machine_id.to_string(),
+            violation_type: ViolationType::Port,
+            name: port.to_string(),
+            exe_path: None,
+            action_taken: action_taken.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            consecutive_count: 1,
+        };
+        let _ = tx.send(AgentMessage::ProcessViolation(violation)).await;
+    }
+}
+
 /// Write entry info to the autostart backup file before removal.
 /// Appends a JSON line to C:\RacingPoint\autostart-backup.json.
 fn backup_autostart_entry(entry_name: &str, source: &str) {
@@ -591,6 +723,61 @@ mod tests {
         let allowed = vec!["rcagent".to_string()];
         assert!(!is_autostart_whitelisted("SteamClient", &allowed));
     }
+
+    // ── Task 1: parse_netstat_listening tests ──────────────────────────────
+
+    #[test]
+    fn parse_netstat_listening_basic_tcp() {
+        let stdout = "  TCP    0.0.0.0:4444    0.0.0.0:0    LISTENING    1234\n";
+        let result = parse_netstat_listening(stdout);
+        assert_eq!(result, vec![(4444u16, 1234u32)]);
+    }
+
+    #[test]
+    fn parse_netstat_listening_skips_udp() {
+        let stdout = "  UDP    0.0.0.0:5353    *:*\n";
+        let result = parse_netstat_listening(stdout);
+        assert!(result.is_empty(), "UDP lines must be skipped");
+    }
+
+    #[test]
+    fn parse_netstat_listening_skips_non_listening_state() {
+        let stdout = "  TCP    127.0.0.1:1234    127.0.0.1:5678    ESTABLISHED    5678\n";
+        let result = parse_netstat_listening(stdout);
+        assert!(result.is_empty(), "Non-LISTENING lines must be skipped");
+    }
+
+    #[test]
+    fn parse_netstat_listening_multiple_ports() {
+        let stdout = concat!(
+            "  TCP    0.0.0.0:8080    0.0.0.0:0    LISTENING    100\n",
+            "  TCP    0.0.0.0:4444    0.0.0.0:0    LISTENING    200\n",
+            "  UDP    0.0.0.0:5353    *:*\n",
+            "  TCP    127.0.0.1:443    127.0.0.1:0    ESTABLISHED    300\n",
+        );
+        let result = parse_netstat_listening(stdout);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&(8080u16, 100u32)));
+        assert!(result.contains(&(4444u16, 200u32)));
+    }
+
+    #[test]
+    fn parse_netstat_listening_skips_malformed_lines() {
+        let stdout = "  not a valid line\n  TCP    \n  TCP    0.0.0.0:notaport    0.0.0.0:0    LISTENING    999\n";
+        let result = parse_netstat_listening(stdout);
+        // notaport fails u16 parse — should be skipped
+        assert!(result.is_empty(), "Malformed lines must be skipped");
+    }
+
+    #[test]
+    fn parse_netstat_listening_ipv6_format() {
+        // IPv6 addresses use [::]:port format — the last segment after ':' is the port
+        let stdout = "  TCP    [::]:8090    [::]:0    LISTENING    999\n";
+        let result = parse_netstat_listening(stdout);
+        assert_eq!(result, vec![(8090u16, 999u32)]);
+    }
+
+    // ── Task 1: log_rotation_truncates_at_512kb ────────────────────────────
 
     #[test]
     fn log_rotation_truncates_at_512kb() {
