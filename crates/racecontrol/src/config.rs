@@ -106,6 +106,10 @@ pub struct CloudConfig {
     /// x-sync-nonce headers. Inbound requests are verified (permissive mode initially).
     #[serde(default)]
     pub sync_hmac_key: Option<String>,
+    /// Identity of this racecontrol instance for sync origin tagging.
+    /// Set to "local" on venue server, "cloud" on VPS. Prevents sync loops.
+    #[serde(default = "default_origin_local")]
+    pub origin_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -610,6 +614,7 @@ fn default_location() -> String { "Bandlaguda, Hyderabad".to_string() }
 fn default_timezone() -> String { "Asia/Kolkata".to_string() }
 fn default_sync_interval() -> u64 { 30 }
 fn default_action_poll_interval() -> u64 { 3 }
+fn default_origin_local() -> String { "local".to_string() }
 fn default_pod_count() -> u32 { 16 }
 fn default_true() -> bool { true }
 fn default_color() -> String { "#E10600".to_string() }

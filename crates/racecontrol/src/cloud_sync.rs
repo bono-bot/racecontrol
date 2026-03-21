@@ -20,7 +20,7 @@ use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens";
+const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens,reservations,debit_intents";
 
 /// Relay sync interval in seconds (fast — localhost only).
 const RELAY_INTERVAL_SECS: u64 = 2;
@@ -289,11 +289,15 @@ async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> {
 /// Returns (payload, has_data).
 /// Schema version bumped when tables/columns change.
 /// Cloud side can reject pushes if it hasn't migrated yet.
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 
 async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, bool)> {
     let last_push = normalize_timestamp(&get_last_push_time(state).await);
-    let mut payload = serde_json::json!({ "schema_version": SCHEMA_VERSION });
+    let origin = &state.config.cloud.origin_id;
+    let mut payload = serde_json::json!({
+        "schema_version": SCHEMA_VERSION,
+        "origin": origin,
+    });
     let mut has_data = false;
 
     // Collect laps since last push
