@@ -4,7 +4,7 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
 stopped_at: Completed 85-02-PLAN.md
-last_updated: "2026-03-21T06:38:36.001Z"
+last_updated: "2026-03-21T06:43:17.902Z"
 last_activity: "2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)"
 progress:
   total_phases: 65

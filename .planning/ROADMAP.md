@@ -1305,7 +1305,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 82. Billing and Session Lifecycle | 2/3 | In Progress|  | - |
 | 83. F1 25 Telemetry | v13.0 | 0/1 | Not started | - |
 | 84. iRacing Telemetry | v13.0 | 0/2 | Not started | - |
-| 85. LMU Telemetry | 2/2 | Complete   | 2026-03-21 | - |
+| 85. LMU Telemetry | 2/2 | Complete    | 2026-03-21 | - |
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
 | 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
 | 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
