@@ -1,17 +1,17 @@
 # Project Research Summary
 
-**Project:** v12.1 E2E Process Guard
-**Domain:** Windows process monitoring, whitelist enforcement, and auto-start auditing across a mixed fleet (8 sim pods + 1 server + 1 operations workstation)
+**Project:** v11.2 RC Sentry AI Debugger
+**Domain:** Crash diagnostics as external watchdog in an existing Rust binary (rc-sentry) on Windows sim racing pods
 **Researched:** 2026-03-21 IST
 **Confidence:** HIGH
 
 ## Executive Summary
 
-The v12.1 E2E Process Guard is a continuous whitelist enforcement daemon that closes the gap exposed by the March 2026 incident: Steam, a leaderboard kiosk Edge instance, and a voice assistant watchdog all survived manual audits because those audits searched for known-bad processes rather than inverting the whitelist. The correct model is deny-by-default — `running_processes - whitelist = violations` — and this research confirms every capability required is already in the codebase. No new foundational work is needed: `sysinfo 0.33`, `winreg 0.55` (already in rc-agent via `self_heal.rs`), and `rc-common::exec` cover the core enforcement surface. Two new crates are required: `netstat2 0.11` for port-to-PID mapping and `walkdir 2` for Startup folder enumeration.
+The v11.2 RC Sentry AI Debugger solves a fundamental gap: rc-agent's crash diagnostics die with rc-agent. When the agent crashes, every restart is blind. The fix is to move the crash analysis loop into rc-sentry — the external survivor binary already running on port 8091. rc-sentry runs pure `std` (no tokio, no async) and this architecture must be preserved. The watchdog is a single background `std::thread` that polls `localhost:8090/health` every 5 seconds; crash detection drives a 4-tier fix sequence (deterministic → pattern memory → Ollama → escalation) before restarting rc-agent. Zero new crate dependencies are needed beyond `chrono` and `anyhow`, both already workspace-locked.
 
-The recommended approach is three parallel guard deployments: a background tokio task module inside rc-agent covering all 8 pods, a new `process_guard.rs` module inside racecontrol for the server, and a standalone `rc-process-guard.exe` binary for James (.27) that reports via HTTP rather than WebSocket (standing rule: never run pod binaries on James). The central whitelist lives in `racecontrol.toml` with per-machine override sections, fetched by each agent on WS connect and pushed via a new `CoreToAgentMessage::UpdateProcessWhitelist` variant for mid-session updates. The monitoring surface covers four vectors: running processes, listening ports, HKCU/HKLM Run keys, and the Startup folder — with Scheduled Tasks as a Phase 2 addition.
+The recommended approach follows the existing codebase patterns precisely: port `DebugMemory` and fix patterns from `rc-agent/src/ai_debugger.rs`, duplicate the struct definitions into `rc-sentry/src/debug_memory.rs` (copy, not shared dep — avoids pulling tokio into rc-sentry), and implement all external HTTP calls (health poll, Ollama query, fleet report) as raw `std::net::TcpStream` calls. The anti-cheat constraint (F1 25 EAC and iRacing EOS) is the highest-stakes risk: health endpoint polling via TCP is completely safe; any process inspection API (`OpenProcess`, `CreateToolhelp32Snapshot`, `VirtualQueryEx`) is a potential ban trigger. The entire detection mechanism must use HTTP polling exclusively.
 
-The dominant risks are operational, not algorithmic. The three most dangerous pitfalls all have codebase precedents that prevent them: PID reuse races (require name + creation-time triple before `TerminateProcess`), self-kill (unconditional self-PID exclusion before any whitelist logic), and watchdog restart storms (storm detection after 3 kills in 60 seconds triggers auto-start source lookup rather than continued process killing). The kill grace period — require two consecutive scan cycles before acting — is the single most effective mitigation across multiple pitfalls and must be a first-class design primitive, not a later addition.
+The critical operational risks are: restart loops (solved with the existing `EscalatingBackoff` from rc-common), false-positive crash detection from transient load spikes (solved with N=3 consecutive poll failures before declaring crashed), and stale TCP sockets blocking rc-agent restart after kill (solved with a post-kill port readiness check before restart). All three mitigations are first-class design requirements, not post-launch improvements.
 
 ---
 
@@ -19,143 +19,144 @@ The dominant risks are operational, not algorithmic. The three most dangerous pi
 
 ### Recommended Stack
 
-All enforcement primitives are already in the repo. The stack research found zero breaking upgrades needed and identified exactly two new Windows-only crates. The `sysinfo 0.33` API must not be upgraded to 0.38 during this milestone — the 0.33 → 0.38 migration includes breaking changes to `System` initialization that would require changes across `kiosk.rs`, `game_process.rs`, and `self_test.rs`.
+rc-sentry is a pure-std no-tokio binary and must stay that way. The "no new crate dependencies" constraint is satisfied: all required capabilities use either existing workspace crates or `std`. Two workspace deps (`chrono`, `anyhow`) are added to `crates/rc-sentry/Cargo.toml` — both already locked in `Cargo.lock` from other workspace crates. The Ollama HTTP call and fleet report are raw `std::net::TcpStream` posts, not reqwest. The watchdog loop is `std::thread::spawn` with `std::time::Duration::from_secs(5)` sleep, not tokio.
 
 **Core technologies:**
-- `sysinfo 0.33` — process enumeration and kill via `Process::kill(Signal::Kill)` — already in both rc-agent and racecontrol
-- `winreg 0.55` — HKCU/HKLM Run key enumeration and `delete_value()` — already in rc-agent via `self_heal.rs`; add to racecontrol
-- `netstat2 0.11` — TCP/UDP listening sockets with owning PID via `GetExtendedTcpTable` — NEW, Windows-only dep
-- `walkdir 2` — Startup folder enumeration — NEW (or use `std::fs::read_dir` if avoiding deps; folders are flat)
-- `tokio 1` — `tokio::time::interval` for scan loop; `tokio::task::spawn_blocking` for WinAPI calls inside async
-- `winapi 0.3` — fallback `TerminateProcess` when sysinfo kill returns false; already in rc-agent
-- `rc-common::exec` — `schtasks /delete` and `schtasks /query /fo CSV` shell-outs; no new crate needed
+- `std::thread` + `std::net::TcpStream` — watchdog loop and all HTTP calls — zero async overhead, matches existing rc-sentry threading model
+- `serde` / `serde_json` (workspace) — crash log parsing and debug-memory.json read/write — already in rc-sentry
+- `chrono` (workspace) — RFC3339 timestamps in `DebugIncident.last_seen` — NEW to rc-sentry Cargo.toml, already workspace-locked
+- `anyhow` (workspace) — error propagation in watchdog and log analysis — NEW to rc-sentry Cargo.toml, already workspace-locked
+- `rc-common::exec::run_cmd_sync` — Tier 1 fix shell commands (taskkill, netsh, etc.) — already used in rc-sentry's `/exec` handler
+- `std::process::Command` — restart rc-agent via `start-rcagent.bat` — anti-cheat safe (command execution, not process inspection)
 
-**Critical version note:** Do NOT add `windows = "0.58"` — conflicts with existing `winapi 0.3`. Do NOT add `wmi` — COM overhead plus large transitive dep. Do NOT upgrade `sysinfo`.
+**What NOT to add:** tokio (requires async runtime init, breaks std-thread model), reqwest (bundles mini tokio runtime, adds 800KB), ollama-rs (wraps reqwest/tokio), any WinAPI process inspection function.
 
 ### Expected Features
 
-The feature set is divided into a clear MVP (solve the triggering incident and prevent reoccurrence) and a validation-dependent backlog.
+The feature set divides cleanly into a fully-specified MVP and two deferred layers. All MVP features are interdependent — TS-1 is the trigger for everything; nothing else activates without crash detection.
 
-**Must have (v12.1 core — all P1):**
-- `[process_guard]` section in racecontrol.toml with global whitelist and per-machine override tables (TS-1) — deny-by-default schema
-- Continuous process scan in rc-agent `process_guard.rs` module via sysinfo, 30s default poll interval (TS-2, TS-12)
-- Auto-kill violating processes via sysinfo kill + winapi fallback (TS-3) — with two-cycle grace period and self-exclusion
-- HKCU + HKLM Run key audit at startup and every 5 minutes, remove non-whitelisted entries (TS-4)
-- Startup folder audit at startup and every 5 minutes, remove non-whitelisted shortcuts (TS-5)
-- Pod binary guard: CRITICAL alert if `racecontrol.exe` found on a pod or `rc-agent.exe` found on James (TS-8)
-- `AgentMessage::ProcessViolation` WS variant to server on every kill or auto-start removal (TS-9)
-- Append-only audit log at `C:\RacingPoint\process-guard.log` with 512KB rotation (TS-10)
-- Server stores per-pod violation list in `FleetHealthStore` (TS-11)
+**Must have (v11.2 core — all P1):**
+- TS-1: Health endpoint polling (`localhost:8090/health` every 5s, 2+ consecutive failures = crash) — anti-cheat safe
+- TS-2: Post-crash log reading (startup_log, stderr capture, rc-bot-events.log from known disk paths)
+- TS-3: Tier 1 deterministic fixes before restart (kill zombie rc-agent, clean stale sockets, repair config, clear shader cache)
+- TS-4: Crash pattern memory — read `debug-memory.json` for instant fix replay (skip Ollama if match with success_count > 0)
+- TS-5: Tier 3 Ollama query via blocking std TCP POST to James `.27:11434` — 30s timeout, graceful fail if unreachable
+- TS-7: Escalation FSM — track restart count; after 3 restarts in 10 min, alert staff + show maintenance screen instead of retrying
+- TS-9: Append to `C:\RacingPoint\crash-sentry.log` at every state transition, 512KB rotation
+- D-3: Hysteresis (N=3 consecutive poll failures before fix sequence) — prevents false restarts during shader compilation spikes
 
-**Should have (add after MVP stable):**
-- Scheduled Task audit via `schtasks /query /fo CSV` (TS-6) — third auto-start vector; deferred to avoid scope creep
-- Port audit via netstat2 (TS-7) — secondary enforcement layer
-- Category-tagged whitelist entries (D-1) — refactor after real-world false positives identified
-- Severity tiers: KILL / ESCALATE / MONITOR (D-3) — add when violation history justifies tier decisions
+**Should have (v11.2 polish — P2):**
+- TS-6: Report crash diagnostic to server fleet API (`POST /api/v1/sentry/crash`) — closes observability loop
+- D-1: Write successful fix back to debug-memory.json — closes the learning loop with rc-agent's pattern memory
+- D-5: Log classification (config crash vs OOM vs port conflict) before Tier 1 — reduces Ollama calls
+- D-7: Configurable via `[sentry]` section in rc-agent.toml (poll interval, Ollama URL, escalation threshold)
 
-**Defer to v12.2+:**
-- Repeat offender email escalation (D-4) — data-driven trigger, needs violation log history first
-- Fleet health violation count in `/api/v1/fleet/health` (D-5) — nice metric, not blocking
-- James standalone guard binary as separate `rc-process-guard` crate (D-6) — requires rc-common refactor; higher scope
-- Server-side process guard module (D-7) — lower risk surface, lower priority
-- Wildcard/prefix matching in whitelist (D-2) — premature optimization
+**Defer to v11.3+ (P3):**
+- D-4: PodStateSnapshot at crash time (requires rc-agent panic hook change — separate phase)
+- D-6: Crash reason field in fleet health dashboard (requires racecontrol schema change)
+- D-2: Structured stderr capture from bat file (ops deploy step, not code change)
 
 **Anti-features (do not build):**
-- ETW/WMI real-time process event subscription — COM overhead, elevated privilege, marginal gain over 30s polling
-- SHA-256 hash verification per process — operational overhead across 11 machines per Windows Update
-- Database schema for violation history — in-memory counters + append log is sufficient
-- WMI `SELECT * FROM Win32_Process` — 100-500ms CPU spike per query during active gaming sessions
+- Process inspection of game PIDs (OpenProcess, debug APIs) — EAC ban risk
+- Minidump analysis — requires symbol servers, marginal gain over log parsing
+- Windows Event Log subscription — COM overhead, not worth complexity
+- Restart loop without exponential backoff — worse than blocking the pod and alerting staff
+- Game-crash debugging in sentry — rc-agent is alive for those; dual ownership is confusing
 
 ### Architecture Approach
 
-The guard integrates as a background tokio task inside the existing agent binary — no new Windows Service, no new deployment unit for pods. The guard daemon runs parallel to (not inside) the existing WS event loop, connected via an `mpsc::Sender<AgentMessage>` channel that the event loop already drains for other outbound messages. This pattern is identical to `self_monitor.rs`.
+rc-sentry gains a single background `std::thread` (watchdog_thread) spawned at `main()` startup alongside the existing TCP accept loop. The watchdog thread runs the health poll FSM, drives the crash analysis pipeline, and coordinates fix tiers. Five new source files are created in `crates/rc-sentry/src/`. Two existing files in rc-common and two in racecontrol are extended. No new crate, no new binary, no tokio added to rc-sentry.
 
 **Major components:**
-1. `rc-agent/src/process_guard.rs` (NEW) — pod guard module: `spawn()`, `run_scan()`, `enforce()`, `audit_autostart()`, `audit_ports()`; connects to server via existing WS AgentMessage channel
-2. `racecontrol/src/process_guard.rs` (NEW) — server guard module: `ProcessGuardStore`, `WhitelistConfig`, three new HTTP endpoints (`/api/v1/guard/whitelist/{id}`, `/api/v1/guard/violations`, `/api/v1/guard/audit`)
-3. `rc-common/src/protocol.rs` (MODIFIED) — three new messages: `AgentMessage::ProcessViolation`, `AgentMessage::ProcessGuardStatus`, `CoreToAgentMessage::UpdateProcessWhitelist`
-4. `rc-common/src/types.rs` (MODIFIED) — `MachineWhitelist`, `ViolationType`, `ProcessViolation` structs
-5. `racecontrol.toml` (MODIFIED) — `[process_guard]` section with global whitelist and `[process_guard.overrides.james]`, `[process_guard.overrides.pod]`, `[process_guard.overrides.server]` sections
+1. `watchdog_thread` (rc-sentry/main.rs) — FSM driver: Healthy → Suspect(n) → Crashed → fix tiers → restart → verify
+2. `crash_logs.rs` (NEW) — pure file reads of startup_log, stderr, rc-bot-events.log; returns `CrashContext`
+3. `debug_memory.rs` (NEW) — DebugMemory load/save/query (copied struct from rc-agent, same JSON format, no shared dep)
+4. `tier1_fixes.rs` (NEW) — deterministic fix functions behind `#[cfg(test)]` guards; kill zombie, clean sockets, repair config, clear shader cache
+5. `ollama.rs` (NEW) — blocking HTTP POST to James `.27:11434`, 30s timeout, fails gracefully
+6. `fleet_reporter.rs` (NEW) — blocking HTTP POST to racecontrol, 10s timeout, fire-and-forget
+7. `rc-common/src/types.rs` (MODIFIED) — `SentryCrashReport` struct, `CrashDiagResult` enum
+8. `racecontrol/src/fleet_health.rs` + `api/routes.rs` (MODIFIED) — `POST /api/v1/sentry/crash` endpoint, `last_sentry_crash` field in `FleetHealthStore`
+9. `start-rcagent.bat` (MODIFIED) — add `2>> C:\RacingPoint\rc-agent-stderr.log` and `set RUST_BACKTRACE=1` — prerequisite for log parsing
 
-**Key architectural decisions:**
-- Whitelist fetched on WS connect (not polled separately) — avoids timer complexity and races with server-push updates
-- All WinAPI blocking calls (`TerminateProcess`, registry reads, `QueryFullProcessImageName`) wrapped in `tokio::task::spawn_blocking`
-- James workstation covered by rc-process-guard standalone binary (HTTP reporter) not rc-agent — standing rule #2
-- Do not merge guard into `kiosk.rs` — different lifecycle (always-on vs session-scoped), different whitelist source, different machine coverage
+**Build order:** rc-common types first, then rc-sentry watchdog modules (testable in isolation), then racecontrol endpoint, then bat file change, then Pod 8 canary integration test.
 
 ### Critical Pitfalls
 
-1. **Keyword-scoped audit instead of whitelist inversion** — the exact cause of the triggering incident. Guard logic must be `running - whitelist = violations`, never a blocklist. Deny-by-default from day one in the schema.
+1. **Anti-cheat ban from process inspection** — EAC scans for handles to the game process; `OpenProcess()`, `CreateToolhelp32Snapshot(TH32CS_SNAPMODULE)`, and `VirtualQueryEx()` on game PIDs can trigger flags. Prevention: health endpoint polling only — never add any supplementary crash detection that uses WinAPI on game PIDs. No dead code paths to these APIs should exist in the binary.
 
-2. **PID reuse race kills the wrong process** — between snapshot and `TerminateProcess()` call, PID may be reused by rc-agent itself. Prevention: open handle, verify process name + creation time via `GetProcessTimes()`, call `TerminateProcess()` only if both match. Kill by PID alone is incorrect.
+2. **Restart loop without backoff** — 10 restarts/minute on persistent crash hammers Ollama, corrupts billing state, creates ghost billing records. Prevention: use existing `EscalatingBackoff` from rc-common (already there from v1.0). Block pod and alert staff after 3 restarts in 5 minutes. Reset counter only after 2 minutes of stable health.
 
-3. **Self-kill — guard terminates itself or its parent** — `rc-agent.exe` not on the whitelist (typo or case mismatch) causes the guard to kill its own containing process. Prevention: `std::process::id()` and `std::env::current_exe()` excluded unconditionally before any whitelist lookup. All name comparisons use `eq_ignore_ascii_case()`.
+3. **Log timing race — zombie holds file handles** — crash logs may be inaccessible if the zombie rc-agent process still holds `GENERIC_WRITE` on the log file. Prevention: Tier 1 sequence must be kill zombie first → wait 500ms → read logs → apply other fixes → restart. Not read-then-kill.
 
-4. **Watchdog restart storm survives kill** — the voice assistant watchdog was an infinite restart loop. Process-level kill without auto-start removal is futile. Prevention: kill sequence must check auto-start sources first. Storm detection: if same process killed 3 times in 60 seconds, suppress further kills and escalate to "auto-start audit required."
+4. **Pattern memory JSON corruption from concurrent write** — direct `std::fs::write()` truncates before writing; crash during write = zero-byte file. Prevention: write to `debug-memory.json.tmp` then `std::fs::rename()` (atomic on same Windows volume via `MoveFileExW`). Load into in-memory struct on startup; write-through on mutation.
 
-5. **Auto-start entry removed without per-machine context** — the leaderboard Run key was on a pod instead of the server. Removing it silently breaks the leaderboard with no recovery path. Prevention: per-machine whitelist sections in TOML; auto-start enforcement defaults to LOG → ALERT → REMOVE (not immediate remove); backup file written before any removal.
+5. **Ollama cold start blocks restart sequence** — model unloads after idle period (default 5 min `OLLAMA_KEEP_ALIVE`); cold start is 10-30s on RTX 4070. Prevention: Ollama query must never block the restart path. Hard 30s `set_read_timeout` on TcpStream; if timeout hits, proceed with restart and record Ollama as `None`. Restart latency target: under 10 seconds regardless of Ollama state.
 
-6. **Killing transient system processes during Windows Update** — `MpCmdRun.exe`, `TiWorker.exe`, `msiexec.exe` are short-lived, legitimate, and catastrophic to kill mid-run. Prevention: two-cycle grace period (must be flagged on two consecutive scans before kill); system path prefix rule (processes under `C:\Windows\System32\` default to ALERT-only); never kill children of `TrustedInstaller.exe`.
+6. **Stale TCP socket blocks port 8090 after kill** — taskkill releases the process but port stays in TIME_WAIT (Windows default 2 min). rc-agent fails to bind on restart and sentry counts a second crash. Prevention: after zombie kill, poll `netstat -ano` in a loop (max 10s) for port 8090 to clear before launching restart.
+
+7. **Panic output silently discarded** — `start-rcagent.bat` does not redirect stderr; panic output is lost. Prevention: bat file update is a prerequisite task, not a follow-up. Add `set RUST_BACKTRACE=1` and `2>> C:\RacingPoint\rc-agent-stderr.log` before any log analysis code is tested.
+
+8. **Single poll timeout triggers false crash during game load** — shader compilation and audio driver stalls can cause 3-8s unresponsive windows. Prevention: require N=3 consecutive poll failures (15s silence) before any Tier 1 action. Defined before implementation, not tuned later.
 
 ---
 
 ## Implications for Roadmap
 
-Based on the combined research, the build order is dictated by compile-time dependencies: rc-common changes must exist before either racecontrol or rc-agent can import the new types. Server endpoints must be live before pods can fetch the whitelist. Pod canary on Pod 8 before fleet rollout is the standing deploy rule.
+Based on the combined research, the build order is determined by two constraints: compile-time (rc-common types before either binary imports them) and operational (racecontrol endpoint live before sentry tries to POST reports). The canary-first deploy rule (Pod 8 first) applies to the final integration phase.
 
-### Phase 1: Protocol Foundation (rc-common)
+### Phase 1: Types Foundation (rc-common)
 
-**Rationale:** `rc-common` is a shared library dependency of both racecontrol and rc-agent. New protocol types and message variants must compile cleanly before either binary can reference them. This phase has no runtime deployment — library only. Zero risk to production.
-**Delivers:** `MachineWhitelist` struct, `ViolationType` enum, `ProcessViolation` struct in `rc-common/src/types.rs`. Three new message variants in `rc-common/src/protocol.rs`: `AgentMessage::ProcessViolation`, `AgentMessage::ProcessGuardStatus`, `CoreToAgentMessage::UpdateProcessWhitelist`.
-**Addresses:** Foundational types for all subsequent phases.
-**Avoids:** Compiler dependency failures that would block parallel server + agent work.
+**Rationale:** `SentryCrashReport` and `CrashDiagResult` must compile in rc-common before racecontrol or rc-sentry can reference them. Library-only change, zero production risk.
+**Delivers:** `SentryCrashReport` struct and `CrashDiagResult` enum in `rc-common/src/types.rs`.
+**Addresses:** Compile-time unblocking for all subsequent phases.
+**Avoids:** Dependency failures that would require replanning.
 
-### Phase 2: Whitelist Schema + Config
+### Phase 2: rc-sentry Watchdog Core
 
-**Rationale:** The whitelist schema is the most consequential design decision in the entire milestone. Getting deny-by-default right, per-machine sections right, and the `allowed_path_prefix` / `startup_delay_s` / `allowed_machines` fields right prevents six of the twelve documented pitfalls before a single line of enforcement code is written. Schema changes here determine whether the guard is correct by construction or correct by luck.
-**Delivers:** `ProcessGuardConfig` struct in rc-agent `config.rs` and racecontrol `config.rs`. `[process_guard]` section in `racecontrol.toml` with global whitelist, per-machine override tables, `violation_action = "kill_and_report"` initially set to `"report_only"` for safe rollout. Config version hash field for sync verification. `disable_process_guard` boolean in `AgentConfig` for day-one rollback.
-**Addresses:** TS-1 (central whitelist schema), pitfalls 1, 5, 7, 8, 9, 11, 12.
-**Avoids:** Pitfall 1 (deny-by-default schema), Pitfall 8 (allowed_machines per entry), Pitfall 11 (startup_delay_s), Pitfall 12 (allowed_path_prefix).
+**Rationale:** All new rc-sentry modules are self-contained and testable without a running rc-agent. `crash_logs.rs` and `debug_memory.rs` can be unit tested with temp files. `tier1_fixes.rs` uses `#[cfg(test)]` guards so tests never fire real taskkill. The full watchdog pipeline (health poll FSM + fix tiers + restart + logging) can be built and tested before the server endpoint exists.
+**Delivers:** `crash_logs.rs`, `debug_memory.rs`, `tier1_fixes.rs`, `ollama.rs`, `fleet_reporter.rs` modules. `watchdog_loop()` function and `WatchdogState` FSM in `main.rs`. `WATCHDOG_SHUTDOWN` AtomicBool. `crash-sentry.log` writes.
+**Implements:** TS-1, TS-2, TS-3, TS-4, TS-5, TS-7, TS-9, D-3 (hysteresis)
+**Avoids:** Pitfalls 2 (backoff), 3 (log timing), 4 (atomic JSON write), 5 (Ollama timeout), 6 (port readiness), 8 (N-consecutive threshold)
 
-### Phase 3: Server Side (racecontrol)
+### Phase 3: Server Endpoint (racecontrol)
 
-**Rationale:** HTTP endpoints must be live before pods attempt to fetch the whitelist during their first WS connect post-deploy. Deploy server first, smoke-test whitelist endpoint with curl, then build agents. Server can receive violations before the violation sender exists — safe to deploy early.
-**Delivers:** `guard_store: Arc<RwLock<ProcessGuardStore>>` in `racecontrol/src/state.rs`. `racecontrol/src/process_guard.rs` with whitelist merge logic and HTTP handlers. New WS handler arm for `AgentMessage::ProcessViolation`. Routes registered in `racecontrol/src/main.rs`. Build and deploy to server .23.
-**Uses:** `winreg 0.55`, `netstat2 0.11`, `walkdir 2` added to racecontrol Cargo.toml.
-**Avoids:** Pitfall 5 (server records violation context for per-machine audit trail).
+**Rationale:** The fleet reporter in rc-sentry tries to POST to `192.168.31.23:8080/api/v1/sentry/crash`. This endpoint must exist and be deployed before the sentry is tested end-to-end. Deploy server first, smoke-test with curl, then proceed to integration testing.
+**Delivers:** `FleetHealthStore::last_sentry_crash` field. `POST /api/v1/sentry/crash` handler in `fleet_health.rs`. Route registered in `api/routes.rs`. WS broadcast of `DashboardEvent::PodCrashDiagnostic` to staff kiosk. WhatsApp alert via `whatsapp_alerter.rs` when `restart_verified = false`.
+**Uses:** `SentryCrashReport` from rc-common (Phase 1).
+**Avoids:** Pitfall related to fire-and-forget blocking (10s timeout, never blocks restart).
 
-### Phase 4: Pod Agent Module (rc-agent)
+### Phase 4: bat File + Stderr Capture
 
-**Rationale:** rc-agent needs server endpoints live (Phase 3) for whitelist fetch on WS connect. The guard module is the core enforcement engine — process scan, auto-kill, Run key audit, Startup folder audit. Canary on Pod 8 per standing deploy rules before fleet rollout. Initial deployment with `violation_action = "report_only"` in config to tune whitelist before enabling kills.
-**Delivers:** `rc-agent/src/process_guard.rs` with `spawn()`, `run_scan()`, `enforce()`, `audit_autostart()`, `audit_ports()`. `guard_whitelist: Arc<RwLock<MachineWhitelist>>` in `AppState`. Whitelist fetch on WS connect in `main.rs`. `CoreToAgentMessage::UpdateProcessWhitelist` handler in `ws_handler.rs`. Guard background task spawned from `main.rs`. Two-cycle grace period, self-exclusion, storm detection, PID+name+creation-time triple for all kills.
-**Addresses:** TS-2, TS-3, TS-4, TS-5, TS-8, TS-9, TS-10, TS-11, TS-12.
-**Avoids:** Pitfalls 2, 3, 4, 6, 9 (grace period, self-exclusion, storm detection, PID-triple verification).
+**Rationale:** `start-rcagent.bat` must redirect stderr before any end-to-end crash log test can produce meaningful output. One-line change to `self_heal.rs` `START_SCRIPT_CONTENT` ensures self-heal doesn't revert it. Low risk, high value — deploy to Pod 8 and verify `C:\RacingPoint\rc-agent-stderr.log` appears.
+**Delivers:** `set RUST_BACKTRACE=1` and `2>> C:\RacingPoint\rc-agent-stderr.log` in bat file. Updated `self_heal.rs` constant to match.
+**Addresses:** Pitfall 7 (panic output capture).
+**Avoids:** Log analysis always falling through to Ollama because stderr is empty.
 
-### Phase 5: Port Audit + Scheduled Tasks (Polish)
+### Phase 5: Pod 8 Canary Integration Test + Fleet Rollout
 
-**Rationale:** Port audit and Scheduled Task audit are secondary enforcement layers. Port audit catches what process name matching misses (dev vs prod server via port conflict, crypto miners on non-standard ports). Scheduled Tasks is the third auto-start vector and the most dangerous (can run as SYSTEM). Both deferred from MVP to avoid scope creep — process + Run key + Startup folder coverage addresses the three known incidents.
-**Delivers:** `audit_ports()` implementation using `netstat2::get_sockets_info()` in `process_guard.rs`. Scheduled Task audit via `schtasks /query /fo CSV` shell-out. Port whitelist section added to `racecontrol.toml`. Violation reporting for both new vectors via existing `ProcessViolation` message.
-**Addresses:** TS-6 (Scheduled Tasks), TS-7 (port audit), pitfall 7 (dev+prod server simultaneously).
-**Avoids:** Pitfall 7 (port audit catches node.exe dev server on pod even if process name matches).
+**Rationale:** Deploy updated rc-sentry to Pod 8. Simulate crash via `/exec` (`taskkill /F /IM rc-agent.exe`). Observe full pipeline: 15s crash declaration, log reads, Tier 1 fixes, restart, health verification, fleet report received at server. Verify no EAC-triggering API calls. Roll to remaining 7 pods after canary validates.
+**Delivers:** Confirmed working crash detection, diagnosis, and restart pipeline on all 8 pods.
+**Addresses:** TS-6 (fleet report verified), all table stakes features end-to-end.
+**Avoids:** Pitfall 1 (verify no game process handles in logs during F1 25 session).
 
 ### Phase Ordering Rationale
 
-- Phase 1 first: compiler hard dependency. No rc-agent or racecontrol code can reference new types until rc-common compiles.
-- Phase 2 before any enforcement code: the schema determines correctness. Retrofitting per-machine fields or path verification after enforcement is live creates a window where the guard is running with an incomplete model.
-- Phase 3 before Phase 4: pods need to fetch the whitelist on WS connect. The endpoint must exist before agents deploy.
-- Phase 4 deploys with `report_only` mode: allows whitelist tuning against real fleet process inventory before kills are enabled. Prevents false-kill incidents during rollout.
-- Phase 5 last: secondary enforcement vectors that do not block the core guard from functioning.
+- rc-common first: compiler hard dependency. Both racecontrol and rc-sentry import `SentryCrashReport`.
+- rc-sentry watchdog before server endpoint: sentry modules are independently testable; building them first allows the hardest integration work (Ollama, Tier 1 fixes, FSM) to be tested in isolation.
+- Server endpoint before integration test: `fleet_reporter.rs` will silently fail if server endpoint doesn't exist, masking a required feature during testing.
+- bat file before integration test: without stderr redirect, crash log analysis produces empty results and every test crashes through to Ollama unnecessarily.
+- Pod 8 canary last: standing deploy rule; canary validates before fleet exposure.
 
 ### Research Flags
 
 Phases needing deeper research or verification during planning:
-- **Phase 4 (Pod canary):** Benchmark test required on an active gaming pod. Scan cycle must complete in under 20ms. This must be measured, not assumed. If WMI was inadvertently used anywhere, it will manifest here.
-- **Phase 4 (Whitelist population):** The initial `racecontrol.toml` global_whitelist and pod override sections need to be populated from the actual running process inventory on all 8 pods. Suggest a one-time audit script (`sysinfo` dump) run before Phase 4 ships to capture the full legitimate process set.
+- **Phase 2 (Tier 1 fixes):** The exact socket cleanup commands for stale port 8090 in TIME_WAIT need verification against the specific Windows 11 version on pods. `netsh int ip delete arpcache` vs `SetTcpEntry()` approach — confirm which works reliably via test on Pod 8 before baking into `tier1_fixes.rs`.
+- **Phase 2 (debug-memory.json schema):** The `pattern_key` derivation in rc-sentry differs from rc-agent's (log content hash vs SimType/exit_code). Confirm the key derivation produces stable, collision-resistant keys for log-based patterns before the memory write path is implemented.
 
 Phases with well-established patterns (skip additional research):
-- **Phase 1:** Protocol extension is a solved pattern — 15+ existing `AgentMessage` variants in `rc-common/src/protocol.rs` to follow.
-- **Phase 2:** TOML config schema follows the identical pattern as every other `[section]` in `racecontrol.toml`.
-- **Phase 3:** HTTP endpoint registration and `ProcessGuardStore` pattern are identical to `FleetHealthStore` in `fleet_health.rs`.
+- **Phase 1 (rc-common types):** Direct pattern from existing `SentryCrashReport` analogs in `rc-common/src/types.rs`.
+- **Phase 3 (racecontrol endpoint):** Identical pattern to `FleetHealthStore` extension in `fleet_health.rs` — 15+ prior examples.
+- **Phase 4 (bat file):** One-line change; `self_heal.rs` constant update is a single-file edit with precedent from v4.0 self-heal work.
 
 ---
 
@@ -163,22 +164,22 @@ Phases with well-established patterns (skip additional research):
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All dep versions verified against actual Cargo.toml files in the repo. Two new crates (netstat2, walkdir) confirmed on crates.io. sysinfo 0.33 API confirmed in existing source files. |
-| Features | HIGH | Feature set sourced from direct codebase audit of kiosk.rs, self_heal.rs, fleet_health.rs, protocol.rs, and the trigger incident record. MVP is a direct response to known failures — no speculative requirements. |
-| Architecture | HIGH | Build order derived from compiler dependency graph. All integration points (event_loop.rs, AppState, ws_handler.rs) read directly. Anti-patterns confirmed against existing codebase. |
-| Pitfalls | HIGH | 12 pitfalls documented. All three trigger incidents (Steam, leaderboard Edge, watchdog.cmd) are confirmed real events. WMI performance pitfall confirmed in Microsoft Learn docs. PID reuse race is well-documented OS behavior. |
+| Stack | HIGH | All dep versions verified against actual `Cargo.toml` files. No new crate lock entries needed — chrono and anyhow already workspace-locked. Implementation patterns verified against existing `ai_debugger.rs` and `self_monitor.rs`. |
+| Features | HIGH | Feature set sourced from direct codebase audit of rc-sentry, rc-agent, ai_debugger.rs, self_monitor.rs, and PROJECT.md. Anti-cheat constraints confirmed from EAC/iRacing official sources. MVP is a direct port of proven patterns. |
+| Architecture | HIGH | Build order derived from compiler dependency graph. All integration points read from actual source files. Anti-patterns confirmed against existing codebase. 5-phase build order matches the ARCHITECTURE.md's recommended sequence. |
+| Pitfalls | HIGH | 9 pitfalls documented with specific prevention steps and phase assignments. EAC kernel scan behavior confirmed from Microsoft Learn and iRacing official docs. Race conditions and timing issues sourced from rust-lang/rust GitHub issues. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Initial whitelist population:** The research defines the schema but does not enumerate every legitimate process on all 8 pods. A one-time inventory run (sysinfo dump via fleet exec endpoint) is needed before Phase 4 goes to production. Without it, the whitelist will have false positives that generate kills on legitimate processes.
+- **Tier 1 socket cleanup commands:** The specific `netsh` or `SetTcpEntry` approach for clearing TIME_WAIT on port 8090 needs a live test on Windows 11 22H2/24H2 before baking into `tier1_fixes.rs`. Commands that work on older Windows builds may behave differently under 24H2 network stack changes.
 
-- **James whitelist scope:** `CLAUDE.md` and `STATE-v12.1.md` confirm James runs Ollama, node, python, comms-link, deploy tooling, and VS Code. The `[process_guard.overrides.james]` section needs to enumerate all of these explicitly. The rc-process-guard binary on James will use this section. Verify completeness before enabling enforcement on James.
+- **Ollama model pre-warm strategy:** `OLLAMA_KEEP_ALIVE` defaults to 5 minutes. If the venue has long idle periods between crashes, every Ollama query will be a cold start. Consider documenting a pre-warm approach (James can set `OLLAMA_KEEP_ALIVE=-1` to keep model loaded indefinitely) as an operational note.
 
-- **schtasks CSV output parsing:** Scheduled Task audit (Phase 5) relies on `schtasks /query /fo CSV` output parsing. The CSV column layout is stable since Windows 7 but the exact task names for the venue's own scheduled tasks (Kiosk, WebDashboard) need to be confirmed from the server .23 before populating the allowed list.
+- **`start-rcagent.bat` current state:** ARCHITECTURE.md notes that `start-rcagent.bat` currently does not redirect stderr. Verify the exact current file content before writing the updated `self_heal.rs` constant — the bat file may have changed since last documented.
 
-- **Port whitelist for pods:** Pod UDP telemetry ports (9996, 20777, 5300, 6789, 5555) and rc-agent HTTP (8090) need to be in the pod port whitelist. Confirm all ports against `CLAUDE.md` service table before Phase 5 ships.
+- **debug-memory.json pattern_key for sentry context:** rc-agent keys on `SimType/exit_code`; rc-sentry must key on log content patterns (no SimType available post-crash). The exact hash/key derivation algorithm should be decided in Phase 2 spec before implementation to ensure memory hits are possible across sentry and agent for the same crash pattern.
 
 ---
 
@@ -186,31 +187,33 @@ Phases with well-established patterns (skip additional research):
 
 ### Primary (HIGH confidence — direct source inspection)
 
-- `crates/rc-agent/src/kiosk.rs` — `ALLOWED_PROCESSES` (60+ entries), `sysinfo` usage, `ProcessApprovalRequest` flow
-- `crates/rc-agent/src/self_heal.rs` — `winreg` Run key read/write patterns
-- `crates/rc-agent/src/self_monitor.rs` — background daemon pattern, log rotation constants
-- `crates/rc-agent/src/config.rs` — `AgentConfig` schema, TOML section design
-- `crates/rc-agent/src/game_process.rs` — `taskkill` invocation, process name constants
-- `crates/racecontrol/src/fleet_health.rs` — `FleetHealthStore` extension points
-- `crates/rc-common/src/protocol.rs` — all existing `AgentMessage` and `CoreToAgentMessage` variants
-- `crates/rc-agent/Cargo.toml` — sysinfo 0.33, winapi 0.3 features confirmed
-- `crates/racecontrol/Cargo.toml` — sysinfo 0.33 confirmed, no existing windows-only dep block
-- `Cargo.toml` (workspace) — tokio, tracing, serde, toml, anyhow versions confirmed
-- `.planning/PROJECT.md` — v12.1 milestone context, trigger incident
-- `CLAUDE.md` / `STATE-v12.1.md` — standing rule #2, incident origin, static IP assignments
+- `crates/rc-sentry/src/main.rs` — confirmed pure-std, thread-per-connection, 6 endpoints, 4-slot concurrency cap
+- `crates/rc-agent/src/ai_debugger.rs` — DebugMemory struct, 14 Tier 1 fix patterns, 4-tier debug order, billing gate rule, pattern_key logic
+- `crates/rc-agent/src/self_monitor.rs` — health monitoring pattern, relaunch_self(), log_event(), CLOSE_WAIT detection, escalation logic
+- `crates/rc-agent/src/startup_log.rs` — log paths, write_phase(), detect_crash_recovery()
+- `crates/rc-agent/src/self_heal.rs` — START_SCRIPT_CONTENT, repair patterns
+- `crates/rc-common/src/protocol.rs` — AgentMessage variants, StartupReport fields
+- `crates/racecontrol/src/fleet_health.rs` — FleetHealthStore, existing crash_recovery field
+- `crates/rc-sentry/Cargo.toml` — confirmed current deps: serde, serde_json, toml, tracing, sysinfo 0.33
+- `Cargo.toml` (workspace) — confirmed chrono, anyhow, serde_json as workspace deps
+- `.planning/PROJECT.md` — v11.2 target features, anti-cheat constraints, milestone state
 
 ### Secondary (HIGH confidence — official documentation)
 
-- [winreg on crates.io](https://crates.io/crates/winreg) — 0.55.0 confirmed latest (2025-01-12)
-- [netstat2 on crates.io](https://crates.io/crates/netstat2) — 0.11.2 current; `GetExtendedTcpTable` confirmed
-- [TerminateProcess Win32 docs](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess) — fallback kill path
-- [WMI performance troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/scenario-guide-troubleshoot-wmi-performance-issues) — Microsoft Learn
-- [MITRE ATT&CK T1547.001](https://attack.mitre.org/techniques/T1547.001/) — Startup folder + Run key paths
+- [EasyAntiCheat kernel driver — Microsoft Learn](https://learn.microsoft.com/en-us/answers/questions/3962392/easy-anti-cheat-driver-incompatible-with-kernel-mo) — confirmed EAC kernel-mode scope
+- [iRacing anti-cheat migration to EOS EAC](https://support.iracing.com/support/solutions/articles/31000173103-anticheat-not-installed-uninstalling-eac-and-installing-eos-) — confirmed iRacing uses EOS variant
+- [Rust panic hook stderr on Windows](https://github.com/rust-lang/rust/issues/25643) — confirmed stderr behavior on Windows subsystem binaries
+- [RUST_BACKTRACE — Rust Book](https://doc.rust-lang.org/book/ch09-01-unrecoverable-errors-with-panic.html) — confirmed requirement for stack traces in panic output
+- [reqwest timeout configuration](https://webscraping.ai/faq/reqwest/how-can-i-set-a-request-in-reqwest) — connect_timeout vs total timeout distinction
 
-### Tertiary (MEDIUM confidence — corroborating)
+### Secondary (MEDIUM confidence)
 
-- [PID reuse race condition](https://access.redhat.com/solutions/30695) — Red Hat; Linux origin but PID reuse is OS-agnostic
-- [Windows Update svchost/wuauserv crash confirmation](https://www.windowslatest.com/2025/04/30/microsoft-confirms-windows-11-24h2-0x80240069-svchost-exe_wuauserv-crashes/) — Windows Latest
+- [EAC continuous kernel scanning behavior](https://forums.ea.com/discussions/apex-legends-technical-issues-en/bug-report-%E2%80%93-easyanticheat-eos-sys-kernel-scan-loop/13034346) — EA Forums
+- [Anti-cheat false positives: ASUS Aura Sync flagged](https://gamespace.com/all-articles/news/easy-anti-cheat-download-install/) — confirms legitimate background apps can trigger EAC
+- [Ollama KEEP_ALIVE model loading latency](https://markaicode.com/troubleshooting-ollama-tool-execution-timeouts/) — 30-90s cold start confirmed
+- WebSearch: reqwest 0.12.x confirmed as latest stable 0.12 series
+- WebSearch: Ollama `/api/generate` REST endpoint confirmed stable (stream: false for blocking response)
+- WebSearch: Watchdog escalation patterns (interrupt.memfault.com firmware watchdog best practices)
 
 ---
 

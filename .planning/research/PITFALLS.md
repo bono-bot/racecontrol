@@ -1,286 +1,248 @@
 # Pitfalls Research
 
-**Domain:** Windows process monitoring / whitelist enforcement on gaming fleet (v12.1 E2E Process Guard)
+**Domain:** Adding crash-diagnosing watchdog to existing Rust binary on Windows — RC Sentry AI Debugger (v11.2)
 **Researched:** 2026-03-21
-**Confidence:** HIGH — drawn from direct incident record (Steam/leaderboard/watchdog/dev+prod incidents) + Windows internals knowledge + verified web sources
+**Confidence:** HIGH — drawn from direct codebase knowledge (rc-sentry v11.0, rc-agent architecture), Windows process management internals, EAC/iRacing anti-cheat documentation, and verified community sources
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Keyword-Scoped Audit Instead of Whitelist-Inversion
+### Pitfall 1: Anti-Cheat Ban From Process Inspection — The Line Is Not Where You Think It Is
 
 **What goes wrong:**
-The audit that triggered v12.1 is the canonical example. Steam, the leaderboard kiosk Edge instance, and the voice assistant watchdog were all missed because the audit searched for processes related to "racing/pod" keywords rather than enumerating everything running and checking it against a known-good list. Keyword scanning is an allowlist by accident — it only finds what you already know to look for.
+F1 25 uses EasyAntiCheat EOS (Epic Games variant, kernel driver `easyanticheat_eos.sys`). iRacing uses its own EAC variant (migrated from Kamu EAC to Epic EOS in recent seasons). Both run at kernel level and perform continuous scanning of the process list, memory regions, and system drivers. The mistake is assuming the line between "safe" and "banned" is at OpenProcess/ReadProcessMemory. It is not — EAC's scan is aggressive and flag-then-investigate: activities like iterating the process list with `CreateToolhelp32Snapshot`, calling `QueryFullProcessImageName()` on game-owned PIDs, or reading the game's working set size via `GetProcessMemoryInfo()` on the game PID can trigger heuristic flags. ASUS Aura Sync (a legitimate background app) was flagged by EAC for using a driver that EAC interpreted as suspicious. The rc-sentry name and behavior profile (external binary, polling, process enumeration) fits the same threat signature as a cheat tool's loader.
 
 **Why it happens:**
-The natural tendency is to ask "is anything pod-related in the wrong place?" instead of "is everything running supposed to be running?" The audit felt complete because it caught several violations, but the framing was wrong from the start. String matching against suspected bad actors will always have gaps.
+Developers assume that because rc-sentry does not inject code or modify game memory, EAC will not care. EAC does not know rc-sentry's intent — it classifies behavior, not intent. A sentry binary that opens handles to game processes, reads their memory size, or even sits adjacent to an active EAC session with unusual API call patterns can trigger a report.
 
 **How to avoid:**
-The guard's logic must be: `running_processes - whitelist = violations`. Never the reverse. The whitelist is the source of truth. Anything not on it is a violation regardless of whether anyone thought to search for it. Implement deny-by-default: unknown process = violation, not unknown process = ignore.
+The constraint already stated in PROJECT.md is the correct answer and must be treated as a hard limit with no exceptions: no process inspection, no debug APIs, no `OpenProcess()` on game PIDs, no enumeration of handles belonging to the game process. The sole safe mechanism for crash detection is the health endpoint poll — `GET localhost:8090/health` returning 200 or timing out. Do not add any "helpful" supplementary check that touches the game process. If the health endpoint goes silent, that is the only crash signal. Specifically:
+- Never call `OpenProcess()` with `PROCESS_VM_READ` or `PROCESS_QUERY_INFORMATION` while a game is running.
+- Never call `CreateToolhelp32Snapshot()` with `TH32CS_SNAPMODULE` (module enumeration flags EAC kernel scanner).
+- `TH32CS_SNAPPROCESS` for process list enumeration is lower risk than module enumeration, but still avoid querying specific game PIDs.
+- rc-sentry's own HTTP polling loop must not vary its behavior based on which game is running — consistent behavior is harder to flag than conditional behavior.
 
 **Warning signs:**
-- Guard code contains string matching (`contains("steam")`, `contains("game")`) instead of set membership check
-- Whitelist grows via "add what I know" rather than "enumerate what is running and approve selectively"
-- Audit reports "no violations found" but no one can name every process on the machine
+- rc-sentry code has a `find_process_by_name()` or equivalent function that is called while games may be running.
+- Log lines show "checking if game PID is running" distinct from the health endpoint poll.
+- A new "supplementary crash detection" mechanism is added that uses any WinAPI other than TCP socket connect.
 
 **Phase to address:**
-Phase 1 (Whitelist Schema) — the data model must enforce deny-by-default. A `whitelist: Vec<ApprovedProcess>` where anything not in the set is a violation, never a blocklist.
+Phase 1 (Health Polling Watchdog) — the API surface is defined here. Document the anti-cheat constraint explicitly in the module's doc comment. No process inspection path should exist in the code even as dead code.
 
 ---
 
-### Pitfall 2: Killing Transient System Processes During Boot and Windows Updates
+### Pitfall 2: Watchdog Restart Loop — Fixing the Crash That Keeps Crashing
 
 **What goes wrong:**
-Windows spawns short-lived processes during startup, Windows Update, driver installation, and Defender scans. Examples: `MpCmdRun.exe` (Defender scan), `TiWorker.exe` (Windows Update), `msiexec.exe` (installer), `DismHost.exe` (DISM repair), `MusNotification.exe` (update notification), `wuauclt.exe`, `svchost.exe` with the `wuauserv` service. A process guard with a short scan cycle that kills anything not on the whitelist will terminate these mid-execution, corrupting update state, leaving drivers partially installed, or breaking Defender's signature database. Microsoft has confirmed svchost.exe/wuauserv crashes as a known Windows 11 24H2 issue — killing mid-process makes recovery harder.
+rc-sentry detects rc-agent crash → runs Tier 1 fixes (clear sockets, kill zombies, repair config) → restarts rc-agent → rc-agent crashes again within 30 seconds from the same cause (Tier 1 fixes did not address it) → rc-sentry detects crash again → applies same fixes → restarts again → crash loop at full speed. With a 5-second health poll interval and no restart rate limiting, this loop runs at ~10 restarts per minute. Consequences: (1) if a billing session is active, it is torn down and restarted repeatedly, creating ghost billing records; (2) Ollama is queried every cycle with the same crash context → James .27:11434 is hammered with requests; (3) the fleet dashboard shows the pod as perpetually "restarting" with no actionable signal for staff.
 
 **Why it happens:**
-These processes are transient — they appear, do work, and exit. They are not in the "installed software" mental model so they get omitted from the whitelist. The guard sees them once and kills them before anyone realizes they should be allowed.
+The watchdog is designed to fix and restart. Without explicit restart storm detection, "fix failed, try again" and "infinite restart loop" look identical to the watchdog. The backoff the existing rc-agent watchdog uses (EscalatingBackoff in rc-common) must be carried forward to rc-sentry's restart logic — but developers often write the new crash-restart path without importing the existing backoff infra.
 
 **How to avoid:**
-- Build a two-tier whitelist: permanent processes (always allowed) and a system-process exclusion zone. Processes with image paths under `C:\Windows\System32\`, `C:\Windows\SysWOW64\`, or `C:\Program Files\Windows Defender\` that are signed by Microsoft default to ALERT-only, never auto-kill.
-- Implement a kill grace period: flag for two consecutive scan cycles before killing. Transient Windows processes typically exit within 30-60 seconds without intervention. A process seen once and gone is never killed.
-- Never kill processes whose parent is `TrustedInstaller.exe`, `wininit.exe`, or `services.exe` unless explicitly configured.
+Reuse the existing `EscalatingBackoff` from rc-common (it is already there from v1.0 WD-01/WD-02). Apply it to the restart decision in rc-sentry: after each restart, back off before the next attempt (30s → 60s → 120s → cap at 300s). Track restart count per session. At 3 restarts within 5 minutes, escalate to "block pod" state and alert staff instead of continuing to restart. Reset the backoff counter only when rc-agent has been healthy for at least 2 minutes (the same post-restart verification pattern from WD-03/WD-04).
+
+The crash pattern memory (`debug-memory.json`) must include a `last_fix_applied` and `fix_success_count` field per pattern. If the same fix is applied 3 times without recovery, the pattern is classified as "fix ineffective" and Tier 3 Ollama is invoked regardless of pattern match.
 
 **Warning signs:**
-- Windows Update silently fails or partially applies after guard deployment
-- Defender reports outdated signatures (update was killed mid-download)
-- Driver installs require multiple attempts
+- The restart path in rc-sentry does not import or reference `EscalatingBackoff`.
+- restart decision is made immediately after crash detection with no delay.
+- Fleet dashboard shows pod cycling between "crashed" and "restarting" states at regular intervals.
+- Ollama query log shows the same crash signature queried multiple times per minute.
 
 **Phase to address:**
-Phase 1 (Whitelist Schema) — system process exclusion rules in the data model from day one. Phase 2 (Enforcement Logic) — kill grace period baked into the enforcement loop, not added later.
+Phase 2 (Tier 1 Deterministic Fixes + Restart Logic) — backoff is a first-class requirement, not an improvement to add later.
 
 ---
 
-### Pitfall 3: PID Reuse Race — Killing the Wrong Process
+### Pitfall 3: Crash Log Is Gone When You Read It — Timing and File Lifecycle
 
 **What goes wrong:**
-The guard scans, sees `SomeProcess.exe` (PID 4821) that is not whitelisted, resolves to kill it. Between the scan and the `TerminateProcess()` call, PID 4821 exits naturally and Windows reassigns that PID to a new process — possibly `rc-agent.exe` or `racecontrol.exe`. The guard kills the new holder of the PID. This is not hypothetical: the killproc PID reuse race is a documented failure mode in OS process management, and Windows PID reuse is as fast as Linux's.
+rc-agent crashes. rc-sentry detects the crash via health poll timeout. rc-sentry calls Tier 1 fixes, which include "kill zombie processes" — one of which may be the previous rc-agent process that still holds an open file handle to the startup log or stderr capture file. `TerminateProcess()` on the zombie releases the handle and flushes the file buffer. If rc-sentry reads the log before the handle is released (i.e., before killing the zombie), it reads a truncated or still-locked file. On Windows, a file held open with `GENERIC_WRITE | FILE_FLAG_NO_BUFFERING` cannot be read by another process even with `GENERIC_READ` unless the original opener used `FILE_SHARE_READ`.
 
 **Why it happens:**
-Process enumeration (`CreateToolhelp32Snapshot`, WMI `Win32_Process`) returns a snapshot. The act of killing is a separate syscall. On a busy gaming machine with many short-lived processes (game shader compilers, audio helpers, overlay processes), the window between snapshot and kill can be 10-50ms — enough for PID reuse under load.
+The natural ordering is: detect crash → read logs → apply fixes → restart. But the log may be held by the crashed process (which is still technically alive as a zombie). The correct ordering for log capture is: detect crash → kill zombie → wait for handle release → read logs → apply other fixes → restart.
 
 **How to avoid:**
-Never kill by PID alone. Kill by PID + process name + creation time triple. Open a handle with `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE)`, verify the process name and creation time (via `GetProcessTimes()`) against the snapshot values, then call `TerminateProcess()` only if both match. Mismatch means the PID was reused — log and skip.
+Log reading must happen after zombie termination. The Tier 1 sequence must be:
+1. Kill zombie rc-agent process (with handle release).
+2. Wait 500ms for OS to flush and release file handles.
+3. Read startup_log, stderr capture, and panic output files.
+4. Apply remaining fixes (socket cleanup, config repair, shader cache clear).
+5. Restart.
+
+For the stderr capture specifically: rc-agent's stderr must be redirected to a file with `FILE_SHARE_READ` in the spawn call so rc-sentry can read it without waiting for zombie termination. Document this requirement in rc-sentry's process spawn code.
 
 **Warning signs:**
-- Kill function takes a `u32` pid with no additional identity verification
-- rc-agent crashes with no error in its own logs (killed externally)
-- Random pod disconnects correlating with guard scan cycle timing
+- Log parsing happens before zombie kill in the Tier 1 fix sequence.
+- rc-sentry logs "could not read startup_log: access denied" or "file locked" errors.
+- rc-sentry consistently reads empty or truncated logs despite rc-agent clearly logging before crash.
 
 **Phase to address:**
-Phase 2 (Enforcement Logic) — the kill function must be: open handle, verify identity, kill or abort. This is correctness, not optional hardening.
+Phase 3 (Post-Crash Log Analysis) — the file access ordering and `FILE_SHARE_READ` requirement are implementation details that must be in the spec, not discovered during testing.
 
 ---
 
-### Pitfall 4: Self-Kill — Guard Terminates Itself or Its Parent Service
+### Pitfall 4: Pattern Memory JSON Corruption From Concurrent Access
 
 **What goes wrong:**
-The process guard binary (`rc-process-guard.exe` or the guard module inside `rc-agent.exe`) appears in the process list. If its own name is not on the whitelist, or if it matches under a slightly different image name (renamed binary, different path, casing difference), it kills itself. For the embedded module case: the guard is a module inside `rc-agent.exe`. It scans, sees rc-agent is not on the whitelist (typo, wrong casing, path mismatch), triggers a kill of the containing process — which is itself.
+rc-sentry runs as a long-lived service with a health polling loop (every 5s) and a separate Axum HTTP server serving existing endpoints. The debug-memory.json file is read at crash detection time (to check for known patterns) and written after each Ollama query result (to store new patterns). If a concurrent HTTP request hits a `/debug-memory` endpoint while a crash analysis write is in progress, two writes can interleave, producing a partial JSON file that fails to deserialize on the next read. The next crash falls through to Ollama even for a known pattern. In the worst case, the JSON file is left at 0 bytes due to a truncate-before-write that interrupted.
 
 **Why it happens:**
-Self-reference is easy to overlook. The developer mentally excludes "us" but forgets to encode that exclusion. Windows file paths are case-insensitive but string equality is case-sensitive in Rust by default — `RC-Agent.exe` vs `rc-agent.exe` breaks a naive equality check.
+`tokio::fs::write()` is not atomic on Windows. It truncates the file then writes the new content. If the process crashes, is killed, or a second writer races between truncate and write, the file is empty. This is a known failure mode for any "write JSON file atomically" pattern.
 
 **How to avoid:**
-- Self-identity determined at runtime: `std::env::current_exe()` for canonical path, `std::process::id()` for own PID. Both excluded from kill candidates unconditionally, before whitelist lookup, regardless of whitelist contents.
-- For the embedded module case: the PID of the containing process (`rc-agent`) is unconditionally excluded.
-- All process name comparisons must use case-insensitive matching: `eq_ignore_ascii_case()` in Rust.
-- The direct parent of the guard process is also excluded from kills.
+Never write to `debug-memory.json` directly. Write to `debug-memory.json.tmp`, then call `std::fs::rename()` (atomic on the same volume on Windows) to replace the old file. In Rust on Windows, `std::fs::rename()` maps to `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`, which is atomic at the filesystem level. Protect all reads and writes behind a `tokio::sync::RwLock<DebugMemory>` held in AppState — the same pattern already used for URL switching in rc-sentry v11.0. Memory-first: load into the RwLock at startup, write-through to disk on mutation.
 
 **Warning signs:**
-- Guard exits immediately after first scan with no error log
-- rc-agent restarts unexpectedly correlated with guard scan cycle timing
-- Guard never logs any violations (it died before it could report)
+- `debug-memory.json` is read from disk on every crash event (no in-memory cache behind a RwLock).
+- Write path uses `tokio::fs::write()` or `std::fs::write()` directly without a `.tmp` + rename sequence.
+- No lock guards the memory file access path.
+- rc-sentry logs "failed to parse debug-memory.json: unexpected end of file" after a crash during analysis.
 
 **Phase to address:**
-Phase 2 (Enforcement Logic) — self-exclusion is the first filter applied before any whitelist logic runs.
+Phase 4 (Crash Pattern Memory) — atomic write and RwLock are design requirements, not implementation details to figure out during coding.
 
 ---
 
-### Pitfall 5: Auto-Start Entry Removed Without Per-Machine Context
+### Pitfall 5: Ollama Cold Start Blocks the Restart Sequence
 
 **What goes wrong:**
-This happened already: Edge kiosk (leaderboard) had its `HKLM\Run` entry on a pod instead of the server. The auto-start audit removes it as a violation. The leaderboard stops loading after pod restart and no one knows why — there is no error, the process just never starts. Registry entries do not re-add themselves the way processes can be restarted.
+Ollama on James .27:11434 serves `qwen3:0.6b`. The model is kept in memory while active but unloads after an idle period (default 5-minute `OLLAMA_KEEP_ALIVE`). If the first crash of the day triggers an Ollama query and the model is not loaded, Ollama must load the model before responding. Model load time for qwen3:0.6b on the RTX 4070 is 10-30 seconds. The rc-sentry Tier 3 query is made from within the post-crash analysis path that is blocking the restart sequence. The pod stays down for 30+ seconds while Ollama cold-starts, even though the restart decision could have been made without an LLM.
+
+The second failure mode: if Ollama is unreachable (James .27 is offline, network blip, Ollama service not running), `reqwest` with no timeout set will hang indefinitely. The health polling loop for rc-agent is blocked behind the Ollama request, meaning crash detection for other pods stops while one Ollama query hangs.
 
 **Why it happens:**
-Auto-start audit without per-machine context removes entries that are valid on one machine but invalid on another. The guard correctly identifies the entry as a violation on the pod, but the fix (remove it) silently breaks expected behavior with no recovery path unless someone knows to restore it.
+Developers set a timeout for the HTTP client but forget the Ollama endpoint is on a separate machine. Connection timeout and read timeout are different: `reqwest::ClientBuilder::connect_timeout()` covers the TCP handshake but `reqwest::ClientBuilder::timeout()` is the total request time. Forgetting the total timeout means a connected but slow Ollama response hangs the caller indefinitely.
 
 **How to avoid:**
-- Per-machine whitelist sections in `racecontrol.toml`. The server's `[machine.server]` section includes `Edge --kiosk leaderboard` in auto-start. Pod sections do not. The guard computes violations relative to the machine's own whitelist section.
-- ALERT before REMOVE for auto-start entries. The kill-on-sight policy for processes does not extend to registry entries. Removing an auto-start entry is harder to detect and harder to recover from than killing a process. Auto-start enforcement should have a three-stage progression: LOG (default, configurable) → ALERT (after N cycles) → REMOVE (only with `autostart_enforcement = "remove"` explicitly set in config).
-- Write a restore backup file (`autostart-removed-YYYYMMDD.toml`) before removing any auto-start entry.
+Tier 3 Ollama query must run in a detached `tokio::spawn()` that does not block the restart sequence. The restart decision and the Ollama query must be decoupled: restart immediately after Tier 1/2 fail, then fire the Ollama query asynchronously, then update debug-memory.json when the result arrives. The Ollama result is used to annotate the next crash, not to gate the current restart.
+
+Set both timeouts on the reqwest client for Ollama:
+- `connect_timeout`: 5 seconds (if .27 is unreachable, fail fast).
+- `timeout`: 45 seconds total (covers model load cold start up to 30s + inference up to 15s).
+
+If the Ollama query times out or returns a network error, log the failure, increment a `ollama_failure_count` counter, and proceed as if no LLM result was available. Do not retry the same query in a loop.
 
 **Warning signs:**
-- Service or kiosk stops loading after pod restart without any deploy event
-- Registry Run key count on a machine drops without a corresponding deploy commit
-- Kiosk shows blank screen instead of expected content after reboot
+- Ollama query is `await`ed in the same future chain as the restart call.
+- `reqwest::Client` for Ollama has no `timeout()` set.
+- Pod restart latency in logs is 30+ seconds on the first crash of the day.
+- Crash analysis for pod 2 is blocked while pod 1's Ollama query is pending.
 
 **Phase to address:**
-Phase 1 (Whitelist Schema) — per-machine `[machine.pod_N]` sections with explicit auto-start entries. Phase 3 (Auto-Start Audit) — LOG → ALERT → REMOVE progression implemented as three distinct enforcement modes.
+Phase 5 (Tier 3 Ollama Integration) — decoupled async Ollama path and dual timeout are defined before a single line of Ollama query code is written.
 
 ---
 
-### Pitfall 6: Watchdog Infinite Restart Loop Survives Kill
+### Pitfall 6: Windows Process Kill Leaves Stale TCP Sockets — Tier 1 Fix Incomplete
 
 **What goes wrong:**
-The voice assistant watchdog (`watchdog.cmd`) was an infinite restart loop. The guard kills the process. The watchdog restarts it within 200ms. The guard kills it again. This creates a kill-restart storm that consumes CPU, floods the violation log, and fires repeated alerts — but the underlying problem (watchdog.cmd in the Startup folder) is never addressed because process-level kill does not remove the auto-start source.
+rc-agent holds open TCP sockets: the WebSocket connection to racecontrol server, the HTTP server on port 8090, and potentially CLOSE_WAIT sockets from previous sessions (the CLOSE_WAIT leak was a known issue patched in v8.0, but crash conditions can bypass the cleanup path). When rc-agent crashes, these sockets enter TCP TIME_WAIT or CLOSE_WAIT. Tier 1 fix "clean stale sockets" must handle this correctly — but the common mistake is running `taskkill /IM rc-agent.exe /F` and then immediately attempting to start rc-agent. Port 8090 is still bound by the OS for the TCP TIME_WAIT period (default 2 minutes on Windows, configurable via `TcpTimedWaitDelay` registry key). rc-agent fails to bind port 8090 at startup, logs "address already in use", and rc-sentry interprets this as another crash.
 
 **Why it happens:**
-Process-level kill treats the symptom (running process) without treating the cause (auto-start entry). A self-restarting process cannot be eliminated by killing alone.
+taskkill kills the process but does not flush the TCP stack. On Windows, `SO_REUSEADDR` semantics differ from Linux — it does not override TIME_WAIT sockets in Windows the way `SO_REUSEPORT` would. rc-agent's Axum listener binding without `SO_REUSEADDR` will fail if the previous port is in TIME_WAIT.
 
 **How to avoid:**
-- Kill sequence must be: (1) identify auto-start source for this process name, (2) remove or disable auto-start entry, (3) kill the process. Kill without auto-start removal is futile for watchdogged processes.
-- Implement restart storm detection: if the same process name is killed 3 or more times within 60 seconds, escalate to "auto-start audit required" and suppress further kills until the auto-start source is resolved. Alert staff with the specific auto-start location.
-- The `Startup` folder (both `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup` and `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup`) must be included in every auto-start audit alongside registry Run keys.
+Tier 1 socket cleanup must do more than kill the process. After killing the zombie rc-agent:
+1. Use `netstat -ano` (or the WinAPI equivalent `GetExtendedTcpTable`) to check whether port 8090 is still in any state (TIME_WAIT, CLOSE_WAIT, LISTEN).
+2. If still bound, wait up to 10 seconds polling every 1 second for the port to free.
+3. If still bound after 10 seconds, attempt `SetTcpEntry()` to force close lingering CLOSE_WAIT sockets before restart.
+4. Log the port state at each step so the crash analysis has visibility into socket lifecycle.
+
+rc-agent's Axum binding should already use `SO_REUSEADDR` (the existing socket hygiene work from v8.0). Verify it does; if not, this is a separate fix required before rc-sentry socket cleanup is reliable.
 
 **Warning signs:**
-- Same process name appears in kill log multiple times within 60 seconds
-- CPU usage on the pod increases after guard deployment (kill-restart storm overhead)
-- Alert rate for a single process does not decrease over time
+- Tier 1 fix sequence does not include a port readiness check after process kill.
+- rc-agent startup logs show "address already in use: port 8090" after a Tier 1 fix.
+- rc-sentry counts two crash events for what was one actual crash (restart failed, counted as second crash).
 
 **Phase to address:**
-Phase 2 (Enforcement Logic) — kill sequence includes auto-start source lookup. Phase 3 (Auto-Start Audit) — Startup folders included alongside HKCU/HKLM Run and Scheduled Tasks.
+Phase 2 (Tier 1 Deterministic Fixes) — socket cleanup is a multi-step sequence, not a one-line `taskkill`. The port readiness check is part of the fix, not optional.
 
 ---
 
-### Pitfall 7: Interpreted Runtime Whitelisting — node.exe Covers Both Dev and Prod
+### Pitfall 7: Panic Output Is Not Where You Think It Is on Windows
 
 **What goes wrong:**
-On James's machine, `next dev` (dev server) and `next start` (prod server) both appear as `node.exe`. If `node.exe` is on the whitelist, both are allowed — and dev server left running alongside prod server causes port conflicts and inconsistent kiosk behavior. Process name whitelisting is insufficient for interpreted runtimes. This is the exact scenario that occurred: kiosk Next.js dev and prod server running simultaneously.
+On Windows, a Rust binary built without `#![windows_subsystem = "windows"]` sends panic output to stderr. rc-agent is a console subsystem binary (service), so panic output goes to stderr. But when started via the Windows Service framework (HKLM Run → `start-rcagent.bat`), stderr is not connected to a file unless the bat script explicitly redirects it: `rc-agent.exe 2>>C:\RacingPoint\rc-agent-stderr.log`. The panic output is silently discarded. rc-sentry finds the log file empty or absent and cannot determine the crash cause. The crash is misclassified as "unknown" and Ollama is queried with no crash context.
+
+A second subtlety: `RUST_BACKTRACE=1` must be set in the environment of the rc-agent process for backtraces to appear in panic output. If the bat script does not set this environment variable, the panic message contains only the panic location with no call stack, which is not enough for Tier 2 memory matching on complex crashes.
 
 **Why it happens:**
-Multiple `node.exe` instances are indistinguishable by name. The developer whitelists the runtime (`node.exe`) without constraining which invocations are permitted.
+Developers test rc-agent interactively (from a terminal where stderr is visible) and never notice the bat script does not capture it. The missing redirect is invisible during development.
 
 **How to avoid:**
-- Whitelist entries for interpreted runtimes must include a `args_pattern` field. Example: `node.exe` is allowed only when args match `*next*start*` or `*server.js*`. Any `node.exe` with `*dev*` or `*--inspect*` in its command line on a pod is a violation.
-- Add a `max_instances: 1` field for processes that should have exactly one copy running. Two `node.exe` instances when one is expected triggers a violation for the extra instance.
-- Port audit supplements process audit: if port 3000 is bound on a pod (never approved for pods), that is a violation regardless of what process holds it. Port audit catches what process audit misses.
-- Retrieve full command line via `QueryFullProcessImageName()` and the `NtQueryInformationProcess` / WMI `CommandLine` field.
+The `start-rcagent.bat` must include:
+```
+set RUST_BACKTRACE=1
+rc-agent.exe >> C:\RacingPoint\rc-agent.log 2>> C:\RacingPoint\rc-agent-stderr.log
+```
+rc-sentry's log analysis must check the stderr log file path as the primary panic source, not rc-agent's tracing log (which only captures events that made it through the tracing subscriber before the panic unwind). Both paths should be checked:
+1. `C:\RacingPoint\rc-agent-stderr.log` — tail last 4KB for panic message and backtrace.
+2. `C:\RacingPoint\rc-agent.log` — tail last 8KB for tracing events leading up to the crash.
+
+The bat file must be updated as part of the rc-sentry AI Debugger implementation. This is a prerequisite, not a follow-up.
 
 **Warning signs:**
-- Port already in use errors on startup (two servers competing)
-- Kiosk loads inconsistently (requests sometimes hitting dev server)
-- Process guard shows no violations despite known rogue process running
+- `start-rcagent.bat` does not have `2>>` stderr redirection.
+- `RUST_BACKTRACE` is not set in the bat script environment.
+- rc-sentry log analysis consistently finds empty panic output and falls through to Ollama for every crash.
+- Panic output visible when running rc-agent from a terminal but never seen in log files.
 
 **Phase to address:**
-Phase 1 (Whitelist Schema) — `args_pattern` and `max_instances` fields in the whitelist entry schema. Phase 4 (Port Audit) — port whitelist as a complementary enforcement layer.
+Phase 3 (Post-Crash Log Analysis) — bat file update is a prerequisite task listed before the log parsing code is written.
 
 ---
 
-### Pitfall 8: Cross-Machine Boundary Violation — Pod Binary Running on James
+### Pitfall 8: Tier 1 Fixes Applied When rc-agent Is Still Running — Race Between Poll and Fix
 
 **What goes wrong:**
-Standing rule #2: NEVER run pod binaries on James's PC. `rc-agent.exe` on James crashes the workstation. Without programmatic enforcement, the rule is only as strong as human memory. A developer running `rc-agent.exe` locally to test behavior, or a deploy script targeting the wrong machine, violates this rule silently until the crash.
+Health endpoint poll times out at T=0 (poll sent, no response in 3 seconds). rc-sentry classifies this as a crash. rc-sentry begins Tier 1 fix sequence: kills zombie rc-agent process, clears sockets, repairs config. Meanwhile, rc-agent was not crashed — it was briefly unresponsive due to a GC pause, a large tokio task blocking the runtime, or a temporary network blip between rc-sentry and port 8090. rc-agent recovers and responds to the next poll at T=5. rc-sentry has already killed it and is mid-way through applying Tier 1 fixes to a healthy process. The active billing session is interrupted.
 
 **Why it happens:**
-During development or debugging, running a binary locally seems natural. The rule exists because of past crashes but is not enforced at the system level.
+A single poll timeout is an unreliable crash signal. The health endpoint poll has a 3-second timeout (reasonable for normal operation), but transient load spikes on a gaming pod (shader compilation, audio driver stalls, FFB firmware communication) can cause the HTTP server to be unresponsive for 3-8 seconds without a true crash.
 
 **How to avoid:**
-- Machine identity check built into the whitelist schema: each approved process entry carries an `allowed_machines` field specifying `["pod_*"]`, `["james"]`, or `["server"]`. The guard resolves machine identity at startup from hostname or static IP (read from config, not inferred) and filters the whitelist to only the entries for this machine.
-- `rc-agent.exe` on the `james` machine is a CRITICAL violation with immediate alerting — no kill grace period, no two-cycle wait. Same for `ollama.exe` or `webterm.py`/`python.exe` on pods.
-- Machine identity must be determined from the config (the `[machine]` section that names this machine), not from process introspection.
+Require N consecutive poll failures before classifying as crashed. The PROJECT.md spec says "every 5s" — this means: poll every 5 seconds, declare crashed only after 2 consecutive timeouts (10 seconds of silence) before initiating any Tier 1 action. Three consecutive timeouts (15 seconds) before process kill. This gives transient hangs time to resolve without triggering the fix sequence. The existing EscalatingBackoff pattern from rc-common captures this concept — apply the same hysteresis model used in v10.0 health monitoring (2 failures before state transition).
 
 **Warning signs:**
-- `rc-agent.exe` appears in James's process list
-- `ollama.exe` appears in a pod's process list
-- Deploy script output shows binary copied to wrong destination without any guard alert
+- Crash detection logic fires fix sequence after a single timeout.
+- rc-sentry logs show Tier 1 fixes applied to a pod where rc-agent was recovered and running within the same log minute.
+- Billing sessions show spurious interruptions on pods that have no rc-agent crash in their own logs.
 
 **Phase to address:**
-Phase 1 (Whitelist Schema) — `allowed_machines` is a mandatory field on every whitelist entry, not optional. Phase 2 (Enforcement Logic) — machine identity resolved at daemon startup, immutable for the run.
+Phase 1 (Health Polling Watchdog) — the crash classification threshold (N consecutive failures) is defined in the watchdog spec before implementation.
 
 ---
 
-### Pitfall 9: Config Sync Lag Kills a Newly Deployed Process
+### Pitfall 9: Adding HTTP Endpoints to rc-sentry Breaks the 4-Slot Concurrency Cap
 
 **What goes wrong:**
-Central `racecontrol.toml` is updated to add a new approved process (a new game launcher, a new monitoring tool). The config sync pushes to pods on the existing 30-second cycle. Between the update and the sync completing on all pods, the process guard on pods kills the new process as soon as it starts. The operator sees the process they just deployed being killed by the guard with no apparent reason, no error from the process itself.
+rc-sentry v11.0 has a hard 4-slot concurrency cap on exec endpoints (the `concurrency_guard` with a semaphore). The new crash analysis endpoints added by v11.2 (e.g., `/debug/status`, `/debug/memory`, `/crash-report` relay to server) consume slots from the same semaphore if added naively as regular Axum handlers. During a fleet-wide event (all 8 pods report crashes simultaneously), the racecontrol server may invoke rc-sentry's existing endpoints and the new crash endpoints at the same time, exhausting the 4-slot cap and causing the health polling loop itself to be blocked waiting for a slot.
 
 **Why it happens:**
-The guard runs continuously. Config sync is periodic. There is a 0–30 second window where the guard has stale whitelist config. If the new process starts within that window, it gets killed.
+The 4-slot cap was designed for the exec endpoints (which spawn external processes and have high resource cost). Informational endpoints like `/debug/status` do not need that guard but get lumped in if the developer applies the middleware at the router level rather than per-route.
 
 **How to avoid:**
-- The kill grace period (two consecutive scan cycles) provides a natural buffer. If the scan cycle is 10 seconds and grace period requires two hits, a process must be non-whitelisted for 20 seconds before being killed. This overlaps with the 30-second sync window — meaning a process that starts simultaneously with a config update will usually survive to see the updated whitelist.
-- Emit a `config_version` field (hash of the whitelist section) in the guard's heartbeat so the fleet dashboard can show which machines have current config.
-- Document the deploy sequence: push config first, verify `config_version` matches on all machines (check via fleet dashboard), then deploy the new process binary.
+Apply the concurrency semaphore only to endpoints that invoke external processes (`/exec`, `/files` with write operations). Read-only endpoints (`/health`, `/version`, `/debug/status`, `/debug/memory`) must be outside the semaphore. The health polling loop's internal poll (localhost HTTP call) must never compete with the semaphore-gated endpoints. The Axum router structure should be:
+```
+Router::new()
+  .route("/health", get(health_handler))       // no semaphore
+  .route("/debug/status", get(debug_status))   // no semaphore
+  .route("/exec", post(exec_handler           // semaphore-gated
+      .layer(semaphore_middleware)))
+```
 
 **Warning signs:**
-- Newly deployed process is killed within seconds of first start on a pod
-- Kill log shows the same process killed exactly once then never again (survived after config synced)
-- Alert fires for a process the operator just explicitly approved
+- Concurrency semaphore middleware applied at the top-level router instead of per-route.
+- `/debug/status` endpoint acquires an exec slot during a GET request.
+- During a crash storm test, health polling latency increases above the 3-second timeout threshold.
 
 **Phase to address:**
-Phase 1 (Whitelist Schema) — config includes version hash. Phase 5 (Fleet Integration) — deploy sequence documentation specifies config-first, verify-sync, then binary.
-
----
-
-### Pitfall 10: WMI Query Performance Overhead on Active Gaming Sessions
-
-**What goes wrong:**
-`SELECT * FROM Win32_Process` via WMI, or repeated `tasklist /FO CSV` calls in a polling loop, can spike CPU for 100-500ms per query. WMI's `Win32_Process` with no property filter enumerates all properties for all processes, forcing WMI provider host (`WmiPrvSE.exe`) to collect memory maps, handle tables, and string data for every process on the system. On a gaming pod running Assetto Corsa at 60fps with FFB active, any CPU spike causes frame drops and stutter visible to the customer.
-
-**Why it happens:**
-`SELECT *` queries are standard in scripts but unacceptable in a daemon running during active sessions. The developer reaches for the familiar WMI approach without measuring the overhead on a loaded gaming machine.
-
-**How to avoid:**
-- Use `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)` via WinAPI instead of WMI. This is a kernel-level snapshot with near-zero overhead — it is what Task Manager uses. In Rust, use the `windows` crate with `tlhelp32` directly.
-- If WMI is used for any reason, project only needed columns: `SELECT Name, ProcessId, CreationDate FROM Win32_Process`, never `SELECT *`.
-- Poll at 10-second intervals during active billing sessions, 30-second intervals during idle. A rogue process running for 30 seconds before detection is fine — it has already been running for hours before the guard existed.
-- Run the scan loop on a thread with `THREAD_PRIORITY_BELOW_NORMAL` to yield to game processes.
-- Benchmark requirement: each scan cycle must complete in under 20ms on a loaded gaming pod. This must be a passing test in the test suite, not a verbal commitment.
-
-**Warning signs:**
-- Guard code uses WMI `Win32_Process` queries in the polling loop
-- CPU usage on pods increases by 2-5% after guard deployment
-- Customers report frame stuttering that correlates with guard scan timing
-- `WmiPrvSE.exe` shows elevated CPU in Task Manager on pods
-
-**Phase to address:**
-Phase 2 (Enforcement Logic) — API selection (Toolhelp32 vs WMI) is decided here with a benchmark test, not as an afterthought.
-
----
-
-### Pitfall 11: Startup Order Race — Guard Kills Whitelisted Processes Before They Finish Starting
-
-**What goes wrong:**
-At pod boot: HKLM Run keys fire, `start-rcagent.bat` runs, and the process guard starts. The guard's first scan runs at second 3. `ConspitLink.exe` is whitelisted but takes 8-10 seconds to initialize its HID connection. The kiosk Edge instance takes 12-15 seconds to open and display. The guard's first scan sees neither and, depending on the kill grace period, may flag them for termination before they have had a chance to start.
-
-**Why it happens:**
-Slow-starting processes (HID devices, browser kiosks, network-dependent services) take longer to reach "running" state than the guard's initial scan window. The guard correctly interprets their absence as a violation of "required process not running" — but it is a false alarm during the startup race.
-
-**How to avoid:**
-- Implement a startup amnesty window: the guard does not enforce presence-based violations (required processes not yet running) for the first 60 seconds after boot. It scans and logs but does not alert or kill during this window.
-- Per-process `startup_delay_s` field in the whitelist entry: the guard will not flag the absence of that process as a violation until N seconds after boot. `ConspitLink.exe: startup_delay_s: 30`, `msedge.exe (kiosk): startup_delay_s: 60`.
-- Presence enforcement (required process must be running) is separate from absence enforcement (non-whitelisted process must not be running). Non-whitelisted processes can be flagged immediately. Required-but-absent processes need the startup delay.
-
-**Warning signs:**
-- Guard kill log shows a whitelisted process name in entries timestamped within 60 seconds of pod boot
-- ConspitLink or Edge kiosk killed during pod startup, rc-agent pre-flight fails immediately after every reboot
-- Operators have to manually restart ConspitLink after every reboot
-
-**Phase to address:**
-Phase 1 (Whitelist Schema) — `startup_delay_s` field on whitelist entries. Phase 2 (Enforcement Logic) — startup amnesty window is a first-class feature, not a workaround added after the first reboot failure.
-
----
-
-### Pitfall 12: Process Path Not Verified — Masquerading Process Names
-
-**What goes wrong:**
-The whitelist allows `msedge.exe`. An attacker (or a careless software install) drops `msedge.exe` in `C:\Users\bono\Downloads\` and runs it. The guard sees `msedge.exe` on the whitelist, allows it. The real Microsoft Edge lives in `C:\Program Files (x86)\Microsoft\Edge\Application\`. Without path verification, any process can masquerade as a whitelisted process by using the same image name.
-
-**Why it happens:**
-`CreateToolhelp32Snapshot` returns only the image name (filename), not the full path. Developers use the filename for matching because it is immediately available, without realizing path verification requires an additional API call.
-
-**How to avoid:**
-- For all whitelist entries, use `QueryFullProcessImageName()` to get the full path, then match against the `allowed_path_prefix` in the whitelist entry. Example: `msedge.exe` is only allowed if its path starts with `C:\Program Files (x86)\Microsoft\Edge\` or `C:\Program Files\Microsoft\Edge\`.
-- `allowed_path_prefix` is optional for processes with no known-stable install path, but required for system binaries and any security-relevant process (Edge kiosk, ConspitLink).
-
-**Warning signs:**
-- Whitelist matching uses only the filename component of the process image path
-- No `QueryFullProcessImageName()` call in the guard code
-- `allowed_path` field absent from whitelist entry schema
-
-**Phase to address:**
-Phase 1 (Whitelist Schema) — `allowed_path_prefix` field in the schema. Phase 2 (Enforcement Logic) — path verification in the process identity check alongside name and creation time.
+Phase 6 (Fleet API Reporting) — endpoint routing structure reviewed before new endpoints are added. The concurrency guard placement is explicitly documented in the endpoint spec.
 
 ---
 
@@ -288,13 +250,12 @@ Phase 1 (Whitelist Schema) — `allowed_path_prefix` field in the schema. Phase 
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Hardcode whitelist in source code instead of TOML | Simpler first implementation | Every whitelist change requires binary rebuild and redeploy to all 8 pods | Never — TOML from day one |
-| Kill by process name only (no path check) | Easier to implement | Masquerading processes bypass guard; legitimate processes with same name get killed | Never for enforcement; acceptable for logging only |
-| Single global whitelist (no per-machine sections) | Simpler data model | Cannot express "Ollama allowed on James, not pods" | Never — per-machine is a day-one requirement given the cross-machine boundary rule |
-| Poll at 5-second interval regardless of session state | Simpler logic | Visible CPU spikes during active gaming sessions | Never on pods; acceptable on James and server |
-| Alert-only mode as permanent state | Safe, no false-kill risk | Violations accumulate without resolution; guard becomes noise nobody reads | Acceptable for first 2 weeks post-deploy to tune whitelist thresholds |
-| WMI `SELECT *` queries in polling loop | Familiar API | 100-500ms CPU spike per query on all pods | Never in the polling loop; acceptable for one-shot audit scripts |
-| REMOVE auto-start entries immediately (no LOG → ALERT → REMOVE progression) | Faster enforcement | Silently breaks services on wrong machine with no recovery path | Never — progression is required |
+| Single poll timeout → immediate crash classification | Simpler state machine | Spurious fix sequences on transient hangs; billing session interruptions | Never — N-consecutive threshold is required from day one |
+| Blocking `await` on Ollama query in restart path | Simpler linear code | Pod stays down 30+ seconds on model cold start; cascading delay if .27 is slow | Never — Ollama must be fire-and-forget from the restart path |
+| Write `debug-memory.json` directly without atomic rename | Simpler file write | Partial JSON on interrupt = zero-byte file = all patterns lost | Never — atomic write is a one-line change with critical correctness benefit |
+| Skip stderr redirect in bat file "for now" | Faster first deploy | All panic output silently discarded; crash analysis always falls through to Ollama | Never — bat file update is a prerequisite |
+| Apply concurrency semaphore to all rc-sentry routes | Consistent middleware | Informational endpoints block under load; health poll competes with exec slots | Never — semaphore is resource-gated, not blanket |
+| Add a `find_by_name_and_kill()` helper for "convenience" | Easier zombie cleanup | Single function that can be misused to inspect game PIDs → EAC risk | Only if constrained to rc-agent PID exclusively, never game PIDs |
 
 ---
 
@@ -302,14 +263,13 @@ Phase 1 (Whitelist Schema) — `allowed_path_prefix` field in the schema. Phase 
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| HKLM Run audit | Query `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` only | Also query `HKCU\...\Run`, `HKLM\...\RunOnce`, `HKCU\...\RunOnce`, and both Startup folders (user and all-users) |
-| Scheduled Tasks audit | Check Task Scheduler root folder only | Check all subfolders including `\Microsoft\Windows\*` — third-party software registers tasks in subfolders |
-| Port audit | Parse `netstat` output | Use `GetExtendedTcpTable` / `GetExtendedUdpTable` via WinAPI for reliable PID-to-port mapping; `netstat` output format varies |
-| Process path verification | Use `ImageName` from `PROCESSENTRY32` | `ImageName` is the filename only, not full path; use `QueryFullProcessImageName()` for path-based matching |
-| Windows Service processes | Whitelist `svchost.exe` processes by name | All Windows Services appear as `svchost.exe`; whitelist by service name via SCM query (`EnumServicesStatusEx`), not by process name |
-| ConspitLink identity | Name check only | Path must match `C:\RacingPoint\ConspitLink.exe`; a coincidentally named `ConspitLink.exe` elsewhere is a violation |
-| Config sync integration | Guard reads config directly from disk on each scan | Reuse the existing `racecontrol.toml` TOML watcher from v10.0 (config sync infra); do not add a separate file watcher |
-| rc-agent embedded module | Guard spawns `tokio::task` that calls `kill_process()` | The kill syscall blocks; use `tokio::task::spawn_blocking` for any WinAPI `TerminateProcess()` calls inside an async context |
+| Ollama `:11434` over LAN | Set only `connect_timeout`, not total `timeout` | Set both: `connect_timeout(5s)` and `timeout(45s)` via `reqwest::ClientBuilder` |
+| Ollama model cold start | Treat 30s+ response as a timeout error and retry | Model is loading; extend timeout to 60s, do not retry during load, fire-and-forget from restart path |
+| Windows stderr capture | Assume stderr goes to a log file | Explicitly redirect with `2>>` in `start-rcagent.bat`; verify redirect exists before implementing log parser |
+| `taskkill /IM rc-agent.exe /F` | Assume port 8090 is free immediately after kill | Port stays in TIME_WAIT; poll for port free with 10s timeout before restart |
+| `debug-memory.json` first read | Open the file directly on crash event | Lock not held, file may be mid-write from previous analysis; always read through the in-memory RwLock |
+| rc-sentry existing 6 endpoints | Add new crash endpoints to same Axum router with same middleware stack | Audit semaphore placement; crash/debug endpoints must not consume exec semaphore slots |
+| Fleet API relay to racecontrol server | Open a new reqwest client per crash report | Reuse a shared `reqwest::Client` stored in AppState; connection pool keeps LAN connections warm |
 
 ---
 
@@ -317,11 +277,11 @@ Phase 1 (Whitelist Schema) — `allowed_path_prefix` field in the schema. Phase 
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| WMI `Win32_Process SELECT *` in polling loop | WmiPrvSE.exe CPU spike, game stutter | Use `CreateToolhelp32Snapshot` instead | Immediately on pods with active sessions |
-| Logging every scan (including clean scans) to disk | Log grows to GB; disk I/O during gaming | Log only violations and state changes; rotate at 10MB | After ~1 week of continuous operation |
-| Scanning all 8 pods sequentially from server | 8x scan time blocks server event loop | Parallel async scans with per-pod timeout | As soon as more than 2 pods are active |
-| Calling `QueryFullProcessImageName()` for every process on every scan | Each call is a syscall; 100+ processes = 100+ syscalls per scan | Cache process identities between scans; only query new PIDs (ones not seen in previous snapshot) | On a pod with 100+ running processes |
-| Kill verification loop without timeout | Guard hangs if `TerminateProcess()` is blocked (elevated process, protected process) | Set 500ms timeout on kill verification; log and escalate if process survives the kill attempt | Any process running with higher privilege than the guard |
+| Health poll loop awaits Ollama query | Pod restart delayed 30-60s; other pods' crash detection stalls | Spawn Ollama query as detached task; restart path is independent | First crash on any pod after Ollama idle timeout |
+| Tailing log files without size limit | On a heavily logging pod, reading 10MB log file to find last 4KB of panic output | Always read from file end: seek to `file_len - 4096`, read backward. Never read entire file | After 24h of continuous rc-agent operation |
+| `debug-memory.json` grows unbounded | Slow startup as JSON deserialization time grows; RwLock held longer during parse | Cap at 100 patterns; evict least-recently-used entries when full | After ~50 unique crash patterns accumulate |
+| Polling every 5s unconditionally when game is active | 5s poll during active session generates background network noise visible to EAC as unusual traffic | Poll interval remains 5s — but ensure HTTP client has keepalive so each poll reuses the TCP connection rather than opening a new one | Not a hard break, but new TCP connections per poll look more like scanning than persistent monitoring |
+| Log parsing on each crash event reads all three log files sequentially | 3 file reads block the crash analysis path | Read all three files concurrently with `tokio::join!` | On slow disk I/O with large log files |
 
 ---
 
@@ -329,28 +289,25 @@ Phase 1 (Whitelist Schema) — `allowed_path_prefix` field in the schema. Phase 
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Guard runs as standard user | Cannot kill processes owned by other users or running elevated; enforcement is incomplete | Guard must run as SYSTEM or the same administrative user as the processes it monitors; on pods this means the service context |
-| Auto-start entries removed without backup | Silent change with no recovery path if an entry was incorrectly removed | Write `autostart-removed-YYYYMMDD.toml` before removing any auto-start entry; enables one-command restore |
-| Whitelist stored in world-writable location | An attacker or rogue process modifies the whitelist to permit their process | `racecontrol.toml` on server is writable only by ADMIN; pods receive read-only config via the existing sync mechanism |
-| Kill log contains full process command lines | Command lines may contain passwords, API keys, or tokens passed as args | Truncate command lines at 200 chars in logs; do not log environment variables |
-| Guard binary path not verified | An attacker replaces the guard binary with a malicious one; the guard never detects violations | Not a v12.1 requirement but note: if the guard binary is in a user-writable path, it can be replaced without admin |
+| Logging full crash context including config values | racecontrol.toml may contain API keys, JWT secrets, or encryption keys; log files are accessible to pod user | Redact config values from crash reports before logging: replace secret fields with `[REDACTED]` |
+| Sending full crash log to fleet API without size limit | A crafted or very large log file could produce an oversized API request | Truncate crash report payload at 16KB before sending to server |
+| Ollama query contains full log file contents | Log file may contain customer session data (phone hash, billing amount) | Sanitize log content before Ollama query: strip any field matching phone number patterns or INR/credit amounts |
+| `debug-memory.json` stored in world-readable location | Pattern memory reveals which crash patterns the system knows how to exploit | Store in `C:\RacingPoint\` (same dir as rc-agent.toml), not in a temp or user directory |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Deny-by-default:** Remove a known process from the whitelist and confirm the guard detects and kills it within two scan cycles
-- [ ] **Per-machine enforcement:** Start `ollama.exe` on Pod 8 and confirm kill and alert fire; start `rc-agent.exe` on James and confirm CRITICAL alert fires
-- [ ] **Auto-start all four sources:** Plant a test entry in each of HKCU Run, HKLM Run, user Startup folder, and Scheduled Tasks; confirm all four are detected
-- [ ] **Auto-start LOG-before-REMOVE:** Add a non-whitelisted Run key; confirm the guard logs and alerts before any removal action
-- [ ] **Self-exclusion:** Remove the guard binary from the whitelist; confirm the guard continues running and does not kill itself
-- [ ] **Startup amnesty:** Reboot a pod and verify ConspitLink and Edge kiosk survive the first scan cycle without being killed
-- [ ] **Kill grace period:** Start a short-lived Windows Update helper process; confirm it is not killed if it exits before the second scan cycle
-- [ ] **PID reuse protection:** Kill function verifies process name and creation time before calling TerminateProcess; reviewed in code review
-- [ ] **Watchdog storm detection:** Start an infinite-restart script; confirm storm detection fires after 3 kills within 60 seconds and escalates to auto-start audit
-- [ ] **Config sync lag:** Update whitelist on server; start a new process on a pod within 5 seconds; confirm it survives the grace period and is not killed after sync completes
-- [ ] **Performance benchmark:** Run a full scan cycle on an active gaming pod; confirm it completes in under 20ms (measured via tracing span)
-- [ ] **Port audit:** Bind a test TCP server to a non-approved port; confirm guard detects and alerts
+- [ ] **Stderr capture:** Verify `start-rcagent.bat` has `2>>` redirect before any log parsing test runs. Open the log file after a test crash and confirm panic output is present.
+- [ ] **N-consecutive threshold:** Kill rc-agent, confirm rc-sentry waits for 2 consecutive poll failures before entering fix sequence, not 1.
+- [ ] **Atomic JSON write:** Corrupt `debug-memory.json` mid-write in a test. Confirm next read succeeds from the last valid snapshot, not a zero-byte file.
+- [ ] **Ollama timeout:** Take .27 offline, trigger a crash. Confirm pod restarts within 15 seconds without waiting for Ollama. Confirm Ollama failure is logged but does not block restart.
+- [ ] **Restart backoff:** Crash rc-agent 4 times in 5 minutes. Confirm the 4th restart is delayed (backoff active) and a staff alert fires instead of another restart attempt.
+- [ ] **Port readiness:** After Tier 1 process kill, confirm Tier 1 fix waits for port 8090 to clear before restart. Induce TIME_WAIT manually and verify the wait logic triggers.
+- [ ] **No process inspection during game:** Start F1 25, let EAC initialize, then trigger rc-agent crash. Confirm rc-sentry detects via health poll only. No `OpenProcess()` on any game PID in logs.
+- [ ] **Concurrency semaphore:** Under load, confirm `/debug/status` responds while all 4 exec semaphore slots are occupied.
+- [ ] **Pattern memory hit:** Store a known pattern in `debug-memory.json`. Trigger a crash that matches the pattern. Confirm Tier 2 memory match fires and Ollama is NOT queried.
+- [ ] **Crash report to server:** Trigger a crash, confirm the fleet API receives a crash report with pod number, crash time, log excerpt, and fix applied — all within 30 seconds of crash detection.
 
 ---
 
@@ -358,13 +315,12 @@ Phase 1 (Whitelist Schema) — `allowed_path_prefix` field in the schema. Phase 
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Guard killed whitelisted process during startup | LOW | Restart the affected process manually; extend `startup_delay_s` in config and push config update |
-| Guard removed auto-start registry entry incorrectly | MEDIUM | Restore from `autostart-removed-YYYYMMDD.toml` backup; re-add the Run key via the existing fleet exec endpoint |
-| Kill-restart storm consuming CPU | LOW | Push `enforcement_mode = "alert_only"` in config to affected pod; investigate and remove auto-start source; re-enable enforcement after source removed |
-| PID reuse killed rc-agent | HIGH | rc-agent self-restarts via Windows Service auto-restart; check billing session state on affected pod; fix creation-time verification in guard code |
-| Whitelist config out of sync causing mass kills | MEDIUM | Push `enforcement_mode = "alert_only"` immediately to all pods; push correct config; verify `config_version` matches on all machines; re-enable enforcement |
-| Guard killed itself | LOW | Guard exits; Windows Service auto-restart recovers it; fix self-exclusion logic before next deploy |
-| Auto-start removed on wrong machine breaks service | MEDIUM | Restore from backup file; identify which machine section in TOML was missing the entry; add it and push config |
+| Restart loop at full speed | MEDIUM | Push config update: set `max_restarts_per_window = 0` (disable auto-restart) on affected pod; investigate root cause manually; re-enable when fixed |
+| debug-memory.json zero bytes after crash-during-write | LOW | Delete the file; rc-sentry recreates empty on next start; all learned patterns lost but no functional breakage |
+| Ollama query hanging; crash analysis blocked | LOW | Restart rc-sentry on affected pod to clear the hung reqwest connection; fix: add total timeout to reqwest client |
+| bat file missing stderr redirect; all panics lost | MEDIUM | Add redirect to bat file, redeploy via fleet exec endpoint; historical crash cause for the current incident is unrecoverable — must re-trigger or wait for next crash |
+| EAC false flag from process inspection | HIGH | Stop rc-sentry immediately; do not restart until the offending API call is identified and removed from the binary; check EAC ban status on iRacing account linked to pod; contact EAC support with timeline if ban issued |
+| Tier 1 fix applied to healthy rc-agent (false crash) | MEDIUM | rc-agent self-restarts via Windows Service; check billing session integrity on affected pod; adjust N-consecutive threshold upward if pod has sustained high load |
 
 ---
 
@@ -372,36 +328,35 @@ Phase 1 (Whitelist Schema) — `allowed_path_prefix` field in the schema. Phase 
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Keyword-scoped audit (whitelist inversion) | Phase 1 — Whitelist Schema | Schema uses deny-by-default `Vec<ApprovedProcess>`; no blocklist logic in codebase |
-| Transient system processes killed | Phase 1 (system exclusion rules) + Phase 2 (kill grace period) | Run Windows Update on a pod with guard active; update completes successfully |
-| PID reuse race | Phase 2 — Enforcement Logic | Kill function verifies name + creation time; code review confirms no PID-only kills |
-| Self-kill | Phase 2 — Enforcement Logic | Remove guard from whitelist; guard continues running |
-| Auto-start on wrong machine removed | Phase 1 (per-machine schema) + Phase 3 (auto-start audit) | Plant Run key on wrong machine; guard alerts but does not remove without `enforcement = "remove"` config |
-| Watchdog infinite restart loop | Phase 2 (storm detection) + Phase 3 (auto-start audit) | Infinite-restart script triggers storm detection and escalates to auto-start audit |
-| Dev + prod servers simultaneously | Phase 1 (args_pattern + max_instances) + Phase 4 (port audit) | Start `next dev` on James; guard detects via args_pattern or port conflict |
-| Cross-machine binary violation | Phase 1 (allowed_machines) + Phase 2 (enforcement) | Start rc-agent.exe on James; CRITICAL alert fires within one scan cycle |
-| Config sync lag kills new process | Phase 1 (config version hash) + Phase 5 (fleet integration) | New process survives 30-second sync window due to kill grace period |
-| WMI performance on gaming pods | Phase 2 — Enforcement Logic | Benchmark test: scan cycle under 20ms; no CPU spike during AC session |
-| Startup order kills slow-starting processes | Phase 1 (startup_delay_s) + Phase 2 (amnesty window) | Reboot pod; ConspitLink and Edge kiosk survive first scan cycle |
-| Process name masquerading | Phase 1 (allowed_path_prefix) + Phase 2 (path verification) | Drop fake `msedge.exe` in Downloads; guard detects path mismatch and kills |
+| Anti-cheat ban from process inspection | Phase 1 — Health Polling | No `OpenProcess()` on game PIDs in codebase; explicit doc comment in health polling module |
+| Restart loop without backoff | Phase 2 — Tier 1 Fixes + Restart Logic | 4 crashes in 5 min triggers backoff and staff alert, not 4th restart |
+| Log timing race (zombie holds file) | Phase 3 — Post-Crash Log Analysis | Fix sequence orders: kill zombie → wait 500ms → read logs |
+| Pattern memory JSON corruption | Phase 4 — Crash Pattern Memory | Atomic write (tmp + rename) and RwLock in AppState |
+| Ollama cold start blocks restart | Phase 5 — Tier 3 Ollama Integration | Ollama query is detached; pod restarts in under 10s regardless of Ollama state |
+| Stale TCP sockets block restart | Phase 2 — Tier 1 Fixes | Port readiness check in fix sequence; Tier 1 test with induced TIME_WAIT |
+| Panic output not captured | Phase 3 — Post-Crash Log Analysis | bat file update is prerequisite task in phase spec |
+| Single poll timeout triggers false crash | Phase 1 — Health Polling | N-consecutive threshold defined and tested before implementation |
+| Concurrency semaphore on debug endpoints | Phase 6 — Fleet API Reporting | Semaphore placement audited when new endpoints are added |
 
 ---
 
 ## Sources
 
-- Direct incident record: Steam missed by keyword-scoped audit (v12.1 trigger incident, 2026-03-21)
-- Direct incident record: Leaderboard kiosk HKLM Run entry on wrong machine (v12.1 trigger incident)
-- Direct incident record: `watchdog.cmd` infinite restart loop surviving process kill (v12.1 trigger incident)
-- Direct incident record: `next dev` and prod server running simultaneously on James (v12.1 trigger incident)
-- `PROJECT.md`: v12.1 milestone context, standing rule #2 (no pod binaries on James), HKLM Run key architecture, existing config sync infra
-- `CLAUDE.md`: Windows Service context, Session 0/1 boundary, ConspitLink VID:PID, static IP assignments, deploy rules
-- [Windows Update svchost/wuauserv crash confirmation](https://www.windowslatest.com/2025/04/30/microsoft-confirms-windows-11-24h2-0x80240069-svchost-exe_wuauserv-crashes/) — Windows Latest (MEDIUM confidence — confirms transient svchost instability during updates)
-- [WMI performance troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/scenario-guide-troubleshoot-wmi-performance-issues) — Microsoft Learn (HIGH confidence)
-- [WMI Tasks: Performance Monitoring](https://learn.microsoft.com/en-us/windows/win32/wmisdk/wmi-tasks--performance-monitoring) — Microsoft Win32 docs (HIGH confidence)
-- [PID reuse race condition](https://access.redhat.com/solutions/30695) — Red Hat (MEDIUM confidence — Linux origin, but PID reuse is OS-agnostic; Windows exhibits identical behavior)
-- [SERVICE_DELAYED_AUTO_START_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_delayed_auto_start_info) — Microsoft Win32 docs (HIGH confidence — startup ordering)
-- [Windows Sessions internals](https://brianbondy.com/blog/100/understanding-windows-at-a-deeper-level-sessions-window-stations-and-desktop) — Brian Bondy (MEDIUM confidence — Session 0/1 boundary, service process isolation)
+- Direct codebase knowledge: rc-sentry v11.0 (6 endpoints, 4-slot semaphore, TCP read fix), rc-common EscalatingBackoff (WD-01/WD-02/WD-03/WD-04), v10.0 health monitoring hysteresis FSM, v8.0 CLOSE_WAIT socket leak fix
+- `PROJECT.md`: v11.2 milestone spec, anti-cheat constraints, Ollama at James .27:11434, existing 4-tier debug order
+- `CLAUDE.md`: start-rcagent.bat architecture, HKLM Run key, Session 1 GUI requirement, port 8090 binding, Windows Service context
+- [EasyAntiCheat kernel driver incompatibility with Kernel-Mode Hardware-Enforced Stack Protection](https://learn.microsoft.com/en-us/answers/questions/3962392/easy-anti-cheat-driver-incompatible-with-kernel-mo) — Microsoft Learn (HIGH confidence — confirms EAC kernel mode scope)
+- [EasyAntiCheat EOS causes Kernel Panic](https://learn.microsoft.com/en-us/answers/questions/3894697/easyanticheat-eos-causes-kernel-panic) — Microsoft Learn (HIGH confidence — confirms easyanticheat_eos.sys version 6.1, January 2025)
+- [EasyAntiCheat kernel scan loop bug report](https://forums.ea.com/discussions/apex-legends-technical-issues-en/bug-report-%E2%80%93-easyanticheat-eos-sys-kernel-scan-loop/13034346) — EA Forums (MEDIUM confidence — confirms continuous scanning behavior)
+- [iRacing anti-cheat migration to EOS EAC](https://support.iracing.com/support/solutions/articles/31000173103-anticheat-not-installed-uninstalling-eac-and-installing-eos-) — iRacing support (HIGH confidence — confirms iRacing uses EOS variant of EAC)
+- [Anti-cheat false positives: ASUS Aura Sync flagged by EAC](https://gamespace.com/all-articles/news/easy-anti-cheat-download-install/) — GameSpace (MEDIUM confidence — confirms legitimate background apps trigger EAC)
+- [Rust std::process::Child::kill fails on Windows with stale handles](https://github.com/rust-lang/rust/issues/112423) — rust-lang/rust GitHub (HIGH confidence — confirms Windows handle lifecycle issue)
+- [taskkill /T /F required for child process tree on Windows](https://www.techbloat.com/kill-stubborn-programs-and-processes-with-taskkill/) — TechBloat (MEDIUM confidence — confirms tree kill required)
+- [Ollama KEEP_ALIVE and model loading latency](https://markaicode.com/troubleshooting-ollama-tool-execution-timeouts/) — Markaicode (MEDIUM confidence — confirms 30-90s cold start for model reload)
+- [reqwest timeout configuration](https://webscraping.ai/faq/reqwest/how-can-i-set-a-request-in-reqwest) — WebScraping.AI (HIGH confidence — connect_timeout vs total timeout distinction)
+- [Rust panic hook stderr on Windows windowed subsystem](https://github.com/rust-lang/rust/issues/25643) — rust-lang/rust GitHub (HIGH confidence — confirms stderr behavior on Windows)
+- [RUST_BACKTRACE required for stack trace in panic output](https://doc.rust-lang.org/book/ch09-01-unrecoverable-errors-with-panic.html) — Rust Book (HIGH confidence)
 
 ---
-*Pitfalls research for: Windows process monitoring / whitelist enforcement on gaming fleet (v12.1 E2E Process Guard)*
+*Pitfalls research for: RC Sentry AI Debugger — crash-diagnosing watchdog added to existing Rust binary on Windows gaming pods (v11.2)*
 *Researched: 2026-03-21 IST*

@@ -1,93 +1,222 @@
-# Stack Research: E2E Process Guard (v12.1)
+# Stack Research: RC Sentry AI Debugger (v11.2)
 
-**Domain:** Windows process monitoring, registry audit, and whitelist enforcement daemon
+**Domain:** Crash diagnostics and AI debugging watchdog in existing Rust binary
 **Researched:** 2026-03-21 IST
-**Confidence:** HIGH (versions verified on crates.io; integration points verified against actual Cargo.toml files in repo)
+**Confidence:** HIGH (all versions verified against actual Cargo.toml files in repo; Ollama HTTP pattern verified from rc-agent/src/ai_debugger.rs)
 
 ---
 
-## Existing Crates Already Present (No New Deps for These)
+## Critical Architectural Constraint
 
-These are already in rc-agent and/or racecontrol Cargo.toml. Use them as-is.
+rc-sentry is intentionally pure `std` — no tokio, no async, thread-per-connection model.
+The "no new crate dependencies" constraint means: do not add crates not already present
+in the workspace `Cargo.lock`. The workspace already locks `tokio`, `reqwest`, `serde_json`,
+`chrono`, and `tracing` — these can be referenced in rc-sentry's `Cargo.toml` without
+changing the lock file.
 
-| Crate | Version in Repo | Role in v12.1 |
-|-------|----------------|---------------|
-| `sysinfo` | `0.33` (both rc-agent and racecontrol) | Process enumeration: names, PIDs, exe paths. Process kill via `process.kill(Signal::Kill)`. Core of process audit loop. |
-| `winapi` | `0.3` (rc-agent, windows-only) | Fallback `TerminateProcess` if sysinfo kill returns false. Features already include `processthreadsapi`. |
-| `tokio` | `1` (workspace) | `tokio::time::interval` for the monitoring tick loop; `tokio::task::spawn` for background daemon task. |
-| `tracing` | `0.1` (workspace) | Structured audit log entries (violation, action, timestamp, machine ID). |
-| `serde` / `serde_json` | `1` (workspace) | Whitelist deserialization from TOML; audit event serialization for WS dispatch. |
-| `toml` | `0.8` (workspace) | Parse `[process_guard]` section from racecontrol.toml with per-machine overrides. |
-| `anyhow` | `1` (workspace) | Error propagation in guard loops — do not panic on a failed kill. |
-| `chrono` | `0.4` (workspace) | IST timestamps on every audit log entry. |
-| `dirs-next` | `2` (rc-agent) | Resolve `%APPDATA%` path for Startup folder scan portably. Already a dep. |
+**Decision: Keep rc-sentry pure std. Use std::thread for watchdog loop. Use std::net::TcpStream for Ollama HTTP call.**
 
-**Upgrade note on sysinfo:** Latest is `0.38.3` (released 2026-03-02). The existing codebase pins `0.33`. The API changed between 0.33 and 0.38 (System initialization and process iteration differ). Do NOT upgrade mid-milestone. Stay on `0.33` for v12.1. Schedule an upgrade as a separate phase if needed.
+Rationale: adding `tokio` to rc-sentry's `[dependencies]` increases binary size, requires
+runtime initialization in `main()`, and breaks the deliberate design of rc-sentry as a
+minimal fallback tool. The watchdog loop is a single background thread sleeping 5 seconds
+— no async needed. The Ollama query is a single blocking HTTP request on a dedicated
+thread — no reqwest needed either.
 
 ---
 
-## New Crates Required
+## Existing Crates Already Present in rc-sentry (No Change)
 
-Two new crates are needed. Both are Windows-only, added under `[target.'cfg(windows)'.dependencies]`.
+| Crate | Version | Already Used For |
+|-------|---------|-----------------|
+| `serde` | workspace `"1"` | JSON deserialization |
+| `serde_json` | workspace `"1"` | debug-memory.json read/write |
+| `tracing` | workspace `"0.1"` | structured logging |
+| `tracing-subscriber` | workspace `"0.3"` | log output |
+| `toml` | workspace `"0.8"` | config file reading |
+| `rc-common` | path dep | shared exec primitives |
+| `sysinfo` | `"0.33"` | /processes endpoint (already present) |
 
-### Core Additions
-
-| Crate | Add To | Version | Purpose | Why This One |
-|-------|--------|---------|---------|-------------|
-| `winreg` | rc-agent, racecontrol | `"0.55"` | Read, enumerate, and delete HKCU/HKLM Run key entries. Verified latest: 0.55.0 released 2025-01-12. | The canonical Windows registry crate for Rust. Direct bindings to Win32 `RegOpenKeyEx`, `RegEnumValue`, `RegDeleteValue`. 83K+ downloads. Active maintenance by gentoo90 since 2015. No COM overhead. Simpler API than the `windows` crate registry surface. |
-| `netstat2` | rc-agent, racecontrol | `"0.11"` | Enumerate listening TCP/UDP sockets with owning PID. Current: 0.11.2. | Uses `GetExtendedTcpTable` / `GetExtendedUdpTable` (iphlpapi) directly — same kernel API as `netstat.exe -ano` but callable from Rust without shell exec or text parsing. Returns PID per socket, enabling cross-reference against the process whitelist. Specialized crate; sysinfo 0.33 does not expose per-socket PID on Windows. |
-
-### Supporting Addition
-
-| Library | Add To | Version | Purpose | When to Use |
-|---------|--------|---------|---------|-------------|
-| `walkdir` | rc-agent, racecontrol | `"2"` | Enumerate `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup` and `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup` for unauthorized `.lnk` and `.exe` files. | Only needed for the Startup folder scan. Handles both user and system startup paths uniformly. If zero new deps is required here, `std::fs::read_dir` on a known flat path also works since both startup folders are non-recursive. Prefer `walkdir` for uniformity. |
+All of these are already in `crates/rc-sentry/Cargo.toml`.
 
 ---
 
-## Cargo.toml Changes
+## New Crates to Add to rc-sentry Cargo.toml
 
-### crates/rc-agent/Cargo.toml
+### Required Additions
 
-Append to the existing `[target.'cfg(windows)'.dependencies]` block (line 61 in current file):
+| Crate | Version | Purpose | Why |
+|-------|---------|---------|-----|
+| `tokio` | workspace `"1"` | — | **NOT NEEDED** — see architectural decision above |
+| `reqwest` | `"0.12"` | — | **NOT NEEDED** — Ollama via std HTTP (see below) |
+| `chrono` | workspace `"0.4"` | Timestamps in crash records, last_seen field | Already workspace dep; needed for DebugIncident.last_seen |
+| `anyhow` | workspace `"1"` | Error propagation in watchdog/log analysis | Already workspace dep |
 
-```toml
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi"] }
-winreg = "0.55"
-netstat2 = "0.11"
-walkdir = "2"
+**Net new crates added to rc-sentry Cargo.toml: `chrono`, `anyhow`**
+
+Both are already in the workspace and locked — zero new entries in `Cargo.lock`.
+
+---
+
+## Implementation Patterns
+
+### Pattern 1: Health Polling Watchdog (std::thread)
+
+Use a background thread started at `main()` that polls `localhost:8090/health` every 5
+seconds using `std::net::TcpStream` with a raw HTTP/1.1 GET request. No reqwest, no tokio.
+
+```rust
+// Cargo.toml: no new deps required
+// Uses: std::net::TcpStream, std::thread, std::time::Duration (all std)
+
+fn start_watchdog(config: SentryConfig) {
+    std::thread::Builder::new()
+        .name("agent-watchdog".into())
+        .spawn(move || watchdog_loop(config))
+        .expect("watchdog thread");
+}
+
+fn poll_agent_health(port: u16) -> bool {
+    // Raw HTTP GET to localhost:8090/health via std::net::TcpStream
+    // Returns true if 200 received within 3s timeout
+    use std::net::TcpStream;
+    use std::io::{Read, Write};
+    let addr = format!("127.0.0.1:{}", port);
+    let Ok(mut stream) = TcpStream::connect_timeout(
+        &addr.parse().unwrap(),
+        std::time::Duration::from_secs(3),
+    ) else {
+        return false;
+    };
+    let _ = stream.write_all(b"GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n");
+    let mut buf = [0u8; 64];
+    let _ = stream.read(&mut buf);
+    buf.starts_with(b"HTTP/1.0 200") || buf.starts_with(b"HTTP/1.1 200")
+}
 ```
 
-### crates/racecontrol/Cargo.toml
+**Why not reqwest:** reqwest requires tokio runtime. A 5-second polling loop does not need
+async — it blocks intentionally. `std::net::TcpStream` is 20 lines and zero dependencies.
 
-Add a new `[target.'cfg(windows)'.dependencies]` block (does not currently exist in racecontrol — add it):
+**Why not tokio::time::interval:** Same reason — rc-sentry has no tokio runtime.
 
-```toml
-[target.'cfg(windows)'.dependencies]
-winreg = "0.55"
-netstat2 = "0.11"
-walkdir = "2"
+### Pattern 2: Crash Log Analysis (std::fs)
+
+Read startup_log, stderr capture, panic output using `std::fs::read_to_string`.
+Parse for known crash signatures with string matching. No new crates needed.
+
+```rust
+// All std — no new deps
+fn read_crash_logs(base_path: &str) -> CrashLogBundle {
+    let startup_log = std::fs::read_to_string(
+        format!("{}\\startup_log.txt", base_path)
+    ).unwrap_or_default();
+    let stderr_capture = std::fs::read_to_string(
+        format!("{}\\rc-agent-stderr.txt", base_path)
+    ).unwrap_or_default();
+    // Truncate to last 4KB to match rc-sentry's 64KB safety discipline
+    CrashLogBundle { startup_log: tail_4k(&startup_log), stderr_capture: tail_4k(&stderr_capture) }
+}
 ```
 
-### Root Cargo.toml (workspace)
+### Pattern 3: Pattern Memory JSON (serde + serde_json + chrono)
 
-Do NOT add these to `[workspace.dependencies]`. They are Windows-only and only needed in two crates. Keeping them in per-crate `[target.'cfg(windows)'.dependencies]` prevents cross-platform build failures if Bono ever compiles on Linux for the cloud components.
+Port `DebugMemory` and `DebugIncident` structs directly from
+`crates/rc-agent/src/ai_debugger.rs`. The implementation is already proven — atomic
+write via temp file + rename, 100-entry cap, success_count sorting.
+
+`chrono` is the only addition needed (for `Utc::now().to_rfc3339()` in `last_seen`).
+
+```toml
+# Add to crates/rc-sentry/Cargo.toml:
+chrono = { workspace = true }
+anyhow = { workspace = true }
+```
+
+Key difference from rc-agent version: rc-sentry's `DebugMemory` keys on log content
+patterns (not SimType/exit_code), since sentry sees crash logs, not game crash events.
+Pattern key = first crash signature line hash (no SimType available in sentry context).
+
+### Pattern 4: Ollama HTTP Query (std::net::TcpStream)
+
+Use a raw HTTP POST to `192.168.31.27:11434/api/generate` via `std::net::TcpStream`.
+Build the JSON body with `serde_json::to_string`. Parse response with `serde_json`.
+No reqwest, no tokio, no ollama-rs.
+
+```rust
+// Uses: std::net::TcpStream + serde_json (already present)
+fn query_ollama_blocking(url: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
+    // Build JSON body
+    let body = serde_json::to_string(&serde_json::json!({
+        "model": model,
+        "prompt": prompt,
+        "stream": false,
+    }))?;
+    // Raw HTTP/1.1 POST via TcpStream (Ollama accepts HTTP/1.0 and HTTP/1.1)
+    // 30s timeout to match rc-agent's existing query_ollama timeout
+    // Parse response: serde_json::from_str on the body portion
+    Ok(extract_ollama_response(&body)?)
+}
+```
+
+**Why not ollama-rs crate:** Adds reqwest + tokio deps. Overkill for a single blocking
+call in a std thread.
+
+**Why not reqwest blocking feature:** Internally bundles its own tokio runtime — adds
+~800KB to binary size for one HTTP call.
+
+### Pattern 5: Anti-Cheat Safe Process Monitoring
+
+**Do NOT use:** `sysinfo::System::processes()`, `tasklist`, Windows `CreateToolhelp32Snapshot`,
+`OpenProcess`, `NtQuerySystemInformation`, or any process-enumeration API.
+
+Easy Anti-Cheat (F1 25) and iRacing both flag external process inspection as cheat tooling.
+
+**Use instead:** HTTP health endpoint polling (`localhost:8090/health`). If rc-agent is
+alive, the health endpoint responds. If rc-agent is dead, the TCP connection is refused.
+This is identical to what a load balancer health check does — zero anti-cheat surface.
+
+For process restart (after crash confirmed), use `std::process::Command` to spawn
+`start-rcagent.bat` — this is command execution, not process inspection, and is
+anti-cheat safe.
+
+```rust
+// SAFE: spawn rc-agent via bat file (same as HKLM Run key does)
+fn restart_agent() -> bool {
+    std::process::Command::new("cmd")
+        .args(["/C", r"C:\RacingPoint\start-rcagent.bat"])
+        .spawn()
+        .is_ok()
+}
+// UNSAFE (DO NOT USE for games): sysinfo::System::processes()
+// UNSAFE (DO NOT USE for games): win32 CreateToolhelp32Snapshot
+```
+
+The `/processes` endpoint on rc-sentry itself uses `sysinfo` — but that endpoint is
+invoked by staff tools, not by the watchdog. The watchdog must never call sysinfo on game
+processes.
 
 ---
 
-## Alternatives Considered
+## Cargo.toml Changes Required
 
-| Recommended | Alternative | Why Not |
-|-------------|-------------|---------|
-| `winreg 0.55` for registry reads | `windows-registry` crate (Microsoft) | Newer and from Microsoft, but far less real-world usage than `winreg`. `winreg` has 10x more adoption, clearer ergonomics, and 10 years of maintenance history. |
-| `winreg 0.55` for registry reads | `wmi` crate + `Win32_StartupCommand` query | WMI adds COM initialization overhead and pulls in `wmi = "0.18"` + `windows = "0.58"` as a transitive dep. Overkill for reading a handful of Run keys. `winreg` is direct and fast. |
-| `netstat2 0.11` for port audit | `sysinfo` network info | `sysinfo 0.33` exposes aggregate network interface statistics, not per-socket state or owning PID. Cannot determine which process owns port 8090 with sysinfo alone. |
-| `netstat2 0.11` for port audit | `listeners` crate | Also purpose-built for port-to-process mapping. Fewer downloads than netstat2, slightly less battle-tested. Either works; netstat2 chosen for ecosystem maturity. |
-| `netstat2 0.11` for port audit | Shell exec `netstat -ano` via rc-common exec | Text parsing is brittle (column alignment changes, localized output on non-English Windows). `netstat2` calls iphlpapi directly. Use the right tool. |
-| `walkdir 2` for Startup folder | `std::fs::read_dir` | `read_dir` works fine since both Startup folders are flat (non-recursive). Use `std::fs::read_dir` if avoiding any new dep is a priority. `walkdir` is recommended only for consistency. |
-| `sysinfo::Process::kill()` for termination | `winapi::TerminateProcess` directly | `sysinfo` already wraps `TerminateProcess` internally. Since `sysinfo 0.33` is already in both crates and `kill()` is the established pattern in `kiosk.rs`, use it. Fall through to raw `winapi::TerminateProcess` only if `kill()` returns false (e.g., process already dead but handle still held — known Windows edge case). |
-| Shell exec `schtasks /delete /tn <name> /f` via rc-common for Scheduled Task removal | COM `ITaskService` via `windows = "0.58"` | The Task Scheduler COM interface requires the large `windows` crate and unsafe COM calls. `schtasks /delete` is a built-in Windows command and already the established rc-agent pattern for privileged Windows operations. No new dep. |
+### `crates/rc-sentry/Cargo.toml` — Add 2 lines
+
+```toml
+[dependencies]
+# existing deps unchanged...
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+rc-common = { path = "../rc-common" }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+sysinfo = "0.33"
+# NEW (both already workspace-locked, zero Cargo.lock changes):
+chrono = { workspace = true }
+anyhow = { workspace = true }
+```
+
+**No other Cargo.toml changes needed.**
 
 ---
 
@@ -95,165 +224,60 @@ Do NOT add these to `[workspace.dependencies]`. They are Windows-only and only n
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `wmi` crate | COM initialization + `windows = "0.58"` transitive dep (large). `Win32_Process` via WMI is slower than `sysinfo`. `Win32_StartupCommand` via WMI is slower than `winreg`. Adds >2MB to binary size. | `sysinfo` for processes; `winreg` for registry |
-| `reg-watcher` crate | Event-driven registry change notifications via `RegNotifyChangeKeyValue`. Adds complexity with no benefit for a 5-10s audit poll loop — a rogue entry will be caught on the next tick. | Poll with `winreg` on each monitoring interval |
-| `notify` crate (filesystem watcher) | Watching registry hive files on the filesystem does not reliably catch in-memory registry changes. Not suitable for registry monitoring. | `winreg` polling |
-| `windows` crate (Microsoft, `windows = "0.58"`) | Conflicts with the existing `winapi = "0.3"` dependency already in rc-agent. Two different Win32 binding layers in one binary cause symbol conflicts. The `windows` crate also has a large surface area — adds significant compile time. | `winapi 0.3` already present |
-| `psutil` / `rust-psutil` | Unmaintained (last release 2021). Superseded by `sysinfo`. | `sysinfo 0.33` (already in repo) |
-| Upgrading `sysinfo` to `0.38.x` in this milestone | The 0.33 → 0.38 API includes breaking changes to `System::new_all` vs `refresh_all` semantics and process iteration. All existing code in `kiosk.rs`, `game_process.rs`, `self_test.rs` was written against 0.33. Upgrading mid-milestone risks regressions across those modules. | Stay on `0.33`. Schedule upgrade as a dedicated phase. |
-| New standalone binary `rc-process-guard` | Adds another binary to build, deploy, and manage on 11 machines. The guard is a module, not a service — it runs inside rc-agent and racecontrol. No separate process. | `process_guard.rs` module inside each crate |
+| `tokio` in rc-sentry | Requires async runtime init, breaks std thread model, bloats binary | `std::thread` + `std::time::Duration` |
+| `reqwest` in rc-sentry | Pulls in tokio runtime internally even with blocking feature | `std::net::TcpStream` raw HTTP |
+| `ollama-rs` crate | New dep not in workspace; wraps reqwest/tokio; overkill for one call | Raw TcpStream POST + serde_json |
+| `sysinfo::processes()` for game detection | Triggers Easy Anti-Cheat (F1 25) and iRacing anti-cheat | HTTP health endpoint polling only |
+| `winapi::um::tlhelp32` process snapshot | Same anti-cheat violation risk as sysinfo | HTTP health endpoint polling only |
+| Adding new watchdog crate (`tokio-watchdog`) | External dep for trivial loop; rc-sentry must have minimal deps | `loop { sleep(5s); poll() }` |
 
 ---
 
-## Integration Architecture
+## Alternatives Considered
 
-The process guard runs as a background tokio task inside each deployment target. No new binary, no new service.
-
-### rc-agent (all 8 pods)
-
-New module: `crates/rc-agent/src/process_guard.rs`
-
-- Spawned as `tokio::task::spawn(process_guard::run(state.clone()))` from `main.rs`, alongside the existing `event_loop` spawn.
-- Runs a `tokio::time::interval(Duration::from_secs(10))` loop.
-- On each tick: enumerate processes (sysinfo), enumerate listening ports (netstat2), enumerate Run keys (winreg), enumerate Startup folder entries (walkdir/read_dir).
-- Compare each set against the whitelist loaded from `rc-agent.toml`.
-- Kill violating processes via `sysinfo::Process::kill(Signal::Kill)`.
-- Delete violating Run key entries via `winreg::RegKey::delete_value`.
-- Delete violating Startup folder files via `std::fs::remove_file`.
-- Delete violating Scheduled Task entries via shell exec `schtasks /delete /tn <name> /f` through `rc-common::exec`.
-- Report each violation over the existing WS connection (new `AgentMessage::ProcessViolation` variant in rc-common).
-- Write all violations to structured tracing log for audit.
-
-### racecontrol (server .23)
-
-New module: `crates/racecontrol/src/process_guard.rs`
-
-- Same tick loop pattern, spawned from server's `main.rs`.
-- Whitelist differs: server allows racecontrol, kiosk (port 3300), web dashboard (port 3200), postgres/sqlite, but not Steam or any pod-only binaries.
-- Violations reported to its own audit log + forwarded as WS alert to connected staff kiosk.
-
-### James machine (.27)
-
-James runs the racecontrol binary. The racecontrol process_guard module covers James. James's whitelist is broader: includes Ollama (port 11434), webterm (port 9999).
-
-Per-machine overrides in `racecontrol.toml`:
-
-```toml
-[process_guard]
-poll_interval_secs = 10
-approved_processes = ["racecontrol", "kiosk", "node"]
-approved_ports = [8080, 3300, 3200]
-approved_autostart = ["racecontrol-server", "kiosk"]
-
-[process_guard.machine_overrides.james]
-approved_processes = ["racecontrol", "ollama", "node", "python", "webterm"]
-approved_ports = [8080, 11434, 9999]
-```
-
-For pod-specific overrides, rc-agent reads a `[process_guard]` section from its local `rc-agent.toml`, which is pushed from racecontrol during config sync (existing v10.0 mechanism).
-
----
-
-## Process Kill Sequence
-
-The recommended kill sequence for a violating process:
-
-1. `sysinfo::Process::kill(Signal::Kill)` — wraps `TerminateProcess` internally.
-2. If kill returns `false`: open handle via `winapi::um::processthreadsapi::OpenProcess(PROCESS_TERMINATE, ...)` and call `TerminateProcess` directly.
-3. Log result (killed / failed / already dead) with PID, name, and IST timestamp.
-4. Emit `AgentMessage::ProcessViolation` over WS with action taken.
-
-Do not use `Signal::Term` — Windows does not have SIGTERM. `Signal::Kill` is the only cross-platform signal in sysinfo.
-
----
-
-## Registry Run Key Enumeration Pattern
-
-```rust
-use winreg::enums::*;
-use winreg::RegKey;
-
-fn enumerate_run_keys() -> Vec<(String, String)> {
-    let hives = [
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
-        (HKEY_CURRENT_USER,  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
-    ];
-    let mut entries = Vec::new();
-    for (hive, path) in hives {
-        let root = RegKey::predef(hive);
-        if let Ok(key) = root.open_subkey(path) {
-            for (name, value) in key.enum_values().flatten() {
-                if let winreg::types::RegValue { vtype: REG_SZ, bytes } = value {
-                    let exe = String::from_utf16_lossy(
-                        &bytes.chunks(2)
-                            .map(|b| u16::from_le_bytes([b[0], b.get(1).copied().unwrap_or(0)]))
-                            .collect::<Vec<_>>()
-                    );
-                    entries.push((name, exe));
-                }
-            }
-        }
-    }
-    entries
-}
-```
-
-Deletion: `key.delete_value(&name)?` — requires opening the key with write access (`open_subkey_with_flags(path, KEY_WRITE)`).
-
----
-
-## Port Audit Pattern
-
-```rust
-use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
-
-fn listening_ports_with_pids() -> Vec<(u16, u32)> {
-    let af = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
-    let proto = ProtocolFlags::TCP;
-    get_sockets_info(af, proto)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|si| {
-            if let ProtocolSocketInfo::Tcp(tcp) = si.protocol_socket_info {
-                if tcp.state == netstat2::TcpState::Listen {
-                    return Some((tcp.local_port, si.associated_pids.into_iter().next().unwrap_or(0)));
-                }
-            }
-            None
-        })
-        .collect()
-}
-```
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| `std::net::TcpStream` raw HTTP for Ollama | `reqwest` blocking | reqwest bundles mini tokio runtime; +800KB binary |
+| `std::thread` watchdog loop | `tokio::time::interval` | no tokio runtime in rc-sentry; adding it contradicts deliberate design |
+| Port `DebugMemory` from rc-agent | Shared `rc-common` DebugMemory type | DebugMemory is context-specific; rc-sentry keys on log patterns, rc-agent on SimType/exit_code |
+| HTTP health poll for liveness | `sysinfo::processes()` | sysinfo triggers anti-cheat on gaming pods |
 
 ---
 
 ## Version Compatibility
 
-| Package | Resolves With | Notes |
-|---------|---------------|-------|
-| `winreg 0.55` | `windows-sys 0.59` (transitive) | No conflict with `winapi 0.3` — they bind different Win32 surface areas via different mechanisms |
-| `netstat2 0.11` | `winapi 0.3` (transitive) | netstat2 uses winapi internally for iphlpapi. Same version already in repo — no conflict. |
-| `walkdir 2` | All workspace deps | Pure Rust, no platform-native bindings. No conflicts. |
-| `sysinfo 0.33` | `tokio 1`, `winapi` | Already proven across all 8 pods in production. |
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| `serde_json = "1"` | `serde = "1"` | Already workspace co-versioned |
+| `chrono = "0.4"` | `serde = "1"` (via `features = ["serde"]`) | Already workspace dep with serde feature |
+| `anyhow = "1"` | All workspace crates | Already workspace dep |
+| `sysinfo = "0.33"` | No conflict with new additions | Already in rc-sentry |
+
+---
+
+## Integration Points
+
+| Feature | Integrates With | Mechanism |
+|---------|----------------|-----------|
+| Health watchdog | rc-agent `:8090/health` endpoint | Raw HTTP GET from background std::thread |
+| Crash log reader | `C:\RacingPoint\startup_log.txt`, `rc-agent-stderr.txt` | `std::fs::read_to_string` |
+| Pattern memory | `C:\RacingPoint\debug-memory.json` | serde_json read/write (atomic rename) |
+| Ollama query | James `.27:11434/api/generate` | Raw HTTP POST via TcpStream |
+| Fleet reporting | `192.168.31.23:8080/api/v1/fleet/...` | Raw HTTP POST (same TcpStream pattern) |
+| rc-agent restart | `C:\RacingPoint\start-rcagent.bat` | `std::process::Command` |
 
 ---
 
 ## Sources
 
-- [sysinfo on crates.io](https://crates.io/crates/sysinfo) — 0.38.3 latest; 0.33 confirmed in repo
-- [Process::kill in sysinfo docs](https://docs.rs/sysinfo/latest/sysinfo/struct.Process.html) — Signal::Kill is only cross-platform signal
-- [winreg on crates.io](https://crates.io/crates/winreg) — 0.55.0 confirmed latest (released 2025-01-12)
-- [winreg-rs on GitHub](https://github.com/gentoo90/winreg-rs) — Run key enumeration and delete_value patterns
-- [netstat2 on crates.io](https://crates.io/crates/netstat2) — 0.11.2 current; iphlpapi GetExtendedTcpTable confirmed
-- [netstat2-rs on GitHub](https://github.com/ohadravid/netstat2-rs) — Windows GetExtendedTcpTable usage pattern
-- [listeners on GitHub](https://github.com/GyulyVGC/listeners) — considered and rejected in favor of netstat2
-- [TerminateProcess Win32 docs](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess) — fallback kill path
-- [MITRE ATT&CK T1547.001](https://attack.mitre.org/techniques/T1547.001/) — Startup folder + Run key paths confirmed
-- `crates/rc-agent/Cargo.toml` — read directly; sysinfo 0.33, winapi 0.3 features confirmed
-- `crates/racecontrol/Cargo.toml` — read directly; sysinfo 0.33 confirmed, no existing windows-only dep block
-- `Cargo.toml` (workspace) — read directly; confirmed tokio, tracing, serde, toml, anyhow versions
+- `crates/rc-sentry/Cargo.toml` — confirmed current deps (pure std, serde_json, sysinfo)
+- `crates/rc-sentry/src/main.rs` — confirmed thread-per-connection, no tokio runtime
+- `crates/rc-agent/src/ai_debugger.rs` — `query_ollama()` and `DebugMemory` patterns (proven)
+- `crates/rc-agent/Cargo.toml` — confirmed `reqwest = "0.12"` already workspace-locked
+- `Cargo.toml` (workspace) — confirmed `chrono`, `anyhow`, `serde_json` as workspace deps
+- WebSearch: reqwest 0.12.x confirmed as latest stable 0.12 series (0.13 exists but not in workspace)
+- WebSearch: Ollama `/api/generate` REST endpoint confirmed stable (stream: false for blocking response)
 
 ---
-
-*Stack research for: v12.1 E2E Process Guard — Windows process monitoring and whitelist enforcement*
+*Stack research for: RC Sentry AI Debugger (v11.2)*
 *Researched: 2026-03-21 IST*

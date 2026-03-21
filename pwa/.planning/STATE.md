@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 03-02-PLAN.md (Phase 03 fully complete)
-last_updated: "2026-03-21T12:27:20.676Z"
-last_activity: 2026-03-21 — Plan 03-02 complete (reservations + debit_intents bidirectional sync)
+status: in-progress
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-21T12:48:00.000Z"
+last_activity: 2026-03-21 — Plan 04-02 complete (reservation expiry cleanup in scheduler)
 progress:
   total_phases: 10
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
   percent: 100
 ---
 
@@ -21,29 +21,30 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers book and pay from anywhere, walk in with a PIN, and race — while Uday sees everything live from his phone without being on-site.
-**Current focus:** Phase 3: Sync Hardening
+**Current focus:** Phase 4: Remote Booking & PIN Generation
 
 ## Current Position
 
-Phase: 3 of 10 (Sync Hardening) -- COMPLETE
-Plan: 3 of 3 in current phase (all complete)
-Status: Phase 03 complete, ready for Phase 04
-Last activity: 2026-03-21 — Plan 03-02 complete (reservations + debit_intents bidirectional sync)
+Phase: 4 of 10 (Remote Booking & PIN Generation)
+Plan: 2 of 3 in current phase (04-02 complete)
+Status: Phase 04 in progress, plan 02 complete
+Last activity: 2026-03-21 — Plan 04-02 complete (reservation expiry cleanup in scheduler)
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 4
 - Average duration: 3 min
-- Total execution time: 0.17 hours
+- Total execution time: 0.20 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 03-sync-hardening | 3 | 10 min | 3 min |
+| 04-remote-booking-pin-generation | 1 | 2 min | 2 min |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -68,6 +69,9 @@ Recent decisions affecting current work:
 - [03-02]: Wallet debit uses debit_session txn_type with reservation_id as reference
 - [03-03]: Status field changed from static "ok" to computed health_status (healthy/degraded/critical/unknown)
 - [03-03]: Lag thresholds: healthy <= 60s, degraded <= 300s, critical > 300s, unknown when no sync data
+- [04-02]: Refund debit_intents use origin='local' so cloud sync picks them up
+- [04-02]: Both pending_debit and confirmed statuses can expire; pending intents cancelled, completed get refund
+- [04-02]: Negative amount_paise signals refund in debit_intents table
 
 ### Pending Todos
 
@@ -81,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T12:18:00Z
-Stopped at: Completed 03-02-PLAN.md (Phase 03 fully complete)
+Last session: 2026-03-21T12:48:00Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

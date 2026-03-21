@@ -1,8 +1,25 @@
-# Feature Research: E2E Process Guard
+# Feature Research: RC Sentry AI Debugger
 
-**Domain:** Continuous process whitelist enforcement, auto-start auditing, and violation handling across a mixed Windows fleet (8 sim pods + 1 server + 1 operations workstation)
+**Domain:** Crash-diagnosing external watchdog for a Windows process (rc-agent) on sim racing pods, with anti-cheat-safe detection, log parsing, pattern memory, LLM triage, and escalation decisions.
 **Researched:** 2026-03-21
-**Confidence:** HIGH (based on direct codebase audit — kiosk.rs ALLOWED_PROCESSES already established, process detection patterns proven in game_process.rs, kiosk.rs, self_test.rs; Windows audit surface well-defined)
+**Confidence:** HIGH (codebase audit of rc-sentry, rc-agent, ai_debugger, self_monitor; confirmed EAC detection mechanisms from official sources; confirmed iRacing EOS anti-cheat approach; existing 4-tier debug order is direct prior art)
+
+---
+
+## Context: What Already Exists
+
+Before listing features, it matters what the new sentry debugger can build on versus what it must build fresh:
+
+| Already in rc-agent (dies with the patient) | Must move to rc-sentry (external survivor) |
+|---------------------------------------------|---------------------------------------------|
+| `ai_debugger.rs` — 14 auto-fix patterns, DebugMemory, Ollama query | None of it survives rc-agent crash |
+| `self_monitor.rs` — CLOSE_WAIT detection, WS dead detection, relaunch_self() | The relaunch_self() pattern is reusable |
+| `debug-memory.json` on disk at C:\RacingPoint\ | File survives crash — sentry can read it |
+| `rc-bot-events.log` on disk | File survives crash — sentry can read it |
+| `/health` on :8090 (rc-agent's own health endpoint) | Port goes away when rc-agent dies |
+| `PodStateSnapshot` — runtime context at crash time | Lost with rc-agent unless serialized to disk |
+
+The sentry already has `/health`, `/processes`, `/files`, `/exec` endpoints and the `rc-common::exec::run_cmd_sync` primitive. It is a pure-std no-async binary running on :8091. Adding a crash analysis loop means adding a background thread (no async needed — the pattern is already std::thread based).
 
 ---
 
@@ -10,126 +27,115 @@
 
 ### Table Stakes (Operations Expects These)
 
-Features the process guard must have to do its job. Missing any of these means the guard either misses violations, can't act on them, or creates so much noise that staff disable it.
+Features the sentry AI debugger must have. Missing any means rc-agent still restarts blindly — the milestone goal is not met.
 
 | # | Feature | Why Expected | Complexity | Existing Dependency |
 |---|---------|--------------|------------|---------------------|
-| TS-1 | **Central whitelist in racecontrol.toml with per-machine overrides** | Different machines legitimately run different processes: James needs Ollama (11434), pods do not want Steam, server does not run ConspitLink. A flat global list causes false positives on every machine. | LOW | `racecontrol.toml` already has sections for per-feature config. TOML supports nested tables trivially. No new serialization infrastructure needed. |
-| TS-2 | **Process whitelist check — running processes vs approved list** | Core function of the guard. Scan running processes (via `sysinfo` crate, already used in `kiosk.rs`) and flag any exe not in the approved list. | LOW | `sysinfo::System` already imported in `kiosk.rs`. `ALLOWED_PROCESSES` static slice already has 60+ validated entries categorized. New guard reuses this foundation — no re-inventorying the Windows process namespace. |
-| TS-3 | **Auto-kill on violation** | A guard that only reports violations is easily ignored. Unauthorized processes are either customer attempts to bypass kiosk restrictions or silent installs from Windows Update/software. Auto-kill is the correct default. Staff cannot manually kill processes on 8 pods — it must be automated. | LOW | `taskkill /F /IM <name>` pattern already used in `game_process.rs` and `self_heal.rs`. Wrap in a safe fn with allowlist re-check before kill to prevent accidental kills. |
-| TS-4 | **Auto-start audit: HKCU/HKLM Run keys** | The trigger for v12.1 was a missed Steam auto-start. Registry Run keys are the canonical Windows auto-start mechanism and must be audited. Any non-whitelisted entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` or `HKLM\...\Run` must be removed. | MEDIUM | `self_heal.rs` already reads/writes HKLM Run keys (for RCAgent itself). `winreg` crate already in rc-agent's dependency tree. New: enumerate all values in Run keys and diff against whitelist. |
-| TS-5 | **Auto-start audit: Startup folder** | `%AppData%\Microsoft\Windows\Start Menu\Programs\Startup` is a second auto-start vector. Steam, Discord, and bundled software installers frequently drop shortcuts here. Must enumerate and remove non-whitelisted entries. | LOW | `std::fs::read_dir` on the Startup folder path. Known Windows path, no external crate needed. |
-| TS-6 | **Auto-start audit: Scheduled Tasks** | Scheduled Tasks are the third major auto-start vector and the most dangerous because they can run as SYSTEM. The venue's own legitimate tasks (kiosk, web dashboard) must be whitelisted; all others removed. | MEDIUM | `schtasks /query /fo CSV` → parse output. Already used as shell-out pattern via `rc-common::exec`. Alternatively `com_object`-based ITaskService but shell-out is sufficient and simpler. |
-| TS-7 | **Port audit: listening ports vs approved list** | A non-whitelisted listening port indicates an unauthorized server process (game server, remote access tool, crypto miner). Must detect and flag. Acts as a second layer beyond process name matching. | LOW | `netstat -ano` shell-out → parse listening ports. Pattern matches `remote_ops.rs` and `firewall.rs` existing approaches. `sysinfo` also exposes network info. |
-| TS-8 | **Pod binary guard: wrong binary on wrong machine** | Standing rule #2 — `rc-agent.exe` must never run on James, `racecontrol.exe` must never run on a pod. This was a source of past crashes. Detect by process name + machine role combination. | LOW | `config.rs` already has `PodConfig.pod_number` to identify machine role. If `racecontrol.exe` is found in process list on a pod, it's an immediate violation. |
-| TS-9 | **Violation alert via WebSocket to staff kiosk** | Staff must know about violations without polling. The WS notification channel is the established mechanism for all pod-to-server alerting. A new `ProcessViolation` AgentMessage variant routes to the kiosk dashboard. | LOW | `AgentMessage` enum in `rc-common/src/protocol.rs`. Adding a variant follows the exact same pattern as `ProcessApprovalRequest` (already exists). |
-| TS-10 | **Audit log: timestamp, machine, process name, action taken** | Operations log for Uday — can review what was killed, when, why. Critical for compliance (e.g., "did the guard kill a legitimate process?"). Also used to detect persistent violators (process keeps relaunching = deeper problem). | LOW | Append to `C:\RacingPoint\process-guard.log` using the same rotation pattern as `self_monitor.rs` (512KB cap, rotate-on-exceed). Structured lines: `[timestamp] MACHINE: pod-3 | NAME: steam.exe | PID: 4421 | ACTION: killed`. |
-| TS-11 | **Violation report to server on kill** | Beyond WS notification, the server should record every kill centrally. Enables cross-machine violation pattern analysis (e.g., Steam keeps reinstalling on pods 2 and 4 but not 6). | LOW | `AgentMessage::ProcessViolation` carries machine, process name, pid, action, timestamp. Server stores in-memory per-pod violation history (not DB — not worth schema cost for this milestone). |
-| TS-12 | **Continuous monitoring daemon with configurable poll interval** | The guard must run continuously — not just on startup. Process violations happen at runtime (customer triggers a download, Windows auto-update runs in background). Continuous polling at a configurable interval (default 60s) is the correct model. | LOW | `tokio::time::interval` loop, same structure as `self_monitor.rs` and `kiosk.rs` enforce loop. Interval configurable via `[process_guard]` TOML section. |
+| TS-1 | **Health endpoint polling for rc-agent crash detection** | Without detecting the crash, nothing else can happen. Poll `localhost:8090/health` every 5s. Non-response for 2+ consecutive polls = crashed. | LOW | HTTP client in std (no reqwest — no async in sentry). `std::net::TcpStream::connect_timeout` + basic GET. Pattern: rc-sentry is already pure-std for connections. |
+| TS-2 | **Post-crash log reading: startup_log, stderr capture, panic output** | The WHY of a crash lives in the log files. rc-agent already writes startup errors to disk (HEAL-01 through HEAL-04 in v4.0). Without reading these, every restart is still blind. | LOW | `std::fs::read_to_string` on known paths: `C:\RacingPoint\startup_errors.log`, `C:\RacingPoint\rc-agent-stderr.log`, `C:\RacingPoint\rc-bot-events.log`. All paths are constants in the project. `/files` sentry endpoint already exists but internal read is simpler. |
+| TS-3 | **Tier 1 deterministic fixes before restart** | rc-agent's own `ai_debugger.rs` Tier 1 has 14 patterns. The most critical ones (stale sockets, zombie processes, config repair, shader cache) must be replicated in sentry so they run even when rc-agent is dead. | MEDIUM | Patterns replicated from `ai_debugger.rs`. Implementation: shell-outs via `rc_common::exec::run_cmd_sync` (already used in sentry's `/exec` handler). Billing gate does NOT apply here — rc-agent is dead, no session in progress. |
+| TS-4 | **Crash pattern memory: read debug-memory.json for instant fix replay** | debug-memory.json on disk survives the crash. If rc-agent solved this exact pattern before (success_count > 0), apply the known fix immediately without querying Ollama. | LOW | `std::fs::read_to_string(C:\RacingPoint\debug-memory.json)` + `serde_json` parse. The `DebugMemory` struct and `pattern_key` logic in `ai_debugger.rs` can be extracted to `rc-common` or duplicated with minimal code (it's just JSON read + key lookup). |
+| TS-5 | **Tier 3 Ollama query for unknown crash patterns** | Patterns not in debug-memory.json and not matched by Tier 1 keywords need LLM triage. Ollama runs on James (.27:11434), survives pod crashes. Query with crash log excerpt and receive RESTART / FIX / ALERT. | MEDIUM | `std::net::TcpStream` raw HTTP POST to `192.168.31.27:11434/api/generate` — no async needed. Blocking 30s timeout via `set_read_timeout`. Same Ollama model already serving rc-agent queries. |
+| TS-6 | **Crash diagnostics reported to server via fleet API** | Server needs to know WHY pod was restarted, not just that it was. The `/api/v1/fleet/health` endpoint and fleet dashboard show pod state. A `CrashDiagnostic` event to the server closes the observability loop. | LOW | HTTP POST to `192.168.31.23:8080` — plain std TCP, same approach as Ollama query. Server logs the event. No new server endpoint needed if it maps to existing `AgentMessage` channel via rc-agent (but rc-agent is dead). Sentry posts directly via HTTP. |
+| TS-7 | **Escalation decision: restart vs alert staff vs block pod** | Not every crash should result in a restart loop. A pod crashing 5 times in 10 minutes signals a hardware or config problem that staff must physically address. Three outcomes: restart (most crashes), alert (repeat crashes), block with maintenance screen. | MEDIUM | Three-state FSM in the sentry crash loop: `restart_count` + `last_crash_at` in memory. If `restart_count >= 3 in 10 min` → email alert + `/exec` to show maintenance screen (the lock_screen HTML approach already used). |
+| TS-8 | **Anti-cheat-safe detection: HTTP health polling only, no process inspection** | F1 25 uses Easy Anti-Cheat (EAC). EAC scans for handles to the game process, OpenProcess calls, and memory access from external processes. Health polling via TCP to :8090 does not touch the game process — it is completely invisible to EAC. The sentry already avoids process inspection in its `/processes` endpoint (it uses sysinfo for reporting, not game debugging). | LOW | This is a constraint, not a feature to build, but it must be explicitly honored: the crash detection loop MUST NOT call OpenProcess/TerminateProcess on game PIDs, MUST NOT call `EnumProcessModules`, MUST NOT attach debug events. Only allowed: HTTP polling localhost:8090, reading log files from disk, running shell commands (netstat, taskkill by name — not by PID attachment). |
+| TS-9 | **Write crash diagnostic to crash-sentry.log on disk** | Every crash event (detected, logs read, fixes applied, outcome) must be persisted locally. This log survives the sentry's own restarts and enables post-mortem by Uday or James. | LOW | Append to `C:\RacingPoint\crash-sentry.log` with 512KB rotation. Same `log_event()` pattern from `self_monitor.rs` — replicate in sentry. Structured line: `[epoch_secs] CRASH_DETECTED | fixes=stale_socket,restart | outcome=restart | ollama=RESTART`. |
 
 ### Differentiators (Beyond the Mandatory Floor)
 
-Features that make the guard significantly more useful for operations without being mandatory for it to function.
+Features that make the crash-diagnosing watchdog significantly better without being required for the core mission.
 
 | # | Feature | Value Proposition | Complexity | Notes |
 |---|---------|-------------------|------------|-------|
-| D-1 | **Category-tagged whitelist (system, racecontrol, game, peripheral, ollama)** | Instead of a flat list of names, the whitelist entries carry a category tag. This enables per-machine policy by category: pods allow `game` category, James allows `ollama` category, server allows `racecontrol` category. Easier to maintain and audit than per-name machine overrides. | LOW | Add `category` field to whitelist entries. TOML: `[[process_guard.allowed]] name = "ollama.exe" category = "ollama" machines = ["james"]`. The existing `ALLOWED_PROCESSES` in `kiosk.rs` already has natural categories in comments — formalize them. |
-| D-2 | **Wildcard/prefix matching in whitelist** | Some processes need pattern matching: NVIDIA spawns `nvcontainer.exe`, `nvdisplay.container.exe`, `nvspcaps64.exe` — all from the same vendor. A `nv*.exe` wildcard is cleaner than enumerating each. Similarly, `acs_*.exe`, `msedge_*.exe`. | LOW | `glob` crate or simple prefix/suffix matching with `*` as wildcard character. The whitelist entry specifies `name = "nv*.exe"`. Complexity is LOW — this is pattern string matching, not regex engine. |
-| D-3 | **Severity tiers: kill-immediately vs warn-and-escalate vs monitor-only** | Not all violations warrant immediate kill. A first-time unknown process should be logged and escalated to staff (same `ProcessApprovalRequest` flow as `kiosk.rs`). A known-bad process (e.g., `steam.exe` on a pod) should be killed immediately. Severity tier is per-entry in the blocklist config. | MEDIUM | Three tiers: `KILL` (kill without approval), `ESCALATE` (warn staff, auto-kill after TTL), `MONITOR` (log only, no action). Per-entry in the `[process_guard.blocked]` section or derive from category. |
-| D-4 | **Violation trend reporting: escalate on repeat offenders** | If the same process is killed more than N times within a time window, escalate via email rather than just WS notification. Indicates a process is relaunching itself (installer, watchdog, malware). | MEDIUM | Track per-process kill counts in memory. If count > threshold (e.g., 3 kills in 30min), trigger `email_alerts.rs` via the same send_email.js shell-out. No new email infrastructure. |
-| D-5 | **Fleet-wide violation summary in /api/v1/fleet/health** | Extend `PodFleetStatus` to include `violation_count_24h` and `last_violation_at`. Uday can see at a glance which pods have been most active for the guard without reading logs. | MEDIUM | Requires server-side aggregation of `ProcessViolation` AgentMessages. Server maintains per-pod violation counter in `FleetHealthStore`. No DB schema change — in-memory only. |
-| D-6 | **Guard runs on James workstation as a standalone daemon (not rc-agent module)** | James is not a pod — it doesn't run rc-agent. The process guard for James needs to run as a separate light binary (or as part of racecontrol server ops if James runs a comms-link daemon). The guard logic should be a library crate so it compiles into both rc-agent (pods) and a standalone binary (James). | MEDIUM | Extract guard logic to `rc-common` or a new `rc-guard` helper crate. Standalone binary for James polls local processes and reports violations via Tailscale HTTP to the server. Pod variant runs as an rc-agent module. |
-| D-7 | **Guard runs on racecontrol server as a module** | The server (.23) runs racecontrol.exe — it needs its own process guard integrated as a `server_ops.rs`-style module. Violations on the server are higher severity (server compromise affects all 8 pods). | LOW | Add `process_guard::run_server_guard()` called from racecontrol's main event loop. Server guard is simpler — it only needs to audit the server's own processes, not pod processes. |
+| D-1 | **Write debug-memory.json from sentry after successful fix** | Today, only rc-agent writes debug-memory.json (after a successful fix). If sentry fixes a crash pattern, it should record that fix in debug-memory.json so future crashes (whether handled by sentry or rc-agent) can use it. Closes the learning loop. | LOW | `std::fs::write` with atomic rename pattern (already in `ai_debugger.rs`). Sentry reads the same JSON format. |
+| D-2 | **Capture rc-agent stderr at launch: redirect output to file before rc-agent starts** | Currently rc-agent is started from `start-rcagent.bat`. If that bat file pipes stderr to a file, sentry has structured error output to parse. The sentry can check if the bat file already does this and add the redirect if not. | MEDIUM | Modifying the bat file is an operational deploy step, not a code change. Sentry can check if `rc-agent-stderr.log` exists and is non-empty as a signal of previous crash details. Document the required bat file change. |
+| D-3 | **Hysteresis on crash detection: require 2+ consecutive polling failures before acting** | Single poll failure can be network blip (Windows Defender scan locks port briefly). Requiring 2 consecutive failures (within 10s total) eliminates false-positive restarts that interrupt customer sessions. | LOW | Counter variable in the poll loop: `consecutive_failures`. Reset to 0 on success. Trigger analysis only when `>= 2`. |
+| D-4 | **Pass last known PodStateSnapshot to Ollama query** | rc-agent serializes a `PodStateSnapshot` to disk on panic (if the panic hook writes it). If this file exists at crash time, pass it as context to Ollama. Better context = more accurate fix suggestion. | MEDIUM | Requires rc-agent panic hook to write `C:\RacingPoint\last-crash-state.json`. Sentry reads this file if it exists and appends to the Ollama prompt. Richer context (billing_active, game_pid, ws_connected at time of crash). |
+| D-5 | **Startup error classification: distinguish config crash vs runtime crash vs OOM crash** | Log parsing can classify the crash type before Ollama is consulted. Config parse errors have distinctive messages ("missing field", "invalid TOML"). OOM crashes have distinct Windows Event Log entries. This pre-classification narrows the Tier 1 fix selection before wasting Ollama budget on already-known patterns. | MEDIUM | Keyword matching on log content: config errors → fix_config(), OOM → fix_memory_pressure(), port conflict → fix_stale_socket(). Narrows the search space and may eliminate the Ollama call entirely. |
+| D-6 | **Report diagnostic to fleet health dashboard with crash_reason field** | Extend `PodFleetStatus` with `last_crash_reason: Option<String>` and `restart_count_24h: u32`. Staff kiosk can show "Pod 3: restarted 2x today — port conflict" without reading logs. | MEDIUM | HTTP POST from sentry to server. New fields on `PodFleetStatus` struct in rc-common. |
+| D-7 | **Configurable via rc-agent.toml section** | The crash analysis poll interval, Ollama URL, escalation threshold, and log paths should be configurable without rebuilding sentry. Sentry reads rc-agent.toml at startup (it shares the same `C:\RacingPoint\` working directory). | LOW | `serde_json` / `toml` parse in sentry's main. Reasonable defaults if config absent. One TOML section: `[sentry]` with `poll_interval_ms`, `ollama_url`, `max_restarts_per_window`, `restart_window_secs`. |
 
 ### Anti-Features (Do Not Build)
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **Real-time process event subscription (ETW/WMI events)** | ETW (Event Tracing for Windows) process creation events give sub-100ms detection. Sounds appealing but requires COM + elevated SYSTEM privileges + significant Win32 plumbing not representable in safe Rust. High complexity for marginal gain over 60s polling. | 60-second polling is sufficient for the threat model: Steam auto-starts, Windows Update agents, customer-triggered downloads. Near-real-time detection of process spawns is not the problem to solve. |
-| **Per-process cryptographic hash verification** | Checking SHA-256 of every running binary against a hash database catches process-name spoofing. However, managing hash updates across 8 pods (every Windows Update changes system binary hashes) creates enormous operational overhead. | Trust process name + path. Verify path is in an expected directory (e.g., `C:\RacingPoint\`, `C:\Windows\System32\`). Path-based allow is sufficient and maintainable. |
-| **Deep packet inspection on flagged ports** | Examining traffic on non-whitelisted ports to determine if it's "benign" network activity. Network DPI requires kernel-level drivers, is OS-version-specific, and creates far more operational risk than it solves. | Port audit at the socket level (listening ports via netstat). If a non-approved port is listening, kill the owning process. No DPI needed. |
-| **Behavioral analysis (CPU/memory heuristics for malware)** | CPU usage anomaly detection to identify cryptominers or runaway processes. This crosses into EDR territory. A sim racing venue has a narrow expected process tree — a simple whitelist is more effective than behavioral analysis. | If a process is not on the whitelist, kill it regardless of behavior. Behavioral analysis adds complexity without better outcomes for this threat model. |
-| **Quarantine mode (suspend instead of kill)** | Suspending a violating process rather than killing it to "preserve evidence." Adds process lifecycle complexity, suspended processes still consume memory, and staff cannot use a suspended process to diagnose anything useful. | Kill the process, log the violation with process name + path + PID. The audit log is the "evidence." |
-| **Auto-whitelisting via LLM on every scan** | Routing every unknown process through Ollama for classification (the kiosk ALLOWED pattern) is expensive at the process guard level. The kiosk LLM is justified because it's per-customer-session and the stakes are high (false positive = lock out customer). The process guard runs every 60s — LLM on each scan adds latency and Ollama load. | Use LLM only for `ESCALATE`-tier violations (first-time unknowns) when staff approval is needed. `KILL`-tier violations (known-bad names) skip LLM entirely. |
-| **DB schema for violation history** | Adding a `process_violations` table to track every kill over time. Adds migration, schema change, sync surface. | In-memory per-machine violation counters in `FleetHealthStore`. Structured log file for long-term history. The log file is queryable (grep, tail) without adding DB overhead. |
+| **Process inspection of game PID (OpenProcess, debug APIs, CreateRemoteThread)** | EAC kernel driver scans for handles to the game process from external processes. Any OpenProcess call on F1 25 or iRacing EOS risks a ban or game crash. iRacing EOS runs a sandbox preventing external program access. This is a hard constraint. | Health poll localhost:8090 only. Shell commands (taskkill by name) are safe because they use the kernel's standard process management API, not the game's process memory. |
+| **Minidump analysis (WinDbg, DbgHelp.dll)** | Minidump parsing requires loading DbgHelp.dll with the correct symbol paths. Symbols are game-specific, change every patch, and the game EXE minidumps are not accessible (EAC guards the game process memory). rc-agent minidumps are accessible but setting up symbol servers adds significant operational complexity for marginal gain over log parsing. | Read rc-agent's own text log output and panic messages. Rust panics produce readable stack traces to stderr if `RUST_BACKTRACE=1` is set. Text log parsing is sufficient. |
+| **Real-time Windows Event Log subscription** | Subscribing to Windows Event Log for application crashes (EventID 1000/1001) via `EvtSubscribe` requires COM initialization and significant Win32 plumbing. The sentry deliberately avoids async and complex win32 to stay minimal. | Poll a known log file path every 5s. Already covers 99% of the crash information. Event Log polling is not worth the complexity for the marginal case where a crash leaves no disk log. |
+| **Restart loop without exponential backoff** | Rapid restart loops during persistent crashes consume CPU, corrupt state, and may trigger Windows service recovery limits. A sentry that restarts rc-agent 20 times in 2 minutes is worse than one that blocks the pod and alerts staff. | Escalating backoff after each restart: 3s, 5s, 10s, 30s. Block pod and alert staff after 3 restarts in 10 minutes. Already validated pattern from rc-agent's own `EscalatingBackoff` in rc-common. |
+| **Ollama for every crash without Tier 1 first** | Sending every log to Ollama skips deterministic fixes that always work (stale socket = netsh delete, zombie = taskkill). Ollama adds 5-30s latency. Most crashes have known patterns that resolve in <1s with the right command. | 4-tier debug order: Tier 1 deterministic → Tier 2 memory → Tier 3 Ollama. Only reach Tier 3 if Tiers 1+2 yield no applicable fix. This is the established pattern from `ai_debugger.rs`. |
+| **Game-crash debugging in sentry** | rc-agent is alive when a game crashes (it detects and handles game crashes itself). Sentry only activates when rc-agent is dead. Adding game-crash debugging to sentry creates a confusing dual-ownership of the same problem. | Game crash debugging stays in rc-agent's `ai_debugger.rs`. Sentry handles only rc-agent crashes. Scope boundary: sentry = rc-agent dead, rc-agent = game dead. |
+| **Cross-pod crash correlation in sentry** | Detecting "3 pods crashed at the same time = server problem" is a valid observation but belongs to racecontrol's `pod_monitor.rs` + `bot_coordinator.rs` on the server, which has fleet-wide visibility. The sentry is a per-pod tool with no cross-pod communication path. | Server-side pod_monitor already detects fleet-wide health drops. Feed sentry crash events to the server (TS-6) and let the server do fleet-level correlation. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-racecontrol.toml [process_guard] section (TS-1)
-    └──loaded by──> ProcessGuardConfig struct (new, in rc-common or rc-agent/config.rs)
-                        ├──used by──> rc-agent process_guard module (TS-2, TS-3, TS-4, TS-5, TS-6)
-                        └──used by──> racecontrol server guard module (D-7)
+TS-1 (health poll: is rc-agent dead?)
+    └──triggers──> TS-2 (read crash logs from disk)
+                       └──feeds──> D-5 (classify crash type: config/OOM/port)
+                                       └──narrows──> TS-3 (Tier 1 deterministic fixes)
+                                                         └──if no fix──> TS-4 (debug-memory instant replay)
+                                                                             └──if no match──> TS-5 (Ollama Tier 3)
+                                                                                                   └──outcome feeds──> TS-7 (escalation FSM)
 
-kiosk.rs ALLOWED_PROCESSES (existing)
-    └──reused by──> process_guard module base whitelist (TS-2)
-                        └──extended with──> per-machine overrides from TOML (TS-1)
+TS-7 (escalation: restart vs alert vs block)
+    └──restart outcome──> rc-agent.exe launched via existing relaunch_self() pattern
+    └──alert outcome──> TS-6 (report to server) + email alert
+    └──block outcome──> /exec to show maintenance lock screen on pod
 
-sysinfo crate (existing in rc-agent)
-    └──used by──> TS-2 process scan
+D-3 (hysteresis 2+ failures)
+    └──gates──> TS-1 (prevents false-positive crash detection)
 
-winreg crate (existing in rc-agent via self_heal.rs)
-    └──used by──> TS-4 Run key audit
+D-1 (write debug-memory.json after fix)
+    └──requires──> TS-3 (a fix was applied and succeeded)
+    └──requires──> TS-4 (pattern key derived from crash content)
 
-rc-common::exec (existing)
-    └──used by──> TS-3 kill (taskkill), TS-6 schtasks query, TS-7 netstat
+D-4 (pass PodStateSnapshot to Ollama)
+    └──requires──> rc-agent panic hook writing last-crash-state.json (rc-agent code change)
+    └──enhances──> TS-5 (richer Ollama context)
 
-AgentMessage enum (rc-common/protocol.rs)
-    └──new variant──> ProcessViolation { pod_id, machine, name, pid, action, timestamp } (TS-9, TS-11)
-
-TS-9 (WS alert) requires TS-2 (process scan produces violation)
-TS-10 (audit log) requires TS-3 (action taken is what gets logged)
-TS-11 (server record) requires TS-9 (WS channel carries the event)
-
-D-4 (repeat offender email) requires TS-3 (kill count tracked from kill actions)
-D-5 (fleet health violation count) requires TS-11 (server receives violations to count)
-D-6 (James standalone daemon) requires extracting guard logic from rc-agent to rc-common
-
-TS-8 (pod binary guard) requires TS-1 (machine role known from config) and TS-2 (process scan)
+TS-9 (crash-sentry.log write)
+    └──written at──> every stage: crash detected, logs read, fix applied, outcome
 ```
 
 ### Dependency Notes
 
-- **TS-4, TS-5, TS-6 (auto-start audit) are independent of TS-2 (process scan)**: Audit checks can run at startup + periodic, process scanning runs continuously. They share config and logging infrastructure but not code paths.
-- **TS-3 (auto-kill) depends on TS-2 (process scan)**: Cannot kill what you have not scanned.
-- **D-6 (James standalone) requires guard logic in rc-common, not rc-agent**: This is an architectural decision that affects phase ordering — the library extraction should happen before building the standalone binary.
-- **kiosk.rs already has LLM classification for `ESCALATE`-tier unknowns**: The process guard can reuse `ProcessApprovalRequest` AgentMessage and `kiosk::classify_with_llm()` rather than rebuilding this path.
+- **TS-1 is the trigger for everything**: Nothing activates until health poll detects rc-agent is down. This is the critical path — poll interval and hysteresis (D-3) must be set correctly before any other feature matters.
+- **TS-3 Tier 1 fixes require careful port between rc-agent and sentry**: The billing gate from `ai_debugger.rs` ("don't kill game if billing active") does NOT apply in sentry — rc-agent is already dead, so billing has already been interrupted. The sentry fixes run unconditionally.
+- **TS-5 Ollama is a pure-std blocking HTTP call in sentry**: Unlike rc-agent which uses reqwest (async), sentry must do this via raw TCP or a blocking HTTP client. The constraint is sentry's no-async architecture. Implementation: `std::net::TcpStream` + manual HTTP/1.1 POST. Max 30s timeout via `set_read_timeout`.
+- **D-4 requires a rc-agent code change (panic hook writes JSON)**: This is a cross-binary dependency. The sentry can still work without it (just queries Ollama without snapshot context). D-4 is enhancement, not blocking.
+- **Anti-cheat constraint (TS-8) is architectural**: It gates how TS-1 is implemented (HTTP poll only) and how TS-3 fixes are applied (taskkill by name, not by PID attachment). This constraint flows through every feature that touches processes.
 
 ---
 
 ## MVP Definition
 
-### Launch With (v12.1 core)
+### Launch With (v11.2 core)
 
-The minimum guard that solves the triggering incident (Steam missed during manual audit) and the pod binary rule violation risk.
+The minimum sentry that solves the problem: rc-agent crashes → sentry reads why → sentry fixes or reports → rc-agent restarts with context.
 
-- [ ] **TS-1** — `[process_guard]` section in racecontrol.toml with `allowed` list and per-machine `overrides` table. Schema validated on startup.
-- [ ] **TS-2** — Periodic process scan in rc-agent (`process_guard.rs` module) using `sysinfo`. 60s default poll interval.
-- [ ] **TS-3** — Auto-kill via `taskkill /F /IM` for processes not on the whitelist. Safe guard: never kill from `["system", "rc-agent.exe", "lsass.exe", "csrss.exe"]` hard-coded safety set regardless of config.
-- [ ] **TS-4** — HKCU + HKLM Run key audit at startup and every 5 minutes. Remove non-whitelisted entries.
-- [ ] **TS-5** — Startup folder audit at startup and every 5 minutes. Remove non-whitelisted shortcuts.
-- [ ] **TS-8** — Pod binary guard: if `racecontrol.exe` found running on a pod, immediate `ProcessViolation` alert (do not kill — log and escalate, restart rc-agent to be safe).
-- [ ] **TS-9** — `AgentMessage::ProcessViolation` variant sent to server on every kill or auto-start removal.
-- [ ] **TS-10** — Append-only audit log at `C:\RacingPoint\process-guard.log` (512KB rotation).
-- [ ] **TS-11** — Server receives `ProcessViolation` messages and stores per-pod violation list in `FleetHealthStore`.
-- [ ] **TS-12** — Continuous daemon spawned from rc-agent `event_loop.rs` via `tokio::spawn`.
+- [ ] **TS-1** — Health poll loop on :8090 every 5s, 2 consecutive failures = crash detected (D-3 hysteresis included from day 1 — trivial to add and prevents false positives during customer sessions).
+- [ ] **TS-2** — Read startup_log + stderr capture + rc-bot-events.log from known disk paths. Truncate to last 8KB for Ollama prompt budget.
+- [ ] **TS-3** — Tier 1 deterministic fixes: stale sockets (`netsh int ip delete arpcache`, close port-in-use), zombie processes (`taskkill /F /IM rc-agent.exe`), config repair (copy backup toml if main is corrupt/empty), shader cache clear (known NVIDIA DXCache path).
+- [ ] **TS-4** — Read debug-memory.json, extract `pattern_key` from crash log text, apply cached fix if match found with `success_count > 0`.
+- [ ] **TS-5** — Ollama query via blocking std TCP POST to James :11434. 30s timeout. Prompt includes crash log excerpt + rc-agent version + crash count in window. Parse RESTART / FIX_X / ALERT from response.
+- [ ] **TS-7** — Escalation FSM: track restart_count + timestamps. After 3 restarts in 10 minutes: email alert via `send_email.js` shell-out + `/exec` to show maintenance screen. Reset counter after 30 minutes of stable operation.
+- [ ] **TS-9** — Append to `C:\RacingPoint\crash-sentry.log` at every state transition. 512KB rotation.
 
-### Add After Validation (v12.1 polish)
+### Add After Validation (v11.2 polish)
 
-- [ ] **TS-6** — Scheduled Task audit (add after Run key + Startup folder proven stable — avoids scope creep in initial ship).
-- [ ] **TS-7** — Port audit (add after process guard stable — port violations are a secondary concern vs process violations).
-- [ ] **D-1** — Category-tagged whitelist entries (refactor after MVP ships and real-world false positives are identified).
-- [ ] **D-3** — Severity tiers: KILL vs ESCALATE vs MONITOR (add when operations has enough violation history to make informed tier decisions).
+- [ ] **TS-6** — Report crash diagnostic to server fleet API once server-side handler is confirmed working.
+- [ ] **D-1** — Write successful fix back to debug-memory.json (closes the learning loop with rc-agent's memory).
+- [ ] **D-5** — Log classification (config vs OOM vs port) to narrow Tier 1 before Ollama.
+- [ ] **D-7** — Sentry configurable via `[sentry]` section in rc-agent.toml.
 
-### Future Consideration (v12.2+)
+### Future Consideration (v11.3+)
 
-- [ ] **D-4** — Repeat offender email escalation (add when violation log shows persistent offenders — data-driven trigger).
-- [ ] **D-5** — Fleet health violation count field (add when Uday asks "which pod has the most violations?").
-- [ ] **D-6** — James standalone guard binary (requires rc-common refactor, defer until v13.0 infrastructure phase).
-- [ ] **D-7** — Server-side process guard module (lower priority — server has no customers, lower violation risk).
-- [ ] **D-2** — Wildcard matching in whitelist (add when real-world wildcard patterns are identified — premature optimization otherwise).
+- [ ] **D-4** — PodStateSnapshot at crash time (requires rc-agent panic hook change — separate phase).
+- [ ] **D-6** — Crash reason field in fleet health dashboard (requires racecontrol schema change).
+- [ ] **D-2** — Structured stderr capture from rc-agent (requires bat file change + ops deploy).
 
 ---
 
@@ -137,64 +143,85 @@ The minimum guard that solves the triggering incident (Steam missed during manua
 
 | Feature | Operational Value | Implementation Cost | Priority |
 |---------|-------------------|---------------------|----------|
-| TS-1 TOML config schema | HIGH — enables everything else | LOW — TOML table struct | P1 |
-| TS-2 Process scan | HIGH — core function | LOW — sysinfo already imported | P1 |
-| TS-3 Auto-kill | HIGH — guard without kill is just a logger | LOW — taskkill pattern exists | P1 |
-| TS-4 Run key audit | HIGH — exact trigger for this milestone | MEDIUM — winreg enumerate + diff | P1 |
-| TS-5 Startup folder audit | HIGH — second auto-start vector | LOW — read_dir + remove | P1 |
-| TS-8 Pod binary guard | HIGH — standing rule enforcement | LOW — name check in scan | P1 |
-| TS-9 WS violation alert | HIGH — staff visibility | LOW — new AgentMessage variant | P1 |
-| TS-10 Audit log | HIGH — operational record | LOW — append file + rotate | P1 |
-| TS-12 Continuous daemon | HIGH — periodic guard is useless | LOW — interval loop pattern | P1 |
-| TS-11 Server violation record | MEDIUM — aggregation value | LOW — FleetHealthStore field | P1 |
-| TS-6 Scheduled task audit | MEDIUM — third auto-start vector | MEDIUM — schtasks parse | P2 |
-| TS-7 Port audit | MEDIUM — secondary layer | LOW — netstat parse | P2 |
-| D-1 Category tags | MEDIUM — maintainability | LOW — TOML schema only | P2 |
-| D-3 Severity tiers | MEDIUM — precision | MEDIUM — tier dispatch logic | P2 |
-| D-4 Repeat offender email | LOW — rare scenario | MEDIUM — counter + email | P3 |
-| D-5 Fleet health count field | LOW — nice dashboard metric | MEDIUM — server aggregation | P3 |
-| D-6 James standalone binary | MEDIUM — coverage | HIGH — rc-common refactor | P3 |
-| D-7 Server guard module | LOW — low risk surface | MEDIUM — server integration | P3 |
-| D-2 Wildcard matching | LOW — premature | LOW | P3 |
+| TS-1 Health poll (crash detection) | HIGH — without this, nothing works | LOW — std TcpStream | P1 |
+| TS-2 Post-crash log read | HIGH — tells us WHY | LOW — std::fs::read | P1 |
+| TS-3 Tier 1 deterministic fixes | HIGH — resolves 70%+ of crashes instantly | MEDIUM — port patterns from ai_debugger | P1 |
+| TS-4 Pattern memory (debug-memory.json) | HIGH — instant fix replay, no Ollama needed | LOW — JSON read + key lookup | P1 |
+| TS-7 Escalation FSM | HIGH — prevents restart loops, protects customers | MEDIUM — state machine + email | P1 |
+| TS-9 crash-sentry.log | HIGH — operational record, post-mortem | LOW — append + rotate | P1 |
+| D-3 Hysteresis (2 failures) | HIGH — prevents false restart during game session | LOW — counter only | P1 |
+| TS-5 Ollama Tier 3 | MEDIUM — needed for unknown patterns | MEDIUM — blocking std TCP HTTP | P1 |
+| TS-6 Report to server | MEDIUM — visibility | LOW — HTTP POST | P2 |
+| D-1 Write debug-memory.json | MEDIUM — closes learning loop | LOW — JSON write | P2 |
+| D-5 Crash classification | MEDIUM — reduces Ollama calls | MEDIUM — keyword matching | P2 |
+| D-7 TOML config | LOW-MEDIUM — operational flexibility | LOW — toml parse | P2 |
+| D-4 PodStateSnapshot at crash | MEDIUM — better Ollama context | HIGH — requires rc-agent change | P3 |
+| D-6 Fleet health crash_reason field | LOW — nice dashboard metric | MEDIUM — server schema | P3 |
+| D-2 stderr capture from bat | LOW — marginal log improvement | MEDIUM — ops deploy step | P3 |
+
+---
+
+## Anti-Cheat Safety Summary
+
+This is the highest-risk constraint for this milestone. Concrete safe vs unsafe list:
+
+| Action | EAC/EOS Safe? | Reason |
+|--------|--------------|--------|
+| HTTP GET to `localhost:8090/health` | YES | TCP to rc-agent's own port, no game process contact |
+| `std::fs::read_to_string` on log files | YES | File I/O, not process memory access |
+| `taskkill /F /IM rc-agent.exe` (by name) | YES | Standard Windows process management by name |
+| `netstat -ano` shell-out | YES | Network statistics query, no process memory |
+| `netsh` socket cleanup | YES | Network stack command, no process memory |
+| HTTP POST to Ollama `192.168.31.27:11434` | YES | Local network call to James, no game contact |
+| `sysinfo::System::processes()` (read-only list) | YES | Reads process list via standard API — no handle to game process, no memory read |
+| `OpenProcess(game_pid)` | NO | EAC scans for open handles to game process |
+| `CreateRemoteThread(game_pid, ...)` | NO | Immediate EAC flag |
+| `VirtualQueryEx(game_pid, ...)` | NO | Memory inspection of game process |
+| Attaching WinDbg or debug events | NO | EAC detects debug events on game process |
+| `taskkill /F /PID <game_pid>` (by game PID) | GRAY — avoid | PID-based kill requires OpenProcess internally; prefer stopping billing and letting rc-agent handle game teardown when it restarts |
+
+**Verdict**: The sentry's health poll + log read + deterministic shell commands approach is entirely EAC-safe. The constraint requires discipline about PID-based operations on game processes specifically, not rc-agent processes.
 
 ---
 
 ## Relationship to Existing Modules
 
-This table maps each new feature to the rc-agent/racecontrol modules it touches or extends, to avoid hidden interface churn during implementation.
-
-| Feature | Touches / Extends | Creates New |
-|---------|-------------------|-------------|
-| TS-1 config schema | `rc-agent/config.rs` — add `ProcessGuardConfig` | `[process_guard]` TOML section |
-| TS-2, TS-3 process scan + kill | `kiosk.rs` — reuse `ALLOWED_PROCESSES` and sysinfo System | `process_guard.rs` module |
-| TS-4 Run key audit | `self_heal.rs` — reuse winreg patterns | `auto_start.rs` module (or sub-fn in process_guard.rs) |
-| TS-5 Startup folder audit | None — pure std::fs | Part of auto_start.rs |
-| TS-6 Scheduled task audit | `rc-common/exec.rs` — shell-out to schtasks | Part of auto_start.rs |
-| TS-7 Port audit | `firewall.rs` and `remote_ops.rs` — reuse netstat pattern | `port_audit.rs` fn or sub-fn |
-| TS-8 Pod binary guard | `process_guard.rs` scan path — special case by name | No new file |
-| TS-9 WS alert | `rc-common/protocol.rs` — add `ProcessViolation` variant | AgentMessage variant |
-| TS-10 audit log | `self_monitor.rs` — reuse log rotation pattern | `C:\RacingPoint\process-guard.log` |
-| TS-11 server record | `fleet_health.rs` — add `violations` to `FleetHealthStore` | Server-side handler for new AgentMessage |
-| TS-12 daemon spawn | `event_loop.rs` — add `process_guard::spawn()` call | `spawn()` fn in process_guard.rs |
+| Feature | Ports From | Extends | Creates |
+|---------|-----------|---------|---------|
+| TS-1 Health poll | `self_monitor.rs` query pattern | `rc-sentry/src/main.rs` — new background thread | `crash_watcher` thread in sentry |
+| TS-2 Log read | `ai_debugger.rs` — log path constants | rc-sentry main | `read_crash_logs()` fn |
+| TS-3 Tier 1 fixes | `ai_debugger.rs` — fix_stale_socket, fix_zombie_game, fix_config, fix_shader_cache | `rc_common::exec::run_cmd_sync` | `tier1_fixes()` fn in sentry |
+| TS-4 Pattern memory | `ai_debugger.rs` — DebugMemory struct, instant_fix() | Duplicate or extract to rc-common | `pattern_memory.rs` or inline in sentry |
+| TS-5 Ollama query | `self_monitor.rs` — query_ollama() (async) | Blocking rewrite for sentry's std context | `query_ollama_blocking()` fn |
+| TS-7 Escalation FSM | `ai_debugger.rs` — restart count patterns | `EscalatingBackoff` in rc-common | `escalation_state` struct in crash watcher |
+| TS-9 Crash log | `self_monitor.rs` — `log_event()`, `EVENT_LOG` constant | New log file path | `log_crash_event()` fn |
+| D-1 Memory write | `ai_debugger.rs` — `DebugMemory::record_fix()`, `save()` | Shares debug-memory.json | |
+| TS-8 Anti-cheat constraint | Architecture constraint — no new code | Affects how TS-1, TS-3 are implemented | |
 
 ---
 
 ## Sources
 
 - **Codebase audit (HIGH confidence):**
-  - `crates/rc-agent/src/kiosk.rs` — `ALLOWED_PROCESSES` (60+ entries, already categorized), `sysinfo` usage, LLM classification path, `ProcessApprovalRequest` flow
-  - `crates/rc-agent/src/self_heal.rs` — `winreg` Run key read/write patterns, log append/rotate pattern
-  - `crates/rc-agent/src/self_monitor.rs` — interval daemon pattern, log rotation constants
-  - `crates/rc-agent/src/config.rs` — `AgentConfig` schema, TOML section design pattern
-  - `crates/rc-agent/src/game_process.rs` — `taskkill` invocation pattern, process name constants
-  - `crates/racecontrol/src/fleet_health.rs` — `FleetHealthStore` extension points
-  - `crates/rc-common/src/protocol.rs` — `AgentMessage` variants, `ProcessApprovalRequest` as template for `ProcessViolation`
-- **Domain analysis (HIGH confidence — standard Windows process hardening operations):**
-  - Windows auto-start vectors (Run keys, Startup folder, Scheduled Tasks) are well-documented and stable. The `winreg` crate API for enumerating registry values is standard. schtasks CSV output format is stable since Windows 7. This is applied Windows system programming, not novel territory.
-- **Operational context (HIGH confidence — direct cause analysis from PROJECT.md):**
-  - The v12.1 milestone was triggered by Steam, Leaderboard kiosk, and voice assistant watchdog being missed during a manual audit. The feature set directly addresses these three auto-start vectors.
+  - `crates/rc-sentry/src/main.rs` — confirmed pure-std, no-async architecture; 6 endpoints; `run_cmd_sync` usage; thread-per-connection model
+  - `crates/rc-agent/src/ai_debugger.rs` — 14 Tier 1 fix patterns, DebugMemory struct, 4-tier debug order, pattern_key logic, billing gate rule
+  - `crates/rc-agent/src/self_monitor.rs` — health monitoring pattern, relaunch_self(), log_event(), CLOSE_WAIT detection, escalation logic
+  - `.planning/PROJECT.md` — v11.2 target feature list, constraints (no new crates, extend rc-sentry only, anti-cheat safe)
+
+- **EAC detection mechanisms (MEDIUM confidence — WebSearch + arxiv paper):**
+  - EAC scans for open handles to the game process, memory read/write access, suspicious threads in kernel/user mode, and hooking techniques. Source: arxiv.org/html/2408.00500v1 (academic analysis of kernel anti-cheat systems)
+  - HTTP polling to a separate localhost port (rc-agent :8090) does not create handles to the game process and is invisible to EAC's detection surface.
+  - EAC's Windows 11 24H2 compatibility issue was resolved in June 2025 (KB5063060) — pods must have this update installed for F1 25 to be stable regardless of sentry design.
+
+- **iRacing EOS anti-cheat (MEDIUM confidence — WebSearch + iRacing support docs):**
+  - iRacing transitioned from Kamu/EAC to Epic EOS anti-cheat. EOS runs iRacing inside a sandbox preventing external program access to the simulation memory. External telemetry tools that use UDP (not process memory) coexist with EOS safely. HTTP health polling falls in the same safe category.
+
+- **Watchdog escalation patterns (HIGH confidence — embedded systems best practice + Akka supervisor pattern):**
+  - Check-in pattern: supervisor monitors health signals; absence triggers escalation. Source: interrupt.memfault.com/blog/firmware-watchdog-best-practices
+  - Exponential backoff with restart ceiling: stop restarting after N failures in window, escalate to staff. Source: xebia.com/blog/exponential-backoff-with-akka-actors/
+  - Both patterns are already implemented in rc-common (EscalatingBackoff) and rc-agent (self_monitor.rs) — the sentry reuses, not reinvents.
 
 ---
 
-*Feature research for: v12.1 E2E Process Guard (rc-agent pods + racecontrol server + James workstation)*
+*Feature research for: v11.2 RC Sentry AI Debugger (rc-sentry crash watcher for rc-agent on sim racing pods)*
 *Researched: 2026-03-21*
