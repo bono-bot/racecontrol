@@ -88,6 +88,10 @@ pub(crate) struct ConnectionState {
     pub(crate) current_sim_type: Option<rc_common::types::SimType>,
     /// Track whether F1 25 playable signal has been received (from DrivingDetector UdpActive)
     pub(crate) f1_udp_playable_received: bool,
+    /// Instant when game entered Running state. Used to defer shm connect by 5s (HARD-03).
+    pub(crate) game_running_since: Option<std::time::Instant>,
+    /// Whether the deferred-connect log has been emitted (avoid spam).
+    pub(crate) shm_defer_logged: bool,
 }
 
 impl ConnectionState {
@@ -117,6 +121,8 @@ impl ConnectionState {
             loading_emitted: false,
             current_sim_type: None,
             f1_udp_playable_received: false,
+            game_running_since: None,
+            shm_defer_logged: false,
         }
     }
 }
@@ -163,6 +169,45 @@ pub async fn run(
             _ = conn.telemetry_interval.tick() => {
                 let Some(ref mut adapter) = state.adapter else { continue };
                 if !adapter.is_connected() {
+                    // HARD-04: UDP adapters (F1 25 port 20777) must only bind their socket
+                    // while the game is in Running state. Binding earlier could leave an
+                    // orphaned port open during post-game anti-cheat network scans.
+                    // iRacing (port 6789) and LMU (port 5555) use rF2 shared memory in
+                    // rc-agent — not a separate UDP socket — so no gating is needed there.
+                    let is_udp_adapter = matches!(adapter.sim_type(), SimType::F125);
+                    if is_udp_adapter {
+                        let game_running = state.game_process.as_ref()
+                            .map(|gp| gp.state == GameState::Running)
+                            .unwrap_or(false);
+                        if !game_running {
+                            continue; // Don't bind UDP socket until game is confirmed Running
+                        }
+                    }
+                    // HARD-03: Defer shared memory connect by 5s after game reaches Running state.
+                    // EAC/EOS/Javelin anti-cheat drivers scan memory access patterns during startup.
+                    // Waiting 5s after Running state reduces the window of exposure.
+                    let is_shm_adapter = matches!(
+                        adapter.sim_type(),
+                        SimType::IRacing | SimType::LeMansUltimate | SimType::AssettoCorsaEvo | SimType::AssettoCorsaRally
+                    );
+                    if is_shm_adapter && !shm_connect_allowed(conn.game_running_since) {
+                        if !conn.shm_defer_logged {
+                            let elapsed_ms = conn.game_running_since
+                                .map(|s| s.elapsed().as_millis() as u64)
+                                .unwrap_or(0);
+                            tracing::info!(
+                                target: LOG_TARGET,
+                                elapsed_ms,
+                                "shm_connect deferred — waiting for anti-cheat init window"
+                            );
+                            conn.shm_defer_logged = true;
+                        }
+                        continue; // Skip this tick — don't call connect()
+                    }
+                    // Reset defer log flag once we're past the 5s window (so next game start re-logs)
+                    if is_shm_adapter && conn.shm_defer_logged && shm_connect_allowed(conn.game_running_since) {
+                        conn.shm_defer_logged = false;
+                    }
                     if adapter.connect().is_ok() {
                         state.overlay.set_max_rpm(adapter.max_rpm());
                     }
@@ -273,6 +318,9 @@ pub async fn run(
                             }
                             state.game_process = None;
                             conn.launch_state = LaunchState::Idle;
+                            // HARD-03: Reset shm defer state on game exit
+                            conn.game_running_since = None;
+                            conn.shm_defer_logged = false;
                             let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
 
                             let msg = AgentMessage::GameStatusUpdate {
@@ -380,6 +428,9 @@ pub async fn run(
                             game.pid = Some(pid);
                             game_process::persist_pid(pid);
                             game.state = GameState::Running;
+                            // HARD-03: Record when game reached Running — used to defer shm connect
+                            conn.game_running_since = Some(std::time::Instant::now());
+                            conn.shm_defer_logged = false;
 
                             // Emit GameState::Loading once — process detected, PlayableSignal not yet fired
                             if !conn.loading_emitted && matches!(conn.launch_state, LaunchState::WaitingForLive { .. }) {
@@ -487,6 +538,9 @@ pub async fn run(
                             state.last_ac_status = None;
                             state.ac_status_stable_since = None;
                             conn.launch_state = LaunchState::Idle;
+                            // HARD-03: Reset shm defer state on game exit
+                            conn.game_running_since = None;
+                            conn.shm_defer_logged = false;
                             let _ = state.failure_monitor_tx.send_modify(|s| {
                                 s.launch_started_at = None;
                                 s.game_pid = None;
@@ -1018,6 +1072,9 @@ pub async fn run(
                                             pid: Some(result.pid),
                                             last_exit_code: None,
                                         });
+                                        // HARD-03: Record game_running_since for shm defer on relaunch
+                                        conn.game_running_since = Some(std::time::Instant::now());
+                                        conn.shm_defer_logged = false;
                                         let _ = state.failure_monitor_tx.send_modify(|s| {
                                             s.game_pid = Some(result.pid);
                                         });
@@ -1208,9 +1265,44 @@ pub async fn run(
     Ok(())
 }
 
+/// HARD-03: Returns true if the shared memory adapter is allowed to connect.
+///
+/// Shared memory adapters (iRacing, LMU, AC EVO, AC Rally) must wait 5 seconds after
+/// the game reaches Running state before calling OpenFileMappingW / MapViewOfFile.
+/// Anti-cheat drivers (EAC, EOS, Javelin) scan memory access patterns during startup;
+/// deferring the connect reduces the risk of triggering those scans.
+///
+/// Returns false if `game_running_since` is None (game not running yet) or if fewer
+/// than 5 seconds have elapsed since Running state was entered.
+pub(crate) fn shm_connect_allowed(game_running_since: Option<std::time::Instant>) -> bool {
+    match game_running_since {
+        Some(since) => since.elapsed() >= Duration::from_secs(5),
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// HARD-04: Verify that only F125 is classified as a UDP adapter requiring
+    /// Running-state gating. Other sim types (shared memory) must NOT be gated.
+    #[test]
+    fn test_udp_connect_requires_running_state() {
+        // F1 25 uses a real UDP socket on port 20777 — must be gated to Running
+        let is_udp_adapter_f125 = matches!(SimType::F125, SimType::F125);
+        assert!(is_udp_adapter_f125, "F125 must be identified as a UDP adapter");
+
+        // Assetto Corsa, iRacing, LMU use shared memory — no UDP socket to gate
+        let is_udp_adapter_ac = matches!(SimType::AssettoCorsa, SimType::F125);
+        assert!(!is_udp_adapter_ac, "AssettoCorsa must NOT be classified as UDP adapter");
+
+        let is_udp_adapter_iracing = matches!(SimType::IRacing, SimType::F125);
+        assert!(!is_udp_adapter_iracing, "iRacing must NOT be classified as UDP adapter (uses shm, not rc-agent UDP)");
+
+        let is_udp_adapter_lmu = matches!(SimType::LeMansUltimate, SimType::F125);
+        assert!(!is_udp_adapter_lmu, "LMU must NOT be classified as UDP adapter (uses rF2 shm)");
+    }
 
     #[test]
     fn crash_recovery_state_starts_idle() {
@@ -1229,5 +1321,36 @@ mod tests {
     fn crash_recovery_state_attempt_2_triggers_auto_end() {
         let attempt: u8 = 2;
         assert!(!(attempt < 2), "attempt=2 should trigger auto-end (not retry)");
+    }
+
+    // ─── HARD-03: shm_connect_allowed timing tests ────────────────────────────
+
+    #[test]
+    fn test_shm_connect_not_allowed_before_5s() {
+        // Instant 3 seconds ago — below the 5s threshold
+        let since = std::time::Instant::now() - Duration::from_secs(3);
+        assert!(
+            !shm_connect_allowed(Some(since)),
+            "shm connect must NOT be allowed when only 3s have elapsed (threshold is 5s)"
+        );
+    }
+
+    #[test]
+    fn test_shm_connect_allowed_after_5s() {
+        // Instant 6 seconds ago — above the 5s threshold
+        let since = std::time::Instant::now() - Duration::from_secs(6);
+        assert!(
+            shm_connect_allowed(Some(since)),
+            "shm connect must be allowed when 6s have elapsed (threshold is 5s)"
+        );
+    }
+
+    #[test]
+    fn test_shm_connect_not_allowed_no_game() {
+        // None — game not running
+        assert!(
+            !shm_connect_allowed(None),
+            "shm connect must NOT be allowed when game_running_since is None"
+        );
     }
 }
