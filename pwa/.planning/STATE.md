@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 02-02-PLAN.md (Phase 02 complete)
-last_updated: "2026-03-21T22:05:09.435Z"
-last_activity: 2026-03-22 — Plan 02-02 complete (PWA deployed, API unreachable pending racecontrol start)
+status: in_progress
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-03-21T22:18:45Z"
+last_activity: 2026-03-22 — Plan 06-01 complete (admin compose.yml config fixed)
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 12
-  completed_plans: 12
+  completed_plans: 13
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers book and pay from anywhere, walk in with a PIN, and race — while Uday sees everything live from his phone without being on-site.
-**Current focus:** Phase 5: Kiosk PIN Launch (next unstarted phase)
+**Current focus:** Phase 6: Admin Panel Cloud Deploy
 
 ## Current Position
 
-Phase: 2 of 10 (API + PWA Cloud Deploy) — COMPLETE
-Plan: 2 of 2 in current phase (02-02 complete)
-Status: Phase 02 complete (PWA live, API pending racecontrol binary on VPS)
-Last activity: 2026-03-22 — Plan 02-02 complete (PWA deployed, API unreachable pending racecontrol start)
+Phase: 6 of 10 (Admin Panel Cloud Deploy) — IN PROGRESS
+Plan: 1 of 2 in current phase (06-01 complete)
+Status: Admin compose.yml config fixed, ready for VPS deploy (06-02)
+Last activity: 2026-03-22 — Plan 06-01 complete (admin compose.yml config fixed)
 
 Progress: [██████████] 100%
 
@@ -58,6 +58,7 @@ Progress: [██████████] 100%
 | Phase 01 P02 | 5 min | 3 tasks | 2 files |
 | Phase 02 P01 | 3 min | 2 tasks | 3 files |
 | Phase 02 P02 | 45 min | 2 tasks | 1 files |
+| Phase 06 P01 | 3 min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,8 @@ Recent decisions affecting current work:
 - [02-01]: Admin/dashboard service blocks kept in compose.yml, only Caddy depends_on trimmed
 - [02-02]: Approved deploy with known issue: api.racingpoint.cloud unreachable (racecontrol binary not running on VPS host)
 - [02-02]: PWA deployment proceeds independently of API availability — PWA container + Caddy working
+- [06-01]: PORT=3300 set via environment override rather than changing Dockerfile (avoids breaking local dev)
+- [06-01]: GATEWAY_URL points to host.docker.internal:8080 same as RC_URL since gateway routes through racecontrol on cloud
 
 ### Pending Todos
 
@@ -112,6 +115,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-22T04:10:00+05:30
-Stopped at: Completed 02-02-PLAN.md (Phase 02 complete)
+Last session: 2026-03-22T03:48:00+05:30
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
