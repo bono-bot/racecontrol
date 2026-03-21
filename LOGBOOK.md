@@ -370,3 +370,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:38 IST | Bono | f26032a | docs(89-01): ROADMAP.md phase 89 progress update |
 | 2026-03-21 08:26 IST | James | c4411f7 | feat(79-03): DPDP data export + cascade delete endpoints with 8 tests |
 | 2026-03-21 08:26 IST | James | dfa7742 | docs(79-03): complete DPDP data rights plan -- export + cascade delete |
+| 2026-03-21 11:00 IST | James | 60f7d9e | feat(82-01): shared types -- GameState::Loading, PlayableSignal, protocol sim_type |
+| 2026-03-21 11:00 IST | James | 80f32d1 | feat(82-01): DB migration + per-game billing engine + API sim_type |
+| 2026-03-21 11:00 IST | James | 2080395 | docs(82-01): complete server-side billing foundation plan |
