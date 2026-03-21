@@ -10,6 +10,10 @@ repository.workspace = true
 name = "rc-sentry-ai"
 path = "src/main.rs"
 
+[lib]
+name = "rc_sentry_ai"
+path = "src/lib.rs"
+
 [dependencies]
 retina = "0.4"
 axum = "0.7"
@@ -29,5 +33,6 @@ ort = { version = "2.0.0-rc.12", features = ["cuda"] }
 openh264 = "0.9"
 ndarray = "0.17"
 image = "0.25"
+imageproc = "0.26"
 chrono = { workspace = true }
 uuid = { workspace = true }
