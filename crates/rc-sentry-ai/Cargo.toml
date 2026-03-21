@@ -38,3 +38,6 @@ clahe = "0.1"
 chrono = { workspace = true }
 uuid = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winrt-toast = "0.1"
