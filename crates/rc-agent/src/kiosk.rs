@@ -464,7 +464,7 @@ impl KioskManager {
         #[cfg(windows)]
         {
             hide_taskbar(true);
-            install_keyboard_hook();
+            apply_gpo_lockdown();
         }
     }
 
@@ -479,7 +479,7 @@ impl KioskManager {
         #[cfg(windows)]
         {
             hide_taskbar(false);
-            remove_keyboard_hook();
+            remove_gpo_lockdown();
         }
     }
 
@@ -876,18 +876,22 @@ pub async fn classify_process(
 
 #[cfg(windows)]
 mod windows_impl {
+    #[cfg(feature = "keyboard-hook")]
     use std::sync::atomic::{AtomicPtr, Ordering};
     use std::ptr;
+    #[cfg(feature = "keyboard-hook")]
     use winapi::shared::minwindef::{LPARAM, LRESULT, WPARAM};
     use winapi::shared::windef::HWND;
     use winapi::um::winuser;
     use super::LOG_TARGET;
 
+    #[cfg(feature = "keyboard-hook")]
     static HOOK_HANDLE: AtomicPtr<winapi::shared::windef::HHOOK__> =
         AtomicPtr::new(ptr::null_mut());
 
     /// Low-level keyboard hook callback.
     /// Blocks: Win key, Alt+Tab, Alt+F4, Ctrl+Esc, Alt+Esc, F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+L.
+    #[cfg(feature = "keyboard-hook")]
     unsafe extern "system" fn keyboard_hook_proc(
         code: i32,
         w_param: WPARAM,
@@ -953,6 +957,7 @@ mod windows_impl {
         unsafe { winuser::CallNextHookEx(ptr::null_mut(), code, w_param, l_param) }
     }
 
+    #[cfg(feature = "keyboard-hook")]
     pub fn install_keyboard_hook() {
         unsafe {
             let hook = winuser::SetWindowsHookExW(
@@ -970,6 +975,7 @@ mod windows_impl {
         }
     }
 
+    #[cfg(feature = "keyboard-hook")]
     pub fn remove_keyboard_hook() {
         let hook = HOOK_HANDLE.swap(ptr::null_mut(), Ordering::SeqCst);
         if !hook.is_null() {
@@ -977,6 +983,70 @@ mod windows_impl {
                 winuser::UnhookWindowsHookEx(hook);
             }
             tracing::info!(target: LOG_TARGET, "Kiosk: keyboard hook removed");
+        }
+    }
+
+    /// Apply GPO registry keys to block Win key and Task Manager.
+    /// Replaces SetWindowsHookEx keyboard hook -- safe for anti-cheat.
+    pub fn apply_gpo_lockdown() {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+
+        let keys: &[(&str, &str, &str)] = &[
+            // Block Win key (Start menu)
+            (r"HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer", "NoWinKeys", "1"),
+            // Block Task Manager (Ctrl+Shift+Esc, Ctrl+Alt+Del > Task Mgr)
+            (r"HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System", "DisableTaskMgr", "1"),
+        ];
+
+        for (subkey, value_name, data) in keys {
+            let mut cmd = Command::new("reg");
+            cmd.args(["add", subkey, "/v", value_name, "/t", "REG_DWORD", "/d", data, "/f"]);
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+            match cmd.output() {
+                Ok(output) if output.status.success() => {
+                    tracing::info!(target: LOG_TARGET, "Kiosk: GPO set {}\\{} = {}", subkey, value_name, data);
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::error!(target: LOG_TARGET, "Kiosk: GPO write failed for {}\\{}: {}", subkey, value_name, stderr.trim());
+                }
+                Err(e) => {
+                    tracing::error!(target: LOG_TARGET, "Kiosk: failed to spawn reg.exe for {}\\{}: {}", subkey, value_name, e);
+                }
+            }
+        }
+    }
+
+    /// Remove GPO registry keys -- restores Win key and Task Manager access.
+    pub fn remove_gpo_lockdown() {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+
+        let keys: &[(&str, &str)] = &[
+            (r"HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer", "NoWinKeys"),
+            (r"HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System", "DisableTaskMgr"),
+        ];
+
+        for (subkey, value_name) in keys {
+            let mut cmd = Command::new("reg");
+            cmd.args(["delete", subkey, "/v", value_name, "/f"]);
+            cmd.creation_flags(0x08000000);
+
+            match cmd.output() {
+                Ok(output) if output.status.success() => {
+                    tracing::info!(target: LOG_TARGET, "Kiosk: GPO removed {}\\{}", subkey, value_name);
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    // Not an error if key didn't exist
+                    tracing::debug!(target: LOG_TARGET, "Kiosk: GPO delete for {}\\{}: {}", subkey, value_name, stderr.trim());
+                }
+                Err(e) => {
+                    tracing::error!(target: LOG_TARGET, "Kiosk: failed to spawn reg.exe for delete {}\\{}: {}", subkey, value_name, e);
+                }
+            }
         }
     }
 
@@ -1002,7 +1072,10 @@ mod windows_impl {
 }
 
 #[cfg(windows)]
-pub use windows_impl::{hide_taskbar, install_keyboard_hook, remove_keyboard_hook};
+pub use windows_impl::{hide_taskbar, apply_gpo_lockdown, remove_gpo_lockdown};
+
+#[cfg(all(windows, feature = "keyboard-hook"))]
+pub use windows_impl::{install_keyboard_hook, remove_keyboard_hook};
 
 // ─── Non-Windows stubs ─────────────────────────────────────────────────────
 
@@ -1010,7 +1083,13 @@ pub use windows_impl::{hide_taskbar, install_keyboard_hook, remove_keyboard_hook
 pub fn hide_taskbar(_hide: bool) {}
 
 #[cfg(not(windows))]
-pub fn install_keyboard_hook() {}
+pub fn apply_gpo_lockdown() {}
 
 #[cfg(not(windows))]
+pub fn remove_gpo_lockdown() {}
+
+#[cfg(all(not(windows), feature = "keyboard-hook"))]
+pub fn install_keyboard_hook() {}
+
+#[cfg(all(not(windows), feature = "keyboard-hook"))]
 pub fn remove_keyboard_hook() {}
