@@ -1758,6 +1758,38 @@ mod tests {
         assert!(html.contains("justify-content: center") || html.contains("justify-content:center"),
             "pin-row must have justify-content: center");
     }
+
+    // ─── PF-04 / PF-05: MaintenanceRequired lock screen tests ────────────────
+
+    #[test]
+    fn maintenance_required_renders_html() {
+        let html = render_maintenance_required_page(&["HID missing".to_string()]);
+        assert!(html.contains("MAINTENANCE REQUIRED"), "MaintenanceRequired page must contain 'MAINTENANCE REQUIRED'");
+        assert!(html.contains("HID missing"), "MaintenanceRequired page must contain the failure string");
+    }
+
+    #[test]
+    fn health_degraded_for_maintenance_required() {
+        let state = LockScreenState::MaintenanceRequired { failures: vec!["HID device not found".to_string()] };
+        assert_eq!(health_response_body(&state), r#"{"status":"degraded"}"#,
+            "MaintenanceRequired is a blocked state — health must be degraded");
+    }
+
+    #[test]
+    fn maintenance_required_is_idle_or_blanked() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let manager = LockScreenManager {
+            state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::MaintenanceRequired {
+                failures: vec!["HID device not found".to_string()],
+            })),
+            event_tx: tx,
+            port: 18924,
+            #[cfg(windows)]
+            browser_process: None,
+            wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        };
+        assert!(manager.is_idle_or_blanked(), "MaintenanceRequired must be treated as idle (pod not serving customer)");
+    }
 }
 
 /// Render session summary page with top speed and race position params.
