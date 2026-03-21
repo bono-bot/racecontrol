@@ -60,16 +60,16 @@ gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: AntiCheat Compatibility
 status: in_progress
-stopped_at: Completed 108-01-PLAN.md Task 1 (checkpoint:human-verify -- awaiting Pod 8 canary test)
-last_updated: "2026-03-21T16:08:28.000Z"
+stopped_at: Completed 109-01-PLAN.md
+last_updated: "2026-03-21T15:32:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 3
-  percent: 30
-current_phase: 108
-current_phase_name: Keyboard Hook Replacement
+  completed_plans: 4
+  percent: 40
+current_phase: 109
+current_phase_name: Safe Mode State Machine
 phases:
   - "107: Behavior Audit + Certificate Procurement (AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04)"
   - "108: Keyboard Hook Replacement (HARD-01, VALID-03)"
@@ -94,6 +94,10 @@ decisions:
   - "108-01: GPO via reg.exe (no winreg crate) chosen -- matches lock_screen.rs pattern, zero new dependencies"
   - "108-01: keyboard-hook Cargo feature preserves rollback -- cargo build --features keyboard-hook restores SetWindowsHookEx behavior"
   - "108-01: imports (AtomicPtr, Ordering, LPARAM, LRESULT, WPARAM) also gated behind cfg(feature) to prevent unused import warnings"
+  - "109-01: WRC.exe in PROTECTED_EXE_NAMES even without SimType variant -- exe_to_sim_type returns None gracefully, detection is future-proof"
+  - "109-01: detect_running_protected_game() uses #[cfg(not(test))] stub to keep unit tests hermetic (no sysinfo scans in test builds)"
+  - "109-01: SafeMode::enter() clears cooldown_until -- game start takes priority over pending cooldown window"
+  - "109-01: process_guard::spawn() extended with _safe_mode_active stub (5th arg) -- Plan 02 wires into scan loop"
 ---
 
 ---
