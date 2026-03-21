@@ -5,29 +5,30 @@
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** No stale or unauthorized processes survive on any Racing Point machine — whitelist-enforced, continuously monitored, auto-killed.
-**Current focus:** Phase 101 — Protocol Foundation
+**Current focus:** Phase 102 — Whitelist Schema + Config + Fetch Endpoint
 
 ## Current Position
 
-Phase: 101 of 105 (Protocol Foundation)
+Phase: 102 of 105 (Whitelist Schema + Config + Fetch Endpoint)
 Plan: 1 of TBD in current phase
-Status: Plan 01 complete — ready for Plan 02 (or next phase plan)
-Last activity: 2026-03-21 — Phase 101 Plan 01 executed: rc-common types + protocol variants
+Status: Plan 01 complete — ready for Plan 02 (HTTP endpoint)
+Last activity: 2026-03-21 — Phase 102 Plan 01 executed: ProcessGuardConfig structs + racecontrol.toml whitelist
 
-Progress: [█░░░░░░░░░] 5%
+Progress: [██░░░░░░░░] 10%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: 35 min
-- Total execution time: 0.6 hours
+- Total execution time: 1.2 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 101-protocol-foundation | 1 | 35 min | 35 min |
+| 102-whitelist-schema-config-fetch-endpoint | 1 | 35 min | 35 min |
 
 *Updated after each plan completion*
 
@@ -51,6 +52,10 @@ Progress: [█░░░░░░░░░] 5%
 - [Research]: Do NOT add `windows = "0.58"` — conflicts with existing `winapi 0.3`
 - [101-01]: Manual Default impl required for MachineWhitelist — serde `default =` functions not called by `#[derive(Default)]`
 - [101-01]: Wildcard arm added to racecontrol ws/mod.rs AgentMessage match — process guard handling deferred to Phase 103/104
+- [102-01]: racecontrol.toml outside git repo — created at C:/RacingPoint/ directly; not tracked in git
+- [102-01]: Steam in pod deny_processes only (not global allowed) — enforces v12.1 trigger incident rule
+- [102-01]: ollama.exe in both global allowed (machines=["pod"]) AND james allow_extra_processes — needed on both
+- [102-01]: cargo package name is `racecontrol-crate` not `racecontrol` — use `-p racecontrol-crate` for test/build
 
 ### Pending Todos
 
@@ -65,5 +70,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-21
-Stopped at: 101-01-PLAN.md complete — rc-common types + protocol variants shipped
+Stopped at: 102-01-PLAN.md complete — ProcessGuardConfig structs + racecontrol.toml whitelist shipped
 Resume file: None

@@ -8,9 +8,9 @@
 
 ### Process Guard Config
 
-- [ ] **GUARD-01**: Central whitelist in `racecontrol.toml` with `[process_guard]` section defining approved processes, ports, auto-start entries
-- [ ] **GUARD-02**: Per-machine overrides (`[process_guard.overrides.james]`, `[process_guard.overrides.pod]`, `[process_guard.overrides.server]`)
-- [ ] **GUARD-03**: Category-tagged whitelist entries (system, racecontrol, game, peripheral, ollama) with wildcard/prefix matching
+- [x] **GUARD-01**: Central whitelist in `racecontrol.toml` with `[process_guard]` section defining approved processes, ports, auto-start entries
+- [x] **GUARD-02**: Per-machine overrides (`[process_guard.overrides.james]`, `[process_guard.overrides.pod]`, `[process_guard.overrides.server]`)
+- [x] **GUARD-03**: Category-tagged whitelist entries (system, racecontrol, game, peripheral, ollama) with wildcard/prefix matching
 - [x] **GUARD-04**: `ProcessViolation` and `ProcessGuardStatus` AgentMessage variants in rc-common protocol
 - [x] **GUARD-05**: `MachineWhitelist` shared types in rc-common for whitelist fetch/merge
 - [ ] **GUARD-06**: `GET /api/v1/guard/whitelist/{machine_id}` endpoint returns merged whitelist for a machine
@@ -72,9 +72,9 @@ Deferred to future release.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GUARD-01 | Phase 102 | Pending |
-| GUARD-02 | Phase 102 | Pending |
-| GUARD-03 | Phase 102 | Pending |
+| GUARD-01 | Phase 102 | Complete (102-01) |
+| GUARD-02 | Phase 102 | Complete (102-01) |
+| GUARD-03 | Phase 102 | Complete (102-01) |
 | GUARD-04 | Phase 101 | Complete |
 | GUARD-05 | Phase 101 | Complete |
 | GUARD-06 | Phase 102 | Pending |

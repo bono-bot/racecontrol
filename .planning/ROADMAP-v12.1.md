@@ -41,7 +41,7 @@ Plans:
   5. `violation_action` defaults to `"report_only"` in the TOML so no kills happen on first deploy
 **Plans**: 2 plans
 Plans:
-- [ ] 102-01-PLAN.md — ProcessGuardConfig structs in racecontrol/src/config.rs (AllowedProcess, ProcessGuardOverride, ProcessGuardConfig) + racecontrol.toml populated with 80+ global entries and 3 per-machine override sections
+- [x] 102-01-PLAN.md — ProcessGuardConfig structs in racecontrol/src/config.rs (AllowedProcess, ProcessGuardOverride, ProcessGuardConfig) + racecontrol.toml populated with 185 global entries and 3 per-machine override sections
 - [ ] 102-02-PLAN.md — racecontrol/src/process_guard.rs with merge_for_machine() logic and GET /api/v1/guard/whitelist/{machine_id} endpoint; wired into lib.rs and api/routes.rs
 
 ### Phase 103: Pod Guard Module
@@ -85,7 +85,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 101. Protocol Foundation | 1/1 | Complete | 2026-03-21 |
-| 102. Whitelist Schema + Config + Fetch Endpoint | 0/2 | Not started | - |
+| 102. Whitelist Schema + Config + Fetch Endpoint | 1/2 | In progress | - |
 | 103. Pod Guard Module | 0/TBD | Not started | - |
 | 104. Server Guard Module + Alerts | 0/TBD | Not started | - |
 | 105. Port Audit + Scheduled Tasks + James Binary | 0/TBD | Not started | - |
