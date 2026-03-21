@@ -454,3 +454,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 17:00 IST | James | c8f8324 | feat(104-02): spawn_server_guard() server scan loop — rc-agent.exe CRITICAL, 512KB log rotation, pod_violations["server"] |
 | 2026-03-21 17:02 IST | James | 151bf37 | docs(104-02): complete server guard module plan — STATE, ROADMAP, REQUIREMENTS, SUMMARY |
 | 2026-03-21 16:41 IST | James | 9506d1d | feat(104-03): violation badge on kiosk fleet grid — PodFleetStatus violation_count_24h + last_violation_at, Racing Red badge |
+| 2026-03-21 IST | James | 512166f | feat(105-02): post_guard_report_handler + report_secret config field — X-Guard-Token auth, ViolationStore reuse |
+| 2026-03-21 IST | James | bd2f78e | feat(105-02): register POST /guard/report in service_routes() — rc-process-guard James HTTP intake |
+| 2026-03-21 IST | James | 961276b | docs(105-02): complete guard/report intake endpoint plan — SUMMARY, STATE, ROADMAP |
