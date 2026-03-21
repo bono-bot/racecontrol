@@ -29,6 +29,8 @@ pub struct Config {
     pub monitoring: MonitoringConfig,
     #[serde(default)]
     pub alerting: AlertingConfig,
+    #[serde(default)]
+    pub process_guard: ProcessGuardConfig,
 }
 
 /// Gmail API config for sending notification emails (track record beaten, etc.)
@@ -345,6 +347,76 @@ pub struct AlertingConfig {
 
 fn default_alert_cooldown() -> u64 { 1800 }
 
+// ─── Process Guard Config ──────────────────────────────────────────────────
+
+/// A single allowed process entry in the whitelist.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AllowedProcess {
+    /// Process name (exact match, case-insensitive). Supports simple * wildcard prefix/suffix.
+    pub name: String,
+    /// Category tag: "system", "racecontrol", "game", "peripheral", "ollama", "development", "monitoring"
+    pub category: String,
+    /// Which machine types this entry applies to. Values: "all", "pod", "james", "server".
+    #[serde(default)]
+    pub machines: Vec<String>,
+}
+
+/// Per-machine process guard overrides (additive allow + deny lists).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProcessGuardOverride {
+    /// Process names to allow in addition to the global list.
+    #[serde(default)]
+    pub allow_extra_processes: Vec<String>,
+    /// Port numbers to allow in addition to the global list.
+    #[serde(default)]
+    pub allow_extra_ports: Vec<u16>,
+    /// Autostart key names to allow in addition to the global list.
+    #[serde(default)]
+    pub allow_extra_autostart: Vec<String>,
+    /// Process names explicitly denied even if they appear in the global list.
+    #[serde(default)]
+    pub deny_processes: Vec<String>,
+}
+
+/// Top-level [process_guard] configuration section.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProcessGuardConfig {
+    /// Enable the process guard. Default: false (safe rollout).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Process scan interval in seconds. Default: 60.
+    #[serde(default = "default_poll_interval_secs")]
+    pub poll_interval_secs: u64,
+    /// Enforcement mode: "report_only" or "kill_and_report". Default: "report_only".
+    #[serde(default = "default_violation_action")]
+    pub violation_action: String,
+    /// If true, only warn on first consecutive sighting — kill on second. Default: true.
+    #[serde(default = "default_true")]
+    pub warn_before_kill: bool,
+    /// Global allowed process list (applies to all machines unless overridden).
+    #[serde(default)]
+    pub allowed: Vec<AllowedProcess>,
+    /// Per-machine overrides. Keys: "james", "pod", "server".
+    #[serde(default)]
+    pub overrides: std::collections::HashMap<String, ProcessGuardOverride>,
+}
+
+impl Default for ProcessGuardConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            poll_interval_secs: default_poll_interval_secs(),
+            violation_action: default_violation_action(),
+            warn_before_kill: true,
+            allowed: Vec::new(),
+            overrides: std::collections::HashMap::new(),
+        }
+    }
+}
+
+fn default_poll_interval_secs() -> u64 { 60 }
+fn default_violation_action() -> String { "report_only".to_string() }
+
 /// Configuration for the Bono relay: event push to Bono's VPS over Tailscale mesh,
 /// and inbound relay endpoint for commands from Bono's cloud.
 #[derive(Debug, Deserialize)]
@@ -458,6 +530,7 @@ impl Config {
             gmail: GmailConfig::default(),
             monitoring: MonitoringConfig::default(),
             alerting: AlertingConfig::default(),
+            process_guard: ProcessGuardConfig::default(),
         }
     }
 
@@ -826,5 +899,121 @@ relay_secret = "super-secret"
         assert_eq!(config.bono.tailscale_bind_ip.as_deref(), Some("100.64.0.2"));
         assert_eq!(config.bono.relay_port, 8099);
         assert_eq!(config.bono.relay_secret.as_deref(), Some("super-secret"));
+    }
+
+    // ─── ProcessGuardConfig Tests ─────────────────────────────────────────────
+
+    #[test]
+    fn process_guard_config_default_values() {
+        let guard = ProcessGuardConfig::default();
+        assert!(!guard.enabled);
+        assert_eq!(guard.violation_action, "report_only");
+        assert_eq!(guard.poll_interval_secs, 60);
+        assert!(guard.warn_before_kill);
+        assert!(guard.allowed.is_empty());
+        assert!(guard.overrides.is_empty());
+    }
+
+    #[test]
+    fn process_guard_config_deserializes_from_toml() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+
+[process_guard]
+enabled = true
+violation_action = "report_only"
+poll_interval_secs = 30
+
+[[process_guard.allowed]]
+name = "explorer.exe"
+category = "system"
+machines = ["all"]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse process_guard");
+        assert!(config.process_guard.enabled);
+        assert_eq!(config.process_guard.violation_action, "report_only");
+        assert_eq!(config.process_guard.poll_interval_secs, 30);
+        assert_eq!(config.process_guard.allowed.len(), 1);
+        assert_eq!(config.process_guard.allowed[0].name, "explorer.exe");
+    }
+
+    #[test]
+    fn allowed_process_roundtrips() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+
+[[process_guard.allowed]]
+name = "rc-agent.exe"
+category = "racecontrol"
+machines = ["pod"]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse allowed entry");
+        assert_eq!(config.process_guard.allowed.len(), 1);
+        let entry = &config.process_guard.allowed[0];
+        assert_eq!(entry.name, "rc-agent.exe");
+        assert_eq!(entry.category, "racecontrol");
+        assert_eq!(entry.machines, vec!["pod"]);
+    }
+
+    #[test]
+    fn process_guard_override_deserializes() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+
+[process_guard.overrides.test_machine]
+allow_extra_processes = ["cargo.exe", "rustc.exe"]
+allow_extra_ports = [8080, 9999]
+allow_extra_autostart = ["MyService"]
+deny_processes = ["steam.exe"]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse override");
+        let ovr = config.process_guard.overrides.get("test_machine")
+            .expect("test_machine override should exist");
+        assert_eq!(ovr.allow_extra_processes, vec!["cargo.exe", "rustc.exe"]);
+        assert_eq!(ovr.allow_extra_ports, vec![8080, 9999]);
+        assert_eq!(ovr.allow_extra_autostart, vec!["MyService"]);
+        assert_eq!(ovr.deny_processes, vec!["steam.exe"]);
+    }
+
+    #[test]
+    fn process_guard_override_james_key() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+
+[process_guard.overrides.james]
+allow_extra_processes = ["ollama.exe"]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse james override");
+        let james = config.process_guard.overrides.get("james")
+            .expect("james override should exist");
+        assert!(james.allow_extra_processes.contains(&"ollama.exe".to_string()));
+    }
+
+    #[test]
+    fn config_without_process_guard_section_defaults() {
+        let toml_str = r#"
+[venue]
+name = "Test Venue"
+[server]
+[database]
+"#;
+        let config: Config = toml::from_str(toml_str).expect("should parse without process_guard");
+        assert!(!config.process_guard.enabled);
+        assert_eq!(config.process_guard.violation_action, "report_only");
+        assert_eq!(config.process_guard.poll_interval_secs, 60);
+        assert!(config.process_guard.allowed.is_empty());
+        assert!(config.process_guard.overrides.is_empty());
     }
 }
