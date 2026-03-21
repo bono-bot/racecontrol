@@ -1700,6 +1700,6 @@ Plans:
 | 114. Face Recognition & Quality Gates | 3/3 | Complete    | 2026-03-21 |
 | 115. Face Enrollment System | 2/2 | Complete    | 2026-03-21 |
 | 116. Attendance Engine | 3/3 | Complete    | 2026-03-21 |
-| 117. Alerts & Notifications | 3/3 | Complete   | 2026-03-21 |
+| 117. Alerts & Notifications | 3/3 | Complete    | 2026-03-21 |
 | 118. Live Camera Feeds | 0/2 | Not started | - |
 | 119. NVR Playback Proxy | 0/3 | Not started | - |

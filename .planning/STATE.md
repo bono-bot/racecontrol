@@ -4,7 +4,7 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: roadmap_created
 stopped_at: Completed 117-03-PLAN.md
-last_updated: "2026-03-21T18:31:27.584Z"
+last_updated: "2026-03-21T18:34:22.480Z"
 progress:
   total_phases: 81
   completed_phases: 61
