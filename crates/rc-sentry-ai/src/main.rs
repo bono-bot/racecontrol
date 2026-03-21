@@ -1,5 +1,6 @@
 mod config;
 mod frame;
+mod stream;
 
 use config::Config;
 use frame::FrameBuffer;
@@ -29,9 +30,17 @@ async fn main() -> anyhow::Result<()> {
         "rc-sentry-ai starting"
     );
 
-    let _frame_buf = FrameBuffer::new();
+    let frame_buf = FrameBuffer::new();
 
-    // Stream tasks spawned in Task 2
+    // Spawn one task per camera for independent RTSP streaming
+    for camera in config.cameras.iter() {
+        let cam = camera.clone();
+        let rtsp_base = config.relay.rtsp_base.clone();
+        let buf = frame_buf.clone();
+        tokio::spawn(async move {
+            stream::camera_loop(cam, rtsp_base, buf).await;
+        });
+    }
 
     // Health endpoint added in Plan 03
 
