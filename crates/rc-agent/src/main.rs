@@ -1,5 +1,6 @@
 mod ac_launcher;
 mod ai_debugger;
+mod app_state;
 mod billing_guard;
 mod config;
 mod content_scanner;
@@ -30,6 +31,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+use app_state::AppState;
 use config::{load_config, detect_installed_games};
 use driving_detector::{
     DetectorConfig, DetectorSignal, DrivingDetector,
@@ -749,6 +751,44 @@ async fn main() -> Result<()> {
         startup_probe_failures
     );
 
+    // ─── Bundle pre-loop state into AppState ────────────────────────────────
+    let mut state = AppState {
+        pod_id,
+        pod_info,
+        config,
+        sim_type,
+        installed_games,
+        ffb,
+        detector,
+        adapter,
+        hid_detected,
+        kiosk,
+        kiosk_enabled,
+        lock_screen,
+        overlay,
+        signal_rx,
+        lock_event_rx,
+        heartbeat_event_rx,
+        ai_result_rx,
+        ai_result_tx,
+        ws_exec_result_rx,
+        ws_exec_result_tx,
+        failure_monitor_tx,
+        heartbeat_status,
+        last_launch_error,
+        agent_start_time,
+        exe_dir,
+        heal_result,
+        crash_recovery_startup: crash_recovery,
+        startup_self_test_verdict,
+        startup_probe_failures,
+        lock_screen_bound,
+        remote_ops_bound,
+        game_process,
+        last_ac_status,
+        ac_status_stable_since,
+    };
+
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state
     // (lock screen, kiosk, HID/UDP monitors, game process) persists across
@@ -762,9 +802,9 @@ async fn main() -> Result<()> {
 
     // Phase 68: Runtime URL switching via SwitchController
     let active_url: std::sync::Arc<RwLock<String>> =
-        std::sync::Arc::new(RwLock::new(config.core.url.clone()));
-    let primary_url: String = config.core.url.clone();
-    let failover_url: Option<String> = config.core.failover_url.clone();
+        std::sync::Arc::new(RwLock::new(state.config.core.url.clone()));
+    let primary_url: String = state.config.core.url.clone();
+    let failover_url: Option<String> = state.config.core.failover_url.clone();
 
     // Phase 69: Split-brain guard — reusable HTTP client for LAN probe (created once, not per-message)
     let split_brain_probe = reqwest::Client::builder()
@@ -796,7 +836,7 @@ async fn main() -> Result<()> {
                         .get_or_insert_with(std::time::Instant::now)
                         .elapsed();
                     if disconnected_for > Duration::from_secs(30) {
-                        lock_screen.show_disconnected();
+                        state.lock_screen.show_disconnected();
                     } else {
                         tracing::info!("[ws-grace] Disconnected {}s — within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
                     }
@@ -814,7 +854,7 @@ async fn main() -> Result<()> {
                         .get_or_insert_with(std::time::Instant::now)
                         .elapsed();
                     if disconnected_for > Duration::from_secs(30) {
-                        lock_screen.show_disconnected();
+                        state.lock_screen.show_disconnected();
                     } else {
                         tracing::info!("[ws-grace] Timed out {}s — within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
                     }
@@ -829,12 +869,12 @@ async fn main() -> Result<()> {
         // Register this pod (include current game state so core can resync)
         let register_msg = AgentMessage::Register(PodInfo {
             last_seen: Some(Utc::now()),
-            driving_state: Some(detector.state()),
-            game_state: game_process.as_ref().map(|g| g.state),
-            current_game: game_process.as_ref().map(|g| g.sim_type),
-            screen_blanked: Some(lock_screen.is_blanked()),
+            driving_state: Some(state.detector.state()),
+            game_state: state.game_process.as_ref().map(|g| g.state),
+            current_game: state.game_process.as_ref().map(|g| g.sim_type),
+            screen_blanked: Some(state.lock_screen.is_blanked()),
             ffb_preset: Some("medium".to_string()),
-            ..pod_info.clone()
+            ..state.pod_info.clone()
         });
         let json = serde_json::to_string(&register_msg)?;
         if ws_tx.send(Message::Text(json.into())).await.is_err() {
@@ -844,41 +884,41 @@ async fn main() -> Result<()> {
             reconnect_attempt += 1;
             continue;
         }
-        tracing::info!("Connected and registered as Pod #{}", config.pod.number);
+        tracing::info!("Connected and registered as Pod #{}", state.config.pod.number);
         if !startup_complete_logged {
-            startup_log::write_phase("websocket", &format!("connected pod={}", config.pod.number));
+            startup_log::write_phase("websocket", &format!("connected pod={}", state.config.pod.number));
             startup_log::write_phase("complete", "");
             startup_complete_logged = true;
         }
 
         // Send startup report once per process lifetime (HEAL-02)
         if !startup_report_sent {
-            let config_path = exe_dir.join("rc-agent.toml");
+            let config_path = state.exe_dir.join("rc-agent.toml");
             let startup_report = AgentMessage::StartupReport {
-                pod_id: pod_id.clone(),
+                pod_id: state.pod_id.clone(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
-                uptime_secs: agent_start_time.elapsed().as_secs(),
+                uptime_secs: state.agent_start_time.elapsed().as_secs(),
                 config_hash: self_heal::config_hash(&config_path),
-                crash_recovery,
+                crash_recovery: state.crash_recovery_startup,
                 repairs: {
                     let mut r = Vec::new();
-                    if heal_result.config_repaired { r.push("config".to_string()); }
-                    if heal_result.script_repaired { r.push("script".to_string()); }
-                    if heal_result.registry_repaired { r.push("registry_key".to_string()); }
+                    if state.heal_result.config_repaired { r.push("config".to_string()); }
+                    if state.heal_result.script_repaired { r.push("script".to_string()); }
+                    if state.heal_result.registry_repaired { r.push("registry_key".to_string()); }
                     r
                 },
                 // Phase 46 SAFETY-04: boot verification fields — wired in Plan 02
-                lock_screen_port_bound: lock_screen_bound,
-                remote_ops_port_bound: remote_ops_bound,
-                hid_detected,
-                udp_ports_bound: config.telemetry_ports.ports.clone(),
+                lock_screen_port_bound: state.lock_screen_bound,
+                remote_ops_port_bound: state.remote_ops_bound,
+                hid_detected: state.hid_detected,
+                udp_ports_bound: state.config.telemetry_ports.ports.clone(),
                 // Phase 50: Startup self-test verdict
-                startup_self_test_verdict: startup_self_test_verdict.clone(),
-                startup_probe_failures,
+                startup_self_test_verdict: state.startup_self_test_verdict.clone(),
+                startup_probe_failures: state.startup_probe_failures,
             };
             if let Ok(json) = serde_json::to_string(&startup_report) {
                 if ws_tx.send(Message::Text(json.into())).await.is_ok() {
-                    tracing::info!("Sent startup report to core (crash_recovery={})", crash_recovery);
+                    tracing::info!("Sent startup report to core (crash_recovery={})", state.crash_recovery_startup);
                     startup_report_sent = true;
                 } else {
                     tracing::warn!("Failed to send startup report — will retry next connect");
@@ -896,7 +936,7 @@ async fn main() -> Result<()> {
             }
         }
 
-        heartbeat_status.ws_connected.store(true, std::sync::atomic::Ordering::Relaxed);
+        state.heartbeat_status.ws_connected.store(true, std::sync::atomic::Ordering::Relaxed);
         let ws_connect_time = tokio::time::Instant::now();
 
         // Main event loop — runs until connection is lost
@@ -934,12 +974,12 @@ async fn main() -> Result<()> {
                     let hb = AgentMessage::Heartbeat(PodInfo {
                         status: PodStatus::Idle, // billing state is managed by racecontrol, not agent
                         last_seen: Some(Utc::now()),
-                        driving_state: Some(detector.state()),
-                        game_state: game_process.as_ref().map(|g| g.state),
-                        current_game: game_process.as_ref().map(|g| g.sim_type),
-                        screen_blanked: Some(lock_screen.is_blanked()),
+                        driving_state: Some(state.detector.state()),
+                        game_state: state.game_process.as_ref().map(|g| g.state),
+                        current_game: state.game_process.as_ref().map(|g| g.sim_type),
+                        screen_blanked: Some(state.lock_screen.is_blanked()),
                         ffb_preset: Some(last_ffb_preset.clone()),
-                        ..pod_info.clone()
+                        ..state.pod_info.clone()
                     });
                     let json = serde_json::to_string(&hb)?;
                     if ws_tx.send(Message::Text(json.into())).await.is_err() {
@@ -948,10 +988,10 @@ async fn main() -> Result<()> {
                     }
                 }
             _ = telemetry_interval.tick() => {
-                let Some(ref mut adapter) = adapter else { continue };
+                let Some(ref mut adapter) = state.adapter else { continue };
                 if !adapter.is_connected() {
                     if adapter.connect().is_ok() {
-                        overlay.set_max_rpm(adapter.max_rpm());
+                        state.overlay.set_max_rpm(adapter.max_rpm());
                     }
                     continue;
                 }
@@ -959,7 +999,7 @@ async fn main() -> Result<()> {
                 match adapter.read_telemetry() {
                     Ok(Some(frame)) => {
                         // Update overlay with live telemetry
-                        overlay.update_telemetry(&frame);
+                        state.overlay.update_telemetry(&frame);
                         // Accumulate top speed for session summary (SESS-01)
                         if frame.speed_kmh > session_max_speed_kmh {
                             session_max_speed_kmh = frame.speed_kmh;
@@ -967,7 +1007,7 @@ async fn main() -> Result<()> {
 
                         // Check for completed laps via adapter (has proper sector splits)
                         if let Ok(Some(lap)) = adapter.poll_lap_completed() {
-                            overlay.on_lap_completed(&lap);
+                            state.overlay.on_lap_completed(&lap);
                             let msg = AgentMessage::LapCompleted(lap);
                             let json = serde_json::to_string(&msg)?;
                             let _ = ws_tx.send(Message::Text(json.into())).await;
@@ -987,26 +1027,26 @@ async fn main() -> Result<()> {
 
                 // Poll AC STATUS for billing trigger (only when game process is alive)
                 // Pitfall 1: guard with game_process.is_some() to avoid stale shared memory reads
-                if game_process.is_some() {
+                if state.game_process.is_some() {
                     if let Some(current_status) = adapter.read_ac_status() {
-                        let status_changed = last_ac_status.map_or(true, |prev| prev != current_status);
+                        let status_changed = state.last_ac_status.map_or(true, |prev| prev != current_status);
                         if status_changed {
                             // Debounce: require STATUS to be stable for 1 second before reporting
                             // (prevents flapping on rapid ESC press — see RESEARCH.md Pitfall 3)
-                            ac_status_stable_since = Some(std::time::Instant::now());
-                            last_ac_status = Some(current_status);
+                            state.ac_status_stable_since = Some(std::time::Instant::now());
+                            state.last_ac_status = Some(current_status);
                         }
                         // Send GameStatusUpdate only after STATUS has been stable for 1s
-                        if let (Some(stable_since), Some(status)) = (ac_status_stable_since, last_ac_status) {
+                        if let (Some(stable_since), Some(status)) = (state.ac_status_stable_since, state.last_ac_status) {
                             if stable_since.elapsed() >= Duration::from_secs(1) {
                                 let msg = AgentMessage::GameStatusUpdate {
-                                    pod_id: pod_id.clone(),
+                                    pod_id: state.pod_id.clone(),
                                     ac_status: status,
                                 };
                                 if let Ok(json) = serde_json::to_string(&msg) {
                                     let _ = ws_tx.send(Message::Text(json.into())).await;
                                 }
-                                ac_status_stable_since = None; // sent, stop re-sending until next change
+                                state.ac_status_stable_since = None; // sent, stop re-sending until next change
 
                                 // Update LaunchState on successful STATUS=LIVE
                                 if status == AcStatus::Live {
@@ -1023,14 +1063,14 @@ async fn main() -> Result<()> {
                         if *attempt < 2 {
                             // First timeout — auto-retry once
                             tracing::warn!("AC launch timeout (attempt {}), retrying...", attempt);
-                            if let Some(ref mut proc) = game_process {
+                            if let Some(ref mut proc) = state.game_process {
                                 let _ = proc.stop();
                             }
-                            game_process = None;
+                            state.game_process = None;
 
                             // Signal core that game is no longer running
                             let msg = AgentMessage::GameStatusUpdate {
-                                pod_id: pod_id.clone(),
+                                pod_id: state.pod_id.clone(),
                                 ac_status: AcStatus::Off,
                             };
                             if let Ok(json) = serde_json::to_string(&msg) {
@@ -1045,17 +1085,17 @@ async fn main() -> Result<()> {
                         } else {
                             // Second timeout — cancel entirely, no charge
                             tracing::error!("AC launch failed twice, cancelling session (no charge)");
-                            if let Some(ref mut proc) = game_process {
+                            if let Some(ref mut proc) = state.game_process {
                                 let _ = proc.stop();
                             }
-                            game_process = None;
+                            state.game_process = None;
                             launch_state = LaunchState::Idle;
                             // Site 3a: launch_started_at cleared when launch cancelled (2nd timeout)
-                            let _ = failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
+                            let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
 
                             // Notify core of launch failure so it can cancel the session (no billing)
                             let msg = AgentMessage::GameStatusUpdate {
-                                pod_id: pod_id.clone(),
+                                pod_id: state.pod_id.clone(),
                                 ac_status: AcStatus::Off,
                             };
                             if let Ok(json) = serde_json::to_string(&msg) {
@@ -1066,45 +1106,45 @@ async fn main() -> Result<()> {
                 }
             }
             // Process driving detector signals from HID/UDP tasks
-            Some(signal) = signal_rx.recv() => {
-                let (_, changed) = detector.process_signal(signal);
+            Some(signal) = state.signal_rx.recv() => {
+                let (_, changed) = state.detector.process_signal(signal);
                 if changed {
-                    let is_active = matches!(detector.state(), DrivingState::Active);
-                    heartbeat_status.driving_active.store(is_active, std::sync::atomic::Ordering::Relaxed);
+                    let is_active = matches!(state.detector.state(), DrivingState::Active);
+                    state.heartbeat_status.driving_active.store(is_active, std::sync::atomic::Ordering::Relaxed);
                     let msg = AgentMessage::DrivingStateUpdate {
-                        pod_id: pod_id.clone(),
-                        state: detector.state(),
+                        pod_id: state.pod_id.clone(),
+                        state: state.detector.state(),
                     };
                     // Site 9a: update failure_monitor watch with current driving state (signal path)
-                    let _ = failure_monitor_tx.send_modify(|s| { s.driving_state = Some(detector.state()); });
+                    let _ = state.failure_monitor_tx.send_modify(|s| { s.driving_state = Some(state.detector.state()); });
                     let json = serde_json::to_string(&msg)?;
                     let _ = ws_tx.send(Message::Text(json.into())).await;
-                    tracing::info!("Driving state changed: {:?}", detector.state());
+                    tracing::info!("Driving state changed: {:?}", state.detector.state());
                 }
             }
             // Periodic detector evaluation (catches idle timeout transitions)
             _ = detector_interval.tick() => {
-                let (_, changed) = detector.evaluate_state();
+                let (_, changed) = state.detector.evaluate_state();
                 if changed {
                     let msg = AgentMessage::DrivingStateUpdate {
-                        pod_id: pod_id.clone(),
-                        state: detector.state(),
+                        pod_id: state.pod_id.clone(),
+                        state: state.detector.state(),
                     };
                     // Site 9b: update failure_monitor watch with current driving state (timeout path)
-                    let _ = failure_monitor_tx.send_modify(|s| { s.driving_state = Some(detector.state()); });
+                    let _ = state.failure_monitor_tx.send_modify(|s| { s.driving_state = Some(state.detector.state()); });
                     let json = serde_json::to_string(&msg)?;
                     let _ = ws_tx.send(Message::Text(json.into())).await;
-                    tracing::info!("Driving state changed (timeout): {:?}", detector.state());
+                    tracing::info!("Driving state changed (timeout): {:?}", state.detector.state());
                 }
                 // Update failure monitor with current HID/UDP state (Site 1)
-                let _ = failure_monitor_tx.send_modify(|s| {
-                    s.hid_connected = detector.is_hid_connected();
-                    s.last_udp_secs_ago = detector.last_udp_packet_elapsed_secs();
+                let _ = state.failure_monitor_tx.send_modify(|s| {
+                    s.hid_connected = state.detector.is_hid_connected();
+                    s.last_udp_secs_ago = state.detector.last_udp_packet_elapsed_secs();
                 });
             }
             // Game process health check (every 2s)
             _ = game_check_interval.tick() => {
-                if let Some(ref mut game) = game_process {
+                if let Some(ref mut game) = state.game_process {
                     let was_active = matches!(game.state, GameState::Running | GameState::Launching);
 
                     if game.state == GameState::Launching && game.child.is_none() {
@@ -1114,7 +1154,7 @@ async fn main() -> Result<()> {
                             game_process::persist_pid(pid);
                             game.state = GameState::Running;
                             let info = GameLaunchInfo {
-                                pod_id: pod_id.clone(),
+                                pod_id: state.pod_id.clone(),
                                 sim_type: game.sim_type,
                                 game_state: GameState::Running,
                                 pid: Some(pid),
@@ -1123,7 +1163,7 @@ async fn main() -> Result<()> {
                                 diagnostics: None,
                             };
                             // Site 4c: Steam-launched game PID discovered via find_game_pid
-                            let _ = failure_monitor_tx.send_modify(|s| {
+                            let _ = state.failure_monitor_tx.send_modify(|s| {
                                 s.game_pid = Some(pid);
                             });
                             let msg = AgentMessage::GameStateUpdate(info);
@@ -1134,11 +1174,11 @@ async fn main() -> Result<()> {
                         let still_alive = game.is_running();
                         if !still_alive && was_active {
                             // Game crashed or exited
-                            heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
-                            heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
+                            state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                            state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
                             let err_msg = "Game process exited unexpectedly".to_string();
                             let info = GameLaunchInfo {
-                                pod_id: pod_id.clone(),
+                                pod_id: state.pod_id.clone(),
                                 sim_type: game.sim_type,
                                 game_state: GameState::Error,
                                 pid: game.pid,
@@ -1152,74 +1192,74 @@ async fn main() -> Result<()> {
 
                             // Trigger AI debugger if configured
                             tracing::info!("[crash-detect] AI debugger enabled={}, url={}, model={}",
-                                config.ai_debugger.enabled, config.ai_debugger.ollama_url, config.ai_debugger.ollama_model);
-                            if config.ai_debugger.enabled {
+                                state.config.ai_debugger.enabled, state.config.ai_debugger.ollama_url, state.config.ai_debugger.ollama_model);
+                            if state.config.ai_debugger.enabled {
                                 let exit_info = game.last_exit_code
                                     .map(|c| format!("exit code {}", c))
                                     .unwrap_or_else(|| "no exit code".to_string());
-                                let err_ctx = format!("{:?} crashed on pod {} ({})", game.sim_type, pod_id, exit_info);
+                                let err_ctx = format!("{:?} crashed on pod {} ({})", game.sim_type, state.pod_id, exit_info);
                                 tracing::info!("[crash-detect] Spawning AI debugger for: {}", err_ctx);
                                 let snapshot = PodStateSnapshot {
-                                    pod_id: pod_id.clone(),
-                                    pod_number: config.pod.number,
-                                    lock_screen_active: lock_screen.is_active(),
-                                    billing_active: heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                                    pod_id: state.pod_id.clone(),
+                                    pod_number: state.config.pod.number,
+                                    lock_screen_active: state.lock_screen.is_active(),
+                                    billing_active: state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
                                     game_pid: game.pid,
-                                    driving_state: Some(detector.current_state()),
-                                    wheelbase_connected: detector.is_hid_connected(),
-                                    ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
-                                    uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                    driving_state: Some(state.detector.current_state()),
+                                    wheelbase_connected: state.detector.is_hid_connected(),
+                                    ws_connected: state.heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                                    uptime_seconds: state.agent_start_time.elapsed().as_secs(),
                                     ..Default::default()
                                 };
                                 tokio::spawn(ai_debugger::analyze_crash(
-                                    config.ai_debugger.clone(),
-                                    pod_id.clone(),
+                                    state.config.ai_debugger.clone(),
+                                    state.pod_id.clone(),
                                     game.sim_type,
                                     err_ctx,
                                     snapshot,
-                                    ai_result_tx.clone(),
+                                    state.ai_result_tx.clone(),
                                 ));
                             }
 
-                            game_process = None;
+                            state.game_process = None;
                             game_process::clear_persisted_pid();
                             // Reset STATUS tracking on game crash
-                            last_ac_status = None;
-                            ac_status_stable_since = None;
+                            state.last_ac_status = None;
+                            state.ac_status_stable_since = None;
                             launch_state = LaunchState::Idle;
                             // Site 3b: launch_started_at cleared on game crash/exit
-                            let _ = failure_monitor_tx.send_modify(|s| {
+                            let _ = state.failure_monitor_tx.send_modify(|s| {
                                 s.launch_started_at = None;
                                 s.game_pid = None;
                             });
 
                             // SESSION-03: If billing is active and game crashed, pause billing and
                             // attempt up to 2 relaunches (60s each). Auto-end on 2nd failure.
-                            if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                            if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
                                 tracing::warn!("Game crashed during active billing — pausing billing, attempting relaunch");
                                 // SAFETY: Safe session-end sequence on crash during billing
-                                ffb_controller::safe_session_end(&ffb).await;
+                                ffb_controller::safe_session_end(&state.ffb).await;
                                 // Report crash + FFB status to core
-                                let crash_msg = AgentMessage::GameCrashed { pod_id: pod_id.clone(), billing_active: true };
+                                let crash_msg = AgentMessage::GameCrashed { pod_id: state.pod_id.clone(), billing_active: true };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_msg).unwrap_or_default().into())).await;
-                                let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                 // SESSION-03: Pause billing + show overlay + start relaunch state machine
-                                let _ = failure_monitor_tx.send_modify(|s| {
+                                let _ = state.failure_monitor_tx.send_modify(|s| {
                                     s.billing_paused = true;
                                 });
                                 // Send BillingPaused WS notification
-                                if let Some(ref sid) = failure_monitor_tx.borrow().active_billing_session_id.clone() {
+                                if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
                                     let pause_msg = AgentMessage::BillingPaused {
-                                        pod_id: pod_id.clone(),
+                                        pod_id: state.pod_id.clone(),
                                         billing_session_id: sid.clone(),
                                     };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&pause_msg).unwrap_or_default().into())).await;
                                 }
                                 // Show overlay per UI-SPEC (em dash via unicode escape)
-                                overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
+                                state.overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
                                 // Capture last sim type for relaunch
-                                let last_sim = game_process.as_ref().map(|g| g.sim_type).unwrap_or(SimType::AssettoCorsa);
+                                let last_sim = state.game_process.as_ref().map(|g| g.sim_type).unwrap_or(SimType::AssettoCorsa);
                                 // Arm crash recovery state machine — attempt 1 timer starts now
                                 crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
                                     attempt: 1,
@@ -1230,37 +1270,37 @@ async fn main() -> Result<()> {
                             } else {
                                 // No billing active — safe session-end then enforce safe state
                                 tracing::info!("Game exited with no active billing — enforcing safe state");
-                                ffb_controller::safe_session_end(&ffb).await;
-                                let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                ffb_controller::safe_session_end(&state.ffb).await;
+                                let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                 tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-                                lock_screen.show_idle_pin_entry();
+                                state.lock_screen.show_idle_pin_entry();
                             }
                         }
                     }
                 }
             }
             // AI debug result channel
-            Some(mut suggestion) = ai_result_rx.recv() => {
+            Some(mut suggestion) = state.ai_result_rx.recv() => {
                 tracing::info!("[ai-result] Received AI suggestion for {}", suggestion.pod_id);
                 // Attempt deterministic auto-fix in a blocking thread to avoid stalling the event loop
                 let fix_snapshot = PodStateSnapshot {
-                    pod_id: pod_id.clone(),
-                    pod_number: config.pod.number,
-                    lock_screen_active: lock_screen.is_active(),
-                    billing_active: heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
-                    game_pid: game_process.as_ref().and_then(|g| g.pid),
-                    driving_state: Some(detector.current_state()),
-                    wheelbase_connected: detector.is_hid_connected(),
-                    ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
-                    uptime_seconds: agent_start_time.elapsed().as_secs(),
+                    pod_id: state.pod_id.clone(),
+                    pod_number: state.config.pod.number,
+                    lock_screen_active: state.lock_screen.is_active(),
+                    billing_active: state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                    game_pid: state.game_process.as_ref().and_then(|g| g.pid),
+                    driving_state: Some(state.detector.current_state()),
+                    wheelbase_connected: state.detector.is_hid_connected(),
+                    ws_connected: state.heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                    uptime_seconds: state.agent_start_time.elapsed().as_secs(),
                     // Site 9: 3 new fields added for failure_monitor context
-                    last_udp_secs_ago: detector.last_udp_packet_elapsed_secs(),
+                    last_udp_secs_ago: state.detector.last_udp_packet_elapsed_secs(),
                     game_launch_elapsed_secs: match &launch_state {
                         LaunchState::WaitingForLive { launched_at, .. } => Some(launched_at.elapsed().as_secs()),
                         _ => None,
                     },
-                    hid_last_error: !detector.is_hid_connected(),
+                    hid_last_error: !state.detector.is_hid_connected(),
                     ..Default::default()
                 };
                 let suggestion_text = suggestion.suggestion.clone();
@@ -1313,12 +1353,12 @@ async fn main() -> Result<()> {
             }
             // Kiosk enforcement — watch unauthorized processes, request approval from server
             _ = kiosk_interval.tick() => {
-                if kiosk_enabled && kiosk.should_enforce() {
-                    let allowed = kiosk.allowed_set_snapshot();
-                    let pod_id_kiosk = pod_id.clone();
-                    let kiosk_msg_tx = ws_exec_result_tx.clone();
-                    let lockdown_flag = kiosk.lockdown.clone();
-                    let lockdown_reason = kiosk.lockdown_reason.clone();
+                if state.kiosk_enabled && state.kiosk.should_enforce() {
+                    let allowed = state.kiosk.allowed_set_snapshot();
+                    let pod_id_kiosk = state.pod_id.clone();
+                    let kiosk_msg_tx = state.ws_exec_result_tx.clone();
+                    let lockdown_flag = state.kiosk.lockdown.clone();
+                    let lockdown_reason = state.kiosk.lockdown_reason.clone();
                     let enforce_handle = tokio::task::spawn_blocking(move || {
                         let result = crate::kiosk::KioskManager::enforce_process_whitelist_blocking(allowed);
 
@@ -1359,10 +1399,10 @@ async fn main() -> Result<()> {
                     // Fire LLM classification for newly-seen unknown processes (non-blocking)
                     if let Ok(classifications) = enforce_handle.await {
                         for classification in classifications {
-                            let ollama_url = config.ai_debugger.ollama_url.clone();
-                            let ollama_model = config.ai_debugger.ollama_model.clone();
-                            let pod_id_c = pod_id.clone();
-                            let kiosk_msg_tx_c = ws_exec_result_tx.clone();
+                            let ollama_url = state.config.ai_debugger.ollama_url.clone();
+                            let ollama_model = state.config.ai_debugger.ollama_model.clone();
+                            let pod_id_c = state.pod_id.clone();
+                            let kiosk_msg_tx_c = state.ws_exec_result_tx.clone();
                             tokio::spawn(async move {
                                 let verdict = kiosk::classify_process(
                                     &ollama_url,
@@ -1400,8 +1440,8 @@ async fn main() -> Result<()> {
             }
             // Re-enforce overlay TOPMOST + clean desktop + Conspit watchdog every 10s
             _ = overlay_topmost_interval.tick() => {
-                overlay.enforce_topmost();
-                if kiosk_enabled {
+                state.overlay.enforce_topmost();
+                if state.kiosk_enabled {
                     tokio::task::spawn_blocking(|| {
                         ac_launcher::minimize_background_windows();
                         // When no game is running, keep kiosk lock screen in foreground
@@ -1414,14 +1454,14 @@ async fn main() -> Result<()> {
             // Auto-show idle PinEntry after session summary (30s delay) — only if no billing active
             _ = &mut blank_timer, if blank_timer_armed => {
                 blank_timer_armed = false;
-                if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
                     tracing::info!("Skipping idle PinEntry reset — billing is active");
                 } else {
                     tracing::info!("Resetting to idle PinEntry after session summary (SESSION-02)");
-                    lock_screen.show_idle_pin_entry();
+                    state.lock_screen.show_idle_pin_entry();
                     // Final cleanup pass — safe session-end then enforce safe state
-                    ffb_controller::safe_session_end(&ffb).await;
-                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                    ffb_controller::safe_session_end(&state.ffb).await;
+                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                     tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                 }
@@ -1442,13 +1482,13 @@ async fn main() -> Result<()> {
                 match std::mem::replace(&mut crash_recovery, CrashRecoveryState::Idle) {
                     CrashRecoveryState::PausedWaitingRelaunch { attempt, last_sim_type, last_launch_args, .. } => {
                         // Check if game PID appeared during the wait (success via heartbeat path)
-                        if game_process.as_ref().and_then(|g| g.pid).is_some() {
+                        if state.game_process.as_ref().and_then(|g| g.pid).is_some() {
                             tracing::info!("[crash-recovery] Game PID detected during recovery wait (attempt {}) — resuming billing", attempt);
-                            let _ = failure_monitor_tx.send_modify(|s| { s.billing_paused = false; });
-                            overlay.deactivate();
-                            if let Some(ref sid) = failure_monitor_tx.borrow().active_billing_session_id.clone() {
+                            let _ = state.failure_monitor_tx.send_modify(|s| { s.billing_paused = false; });
+                            state.overlay.deactivate();
+                            if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
                                 let resume_msg = AgentMessage::BillingResumed {
-                                    pod_id: pod_id.clone(),
+                                    pod_id: state.pod_id.clone(),
                                     billing_session_id: sid.clone(),
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&resume_msg).unwrap_or_default().into())).await;
@@ -1457,11 +1497,11 @@ async fn main() -> Result<()> {
                         } else if attempt < 2 {
                             // First relaunch timed out (60s) — try attempt 2
                             tracing::warn!("[crash-recovery] Relaunch attempt {} timed out (60s) — trying attempt 2", attempt);
-                            overlay.show_toast("Relaunching... (2 of 2)".to_string());
+                            state.overlay.show_toast("Relaunching... (2 of 2)".to_string());
 
                             // Attempt 2: re-launch AC using stored args (mirrors LaunchGame handler)
                             if last_sim_type == SimType::AssettoCorsa {
-                                if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                                if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
                                 let params: ac_launcher::AcLaunchParams = match &last_launch_args {
                                     Some(args) => serde_json::from_str(args).unwrap_or_else(|_| ac_launcher::AcLaunchParams {
                                         car: "ks_ferrari_sf15t".to_string(),
@@ -1512,10 +1552,10 @@ async fn main() -> Result<()> {
                                         weekend_qualify_minutes: 0,
                                     },
                                 };
-                                heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
-                                heartbeat_status.game_id.store(1, std::sync::atomic::Ordering::Relaxed);
+                                state.heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
+                                state.heartbeat_status.game_id.store(1, std::sync::atomic::Ordering::Relaxed);
                                 let info = GameLaunchInfo {
-                                    pod_id: pod_id.clone(),
+                                    pod_id: state.pod_id.clone(),
                                     sim_type: last_sim_type,
                                     game_state: GameState::Launching,
                                     pid: None,
@@ -1528,7 +1568,7 @@ async fn main() -> Result<()> {
                                     launched_at: std::time::Instant::now(),
                                     attempt: 1,
                                 };
-                                let _ = failure_monitor_tx.send_modify(|s| {
+                                let _ = state.failure_monitor_tx.send_modify(|s| {
                                     s.launch_started_at = Some(std::time::Instant::now());
                                 });
                                 let launch_result = tokio::task::spawn_blocking(move || {
@@ -1537,14 +1577,14 @@ async fn main() -> Result<()> {
                                 match launch_result {
                                     Ok(Ok(result)) => {
                                         game_process::persist_pid(result.pid);
-                                        game_process = Some(game_process::GameProcess {
+                                        state.game_process = Some(game_process::GameProcess {
                                             sim_type: last_sim_type,
                                             state: GameState::Running,
                                             child: None,
                                             pid: Some(result.pid),
                                             last_exit_code: None,
                                         });
-                                        let _ = failure_monitor_tx.send_modify(|s| {
+                                        let _ = state.failure_monitor_tx.send_modify(|s| {
                                             s.game_pid = Some(result.pid);
                                         });
                                         tracing::info!("[crash-recovery] Attempt 2: ac_launcher::launch_ac returned successfully (pid={})", result.pid);
@@ -1569,20 +1609,20 @@ async fn main() -> Result<()> {
                         } else {
                             // 2nd attempt timed out — auto-end session (same path as orphan auto-end)
                             tracing::error!("[crash-recovery] Relaunch attempt 2 timed out (60s) — auto-ending session (crash_limit)");
-                            overlay.show_toast("Session ending".to_string());
+                            state.overlay.show_toast("Session ending".to_string());
                             crash_recovery = CrashRecoveryState::AutoEndPending;
                             // Mirror orphan auto-end path: reset billing + FFB + go to idle PinEntry
-                            heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                            state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
                             // Send SessionAutoEnded WS notification before clearing session ID
-                            if let Some(ref sid) = failure_monitor_tx.borrow().active_billing_session_id.clone() {
+                            if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
                                 let end_msg = AgentMessage::SessionAutoEnded {
-                                    pod_id: pod_id.clone(),
+                                    pod_id: state.pod_id.clone(),
                                     billing_session_id: sid.clone(),
                                     reason: "crash_limit".to_string(),
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&end_msg).unwrap_or_default().into())).await;
                             }
-                            let _ = failure_monitor_tx.send_modify(|s| {
+                            let _ = state.failure_monitor_tx.send_modify(|s| {
                                 s.billing_active = false;
                                 s.billing_paused = false;
                                 s.launch_started_at = None;
@@ -1590,18 +1630,18 @@ async fn main() -> Result<()> {
                                 s.active_billing_session_id = None;
                             });
                             // SAFETY: Safe session-end sequence before game cleanup
-                            ffb_controller::safe_session_end(&ffb).await;
-                            lock_screen.show_idle_pin_entry();
-                            overlay.deactivate();
-                            if let Some(ref mut game) = game_process {
+                            ffb_controller::safe_session_end(&state.ffb).await;
+                            state.lock_screen.show_idle_pin_entry();
+                            state.overlay.deactivate();
+                            if let Some(ref mut game) = state.game_process {
                                 let _ = game.stop();
-                                game_process = None;
+                                state.game_process = None;
                             }
-                            if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                            if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
                             tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                             current_driver_name = None;
-                            last_ac_status = None;
-                            ac_status_stable_since = None;
+                            state.last_ac_status = None;
+                            state.ac_status_stable_since = None;
                             launch_state = LaunchState::Idle;
                             crash_recovery = CrashRecoveryState::Idle;
                         }
@@ -1610,11 +1650,11 @@ async fn main() -> Result<()> {
                 }
             }
             // Lock screen events (customer submitted PIN)
-            Some(event) = lock_event_rx.recv() => {
+            Some(event) = state.lock_event_rx.recv() => {
                 match event {
                     LockScreenEvent::PinEntered { pin } => {
                         let msg = AgentMessage::PinEntered {
-                            pod_id: pod_id.clone(),
+                            pod_id: state.pod_id.clone(),
                             pin,
                         };
                         let json = serde_json::to_string(&msg)?;
@@ -1624,7 +1664,7 @@ async fn main() -> Result<()> {
                 }
             }
             // WebSocket command results from spawned tasks
-            Some(ws_exec_msg) = ws_exec_result_rx.recv() => {
+            Some(ws_exec_msg) = state.ws_exec_result_rx.recv() => {
                 if let Ok(json) = serde_json::to_string(&ws_exec_msg) {
                     if ws_tx.send(Message::Text(json.into())).await.is_err() {
                         tracing::error!("Failed to send WS command result, connection lost");
@@ -1633,7 +1673,7 @@ async fn main() -> Result<()> {
                 }
             }
             // UDP heartbeat events (fast liveness detection)
-            Some(hb_event) = heartbeat_event_rx.recv() => {
+            Some(hb_event) = state.heartbeat_event_rx.recv() => {
                 match hb_event {
                     udp_heartbeat::HeartbeatEvent::CoreDead => {
                         tracing::warn!("UDP heartbeat: core dead — forcing WebSocket reconnect");
@@ -1666,11 +1706,11 @@ async fn main() -> Result<()> {
                             match core_msg {
                                 rc_common::protocol::CoreToAgentMessage::BillingStarted { billing_session_id, driver_name, allocated_seconds, .. } => {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
-                                    heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    state.heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
                                     blank_timer_armed = false; // cancel any pending auto-blank
                                     // Site 6: BillingStarted — set billing_active + session_id in failure_monitor
                                     let billing_session_id_clone = billing_session_id.clone();
-                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                    let _ = state.failure_monitor_tx.send_modify(|s| {
                                         s.billing_active = true;
                                         s.active_billing_session_id = Some(billing_session_id_clone);
                                     });
@@ -1681,12 +1721,12 @@ async fn main() -> Result<()> {
                                     session_race_position = None;
                                     // If allocated_seconds is the hard max cap (10800) or 0, this is open-ended billing — use v2 taxi meter
                                     if allocated_seconds == 0 || allocated_seconds >= 10800 {
-                                        overlay.activate_v2(driver_name.clone());
+                                        state.overlay.activate_v2(driver_name.clone());
                                     } else {
                                         // Legacy fixed-duration billing — use existing activate
-                                        overlay.activate(driver_name.clone(), allocated_seconds);
+                                        state.overlay.activate(driver_name.clone(), allocated_seconds);
                                     }
-                                    lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
+                                    state.lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
                                     // Minimize all background windows for a clean game view
                                     tokio::task::spawn_blocking(|| ac_launcher::minimize_background_windows());
                                 }
@@ -1694,10 +1734,10 @@ async fn main() -> Result<()> {
                                     remaining_seconds, allocated_seconds: _, driver_name: _,
                                     elapsed_seconds, cost_paise, rate_per_min_paise, paused, minutes_to_next_tier, ..
                                 } => {
-                                    lock_screen.update_remaining(remaining_seconds); // keep legacy lock screen update
+                                    state.lock_screen.update_remaining(remaining_seconds); // keep legacy lock screen update
                                     // Use v2 billing update if new fields are present (core has been updated)
                                     if let (Some(elapsed), Some(cost), Some(rate)) = (elapsed_seconds, cost_paise, rate_per_min_paise) {
-                                        overlay.update_billing_v2(
+                                        state.overlay.update_billing_v2(
                                             elapsed,
                                             cost,
                                             rate,
@@ -1706,36 +1746,36 @@ async fn main() -> Result<()> {
                                         );
                                     } else {
                                         // Fallback to legacy countdown update (old core version)
-                                        overlay.update_billing(remaining_seconds);
+                                        state.overlay.update_billing(remaining_seconds);
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BillingStopped { billing_session_id } => {
                                     tracing::info!("Billing stopped: {}", billing_session_id);
-                                    heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
-                                    overlay.deactivate();
+                                    state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    state.overlay.deactivate();
                                     // Reset STATUS tracking and LaunchState
-                                    last_ac_status = None;
-                                    ac_status_stable_since = None;
+                                    state.last_ac_status = None;
+                                    state.ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
                                     // Site 6+3d: BillingStopped — clear billing, session_id, and launch state in failure_monitor
-                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                    let _ = state.failure_monitor_tx.send_modify(|s| {
                                         s.billing_active = false;
                                         s.active_billing_session_id = None;
                                         s.billing_paused = false;
                                         s.launch_started_at = None;
                                     });
                                     // SAFETY: Safe session-end sequence before game cleanup
-                                    ffb_controller::safe_session_end(&ffb).await;
+                                    ffb_controller::safe_session_end(&state.ffb).await;
                                     // Show lock screen (covers desktop before game is killed)
-                                    lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
+                                    state.lock_screen.show_active_session("Session Complete!".to_string(), 0, 0);
                                     // Stop game and clean up AFTER FFB safety sequence
-                                    if let Some(ref mut game) = game_process {
+                                    if let Some(ref mut game) = state.game_process {
                                         let _ = game.stop();
-                                        game_process = None;
+                                        state.game_process = None;
                                     }
-                                    if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                                    if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
                                     // Report FFB status
-                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                     // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
                                     tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
@@ -1748,15 +1788,15 @@ async fn main() -> Result<()> {
                                         "Session ended: {} — {} laps, best: {:?}, {}s",
                                         billing_session_id, total_laps, best_lap_ms, driving_seconds
                                     );
-                                    heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
                                     crash_recovery = CrashRecoveryState::Idle; // cancel crash recovery — core responded
-                                    overlay.deactivate();
+                                    state.overlay.deactivate();
                                     // Reset STATUS tracking and LaunchState
-                                    last_ac_status = None;
-                                    ac_status_stable_since = None;
+                                    state.last_ac_status = None;
+                                    state.ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
                                     // Site 7: SessionEnded — clear billing, session_id, launch, and recovery state in failure_monitor
-                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                    let _ = state.failure_monitor_tx.send_modify(|s| {
                                         s.billing_active = false;
                                         s.active_billing_session_id = None;
                                         s.billing_paused = false;
@@ -1765,24 +1805,24 @@ async fn main() -> Result<()> {
                                     });
 
                                     // SAFETY: Safe session-end sequence before game cleanup
-                                    ffb_controller::safe_session_end(&ffb).await;
+                                    ffb_controller::safe_session_end(&state.ffb).await;
 
                                     // Show session summary with accumulated telemetry stats (SESS-01, SESS-02)
-                                    lock_screen.show_session_summary(
+                                    state.lock_screen.show_session_summary(
                                         driver_name, total_laps, best_lap_ms, driving_seconds,
                                         if session_max_speed_kmh > 0.0 { Some(session_max_speed_kmh) } else { None },
                                         session_race_position,
                                     );
 
                                     // Stop game and clean up AFTER FFB safety sequence
-                                    if let Some(ref mut game) = game_process {
+                                    if let Some(ref mut game) = state.game_process {
                                         let _ = game.stop();
-                                        game_process = None;
+                                        state.game_process = None;
                                     }
                                     // Disconnect telemetry adapter
-                                    if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                                    if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
                                     // Report FFB status
-                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                     // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
                                     tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
@@ -1799,7 +1839,7 @@ async fn main() -> Result<()> {
                                     // AC gets special handling: kill → write race.ini → launch → restart Conspit
                                     if launch_sim == SimType::AssettoCorsa {
                                         // Disconnect telemetry adapter before killing AC
-                                        if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                                        if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
 
                                         // Parse launch params from JSON
                                         let params: ac_launcher::AcLaunchParams = match &launch_args {
@@ -1854,8 +1894,8 @@ async fn main() -> Result<()> {
                                         };
 
                                         // Update heartbeat status
-                                        heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
-                                        heartbeat_status.game_id.store(match launch_sim {
+                                        state.heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        state.heartbeat_status.game_id.store(match launch_sim {
                                             SimType::AssettoCorsa => 1,
                                             SimType::F125 => 2,
                                             SimType::IRacing => 3,
@@ -1869,11 +1909,11 @@ async fn main() -> Result<()> {
                                         // Show branded splash screen while game loads (~10s gap)
                                         // Must be before spawn_blocking so the screen is visible during the long load
                                         let splash_name = current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
-                                        lock_screen.show_launch_splash(splash_name);
+                                        state.lock_screen.show_launch_splash(splash_name);
 
                                         // Send "launching" state
                                         let info = GameLaunchInfo {
-                                            pod_id: pod_id.clone(),
+                                            pod_id: state.pod_id.clone(),
                                             sim_type: launch_sim,
                                             game_state: GameState::Launching,
                                             pid: None,
@@ -1891,12 +1931,12 @@ async fn main() -> Result<()> {
                                             attempt: 1,
                                         };
                                         // Site 2: notify failure_monitor that launch started
-                                        let _ = failure_monitor_tx.send_modify(|s| {
+                                        let _ = state.failure_monitor_tx.send_modify(|s| {
                                             s.launch_started_at = Some(std::time::Instant::now());
                                         });
 
                                         // Run blocking launch sequence in spawn_blocking
-                                        let pod_id_clone = pod_id.clone();
+                                        let pod_id_clone = state.pod_id.clone();
                                         let launch_result = tokio::task::spawn_blocking(move || {
                                             ac_launcher::launch_ac(&params)
                                         }).await;
@@ -1912,7 +1952,7 @@ async fn main() -> Result<()> {
                                         match launch_result {
                                             Ok(result) => {
                                                 // Clear or set launch error in debug console
-                                                if let Ok(mut err_slot) = last_launch_error.lock() {
+                                                if let Ok(mut err_slot) = state.last_launch_error.lock() {
                                                     *err_slot = result.cm_error.clone();
                                                 }
 
@@ -1932,7 +1972,7 @@ async fn main() -> Result<()> {
                                                     }),
                                                 };
                                                 game_process::persist_pid(result.pid);
-                                                game_process = Some(game_process::GameProcess {
+                                                state.game_process = Some(game_process::GameProcess {
                                                     sim_type: launch_sim,
                                                     state: GameState::Running,
                                                     child: None,
@@ -1940,7 +1980,7 @@ async fn main() -> Result<()> {
                                                     last_exit_code: None,
                                                 });
                                                 // Site 4: game_process gained a PID after successful AC launch
-                                                let _ = failure_monitor_tx.send_modify(|s| {
+                                                let _ = state.failure_monitor_tx.send_modify(|s| {
                                                     s.game_pid = Some(result.pid);
                                                 });
                                                 let msg = AgentMessage::GameStateUpdate(info);
@@ -1950,10 +1990,10 @@ async fn main() -> Result<()> {
                                                 // If CM failed during multiplayer, store in debug console + trigger AI debugger
                                                 if let Some(ref cm_err) = result.cm_error {
                                                     tracing::error!("[CM_ERROR] Multiplayer CM failure on {}: {}", pod_id_clone, cm_err);
-                                                    if let Ok(mut err_slot) = last_launch_error.lock() {
+                                                    if let Ok(mut err_slot) = state.last_launch_error.lock() {
                                                         *err_slot = Some(cm_err.clone());
                                                     }
-                                                    if config.ai_debugger.enabled {
+                                                    if state.config.ai_debugger.enabled {
                                                         let err_ctx = format!(
                                                             "Content Manager multiplayer launch failed on pod {}. {}. \
                                                              Fell back to direct acs.exe launch.",
@@ -1961,29 +2001,29 @@ async fn main() -> Result<()> {
                                                         );
                                                         let snapshot = PodStateSnapshot {
                                                             pod_id: pod_id_clone.clone(),
-                                                            pod_number: config.pod.number,
-                                                            lock_screen_active: lock_screen.is_active(),
-                                                            billing_active: heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                                                            pod_number: state.config.pod.number,
+                                                            lock_screen_active: state.lock_screen.is_active(),
+                                                            billing_active: state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
                                                             game_pid: None,
-                                                            driving_state: Some(detector.current_state()),
-                                                            wheelbase_connected: detector.is_hid_connected(),
-                                                            ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
-                                                            uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                                            driving_state: Some(state.detector.current_state()),
+                                                            wheelbase_connected: state.detector.is_hid_connected(),
+                                                            ws_connected: state.heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                                                            uptime_seconds: state.agent_start_time.elapsed().as_secs(),
                                                             ..Default::default()
                                                         };
                                                         tokio::spawn(ai_debugger::analyze_crash(
-                                                            config.ai_debugger.clone(),
+                                                            state.config.ai_debugger.clone(),
                                                             pod_id_clone.clone(),
                                                             launch_sim,
                                                             err_ctx,
                                                             snapshot,
-                                                            ai_result_tx.clone(),
+                                                            state.ai_result_tx.clone(),
                                                         ));
                                                     }
                                                 }
 
                                                 // Reconnect telemetry adapter to new AC instance
-                                                if let Some(ref mut adp) = adapter {
+                                                if let Some(ref mut adp) = state.adapter {
                                                     match adp.connect() {
                                                         Ok(()) => tracing::info!("Reconnected to AC telemetry"),
                                                         Err(e) => tracing::warn!("Could not reconnect telemetry: {}", e),
@@ -1992,7 +2032,7 @@ async fn main() -> Result<()> {
                                             }
                                             Err(e) => {
                                                 tracing::error!("AC launch failed: {}", e);
-                                                if let Ok(mut err_slot) = last_launch_error.lock() {
+                                                if let Ok(mut err_slot) = state.last_launch_error.lock() {
                                                     *err_slot = Some(format!("Launch failed: {}", e));
                                                 }
                                                 let info = GameLaunchInfo {
@@ -2009,30 +2049,30 @@ async fn main() -> Result<()> {
                                                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
 
                                                 // Trigger AI debugger for total launch failure
-                                                if config.ai_debugger.enabled {
+                                                if state.config.ai_debugger.enabled {
                                                     let err_ctx = format!(
                                                         "AC launch completely failed on pod {}: {}",
                                                         pod_id_clone, e
                                                     );
                                                     let snapshot = PodStateSnapshot {
                                                         pod_id: pod_id_clone.clone(),
-                                                        pod_number: config.pod.number,
-                                                        lock_screen_active: lock_screen.is_active(),
-                                                        billing_active: heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                                                        pod_number: state.config.pod.number,
+                                                        lock_screen_active: state.lock_screen.is_active(),
+                                                        billing_active: state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
                                                         game_pid: None,
-                                                        driving_state: Some(detector.current_state()),
-                                                        wheelbase_connected: detector.is_hid_connected(),
-                                                        ws_connected: heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
-                                                        uptime_seconds: agent_start_time.elapsed().as_secs(),
+                                                        driving_state: Some(state.detector.current_state()),
+                                                        wheelbase_connected: state.detector.is_hid_connected(),
+                                                        ws_connected: state.heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                                                        uptime_seconds: state.agent_start_time.elapsed().as_secs(),
                                                         ..Default::default()
                                                     };
                                                     tokio::spawn(ai_debugger::analyze_crash(
-                                                        config.ai_debugger.clone(),
+                                                        state.config.ai_debugger.clone(),
                                                         pod_id_clone,
                                                         launch_sim,
                                                         err_ctx,
                                                         snapshot,
-                                                        ai_result_tx.clone(),
+                                                        state.ai_result_tx.clone(),
                                                     ));
                                                 }
                                             }
@@ -2041,14 +2081,14 @@ async fn main() -> Result<()> {
                                         // Generic launch for other sims (F1 25, iRacing, LMU, Forza, AC Evo/Rally)
                                         // Mirrors AC lifecycle: heartbeat → splash → launch_state → launch → monitor
                                         let base_config = match launch_sim {
-                                            SimType::AssettoCorsa => &config.games.assetto_corsa,
-                                            SimType::AssettoCorsaEvo => &config.games.assetto_corsa_evo,
-                                            SimType::AssettoCorsaRally => &config.games.assetto_corsa_rally,
-                                            SimType::IRacing => &config.games.iracing,
-                                            SimType::F125 => &config.games.f1_25,
-                                            SimType::LeMansUltimate => &config.games.le_mans_ultimate,
-                                            SimType::Forza => &config.games.forza,
-                                            SimType::ForzaHorizon5 => &config.games.forza_horizon_5,
+                                            SimType::AssettoCorsa => &state.config.games.assetto_corsa,
+                                            SimType::AssettoCorsaEvo => &state.config.games.assetto_corsa_evo,
+                                            SimType::AssettoCorsaRally => &state.config.games.assetto_corsa_rally,
+                                            SimType::IRacing => &state.config.games.iracing,
+                                            SimType::F125 => &state.config.games.f1_25,
+                                            SimType::LeMansUltimate => &state.config.games.le_mans_ultimate,
+                                            SimType::Forza => &state.config.games.forza,
+                                            SimType::ForzaHorizon5 => &state.config.games.forza_horizon_5,
                                         };
                                         let mut game_config = base_config.clone();
                                         if let Some(args) = launch_args {
@@ -2056,8 +2096,8 @@ async fn main() -> Result<()> {
                                         }
 
                                         // 1. Update heartbeat status (was missing — pod appeared idle during launch)
-                                        heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
-                                        heartbeat_status.game_id.store(match launch_sim {
+                                        state.heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        state.heartbeat_status.game_id.store(match launch_sim {
                                             SimType::AssettoCorsa => 1,
                                             SimType::F125 => 2,
                                             SimType::IRacing => 3,
@@ -2070,7 +2110,7 @@ async fn main() -> Result<()> {
 
                                         // 2. Show branded splash screen (was missing — blank screen during load)
                                         let splash_name = current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
-                                        lock_screen.show_launch_splash(splash_name);
+                                        state.lock_screen.show_launch_splash(splash_name);
 
                                         // 3. Arm launch timeout (was missing — BILL-01 3-min timeout didn't work)
                                         launch_state = LaunchState::WaitingForLive {
@@ -2079,13 +2119,13 @@ async fn main() -> Result<()> {
                                         };
 
                                         // 4. Notify failure monitor (was missing — self-monitor couldn't detect stuck launches)
-                                        let _ = failure_monitor_tx.send_modify(|s| {
+                                        let _ = state.failure_monitor_tx.send_modify(|s| {
                                             s.launch_started_at = Some(std::time::Instant::now());
                                         });
 
                                         // 5. Send Launching state to server
                                         let launching_info = GameLaunchInfo {
-                                            pod_id: pod_id.clone(),
+                                            pod_id: state.pod_id.clone(),
                                             sim_type: launch_sim,
                                             game_state: GameState::Launching,
                                             pid: None,
@@ -2103,15 +2143,15 @@ async fn main() -> Result<()> {
                                                 tracing::info!("Generic sim {:?} launched (pid: {:?})", launch_sim, gp.pid);
                                                 // Site 4b: game_process gained PID after generic sim launch
                                                 let gp_pid = gp.pid;
-                                                game_process = Some(gp);
-                                                let _ = failure_monitor_tx.send_modify(|s| {
+                                                state.game_process = Some(gp);
+                                                let _ = state.failure_monitor_tx.send_modify(|s| {
                                                     s.game_pid = gp_pid;
                                                 });
                                                 // For direct-exe launches (pid known), report Running immediately.
                                                 // For Steam launches (pid=None), game_check_interval will scan + transition.
                                                 if let Some(pid) = gp_pid {
                                                     let info = GameLaunchInfo {
-                                                        pod_id: pod_id.clone(),
+                                                        pod_id: state.pod_id.clone(),
                                                         sim_type: launch_sim,
                                                         game_state: GameState::Running,
                                                         pid: Some(pid),
@@ -2128,14 +2168,14 @@ async fn main() -> Result<()> {
                                             }
                                             Err(e) => {
                                                 tracing::error!("Failed to launch {:?}: {}", launch_sim, e);
-                                                heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
-                                                heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
+                                                state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                                                state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
                                                 launch_state = LaunchState::Idle;
-                                                let _ = failure_monitor_tx.send_modify(|s| {
+                                                let _ = state.failure_monitor_tx.send_modify(|s| {
                                                     s.launch_started_at = None;
                                                 });
                                                 let info = GameLaunchInfo {
-                                                    pod_id: pod_id.clone(),
+                                                    pod_id: state.pod_id.clone(),
                                                     sim_type: launch_sim,
                                                     game_state: GameState::Error,
                                                     pid: None,
@@ -2151,29 +2191,29 @@ async fn main() -> Result<()> {
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::StopGame => {
-                                    heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
-                                    heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
+                                    state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
                                     // Reset STATUS tracking and LaunchState
-                                    last_ac_status = None;
-                                    ac_status_stable_since = None;
+                                    state.last_ac_status = None;
+                                    state.ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
                                     // Site 8: StopGame from server — set recovery_in_progress + clear launch state
-                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                    let _ = state.failure_monitor_tx.send_modify(|s| {
                                         s.recovery_in_progress = true;
                                         s.launch_started_at = None;
                                     });
                                     // SAFETY: Safe session-end sequence before killing the game
-                                    ffb_controller::safe_session_end(&ffb).await;
+                                    ffb_controller::safe_session_end(&state.ffb).await;
                                     // Report FFB status
-                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                    if let Some(ref mut game) = game_process {
+                                    if let Some(ref mut game) = state.game_process {
                                         tracing::info!("Stopping game: {:?}", game.sim_type);
                                         let sim = game.sim_type;
                                         match game.stop() {
                                             Ok(()) => {
                                                 let info = GameLaunchInfo {
-                                                    pod_id: pod_id.clone(),
+                                                    pod_id: state.pod_id.clone(),
                                                     sim_type: sim,
                                                     game_state: GameState::Idle,
                                                     pid: None,
@@ -2189,14 +2229,14 @@ async fn main() -> Result<()> {
                                                 tracing::error!("Failed to stop game: {}", e);
                                             }
                                         }
-                                        game_process = None;
+                                        state.game_process = None;
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ShowPinLockScreen {
                                     token_id, driver_name, pricing_tier_name, allocated_seconds,
                                 } => {
                                     tracing::info!("Lock screen: PIN entry for {}", driver_name);
-                                    lock_screen.show_pin_screen(
+                                    state.lock_screen.show_pin_screen(
                                         token_id, driver_name, pricing_tier_name, allocated_seconds,
                                     );
                                 }
@@ -2204,22 +2244,22 @@ async fn main() -> Result<()> {
                                     token_id, qr_payload, driver_name, pricing_tier_name, allocated_seconds,
                                 } => {
                                     tracing::info!("Lock screen: QR display for {}", driver_name);
-                                    lock_screen.show_qr_screen(
+                                    state.lock_screen.show_qr_screen(
                                         token_id, qr_payload, driver_name, pricing_tier_name, allocated_seconds,
                                     );
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ClearLockScreen => {
                                     tracing::info!("Lock screen cleared");
-                                    overlay.deactivate();
-                                    lock_screen.clear();
+                                    state.overlay.deactivate();
+                                    state.lock_screen.clear();
                                 }
                                 rc_common::protocol::CoreToAgentMessage::BlankScreen => {
-                                    if heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                                    if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
                                         tracing::warn!("Ignoring BlankScreen — billing is active");
                                     } else {
                                         tracing::info!("Screen blanked via direct command");
-                                        overlay.deactivate();
-                                        lock_screen.show_blank_screen();
+                                        state.overlay.deactivate();
+                                        state.lock_screen.show_blank_screen();
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SubSessionEnded {
@@ -2231,74 +2271,74 @@ async fn main() -> Result<()> {
                                         billing_session_id, current_split_number, total_splits, total_laps, wallet_balance_paise
                                     );
                                     crash_recovery = CrashRecoveryState::Idle; // cancel crash recovery — core responded
-                                    overlay.deactivate();
+                                    state.overlay.deactivate();
                                     // Reset STATUS tracking and LaunchState
-                                    last_ac_status = None;
-                                    ac_status_stable_since = None;
+                                    state.last_ac_status = None;
+                                    state.ac_status_stable_since = None;
                                     launch_state = LaunchState::Idle;
                                     // Site 3e: SubSessionEnded — clear launch state (billing stays active between splits)
-                                    let _ = failure_monitor_tx.send_modify(|s| {
+                                    let _ = state.failure_monitor_tx.send_modify(|s| {
                                         s.launch_started_at = None;
                                         s.recovery_in_progress = false;
                                     });
 
                                     // SAFETY: Safe session-end sequence before game cleanup
-                                    ffb_controller::safe_session_end(&ffb).await;
+                                    ffb_controller::safe_session_end(&state.ffb).await;
 
                                     // Show between-sessions lock screen
-                                    lock_screen.show_between_sessions(
+                                    state.lock_screen.show_between_sessions(
                                         driver_name, total_laps, best_lap_ms, driving_seconds, wallet_balance_paise,
                                         current_split_number, total_splits,
                                     );
 
                                     // Stop game and clean up AFTER FFB safety sequence
-                                    if let Some(ref mut game) = game_process {
+                                    if let Some(ref mut game) = state.game_process {
                                         let _ = game.stop();
-                                        game_process = None;
+                                        state.game_process = None;
                                     }
                                     // Disconnect telemetry adapter
-                                    if let Some(ref mut adp) = adapter { adp.disconnect(); }
+                                    if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
                                     // Report FFB status
-                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: pod_id.clone() };
+                                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                     // Cleanup (enforce_safe_state — skip ConspitLink restart, safe_session_end handles it)
                                     tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                 }
                                 rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen { driver_name, message } => {
                                     tracing::info!("Assistance screen for {}: {}", driver_name, message);
-                                    lock_screen.show_assistance(driver_name, message);
+                                    state.lock_screen.show_assistance(driver_name, message);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::EnterDebugMode { employee_name } => {
                                     tracing::info!("Employee debug mode activated by {}", employee_name);
-                                    kiosk.enter_debug_mode();
-                                    lock_screen.clear();
+                                    state.kiosk.enter_debug_mode();
+                                    state.lock_screen.clear();
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SettingsUpdated { settings } => {
                                     tracing::info!("Kiosk settings updated: {:?}", settings);
                                     if let Some(v) = settings.get("kiosk_lockdown_enabled") {
-                                        if v == "true" && !kiosk.is_active() && !kiosk.is_debug_mode() {
-                                            kiosk.activate();
+                                        if v == "true" && !state.kiosk.is_active() && !state.kiosk.is_debug_mode() {
+                                            state.kiosk.activate();
                                             tracing::info!("Kiosk lockdown ENABLED via remote settings");
-                                        } else if v == "false" && kiosk.is_active() {
-                                            kiosk.deactivate();
+                                        } else if v == "false" && state.kiosk.is_active() {
+                                            state.kiosk.deactivate();
                                             tracing::info!("Kiosk lockdown DISABLED via remote settings");
                                         }
                                     }
                                     if let Some(v) = settings.get("screen_blanking_enabled") {
                                         tracing::info!("Screen blanking set to: {}", v);
-                                        let billing_on = heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
-                                        if v == "true" && lock_screen.is_idle_or_blanked() && !billing_on {
-                                            lock_screen.show_blank_screen();
+                                        let billing_on = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
+                                        if v == "true" && state.lock_screen.is_idle_or_blanked() && !billing_on {
+                                            state.lock_screen.show_blank_screen();
                                             tracing::info!("Screen blanking ENABLED — screen blanked");
                                         } else if v == "false" {
-                                            lock_screen.clear();
+                                            state.lock_screen.clear();
                                             tracing::info!("Screen blanking DISABLED — screen restored");
                                         }
                                     }
                                     // BRAND-02: wallpaper URL for lock screen background
                                     if let Some(url) = settings.get("lock_screen_wallpaper_url") {
                                         let url_opt = if url.is_empty() { None } else { Some(url.clone()) };
-                                        lock_screen.set_wallpaper_url(url_opt);
+                                        state.lock_screen.set_wallpaper_url(url_opt);
                                         tracing::info!("Lock screen wallpaper URL updated");
                                     }
                                 }
@@ -2308,13 +2348,13 @@ async fn main() -> Result<()> {
                                     ac_launcher::mid_session::toggle_ac_transmission();
                                     tokio::time::sleep(Duration::from_millis(100)).await;
                                     // Read confirmed state from shared memory
-                                    let auto_shifter = adapter.as_ref()
+                                    let auto_shifter = state.adapter.as_ref()
                                         .and_then(|a| a.read_assist_state())
                                         .map(|(_, _, a)| a)
                                         .unwrap_or(false);
-                                    overlay.show_toast(if auto_shifter { "Transmission: AUTO".into() } else { "Transmission: MANUAL".into() });
+                                    state.overlay.show_toast(if auto_shifter { "Transmission: AUTO".into() } else { "Transmission: MANUAL".into() });
                                     let confirm = rc_common::protocol::AgentMessage::AssistChanged {
-                                        pod_id: pod_id.clone(),
+                                        pod_id: state.pod_id.clone(),
                                         assist_type: "transmission".into(),
                                         enabled: auto_shifter,
                                         confirmed: true,
@@ -2332,13 +2372,13 @@ async fn main() -> Result<()> {
                                         _ => {} // numeric or unknown — don't update preset name
                                     }
                                     if let Ok(percent) = preset.parse::<u8>() {
-                                        match ffb.set_gain(percent) {
+                                        match state.ffb.set_gain(percent) {
                                             Ok(true) => {
                                                 let clamped = percent.clamp(10, 100);
                                                 last_ffb_percent = clamped;
-                                                overlay.show_toast(format!("FFB: {}%", clamped));
+                                                state.overlay.show_toast(format!("FFB: {}%", clamped));
                                                 let confirm = rc_common::protocol::AgentMessage::FfbGainChanged {
-                                                    pod_id: pod_id.clone(),
+                                                    pod_id: state.pod_id.clone(),
                                                     percent: clamped,
                                                 };
                                                 if let Ok(json) = serde_json::to_string(&confirm) {
@@ -2359,7 +2399,7 @@ async fn main() -> Result<()> {
                                     tracing::info!("SetAssist: type={}, enabled={}", assist_type, enabled);
                                     match assist_type.as_str() {
                                         "abs" => {
-                                            let current = adapter.as_ref()
+                                            let current = state.adapter.as_ref()
                                                 .and_then(|a| a.read_assist_state())
                                                 .map(|(abs, _, _)| abs > 0)
                                                 .unwrap_or(false);
@@ -2367,7 +2407,7 @@ async fn main() -> Result<()> {
                                                 if enabled {
                                                     ac_launcher::mid_session::toggle_ac_abs();
                                                 } else {
-                                                    let level = adapter.as_ref()
+                                                    let level = state.adapter.as_ref()
                                                         .and_then(|a| a.read_assist_state())
                                                         .map(|(abs, _, _)| abs)
                                                         .unwrap_or(1);
@@ -2378,13 +2418,13 @@ async fn main() -> Result<()> {
                                                 }
                                             }
                                             tokio::time::sleep(Duration::from_millis(100)).await;
-                                            let confirmed_abs = adapter.as_ref()
+                                            let confirmed_abs = state.adapter.as_ref()
                                                 .and_then(|a| a.read_assist_state())
                                                 .map(|(abs, _, _)| abs > 0)
                                                 .unwrap_or(false);
-                                            overlay.show_toast(if confirmed_abs { "ABS: ON".into() } else { "ABS: OFF".into() });
+                                            state.overlay.show_toast(if confirmed_abs { "ABS: ON".into() } else { "ABS: OFF".into() });
                                             let confirm = rc_common::protocol::AgentMessage::AssistChanged {
-                                                pod_id: pod_id.clone(),
+                                                pod_id: state.pod_id.clone(),
                                                 assist_type: "abs".into(),
                                                 enabled: confirmed_abs,
                                                 confirmed: true,
@@ -2394,7 +2434,7 @@ async fn main() -> Result<()> {
                                             }
                                         }
                                         "tc" => {
-                                            let current = adapter.as_ref()
+                                            let current = state.adapter.as_ref()
                                                 .and_then(|a| a.read_assist_state())
                                                 .map(|(_, tc, _)| tc > 0)
                                                 .unwrap_or(false);
@@ -2402,7 +2442,7 @@ async fn main() -> Result<()> {
                                                 if enabled {
                                                     ac_launcher::mid_session::toggle_ac_tc();
                                                 } else {
-                                                    let level = adapter.as_ref()
+                                                    let level = state.adapter.as_ref()
                                                         .and_then(|a| a.read_assist_state())
                                                         .map(|(_, tc, _)| tc)
                                                         .unwrap_or(1);
@@ -2413,13 +2453,13 @@ async fn main() -> Result<()> {
                                                 }
                                             }
                                             tokio::time::sleep(Duration::from_millis(100)).await;
-                                            let confirmed_tc = adapter.as_ref()
+                                            let confirmed_tc = state.adapter.as_ref()
                                                 .and_then(|a| a.read_assist_state())
                                                 .map(|(_, tc, _)| tc > 0)
                                                 .unwrap_or(false);
-                                            overlay.show_toast(if confirmed_tc { "TC: ON".into() } else { "TC: OFF".into() });
+                                            state.overlay.show_toast(if confirmed_tc { "TC: ON".into() } else { "TC: OFF".into() });
                                             let confirm = rc_common::protocol::AgentMessage::AssistChanged {
-                                                pod_id: pod_id.clone(),
+                                                pod_id: state.pod_id.clone(),
                                                 assist_type: "tc".into(),
                                                 enabled: confirmed_tc,
                                                 confirmed: true,
@@ -2429,7 +2469,7 @@ async fn main() -> Result<()> {
                                             }
                                         }
                                         "transmission" => {
-                                            let current = adapter.as_ref()
+                                            let current = state.adapter.as_ref()
                                                 .and_then(|a| a.read_assist_state())
                                                 .map(|(_, _, auto)| auto)
                                                 .unwrap_or(false);
@@ -2437,13 +2477,13 @@ async fn main() -> Result<()> {
                                                 ac_launcher::mid_session::toggle_ac_transmission();
                                             }
                                             tokio::time::sleep(Duration::from_millis(100)).await;
-                                            let confirmed = adapter.as_ref()
+                                            let confirmed = state.adapter.as_ref()
                                                 .and_then(|a| a.read_assist_state())
                                                 .map(|(_, _, auto)| auto)
                                                 .unwrap_or(false);
-                                            overlay.show_toast(if confirmed { "Transmission: AUTO".into() } else { "Transmission: MANUAL".into() });
+                                            state.overlay.show_toast(if confirmed { "Transmission: AUTO".into() } else { "Transmission: MANUAL".into() });
                                             let confirm = rc_common::protocol::AgentMessage::AssistChanged {
-                                                pod_id: pod_id.clone(),
+                                                pod_id: state.pod_id.clone(),
                                                 assist_type: "transmission".into(),
                                                 enabled: confirmed,
                                                 confirmed: true,
@@ -2459,13 +2499,13 @@ async fn main() -> Result<()> {
                                 }
                                 rc_common::protocol::CoreToAgentMessage::SetFfbGain { percent } => {
                                     tracing::info!("SetFfbGain: {}%", percent);
-                                    match ffb.set_gain(percent) {
+                                    match state.ffb.set_gain(percent) {
                                         Ok(true) => {
                                             let clamped = percent.clamp(10, 100);
                                             last_ffb_percent = clamped;
-                                            overlay.show_toast(format!("FFB: {}%", clamped));
+                                            state.overlay.show_toast(format!("FFB: {}%", clamped));
                                             let confirm = rc_common::protocol::AgentMessage::FfbGainChanged {
-                                                pod_id: pod_id.clone(),
+                                                pod_id: state.pod_id.clone(),
                                                 percent: clamped,
                                             };
                                             if let Ok(json) = serde_json::to_string(&confirm) {
@@ -2477,23 +2517,23 @@ async fn main() -> Result<()> {
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::QueryAssistState => {
-                                    let (abs, tc, auto_shifter) = adapter.as_ref()
+                                    let (abs, tc, auto_shifter) = state.adapter.as_ref()
                                         .and_then(|a| a.read_assist_state())
                                         .unwrap_or((0, 0, false));
-                                    let state = rc_common::protocol::AgentMessage::AssistState {
-                                        pod_id: pod_id.clone(),
+                                    let assist_msg = rc_common::protocol::AgentMessage::AssistState {
+                                        pod_id: state.pod_id.clone(),
                                         abs,
                                         tc,
                                         auto_shifter,
                                         ffb_percent: last_ffb_percent,
                                     };
-                                    if let Ok(json) = serde_json::to_string(&state) {
+                                    if let Ok(json) = serde_json::to_string(&assist_msg) {
                                         let _ = ws_tx.send(Message::Text(json.into())).await;
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::PinFailed { reason } => {
                                     tracing::warn!("PIN failed: {}", reason);
-                                    lock_screen.show_pin_error(&reason);
+                                    state.lock_screen.show_pin_error(&reason);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::Ping { id } => {
                                     // Measure how long the event loop took to reach this Ping.
@@ -2517,7 +2557,7 @@ async fn main() -> Result<()> {
                                 }
                                 rc_common::protocol::CoreToAgentMessage::Exec { request_id, cmd, timeout_ms } => {
                                     tracing::info!("WS command request {}: {}", request_id, cmd);
-                                    let result_tx = ws_exec_result_tx.clone();
+                                    let result_tx = state.ws_exec_result_tx.clone();
                                     tokio::spawn(async move {
                                         let result = handle_ws_exec(request_id, cmd, timeout_ms).await;
                                         let _ = result_tx.send(result).await;
@@ -2527,9 +2567,9 @@ async fn main() -> Result<()> {
                                     tracing::info!("Server APPROVED process: {}", process_name);
                                     crate::kiosk::KioskManager::approve_process(&process_name);
                                     // Clear lockdown if it was triggered by this process — reset to idle PinEntry
-                                    if kiosk.is_locked_down() {
-                                        kiosk.exit_lockdown();
-                                        lock_screen.show_idle_pin_entry();
+                                    if state.kiosk.is_locked_down() {
+                                        state.kiosk.exit_lockdown();
+                                        state.lock_screen.show_idle_pin_entry();
                                     }
                                 }
                                 rc_common::protocol::CoreToAgentMessage::RejectProcess { process_name } => {
@@ -2539,22 +2579,22 @@ async fn main() -> Result<()> {
                                         "Unauthorized software '{}' detected. Please contact staff.",
                                         process_name
                                     );
-                                    kiosk.enter_lockdown(&reason);
-                                    lock_screen.show_lockdown(&reason);
+                                    state.kiosk.enter_lockdown(&reason);
+                                    state.lock_screen.show_lockdown(&reason);
                                     // Notify server via exec result channel
                                     let lockdown_msg = rc_common::protocol::AgentMessage::KioskLockdown {
-                                        pod_id: pod_id.clone(),
+                                        pod_id: state.pod_id.clone(),
                                         reason,
                                     };
-                                    let _ = ws_exec_result_tx.try_send(lockdown_msg);
+                                    let _ = state.ws_exec_result_tx.try_send(lockdown_msg);
                                 }
                                 rc_common::protocol::CoreToAgentMessage::RunSelfTest { request_id } => {
                                     tracing::info!("[self-test] RunSelfTest request_id={}", request_id);
-                                    let status_clone = heartbeat_status.clone();
-                                    let ollama_url = config.ai_debugger.ollama_url.clone();
-                                    let ollama_model = config.ai_debugger.ollama_model.clone();
-                                    let result_tx = ws_exec_result_tx.clone();
-                                    let pod_id_clone = pod_id.clone();
+                                    let status_clone = state.heartbeat_status.clone();
+                                    let ollama_url = state.config.ai_debugger.ollama_url.clone();
+                                    let ollama_model = state.config.ai_debugger.ollama_model.clone();
+                                    let result_tx = state.ws_exec_result_tx.clone();
+                                    let pod_id_clone = state.pod_id.clone();
                                     tokio::spawn(async move {
                                         let mut report = self_test::run_all_probes(
                                             status_clone,
@@ -2615,7 +2655,7 @@ async fn main() -> Result<()> {
                                                 .duration_since(std::time::UNIX_EPOCH)
                                                 .unwrap_or_default()
                                                 .as_millis() as u64;
-                                            heartbeat_status.last_switch_ms.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+                                            state.heartbeat_status.last_switch_ms.store(now_ms, std::sync::atomic::Ordering::Relaxed);
 
                                             self_monitor::log_event(&format!("SWITCH: target={}", target_url));
 
@@ -2642,7 +2682,7 @@ async fn main() -> Result<()> {
         } // end inner event loop
 
         // Connection lost — update UDP heartbeat status and show disconnected
-        heartbeat_status.ws_connected.store(false, std::sync::atomic::Ordering::Relaxed);
+        state.heartbeat_status.ws_connected.store(false, std::sync::atomic::Ordering::Relaxed);
         tracing::warn!("Disconnected from core server");
 
         // SESSION-04: Record disconnect time if not already set (grace window starts here)
@@ -2651,26 +2691,26 @@ async fn main() -> Result<()> {
         }
 
         // If no billing active, enforce safe state on disconnect — kill any orphaned games
-        if !heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+        if !state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
             tracing::info!("No active billing on disconnect — enforcing safe state");
-            overlay.deactivate();
+            state.overlay.deactivate();
             // SAFETY: Safe session-end sequence before game cleanup
-            ffb_controller::safe_session_end(&ffb).await;
+            ffb_controller::safe_session_end(&state.ffb).await;
             tracing::info!("FFB safety sequence complete on disconnect (ws_tx unavailable for FfbZeroed message)");
-            if let Some(ref mut game) = game_process {
+            if let Some(ref mut game) = state.game_process {
                 let _ = game.stop();
-                game_process = None;
+                state.game_process = None;
             }
-            if let Some(ref mut adp) = adapter { adp.disconnect(); }
+            if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
             tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-            lock_screen.show_blank_screen();
+            state.lock_screen.show_blank_screen();
         } else {
             // SESSION-04: Billing active — apply 30s grace window before showing Disconnected
             let disconnected_for = ws_disconnected_at
                 .get_or_insert_with(std::time::Instant::now)
                 .elapsed();
             if disconnected_for > Duration::from_secs(30) {
-                lock_screen.show_disconnected();
+                state.lock_screen.show_disconnected();
             } else {
                 tracing::info!("[ws-grace] WS dropped {}s — billing active, within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
             }
