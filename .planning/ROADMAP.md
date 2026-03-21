@@ -1278,7 +1278,10 @@ Every customer session begins with automated health verification. On BillingStar
   3. When a test simulates ConspitLink not running, rc-agent spawns ConspitLink, waits for process to appear, and if successful returns Pass — HW-03 auto-restart path executes once and stops
   4. When an orphaned game PID is in AppState (game_process is Some but billing_active is false), pre_flight kills that specific PID via taskkill /F /PID — name-based kill is never used and active sessions are never touched
   5. When disable_preflight = true in rc-agent.toml, BillingStarted proceeds directly to show_active_session() with no pre_flight::run() call — rollback escape hatch works
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 97-01-PLAN.md — rc-common protocol variants + PreflightConfig
+- [ ] 97-02-PLAN.md — pre_flight.rs module + ws_handler.rs gate wiring
 
 ### Phase 98: MaintenanceRequired Lock Screen + Display Checks
 **Goal**: A pod that fails pre-flight shows a branded "Maintenance Required — Staff Notified" lock screen and stays blocked with two explicit exit paths — staff sends ClearMaintenance from kiosk, or 30 seconds of successful auto-retry self-clears the pod; display checks (HTTP probe and window rect) are wired into the pre-flight gate
