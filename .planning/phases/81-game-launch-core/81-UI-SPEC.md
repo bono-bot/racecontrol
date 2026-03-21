@@ -56,9 +56,9 @@ Exceptions:
 | Body | 14px | 400 | 1.5 | Pod card metadata, game state labels, banner body copy |
 | Label | 12px | 600 | 1.4 | Status badges, game abbreviation chips (F1, AC, ACR), button labels |
 | Heading | 20px | 600 | 1.2 | Panel section headings, game picker title, confirmation banner heading |
-| Display | 28px | 700 | 1.1 | Spectator view pod-level game name text |
+| Display | 28px | 600 | 1.1 | Spectator view pod-level game name text |
 
-Font stacks sourced from `globals.css`. Body and Label use `--font-sans` (Montserrat). Display uses `--font-display` (Space Grotesk).
+Font stacks sourced from `globals.css`. Body and Label use `--font-sans` (Montserrat). Display uses `--font-display` (Space Grotesk). Size alone differentiates Display (28px) from Heading (20px) — no third weight needed.
 
 ---
 
@@ -97,6 +97,7 @@ Triggered when staff clicks "Launch Game" on a pod card that is in the `idle` st
 
 ### Modified: KioskPodCard
 
+- Primary focal point (idle state): pod number + game state badge in the top-left of each KioskPodCard. This is the dominant visual anchor on the staff dashboard when no game is running.
 - Add game logo display in pod card body when `gameInfo.game_state === "running"` or `"launching"` (40x40px image, left-aligned beside game state text)
 - "Launch Game" button already exists at line 389 — path change only (non-AC bypasses wizard, AC still opens wizard)
 
