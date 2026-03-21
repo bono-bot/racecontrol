@@ -361,3 +361,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:13 IST | James | 59f9b95 | docs(81-01): 81-01-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md |
 | 2026-03-21 07:18 IST | James | 985b3db | feat(74-03): extract ws_handler.rs with handle_ws_message() dispatching 22 CoreToAgentMessage variants; select! ws_rx arm to 27-line delegation; main.rs 3009->2037 lines (DECOMP-03) |
 | 2026-03-21 07:18 IST | James | d7c42ac | docs(74-03): 74-03-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updates |
+| 2026-03-21 07:21 IST | James | fa8a0be | feat(70-02): add COMMAND_REGISTRY entries (export_failover_sessions, notify_failback) + HealthMonitor server_recovery event (down->healthy guard) |
+| 2026-03-21 07:21 IST | James | e1826d5 | feat(70-02): FailoverOrchestrator.initiateFailback() 9-step sequence + #httpGet helper + failoverStartedAt tracking + james/index.js server_recovery wiring |
+| 2026-03-21 07:21 IST | James | 6effd53 | docs(70-02): 70-02-SUMMARY.md + STATE.md + ROADMAP.md updates |
