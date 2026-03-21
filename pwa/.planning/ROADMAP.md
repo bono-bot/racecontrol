@@ -34,11 +34,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. All four containers (Caddy + 3 frontends) are running via Docker Compose with memory limits and healthchecks
   3. VPS firewall blocks all inbound ports except 80 and 443
   4. VPS has 2GB swap enabled and containers survive under memory pressure
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Config files: Caddyfile, compose.yml, Dockerfile port fix, verification script
+- [ ] 01-02-PLAN.md — VPS deployment: DNS, firewall, swap, Docker Compose up (coordinate with Bono)
 
 ### Phase 2: API + PWA Cloud Deploy
 **Goal**: Customers can access the PWA from any device and use existing features (login, wallet, sessions, leaderboards) via the cloud API
@@ -50,7 +50,7 @@ Plans:
   3. Customer can top up wallet via Razorpay from the cloud PWA and see updated balance after sync
   4. PWA is installable to home screen (manifest, service worker, icons all working)
   5. All existing customer API endpoints at api.racingpoint.cloud return correct synced data
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 02-01: TBD
@@ -114,7 +114,7 @@ Plans:
   2. Uday can view revenue reports, booking history, and customer data from his phone
   3. Uday can configure pricing tiers, experiences, and kiosk settings remotely and changes sync to local server
   4. All existing admin API endpoints work correctly on the cloud instance with synced data
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 06-01: TBD
@@ -129,7 +129,7 @@ Plans:
   2. Dashboard shows real-time pod status grid for all 8 pods, updated via polling
   3. Dashboard shows today's revenue, active sessions, and billing timers
   4. Dashboard shows connection status indicator reflecting cloud-to-local sync health
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 07-01: TBD
@@ -142,7 +142,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Pushing a commit to main in GitHub triggers a GitHub Actions workflow that builds Docker images and deploys them to the VPS via SSH
   2. Failed builds do not deploy — only successful builds reach production
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 08-01: TBD
@@ -154,7 +154,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. When a container crashes, restarts, or goes OOM, a WhatsApp alert is sent to Uday within 2 minutes
   2. Container healthchecks detect unresponsive services and trigger automatic restart
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 09-01: TBD
@@ -167,7 +167,7 @@ Plans:
   1. During an extended internet outage, cloud bookings queue as pending_sync and local server confirms them post-reconnection without data loss
   2. Authentication endpoints (login, OTP verify, PIN entry) are rate-limited to prevent brute force attacks
   3. After connectivity is restored, pending bookings resolve within two sync cycles
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 10-01: TBD
