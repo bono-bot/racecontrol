@@ -368,3 +368,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:38 IST | Bono | a620a52 | feat(89-01): psychology.rs module skeleton — NotificationChannel, NudgeStatus, MetricType, Operator, BadgeCriteria, parse_criteria_json, evaluate_criteria, 5 async stubs, 13 unit tests passing |
 | 2026-03-21 07:38 IST | Bono | 865e1fb | docs(89-01): 89-01-SUMMARY.md + STATE.md update |
 | 2026-03-21 07:38 IST | Bono | f26032a | docs(89-01): ROADMAP.md phase 89 progress update |
+| 2026-03-21 09:34 IST | Bono | 4486468 | feat(90-01): update_driving_passport() + backfill_driving_passport() in psychology.rs; get_featured_tracks/cars_for_passport() in catalog.rs; persist_lap wired to upsert passport on every valid lap |
+| 2026-03-21 09:34 IST | Bono | 104a22c | feat(90-01): GET /customer/passport (lazy backfill + Starter/Explorer/Legend tiers) + GET /customer/badges (earned + available with progress) endpoints in routes.rs; fix pre-existing AppState::new arity in psychology tests |
+| 2026-03-21 09:34 IST | Bono | 0c9d28c | docs(90-01): 90-01-SUMMARY.md + STATE.md + ROADMAP.md |
