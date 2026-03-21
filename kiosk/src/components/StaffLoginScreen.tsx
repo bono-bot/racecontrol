@@ -5,7 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 
 interface StaffLoginScreenProps {
-  onAuthenticated: (staffId: string, staffName: string) => void;
+  onAuthenticated: (staffId: string, staffName: string, token?: string) => void;
 }
 
 type LoginStep = "idle" | "pin_entry" | "validating" | "error";
@@ -41,7 +41,10 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
         setStep("error");
         return;
       }
-      onAuthenticated(res.staff_id || "", res.staff_name || "Staff");
+      if (res.token) {
+        sessionStorage.setItem("kiosk_staff_token", res.token);
+      }
+      onAuthenticated(res.staff_id || "", res.staff_name || "Staff", res.token);
     } catch {
       setErrorMsg("Network error - please try again");
       setStep("error");

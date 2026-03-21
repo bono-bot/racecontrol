@@ -211,6 +211,7 @@ export default function DebugPage() {
   function handleSignOut() {
     sessionStorage.removeItem("kiosk_staff_name");
     sessionStorage.removeItem("kiosk_staff_id");
+    sessionStorage.removeItem("kiosk_staff_token");
     router.push("/");
   }
 

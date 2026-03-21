@@ -46,6 +46,7 @@ export default function ControlPage() {
   const handleSignOut = () => {
     sessionStorage.removeItem("kiosk_staff_name");
     sessionStorage.removeItem("kiosk_staff_id");
+    sessionStorage.removeItem("kiosk_staff_token");
     router.replace("/staff");
   };
 

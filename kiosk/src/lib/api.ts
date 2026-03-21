@@ -7,8 +7,11 @@ const API_BASE =
     : "http://localhost:8080");
 
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = typeof window !== "undefined" ? sessionStorage.getItem("kiosk_staff_token") : null;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers,
     ...options,
   });
   if (!res.ok) {
@@ -169,6 +172,7 @@ export const api = {
       error?: string;
       staff_id?: string;
       staff_name?: string;
+      token?: string;
     }>("/staff/validate-pin", {
       method: "POST",
       body: JSON.stringify({ pin }),

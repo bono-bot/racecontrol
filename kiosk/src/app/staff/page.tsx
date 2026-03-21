@@ -37,6 +37,7 @@ export default function StaffTerminal() {
       timer = setTimeout(() => {
         sessionStorage.removeItem("kiosk_staff_name");
         sessionStorage.removeItem("kiosk_staff_id");
+        sessionStorage.removeItem("kiosk_staff_token");
         setStaffName(null);
         setStaffId(null);
       }, 30 * 60 * 1000);
@@ -335,6 +336,7 @@ export default function StaffTerminal() {
     setStaffId(null);
     sessionStorage.removeItem("kiosk_staff_name");
     sessionStorage.removeItem("kiosk_staff_id");
+    sessionStorage.removeItem("kiosk_staff_token");
   };
 
   // ─── Panel Title Derivation ───────────────────────────────────────────

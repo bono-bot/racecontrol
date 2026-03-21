@@ -8827,11 +8827,26 @@ async fn staff_validate_pin(
             .execute(&state.db)
             .await;
 
-            Json(json!({
-                "status": "ok",
-                "staff_id": id,
-                "staff_name": name,
-            }))
+            let token = auth::middleware::create_staff_jwt(
+                &state.config.auth.jwt_secret,
+                &id,
+                24,
+            );
+
+            match token {
+                Ok(jwt) => Json(json!({
+                    "status": "ok",
+                    "staff_id": id,
+                    "staff_name": name,
+                    "token": jwt,
+                })),
+                Err(e) => Json(json!({
+                    "status": "ok",
+                    "staff_id": id,
+                    "staff_name": name,
+                    "error": format!("Login ok but token failed: {}", e),
+                })),
+            }
         }
         Ok(None) => Json(json!({ "error": "Invalid staff PIN" })),
         Err(e) => Json(json!({ "error": format!("Database error: {}", e) })),
