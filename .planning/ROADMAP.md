@@ -239,7 +239,8 @@ Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA 
 Embed 12 behavioral psychology frameworks into RacingPoint's existing systems — centralized psychology engine with notification throttling, customer progression (driving passport, badges), peak-end session design, retention loops (streaks, variable rewards), community rituals (Discord), pricing psychology (anchoring, scarcity), staff gamification (opt-in leaderboards, badges, challenges), and HR/hiring enhancements (SJTs, Cialdini campaigns).
 
 - [x] **Phase 89: Psychology Foundation** - Notification budget, psychology engine module, DB schema, and badge criteria storage (completed 2026-03-21)
-- [x] **Phase 90: Customer Progression** - Driving passport with track/car collections, badge system, and profile showcase (completed 2026-03-21)
+- [x] **Phase 90: Customer Progression** - Driving passport with track/car collections, badge system, and profile showcase
+ (completed 2026-03-21)
 - [ ] **Phase 91: Session Experience** - PB confetti celebrations, peak-end session reports, and real-time PB toasts
 - [ ] **Phase 92: Retention Loops** - Visit streaks, PB-beaten notifications, variable rewards, and loss-framed membership nudges
 - [ ] **Phase 93: Community & Tribal Identity** - Discord weekly rituals, record alerts, and RacingPoint Driver identity language
@@ -1327,7 +1328,8 @@ Every customer session begins with automated health verification. On BillingStar
 ## Phases
 
 
-- [x] **Phase 97: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag (completed 2026-03-21)
+- [x] **Phase 97: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag
+ (completed 2026-03-21)
 - [ ] **Phase 98: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking
 - [ ] **Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring** - Billing stuck-session check, disk and memory probes, WS stability check, complete handler integration in ws_handler.rs, self_test.rs pub(crate) helper extraction, alert rate-limiting
 - [ ] **Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear** - Kiosk dashboard maintenance badge per pod, "Clear Maintenance" staff action (PIN-gated), pod marked unavailable in fleet health, preflight_alert_cooldown_secs config
