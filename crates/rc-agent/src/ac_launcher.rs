@@ -283,7 +283,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     bootstrap_ac_config()?;
 
     // Step 1: Kill existing AC
-    tracing::info!(target: LOG_TARGET, "[1/4] Killing existing AC...");
+    tracing::info!(target: LOG_TARGET, "Killing existing AC...");
     let _ = hidden_cmd("taskkill")
         .args(["/IM", "acs.exe", "/F"])
         .output();
@@ -293,7 +293,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     // Step 2: Write race.ini + assists.ini + apps preset
-    tracing::info!(target: LOG_TARGET, "[2/4] Writing race.ini + assists.ini + apps preset...");
+    tracing::info!(target: LOG_TARGET, "Writing race.ini + assists.ini + apps preset...");
     write_race_ini(params)?;
     write_assists_ini(params)?;
     write_apps_preset()?;
@@ -314,7 +314,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
 
     let pid = if params.game_mode == "multi" && find_cm_exe().is_some() {
         diag.cm_attempted = true;
-        tracing::info!(target: LOG_TARGET, "[3/5] Launching multiplayer via Content Manager...");
+        tracing::info!(target: LOG_TARGET, "Launching multiplayer via Content Manager...");
         launch_via_cm(params)?;
         match wait_for_ac_process(15) {
             Ok(pid) => pid,
@@ -325,7 +325,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                     "CM multiplayer launch failed: {}. Diagnostics: {}",
                     e, cm_diag
                 );
-                tracing::error!(target: LOG_TARGET, "[CM_ERROR] {}", error_detail);
+                tracing::error!(target: LOG_TARGET, "CM error: {}", error_detail);
                 cm_error = Some(error_detail);
                 diag.cm_log_errors = read_cm_log_errors();
                 diag.cm_exit_code = get_cm_exit_code();
@@ -342,7 +342,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             }
         }
     } else {
-        tracing::info!(target: LOG_TARGET, "[3/5] Launching acs.exe directly (race.ini pre-written)...");
+        tracing::info!(target: LOG_TARGET, "Launching acs.exe directly (race.ini pre-written)...");
         let ac_dir = find_ac_dir()?;
         let child = Command::new(ac_dir.join("acs.exe"))
             .current_dir(&ac_dir)
@@ -354,12 +354,12 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
 
     // Step 4: Wait for AC to load, then minimize Conspit Link
     // (Don't kill Conspit Link — it crashes on force-restart. Just minimize it.)
-    tracing::info!(target: LOG_TARGET, "[4/5] Waiting 8s for AC to load, then minimizing Conspit Link...");
+    tracing::info!(target: LOG_TARGET, "Waiting 8s for AC to load, then minimizing Conspit Link...");
     std::thread::sleep(std::time::Duration::from_secs(8));
     minimize_conspit_window();
 
     // Step 5: Minimize background windows and bring game to foreground
-    tracing::info!(target: LOG_TARGET, "[5/5] Minimizing background windows and focusing game...");
+    tracing::info!(target: LOG_TARGET, "Minimizing background windows and focusing game...");
     std::thread::sleep(std::time::Duration::from_secs(2));
     minimize_background_windows();
     bring_game_to_foreground();
@@ -1050,7 +1050,7 @@ fn verify_safety_content(content: &str) -> Result<()> {
         anyhow::bail!("SAFETY VIOLATION: race.ini SESSION_START is not 100 -- refusing to launch AC");
     }
 
-    tracing::info!(target: LOG_TARGET, "[safety] Post-write verification passed: DAMAGE=0, SESSION_START=100");
+    tracing::info!(target: LOG_TARGET, "Post-write verification passed: DAMAGE=0, SESSION_START=100");
     Ok(())
 }
 
@@ -1528,19 +1528,19 @@ fn bring_game_to_foreground() {
 /// Kills game, dismisses error dialogs, minimizes background windows
 /// (including Conspit Link), and ensures the lock screen is in the foreground.
 pub fn cleanup_after_session() {
-    tracing::info!(target: LOG_TARGET, "[cleanup] Starting post-session cleanup...");
+    tracing::info!(target: LOG_TARGET, "Starting post-session cleanup...");
 
     // 1. Kill AC and Content Manager (Conspit Link stays running — minimized in step 3)
     let _ = hidden_cmd("taskkill").args(["/IM", "acs.exe", "/F"]).output();
     let _ = hidden_cmd("taskkill").args(["/IM", "AssettoCorsa.exe", "/F"]).output();
     let _ = hidden_cmd("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
-    tracing::info!(target: LOG_TARGET, "[cleanup] Killed AC + Content Manager (Conspit Link kept alive)");
+    tracing::info!(target: LOG_TARGET, "Killed AC + Content Manager (Conspit Link kept alive)");
 
     // 2. Kill error/crash dialogs and system popups
     for proc in DIALOG_PROCESSES {
         let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
-    tracing::info!(target: LOG_TARGET, "[cleanup] Dismissed error dialogs and system popups");
+    tracing::info!(target: LOG_TARGET, "Dismissed error dialogs and system popups");
 
     // 3. Minimize all background windows, bring lock screen to foreground
     let ps_script = r#"
@@ -1569,7 +1569,7 @@ pub fn cleanup_after_session() {
     let _ = hidden_cmd("powershell")
         .args(["-NoProfile", "-Command", ps_script])
         .output();
-    tracing::info!(target: LOG_TARGET, "[cleanup] Background windows minimized, lock screen foregrounded");
+    tracing::info!(target: LOG_TARGET, "Background windows minimized, lock screen foregrounded");
 }
 
 /// Enforce a known-good safe state on the pod — the "factory reset" for runtime.
@@ -1583,7 +1583,7 @@ pub fn cleanup_after_session() {
 /// - Reconnecting after a network disconnect (when no billing active)
 /// - On startup
 pub fn enforce_safe_state(skip_conspit_restart: bool) {
-    tracing::info!(target: LOG_TARGET, "[safe-state] Enforcing default safe state...");
+    tracing::info!(target: LOG_TARGET, "Enforcing default safe state...");
 
     // 1. Kill ALL known game processes
     let game_processes = [
@@ -1598,13 +1598,13 @@ pub fn enforce_safe_state(skip_conspit_restart: bool) {
     for proc in &game_processes {
         let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
-    tracing::info!(target: LOG_TARGET, "[safe-state] All game processes killed");
+    tracing::info!(target: LOG_TARGET, "All game processes killed");
 
     // 2. Kill error/crash dialogs and system popups
     for proc in DIALOG_PROCESSES {
         let _ = hidden_cmd("taskkill").args(["/IM", proc, "/F"]).output();
     }
-    tracing::info!(target: LOG_TARGET, "[safe-state] Dismissed error dialogs and system popups");
+    tracing::info!(target: LOG_TARGET, "Dismissed error dialogs and system popups — safe state");
 
     // 3. Ensure Conspit Link is alive (it's the wheelbase driver — always needed)
     //    Skip when safe_session_end() already manages the ConspitLink lifecycle.
@@ -1616,7 +1616,7 @@ pub fn enforce_safe_state(skip_conspit_restart: bool) {
     minimize_background_windows();
     lock_screen::enforce_kiosk_foreground();
 
-    tracing::info!(target: LOG_TARGET, "[safe-state] Safe state enforced — pod ready for next customer");
+    tracing::info!(target: LOG_TARGET, "Safe state enforced — pod ready for next customer");
 }
 
 #[cfg(test)]

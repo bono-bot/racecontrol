@@ -1093,7 +1093,7 @@ mod tests {
             uptime_seconds: 100,
             ..Default::default()
         };
-        let result = try_auto_fix("The issue seems to be with the GPU driver version being outdated", &snapshot);
+        let result = try_auto_fix("The issue seems to be with the graphics card version being obsolete", &snapshot);
         assert!(result.is_none(), "Should not match any auto-fix pattern");
     }
 

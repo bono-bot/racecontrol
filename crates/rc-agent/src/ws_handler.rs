@@ -367,7 +367,7 @@ pub async fn handle_ws_message(
                         let _ = ws_tx.send(Message::Text(json_str.into())).await;
 
                         if let Some(ref cm_err) = result.cm_error {
-                            tracing::error!(target: LOG_TARGET, "[CM_ERROR] CM failure on {}: {}", pod_id_clone, cm_err);
+                            tracing::error!(target: LOG_TARGET, "CM failure on {}: {}", pod_id_clone, cm_err);
                             if let Ok(mut err_slot) = state.last_launch_error.lock() { *err_slot = Some(cm_err.clone()); }
                             if state.config.ai_debugger.enabled {
                                 let err_ctx = format!(
@@ -867,7 +867,7 @@ pub async fn handle_ws_message(
         }
 
         CoreToAgentMessage::RunSelfTest { request_id } => {
-            tracing::info!(target: LOG_TARGET, "[self-test] RunSelfTest request_id={}", request_id);
+            tracing::info!(target: LOG_TARGET, "RunSelfTest request_id={}", request_id);
             let status_clone = state.heartbeat_status.clone();
             let ollama_url = state.config.ai_debugger.ollama_url.clone();
             let ollama_model = state.config.ai_debugger.ollama_model.clone();
