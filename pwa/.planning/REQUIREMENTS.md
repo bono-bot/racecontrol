@@ -47,7 +47,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **BOOK-02**: Booking creates a pod-agnostic reservation (no specific pod assigned at booking time)
 - [x] **BOOK-03**: 6-character alphanumeric PIN generated on booking, displayed to customer
 - [x] **BOOK-04**: PIN delivered to customer via WhatsApp message
-- [ ] **BOOK-05**: Customer can view, cancel, or modify their reservation from PWA
+- [x] **BOOK-05**: Customer can view, cancel, or modify their reservation from PWA
 - [x] **BOOK-06**: Reservations expire after configurable TTL (default: 24 hours)
 - [x] **BOOK-07**: Expired reservations auto-cleaned up with wallet refund if debited
 
@@ -138,7 +138,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | BOOK-02 | Phase 4 | Complete |
 | BOOK-03 | Phase 4 | Complete |
 | BOOK-04 | Phase 4 | Complete |
-| BOOK-05 | Phase 4 | Pending |
+| BOOK-05 | Phase 4 | Complete |
 | BOOK-06 | Phase 4 | Complete |
 | BOOK-07 | Phase 4 | Complete |
 | KIOSK-01 | Phase 5 | Pending |

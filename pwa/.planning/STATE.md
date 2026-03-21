@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-21T12:55:13.790Z"
-last_activity: 2026-03-21 — Plan 04-02 complete (reservation expiry cleanup in scheduler)
+status: completed
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-03-21T13:06:28.913Z"
+last_activity: 2026-03-21 — Plan 04-03 complete (PWA remote booking flow + reservations page)
 progress:
   total_phases: 10
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
-  percent: 67
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -26,31 +26,32 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 4 of 10 (Remote Booking & PIN Generation)
-Plan: 2 of 3 in current phase (04-02 complete)
-Status: Phase 04 in progress, plan 02 complete
-Last activity: 2026-03-21 — Plan 04-02 complete (reservation expiry cleanup in scheduler)
+Plan: 3 of 3 in current phase (04-03 complete)
+Status: Phase 04 complete, all 3 plans done
+Last activity: 2026-03-21 — Plan 04-03 complete (PWA remote booking flow + reservations page)
 
-Progress: [███████░░░] 67%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 6
 - Average duration: 3 min
-- Total execution time: 0.20 hours
+- Total execution time: 0.27 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 03-sync-hardening | 3 | 10 min | 3 min |
-| 04-remote-booking-pin-generation | 1 | 2 min | 2 min |
+| 04-remote-booking-pin-generation | 3 | 8 min | 3 min |
 
 **Recent Trend:**
 - Last 5 plans: -
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 04 P03 | 4 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [04-02]: Refund debit_intents use origin='local' so cloud sync picks them up
 - [04-02]: Both pending_debit and confirmed statuses can expire; pending intents cancelled, completed get refund
 - [04-02]: Negative amount_paise signals refund in debit_intents table
+- [Phase 04]: Cloud mode detected via NEXT_PUBLIC_IS_CLOUD env var rather than URL sniffing
+- [Phase 04]: Modify reservation uses inline form on /reservations page rather than navigating to /book
 
 ### Pending Todos
 
@@ -88,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T12:55:13.787Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-21T13:06:28.911Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

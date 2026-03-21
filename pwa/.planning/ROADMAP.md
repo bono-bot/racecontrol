@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Cloud Infrastructure** - DNS, Caddy reverse proxy, Docker Compose, firewall, and swap on VPS
 - [ ] **Phase 2: API + PWA Cloud Deploy** - Customer PWA and cloud API live at racingpoint.cloud with HTTPS
 - [x] **Phase 3: Sync Hardening** - Reservations table, wallet authority, anti-loop tags, sync health endpoint
-- [ ] **Phase 4: Remote Booking + PIN Generation** - Customer books from phone, receives 6-char PIN via WhatsApp
+- [x] **Phase 4: Remote Booking + PIN Generation** - Customer books from phone, receives 6-char PIN via WhatsApp (completed 2026-03-21)
 - [ ] **Phase 5: Kiosk PIN Launch** - Customer enters PIN at venue kiosk, pod assigned, game auto-launches
 - [ ] **Phase 6: Admin Panel Cloud Deploy** - Business admin panel live at admin.racingpoint.cloud
 - [ ] **Phase 7: Dashboard Cloud Deploy** - Live ops dashboard at dashboard.racingpoint.cloud
@@ -183,7 +183,7 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 | 1. Cloud Infrastructure | 0/2 | Not started | - |
 | 2. API + PWA Cloud Deploy | 0/2 | Not started | - |
 | 3. Sync Hardening | 3/3 | Complete | 2026-03-21 |
-| 4. Remote Booking + PIN Generation | 0/3 | Not started | - |
+| 4. Remote Booking + PIN Generation | 3/3 | Complete   | 2026-03-21 |
 | 5. Kiosk PIN Launch | 0/2 | Not started | - |
 | 6. Admin Panel Cloud Deploy | 0/2 | Not started | - |
 | 7. Dashboard Cloud Deploy | 0/2 | Not started | - |
