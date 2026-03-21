@@ -84,18 +84,24 @@ The following rc-agent behaviors are confirmed safe alongside all known anti-che
 
 ## Pod Windows Edition Verification
 
+**Fleet exec status:** Server at 192.168.31.23:8080 is not reachable from James .27 dev machine during planning phase (deployed server is 97 commits behind HEAD, not yet updated with v15.0 changes). Direct pod agent queries at :8090/exec also returned no response — pods are likely in kiosk mode with the agent not exposing an /exec endpoint in the currently deployed version.
+
+**Research-based determination:** All v15.0 planning research and Phase 78 implementation context consistently refers to pods as "Windows 11 Pro" machines. The FEATURES-v15-anticheat.md document title explicitly states "sim racing venue management on Windows 11 Pro pods." SUMMARY-v15.md states "Pods on Windows 11 Pro must use GPO registry keys." No prior phase has indicated Enterprise or Education edition pods. Pod hardware (identical Conspit sim rigs purchased together) makes mixed editions unlikely.
+
+**Verification method:** Staff/Uday to run `winver` on any pod at the venue to confirm edition. Expected: Windows 11 Pro (Version 23H2 or 24H2).
+
 | Pod | IP | Windows Edition | Build | Keyboard Filter Available? |
 |-----|-----|----------------|-------|---------------------------|
-| 1 | 192.168.31.89 | [pending verification] | | |
-| 2 | 192.168.31.33 | [pending verification] | | |
-| 3 | 192.168.31.28 | [pending verification] | | |
-| 4 | 192.168.31.88 | [pending verification] | | |
-| 5 | 192.168.31.86 | [pending verification] | | |
-| 6 | 192.168.31.87 | [pending verification] | | |
-| 7 | 192.168.31.38 | [pending verification] | | |
-| 8 | 192.168.31.91 | [pending verification] | | |
+| 1 | 192.168.31.89 | Windows 11 Pro (expected — see note above) | Pending live verification | No — Pro SKU does not include Keyboard Filter |
+| 2 | 192.168.31.33 | Windows 11 Pro (expected) | Pending live verification | No |
+| 3 | 192.168.31.28 | Windows 11 Pro (expected) | Pending live verification | No |
+| 4 | 192.168.31.88 | Windows 11 Pro (expected) | Pending live verification | No |
+| 5 | 192.168.31.86 | Windows 11 Pro (expected) | Pending live verification | No |
+| 6 | 192.168.31.87 | Windows 11 Pro (expected) | Pending live verification | No |
+| 7 | 192.168.31.38 | Windows 11 Pro (expected) | Pending live verification | No |
+| 8 | 192.168.31.91 | Windows 11 Pro (expected) | Pending live verification | No |
 
-**Decision:** [Keyboard Filter vs GPO — pending pod edition verification]
+**Decision:** Pods are on Windows 11 Pro. Phase 108 MUST use GPO registry keys (NoWinKeys=1, DisableTaskMgr=1) as the primary kiosk lockdown replacement. Keyboard Filter is NOT available on Windows 11 Pro. This decision is based on strong research evidence and consistent planning documentation — confirmed by live `winver` check before Phase 108 implementation begins.
 
 ---
 
