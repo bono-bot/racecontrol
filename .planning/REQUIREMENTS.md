@@ -59,12 +59,12 @@ Requirements for multi-game launch, billing, telemetry, and leaderboard integrat
 
 ### Launch
 
-- [ ] **LAUNCH-01**: Staff can select F1 25, iRacing, AC EVO, EA WRC, or LMU from kiosk and launch on any pod with safe defaults
-- [ ] **LAUNCH-02**: Customer can request a game launch from PWA/QR, staff confirms via kiosk
+- [x] **LAUNCH-01**: Staff can select F1 25, iRacing, AC EVO, EA WRC, or LMU from kiosk and launch on any pod with safe defaults
+- [x] **LAUNCH-02**: Customer can request a game launch from PWA/QR, staff confirms via kiosk
 - [ ] **LAUNCH-03**: Game launch profiles define exe path, launch args, and safe defaults per game (TOML config)
 - [ ] **LAUNCH-04**: Game process monitored -- detect crash/hang, auto-cleanup stale processes
 - [ ] **LAUNCH-05**: Crash recovery auto-restarts game or alerts staff with option to relaunch
-- [ ] **LAUNCH-06**: Which game is running on which pod visible in kiosk and fleet health dashboard
+- [x] **LAUNCH-06**: Which game is running on which pod visible in kiosk and fleet health dashboard
 
 ### Billing
 
@@ -166,12 +166,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-03 | Phase 73 | Complete |
 | TEST-04 | Phase 72 | Complete |
 
-| LAUNCH-01 | Phase 81 | Pending |
-| LAUNCH-02 | Phase 81 | Pending |
+| LAUNCH-01 | Phase 81 | Complete |
+| LAUNCH-02 | Phase 81 | Complete |
 | LAUNCH-03 | Phase 81 | Pending |
 | LAUNCH-04 | Phase 81 | Pending |
 | LAUNCH-05 | Phase 81 | Pending |
-| LAUNCH-06 | Phase 81 | Pending |
+| LAUNCH-06 | Phase 81 | Complete |
 | BILL-01 | Phase 82 | Pending |
 | BILL-02 | Phase 82 | Pending |
 | BILL-03 | Phase 82 | Pending |

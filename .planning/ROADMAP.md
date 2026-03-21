@@ -1156,7 +1156,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 78. Kiosk & Session Hardening | 3/3 | Complete    | 2026-03-21 | - |
 | 79. Data Protection | v12.0 | 0/? | Not started | - |
 | 80. Audit Trail & Defense in Depth | v12.0 | 0/? | Not started | - |
-| 81. Game Launch Core | v13.0 | 0/3 | Not started | - |
+| 81. Game Launch Core | 1/3 | In Progress|  | - |
 | 82. Billing and Session Lifecycle | v13.0 | 0/2 | Not started | - |
 | 83. F1 25 Telemetry | v13.0 | 0/1 | Not started | - |
 | 84. iRacing Telemetry | v13.0 | 0/2 | Not started | - |
