@@ -4,13 +4,13 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Phase 81 UI-SPEC approved
-last_updated: "2026-03-21T01:14:28.542Z"
+last_updated: "2026-03-21T01:22:08.465Z"
 last_activity: "2026-03-21 -- 78-03 complete: BillingStarted session_token + KioskLockdown auto-pause billing + debounced WhatsApp alert (SESS-04, SESS-05)"
 progress:
   total_phases: 53
-  completed_phases: 27
-  total_plans: 77
-  completed_plans: 71
+  completed_phases: 28
+  total_plans: 80
+  completed_plans: 72
 ---
 
 ---
@@ -261,6 +261,7 @@ Progress: [█████████░] 92% (70/76 plans complete)
 - 69-01: ONE cycleOk boolean per 5s tick in HealthMonitor -- consecutiveFailures increments by exactly 1 per cycle, not per probe attempt; guarantees DOWN_THRESHOLD=12 = 60s sustained outage (HLTH-01, HLTH-02, HLTH-03 complete)
 - 69-01: notify_failover via exec_request to Bono -- server .23 is down so James cannot use .23 email_alerts; FailoverOrchestrator delegates notification to Bono (ORCH-01, ORCH-04 complete)
 - 69-03: Secondary watchdog timer: 255s after james_down (45s+255s=5min total) probes 100.71.226.83:8090/ping via Tailscale; skips if .23 reachable (not a venue outage); pm2 via execFileSync fallback restart->start; polls /health 6x before broadcast; AlertCooldown 10-min prevents repeat activations (HLTH-04 complete)
+- 69-04: notify_failover tier AUTO (command itself delivers WhatsApp via Evolution API); EXEC_REASON injected as env var by ExecHandler#execute so notify_failover gets the failover reason string; buildSafeEnv() extended with Evolution API vars conditionally; notifyFn fixed to call sendEvolutionText directly; send-email.js stdlib-only with sendmail+SMTP fallback; email on both failover paths (ORCH-04 complete)
 - 78-01: Defense-in-depth for DevTools: both --disable-dev-tools browser flag AND F12/Ctrl+Shift+I/J keyboard hook blocks; USBSTOR Start=4 disables mass storage only (HID unaffected); accessibility Flags 506/122/58 disable hotkeys not features (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
 - 74-01: AgentConfig fields all pub (not pub(crate)) for cross-module access in later extractions; load_config pub; validate_config + detect_installed_games pub(crate); billing_guard.rs required crate::config:: path fix after root extraction (DECOMP-01)
 - 78-03: Option<String> with #[serde(default)] for session_token -- backward compat with older agents; direct SQL UPDATE for emergency billing pause avoids circular HTTP dependency; LazyLock<Mutex<HashMap>> for per-pod security alert debounce (5min cooldown) (SESS-04, SESS-05)
@@ -286,7 +287,7 @@ Progress: [█████████░] 92% (70/76 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:14:28.537Z
-Stopped at: Phase 81 UI-SPEC approved
-Resume file: .planning/phases/81-game-launch-core/81-UI-SPEC.md
-Next action: Phase 78 complete (3/3 plans done) -- all plans including 78-02 now have summaries
+Last session: 2026-03-21T01:38:00Z
+Stopped at: Completed 69-04-PLAN.md
+Resume file: .planning/phases/69-health-monitor-failover-orchestration/69-04-SUMMARY.md
+Next action: Phase 69 complete (4/4 plans done) -- notify_failover + send-email.js + watchdog fix; Bono needs pm2 restart to activate changes
