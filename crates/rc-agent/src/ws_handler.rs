@@ -144,21 +144,39 @@ pub async fn handle_ws_message(
                 match pre_flight::run(state, ffb_ref, ws_elapsed).await {
                     pre_flight::PreFlightResult::Pass => {
                         tracing::info!("Pre-flight passed, proceeding with session");
+                        // STAFF-04: Reset cooldown so next failure sends alert immediately
+                        state.last_preflight_alert = None;
                     }
                     pre_flight::PreFlightResult::MaintenanceRequired { failures } => {
                         tracing::warn!("Pre-flight FAILED: {:?}", failures.iter().map(|f| &f.detail).collect::<Vec<_>>());
                         let failure_strings: Vec<String> = failures.iter().map(|f| f.detail.clone()).collect();
-                        let pod_id = state.config.pod.number.to_string();
-                        let msg = AgentMessage::PreFlightFailed {
-                            pod_id,
-                            failures: failure_strings.clone(),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        };
-                        if let Ok(json) = serde_json::to_string(&msg) {
-                            let _ = ws_tx.send(Message::Text(json.into())).await;
+
+                        // STAFF-04: Rate-limit PreFlightFailed alerts (60s cooldown)
+                        let should_alert = state.last_preflight_alert
+                            .map(|t| t.elapsed() > std::time::Duration::from_secs(60))
+                            .unwrap_or(true); // None = never alerted, send it
+
+                        if should_alert {
+                            let pod_id = state.config.pod.number.to_string();
+                            let msg = AgentMessage::PreFlightFailed {
+                                pod_id,
+                                failures: failure_strings.clone(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&msg) {
+                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                            }
+                            state.last_preflight_alert = Some(std::time::Instant::now());
+                            tracing::warn!("Pre-flight FAILED — alert sent to racecontrol");
+                        } else {
+                            tracing::info!(
+                                "Pre-flight FAILED — alert suppressed (cooldown active, {}s since last)",
+                                state.last_preflight_alert.map(|t| t.elapsed().as_secs()).unwrap_or(0)
+                            );
                         }
+
                         // Do NOT set billing_active, do NOT show active session
-                        // PF-04: show maintenance required lock screen
+                        // PF-04: show maintenance required lock screen (always fires, not rate-limited)
                         state.lock_screen.show_maintenance_required(failure_strings);
                         // PF-06: arm maintenance flag so retry loop fires
                         state.in_maintenance.store(true, std::sync::atomic::Ordering::Relaxed);

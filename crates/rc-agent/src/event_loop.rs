@@ -700,6 +700,8 @@ pub async fn run(
                     crate::pre_flight::PreFlightResult::Pass => {
                         tracing::info!("Maintenance retry: pre-flight passed — clearing maintenance");
                         state.in_maintenance.store(false, std::sync::atomic::Ordering::Relaxed);
+                        // STAFF-04: Reset cooldown so next failure after recovery sends alert immediately
+                        state.last_preflight_alert = None;
                         state.lock_screen.show_idle_pin_entry();
                         // Send PreFlightPassed to server
                         let pod_id = state.config.pod.number.to_string();
@@ -713,7 +715,9 @@ pub async fn run(
                     crate::pre_flight::PreFlightResult::MaintenanceRequired { failures } => {
                         let failure_strings: Vec<String> = failures.iter().map(|f| f.detail.clone()).collect();
                         tracing::warn!("Maintenance retry: still failing — {:?}", failure_strings);
-                        // Refresh lock screen with updated failures
+                        // STAFF-04: Retry loop does NOT send PreFlightFailed alerts — alert was already
+                        // sent in BillingStarted handler (ws_handler.rs) with 60s cooldown.
+                        // Retry only refreshes the lock screen with updated failure details.
                         state.lock_screen.show_maintenance_required(failure_strings);
                     }
                 }
