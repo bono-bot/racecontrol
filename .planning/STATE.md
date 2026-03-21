@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 70-01-PLAN.md
-last_updated: "2026-03-21T02:02:48.124Z"
-last_activity: "2026-03-21 -- 70-01 complete: POST /api/v1/sync/import-sessions with INSERT OR IGNORE for lossless billing session failback (BACK-02)"
+stopped_at: Completed 74-04-PLAN.md
+last_updated: "2026-03-21T02:09:37.532Z"
+last_activity: "2026-03-21 -- 74-04 complete: event_loop.rs extracted with ConnectionState struct (17 fields), run() with 13 select! arms; handle_ws_message() 18->8 params; main.rs 2037->1179 lines (DECOMP-04)"
 progress:
   total_phases: 61
-  completed_phases: 29
+  completed_phases: 30
   total_plans: 85
-  completed_plans: 78
+  completed_plans: 79
 ---
 
 ---
@@ -198,11 +198,11 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 74 of 81 (rc-agent-decomposition)
-Plan: 03 of 04 complete
-Status: In Progress
-Last activity: 2026-03-21 -- 70-01 complete: POST /api/v1/sync/import-sessions with INSERT OR IGNORE for lossless billing session failback (BACK-02)
+Plan: 04 of 04 complete
+Status: Complete
+Last activity: 2026-03-21 -- 74-04 complete: event_loop.rs extracted with ConnectionState struct (17 fields), run() with 13 select! arms; handle_ws_message() 18->8 params; main.rs 2037->1179 lines (DECOMP-04)
 
-Progress: [█████████░] 92% (78/85 plans complete)
+Progress: [█████████░] 93% (79/85 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -211,7 +211,7 @@ Progress: [█████████░] 92% (78/85 plans complete)
 | 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Complete (2/2 plans done) |
 | 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Complete (2/2 plans done) |
 | 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Complete (2/2 plans done) |
-| 74 | rc-agent Decomposition | DECOMP-01..04 | In Progress (3/4 plans done) |
+| 74 | rc-agent Decomposition | DECOMP-01..04 | Complete (4/4 plans done) |
 
 **Phase 71:** rc-common exec.rs with feature gate (SHARED) + rc-sentry timeout, truncation, concurrency cap, partial read fix, structured logging (SHARD). No rc-agent changes. Verify `cargo tree -p rc-sentry` shows no tokio after every rc-common change.
 **Phase 72:** rc-sentry endpoint expansion (/health, /version, /files, /processes, graceful shutdown) + TcpStream-based integration tests on ephemeral port.
@@ -288,6 +288,7 @@ Progress: [█████████░] 92% (78/85 plans complete)
 - 70-02: server_recovery uses prev === 'down' guard -- prevents spurious failback on degraded->healthy; only full outage recovery triggers failback sequence (BACK-01, BACK-03, BACK-04 complete)
 - 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
 - 70-01: INSERT OR IGNORE (not ON CONFLICT DO UPDATE) for import_sessions -- failback must never overwrite locally-confirmed billing records; end_reason omitted per sync_push precedent; terminal_secret != comparison (no subtle crate) consistent with all service routes (BACK-02 complete)
+- 74-04: ConnectionState struct bundles 17 per-connection fields reset on each WS connect; handle_ws_message() signature 18->8 params via &mut ConnectionState; main.rs <500 line target not achieved (1179 lines) -- init sequence is too large without further refactoring; LaunchState/CrashRecoveryState moved to event_loop.rs where they logically belong (DECOMP-04 complete)
 
 ### Blockers/Concerns
 
@@ -310,7 +311,7 @@ Progress: [█████████░] 92% (78/85 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:58:22.988Z
-Stopped at: Completed 70-01-PLAN.md
+Last session: 2026-03-21T02:09:37.525Z
+Stopped at: Completed 74-04-PLAN.md
 Resume file: None
 Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)

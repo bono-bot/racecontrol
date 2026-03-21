@@ -366,3 +366,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:21 IST | James | 6effd53 | docs(70-02): 70-02-SUMMARY.md + STATE.md + ROADMAP.md updates |
 | 2026-03-21 13:15 IST | James | c06c6f9 | feat(70-01): add POST /api/v1/sync/import-sessions with INSERT OR IGNORE for lossless billing session failback (BACK-02) |
 | 2026-03-21 13:30 IST | James | efe1099 | docs(70-01): 70-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
+
+| 2026-03-21 07:31 IST | James | 78e5cd2 | feat(74-04): extract inner select! loop to event_loop.rs with ConnectionState struct — main.rs 2037→1179 lines (DECOMP-04) |
