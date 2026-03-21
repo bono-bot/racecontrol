@@ -18,6 +18,7 @@ mod overlay;
 mod pre_flight;
 mod remote_ops;
 mod self_heal;
+mod process_guard;
 mod self_monitor;
 mod self_test;
 mod sims;
