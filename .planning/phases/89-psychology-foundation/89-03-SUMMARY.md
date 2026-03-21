@@ -105,7 +105,17 @@ None. Two pre-existing test failures (`server_ops::tests::test_exec_echo` and `c
 - Ready for: Phase 90 (Customer Progression) — can query driver badges/streaks via API, add more badge types, and surface badges in the PWA customer profile.
 - No blockers.
 
-## Self-Check
+## Self-Check: PASSED
+
+All files exist and all commits verified:
+- FOUND: billing.rs (contains evaluate_badges + update_streak)
+- FOUND: main.rs (contains psychology::spawn_dispatcher)
+- FOUND: db/mod.rs (contains INSERT OR IGNORE INTO achievements with 5 badges)
+- FOUND: routes.rs (contains 5 psychology endpoints + handlers)
+- FOUND: SUMMARY.md
+- FOUND: 8440601 (Task 1 commit)
+- FOUND: 9b69b77 (Task 2 commit)
+- FOUND: a1da4b5 (docs/metadata commit)
 
 ---
 *Phase: 89-psychology-foundation*
