@@ -68,38 +68,38 @@ None — all features scoped into v18.0.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DREG-01 | — | Pending |
-| DREG-02 | — | Pending |
-| DREG-03 | — | Pending |
-| DREG-04 | — | Pending |
-| DREG-05 | — | Pending |
-| DREG-06 | — | Pending |
-| SHRL-01 | — | Pending |
-| SHRL-02 | — | Pending |
-| SHRL-03 | — | Pending |
-| SHRL-04 | — | Pending |
-| SHRL-05 | — | Pending |
-| CHAIN-01 | — | Pending |
-| CHAIN-02 | — | Pending |
-| CHAIN-03 | — | Pending |
-| CHAIN-04 | — | Pending |
-| CHAIN-05 | — | Pending |
-| CHAIN-06 | — | Pending |
-| CHAIN-07 | — | Pending |
-| CHAIN-08 | — | Pending |
-| CHAIN-09 | — | Pending |
-| DELEG-01 | — | Pending |
-| DELEG-02 | — | Pending |
-| DELEG-03 | — | Pending |
-| AUDIT-01 | — | Pending |
-| AUDIT-02 | — | Pending |
-| AUDIT-03 | — | Pending |
+| DREG-01 | Phase 130 | Pending |
+| DREG-02 | Phase 130 | Pending |
+| DREG-03 | Phase 130 | Pending |
+| DREG-04 | Phase 130 | Pending |
+| DREG-05 | Phase 130 | Pending |
+| DREG-06 | Phase 134 | Pending |
+| SHRL-01 | Phase 131 | Pending |
+| SHRL-02 | Phase 131 | Pending |
+| SHRL-03 | Phase 131 | Pending |
+| SHRL-04 | Phase 131 | Pending |
+| SHRL-05 | Phase 131 | Pending |
+| CHAIN-01 | Phase 132 | Pending |
+| CHAIN-02 | Phase 132 | Pending |
+| CHAIN-03 | Phase 132 | Pending |
+| CHAIN-04 | Phase 132 | Pending |
+| CHAIN-05 | Phase 132 | Pending |
+| CHAIN-06 | Phase 134 | Pending |
+| CHAIN-07 | Phase 134 | Pending |
+| CHAIN-08 | Phase 134 | Pending |
+| CHAIN-09 | Phase 134 | Pending |
+| DELEG-01 | Phase 133 | Pending |
+| DELEG-02 | Phase 133 | Pending |
+| DELEG-03 | Phase 133 | Pending |
+| AUDIT-01 | Phase 133 | Pending |
+| AUDIT-02 | Phase 133 | Pending |
+| AUDIT-03 | Phase 133 | Pending |
 
 **Coverage:**
 - v18.0 requirements: 26 total
-- Mapped to phases: 0
-- Unmapped: 26
+- Mapped to phases: 26
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after initial definition*
+*Last updated: 2026-03-22 after roadmap creation (Phase 130-134 mapped)*

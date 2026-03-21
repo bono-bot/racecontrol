@@ -1840,3 +1840,89 @@ Parallel after 122: 125+126 | Parallel after 120: 127+128 | 129 after 124+125
 | 127. CI/CD Pipeline | 0/? | Not started | - |
 | 128. Health Monitoring + Alerts | 0/? | Not started | - |
 | 129. Operational Hardening | 0/? | Not started | - |
+
+## v18.0 Seamless Execution -- Phase Details
+
+> All implementation lives in `C:/Users/bono/racingpoint/comms-link` (separate repo from racecontrol).
+> Build order: Foundation → Shell Relay → Chain Orchestration → Delegation + Audit → Advanced Chain Features
+
+## Phases (v18.0)
+
+- [ ] **Phase 130: Protocol Foundation + Dynamic Registry** - Protocol types, DynamicCommandRegistry, per-command env isolation
+- [ ] **Phase 131: Shell Relay** - Separate APPROVE-only handler for arbitrary binary execution with hardened approval gate
+- [ ] **Phase 132: Chain Orchestration** - ExecResultBroker + ChainOrchestrator for sequential multi-step execution
+- [ ] **Phase 133: Task Delegation + Audit Trail** - Claude-to-Claude Promise delegation and append-only exec audit log
+- [ ] **Phase 134: Advanced Chain Features + Integration Hardening** - Templates, output templating, per-step retry, pause/resume, registry introspection
+
+### Phase 130: Protocol Foundation + Dynamic Registry
+**Goal**: All new message types are defined and either side can register runtime commands without touching the static registry
+**Depends on**: Nothing (first v18.0 phase)
+**Requirements**: DREG-01, DREG-02, DREG-03, DREG-04, DREG-05
+**Success Criteria** (what must be TRUE):
+  1. James or Bono can POST a new command definition at runtime and immediately invoke it over the WS connection without redeploying comms-link
+  2. An attempt to register a binary not in the hardcoded ALLOWED_BINARIES list is rejected with an error — the command is never stored
+  3. All 20 existing static commands (git_log, pm2_status, etc.) work identically after the dynamic layer is added — no behavior change
+  4. A dynamic command with allowedEnvKeys receives only those keys at execution; no other env vars leak from safeEnv into the command environment
+  5. Lookup always tries the dynamic Map first, falling through to the static COMMAND_REGISTRY on a miss
+**Plans**: TBD
+
+### Phase 131: Shell Relay
+**Goal**: Either AI can execute an arbitrary approved binary on the other's machine, but only after Uday approves via WhatsApp
+**Depends on**: Phase 130
+**Requirements**: SHRL-01, SHRL-02, SHRL-03, SHRL-04, SHRL-05
+**Success Criteria** (what must be TRUE):
+  1. James sends a shell_request to Bono; Uday receives a WhatsApp message showing the exact binary and full args before anything runs
+  2. Approving from WhatsApp causes the command to execute on Bono and return stdout/stderr/exitCode — no other tier or shortcut path triggers execution
+  3. An attempt to escalate shell relay to AUTO or NOTIFY tier is rejected at the handler — the tier is hardcoded APPROVE and the payload value is ignored
+  4. A binary not in the shell relay allowlist (node, git, pm2, cargo, systemctl, curl, sqlite3, taskkill, shutdown, net, wmic) is rejected before any approval request is sent to Uday
+  5. Shell relay uses execFile with shell:false and the same sanitized env as static commands — no shell injection surface exists
+**Plans**: TBD
+
+### Phase 132: Chain Orchestration
+**Goal**: Either side can execute a multi-step chain where each step receives the previous step's output and the whole chain returns one structured result
+**Depends on**: Phase 130
+**Requirements**: CHAIN-01, CHAIN-02, CHAIN-03, CHAIN-04, CHAIN-05
+**Success Criteria** (what must be TRUE):
+  1. A chain_request with 3 steps executes them in order — step 2 receives step 1's stdout as input and step 3 receives step 2's stdout
+  2. If step 2 exits with code != 0, step 3 does not execute — the chain returns a chain_result marked FAILED with steps 1 and 2 populated and step 3 absent
+  3. A step with continue_on_error: true allows the chain to proceed to the next step even when that step exits non-zero
+  4. A single chain_result message is returned after all steps complete, containing every step's stdout, stderr, exitCode, and durationMs in a structured array
+  5. A chain that exceeds its chain-level timeout is aborted mid-execution and returns a chain_result with a TIMEOUT status
+**Plans**: TBD
+
+### Phase 133: Task Delegation + Audit Trail
+**Goal**: Either AI can transparently delegate a chain to the other machine and receive results, with every execution logged to an append-only audit file on both sides
+**Depends on**: Phase 132
+**Requirements**: DELEG-01, DELEG-02, DELEG-03, AUDIT-01, AUDIT-02, AUDIT-03
+**Success Criteria** (what must be TRUE):
+  1. James asks a user question requiring a Bono-side command — James sends a delegate_request, Bono executes the chain, and James integrates the result into its reply without the user seeing any relay scaffolding
+  2. Bono can symmetrically delegate to James — the delegation protocol works in both directions over the same WS connection
+  3. After any remote execution (exec, shell relay, chain, or delegation), both the requesting machine and the executing machine have a new line in data/exec-audit.jsonl containing execId, command, requester, exitCode, durationMs, and tier
+  4. Chain audit entries include chainId and stepIndex so a multi-step failure is traceable as one coherent event in the log, not isolated step entries
+  5. The audit file is append-only and does not truncate on daemon restart — entries accumulate across sessions
+**Plans**: TBD
+
+### Phase 134: Advanced Chain Features + Integration Hardening
+**Goal**: Chains support templates, output substitution, per-step retry, survive WS reconnects, and either AI can query what commands the other exposes
+**Depends on**: Phase 132, Phase 133
+**Requirements**: CHAIN-06, CHAIN-07, CHAIN-08, CHAIN-09, DREG-06
+**Success Criteria** (what must be TRUE):
+  1. James sends a chain_request referencing a named template ("deploy-bono") by name — the chain executes using the step definitions from chains.json without repeating the step spec in every request
+  2. A chain step with {{prev_stdout}} in its args receives the actual stdout from the previous step substituted in — the literal placeholder string never reaches the shell
+  3. A chain step with retry: {count: 3, backoffMs: 500} re-executes up to 3 times on non-zero exit before the chain treats that step as failed
+  4. When the WS connection drops mid-chain, the chain state persists and resumes from the interrupted step after reconnection — no chain restarts from the beginning due to a transient disconnect
+  5. Either AI can query the other's command registry and receive a list of command names, descriptions, and approval tiers — binary paths and raw args are never returned in the introspection response
+**Plans**: TBD
+
+## v18.0 Progress
+
+**Execution Order:** 130 -> 131 -> 132 -> 133 -> 134
+(Phase 131 depends only on 130; Phase 132 also depends only on 130 — both can run in parallel after 130)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 130. Protocol Foundation + Dynamic Registry | 0/? | Not started | - |
+| 131. Shell Relay | 0/? | Not started | - |
+| 132. Chain Orchestration | 0/? | Not started | - |
+| 133. Task Delegation + Audit Trail | 0/? | Not started | - |
+| 134. Advanced Chain Features + Integration Hardening | 0/? | Not started | - |
