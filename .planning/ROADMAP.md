@@ -1232,7 +1232,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 76. API Authentication & Admin Protection | 6/6 | Complete    | 2026-03-20 | - |
 | 77. Transport Security | 2/2 | Complete    | 2026-03-20 | - |
 | 78. Kiosk & Session Hardening | 3/3 | Complete    | 2026-03-21 | - |
-| 79. Data Protection | 3/3 | Complete   | 2026-03-21 | - |
+| 79. Data Protection | 3/3 | Complete    | 2026-03-21 | - |
 | 80. Audit Trail & Defense in Depth | v12.0 | 0/? | Not started | - |
 | 81. Game Launch Core | 3/3 | Complete   | 2026-03-21 | - |
 | 82. Billing and Session Lifecycle | v13.0 | 0/2 | Not started | - |
