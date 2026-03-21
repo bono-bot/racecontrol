@@ -1393,7 +1393,7 @@ Plans:
 | 98. MaintenanceRequired Lock Screen + Display | TBD | Not started | - |
 | 99. System + Network + Billing + Handler Wiring | TBD | Not started | - |
 | 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |
-| 101. Protocol Foundation | v12.1 | 0/TBD | Not started | - |
+| 101. Protocol Foundation | v12.1 | Complete    | 2026-03-21 | - |
 | 102. Whitelist Schema + Config + Fetch Endpoint | v12.1 | 0/TBD | Not started | - |
 | 103. Pod Guard Module | v12.1 | 0/TBD | Not started | - |
 | 104. Server Guard Module + Alerts | v12.1 | 0/TBD | Not started | - |
@@ -1401,7 +1401,7 @@ Plans:
 
 ## v12.1 E2E Process Guard
 
-- [ ] **Phase 101: Protocol Foundation** - New rc-common types and AgentMessage variants that rc-agent and racecontrol depend on at compile time
+- [x] **Phase 101: Protocol Foundation** - New rc-common types and AgentMessage variants that rc-agent and racecontrol depend on at compile time (completed 2026-03-21)
 - [ ] **Phase 102: Whitelist Schema + Config + Fetch Endpoint** - Central whitelist in racecontrol.toml with per-machine overrides and the HTTP endpoint pods use to fetch their merged whitelist
 - [ ] **Phase 103: Pod Guard Module** - rc-agent process_guard.rs covering process scan, auto-kill, Run key and Startup folder audit, audit log, and fleet reporting
 - [ ] **Phase 104: Server Guard Module + Alerts** - racecontrol process_guard.rs receiving violations, kiosk notification badge, email escalation, and fleet health integration
