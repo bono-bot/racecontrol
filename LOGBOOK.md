@@ -483,3 +483,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 20:55 IST | James | f342cb2 | docs(112-04): complete people tracker RTSP relay migration plan — SUMMARY, STATE, ROADMAP updated |
 | 2026-03-21 20:47 IST | James | b995dae | feat(112-03): add stream health monitoring endpoint at :8096 — relay.rs, health.rs, Axum server wiring |
 | 2026-03-21 20:48 IST | James | a74b984 | docs(112-03): complete stream health monitoring plan — SUMMARY, STATE, ROADMAP updated |
+| 2026-03-21 20:48 IST | James | 0913e82 | feat(109-02): wire safe mode into event_loop and ws_handler — LaunchGame entry, WMI polling, cooldown timer, Ollama suppression |
+| 2026-03-21 20:48 IST | James | 705b07d | feat(109-02): gate process_guard scan loop, kiosk GPO writes, lock_screen Focus Assist during safe mode |

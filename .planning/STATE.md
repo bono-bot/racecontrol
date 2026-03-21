@@ -75,14 +75,14 @@ gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: AntiCheat Compatibility
 status: in_progress
-stopped_at: Completed 109-01-PLAN.md
-last_updated: "2026-03-21T15:32:00.000Z"
+stopped_at: Completed 109-02-PLAN.md
+last_updated: "2026-03-21T15:41:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 4
-  percent: 40
+  completed_plans: 5
+  percent: 50
 current_phase: 109
 current_phase_name: Safe Mode State Machine
 phases:
@@ -111,6 +111,10 @@ decisions:
   - "108-01: imports (AtomicPtr, Ordering, LPARAM, LRESULT, WPARAM) also gated behind cfg(feature) to prevent unused import warnings"
   - "109-01: WRC.exe in PROTECTED_EXE_NAMES even without SimType variant -- exe_to_sim_type returns None gracefully, detection is future-proof"
   - "109-01: detect_running_protected_game() uses #[cfg(not(test))] stub to keep unit tests hermetic (no sysinfo scans in test builds)"
+  - "109-02: Ollama suppression via call-site guard (Option B) -- state.safe_mode.active checked in event_loop before tokio::spawn, no signature change to analyze_crash"
+  - "109-02: KioskManager and LockScreenManager use wire_safe_mode() post-construction wiring -- avoids changing new() signature while keeping kiosk startup call unaffected"
+  - "109-02: self_heal::repair_registry_key is startup-only (main.rs:239) -- no gate needed, runs before event loop and before any game"
+  - "109-02: WRC.exe safe mode activation uses manual field assignment (safe_mode.active=true, game=None) since no SimType::EaWrc variant exists"
   - "109-01: SafeMode::enter() clears cooldown_until -- game start takes priority over pending cooldown window"
   - "109-01: process_guard::spawn() extended with _safe_mode_active stub (5th arg) -- Plan 02 wires into scan loop"
 ---
