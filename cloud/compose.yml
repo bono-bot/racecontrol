@@ -24,16 +24,13 @@ services:
     depends_on:
       pwa:
         condition: service_healthy
-      admin:
-        condition: service_healthy
-      dashboard:
-        condition: service_healthy
 
   pwa:
     build:
       context: ./racecontrol/pwa
       args:
-        NEXT_PUBLIC_API_URL: https://api.racingpoint.cloud
+        NEXT_PUBLIC_API_URL: https://api.racingpoint.cloud/api/v1
+        NEXT_PUBLIC_IS_CLOUD: "true"
     restart: unless-stopped
     expose:
       - "3100"
