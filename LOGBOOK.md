@@ -368,3 +368,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 13:30 IST | James | efe1099 | docs(70-01): 70-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
 
 | 2026-03-21 07:31 IST | James | 78e5cd2 | feat(74-04): extract inner select! loop to event_loop.rs with ConnectionState struct — main.rs 2037→1179 lines (DECOMP-04) |
+| 2026-03-21 07:45 IST | James | 53f6e2f | feat(81-03): TOML template + example config with all 6 game stanzas (F1 25, iRacing, AC EVO, EA WRC, LMU) — full pipeline green |
+| 2026-03-21 07:50 IST | James | a850ff0 | docs(81-03): 81-03-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — phase 81 complete |
