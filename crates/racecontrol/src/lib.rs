@@ -32,6 +32,7 @@ pub mod pod_healer;
 pub mod pod_monitor;
 pub mod pod_reservation;
 pub mod psychology;
+pub mod reservation;
 pub mod remote_terminal;
 pub mod scheduler;
 pub mod server_ops;
