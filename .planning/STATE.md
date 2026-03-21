@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 98-02-PLAN.md
+last_updated: "2026-03-21T04:56:25.218Z"
+last_activity: "2026-03-21 -- 98-02 complete: DISP-01 HTTP probe (127.0.0.1:18923) + DISP-02 GetWindowRect (Chrome_WidgetWin_1) in pre_flight.rs (5 concurrent checks) + 30s maintenance retry select! arm in event_loop.rs (PF-06, DISP-01, DISP-02)"
+progress:
+  total_phases: 65
+  completed_phases: 38
+  total_plans: 102
+  completed_plans: 97
+  percent: 95
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Completed 98-01-PLAN.md
 last_updated: "2026-03-21T04:47:06.000Z"
 last_activity: "2026-03-21 -- 98-01 complete: MaintenanceRequired LockScreenState variant + in_maintenance AtomicBool on AppState + ClearMaintenance ws_handler (PF-04, PF-05)"
 progress:
-  total_phases: 65
+  [██████████] 95%
   completed_phases: 37
   total_plans: 100
   completed_plans: 96
@@ -452,6 +468,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 - 82-03: GameState union must include 'loading' for TypeScript to accept game_state === 'loading' comparisons in kiosk KioskPodCard; SIM_TYPE_LABELS + SIM_TYPE_OPTIONS module-level pattern for consistent sim_type display (BILL-03, BILL-05)
 - 83-01: No production code changes needed — existing F1 25 adapter already satisfies TEL-F1-01/02/03; 6 unit tests added to prove it. adapter.connected=true set directly in session_type_mapping test to avoid binding port 20777 in unit test environment
 - 98-01: failure_strings.clone() before AgentMessage send — keeps original for show_maintenance_required() in ws_handler; debug_server.rs exhaustive match needed MaintenanceRequired arm (Rule 1 auto-fix, caught immediately on first compile)
+- 98-02: check_lock_screen_http_on(addr) helper for port-param testability (option b — cleaner); PreFlightPassed has only pod_id field (no timestamp) — corrected from plan snippet at compile time (Rule 1 auto-fix); Window not found returns Warn (advisory, not a blocker)
 
 ### Blockers/Concerns
 
@@ -474,7 +491,7 @@ Last activity: 2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap compl
 
 ## Session Continuity
 
-Last session: 2026-03-21T04:48:23.418Z
-Stopped at: Completed 98-01-PLAN.md
+Last session: 2026-03-21T04:56:25.212Z
+Stopped at: Completed 98-02-PLAN.md
 Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)

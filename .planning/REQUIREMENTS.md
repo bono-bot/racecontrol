@@ -14,7 +14,7 @@ Pre-flight checks that run before every customer session, auto-fix failures, and
 - [x] **PF-03**: Failed checks attempt one auto-fix before reporting failure
 - [x] **PF-04**: Lock screen shows "Maintenance Required" state when pre-flight fails after auto-fix
 - [x] **PF-05**: PreFlightFailed AgentMessage sent to racecontrol with failed check details
-- [ ] **PF-06**: Pod auto-retries pre-flight every 30s while in MaintenanceRequired state
+- [x] **PF-06**: Pod auto-retries pre-flight every 30s while in MaintenanceRequired state
 - [x] **PF-07**: Pre-flight can be disabled per-pod via rc-agent.toml config flag
 
 ### Hardware Checks
@@ -33,8 +33,8 @@ Pre-flight checks that run before every customer session, auto-fix failures, and
 
 ### Display Checks
 
-- [ ] **DISP-01**: Lock screen HTTP server responding on port 18923
-- [ ] **DISP-02**: Lock screen window position validated via GetWindowRect (centered on primary monitor)
+- [x] **DISP-01**: Lock screen HTTP server responding on port 18923
+- [x] **DISP-02**: Lock screen window position validated via GetWindowRect (centered on primary monitor)
 
 ### Staff Visibility
 
@@ -76,9 +76,9 @@ Deferred to future release.
 | SYS-01 | Phase 97 | Complete |
 | PF-04 | Phase 98 | Complete |
 | PF-05 | Phase 98 | Complete |
-| PF-06 | Phase 98 | Pending |
-| DISP-01 | Phase 98 | Pending |
-| DISP-02 | Phase 98 | Pending |
+| PF-06 | Phase 98 | Complete |
+| DISP-01 | Phase 98 | Complete |
+| DISP-02 | Phase 98 | Complete |
 | SYS-02 | Phase 99 | Pending |
 | SYS-03 | Phase 99 | Pending |
 | SYS-04 | Phase 99 | Pending |

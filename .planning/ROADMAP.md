@@ -1326,7 +1326,7 @@ Every customer session begins with automated health verification. On BillingStar
 ## Phases
 
 - [x] **Phase 97: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag (completed 2026-03-21)
-- [ ] **Phase 98: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking
+- [x] **Phase 98: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking (completed 2026-03-21)
 - [ ] **Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring** - Billing stuck-session check, disk and memory probes, WS stability check, complete handler integration in ws_handler.rs, self_test.rs pub(crate) helper extraction, alert rate-limiting
 - [ ] **Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear** - Kiosk dashboard maintenance badge per pod, "Clear Maintenance" staff action (PIN-gated), pod marked unavailable in fleet health, preflight_alert_cooldown_secs config
 
@@ -1393,6 +1393,6 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 97. rc-common Protocol + Framework + Hardware | 2/2 | Complete    | 2026-03-21 |
-| 98. MaintenanceRequired Lock Screen + Display | 1/2 | In Progress|  |
+| 98. MaintenanceRequired Lock Screen + Display | 2/2 | Complete   | 2026-03-21 |
 | 99. System + Network + Billing + Handler Wiring | TBD | Not started | - |
 | 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |
