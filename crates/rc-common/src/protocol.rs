@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::types::{
     AcLanSessionConfig, AcPresetSummary, AcServerInfo, AcStatus,
     AiDebugSuggestion, AuthTokenInfo, BillingSessionInfo, ContentManifest, DeployState, DrivingState,
-    GameLaunchInfo, GroupSessionInfo, Leaderboard, LapData, PodActivityEntry, PodInfo, SessionInfo,
-    SimType, TelemetryFrame, PodFailureReason,
+    GameLaunchInfo, GroupSessionInfo, Leaderboard, LapData, MachineWhitelist, PodActivityEntry,
+    PodInfo, PodFailureReason, ProcessViolation, SessionInfo, SimType, TelemetryFrame,
 };
 
 /// Summary of deploy state for a single pod — used in DeployStatusList
@@ -224,6 +224,27 @@ pub enum AgentMessage {
         failures: Vec<String>,
         timestamp: String,
     },
+
+    /// Phase 101: Pod reports a process/port/autostart whitelist violation.
+    /// Sent immediately on detection (report-only mode) or after enforcement action (kill mode).
+    /// `consecutive_count` = 1 on first sighting, increments each scan cycle.
+    ProcessViolation(ProcessViolation),
+
+    /// Phase 101: Pod sends periodic guard health summary (once per scan cycle).
+    /// Allows server to detect if guard has stopped running on a pod.
+    ProcessGuardStatus {
+        pod_id: String,
+        /// Total scans completed since rc-agent started.
+        scan_count: u64,
+        /// Total violations detected (including report-only) since rc-agent started.
+        violation_count_total: u64,
+        /// Violations in the last scan cycle (0 = clean).
+        violation_count_last_scan: u32,
+        /// ISO 8601 UTC timestamp of the most recent completed scan.
+        last_scan_at: String,
+        /// Guard is active and scanning (false if disabled in config).
+        guard_active: bool,
+    },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -426,6 +447,12 @@ pub enum CoreToAgentMessage {
 
     /// Phase 97: Server clears MaintenanceRequired state on a pod (handler in Phase 98).
     ClearMaintenance,
+
+    /// Phase 101: Server pushes an updated whitelist to all connected pods.
+    /// Agent replaces its in-memory whitelist on receipt — no reconnect needed.
+    UpdateProcessWhitelist {
+        whitelist: MachineWhitelist,
+    },
 }
 
 fn default_exec_timeout_ms() -> u64 {
@@ -2311,5 +2338,93 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
         assert!(matches!(parsed, CoreToAgentMessage::ClearMaintenance));
+    }
+}
+
+#[cfg(test)]
+mod process_guard_protocol_tests {
+    use super::*;
+    use crate::types::{MachineWhitelist, ProcessViolation, ViolationType};
+
+    #[test]
+    fn agent_message_process_violation_has_correct_type_tag() {
+        let v = ProcessViolation {
+            machine_id: "pod-8".to_string(),
+            violation_type: ViolationType::Process,
+            name: "steam.exe".to_string(),
+            exe_path: None,
+            action_taken: "reported".to_string(),
+            timestamp: "2026-03-21T12:00:00Z".to_string(),
+            consecutive_count: 1,
+        };
+        let msg = AgentMessage::ProcessViolation(v);
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(
+            json.contains(r#""type":"process_violation""#),
+            "Expected process_violation type tag, got: {json}"
+        );
+        assert!(json.contains(r#""steam.exe""#));
+    }
+
+    #[test]
+    fn agent_message_process_guard_status_has_correct_type_tag() {
+        let msg = AgentMessage::ProcessGuardStatus {
+            pod_id: "pod-1".to_string(),
+            scan_count: 42,
+            violation_count_total: 3,
+            violation_count_last_scan: 0,
+            last_scan_at: "2026-03-21T12:00:00Z".to_string(),
+            guard_active: true,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(
+            json.contains(r#""type":"process_guard_status""#),
+            "Expected process_guard_status type tag, got: {json}"
+        );
+        assert!(json.contains(r#""scan_count":42"#));
+    }
+
+    #[test]
+    fn core_to_agent_update_whitelist_round_trips() {
+        let wl = MachineWhitelist {
+            machine_id: "pod-8".to_string(),
+            processes: vec!["rc-agent.exe".to_string(), "svchost.exe".to_string()],
+            ports: vec![8090],
+            autostart_keys: vec!["RCAgent".to_string()],
+            violation_action: "report_only".to_string(),
+            warn_before_kill: true,
+        };
+        let msg = CoreToAgentMessage::UpdateProcessWhitelist { whitelist: wl };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(
+            json.contains(r#""type":"update_process_whitelist""#),
+            "Expected update_process_whitelist type tag, got: {json}"
+        );
+        let msg2: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        match msg2 {
+            CoreToAgentMessage::UpdateProcessWhitelist { whitelist } => {
+                assert_eq!(whitelist.machine_id, "pod-8");
+                assert_eq!(whitelist.ports, vec![8090]);
+            }
+            other => panic!("Wrong variant deserialized: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn existing_agent_message_heartbeat_still_deserializes() {
+        // Verify backward compat — adding new variants must not break existing consumers
+        let json = r#"{"type":"disconnect","data":{"pod_id":"pod-3"}}"#;
+        let msg: AgentMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            AgentMessage::Disconnect { pod_id } => assert_eq!(pod_id, "pod-3"),
+            other => panic!("Wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn existing_core_to_agent_clear_maintenance_still_deserializes() {
+        let json = r#"{"type":"clear_maintenance","data":null}"#;
+        let msg: CoreToAgentMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg, CoreToAgentMessage::ClearMaintenance));
     }
 }
