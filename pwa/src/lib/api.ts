@@ -569,6 +569,19 @@ export interface ActiveSessionEventsResponse {
   error?: string;
 }
 
+// ─── Remote Reservation Types ─────────────────────────────────────────────
+
+export interface RemoteReservation {
+  id: string;
+  pin: string;
+  status: string; // pending_debit | confirmed | expired | cancelled | failed
+  experience_name: string;
+  price_paise: number;
+  expires_at: string;
+  created_at: string;
+  debit_status?: string;
+}
+
 // ─── API calls ─────────────────────────────────────────────────────────────
 
 export const api = {
@@ -981,6 +994,45 @@ export const api = {
 
   activeSessionEvents: (since: string): Promise<ActiveSessionEventsResponse> =>
     fetchApi<ActiveSessionEventsResponse>(`/customer/active-session/events?since=${encodeURIComponent(since)}`),
+
+  // Remote reservations (cloud booking with PIN)
+  createReservation: (experience_id: string, pricing_tier_id: string) =>
+    fetchApi<{
+      status?: string;
+      reservation_id?: string;
+      pin?: string;
+      expires_at?: string;
+      experience_name?: string;
+      price_paise?: number;
+      error?: string;
+    }>("/customer/reservation", {
+      method: "POST",
+      body: JSON.stringify({ experience_id, pricing_tier_id }),
+    }),
+
+  getReservation: () =>
+    fetchApi<{
+      reservation?: RemoteReservation | null;
+      error?: string;
+    }>("/customer/reservation"),
+
+  cancelReservation: () =>
+    fetchApi<{ status?: string; refund_paise?: number; error?: string }>(
+      "/customer/reservation",
+      { method: "DELETE" }
+    ),
+
+  modifyReservation: (experience_id: string, pricing_tier_id: string) =>
+    fetchApi<{
+      status?: string;
+      reservation_id?: string;
+      pin?: string;
+      experience_name?: string;
+      error?: string;
+    }>("/customer/reservation", {
+      method: "PUT",
+      body: JSON.stringify({ experience_id, pricing_tier_id }),
+    }),
 };
 
 // ─── Leaderboard Types ────────────────────────────────────────────────────

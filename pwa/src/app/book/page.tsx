@@ -14,6 +14,11 @@ import type {
   PresetEntry,
 } from "@/lib/api";
 
+// Cloud mode: when API URL points to racingpoint.cloud or env var is set
+const IS_CLOUD =
+  process.env.NEXT_PUBLIC_IS_CLOUD === "true" ||
+  (process.env.NEXT_PUBLIC_API_URL?.includes("racingpoint.cloud") ?? false);
+
 // ─── Constants ────────────────────────────────────────────────────────────
 
 const STEP_LABELS_SINGLE = [
@@ -109,6 +114,12 @@ function BookWizard() {
   const [bookedPin, setBookedPin] = useState<string | null>(null);
   const [bookedPodNumber, setBookedPodNumber] = useState<number>(0);
   const [bookedSeconds, setBookedSeconds] = useState<number>(0);
+
+  // ── Cloud booking result (remote reservation)
+  const [cloudPin, setCloudPin] = useState<string | null>(null);
+  const [cloudExpiresAt, setCloudExpiresAt] = useState<string | null>(null);
+  const [cloudExperienceName, setCloudExperienceName] = useState<string | null>(null);
+  const [cloudPricePaise, setCloudPricePaise] = useState<number>(0);
 
   // ── Coupon state
   const [couponCode, setCouponCode] = useState("");
@@ -246,7 +257,24 @@ function BookWizard() {
     };
 
     try {
-      if (mode === "multi" && selectedFriends.length > 0) {
+      if (IS_CLOUD) {
+        // Cloud mode: create remote reservation (no pod assignment yet)
+        // Use first experience ID from catalog or a placeholder — cloud booking
+        // uses the custom payload's track+car to find an experience server-side
+        const res = await api.createReservation(
+          custom.track, // experience_id mapped from track selection
+          tier.id
+        );
+        if (res.status === "reserved" && res.pin) {
+          setCloudPin(res.pin);
+          setCloudExpiresAt(res.expires_at || null);
+          setCloudExperienceName(res.experience_name || `${car?.name || "Custom"} at ${track?.name || "Track"}`);
+          setCloudPricePaise(res.price_paise || tier.price_paise || 0);
+          setStep(bookedStep);
+        } else {
+          setError(res.error || "Reservation failed");
+        }
+      } else if (mode === "multi" && selectedFriends.length > 0) {
         // Multiplayer booking
         const friendIds = selectedFriends.map((f) => f.driver_id);
         const res = await api.bookMultiplayer(tier.id, friendIds, undefined, custom);
@@ -284,6 +312,20 @@ function BookWizard() {
   }
 
   // Booked confirmation — full-screen, no wizard header
+  if (step === bookedStep && cloudPin) {
+    // Cloud reservation confirmation
+    return (
+      <div className="min-h-screen pb-24 px-4">
+        <CloudPinScreen
+          pin={cloudPin}
+          experienceName={cloudExperienceName || ""}
+          pricePaise={cloudPricePaise}
+          expiresAt={cloudExpiresAt || ""}
+        />
+      </div>
+    );
+  }
+
   if (step === bookedStep && bookedPin) {
     return (
       <div className="min-h-screen pb-24 px-4">
@@ -1471,6 +1513,108 @@ function BookedPinScreen({
       >
         View Session
       </button>
+    </div>
+  );
+}
+
+// ─── Cloud PIN Screen (remote reservation) ──────────────────────────────
+
+function CloudPinScreen({
+  pin,
+  experienceName,
+  pricePaise,
+  expiresAt,
+}: {
+  pin: string;
+  experienceName: string;
+  pricePaise: number;
+  expiresAt: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(pin).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // Fallback: select text
+    });
+  }
+
+  const expiresDate = expiresAt ? new Date(expiresAt) : null;
+  const expiresFormatted = expiresDate
+    ? expiresDate.toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "24 hours";
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[80vh] text-center">
+      {/* Checkmark */}
+      <div className="w-16 h-16 rounded-full bg-emerald-900/30 flex items-center justify-center mb-6">
+        <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+
+      <h1 className="text-2xl font-bold text-white mb-2">Reserved!</h1>
+      <p className="text-rp-grey mb-8">Show this PIN when you arrive</p>
+
+      {/* Large PIN display */}
+      <div className="flex gap-3 justify-center mb-4">
+        {pin.split("").map((digit, i) => (
+          <div
+            key={i}
+            className="w-16 h-20 bg-rp-card border-2 border-[#E10600] rounded-xl flex items-center justify-center"
+          >
+            <span className="text-4xl font-bold tracking-widest text-[#E10600]">{digit}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Copy button */}
+      <button
+        onClick={handleCopy}
+        className="flex items-center gap-2 text-sm text-rp-grey hover:text-white transition-colors mb-8"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" strokeWidth="2" />
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" strokeWidth="2" />
+        </svg>
+        {copied ? "Copied!" : "Copy PIN"}
+      </button>
+
+      {/* Info card */}
+      <div className="bg-rp-card border border-rp-border rounded-xl p-4 w-full max-w-xs space-y-3 mb-6">
+        <div className="flex justify-between">
+          <span className="text-rp-grey text-sm">Experience</span>
+          <span className="text-white font-medium text-sm">{experienceName}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-rp-grey text-sm">Cost</span>
+          <span className="text-white font-bold text-sm">{(pricePaise / 100).toFixed(0)} credits</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-rp-grey text-sm">Valid until</span>
+          <span className="text-white font-medium text-sm">{expiresFormatted}</span>
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div className="space-y-2 mb-8">
+        <p className="text-rp-grey text-sm">PIN sent to your WhatsApp</p>
+        <p className="text-rp-grey text-xs">Valid for 24 hours from booking</p>
+      </div>
+
+      {/* Actions */}
+      <a
+        href="/reservations"
+        className="w-full max-w-xs bg-rp-red text-white font-semibold py-4 rounded-xl text-lg text-center block"
+      >
+        View Your Reservation
+      </a>
     </div>
   );
 }
