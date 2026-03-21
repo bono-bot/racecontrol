@@ -16,6 +16,8 @@ use crate::ws_handler::{HandleResult, WsTx};
 use rc_common::protocol::AgentMessage;
 use rc_common::types::*;
 
+const LOG_TARGET: &str = "event-loop";
+
 /// Type alias for the WebSocket receive half.
 pub type WsRx = futures_util::stream::SplitStream<
     tokio_tungstenite::WebSocketStream<
@@ -153,7 +155,7 @@ pub async fn run(
                 });
                 let json = serde_json::to_string(&hb)?;
                 if ws_tx.send(Message::Text(json.into())).await.is_err() {
-                    tracing::error!("Lost connection to core server");
+                    tracing::error!(target: LOG_TARGET, "Lost connection to core server");
                     break;
                 }
             }
@@ -187,7 +189,7 @@ pub async fn run(
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        tracing::warn!("Telemetry read error: {}", e);
+                        tracing::warn!(target: LOG_TARGET, "Telemetry read error: {}", e);
                         adapter.disconnect();
                     }
                 }
@@ -218,7 +220,7 @@ pub async fn run(
                                     } else if status == AcStatus::Off {
                                         // Off: arm 30s grace timer — crash recovery may cancel it
                                         if !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
-                                            tracing::info!("[billing] AcStatus::Off detected — arming 30s exit grace timer (AC)");
+                                            tracing::info!(target: LOG_TARGET, "[billing] AcStatus::Off detected — arming 30s exit grace timer (AC)");
                                             conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(30)));
                                             conn.exit_grace_armed = true;
                                             conn.exit_grace_sim_type = Some(rc_common::types::SimType::AssettoCorsa);
@@ -245,7 +247,7 @@ pub async fn run(
                     let attempt = *attempt;
                     if launched_at.elapsed() > Duration::from_secs(180) {
                         if attempt < 2 {
-                            tracing::warn!("AC launch timeout (attempt {}), retrying...", attempt);
+                            tracing::warn!(target: LOG_TARGET, "AC launch timeout (attempt {}), retrying...", attempt);
                             if let Some(ref mut proc) = state.game_process {
                                 let _ = proc.stop();
                             }
@@ -265,7 +267,7 @@ pub async fn run(
                                 attempt: attempt + 1,
                             };
                         } else {
-                            tracing::error!("AC launch failed twice, cancelling session (no charge)");
+                            tracing::error!(target: LOG_TARGET, "AC launch failed twice, cancelling session (no charge)");
                             if let Some(ref mut proc) = state.game_process {
                                 let _ = proc.stop();
                             }
@@ -307,7 +309,7 @@ pub async fn run(
                     let _ = state.failure_monitor_tx.send_modify(|s| { s.driving_state = Some(state.detector.state()); });
                     let json = serde_json::to_string(&msg)?;
                     let _ = ws_tx.send(Message::Text(json.into())).await;
-                    tracing::info!("Driving state changed: {:?}", state.detector.state());
+                    tracing::info!(target: LOG_TARGET, "Driving state changed: {:?}", state.detector.state());
                 }
             }
 
@@ -321,7 +323,7 @@ pub async fn run(
                     let _ = state.failure_monitor_tx.send_modify(|s| { s.driving_state = Some(state.detector.state()); });
                     let json = serde_json::to_string(&msg)?;
                     let _ = ws_tx.send(Message::Text(json.into())).await;
-                    tracing::info!("Driving state changed (timeout): {:?}", state.detector.state());
+                    tracing::info!(target: LOG_TARGET, "Driving state changed (timeout): {:?}", state.detector.state());
                 }
                 let _ = state.failure_monitor_tx.send_modify(|s| {
                     s.hid_connected = state.detector.is_hid_connected();
@@ -355,7 +357,7 @@ pub async fn run(
                                     let _ = ws_tx.send(Message::Text(json.into())).await;
                                 }
                                 conn.loading_emitted = true;
-                                tracing::info!("[billing] GameState::Loading emitted for {:?}", game.sim_type);
+                                tracing::info!(target: LOG_TARGET, "[billing] GameState::Loading emitted for {:?}", game.sim_type);
                             }
 
                             let info = GameLaunchInfo {
@@ -393,14 +395,14 @@ pub async fn run(
                             let json = serde_json::to_string(&msg)?;
                             let _ = ws_tx.send(Message::Text(json.into())).await;
 
-                            tracing::info!("[crash-detect] AI debugger enabled={}, url={}, model={}",
+                            tracing::info!(target: LOG_TARGET, "[crash-detect] AI debugger enabled={}, url={}, model={}",
                                 state.config.ai_debugger.enabled, state.config.ai_debugger.ollama_url, state.config.ai_debugger.ollama_model);
                             if state.config.ai_debugger.enabled {
                                 let exit_info = game.last_exit_code
                                     .map(|c| format!("exit code {}", c))
                                     .unwrap_or_else(|| "no exit code".to_string());
                                 let err_ctx = format!("{:?} crashed on pod {} ({})", game.sim_type, state.pod_id, exit_info);
-                                tracing::info!("[crash-detect] Spawning AI debugger for: {}", err_ctx);
+                                tracing::info!(target: LOG_TARGET, "[crash-detect] Spawning AI debugger for: {}", err_ctx);
                                 let snapshot = PodStateSnapshot {
                                     pod_id: state.pod_id.clone(),
                                     pod_number: state.config.pod.number,
@@ -434,7 +436,7 @@ pub async fn run(
                             });
 
                             if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
-                                tracing::warn!("Game crashed during active billing — pausing billing, attempting relaunch");
+                                tracing::warn!(target: LOG_TARGET, "Game crashed during active billing — pausing billing, attempting relaunch");
                                 ffb_controller::safe_session_end(&state.ffb).await;
                                 let crash_msg = AgentMessage::GameCrashed { pod_id: state.pod_id.clone(), billing_active: true };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_msg).unwrap_or_default().into())).await;
@@ -459,7 +461,7 @@ pub async fn run(
                                     last_launch_args: conn.last_launch_args_stored.clone(),
                                 };
                             } else {
-                                tracing::info!("Game exited with no active billing — enforcing safe state");
+                                tracing::info!(target: LOG_TARGET, "Game exited with no active billing — enforcing safe state");
                                 // Arm exit grace timer so server gets AcStatus::Off after 30s
                                 // (handles non-AC sims that don't have shared memory Off signal)
                                 if !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
@@ -468,7 +470,7 @@ pub async fn run(
                                         // Non-AC sims: server doesn't get AcStatus::Off from telemetry path
                                         // so we arm the grace timer here
                                         if let Some(sim) = exited_sim {
-                                            tracing::info!("[billing] {:?} exited — arming 30s exit grace timer", sim);
+                                            tracing::info!(target: LOG_TARGET, "[billing] {:?} exited — arming 30s exit grace timer", sim);
                                             conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(30)));
                                             conn.exit_grace_armed = true;
                                             conn.exit_grace_sim_type = Some(sim);
@@ -500,7 +502,7 @@ pub async fn run(
                             if conn.f1_udp_playable_received
                                 && matches!(conn.launch_state, LaunchState::WaitingForLive { .. })
                             {
-                                tracing::info!("[billing] F1 25 PlayableSignal (UdpActive) — emitting AcStatus::Live");
+                                tracing::info!(target: LOG_TARGET, "[billing] F1 25 PlayableSignal (UdpActive) — emitting AcStatus::Live");
                                 let msg = AgentMessage::GameStatusUpdate {
                                     pod_id: state.pod_id.clone(),
                                     ac_status: AcStatus::Live,
@@ -517,7 +519,7 @@ pub async fn run(
                             if let Some(ref adapter) = state.adapter {
                                 if let Some(true) = adapter.read_is_on_track() {
                                     if matches!(conn.launch_state, LaunchState::WaitingForLive { .. }) {
-                                        tracing::info!("[billing] iRacing IsOnTrack=true — emitting AcStatus::Live");
+                                        tracing::info!(target: LOG_TARGET, "[billing] iRacing IsOnTrack=true — emitting AcStatus::Live");
                                         let msg = AgentMessage::GameStatusUpdate {
                                             pod_id: state.pod_id.clone(),
                                             ac_status: AcStatus::Live,
@@ -536,7 +538,7 @@ pub async fn run(
                             if let Some(ref adapter) = state.adapter {
                                 if let Some(true) = adapter.read_is_on_track() {
                                     if matches!(conn.launch_state, LaunchState::WaitingForLive { .. }) {
-                                        tracing::info!("[billing] LMU IsOnTrack=true — emitting AcStatus::Live");
+                                        tracing::info!(target: LOG_TARGET, "[billing] LMU IsOnTrack=true — emitting AcStatus::Live");
                                         let msg = AgentMessage::GameStatusUpdate {
                                             pod_id: state.pod_id.clone(),
                                             ac_status: AcStatus::Live,
@@ -554,7 +556,7 @@ pub async fn run(
                             // Process-based fallback for EVO, WRC, Forza, etc.
                             if let LaunchState::WaitingForLive { launched_at, .. } = &conn.launch_state {
                                 if launched_at.elapsed() >= Duration::from_secs(90) {
-                                    tracing::info!("[billing] {:?} process fallback (90s elapsed) — emitting AcStatus::Live", sim_type);
+                                    tracing::info!(target: LOG_TARGET, "[billing] {:?} process fallback (90s elapsed) — emitting AcStatus::Live", sim_type);
                                     let msg = AgentMessage::GameStatusUpdate {
                                         pod_id: state.pod_id.clone(),
                                         ac_status: AcStatus::Live,
@@ -572,7 +574,7 @@ pub async fn run(
             }
 
             Some(mut suggestion) = state.ai_result_rx.recv() => {
-                tracing::info!("[ai-result] Received AI suggestion for {}", suggestion.pod_id);
+                tracing::info!(target: LOG_TARGET, "[ai-result] Received AI suggestion for {}", suggestion.pod_id);
                 let fix_snapshot = PodStateSnapshot {
                     pod_id: state.pod_id.clone(),
                     pod_number: state.config.pod.number,
@@ -598,16 +600,17 @@ pub async fn run(
                 let fix_result = match tokio::time::timeout(Duration::from_secs(10), fix_handle).await {
                     Ok(Ok(result)) => result,
                     Ok(Err(e)) => {
-                        tracing::warn!("[auto-fix] spawn_blocking panicked: {}", e);
+                        tracing::warn!(target: LOG_TARGET, "[auto-fix] spawn_blocking panicked: {}", e);
                         None
                     }
                     Err(_) => {
-                        tracing::warn!("[auto-fix] Timed out after 10s — skipping auto-fix");
+                        tracing::warn!(target: LOG_TARGET, "[auto-fix] Timed out after 10s — skipping auto-fix");
                         None
                     }
                 };
                 if let Some(ref fix_result) = fix_result {
                     tracing::info!(
+                        target: LOG_TARGET,
                         "[auto-fix] Applied {} — {} (success: {})",
                         fix_result.fix_type, fix_result.detail, fix_result.success
                     );
@@ -620,6 +623,7 @@ pub async fn run(
                             &suggestion.suggestion,
                         );
                         tracing::info!(
+                            target: LOG_TARGET,
                             "[pattern-memory] Saved: {} for {:?}",
                             fix_result.fix_type, suggestion.sim_type
                         );
@@ -631,10 +635,10 @@ pub async fn run(
                 }
                 let msg = AgentMessage::AiDebugResult(suggestion);
                 let json = serde_json::to_string(&msg)?;
-                tracing::info!("[ai-result] Sending AiDebugResult via WebSocket...");
+                tracing::info!(target: LOG_TARGET, "[ai-result] Sending AiDebugResult via WebSocket...");
                 match ws_tx.send(Message::Text(json.into())).await {
-                    Ok(_) => tracing::info!("[ai-result] AiDebugResult sent successfully"),
-                    Err(e) => tracing::error!("[ai-result] Failed to send AiDebugResult: {}", e),
+                    Ok(_) => tracing::info!(target: LOG_TARGET, "[ai-result] AiDebugResult sent successfully"),
+                    Err(e) => tracing::error!(target: LOG_TARGET, "[ai-result] Failed to send AiDebugResult: {}", e),
                 }
             }
 
@@ -662,6 +666,7 @@ pub async fn run(
                             .collect();
                         if !processes.is_empty() {
                             tracing::debug!(
+                                target: LOG_TARGET,
                                 "[freedom] Monitoring {} processes, {} games on pod {}",
                                 processes.len(), games_detected.len(), pod_id_freedom
                             );
@@ -702,7 +707,7 @@ pub async fn run(
                             if let Ok(mut r) = lockdown_reason.lock() {
                                 *r = reason.clone();
                             }
-                            tracing::warn!("Kiosk: LOCKDOWN — {}", reason);
+                            tracing::warn!(target: LOG_TARGET, "Kiosk: LOCKDOWN — {}", reason);
 
                             let msg = rc_common::protocol::AgentMessage::KioskLockdown {
                                 pod_id: pod_id_kiosk.clone(),
@@ -728,6 +733,7 @@ pub async fn run(
                                     &classification.exe_path,
                                 ).await;
                                 tracing::info!(
+                                    target: LOG_TARGET,
                                     "[kiosk-llm] Verdict for '{}': {:?}",
                                     classification.process_name, verdict
                                 );
@@ -768,12 +774,12 @@ pub async fn run(
                 if !state.in_maintenance.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
                 }
-                tracing::info!("Maintenance retry: re-running pre-flight checks");
+                tracing::info!(target: LOG_TARGET, "Maintenance retry: re-running pre-flight checks");
                 let ffb_ref: &dyn crate::ffb_controller::FfbBackend = state.ffb.as_ref();
                 let ws_elapsed = conn.ws_connect_time.elapsed().as_secs();
                 match crate::pre_flight::run(state, ffb_ref, ws_elapsed).await {
                     crate::pre_flight::PreFlightResult::Pass => {
-                        tracing::info!("Maintenance retry: pre-flight passed — clearing maintenance");
+                        tracing::info!(target: LOG_TARGET, "Maintenance retry: pre-flight passed — clearing maintenance");
                         state.in_maintenance.store(false, std::sync::atomic::Ordering::Relaxed);
                         // STAFF-04: Reset cooldown so next failure after recovery sends alert immediately
                         state.last_preflight_alert = None;
@@ -789,7 +795,7 @@ pub async fn run(
                     }
                     crate::pre_flight::PreFlightResult::MaintenanceRequired { failures } => {
                         let failure_strings: Vec<String> = failures.iter().map(|f| f.detail.clone()).collect();
-                        tracing::warn!("Maintenance retry: still failing — {:?}", failure_strings);
+                        tracing::warn!(target: LOG_TARGET, "Maintenance retry: still failing — {:?}", failure_strings);
                         // STAFF-04: Retry loop does NOT send PreFlightFailed alerts — alert was already
                         // sent in BillingStarted handler (ws_handler.rs) with 60s cooldown.
                         // Retry only refreshes the lock screen with updated failure details.
@@ -801,9 +807,9 @@ pub async fn run(
             _ = &mut conn.blank_timer, if conn.blank_timer_armed => {
                 conn.blank_timer_armed = false;
                 if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
-                    tracing::info!("Skipping idle PinEntry reset — billing is active");
+                    tracing::info!(target: LOG_TARGET, "Skipping idle PinEntry reset — billing is active");
                 } else {
-                    tracing::info!("Resetting to idle PinEntry after session summary (SESSION-02)");
+                    tracing::info!(target: LOG_TARGET, "Resetting to idle PinEntry after session summary (SESSION-02)");
                     state.lock_screen.show_idle_pin_entry();
                     ffb_controller::safe_session_end(&state.ffb).await;
                     let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
@@ -814,7 +820,7 @@ pub async fn run(
 
             _ = &mut conn.exit_grace_timer, if conn.exit_grace_armed => {
                 conn.exit_grace_armed = false;
-                tracing::info!("[billing] Exit grace period expired — emitting AcStatus::Off to server");
+                tracing::info!(target: LOG_TARGET, "[billing] Exit grace period expired — emitting AcStatus::Off to server");
                 let msg = AgentMessage::GameStatusUpdate {
                     pod_id: state.pod_id.clone(),
                     ac_status: AcStatus::Off,
@@ -842,10 +848,10 @@ pub async fn run(
                 match std::mem::replace(&mut conn.crash_recovery, CrashRecoveryState::Idle) {
                     CrashRecoveryState::PausedWaitingRelaunch { attempt, last_sim_type, last_launch_args, .. } => {
                         if state.game_process.as_ref().and_then(|g| g.pid).is_some() {
-                            tracing::info!("[crash-recovery] Game PID detected during recovery wait (attempt {}) — resuming billing", attempt);
+                            tracing::info!(target: LOG_TARGET, "[crash-recovery] Game PID detected during recovery wait (attempt {}) — resuming billing", attempt);
                             // Cancel exit grace timer — game has relaunched, billing continues
                             if conn.exit_grace_armed {
-                                tracing::info!("[billing] Crash recovery relaunch — cancelling exit grace timer");
+                                tracing::info!(target: LOG_TARGET, "[billing] Crash recovery relaunch — cancelling exit grace timer");
                                 conn.exit_grace_armed = false;
                                 conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(86400)));
                             }
@@ -860,7 +866,7 @@ pub async fn run(
                             }
                             conn.crash_recovery = CrashRecoveryState::Idle;
                         } else if attempt < 2 {
-                            tracing::warn!("[crash-recovery] Relaunch attempt {} timed out (60s) — trying attempt 2", attempt);
+                            tracing::warn!(target: LOG_TARGET, "[crash-recovery] Relaunch attempt {} timed out (60s) — trying attempt 2", attempt);
                             state.overlay.show_toast("Relaunching... (2 of 2)".to_string());
 
                             if last_sim_type == SimType::AssettoCorsa {
@@ -950,13 +956,13 @@ pub async fn run(
                                         let _ = state.failure_monitor_tx.send_modify(|s| {
                                             s.game_pid = Some(result.pid);
                                         });
-                                        tracing::info!("[crash-recovery] Attempt 2: ac_launcher::launch_ac returned successfully (pid={})", result.pid);
+                                        tracing::info!(target: LOG_TARGET, "[crash-recovery] Attempt 2: ac_launcher::launch_ac returned successfully (pid={})", result.pid);
                                     }
                                     Ok(Err(e)) => {
-                                        tracing::warn!("[crash-recovery] Attempt 2: ac_launcher::launch_ac failed: {}", e);
+                                        tracing::warn!(target: LOG_TARGET, "[crash-recovery] Attempt 2: ac_launcher::launch_ac failed: {}", e);
                                     }
                                     Err(e) => {
-                                        tracing::error!("[crash-recovery] Attempt 2: spawn_blocking panicked: {}", e);
+                                        tracing::error!(target: LOG_TARGET, "[crash-recovery] Attempt 2: spawn_blocking panicked: {}", e);
                                     }
                                 }
                             } else {
@@ -990,7 +996,7 @@ pub async fn run(
 
                                 match game_process::GameProcess::launch(&game_cfg, last_sim_type) {
                                     Ok(gp) => {
-                                        tracing::info!("[crash-recovery] Attempt 2: {:?} launched (pid: {:?})", last_sim_type, gp.pid);
+                                        tracing::info!(target: LOG_TARGET, "[crash-recovery] Attempt 2: {:?} launched (pid: {:?})", last_sim_type, gp.pid);
                                         let gp_pid = gp.pid;
                                         state.game_process = Some(gp);
                                         let _ = state.failure_monitor_tx.send_modify(|s| {
@@ -998,7 +1004,7 @@ pub async fn run(
                                         });
                                     }
                                     Err(e) => {
-                                        tracing::error!("[crash-recovery] Attempt 2: GameProcess::launch failed for {:?}: {}", last_sim_type, e);
+                                        tracing::error!(target: LOG_TARGET, "[crash-recovery] Attempt 2: GameProcess::launch failed for {:?}: {}", last_sim_type, e);
                                     }
                                 }
                             }
@@ -1010,7 +1016,7 @@ pub async fn run(
                                 last_launch_args,
                             };
                         } else {
-                            tracing::error!("[crash-recovery] Relaunch attempt 2 timed out (60s) — auto-ending session (crash_limit)");
+                            tracing::error!(target: LOG_TARGET, "[crash-recovery] Relaunch attempt 2 timed out (60s) — auto-ending session (crash_limit)");
                             state.overlay.show_toast("Session ending".to_string());
                             conn.crash_recovery = CrashRecoveryState::AutoEndPending;
                             state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -1058,7 +1064,7 @@ pub async fn run(
                         };
                         let json = serde_json::to_string(&msg)?;
                         let _ = ws_tx.send(Message::Text(json.into())).await;
-                        tracing::info!("PIN submitted, forwarding to core for verification");
+                        tracing::info!(target: LOG_TARGET, "PIN submitted, forwarding to core for verification");
                     }
                 }
             }
@@ -1066,7 +1072,7 @@ pub async fn run(
             Some(ws_exec_msg) = state.ws_exec_result_rx.recv() => {
                 if let Ok(json) = serde_json::to_string(&ws_exec_msg) {
                     if ws_tx.send(Message::Text(json.into())).await.is_err() {
-                        tracing::error!("Failed to send WS command result, connection lost");
+                        tracing::error!(target: LOG_TARGET, "Failed to send WS command result, connection lost");
                         break;
                     }
                 }
@@ -1079,26 +1085,26 @@ pub async fn run(
                             break;
                         }
                     }
-                    Err(e) => tracing::error!("guard_violation serialize error: {}", e),
+                    Err(e) => tracing::error!(target: LOG_TARGET, "guard_violation serialize error: {}", e),
                 }
             }
 
             Some(hb_event) = state.heartbeat_event_rx.recv() => {
                 match hb_event {
                     udp_heartbeat::HeartbeatEvent::CoreDead => {
-                        tracing::warn!("UDP heartbeat: core dead — forcing WebSocket reconnect");
+                        tracing::warn!(target: LOG_TARGET, "UDP heartbeat: core dead — forcing WebSocket reconnect");
                         break;
                     }
                     udp_heartbeat::HeartbeatEvent::ForceReconnect => {
                         if conn.ws_connect_time.elapsed() < Duration::from_secs(10) {
-                            tracing::debug!("Ignoring force_reconnect — connected {}s ago (grace period)", conn.ws_connect_time.elapsed().as_secs());
+                            tracing::debug!(target: LOG_TARGET, "Ignoring force_reconnect — connected {}s ago (grace period)", conn.ws_connect_time.elapsed().as_secs());
                         } else {
-                            tracing::info!("UDP heartbeat: core requested reconnect");
+                            tracing::info!(target: LOG_TARGET, "UDP heartbeat: core requested reconnect");
                             break;
                         }
                     }
                     udp_heartbeat::HeartbeatEvent::ForceRestart => {
-                        tracing::warn!("UDP heartbeat: core requested restart — exiting");
+                        tracing::warn!(target: LOG_TARGET, "UDP heartbeat: core requested restart — exiting");
                         std::process::exit(0);
                     }
                     udp_heartbeat::HeartbeatEvent::CoreAlive => {}
@@ -1108,7 +1114,7 @@ pub async fn run(
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        tracing::debug!("Received from core: {}", text);
+                        tracing::debug!(target: LOG_TARGET, "Received from core: {}", text);
                         match crate::ws_handler::handle_ws_message(
                             &text,
                             state,
@@ -1121,11 +1127,11 @@ pub async fn run(
                         ).await {
                             Ok(HandleResult::Break) => break,
                             Ok(HandleResult::Continue) => {}
-                            Err(e) => { tracing::error!("ws_handler error: {}", e); }
+                            Err(e) => { tracing::error!(target: LOG_TARGET, "ws_handler error: {}", e); }
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => {
-                        tracing::info!("Core server closed connection");
+                        tracing::info!(target: LOG_TARGET, "Core server closed connection");
                         break;
                     }
                     _ => {}
