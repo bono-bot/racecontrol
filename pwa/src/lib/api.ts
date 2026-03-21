@@ -218,6 +218,13 @@ export interface SessionDetailSession {
   best_lap_ms: number | null;
   average_lap_ms: number | null;
   group_session_id: string | null;
+  // Peak-end session experience fields (Phase 91)
+  percentile_rank: number | null;
+  percentile_text: string | null;
+  is_new_pb: boolean;
+  personal_best_ms: number | null;
+  improvement_ms: number | null;
+  peak_lap_number: number | null;
 }
 
 export interface SessionEvent {
@@ -541,6 +548,22 @@ export interface CompareLapsResult {
   recent_trend: number[];
   improving: boolean | null;
   tip: string | null;
+}
+
+// ─── Active Session Event Types ──────────────────────────────────────────
+
+export interface ActiveSessionEvent {
+  type: string;
+  lap_id: string;
+  lap_time_ms: number;
+  track: string;
+  car: string;
+  at: string;
+}
+
+export interface ActiveSessionEventsResponse {
+  events: ActiveSessionEvent[];
+  error?: string;
 }
 
 // ─── API calls ─────────────────────────────────────────────────────────────
@@ -952,6 +975,9 @@ export const api = {
     fetchApi<{ ok: boolean; abs?: number; tc?: number; auto_shifter?: boolean; ffb_percent?: number }>(
       `/pods/${podId}/assist-state`
     ),
+
+  activeSessionEvents: (since: string): Promise<ActiveSessionEventsResponse> =>
+    fetchApi<ActiveSessionEventsResponse>(`/customer/active-session/events?since=${encodeURIComponent(since)}`),
 };
 
 // ─── Leaderboard Types ────────────────────────────────────────────────────
