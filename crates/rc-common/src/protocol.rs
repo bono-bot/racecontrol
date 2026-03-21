@@ -231,6 +231,9 @@ pub enum CoreToAgentMessage {
         billing_session_id: String,
         driver_name: String,
         allocated_seconds: u32,
+        /// Session-scoped kiosk unlock token (SESS-04)
+        #[serde(default)]
+        session_token: Option<String>,
     },
 
     /// Notify agent that billing session ended

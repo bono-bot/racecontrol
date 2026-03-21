@@ -1657,6 +1657,7 @@ pub async fn start_billing_session(
                 billing_session_id: session_id.clone(),
                 driver_name: driver_name.clone(),
                 allocated_seconds,
+                session_token: Some(uuid::Uuid::new_v4().to_string()),
             })
             .await;
         // Note: BillingStarted sets agent state to ActiveSession, which

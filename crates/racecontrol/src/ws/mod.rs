@@ -208,6 +208,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                         billing_session_id: session_id.clone(),
                                         driver_name: driver_name.clone(),
                                         allocated_seconds,
+                                        session_token: Some(uuid::Uuid::new_v4().to_string()),
                                     }).await;
                                     let _ = cmd_tx.send(CoreToAgentMessage::BillingTick {
                                         remaining_seconds: remaining,

@@ -1664,7 +1664,7 @@ async fn main() -> Result<()> {
                         tracing::debug!("Received from core: {}", text);
                         if let Ok(core_msg) = serde_json::from_str::<rc_common::protocol::CoreToAgentMessage>(&text) {
                             match core_msg {
-                                rc_common::protocol::CoreToAgentMessage::BillingStarted { billing_session_id, driver_name, allocated_seconds } => {
+                                rc_common::protocol::CoreToAgentMessage::BillingStarted { billing_session_id, driver_name, allocated_seconds, .. } => {
                                     tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
                                     heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
                                     blank_timer_armed = false; // cancel any pending auto-blank
