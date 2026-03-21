@@ -18,6 +18,7 @@ use crate::billing;
 use crate::catalog;
 use crate::cloud_sync;
 use crate::fleet_health;
+use crate::process_guard;
 use crate::friends;
 use crate::game_launcher;
 use crate::multiplayer;
@@ -65,6 +66,7 @@ fn public_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
         .route("/fleet/health", get(fleet_health::fleet_health_handler))
+        .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
         .route("/venue", get(venue_info))
         .route("/customer/register", post(customer_register))
         .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
@@ -188,6 +190,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/pods/{id}/disable", post(disable_pod))
         .route("/pods/{id}/screen", post(set_pod_screen))
         .route("/pods/{id}/unrestrict", post(unrestrict_pod))
+        .route("/pods/{id}/freedom", post(freedom_mode_pod))
         .route("/pods/{id}/restart", post(restart_pod))
         .route("/pods/wake-all", post(wake_all_pods))
         .route("/pods/shutdown-all", post(shutdown_all_pods))
@@ -868,6 +871,45 @@ async fn unrestrict_pod(
     }
 
     Json(json!({ "ok": true, "pod_id": id, "unrestricted": unrestrict }))
+}
+
+// POST /pods/{id}/freedom — Toggle freedom mode on a pod.
+// Freedom mode: all restrictions lifted (like unrestrict), but passive process monitoring stays active.
+// Body: { "enabled": true } (or false to exit freedom mode and re-engage kiosk)
+async fn freedom_mode_pod(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let senders = state.agent_senders.read().await;
+    let Some(sender) = senders.get(&id) else {
+        return Json(json!({ "error": format!("Pod {} not connected", id) }));
+    };
+    if sender.is_closed() {
+        return Json(json!({ "error": format!("Pod {} not connected", id) }));
+    }
+
+    if enabled {
+        let _ = sender.send(CoreToAgentMessage::EnterFreedomMode).await;
+        tracing::info!("Pod {} FREEDOM MODE enabled — monitoring active", id);
+    } else {
+        let _ = sender.send(CoreToAgentMessage::ExitFreedomMode).await;
+        tracing::info!("Pod {} FREEDOM MODE disabled — kiosk re-engaged", id);
+    }
+
+    // Optimistic update for dashboard
+    {
+        let mut pods = state.pods.write().await;
+        if let Some(pod) = pods.get_mut(&id) {
+            pod.freedom_mode = Some(enabled);
+            pod.screen_blanked = Some(false);
+            let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+        }
+    }
+
+    Json(json!({ "ok": true, "pod_id": id, "freedom_mode": enabled }))
 }
 
 /// POST /pods/{id}/exec — Execute a command on a pod via WebSocket proxy.
