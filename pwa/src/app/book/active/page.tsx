@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { api, isLoggedIn } from "@/lib/api";
 import type { PodReservation, BillingSession } from "@/lib/api";
+import { fireConfetti } from "@/components/Confetti";
 
 export default function ActiveSessionPage() {
   const router = useRouter();
@@ -13,6 +15,7 @@ export default function ActiveSessionPage() {
   const [loading, setLoading] = useState(true);
   const [ending, setEnding] = useState(false);
   const groupChecked = useRef(false);
+  const lastPbRef = useRef<string | null>(null);
 
   // Mid-session controls state
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -66,6 +69,40 @@ export default function ActiveSessionPage() {
       if (ffbTimerRef.current) clearTimeout(ffbTimerRef.current);
     };
   }, []);
+
+  // PB event polling — fires toast + confetti when a new PB is detected
+  useEffect(() => {
+    if (!billing || billing.status !== "active") return;
+
+    let since = new Date().toISOString();
+    const pollPb = async () => {
+      try {
+        const res = await api.activeSessionEvents(since);
+        if (res.events && res.events.length > 0) {
+          for (const evt of res.events) {
+            if (evt.type === "pb" && evt.lap_id !== lastPbRef.current) {
+              lastPbRef.current = evt.lap_id;
+              const mins = Math.floor(evt.lap_time_ms / 60000);
+              const secs = Math.floor((evt.lap_time_ms % 60000) / 1000);
+              const millis = evt.lap_time_ms % 1000;
+              const lapTimeStr = `${mins}:${secs.toString().padStart(2, "0")}.${millis.toString().padStart(3, "0")}`;
+              toast.success("NEW PERSONAL BEST!", {
+                description: `${lapTimeStr} on ${evt.track}`,
+                duration: 5000,
+              });
+              fireConfetti();
+              since = evt.at;
+            }
+          }
+        }
+      } catch {
+        // network error or abort — ignore
+      }
+    };
+
+    const interval = setInterval(pollPb, 5000);
+    return () => clearInterval(interval);
+  }, [billing]);
 
   // Mid-session controls handlers
   async function openSheet() {

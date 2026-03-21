@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
 import type { SessionDetailSession, LapRecord, ShareReport, MultiplayerResultInfo, SessionEvent } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
+import { ConfettiOnMount } from "@/components/Confetti";
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
 
@@ -117,6 +118,81 @@ function eventIcon(eventType: string): string {
   if (eventType === "extended") return "\u23F1";
   if (eventType === "cancelled") return "\u274C";
   return "\u2022";
+}
+
+// ─── Peak-end components ──────────────────────────────────────────────────────
+
+function PeakMomentHeroCard({
+  bestLapMs,
+  peakLapNumber,
+  isNewPb,
+  improvementMs,
+}: {
+  bestLapMs: number;
+  peakLapNumber: number | null;
+  isNewPb: boolean;
+  improvementMs: number | null;
+}) {
+  return (
+    <div
+      className={`bg-rp-card border ${
+        isNewPb ? "border-yellow-500/30" : "border-rp-border"
+      } rounded-xl p-5 mb-4`}
+    >
+      <div className="text-center mb-2">
+        <span className="text-xs text-rp-grey uppercase tracking-wider">
+          Peak Moment
+        </span>
+      </div>
+      <div className="text-center mb-4">
+        <p className="text-4xl font-bold text-white font-mono">
+          {formatLapTime(bestLapMs)}
+        </p>
+        <p className="text-xs text-rp-grey mt-1">
+          Best Lap
+          {peakLapNumber != null ? ` \u00B7 Lap ${peakLapNumber}` : ""}
+        </p>
+      </div>
+      {isNewPb && (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-center">
+          <p className="text-yellow-400 font-bold text-xl">
+            NEW PERSONAL BEST!
+          </p>
+        </div>
+      )}
+      {isNewPb && improvementMs != null && improvementMs > 0 && (
+        <p className="text-xs text-rp-grey text-center mt-2">
+          <span className="text-emerald-400 font-mono">
+            -{formatLapTime(improvementMs)}
+          </span>{" "}
+          faster than your previous best
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PercentileRankingBanner({
+  percentileRank,
+  track,
+  car,
+}: {
+  percentileRank: number;
+  track: string | null;
+  car: string | null;
+}) {
+  return (
+    <div className="bg-rp-red/10 border border-rp-red/20 rounded-xl p-4 mb-4 text-center">
+      <p className="text-rp-red font-bold text-xl">
+        Faster than {percentileRank}% of drivers
+      </p>
+      {(track || car) && (
+        <p className="text-xs text-rp-grey mt-1">
+          {[track, car].filter(Boolean).join(" \u00B7 ")}
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ─── Page component ──────────────────────────────────────────────────────────
@@ -241,13 +317,6 @@ export default function SessionDetailPage() {
 
   // ─── Derived data ────────────────────────────────────────────────────────
 
-  const usagePercent = Math.min(
-    100,
-    session.allocated_seconds > 0
-      ? (session.driving_seconds / session.allocated_seconds) * 100
-      : 0
-  );
-
   const validLaps = laps.filter((l) => l.valid);
   const maxLapMs =
     validLaps.length > 0
@@ -259,12 +328,41 @@ export default function SessionDetailPage() {
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
+  const isCompletedWithLaps =
+    session.status === "completed" && laps.length > 0;
+
   return (
     <div className="min-h-screen pb-20">
       <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
+        {/* ── 1. Back button ────────────────────────────────────────────── */}
         <BackButton onClick={() => router.push("/sessions")} />
 
-        {/* ── 1. Session Summary Header ─────────────────────────────────── */}
+        {/* ── 2. PeakMomentHeroCard ─────────────────────────────────────── */}
+        {isCompletedWithLaps && session.best_lap_ms != null && (
+          <PeakMomentHeroCard
+            bestLapMs={session.best_lap_ms}
+            peakLapNumber={session.peak_lap_number}
+            isNewPb={session.is_new_pb}
+            improvementMs={session.improvement_ms}
+          />
+        )}
+
+        {/* ── Confetti on first PB view ─────────────────────────────────── */}
+        <ConfettiOnMount
+          enabled={session.is_new_pb && session.status === "completed"}
+          sessionId={session.id}
+        />
+
+        {/* ── 3. PercentileRankingBanner ────────────────────────────────── */}
+        {session.percentile_rank != null && (
+          <PercentileRankingBanner
+            percentileRank={session.percentile_rank}
+            track={session.track}
+            car={session.car}
+          />
+        )}
+
+        {/* ── 4. Session Summary Header (condensed) ────────────────────── */}
         <div className="bg-rp-card border border-rp-border rounded-xl p-5 mb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
@@ -297,7 +395,7 @@ export default function SessionDetailPage() {
             </div>
           )}
 
-          {/* Time usage */}
+          {/* Time usage (no usage bar) */}
           <div className="flex items-end justify-between">
             <div>
               <p className="text-2xl font-bold text-white">
@@ -311,233 +409,19 @@ export default function SessionDetailPage() {
               {formatDate(session.started_at)}
             </p>
           </div>
-
-          {/* Usage bar */}
-          <div className="mt-4">
-            <div className="flex justify-between text-xs text-rp-grey mb-1">
-              <span>Usage</span>
-              <span>{usagePercent.toFixed(0)}%</span>
-            </div>
-            <div className="h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-rp-red rounded-full transition-all"
-                style={{ width: `${usagePercent}%` }}
-              />
-            </div>
-          </div>
         </div>
 
-        {/* ── Share Button ─────────────────────────────────────────────── */}
-        {session.status === "completed" && laps.length > 0 && (
-          <button
-            onClick={handleShare}
-            disabled={shareLoading}
-            className="w-full bg-rp-red hover:bg-rp-red/90 text-white font-semibold py-3 rounded-xl mb-4 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
-              <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            {shareLoading ? "Loading..." : "Share Session Report"}
-          </button>
-        )}
-
-        {/* ── Share Card Modal ────────────────────────────────────────── */}
-        {showShare && shareReport && (
-          <div className="bg-rp-card border border-rp-red/30 rounded-xl p-5 mb-4">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-white font-bold text-lg">Session Report</h3>
-              <button onClick={() => setShowShare(false)} className="text-rp-grey hover:text-white">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
-                  <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {shareReport.percentile_text && (
-                <div className="bg-rp-red/10 border border-rp-red/20 rounded-lg p-3 text-center">
-                  <p className="text-rp-red font-bold text-lg">{shareReport.percentile_text}</p>
-                </div>
-              )}
-
-              {shareReport.is_new_pb && (
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-center">
-                  <p className="text-yellow-400 font-bold">NEW PERSONAL BEST!</p>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-[#1A1A1A] rounded-lg p-3">
-                  <p className="text-rp-grey text-xs">Best Lap</p>
-                  <p className="text-white font-mono font-bold">{shareReport.best_lap_display || "\u2014"}</p>
-                </div>
-                <div className="bg-[#1A1A1A] rounded-lg p-3">
-                  <p className="text-rp-grey text-xs">Total Laps</p>
-                  <p className="text-white font-bold">{shareReport.total_laps}</p>
-                </div>
-                {shareReport.improvement_ms && shareReport.improvement_ms > 0 && (
-                  <div className="bg-[#1A1A1A] rounded-lg p-3">
-                    <p className="text-rp-grey text-xs">Improved By</p>
-                    <p className="text-emerald-400 font-mono font-bold">-{formatLapTime(shareReport.improvement_ms)}</p>
-                  </div>
-                )}
-                {shareReport.consistency && (
-                  <div className="bg-[#1A1A1A] rounded-lg p-3">
-                    <p className="text-rp-grey text-xs">Consistency</p>
-                    <p className="text-white font-bold">{shareReport.consistency.rating}</p>
-                  </div>
-                )}
-              </div>
-
-              {shareReport.track_record && (
-                <div className="bg-[#1A1A1A] rounded-lg p-3">
-                  <p className="text-rp-grey text-xs mb-1">Track Record</p>
-                  <p className="text-white text-sm">
-                    {formatLapTime(shareReport.track_record.time_ms)} by {shareReport.track_record.holder}
-                    {shareReport.track_record.gap_ms != null && shareReport.track_record.gap_ms > 0 && (
-                      <span className="text-rp-grey text-xs ml-2">
-                        (+{formatLapTime(shareReport.track_record.gap_ms)} gap)
-                      </span>
-                    )}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ── Multiplayer Race Results ──────────────────────────────────── */}
-        {mpResults.length > 0 && (
-          <div className="bg-rp-card border border-rp-border rounded-xl overflow-hidden mb-4">
-            <div className="px-4 py-3 border-b border-rp-border flex items-center gap-2">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4 text-yellow-400">
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <h2 className="text-sm font-medium text-white">Race Results</h2>
-              <span className="text-rp-grey text-xs ml-auto">Multiplayer</span>
-            </div>
-            <div>
-              {mpResults.map((result) => {
-                const isMe = result.driver_id === myDriverId;
-                const posColor =
-                  result.position === 1
-                    ? "text-yellow-400"
-                    : result.position === 2
-                    ? "text-neutral-300"
-                    : result.position === 3
-                    ? "text-amber-600"
-                    : "text-neutral-500";
-                return (
-                  <div
-                    key={result.driver_id}
-                    className={`px-4 py-3 border-b border-rp-border/50 last:border-b-0 flex items-center gap-3 ${
-                      isMe ? "bg-rp-red/5" : ""
-                    }`}
-                  >
-                    {/* Position */}
-                    <span className={`text-lg font-bold w-8 text-center ${posColor}`}>
-                      #{result.position}
-                    </span>
-
-                    {/* Driver info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-medium text-sm truncate">
-                        {result.driver_name}
-                        {isMe && (
-                          <span className="ml-1 text-xs text-rp-red">(You)</span>
-                        )}
-                        {result.position === 1 && (
-                          <span className="ml-1 text-yellow-400 text-xs">Winner</span>
-                        )}
-                      </p>
-                      <p className="text-rp-grey text-xs">
-                        {result.laps_completed} lap{result.laps_completed !== 1 ? "s" : ""}
-                        {result.dnf ? (
-                          <span className="ml-2 text-red-400 font-medium">DNF</span>
-                        ) : result.total_time_ms ? (
-                          <span className="ml-2 text-neutral-400">
-                            Total: {formatLapTime(result.total_time_ms)}
-                          </span>
-                        ) : null}
-                      </p>
-                    </div>
-
-                    {/* Best lap */}
-                    <div className="text-right">
-                      {result.best_lap_ms ? (
-                        <p className="text-neutral-300 font-mono text-sm">
-                          {formatLapTime(result.best_lap_ms)}
-                        </p>
-                      ) : (
-                        <p className="text-neutral-500 text-xs">No time</p>
-                      )}
-                      <p className="text-rp-grey text-[10px]">Best lap</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ── 2. Receipt / Billing Info ───────────────────────────────────── */}
-        <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
-          <h2 className="text-sm font-medium text-rp-grey mb-3">Receipt</h2>
-          <div className="space-y-2">
-            <ReceiptRow
-              label="Plan"
-              value={session.pricing_tier_name || "\u2014"}
-            />
-            {session.discount_paise && session.discount_paise > 0 ? (
-              <>
-                <ReceiptRow
-                  label="Original"
-                  value={formatCredits(session.original_price_paise || session.price_paise)}
-                />
-                <ReceiptRow
-                  label={`Discount${session.discount_reason ? ` (${session.discount_reason})` : ''}`}
-                  value={`-${formatCredits(session.discount_paise)}`}
-                  accent="green"
-                />
-              </>
-            ) : null}
-            <ReceiptRow
-              label="Charged"
-              value={formatCredits(session.wallet_debit_paise)}
-            />
-            {session.refund_paise && session.refund_paise > 0 ? (
-              <ReceiptRow
-                label="Refund"
-                value={`+${formatCredits(session.refund_paise)}`}
-                accent="green"
-              />
-            ) : null}
-            <div className="border-t border-rp-border pt-2 mt-2">
-              <ReceiptRow
-                label="Net Cost"
-                value={formatCredits(netCharged > 0 ? netCharged : session.price_paise)}
-                bold
-              />
-            </div>
-            {session.ended_at && (
-              <ReceiptRow
-                label="Ended"
-                value={formatDate(session.ended_at)}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* ── 3. Session Stats ──────────────────────────────────────────── */}
+        {/* ── 5. Stats Grid ─────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           <StatTile label="Total Laps" value={session.total_laps.toString()} />
-          <StatTile
-            label="Best Lap"
-            value={
-              session.best_lap_ms ? formatLapTime(session.best_lap_ms) : "\u2014"
-            }
-            accent
-          />
+          <div className="bg-rp-red/10 border border-rp-red/20 rounded-xl p-4">
+            <p className="text-xs text-rp-grey mb-1">Best Lap</p>
+            <p className="text-lg font-bold text-white font-mono">
+              {session.best_lap_ms
+                ? formatLapTime(session.best_lap_ms)
+                : "\u2014"}
+            </p>
+          </div>
           <StatTile
             label="Avg Lap"
             value={
@@ -551,46 +435,126 @@ export default function SessionDetailPage() {
             value={formatGameName(session.sim_type)}
             small
           />
-          <StatTile
-            label="Top Speed"
-            value="N/A"
-          />
+          <StatTile label="Top Speed" value="N/A" />
         </div>
 
-        {/* ── Session Timeline ──────────────────────────────────────── */}
-        {events.length > 0 && (
-          <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
-            <h2 className="text-sm font-medium text-rp-grey mb-3">Session Timeline</h2>
-            <div className="relative">
-              {/* Vertical line */}
-              <div className="absolute left-3 top-2 bottom-2 w-px bg-rp-border" />
-              <div className="space-y-3">
-                {events.map((event) => (
-                  <div key={event.id} className="flex items-start gap-3 relative">
-                    <div className="w-6 h-6 flex items-center justify-center text-xs z-10 bg-rp-card">
-                      {eventIcon(event.event_type)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm">
-                        {eventLabels[event.event_type] || event.event_type.replace(/_/g, " ")}
+        {/* ── 6. Share Button ───────────────────────────────────────────── */}
+        {session.status === "completed" && laps.length > 0 && (
+          <button
+            onClick={handleShare}
+            disabled={shareLoading}
+            className="w-full bg-rp-red hover:bg-rp-red/90 text-white font-semibold py-3 rounded-xl mb-4 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className="w-5 h-5"
+            >
+              <path
+                d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {shareLoading ? "Loading..." : "Share Session Report"}
+          </button>
+        )}
+
+        {/* ── 7. Share Card Modal ───────────────────────────────────────── */}
+        {showShare && shareReport && (
+          <div className="bg-rp-card border border-rp-red/30 rounded-xl p-5 mb-4">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-white font-bold text-lg">Session Report</h3>
+              <button
+                onClick={() => setShowShare(false)}
+                className="text-rp-grey hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  className="w-5 h-5"
+                >
+                  <path
+                    d="M18 6L6 18M6 6l12 12"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {shareReport.percentile_text && (
+                <div className="bg-rp-red/10 border border-rp-red/20 rounded-lg p-3 text-center">
+                  <p className="text-rp-red font-bold text-lg">
+                    {shareReport.percentile_text}
+                  </p>
+                </div>
+              )}
+
+              {shareReport.is_new_pb && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-center">
+                  <p className="text-yellow-400 font-bold">
+                    NEW PERSONAL BEST!
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-[#1A1A1A] rounded-lg p-3">
+                  <p className="text-rp-grey text-xs">Best Lap</p>
+                  <p className="text-white font-mono font-bold">
+                    {shareReport.best_lap_display || "\u2014"}
+                  </p>
+                </div>
+                <div className="bg-[#1A1A1A] rounded-lg p-3">
+                  <p className="text-rp-grey text-xs">Total Laps</p>
+                  <p className="text-white font-bold">{shareReport.total_laps}</p>
+                </div>
+                {shareReport.improvement_ms &&
+                  shareReport.improvement_ms > 0 && (
+                    <div className="bg-[#1A1A1A] rounded-lg p-3">
+                      <p className="text-rp-grey text-xs">Improved By</p>
+                      <p className="text-emerald-400 font-mono font-bold">
+                        -{formatLapTime(shareReport.improvement_ms)}
                       </p>
-                      <p className="text-rp-grey text-xs">
-                        {formatDate(event.created_at)}
-                        {event.driving_seconds_at_event > 0 && (
-                          <span className="ml-2">
-                            ({formatDuration(event.driving_seconds_at_event)} driving)
-                          </span>
-                        )}
-                      </p>
                     </div>
+                  )}
+                {shareReport.consistency && (
+                  <div className="bg-[#1A1A1A] rounded-lg p-3">
+                    <p className="text-rp-grey text-xs">Consistency</p>
+                    <p className="text-white font-bold">
+                      {shareReport.consistency.rating}
+                    </p>
                   </div>
-                ))}
+                )}
               </div>
+
+              {shareReport.track_record && (
+                <div className="bg-[#1A1A1A] rounded-lg p-3">
+                  <p className="text-rp-grey text-xs mb-1">Track Record</p>
+                  <p className="text-white text-sm">
+                    {formatLapTime(shareReport.track_record.time_ms)} by{" "}
+                    {shareReport.track_record.holder}
+                    {shareReport.track_record.gap_ms != null &&
+                      shareReport.track_record.gap_ms > 0 && (
+                        <span className="text-rp-grey text-xs ml-2">
+                          (+{formatLapTime(shareReport.track_record.gap_ms)}{" "}
+                          gap)
+                        </span>
+                      )}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* ── 4. Telemetry Chart (CSS bar chart) ────────────────────────── */}
+        {/* ── 8. Lap Times Chart ────────────────────────────────────────── */}
         {validLaps.length > 0 && (
           <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
             <h2 className="text-sm font-medium text-rp-grey mb-3">
@@ -661,7 +625,7 @@ export default function SessionDetailPage() {
           </div>
         )}
 
-        {/* ── 5. Lap-by-Lap Table ───────────────────────────────────────── */}
+        {/* ── 9. Lap-by-Lap Table ───────────────────────────────────────── */}
         {laps.length > 0 && (
           <div className="bg-rp-card border border-rp-border rounded-xl overflow-hidden mb-4">
             <div className="px-4 py-3 border-b border-rp-border">
@@ -735,10 +699,184 @@ export default function SessionDetailPage() {
         {/* No laps placeholder */}
         {laps.length === 0 && (
           <div className="bg-rp-card border border-rp-border rounded-xl p-6 mb-4 text-center">
-            <p className="text-rp-grey text-sm">No lap data for this session</p>
+            <p className="text-rp-grey text-sm">No lap data yet</p>
             <p className="text-rp-grey text-xs mt-1">
-              Lap times are recorded during sim racing gameplay
+              Lap times will appear once you complete your session.
             </p>
+          </div>
+        )}
+
+        {/* ── 10. Multiplayer Race Results ───────────────────────────────── */}
+        {mpResults.length > 0 && (
+          <div className="bg-rp-card border border-rp-border rounded-xl overflow-hidden mb-4">
+            <div className="px-4 py-3 border-b border-rp-border flex items-center gap-2">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                className="w-4 h-4 text-yellow-400"
+              >
+                <path
+                  d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <h2 className="text-sm font-medium text-white">Race Results</h2>
+              <span className="text-rp-grey text-xs ml-auto">Multiplayer</span>
+            </div>
+            <div>
+              {mpResults.map((result) => {
+                const isMe = result.driver_id === myDriverId;
+                const posColor =
+                  result.position === 1
+                    ? "text-yellow-400"
+                    : result.position === 2
+                    ? "text-neutral-300"
+                    : result.position === 3
+                    ? "text-amber-600"
+                    : "text-neutral-500";
+                return (
+                  <div
+                    key={result.driver_id}
+                    className={`px-4 py-3 border-b border-rp-border/50 last:border-b-0 flex items-center gap-3 ${
+                      isMe ? "bg-rp-red/5" : ""
+                    }`}
+                  >
+                    {/* Position */}
+                    <span
+                      className={`text-lg font-bold w-8 text-center ${posColor}`}
+                    >
+                      #{result.position}
+                    </span>
+
+                    {/* Driver info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-medium text-sm truncate">
+                        {result.driver_name}
+                        {isMe && (
+                          <span className="ml-1 text-xs text-rp-red">
+                            (You)
+                          </span>
+                        )}
+                        {result.position === 1 && (
+                          <span className="ml-1 text-yellow-400 text-xs">
+                            Winner
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-rp-grey text-xs">
+                        {result.laps_completed} lap
+                        {result.laps_completed !== 1 ? "s" : ""}
+                        {result.dnf ? (
+                          <span className="ml-2 text-red-400 font-medium">
+                            DNF
+                          </span>
+                        ) : result.total_time_ms ? (
+                          <span className="ml-2 text-neutral-400">
+                            Total: {formatLapTime(result.total_time_ms)}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+
+                    {/* Best lap */}
+                    <div className="text-right">
+                      {result.best_lap_ms ? (
+                        <p className="text-neutral-300 font-mono text-sm">
+                          {formatLapTime(result.best_lap_ms)}
+                        </p>
+                      ) : (
+                        <p className="text-neutral-500 text-xs">No time</p>
+                      )}
+                      <p className="text-rp-grey text-[10px]">Best lap</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── 11. Receipt / Billing Info ──────────────────────────────────── */}
+        <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
+          <h2 className="text-sm font-medium text-rp-grey mb-3">Receipt</h2>
+          <div className="space-y-2">
+            <ReceiptRow
+              label="Plan"
+              value={session.pricing_tier_name || "\u2014"}
+            />
+            {session.discount_paise && session.discount_paise > 0 ? (
+              <>
+                <ReceiptRow
+                  label="Original"
+                  value={formatCredits(session.original_price_paise || session.price_paise)}
+                />
+                <ReceiptRow
+                  label={`Discount${session.discount_reason ? ` (${session.discount_reason})` : ''}`}
+                  value={`-${formatCredits(session.discount_paise)}`}
+                  accent="green"
+                />
+              </>
+            ) : null}
+            <ReceiptRow
+              label="Charged"
+              value={formatCredits(session.wallet_debit_paise)}
+            />
+            {session.refund_paise && session.refund_paise > 0 ? (
+              <ReceiptRow
+                label="Refund"
+                value={`+${formatCredits(session.refund_paise)}`}
+                accent="green"
+              />
+            ) : null}
+            <div className="border-t border-rp-border pt-2 mt-2">
+              <ReceiptRow
+                label="Net Cost"
+                value={formatCredits(netCharged > 0 ? netCharged : session.price_paise)}
+                bold
+              />
+            </div>
+            {session.ended_at && (
+              <ReceiptRow
+                label="Ended"
+                value={formatDate(session.ended_at)}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* ── 12. Session Timeline ──────────────────────────────────────── */}
+        {events.length > 0 && (
+          <div className="bg-rp-card border border-rp-border rounded-xl p-4 mb-4">
+            <h2 className="text-sm font-medium text-rp-grey mb-3">Session Timeline</h2>
+            <div className="relative">
+              {/* Vertical line */}
+              <div className="absolute left-3 top-2 bottom-2 w-px bg-rp-border" />
+              <div className="space-y-3">
+                {events.map((event) => (
+                  <div key={event.id} className="flex items-start gap-3 relative">
+                    <div className="w-6 h-6 flex items-center justify-center text-xs z-10 bg-rp-card">
+                      {eventIcon(event.event_type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm">
+                        {eventLabels[event.event_type] || event.event_type.replace(/_/g, " ")}
+                      </p>
+                      <p className="text-rp-grey text-xs">
+                        {formatDate(event.created_at)}
+                        {event.driving_seconds_at_event > 0 && (
+                          <span className="ml-2">
+                            ({formatDuration(event.driving_seconds_at_event)} driving)
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
