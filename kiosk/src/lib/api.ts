@@ -359,6 +359,10 @@ export const api = {
   disablePod: (id: string) =>
     fetchApi<{ ok: boolean }>(`/pods/${id}/disable`, { method: "POST" }),
 
+  // Maintenance
+  clearMaintenance: (podId: string) =>
+    fetchApi<{ ok: boolean; pod_id: string }>(`/pods/${podId}/clear-maintenance`, { method: "POST" }),
+
   // Kiosk Pod Launch Experience
   podLaunchExperience: (pod_id: string, experience_id: string) =>
     fetchApi<{ ok: boolean; billing_session_id?: string }>("/kiosk/pod-launch-experience", {

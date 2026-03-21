@@ -375,6 +375,8 @@ export interface PodFleetStatus {
   pod_id: string | null;
   ws_connected: boolean;
   http_reachable: boolean;
+  in_maintenance: boolean;
+  maintenance_failures: string[];
   version: string | null;
   uptime_secs: number | null;
   crash_recovery: boolean | null;
