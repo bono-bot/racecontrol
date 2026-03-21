@@ -384,6 +384,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 09:44 IST | James | 89325ed | docs(97-02): complete pre_flight.rs + ws_handler gate plan |
 | 2026-03-21 10:15 IST | James | 9bb4f92 | docs(98): research phase — MaintenanceRequired lock screen + display checks (PF-04, PF-05, PF-06, DISP-01, DISP-02) |
 | 2026-03-21 10:05 IST | James | 0dedde2 | test(98-01): add failing tests for MaintenanceRequired lock screen variant (TDD RED) |
+| 2026-03-21 10:20 IST | James | 41c952a | feat(98-02): DISP-01 HTTP probe (127.0.0.1:18923) + DISP-02 GetWindowRect (Chrome_WidgetWin_1) in pre_flight.rs — 5 concurrent checks, 4 new tests (DISP-01, DISP-02) |
+| 2026-03-21 10:22 IST | James | 5ac39ee | feat(98-02): 30-second maintenance retry loop in event_loop.rs — auto-clears in_maintenance on Pass, sends PreFlightPassed, refreshes screen on failure (PF-06) |
+| 2026-03-21 10:25 IST | James | 5393770 | docs(98-02): complete display checks + maintenance retry plan — 98-02-SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md |
 | 2026-03-21 10:10 IST | James | 6ba5372 | feat(98-01): MaintenanceRequired LockScreenState variant + show/is methods + render fn + health/idle updates (PF-04, PF-05) |
 | 2026-03-21 10:15 IST | James | cb79088 | feat(98-01): in_maintenance AtomicBool on AppState + ClearMaintenance handler in ws_handler |
 | 2026-03-21 10:17 IST | James | 11390d5 | docs(98-01): complete plan — 98-01-SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md |
