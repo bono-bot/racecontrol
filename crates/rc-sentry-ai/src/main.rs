@@ -61,7 +61,17 @@ async fn main() -> anyhow::Result<()> {
         start_time: std::time::Instant::now(),
     });
 
-    let app = health::health_router(state);
+    // Spawn retention purge task (hourly)
+    {
+        let audit = audit_writer.clone();
+        let retention_days = config.privacy.retention_days;
+        tokio::spawn(async move {
+            privacy::retention::retention_purge_task(retention_days, audit).await;
+        });
+    }
+
+    let app = health::health_router(state)
+        .merge(health::privacy_router(audit_writer.clone()));
     let addr = format!("{}:{}", config.service.host, config.service.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("rc-sentry-ai health endpoint listening on {addr}");

@@ -84,6 +84,21 @@ async fn health_handler(State(state): State<SharedState>) -> Json<Value> {
     }))
 }
 
+/// Privacy API routes (separate state: Arc<AuditWriter>).
+pub fn privacy_router(audit: Arc<crate::privacy::audit::AuditWriter>) -> axum::Router {
+    use axum::routing::{delete, get};
+    axum::Router::new()
+        .route(
+            "/api/v1/privacy/consent",
+            get(crate::privacy::consent::consent_notice_handler),
+        )
+        .route(
+            "/api/v1/privacy/person/:person_id",
+            delete(crate::privacy::deletion::delete_person_handler),
+        )
+        .with_state(audit)
+}
+
 async fn cameras_handler(State(state): State<SharedState>) -> Json<Value> {
     let cam_statuses = state.frame_buf.status().await;
 
