@@ -368,3 +368,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:38 IST | Bono | a620a52 | feat(89-01): psychology.rs module skeleton — NotificationChannel, NudgeStatus, MetricType, Operator, BadgeCriteria, parse_criteria_json, evaluate_criteria, 5 async stubs, 13 unit tests passing |
 | 2026-03-21 07:38 IST | Bono | 865e1fb | docs(89-01): 89-01-SUMMARY.md + STATE.md update |
 | 2026-03-21 07:38 IST | Bono | f26032a | docs(89-01): ROADMAP.md phase 89 progress update |
+| 2026-03-21 08:26 IST | James | c4411f7 | feat(79-03): DPDP data export + cascade delete endpoints with 8 tests |
+| 2026-03-21 08:26 IST | James | dfa7742 | docs(79-03): complete DPDP data rights plan -- export + cascade delete |
