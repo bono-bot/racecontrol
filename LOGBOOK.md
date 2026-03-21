@@ -422,3 +422,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 13:52 IST | Bono | 9f109d4 | docs(92-02): 92-02-SUMMARY.md + STATE.md + ROADMAP.md — phase 92 complete |
 | 2026-03-21 14:30 IST | James | b76787b | docs(102): create phase plan — whitelist schema + config + fetch endpoint (GUARD-01,02,03,06) |
 | 2026-03-21 15:10 IST | James | 17750da | feat(102-01): ProcessGuardConfig + AllowedProcess + ProcessGuardOverride structs; 6 TDD tests pass; C:/RacingPoint/racecontrol.toml with 185 global allowed entries + 3 per-machine overrides |
+| 2026-03-21 13:48 IST | James | d88f422 | feat(88-02): add sim_type filtering to all leaderboard endpoints — public, public_track, staff track, bot |
+| 2026-03-21 13:49 IST | James | 42775d9 | docs(88-02): complete leaderboard sim_type filtering plan — SUMMARY.md + STATE.md + ROADMAP.md |
