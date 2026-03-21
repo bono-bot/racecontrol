@@ -237,7 +237,7 @@ Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA 
 
 Embed 12 behavioral psychology frameworks into RacingPoint's existing systems — centralized psychology engine with notification throttling, customer progression (driving passport, badges), peak-end session design, retention loops (streaks, variable rewards), community rituals (Discord), pricing psychology (anchoring, scarcity), staff gamification (opt-in leaderboards, badges, challenges), and HR/hiring enhancements (SJTs, Cialdini campaigns).
 
-- [ ] **Phase 89: Psychology Foundation** - Notification budget, psychology engine module, DB schema, and badge criteria storage
+- [x] **Phase 89: Psychology Foundation** - Notification budget, psychology engine module, DB schema, and badge criteria storage (completed 2026-03-21)
 - [ ] **Phase 90: Customer Progression** - Driving passport with track/car collections, badge system, and profile showcase
 - [ ] **Phase 91: Session Experience** - PB confetti celebrations, peak-end session reports, and real-time PB toasts
 - [ ] **Phase 92: Retention Loops** - Visit streaks, PB-beaten notifications, variable rewards, and loss-framed membership nudges
@@ -1307,7 +1307,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
 | 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
 | 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
-| 89. Psychology Foundation | 2/3 | In Progress|  | - |
+| 89. Psychology Foundation | 3/3 | Complete   | 2026-03-21 | - |
 | 90. Customer Progression | v14.0 | 0/? | Not started | - |
 | 91. Session Experience | v14.0 | 0/? | Not started | - |
 | 92. Retention Loops | v14.0 | 0/? | Not started | - |
