@@ -773,6 +773,10 @@ async fn main() -> Result<()> {
     state.wmi_rx = Some(safe_mode::spawn_wmi_watcher());
     tracing::info!(target: LOG_TARGET, "WMI safe mode watcher spawned");
 
+    // ─── Safe Mode: wire flag into KioskManager and LockScreenManager (SAFE-06) ─
+    state.kiosk.wire_safe_mode(std::sync::Arc::clone(&state.safe_mode_active));
+    state.lock_screen.wire_safe_mode(std::sync::Arc::clone(&state.safe_mode_active));
+
     // ─── Process Guard: spawn background task ───────────────────────────────
     process_guard::spawn(
         state.config.process_guard.clone(),

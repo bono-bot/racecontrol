@@ -432,6 +432,9 @@ pub struct KioskManager {
     pub lockdown: Arc<AtomicBool>,
     pub lockdown_reason: Arc<Mutex<String>>,
     allowed_extra: HashSet<String>,
+    /// SAFE-06: gates GPO registry writes during protected game sessions.
+    /// Wired after AppState construction via wire_safe_mode().
+    safe_mode_active: Arc<AtomicBool>,
 }
 
 impl KioskManager {
@@ -450,7 +453,14 @@ impl KioskManager {
             lockdown: Arc::new(AtomicBool::new(false)),
             lockdown_reason: Arc::new(Mutex::new(String::new())),
             allowed_extra: HashSet::new(),
+            safe_mode_active: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Wire the shared safe mode flag from AppState into this KioskManager.
+    /// Call once after AppState is constructed (main.rs, before the reconnect loop).
+    pub fn wire_safe_mode(&mut self, flag: Arc<AtomicBool>) {
+        self.safe_mode_active = flag;
     }
 
     /// Enable kiosk mode — hides taskbar, starts process watchdog.
@@ -464,7 +474,12 @@ impl KioskManager {
         #[cfg(windows)]
         {
             hide_taskbar(true);
-            apply_gpo_lockdown();
+            // ─── SAFE-06: skip registry write during protected game session ───
+            if !self.safe_mode_active.load(Ordering::Relaxed) {
+                apply_gpo_lockdown();
+            } else {
+                tracing::info!(target: LOG_TARGET, "safe mode active — GPO lockdown registry write deferred");
+            }
         }
     }
 
@@ -479,7 +494,12 @@ impl KioskManager {
         #[cfg(windows)]
         {
             hide_taskbar(false);
-            remove_gpo_lockdown();
+            // ─── SAFE-06: skip registry write during protected game session ───
+            if !self.safe_mode_active.load(Ordering::Relaxed) {
+                remove_gpo_lockdown();
+            } else {
+                tracing::info!(target: LOG_TARGET, "safe mode active — GPO unlockdown registry write deferred");
+            }
         }
     }
 

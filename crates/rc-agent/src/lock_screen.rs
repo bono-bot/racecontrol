@@ -3,6 +3,7 @@
 //! Serves a fullscreen HTML page via a local HTTP server and launches
 //! Edge in kiosk mode to display PIN entry or QR code screens.
 
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -155,6 +156,9 @@ pub struct LockScreenManager {
     /// Optional wallpaper URL for lock screen background (BRAND-02).
     /// When set, renders as CSS background-image on all states except ScreenBlanked.
     wallpaper_url: Arc<Mutex<Option<String>>>,
+    /// SAFE-06: gates Focus Assist registry writes during protected game sessions.
+    /// Wired after AppState construction via wire_safe_mode().
+    safe_mode_active: Arc<AtomicBool>,
 }
 
 impl LockScreenManager {
@@ -166,7 +170,14 @@ impl LockScreenManager {
             #[cfg(windows)]
             browser_process: None,
             wallpaper_url: Arc::new(Mutex::new(None)),
+            safe_mode_active: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Wire the shared safe mode flag from AppState into this LockScreenManager.
+    /// Call once after AppState is constructed (main.rs, before the reconnect loop).
+    pub fn wire_safe_mode(&mut self, flag: Arc<AtomicBool>) {
+        self.safe_mode_active = flag;
     }
 
     /// Set the wallpaper URL for lock screen background (BRAND-02).
@@ -491,7 +502,12 @@ impl LockScreenManager {
             *state = LockScreenState::ScreenBlanked;
         }
         #[cfg(windows)]
-        suppress_notifications(true);
+        // ─── SAFE-06: skip Focus Assist registry write during safe mode ───
+        if !self.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed) {
+            suppress_notifications(true);
+        } else {
+            tracing::info!(target: LOG_TARGET, "safe mode active — Focus Assist registry write deferred");
+        }
         self.launch_browser();
     }
 
@@ -1489,7 +1505,7 @@ mod tests {
 
         // Create manager on that port and confirm it returns quickly
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)) };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) };
 
         let start = std::time::Instant::now();
         manager.wait_for_self_ready().await;
@@ -1501,7 +1517,7 @@ mod tests {
     async fn wait_for_self_ready_timeout() {
         // Do NOT bind port 18922 — let it fail
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)) };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) };
 
         let start = std::time::Instant::now();
         // Should return (not panic) within ~6 seconds
@@ -1536,6 +1552,7 @@ mod tests {
             #[cfg(windows)]
             browser_process: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         assert!(manager.is_idle_or_blanked(), "StartupConnecting must be treated as idle (pod not ready for customers)");
     }
@@ -1857,6 +1874,7 @@ mod tests {
             #[cfg(windows)]
             browser_process: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         assert!(manager.is_idle_or_blanked(), "MaintenanceRequired must be treated as idle (pod not serving customer)");
     }

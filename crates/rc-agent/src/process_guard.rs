@@ -39,7 +39,7 @@ pub fn spawn(
     whitelist: Arc<RwLock<MachineWhitelist>>,
     tx: mpsc::Sender<AgentMessage>,
     machine_id: String,
-    _safe_mode_active: Arc<AtomicBool>, // Plan 02 will wire this into the scan loop
+    safe_mode: Arc<AtomicBool>, // SAFE-04: skip scan when safe mode is active
 ) {
     if !config.enabled {
         tracing::info!(target: LOG_TARGET, "Process guard DISABLED (process_guard.enabled=false)");
@@ -67,6 +67,15 @@ pub fn spawn(
         loop {
             tokio::select! {
                 _ = scan_interval.tick() => {
+                    // ─── SAFE-04: skip scan during safe mode ───────────────────
+                    // Anti-cheat systems flag CreateToolhelp32Snapshot / OpenProcess calls.
+                    // Suspend process scanning entirely while a protected game is running
+                    // or during the 30-second post-exit cooldown window.
+                    if safe_mode.load(std::sync::atomic::Ordering::Relaxed) {
+                        tracing::debug!(target: LOG_TARGET, "safe mode active — scan skipped");
+                        continue;
+                    }
+
                     if let Err(e) =
                         run_scan_cycle(&whitelist, &tx, &machine_id, &mut grace_counts).await
                     {
