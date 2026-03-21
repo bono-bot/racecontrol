@@ -4,6 +4,21 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 98-02-PLAN.md
+last_updated: "2026-03-21T05:01:24.263Z"
+last_activity: "2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified"
+progress:
+  total_phases: 65
+  completed_phases: 38
+  total_plans: 102
+  completed_plans: 97
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 98-02-PLAN.md
 last_updated: "2026-03-21T04:56:25.218Z"
 last_activity: "2026-03-21 -- 98-02 complete: DISP-01 HTTP probe (127.0.0.1:18923) + DISP-02 GetWindowRect (Chrome_WidgetWin_1) in pre_flight.rs (5 concurrent checks) + 30s maintenance retry select! arm in event_loop.rs (PF-06, DISP-01, DISP-02)"
 progress:
