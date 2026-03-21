@@ -2093,7 +2093,7 @@ async fn test_notification_data_before_upsert() {
     assert_eq!(holder.1, 90000);
 
     // Use get_previous_record_holder to verify the data is available before UPSERT
-    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "monza", "ks_ferrari_sf15t").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "monza", "ks_ferrari_sf15t", "assettoCorsa").await;
     assert!(prev.is_some(), "Previous record holder should exist");
     let (prev_time, prev_name, prev_email) = prev.unwrap();
     assert_eq!(prev_time, 90000);
@@ -2192,7 +2192,7 @@ async fn test_notification_skip_no_email() {
     racecontrol_crate::lap_tracker::persist_lap(&state, &lap_c).await;
 
     // Verify get_previous_record_holder returns None email
-    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "spa", "ks_bmw_m3_e30").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "spa", "ks_bmw_m3_e30", "assettoCorsa").await;
     assert!(prev.is_some(), "Record exists for C");
     let (_, _, prev_email) = prev.unwrap();
     assert!(prev_email.is_none(), "Driver C has no email — should be None");
@@ -2259,7 +2259,7 @@ async fn test_notification_first_record_no_notify() {
     ).execute(&pool).await.unwrap();
 
     // No prior record exists — get_previous_record_holder should return None
-    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "nurburgring", "ks_porsche_911_gt3_r").await;
+    let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "nurburgring", "ks_porsche_911_gt3_r", "assettoCorsa").await;
     assert!(prev.is_none(), "No previous record should exist on fresh track");
 
     // Driver E sets the first record
