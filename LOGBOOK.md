@@ -364,3 +364,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:21 IST | James | fa8a0be | feat(70-02): add COMMAND_REGISTRY entries (export_failover_sessions, notify_failback) + HealthMonitor server_recovery event (down->healthy guard) |
 | 2026-03-21 07:21 IST | James | e1826d5 | feat(70-02): FailoverOrchestrator.initiateFailback() 9-step sequence + #httpGet helper + failoverStartedAt tracking + james/index.js server_recovery wiring |
 | 2026-03-21 07:21 IST | James | 6effd53 | docs(70-02): 70-02-SUMMARY.md + STATE.md + ROADMAP.md updates |
+| 2026-03-21 13:15 IST | James | c06c6f9 | feat(70-01): add POST /api/v1/sync/import-sessions with INSERT OR IGNORE for lossless billing session failback (BACK-02) |
+| 2026-03-21 13:30 IST | James | efe1099 | docs(70-01): 70-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
