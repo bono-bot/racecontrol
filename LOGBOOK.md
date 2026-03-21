@@ -476,3 +476,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 20:52 IST | James | 0921d5c | feat(109-01): create safe_mode.rs module — SafeMode struct, WMI watcher, startup scan, 21 tests passing |
 | 2026-03-21 20:53 IST | James | ebe1020 | feat(109-01): integrate safe_mode into AppState and main.rs — 5 new fields, startup detection, WMI spawn, process_guard stub |
 | 2026-03-21 20:54 IST | James | a2e2f22 | docs(109-01): complete safe mode state machine foundation — SUMMARY, STATE, ROADMAP, REQUIREMENTS (SAFE-01/02/03 closed) |
+| 2026-03-21 20:41 IST | James | d79a9b0 | feat(112-02): create rc-sentry-ai crate scaffold — config, frame buffer, TOML parsing for 3 cameras |
+| 2026-03-21 20:41 IST | James | a614213 | feat(112-02): per-camera retina RTSP stream extraction — reconnect loops, H.264 NAL frames, rate limiting |
+| 2026-03-21 20:41 IST | James | 79e87de | docs(112-02): complete rc-sentry-ai crate plan — SUMMARY, STATE, ROADMAP updated |
