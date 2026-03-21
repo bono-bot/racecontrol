@@ -365,6 +365,9 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:21 IST | James | e1826d5 | feat(70-02): FailoverOrchestrator.initiateFailback() 9-step sequence + #httpGet helper + failoverStartedAt tracking + james/index.js server_recovery wiring |
 | 2026-03-21 07:21 IST | James | 6effd53 | docs(70-02): 70-02-SUMMARY.md + STATE.md + ROADMAP.md updates |
 | 2026-03-21 07:38 IST | Bono | 9d95a18 | feat(89-01): 7 psychology tables (achievements, driver_achievements, streaks, driving_passport, nudge_queue, staff_badges, staff_challenges) + 8 indexes added to db/mod.rs migration |
+| 2026-03-21 13:27 IST | James | 8ab3775 | feat(88-01): track name normalization + sim_type-scoped PB/TR schema — TRACK_NAME_MAP 28 cross-game mappings, personal_bests/track_records PK extended to include sim_type, migrate_leaderboard_sim_type() idempotent migration |
+| 2026-03-21 13:38 IST | James | c754a9c | feat(88-01): wire track normalization and sim_type scoping into persist_lap — normalized_track through all DB writes, PB/TR queries sim_type-scoped, get_previous_record_holder gains sim_type param |
+| 2026-03-21 13:38 IST | James | 91bc7b9 | docs(88-01): 88-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
 | 2026-03-21 07:38 IST | Bono | a620a52 | feat(89-01): psychology.rs module skeleton — NotificationChannel, NudgeStatus, MetricType, Operator, BadgeCriteria, parse_criteria_json, evaluate_criteria, 5 async stubs, 13 unit tests passing |
 | 2026-03-21 07:38 IST | Bono | 865e1fb | docs(89-01): 89-01-SUMMARY.md + STATE.md update |
 | 2026-03-21 07:38 IST | Bono | f26032a | docs(89-01): ROADMAP.md phase 89 progress update |
