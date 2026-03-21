@@ -654,6 +654,16 @@ pub enum DashboardEvent {
         driver_name: String,
         request_id: String,
     },
+
+    /// Personal best achieved during a session (broadcast for real-time PWA notification)
+    PbAchieved {
+        driver_id: String,
+        session_id: String,
+        track: String,
+        car: String,
+        lap_time_ms: i64,
+        lap_id: String,
+    },
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)

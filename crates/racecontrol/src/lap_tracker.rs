@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 
+use rc_common::protocol::DashboardEvent;
 use rc_common::types::LapData;
 use sqlx::SqlitePool;
 
@@ -155,6 +156,16 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
             "New personal best for driver {} on {}/{}: {}ms",
             lap.driver_id, lap.track, lap.car, lap.lap_time_ms
         );
+
+        // Broadcast PB event for real-time PWA notification
+        let _ = state.dashboard_tx.send(DashboardEvent::PbAchieved {
+            driver_id: lap.driver_id.clone(),
+            session_id: lap.session_id.clone(),
+            track: lap.track.clone(),
+            car: lap.car.clone(),
+            lap_time_ms: lap.lap_time_ms as i64,
+            lap_id: lap.id.clone(),
+        });
     }
 
     // 3. Check and update track record for this track+car

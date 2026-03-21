@@ -148,6 +148,8 @@ fn customer_routes() -> Router<Arc<AppState>> {
         // Driving Passport (PWA)
         .route("/customer/passport", get(customer_passport))
         .route("/customer/badges", get(customer_badges))
+        // Active session PB events (PWA polling)
+        .route("/customer/active-session/events", get(customer_active_session_events))
 }
 
 // ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
@@ -4440,6 +4442,47 @@ async fn customer_sessions(
     }
 }
 
+/// Compute percentile ranking for a best lap on a track+car combination.
+/// Returns None if fewer than 5 unique drivers have driven this track+car,
+/// or if track/car is empty.
+async fn compute_percentile(db: &sqlx::SqlitePool, best_lap_ms: i64, track: &str, car: &str) -> Option<u32> {
+    if track.is_empty() || car.is_empty() {
+        return None;
+    }
+
+    let total_count: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(DISTINCT driver_id) FROM laps WHERE track = ? AND car = ? AND valid = 1",
+    )
+    .bind(track)
+    .bind(car)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    let faster_count: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(DISTINCT driver_id) FROM (
+            SELECT driver_id, MIN(lap_time_ms) as best
+            FROM laps WHERE track = ? AND car = ? AND valid = 1
+            GROUP BY driver_id
+        ) WHERE best < ?",
+    )
+    .bind(track)
+    .bind(car)
+    .bind(best_lap_ms)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    match (total_count, faster_count) {
+        (Some((total,)), Some((faster,))) if total >= 5 => {
+            Some(((total - faster) as f64 / total as f64 * 100.0).round() as u32)
+        }
+        _ => None,
+    }
+}
+
 async fn customer_session_detail(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -4524,6 +4567,75 @@ async fn customer_session_detail(
         None
     };
 
+    // Determine track and car from laps or session fields
+    let track = laps.first().map(|l| l.7.clone()).unwrap_or_else(|| session.12.clone().unwrap_or_default());
+    let car = laps.first().map(|l| l.8.clone()).unwrap_or_else(|| session.11.clone().unwrap_or_default());
+
+    // Percentile ranking (shared function, >= 5 driver threshold)
+    let percentile = if let Some(best) = best_lap_ms {
+        compute_percentile(&state.db, best, &track, &car).await
+    } else {
+        None
+    };
+
+    // Personal best for this track+car
+    let personal_best: Option<(i64,)> = if !track.is_empty() && !car.is_empty() {
+        sqlx::query_as(
+            "SELECT best_lap_ms FROM personal_bests WHERE driver_id = ? AND track = ? AND car = ?",
+        )
+        .bind(&driver_id)
+        .bind(&track)
+        .bind(&car)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+    } else {
+        None
+    };
+
+    // is_new_pb: true if this session's best lap IS the current personal best
+    let is_new_pb = personal_best.map(|pb| best_lap_ms == Some(pb.0)).unwrap_or(false);
+
+    // improvement_ms: how much faster this session's best was vs the previous PB
+    // Only meaningful if is_new_pb; look for a second-best time (prior PB) excluding this session
+    let improvement_ms: Option<i64> = if is_new_pb {
+        if let Some(best) = best_lap_ms {
+            let prev: Option<(i64,)> = sqlx::query_as(
+                "SELECT MIN(lap_time_ms) FROM laps
+                 WHERE driver_id = ? AND track = ? AND car = ? AND valid = 1
+                 AND lap_time_ms > ? AND session_id != ?",
+            )
+            .bind(&driver_id)
+            .bind(&track)
+            .bind(&car)
+            .bind(best)
+            .bind(&id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+            prev.map(|p| p.0 - best)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Peak moment: lap number of the best lap in this session
+    let peak_lap_number = valid_laps.iter().min_by_key(|l| l.2).map(|l| l.1);
+
+    // group_session_id for this billing session
+    let group_session_id_val: Option<String> = sqlx::query_scalar(
+        "SELECT group_session_id FROM billing_sessions WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
     let laps_json: Vec<Value> = laps
         .iter()
         .map(|l| {
@@ -4589,9 +4701,73 @@ async fn customer_session_detail(
             "total_laps": total_laps,
             "best_lap_ms": best_lap_ms,
             "average_lap_ms": avg_lap_ms,
+            "percentile_rank": percentile,
+            "percentile_text": percentile.map(|p| format!("Faster than {}% of drivers", p)),
+            "is_new_pb": is_new_pb,
+            "personal_best_ms": personal_best.map(|pb| pb.0),
+            "improvement_ms": improvement_ms,
+            "peak_lap_number": peak_lap_number,
+            "group_session_id": group_session_id_val,
         },
         "laps": laps_json,
         "events": events_json,
+    }))
+}
+
+/// Polling endpoint for active session PB events.
+/// Returns PB events since a given timestamp for the customer's active billing session.
+/// PWA calls this every 5 seconds during active sessions.
+async fn customer_active_session_events(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => return Json(json!({ "error": e })),
+    };
+
+    // Find active billing session for this driver
+    let active_session: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM billing_sessions WHERE driver_id = ? AND status = 'active' LIMIT 1",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let session_id = match active_session {
+        Some((id,)) => id,
+        None => return Json(json!({ "events": [] })),
+    };
+
+    let since = params.get("since").cloned().unwrap_or_default();
+
+    // Query laps that are PBs since the given timestamp
+    let pb_laps = sqlx::query_as::<_, (String, i64, String, String, String)>(
+        "SELECT l.id, l.lap_time_ms, l.track, l.car, l.created_at
+         FROM laps l
+         JOIN personal_bests pb ON l.id = pb.lap_id
+         WHERE l.session_id = ? AND l.driver_id = ? AND l.created_at > ?
+         ORDER BY l.created_at ASC",
+    )
+    .bind(&session_id)
+    .bind(&driver_id)
+    .bind(&since)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    Json(json!({
+        "events": pb_laps.iter().map(|l| json!({
+            "type": "pb",
+            "lap_id": l.0,
+            "lap_time_ms": l.1,
+            "track": l.2,
+            "car": l.3,
+            "at": l.4,
+        })).collect::<Vec<_>>()
     }))
 }
 
@@ -8660,41 +8836,7 @@ async fn customer_session_share(
 
     // Percentile ranking: how does this best lap compare to all laps on this track+car?
     let percentile = if let Some(best) = best_lap_ms {
-        if !track.is_empty() && !car.is_empty() {
-            let total_count: Option<(i64,)> = sqlx::query_as(
-                "SELECT COUNT(DISTINCT driver_id) FROM laps WHERE track = ? AND car = ? AND valid = 1",
-            )
-            .bind(&track)
-            .bind(&car)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-
-            let faster_count: Option<(i64,)> = sqlx::query_as(
-                "SELECT COUNT(DISTINCT driver_id) FROM (
-                    SELECT driver_id, MIN(lap_time_ms) as best
-                    FROM laps WHERE track = ? AND car = ? AND valid = 1
-                    GROUP BY driver_id
-                ) WHERE best < ?",
-            )
-            .bind(&track)
-            .bind(&car)
-            .bind(best)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-
-            match (total_count, faster_count) {
-                (Some((total,)), Some((faster,))) if total > 1 => {
-                    Some(((total - faster) as f64 / total as f64 * 100.0).round() as u32)
-                }
-                _ => None,
-            }
-        } else {
-            None
-        }
+        compute_percentile(&state.db, best, &track, &car).await
     } else {
         None
     };
