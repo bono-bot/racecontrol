@@ -26,6 +26,7 @@ pub mod game_launcher;
 pub mod multiplayer;
 pub mod network_source;
 pub mod port_allocator;
+pub mod process_guard;
 pub mod lap_tracker;
 pub mod pod_healer;
 pub mod pod_monitor;
