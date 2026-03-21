@@ -460,3 +460,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 IST | James | 8663a45 | feat(105-01): add parse_netstat_listening + run_port_audit with TDD — IPv4/IPv6, kill+fallback, 6 tests |
 | 2026-03-21 IST | James | 53f4551 | feat(105-01): add parse_schtasks_csv + run_schtasks_audit with TDD — Microsoft skip, disable action, 5 tests |
 | 2026-03-21 IST | James | f486cd0 | docs(105-01): complete port audit + schtasks audit plan — PORT-01, PORT-02, AUTO-03 closed |
+| 2026-03-21 17:11 IST | James | 50d144e | chore(105-03): scaffold rc-process-guard crate + add to workspace — sysinfo 0.33, reqwest 0.12, walkdir 2 |
+| 2026-03-21 17:11 IST | James | 01f44eb | test(105-03): TDD RED — failing tests for is_james_self_excluded, is_james_critical, parse helpers |
+| 2026-03-21 17:46 IST | James | e83b33e | feat(105-03): rc-process-guard standalone binary — 10 tests pass, 4.0MB static CRT, HTTP POST violations |
+| 2026-03-21 17:46 IST | James | 93c6f1c | docs(105-03): complete rc-process-guard plan — DEPLOY-03 closed, STATE/ROADMAP updated |
