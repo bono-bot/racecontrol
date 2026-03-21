@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 70-02-PLAN.md
-last_updated: "2026-03-21T01:54:34.440Z"
-last_activity: "2026-03-21 -- 74-03 complete: ws_handler.rs extracted with handle_ws_message() dispatching 22 CoreToAgentMessage variants; select! ws_rx arm reduced to 27-line delegation; main.rs down from 3009 to 2037 lines (DECOMP-03)"
+stopped_at: Completed 70-01-PLAN.md
+last_updated: "2026-03-21T01:58:22.999Z"
+last_activity: "2026-03-21 -- 70-02 complete: HealthMonitor server_recovery event (down->healthy guard) + FailoverOrchestrator 9-step initiateFailback() + export_failover_sessions + notify_failback COMMAND_REGISTRY entries + james/index.js server_recovery wiring (BACK-01, BACK-03, BACK-04)"
 progress:
-  total_phases: 53
-  completed_phases: 28
+  total_phases: 61
+  completed_phases: 29
   total_plans: 85
-  completed_plans: 77
+  completed_plans: 78
 ---
 
 ---
@@ -200,9 +200,9 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 Phase: 74 of 81 (rc-agent-decomposition)
 Plan: 03 of 04 complete
 Status: In Progress
-Last activity: 2026-03-21 -- 70-02 complete: HealthMonitor server_recovery event (down->healthy guard) + FailoverOrchestrator 9-step initiateFailback() + export_failover_sessions + notify_failback COMMAND_REGISTRY entries + james/index.js server_recovery wiring (BACK-01, BACK-03, BACK-04)
+Last activity: 2026-03-21 -- 70-01 complete: POST /api/v1/sync/import-sessions with INSERT OR IGNORE for lossless billing session failback (BACK-02)
 
-Progress: [██████████] 93% (75/81 plans complete)
+Progress: [█████████░] 92% (78/85 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -287,6 +287,7 @@ Progress: [██████████] 93% (75/81 plans complete)
 - 81-01: pwa_game_request uses extract_driver_id() in-handler (customer JWT); validates pod in state.pods + installed_games; fire-and-forget broadcast; no AppState mutation (LAUNCH-05 complete)
 - 70-02: server_recovery uses prev === 'down' guard -- prevents spurious failback on degraded->healthy; only full outage recovery triggers failback sequence (BACK-01, BACK-03, BACK-04 complete)
 - 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
+- 70-01: INSERT OR IGNORE (not ON CONFLICT DO UPDATE) for import_sessions -- failback must never overwrite locally-confirmed billing records; end_reason omitted per sync_push precedent; terminal_secret != comparison (no subtle crate) consistent with all service routes (BACK-02 complete)
 
 ### Blockers/Concerns
 
@@ -309,7 +310,7 @@ Progress: [██████████] 93% (75/81 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:54:34.434Z
-Stopped at: Completed 70-02-PLAN.md
+Last session: 2026-03-21T01:58:22.988Z
+Stopped at: Completed 70-01-PLAN.md
 Resume file: None
 Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)
