@@ -25,10 +25,10 @@
 
 ### Auto-Start Enforcement
 
-- [ ] **AUTO-01**: HKCU/HKLM Run key audit — enumerate all values, flag non-whitelisted entries
-- [ ] **AUTO-02**: Startup folder audit — scan `%AppData%\...\Startup` for non-whitelisted shortcuts
+- [x] **AUTO-01**: HKCU/HKLM Run key audit — enumerate all values, flag non-whitelisted entries
+- [x] **AUTO-02**: Startup folder audit — scan `%AppData%\...\Startup` for non-whitelisted shortcuts
 - [ ] **AUTO-03**: Scheduled Task audit — `schtasks /query` parse, flag non-whitelisted tasks
-- [ ] **AUTO-04**: Three-stage enforcement progression: LOG → ALERT → REMOVE (configurable per entry)
+- [x] **AUTO-04**: Three-stage enforcement progression: LOG → ALERT → REMOVE (configurable per entry)
 
 ### Port Enforcement
 
@@ -83,10 +83,10 @@ Deferred to future release.
 | PROC-03 | Phase 103 | Complete (103-02) |
 | PROC-04 | Phase 103 | Complete (103-02) |
 | PROC-05 | Phase 103 | Complete (103-02) |
-| AUTO-01 | Phase 103 | Pending |
-| AUTO-02 | Phase 103 | Pending |
+| AUTO-01 | Phase 103 | Complete (103-03) |
+| AUTO-02 | Phase 103 | Complete (103-03) |
 | AUTO-03 | Phase 105 | Pending |
-| AUTO-04 | Phase 103 | Pending |
+| AUTO-04 | Phase 103 | Complete (103-03) |
 | PORT-01 | Phase 105 | Pending |
 | PORT-02 | Phase 105 | Pending |
 | ALERT-01 | Phase 103 | Complete (103-02) |
@@ -94,7 +94,7 @@ Deferred to future release.
 | ALERT-03 | Phase 104 | Pending |
 | ALERT-04 | Phase 103 | Complete (103-02) |
 | ALERT-05 | Phase 104 | Pending |
-| DEPLOY-01 | Phase 103 | In progress (103-01) |
+| DEPLOY-01 | Phase 103 | Complete (103-03) |
 | DEPLOY-02 | Phase 104 | Pending |
 | DEPLOY-03 | Phase 105 | Pending |
 

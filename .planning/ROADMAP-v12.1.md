@@ -10,7 +10,7 @@ Five phases converting the deny-by-default whitelist concept into a running enfo
 
 - [ ] **Phase 101: Protocol Foundation** - New rc-common types and AgentMessage variants that rc-agent and racecontrol depend on at compile time
 - [ ] **Phase 102: Whitelist Schema + Config + Fetch Endpoint** - Central whitelist in racecontrol.toml with per-machine overrides and the HTTP endpoint pods use to fetch their merged whitelist
-- [ ] **Phase 103: Pod Guard Module** - rc-agent process_guard.rs covering process scan, auto-kill, Run key and Startup folder audit, audit log, and fleet reporting
+- [x] **Phase 103: Pod Guard Module** - rc-agent process_guard.rs covering process scan, auto-kill, Run key and Startup folder audit, audit log, and fleet reporting
 - [ ] **Phase 104: Server Guard Module + Alerts** - racecontrol process_guard.rs receiving violations, kiosk notification badge, email escalation, and fleet health integration
 - [ ] **Phase 105: Port Audit + Scheduled Tasks + James Binary** - Listening port enforcement, scheduled task audit, and standalone rc-process-guard binary for James workstation
 
@@ -58,7 +58,7 @@ Plans:
 Plans:
 - [x] 103-01-PLAN.md — ProcessGuardConfig in config.rs + walkdir dep + guard_whitelist/guard_violation_tx/rx fields in AppState and main.rs
 - [x] 103-02-PLAN.md — core process_guard.rs module: scan loop, grace period, taskkill, PID identity, CRITICAL zero-grace, log rotation, AgentMessage::ProcessViolation dispatch
-- [ ] 103-03-PLAN.md — autostart audit (Run keys + Startup folder) added to process_guard.rs + whitelist fetch on WS connect in main.rs + guard_violation_rx drain in event_loop.rs + UpdateProcessWhitelist handler in ws_handler.rs
+- [x] 103-03-PLAN.md — autostart audit (Run keys + Startup folder) added to process_guard.rs + whitelist fetch on WS connect in main.rs + guard_violation_rx drain in event_loop.rs + UpdateProcessWhitelist handler in ws_handler.rs
 
 ### Phase 104: Server Guard Module + Alerts
 **Goal**: The racecontrol server receives all pod violations, displays an active-violation badge on the staff kiosk, escalates repeat offenders to email, and surfaces violation counts in the fleet health endpoint

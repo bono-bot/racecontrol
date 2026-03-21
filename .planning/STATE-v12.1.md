@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 103 of 105 (Pod Guard Module) — IN PROGRESS
-Plan: 2 of 3 complete
-Status: Phase 103 Plan 02 complete — process_guard.rs scanner with spawn_blocking sysinfo, grace period, PID-verified kill, 512KB log rotation
-Last activity: 2026-03-21 — Phase 103 Plan 02 executed: core process scanning daemon
+Phase: 103 of 105 (Pod Guard Module) — COMPLETE
+Plan: 3 of 3 complete
+Status: Phase 103 complete — autostart audit + whitelist fetch + spawn wiring + WS drain + UpdateProcessWhitelist handler
+Last activity: 2026-03-21 — Phase 103 Plan 03 executed: process guard wired into live rc-agent
 
-Progress: [█████░░░░░] 55%
+Progress: [██████░░░░] 65%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 27 min
-- Total execution time: 1.8 hours
+- Total plans completed: 5
+- Average duration: 22 min
+- Total execution time: 1.9 hours
 
 **By Phase:**
 
@@ -29,7 +29,7 @@ Progress: [█████░░░░░] 55%
 |-------|-------|-------|----------|
 | 101-protocol-foundation | 1 | 35 min | 35 min |
 | 102-whitelist-schema-config-fetch-endpoint | 2 | 55 min | 27 min |
-| 103-pod-guard-module | 2 (of 3) | 36 min | 18 min |
+| 103-pod-guard-module | 3 (of 3) | 47 min | 16 min |
 
 *Updated after each plan completion*
 
@@ -66,6 +66,10 @@ Progress: [█████░░░░░] 55%
 - [103-02]: parent_pid sentinel=0 (sysinfo 0.33 has no parent PID API) — name exclusion is primary self-exclusion guard
 - [103-02]: own_pid excluded inline in scan loop (pid == own_pid continue) not in is_self_excluded helper
 - [103-02]: grace_counts.retain() after each cycle prevents unbounded HashMap growth over long uptime
+- [103-03]: ProcessGuardConfig missing Clone derive — added #[derive(Clone)] (required for spawn() call which takes ownership)
+- [103-03]: Whitelist fetch placed before AppState construction so config.core.url/config.pod.number accessible before config is moved
+- [103-03]: audit_startup_folder flag-only even in kill_and_report mode — file removal requires Phase 104 staff approval
+- [103-03]: #[cfg(windows)] use std::os::windows::process::CommandExt inside spawn_blocking closure — mirrors ws_handler.rs/debug_server.rs pattern
 
 ### Pending Todos
 
@@ -79,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21 14:43 IST
-Stopped at: 103-02-PLAN.md complete — process_guard.rs scanner module with all helpers and 9 passing tests
+Last session: 2026-03-21 14:57 IST
+Stopped at: 103-03-PLAN.md complete — process guard fully wired into rc-agent, Phase 103 complete
 Resume file: None
