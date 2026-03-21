@@ -99,11 +99,11 @@ Plans:
   2. Valid PIN triggers automatic pod assignment (first available) and game launch — customer sees assigned pod number and loading status
   3. PIN is one-time use and marked as redeemed immediately on successful validation
   4. PIN entry is rate-limited: max 5 attempts per minute, lockout after 10 failures
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md — Backend redeem-pin endpoint: PIN validation, pod assignment, billing defer, game launch, rate limiting + lockout
+- [ ] 05-02-PLAN.md — Kiosk PIN entry UI: PinRedeemScreen component, alphanumeric grid, success/error/lockout states
 
 ### Phase 6: Admin Panel Cloud Deploy
 **Goal**: Uday can manage all business operations remotely from admin.racingpoint.cloud
