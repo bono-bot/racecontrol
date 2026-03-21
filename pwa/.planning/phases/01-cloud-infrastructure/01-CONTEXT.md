@@ -50,6 +50,7 @@ Set up DNS, Caddy reverse proxy, Docker Compose, firewall, and swap on Bono's VP
   - Dashboard: 512MB
   - Caddy: 128MB
 - Docker Compose healthchecks: `curl -f http://localhost:PORT/ || exit 1` for each frontend
+  - **Exception:** Alpine-based images (node:22-alpine) lack curl — use `wget --no-verbose --tries=1 --spider http://localhost:PORT/` instead. Only bookworm-slim images (admin) have curl available.
 
 ### VPS Setup
 - Firewall: allow inbound 80, 443 only. SSH (22) already allowed.
