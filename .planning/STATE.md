@@ -2,15 +2,19 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
-status: completed
-stopped_at: Phase 85 context gathered
-last_updated: "2026-03-21T05:56:04.404Z"
-last_activity: "2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)"
+status: in_progress
+stopped_at: Completed 100-01-PLAN.md
+last_updated: "2026-03-21T06:28:00.000Z"
+last_activity: "2026-03-21 -- 100-01 complete: FleetHealthStore in_maintenance+maintenance_failures fields, PreFlightFailed/Passed WS handlers update state, POST /pods/{id}/clear-maintenance endpoint (STAFF-02, STAFF-03)"
 progress:
   total_phases: 65
   completed_phases: 40
-  total_plans: 106
-  completed_plans: 101
+  total_plans: 107
+  completed_plans: 102
+  percent: 96
+decisions:
+  - "clear_on_disconnect() clears in_maintenance=false because offline pods are not in maintenance from the server's perspective"
+  - "Optimistic server-side clear on clear_maintenance_pod() for instant staff visual feedback without waiting for PreFlightPassed roundtrip"
 ---
 
 ---

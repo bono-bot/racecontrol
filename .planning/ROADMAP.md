@@ -1389,7 +1389,7 @@ Plans:
   5. If a pod enters MaintenanceRequired repeatedly within the preflight_alert_cooldown_secs window, only one WhatsApp/email alert fires — Uday does not receive notification floods from rapid re-entry
 **Plans**: 2 plans
 Plans:
-- [ ] 100-01-PLAN.md — Server-side maintenance state tracking in FleetHealthStore + clear-maintenance endpoint
+- [x] 100-01-PLAN.md — Server-side maintenance state tracking in FleetHealthStore + clear-maintenance endpoint
 - [ ] 100-02-PLAN.md — Kiosk fleet page maintenance badge with PIN-gated details and clear button
 
 ## Progress
