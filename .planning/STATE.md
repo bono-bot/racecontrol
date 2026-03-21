@@ -3,6 +3,21 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 74-02-PLAN.md
+last_updated: "2026-03-21T01:26:45.433Z"
+last_activity: "2026-03-21 -- 74-02 complete: AppState struct with 34 pub(crate) fields extracted from main.rs; all reconnect loop references updated to state.field pattern (DECOMP-02)"
+progress:
+  total_phases: 53
+  completed_phases: 28
+  total_plans: 83
+  completed_plans: 73
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Phase 81 UI-SPEC approved
 last_updated: "2026-03-21T01:22:08.465Z"
 last_activity: "2026-03-21 -- 78-03 complete: BillingStarted session_token + KioskLockdown auto-pause billing + debounced WhatsApp alert (SESS-04, SESS-05)"
