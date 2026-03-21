@@ -138,6 +138,8 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/membership/subscribe", post(customer_subscribe_membership))
         // Customer AI chat
         .route("/customer/ai/chat", post(customer_ai_chat))
+        // Game launch request (PWA -- customer requests staff-confirmed game launch)
+        .route("/customer/game-request", post(pwa_game_request))
 }
 
 // ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
@@ -13936,6 +13938,107 @@ mod watchdog_crash_report_tests {
         let status = response.into_response().status();
         assert_eq!(status, StatusCode::OK);
     }
+}
+
+// ─── PWA: Customer game launch request ─────────────────────────────────────
+
+#[derive(Deserialize)]
+struct GameRequestBody {
+    pod_id: String,
+    sim_type: SimType,
+}
+
+/// POST /api/v1/customer/game-request
+///
+/// Customer requests a game launch from the PWA. Validates that the pod
+/// exists and the game is installed, then broadcasts GameLaunchRequested
+/// to the staff dashboard. Staff confirms via POST /api/v1/games/pod/{id}/launch.
+///
+/// Note: customer auth uses extract_driver_id() (customer JWT). Customer auth
+/// middleware is in-handler (Phase 82+ may promote to tower middleware).
+async fn pwa_game_request(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<GameRequestBody>,
+) -> (axum::http::StatusCode, Json<Value>) {
+    // Authenticate: extract driver_id from customer JWT
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e })),
+            )
+        }
+    };
+
+    // Look up driver name for the broadcast payload
+    let driver_name = match sqlx::query_as::<_, (String,)>(
+        "SELECT name FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some((name,))) => name,
+        Ok(None) => {
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": "Driver not found" })),
+            )
+        }
+        Err(e) => {
+            tracing::error!("pwa_game_request: DB error looking up driver {}: {}", driver_id, e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            );
+        }
+    };
+
+    // Validate pod exists
+    let pods = state.pods.read().await;
+    let pod = match pods.get(&body.pod_id) {
+        Some(p) => p.clone(),
+        None => {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                Json(json!({ "error": format!("Pod '{}' not found", body.pod_id) })),
+            )
+        }
+    };
+    drop(pods);
+
+    // Validate game is installed on that pod
+    if !pod.installed_games.contains(&body.sim_type) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!("{:?} is not installed on pod '{}'", body.sim_type, body.pod_id)
+            })),
+        );
+    }
+
+    // Generate unique request ID
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Broadcast to staff dashboard -- staff confirms via existing launch endpoint
+    let _ = state.dashboard_tx.send(DashboardEvent::GameLaunchRequested {
+        pod_id: body.pod_id.clone(),
+        sim_type: body.sim_type,
+        driver_name: driver_name.clone(),
+        request_id: request_id.clone(),
+    });
+
+    tracing::info!(
+        "pwa_game_request: driver '{}' ({}) requested {:?} on pod '{}' (request_id={})",
+        driver_name, driver_id, body.sim_type, body.pod_id, request_id
+    );
+
+    (
+        axum::http::StatusCode::OK,
+        Json(json!({ "ok": true, "request_id": request_id })),
+    )
 }
 
 #[cfg(test)]
