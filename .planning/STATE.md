@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 78-01-PLAN.md
-last_updated: "2026-03-21T01:01:47.774Z"
+stopped_at: Completed 69-03-PLAN.md
+last_updated: "2026-03-21T01:01:53.983Z"
 last_activity: "2026-03-21 -- 78-01 complete: Edge kiosk hardened with 12 security flags + keyboard hook blocks (F12/Ctrl+Shift+I/J/Ctrl+L) + pod-lockdown USB/accessibility/TaskMgr lockdown (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)"
 progress:
   total_phases: 53
@@ -156,7 +156,7 @@ Plan: 01 of 03 complete
 Status: Phase 78 Plan 01 complete
 Last activity: 2026-03-21 -- 78-01 complete: Edge kiosk hardened with 12 security flags + keyboard hook blocks (F12/Ctrl+Shift+I/J/Ctrl+L) + pod-lockdown USB/accessibility/TaskMgr lockdown (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
 
-Progress: [█████████░] 88% (67/76 plans complete)
+Progress: [█████████░] 89% (68/76 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -165,7 +165,7 @@ Progress: [█████████░] 88% (67/76 plans complete)
 | 71 | rc-common Foundation + rc-sentry Core Hardening | SHARED-01..03, SHARD-01..05 | Complete (2/2 plans done) |
 | 72 | rc-sentry Endpoint Expansion + Integration Tests | SEXP-01..04, SHARD-06, TEST-04 | Complete (2/2 plans done) |
 | 73 | Critical Business Tests | TEST-01, TEST-02, TEST-03 | Complete (2/2 plans done) |
-| 74 | rc-agent Decomposition | DECOMP-01..04 | Not started |
+| 74 | rc-agent Decomposition | DECOMP-01..04 | In Progress (1/4 plans done) |
 
 **Phase 71:** rc-common exec.rs with feature gate (SHARED) + rc-sentry timeout, truncation, concurrency cap, partial read fix, structured logging (SHARD). No rc-agent changes. Verify `cargo tree -p rc-sentry` shows no tokio after every rc-common change.
 **Phase 72:** rc-sentry endpoint expansion (/health, /version, /files, /processes, graceful shutdown) + TcpStream-based integration tests on ephemeral port.
@@ -229,7 +229,9 @@ Progress: [█████████░] 88% (67/76 plans complete)
 - 69-02: failover_broadcast uses simple != for terminal_secret comparison (consistent with all existing service routes -- no subtle crate); split_brain_probe reqwest::Client created once before outer reconnect loop; guard probes :8090/ping with 2s timeout before honoring SwitchController (ORCH-02, ORCH-03)
 - 69-01: ONE cycleOk boolean per 5s tick in HealthMonitor -- consecutiveFailures increments by exactly 1 per cycle, not per probe attempt; guarantees DOWN_THRESHOLD=12 = 60s sustained outage (HLTH-01, HLTH-02, HLTH-03 complete)
 - 69-01: notify_failover via exec_request to Bono -- server .23 is down so James cannot use .23 email_alerts; FailoverOrchestrator delegates notification to Bono (ORCH-01, ORCH-04 complete)
+- 69-03: Secondary watchdog timer: 255s after james_down (45s+255s=5min total) probes 100.71.226.83:8090/ping via Tailscale; skips if .23 reachable (not a venue outage); pm2 via execFileSync fallback restart->start; polls /health 6x before broadcast; AlertCooldown 10-min prevents repeat activations (HLTH-04 complete)
 - 78-01: Defense-in-depth for DevTools: both --disable-dev-tools browser flag AND F12/Ctrl+Shift+I/J keyboard hook blocks; USBSTOR Start=4 disables mass storage only (HID unaffected); accessibility Flags 506/122/58 disable hotkeys not features (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
+- 74-01: AgentConfig fields all pub (not pub(crate)) for cross-module access in later extractions; load_config pub; validate_config + detect_installed_games pub(crate); billing_guard.rs required crate::config:: path fix after root extraction (DECOMP-01)
 
 ### Blockers/Concerns
 
@@ -250,7 +252,7 @@ Progress: [█████████░] 88% (67/76 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:01:47.765Z
-Stopped at: Completed 78-01-PLAN.md
+Last session: 2026-03-21T06:28:18Z
+Stopped at: Completed 74-01-PLAN.md
 Resume file: None
-Next action: Phase 78 Plan 02 next
+Next action: Phase 74 Plan 02 (app_state.rs extraction) next

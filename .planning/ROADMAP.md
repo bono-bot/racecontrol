@@ -196,7 +196,7 @@ Make server .23 IP permanently stable, establish reliable James↔Server↔Bono 
  (completed 2026-03-20)
 - [x] **Phase 67: Config Sync** - racecontrol.toml changes detected by sha2 hash, sanitized, and pushed to Bono via comms-link sync_push; Bono applies config to cloud racecontrol (completed 2026-03-20)
 - [x] **Phase 68: Pod SwitchController** - rc-agent CoreConfig gains failover_url; WS reconnect loop uses Arc<RwLock<String>> for runtime URL switching; SwitchController AgentMessage triggers switch without restart; self_monitor suppression guard prevents relaunch during intentional failover (completed 2026-03-20)
-- [ ] **Phase 69: Health Monitor & Failover Orchestration** - James probes .23 every 5s; 3-down/2-up hysteresis + 60s minimum outage window gates auto-failover; James sends task_request to Bono to activate cloud primary; racecontrol broadcasts SwitchController to all pods; pods confirm .23 unreachable before switching; Uday notified via email + WhatsApp
+- [x] **Phase 69: Health Monitor & Failover Orchestration** - James probes .23 every 5s; 3-down/2-up hysteresis + 60s minimum outage window gates auto-failover; James sends task_request to Bono to activate cloud primary; racecontrol broadcasts SwitchController to all pods; pods confirm .23 unreachable before switching; Uday notified via email + WhatsApp (completed 2026-03-21)
 - [ ] **Phase 70: Failback & Data Reconciliation** - James detects .23 recovery (2-up threshold); cloud sessions merged to local DB before .23 resumes primary; racecontrol broadcasts SwitchController with original URL; Uday notified on failback
 
 ## v11.0 Agent & Sentry Hardening
@@ -1143,7 +1143,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 66. Infrastructure Foundations | 5/5 | Complete    | 2026-03-20 | - |
 | 67. Config Sync | 2/2 | Complete    | 2026-03-20 | - |
 | 68. Pod SwitchController | 2/2 | Complete    | 2026-03-20 | - |
-| 69. Health Monitor & Failover Orchestration | 2/3 | In Progress|  | - |
+| 69. Health Monitor & Failover Orchestration | 3/3 | Complete   | 2026-03-21 | - |
 | 70. Failback & Data Reconciliation | v10.0-CR | 0/? | Not started | - |
 | 71. rc-common Foundation + rc-sentry Core Hardening | 2/2 | Complete    | 2026-03-20 | - |
 | 72. rc-sentry Endpoint Expansion + Integration Tests | 2/2 | Complete    | 2026-03-20 | - |
