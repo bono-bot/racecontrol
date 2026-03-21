@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Config files: Caddyfile, compose.yml, Dockerfile port fix, verification script
+- [x] 01-01-PLAN.md — Config files: Caddyfile, compose.yml, Dockerfile port fix, verification script
 - [ ] 01-02-PLAN.md — VPS deployment: DNS, firewall, swap, Docker Compose up (coordinate with Bono)
 
 ### Phase 2: API + PWA Cloud Deploy
@@ -180,7 +180,7 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Cloud Infrastructure | 0/2 | Not started | - |
+| 1. Cloud Infrastructure | 1/2 | In progress | - |
 | 2. API + PWA Cloud Deploy | 0/2 | Not started | - |
 | 3. Sync Hardening | 3/3 | Complete | 2026-03-21 |
 | 4. Remote Booking + PIN Generation | 3/3 | Complete   | 2026-03-21 |

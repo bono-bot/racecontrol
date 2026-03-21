@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-03-21T13:43:14.855Z"
-last_activity: 2026-03-21 — Plan 05-02 complete (kiosk PIN entry UI with touch grid)
+status: in-progress
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-03-21T21:12:00Z"
+last_activity: 2026-03-22 — Plan 01-01 complete (cloud infrastructure configs)
 progress:
   total_phases: 10
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 9
+  completed_plans: 9
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers book and pay from anywhere, walk in with a PIN, and race — while Uday sees everything live from his phone without being on-site.
-**Current focus:** Phase 5: Kiosk PIN Launch
+**Current focus:** Phase 1: Cloud Infrastructure
 
 ## Current Position
 
-Phase: 5 of 10 (Kiosk PIN Launch) -- COMPLETE
-Plan: 2 of 2 in current phase (05-02 complete)
-Status: Phase 05 complete
-Last activity: 2026-03-21 — Plan 05-02 complete (kiosk PIN entry UI with touch grid)
+Phase: 1 of 10 (Cloud Infrastructure)
+Plan: 1 of 2 in current phase (01-01 complete)
+Status: Phase 01 in progress
+Last activity: 2026-03-22 — Plan 01-01 complete (cloud infrastructure configs)
 
 Progress: [██████████] 100%
 
@@ -54,6 +54,7 @@ Progress: [██████████] 100%
 *Updated after each plan completion*
 | Phase 05 P01 | 5 min | 2 tasks | 2 files |
 | Phase 05 P02 | 2 | 2 tasks | 3 files |
+| Phase 01 P01 | 2 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [05-01]: Lockout uses LazyLock static HashMap rather than AppState field
 - [05-01]: Pricing tier resolved via kiosk_experiences table
 - [Phase 05]: Character grid 7x5 layout for 31-char PIN charset, auto-close success after 15s
+- [01-01]: Staging ACME CA used initially to avoid Let's Encrypt rate limits
+- [01-01]: Alpine containers use wget healthcheck; bookworm-slim uses curl
+- [01-01]: Dashboard port changed from 3000 to 3200 to match port convention
 
 ### Pending Todos
 
@@ -98,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T13:39:27.421Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-03-21T21:12:00Z
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None
