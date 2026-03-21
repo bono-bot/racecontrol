@@ -683,6 +683,7 @@ async fn main() -> Result<()> {
         last_ac_status: None,
         ac_status_stable_since: None,
         in_maintenance: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        last_preflight_alert: None,
     };
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────

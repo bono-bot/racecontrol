@@ -56,4 +56,7 @@ pub struct AppState {
     pub(crate) last_ac_status: Option<AcStatus>,
     pub(crate) ac_status_stable_since: Option<std::time::Instant>,
     pub(crate) in_maintenance: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// STAFF-04: Tracks when the last PreFlightFailed WS alert was sent.
+    /// None = never alerted. Alerts are suppressed within a 60s cooldown window.
+    pub(crate) last_preflight_alert: Option<std::time::Instant>,
 }
