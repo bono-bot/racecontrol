@@ -22,6 +22,20 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - "Maintenance Required" lock screen state when pre-flight fails
 - Staff notification via WS + kiosk dashboard badge
 
+## Current Milestone: v12.1 E2E Process Guard
+
+**Goal:** Continuous process monitor on every machine (James, server, all 8 pods) that enforces a whitelist of approved processes, ports, and auto-start entries. Auto-kills violations and alerts staff. Triggered by oversight where Steam, Leaderboard kiosk, and voice assistant watchdog were missed during manual audit.
+
+**Target features:**
+- Central whitelist in racecontrol.toml with per-machine overrides (James allows Ollama, pods don't allow Steam, etc.)
+- Continuous monitoring daemon on every machine (rc-agent module on pods, racecontrol module on server, standalone on James)
+- Process audit: running processes vs. approved whitelist, flag + auto-kill non-whitelisted
+- Auto-start audit: HKCU/HKLM Run keys, Startup folder, Scheduled Tasks — remove non-whitelisted entries
+- Port audit: listening ports vs. approved port list
+- Pod binary guard: detect rc-agent/racecontrol/pod-agent running on wrong machine (standing rule #2)
+- Alert on violation: WS notification to staff kiosk + email escalation
+- Audit log: all violations logged with timestamp, machine, process, action taken
+
 ## Active Milestone: v10.0 Connectivity & Redundancy
 
 **Goal:** Make James (.27) ↔ Server (.23) connectivity bulletproof and give Bono (cloud VPS) full failover capability so the venue keeps running even when the local server goes down.
@@ -283,4 +297,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-21 after milestone v11.1 Pre-Flight Session Checks started*
+*Last updated: 2026-03-21 after milestone v12.1 E2E Process Guard started*
