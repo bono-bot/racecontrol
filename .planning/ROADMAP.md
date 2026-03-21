@@ -229,9 +229,9 @@ Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA 
 - [ ] **Phase 82: Billing and Session Lifecycle** - PlayableSignal per game, billing accuracy, per-game rates, clean lifecycle
 - [ ] **Phase 83: F1 25 Telemetry** - Extend existing F1 25 UDP adapter for LapCompleted events with sector splits
 - [ ] **Phase 84: iRacing Telemetry** - Shared memory reader with session transition handling and pre-flight checks
-- [x] **Phase 85: LMU Telemetry** - rFactor 2 shared memory reader for Le Mans Ultimate lap data (completed 2026-03-21)
-- [x] **Phase 86: AC EVO Telemetry** - Best-effort shared memory reader using ACC struct layout, feature-flagged (completed 2026-03-21)
-- [x] **Phase 87: EA WRC Telemetry** - SKIPPED — deferred until EA WRC is actively played at venue (2026-03-21)
+- [ ] **Phase 85: LMU Telemetry** - rFactor 2 shared memory reader for Le Mans Ultimate lap data
+- [ ] **Phase 86: AC EVO Telemetry** - Best-effort shared memory reader using ACC struct layout, feature-flagged
+- [ ] **Phase 87: EA WRC Telemetry** - JSON-configured UDP telemetry with stage-to-lap mapping
 - [ ] **Phase 88: Leaderboard Integration** - Multi-game lap storage, track name normalization, endpoint updates
 
 ## v14.0 HR & Marketing Psychology
@@ -1048,10 +1048,10 @@ Plans:
   1. AC EVO shared memory is read using ACC-format struct layout when data is available
   2. If telemetry fields are unpopulated or the API changes, the adapter logs a warning and continues without crashing
   3. When lap data is available, it is emitted as LapCompleted with sim_type = AC_EVO
-**Plans**: 1 (planned 2026-03-21)
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 86-01-PLAN.md -- AssettoCorsaEvoAdapter with zero-guard shared memory reads + main.rs wiring
+- [ ] 86-01: TBD
 
 ### Phase 87: EA WRC Telemetry
 **Goal**: EA WRC stage times are captured via UDP and mapped to the lap schema for leaderboard compatibility
@@ -1125,10 +1125,11 @@ Plans:
   2. Session-end reports show the best moment first before displaying averages
   3. Session-end report includes percentile ranking ("faster than 73% of drivers")
   4. Customer sees a real-time toast notification in the PWA when they set a PB during an active session
-**Plans**: 2 (researched + planned 2026-03-21)
+**Plans**: 2 plans
 
 Plans:
-- [ ] 91-01: TBD
+- [ ] 91-01-PLAN.md — Backend: PbAchieved event broadcast, shared percentile function, enhanced session detail API, active session events polling endpoint, NPM dependencies
+- [ ] 91-02-PLAN.md — Frontend: Confetti component, sonner Toaster, peak-end session detail rewrite, active session PB polling with toast
 
 ### Phase 92: Retention Loops
 **Goal**: Customers are drawn back through streaks, loss-framed notifications, and unpredictable bonus rewards
@@ -1305,9 +1306,9 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 82. Billing and Session Lifecycle | 2/3 | In Progress|  | - |
 | 83. F1 25 Telemetry | v13.0 | 0/1 | Not started | - |
 | 84. iRacing Telemetry | v13.0 | 0/2 | Not started | - |
-| 85. LMU Telemetry | 2/2 | Complete    | 2026-03-21 | - |
-| 86. AC EVO Telemetry | 1/1 | Complete    | 2026-03-21 | - |
-| 87. EA WRC Telemetry | v13.0 | 0/0 | Skipped | 2026-03-21 |
+| 85. LMU Telemetry | v13.0 | 0/1 | Not started | - |
+| 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
+| 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
 | 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
 | 89. Psychology Foundation | 3/3 | Complete    | 2026-03-21 | - |
 | 90. Customer Progression | 1/2 | Complete    | 2026-03-21 | - |
@@ -1393,86 +1394,3 @@ Plans:
 | 98. MaintenanceRequired Lock Screen + Display | TBD | Not started | - |
 | 99. System + Network + Billing + Handler Wiring | TBD | Not started | - |
 | 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |
-| 101. Protocol Foundation | v12.1 | Complete    | 2026-03-21 | - |
-| 102. Whitelist Schema + Config + Fetch Endpoint | v12.1 | 0/TBD | Not started | - |
-| 103. Pod Guard Module | v12.1 | 0/TBD | Not started | - |
-| 104. Server Guard Module + Alerts | v12.1 | 0/TBD | Not started | - |
-| 105. Port Audit + Scheduled Tasks + James Binary | v12.1 | 0/TBD | Not started | - |
-
-## v12.1 E2E Process Guard
-
-- [x] **Phase 101: Protocol Foundation** - New rc-common types and AgentMessage variants that rc-agent and racecontrol depend on at compile time (completed 2026-03-21)
-- [ ] **Phase 102: Whitelist Schema + Config + Fetch Endpoint** - Central whitelist in racecontrol.toml with per-machine overrides and the HTTP endpoint pods use to fetch their merged whitelist
-- [ ] **Phase 103: Pod Guard Module** - rc-agent process_guard.rs covering process scan, auto-kill, Run key and Startup folder audit, audit log, and fleet reporting
-- [ ] **Phase 104: Server Guard Module + Alerts** - racecontrol process_guard.rs receiving violations, kiosk notification badge, email escalation, and fleet health integration
-- [ ] **Phase 105: Port Audit + Scheduled Tasks + James Binary** - Listening port enforcement, scheduled task audit, and standalone rc-process-guard binary for James workstation
-
-## v12.1 E2E Process Guard -- Phase Details
-
-### Phase 101: Protocol Foundation
-**Goal**: rc-common compiles with all types and message variants that downstream crates need for process guard integration
-**Depends on**: Nothing (first phase of v12.1)
-**Requirements**: GUARD-04, GUARD-05
-**Success Criteria** (what must be TRUE):
-  1. `cargo test -p rc-common` passes with zero warnings after adding new types
-  2. `MachineWhitelist`, `ViolationType`, and `ProcessViolation` structs are importable from rc-common in a test
-  3. `AgentMessage::ProcessViolation`, `AgentMessage::ProcessGuardStatus`, and `CoreToAgentMessage::UpdateProcessWhitelist` variants exist in rc-common/src/protocol.rs and serialize/deserialize correctly via serde
-  4. Neither racecontrol nor rc-agent require changes to compile after rc-common is updated (no breaking changes to existing variants)
-Plans:
-- [ ] 101-01: TBD
-- [ ] 101-02: TBD
-
-### Phase 102: Whitelist Schema + Config + Fetch Endpoint
-**Goal**: Staff can open racecontrol.toml and see a populated deny-by-default process whitelist with per-machine sections, and any pod can curl the fetch endpoint to receive its merged whitelist
-**Depends on**: Phase 101
-**Requirements**: GUARD-01, GUARD-02, GUARD-03, GUARD-06
-**Success Criteria** (what must be TRUE):
-  1. `racecontrol.toml` contains a `[process_guard]` section with a global whitelist
-  2. Per-machine override sections exist with correct entries
-  3. Whitelist entries carry category tags and wildcard/prefix patterns compile without panics
-  4. `curl http://192.168.31.23:8080/api/v1/guard/whitelist/pod-8` returns valid JSON MachineWhitelist
-  5. `violation_action` defaults to `"report_only"` so no kills happen on first deploy
-Plans:
-- [ ] 102-01: TBD
-- [ ] 102-02: TBD
-
-### Phase 103: Pod Guard Module
-**Goal**: All 8 pods run a background process guard that scans every 60 seconds, kills confirmed violations after two consecutive scan cycles, removes non-whitelisted Run keys and Startup shortcuts, and streams every violation to the server via WebSocket
-**Depends on**: Phase 102
-**Requirements**: PROC-01, PROC-02, PROC-03, PROC-04, PROC-05, AUTO-01, AUTO-02, AUTO-04, ALERT-01, ALERT-04, DEPLOY-01
-**Success Criteria** (what must be TRUE):
-  1. Non-whitelisted process on Pod 8 appears in process-guard.log within 70 seconds in report-only mode
-  2. In kill mode, non-whitelisted process terminated and ProcessViolation reaches server — rc-agent never killed
-  3. Non-whitelisted HKCU Run key removed within 5 minutes with backup written first
-  4. Pod binary guard detects racecontrol.exe on a pod and emits CRITICAL with zero grace period
-  5. Audit log rotates at 512KB without crashing rc-agent
-Plans:
-- [ ] 103-01: TBD
-- [ ] 103-02: TBD
-- [ ] 103-03: TBD
-
-### Phase 104: Server Guard Module + Alerts
-**Goal**: The racecontrol server receives all pod violations, displays an active-violation badge on the staff kiosk, escalates repeat offenders to email, and surfaces violation counts in the fleet health endpoint
-**Depends on**: Phase 103
-**Requirements**: ALERT-02, ALERT-03, ALERT-05, DEPLOY-02
-**Success Criteria** (what must be TRUE):
-  1. Staff kiosk shows notification badge for active unacknowledged violations
-  2. GET /api/v1/fleet/health includes violation_count_24h and last_violation_at per pod
-  3. Three kills in 5 minutes triggers email to Uday with machine ID, process name, kill count
-  4. racecontrol own guard reports CRITICAL if rc-agent.exe detected on server
-Plans:
-- [ ] 104-01: TBD
-- [ ] 104-02: TBD
-
-### Phase 105: Port Audit + Scheduled Tasks + James Binary
-**Goal**: Listening ports audited against approved list, non-whitelisted scheduled tasks flagged, and James runs standalone rc-process-guard reporting via HTTP
-**Depends on**: Phase 104
-**Requirements**: PORT-01, PORT-02, AUTO-03, DEPLOY-03
-**Success Criteria** (what must be TRUE):
-  1. Non-whitelisted listening port process killed within one scan cycle
-  2. Non-whitelisted scheduled task flagged in audit log with name, path, action
-  3. rc-process-guard.exe on James POSTs violations via HTTP — never WebSocket
-  4. James whitelist passes first run without false positives on legitimate tooling
-Plans:
-- [ ] 105-01: TBD
-- [ ] 105-02: TBD
