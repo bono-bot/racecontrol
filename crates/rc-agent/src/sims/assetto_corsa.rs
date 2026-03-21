@@ -4,6 +4,8 @@ use rc_common::types::*;
 use rc_common::types::AcStatus;
 use super::SimAdapter;
 
+const LOG_TARGET: &str = "sim-ac";
+
 /// Assetto Corsa shared memory telemetry reader.
 ///
 /// Reads AC's memory-mapped files (acpmf_physics, acpmf_graphics, acpmf_static)
@@ -218,6 +220,7 @@ impl SimAdapter for AssettoCorsaAdapter {
         self.max_rpm = if raw_max_rpm > 0 { raw_max_rpm as u32 } else { 8000 };
 
         tracing::info!(
+            target: LOG_TARGET,
             "AC shared memory connected: driver={}, car={}, track={}, sectors={}, max_rpm={}",
             self.current_driver, self.current_car, self.current_track, num_sectors, self.max_rpm
         );
@@ -232,7 +235,7 @@ impl SimAdapter for AssettoCorsaAdapter {
         self.last_lap_count = initial_laps;
         self.last_sector_index = -1;
         self.sector_times = [None; 3];
-        tracing::info!("AC: initial completed_laps = {} (skipping stale)", initial_laps);
+        tracing::info!(target: LOG_TARGET, "AC: initial completed_laps = {} (skipping stale)", initial_laps);
 
         Ok(())
     }
@@ -311,6 +314,7 @@ impl SimAdapter for AssettoCorsaAdapter {
                 };
 
                 tracing::info!(
+                    target: LOG_TARGET,
                     "AC lap completed: lap={} time={}ms sectors=[{:?}, {:?}, {:?}] valid={}",
                     completed_laps, lap_ms,
                     self.sector_times[0], self.sector_times[1], self.sector_times[2],
@@ -412,7 +416,7 @@ impl SimAdapter for AssettoCorsaAdapter {
             }
         }
         self.connected = false;
-        tracing::info!("Disconnected from AC shared memory");
+        tracing::info!(target: LOG_TARGET, "Disconnected from AC shared memory");
     }
 
     fn max_rpm(&self) -> u32 {

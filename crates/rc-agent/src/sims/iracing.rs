@@ -4,6 +4,8 @@ use rc_common::types::*;
 
 use super::SimAdapter;
 
+const LOG_TARGET: &str = "sim-iracing";
+
 /// iRacing shared memory telemetry adapter.
 ///
 /// Reads the iRacing SDK shared memory (Local\IRSDKMemMapFileName).
@@ -217,6 +219,7 @@ fn build_var_offsets(shm_ptr: *const u8, header: &IrsdkHeader) -> VarOffsets {
                 v.$field = off;
             } else {
                 tracing::warn!(
+                    target: LOG_TARGET,
                     "iRacing: variable {:?} not found in varHeader",
                     std::str::from_utf8($name).unwrap_or("?")
                 );
@@ -400,6 +403,7 @@ impl IracingAdapter {
         }
 
         tracing::info!(
+            target: LOG_TARGET,
             "iRacing session info: track={}, car={}, session_type={:?}",
             self.current_track,
             self.current_car,
@@ -411,6 +415,7 @@ impl IracingAdapter {
     /// Exposed as a method so unit tests can call it directly.
     pub fn apply_session_transition(&mut self, new_uid: i32) {
         tracing::info!(
+            target: LOG_TARGET,
             "iRacing session transition: uid {} -> {}",
             self.last_session_uid,
             new_uid
@@ -447,6 +452,7 @@ impl IracingAdapter {
             created_at: Utc::now(),
         };
         tracing::info!(
+            target: LOG_TARGET,
             "iRacing lap completed: lap={} time={}ms ({}s)",
             lap_completed,
             lap_time_ms,
@@ -492,7 +498,7 @@ pub fn check_iracing_shm_enabled() -> bool {
             check_iracing_shm_enabled_at(&path)
         }
         None => {
-            tracing::warn!("iRacing pre-flight: could not determine Documents directory");
+            tracing::warn!(target: LOG_TARGET, "iRacing pre-flight: could not determine Documents directory");
             false
         }
     }
@@ -504,6 +510,7 @@ pub fn check_iracing_shm_enabled_at(path: &std::path::Path) -> bool {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!(
+                target: LOG_TARGET,
                 "iRacing pre-flight: could not read {:?}: {}. Shared memory may be disabled.",
                 path,
                 e
@@ -516,6 +523,7 @@ pub fn check_iracing_shm_enabled_at(path: &std::path::Path) -> bool {
         .any(|line| line.trim() == "irsdkEnableMem=1");
     if !enabled {
         tracing::warn!(
+            target: LOG_TARGET,
             "iRacing pre-flight: irsdkEnableMem=1 not found in {:?}. \
              Telemetry will not work until the customer enables it in iRacing settings.",
             path
@@ -562,6 +570,7 @@ impl SimAdapter for IracingAdapter {
         self.pending_lap = None;
 
         tracing::info!(
+            target: LOG_TARGET,
             "iRacing shared memory connected: track={}, car={}, session_type={:?}, initial_laps={}",
             self.current_track,
             self.current_car,
@@ -589,7 +598,7 @@ impl SimAdapter for IracingAdapter {
 
         let header = read_header(shm_ptr);
         if !is_iracing_active(header.status) {
-            tracing::warn!("iRacing: status bit cleared — sim disconnected");
+            tracing::warn!(target: LOG_TARGET, "iRacing: status bit cleared — sim disconnected");
             self.connected = false;
             return Ok(None);
         }
@@ -636,6 +645,7 @@ impl SimAdapter for IracingAdapter {
                 // First-packet safety: don't fire a lap for laps already done
                 // before we connected. Just record the counter.
                 tracing::info!(
+                    target: LOG_TARGET,
                     "iRacing first_read: skipping lap fire, snapshotting last_lap_count={}",
                     lap_completed
                 );
@@ -722,7 +732,7 @@ impl SimAdapter for IracingAdapter {
             }
         }
         self.connected = false;
-        tracing::info!("iRacing: disconnected from shared memory");
+        tracing::info!(target: LOG_TARGET, "iRacing: disconnected from shared memory");
     }
 
     /// Read the iRacing IsOnTrack variable from shared memory.

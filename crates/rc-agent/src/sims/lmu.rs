@@ -4,6 +4,8 @@ use rc_common::types::*;
 
 use super::SimAdapter;
 
+const LOG_TARGET: &str = "sim-lmu";
+
 /// Le Mans Ultimate (LMU) shared memory telemetry adapter.
 ///
 /// LMU uses the rFactor 2 shared memory plugin (`rF2SharedMemoryMapPlugin`)
@@ -414,7 +416,8 @@ impl LmuAdapter {
         // Session transition detection: mSession changed
         if self.last_session_type != -1 && session_type != self.last_session_type {
             tracing::info!(
-                "[LMU] session transition: type {} -> {}. Resetting lap state.",
+                target: LOG_TARGET,
+                "session transition: type {} -> {}. Resetting lap state.",
                 self.last_session_type,
                 session_type
             );
@@ -482,7 +485,8 @@ impl LmuAdapter {
         // First-packet safety: snapshot current lap count but do not emit
         if self.first_read {
             tracing::info!(
-                "[LMU] first_read: snapshotting last_lap_count={}, no lap emitted",
+                target: LOG_TARGET,
+                "first_read: snapshotting last_lap_count={}, no lap emitted",
                 total_laps
             );
             self.last_lap_count = total_laps;
@@ -496,7 +500,8 @@ impl LmuAdapter {
             let (s1, s2, s3) = sector_times_ms(last_lap_time, last_sector1, last_sector2);
 
             tracing::info!(
-                "[LMU] lap completed: lap={} time={}ms s1={:?} s2={:?} s3={:?}",
+                target: LOG_TARGET,
+                "lap completed: lap={} time={}ms s1={:?} s2={:?} s3={:?}",
                 total_laps,
                 lap_time_ms,
                 s1,
@@ -565,7 +570,8 @@ impl SimAdapter for LmuAdapter {
         self.pending_lap = None;
 
         tracing::info!(
-            "[LMU] connected to rF2 shared memory (Scoring + Telemetry)"
+            target: LOG_TARGET,
+            "connected to rF2 shared memory (Scoring + Telemetry)"
         );
         Ok(())
     }
@@ -751,7 +757,7 @@ impl SimAdapter for LmuAdapter {
             self.telemetry_shm = None;
         }
         self.connected = false;
-        tracing::info!("[LMU] disconnected from rF2 shared memory");
+        tracing::info!(target: LOG_TARGET, "disconnected from rF2 shared memory");
     }
 
     /// Read whether the player is currently on track from the rF2 scoring buffer.

@@ -8,6 +8,8 @@ use tokio::sync::mpsc;
 use super::SimAdapter;
 use crate::driving_detector::DetectorSignal;
 
+const LOG_TARGET: &str = "sim-f1";
+
 /// EA Sports F1 25 UDP telemetry adapter
 ///
 /// Passive listener on UDP port 20777. The game broadcasts telemetry packets
@@ -451,7 +453,7 @@ impl SimAdapter for F125Adapter {
         socket.set_nonblocking(true)?;
         self.socket = Some(socket);
         self.connected = true;
-        tracing::info!("F1 25 adapter listening on UDP port 20777");
+        tracing::info!(target: LOG_TARGET, "F1 25 adapter listening on UDP port 20777");
         Ok(())
     }
 
@@ -569,7 +571,7 @@ impl SimAdapter for F125Adapter {
     fn disconnect(&mut self) {
         self.socket = None;
         self.connected = false;
-        tracing::info!("F1 25 adapter disconnected");
+        tracing::info!(target: LOG_TARGET, "F1 25 adapter disconnected");
     }
 }
 
