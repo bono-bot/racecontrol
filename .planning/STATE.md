@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
+stopped_at: Completed 97-02-PLAN.md
+last_updated: "2026-03-21T04:16:00.449Z"
+last_activity: "2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed AgentMessage variants + ClearMaintenance CoreToAgentMessage variant + PreflightConfig struct wired into AgentConfig (PF-07)"
+progress:
+  total_phases: 65
+  completed_phases: 36
+  total_plans: 97
+  completed_plans: 94
+  percent: 97
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
 stopped_at: Completed 82-03-PLAN.md
 last_updated: "2026-03-21T04:11:01.247Z"
 last_activity: "2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed AgentMessage variants + ClearMaintenance CoreToAgentMessage variant + PreflightConfig struct wired into AgentConfig (PF-07)"
 progress:
-  total_phases: 61
+  [██████████] 97%
   completed_phases: 29
   total_plans: 82
   completed_plans: 81
@@ -290,9 +306,9 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 97 (rc-common-protocol-pre-flight-rs-framework-hardware-checks)
-Plan: 01 of 02 complete
-Status: In Progress
-Last activity: 2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed AgentMessage variants + ClearMaintenance CoreToAgentMessage variant + PreflightConfig struct wired into AgentConfig (PF-07)
+Plan: 02 of 02 complete
+Status: Complete
+Last activity: 2026-03-21 -- 97-02 complete: pre_flight.rs concurrent check runner (HID, ConspitLink, orphan game) + ws_handler pre-flight gate with billing_active.store(true) inside Pass branch (PF-01, PF-02, PF-03, HW-01, HW-02, HW-03, SYS-01)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -385,6 +401,9 @@ Last activity: 2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed A
 - 97-01: pod_id: String (not u32) for PreFlightPassed/PreFlightFailed -- CONTEXT.md had u32 but RESEARCH.md identified deserialization-breaking mismatch; all existing AgentMessage variants use String
 - 97-01: ClearMaintenance is a unit variant (no fields) -- CoreToAgentMessage is always routed to a specific pod via its WS connection, pod_id redundant
 - 97-01: PreflightConfig follows KioskConfig serde(default) pattern exactly -- reuses existing default_true() fn (PF-07)
+- 97-02: MockHidBackend defined locally in pre_flight::tests -- MockTestBackend from ffb_controller is inside private mod tests{}; local mock! avoids cross-module visibility issues
+- 97-02: Orphan game state captured before AppState borrow in tokio::join! -- game_pid and has_game_process extracted as plain values to avoid lifetime issues with &AppState across await points
+- 97-02: billing_active.store(true) at line 167 in ws_handler.rs -- confirmed AFTER pre_flight gate block (lines 141-165); customers on failed pod never billed (PF-01, HW-01, HW-02, HW-03, SYS-01 complete)
 - 82-03: GameState union must include 'loading' for TypeScript to accept game_state === 'loading' comparisons in kiosk KioskPodCard; SIM_TYPE_LABELS + SIM_TYPE_OPTIONS module-level pattern for consistent sim_type display (BILL-03, BILL-05)
 
 ### Blockers/Concerns
@@ -408,7 +427,7 @@ Last activity: 2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed A
 
 ## Session Continuity
 
-Last session: 2026-03-21T04:11:01.241Z
-Stopped at: Completed 82-03-PLAN.md
+Last session: 2026-03-21T04:16:00.442Z
+Stopped at: Completed 97-02-PLAN.md
 Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)

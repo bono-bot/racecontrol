@@ -9,9 +9,9 @@ Pre-flight checks that run before every customer session, auto-fix failures, and
 
 ### Pre-Flight Framework
 
-- [ ] **PF-01**: Pre-flight checks run on every BillingStarted before PIN entry is shown
-- [ ] **PF-02**: All checks run concurrently via tokio::join! with 5-second hard timeout
-- [ ] **PF-03**: Failed checks attempt one auto-fix before reporting failure
+- [x] **PF-01**: Pre-flight checks run on every BillingStarted before PIN entry is shown
+- [x] **PF-02**: All checks run concurrently via tokio::join! with 5-second hard timeout
+- [x] **PF-03**: Failed checks attempt one auto-fix before reporting failure
 - [ ] **PF-04**: Lock screen shows "Maintenance Required" state when pre-flight fails after auto-fix
 - [ ] **PF-05**: PreFlightFailed AgentMessage sent to racecontrol with failed check details
 - [ ] **PF-06**: Pod auto-retries pre-flight every 30s while in MaintenanceRequired state
@@ -19,13 +19,13 @@ Pre-flight checks that run before every customer session, auto-fix failures, and
 
 ### Hardware Checks
 
-- [ ] **HW-01**: Wheelbase HID connected (FfbController::zero_force returns Ok(true))
-- [ ] **HW-02**: ConspitLink process running (two-stage: process alive + config files valid)
-- [ ] **HW-03**: Auto-fix: restart ConspitLink process if not running
+- [x] **HW-01**: Wheelbase HID connected (FfbController::zero_force returns Ok(true))
+- [x] **HW-02**: ConspitLink process running (two-stage: process alive + config files valid)
+- [x] **HW-03**: Auto-fix: restart ConspitLink process if not running
 
 ### System & Network Checks
 
-- [ ] **SYS-01**: No orphaned game process from previous session (kill if found)
+- [x] **SYS-01**: No orphaned game process from previous session (kill if found)
 - [ ] **SYS-02**: No stuck billing session (billing_active should be false before new session)
 - [ ] **SYS-03**: Disk space > 1GB free
 - [ ] **SYS-04**: Memory > 2GB free
@@ -66,14 +66,14 @@ Deferred to future release.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PF-01 | Phase 97 | Pending |
-| PF-02 | Phase 97 | Pending |
-| PF-03 | Phase 97 | Pending |
+| PF-01 | Phase 97 | Complete |
+| PF-02 | Phase 97 | Complete |
+| PF-03 | Phase 97 | Complete |
 | PF-07 | Phase 97 | Complete |
-| HW-01 | Phase 97 | Pending |
-| HW-02 | Phase 97 | Pending |
-| HW-03 | Phase 97 | Pending |
-| SYS-01 | Phase 97 | Pending |
+| HW-01 | Phase 97 | Complete |
+| HW-02 | Phase 97 | Complete |
+| HW-03 | Phase 97 | Complete |
+| SYS-01 | Phase 97 | Complete |
 | PF-04 | Phase 98 | Pending |
 | PF-05 | Phase 98 | Pending |
 | PF-06 | Phase 98 | Pending |
