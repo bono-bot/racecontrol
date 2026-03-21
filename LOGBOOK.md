@@ -451,3 +451,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 18:12 IST | James | d4bc612 | docs(106-06): complete final audit — Phase 106 structured log labels 100% migrated, 418 tests pass |
 | 2026-03-21 16:17 IST | James | d37f083 | feat(104-01): ViolationStore + pod_violations AppState field + fleet_health_handler violation stats |
 | 2026-03-21 16:19 IST | James | 42ebcb6 | feat(104-01): ProcessViolation WS handler + email escalation for repeat offenders |
+| 2026-03-21 17:00 IST | James | c8f8324 | feat(104-02): spawn_server_guard() server scan loop — rc-agent.exe CRITICAL, 512KB log rotation, pod_violations["server"] |
+| 2026-03-21 17:02 IST | James | 151bf37 | docs(104-02): complete server guard module plan — STATE, ROADMAP, REQUIREMENTS, SUMMARY |
