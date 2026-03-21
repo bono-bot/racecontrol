@@ -39,9 +39,9 @@
 
 - [x] **ALERT-01**: Violation report via WebSocket to racecontrol on every kill/escalation
 - [ ] **ALERT-02**: Staff kiosk notification badge for active violations
-- [ ] **ALERT-03**: Email escalation on repeat offenders (N kills in time window)
+- [x] **ALERT-03**: Email escalation on repeat offenders (N kills in time window)
 - [x] **ALERT-04**: Append-only audit log per machine (`process-guard.log`, 512KB rotation)
-- [ ] **ALERT-05**: Fleet-wide violation summary in `GET /api/v1/fleet/health` (violation_count_24h, last_violation_at)
+- [x] **ALERT-05**: Fleet-wide violation summary in `GET /api/v1/fleet/health` (violation_count_24h, last_violation_at)
 
 ### Deployment
 
@@ -91,9 +91,9 @@ Deferred to future release.
 | PORT-02 | Phase 105 | Pending |
 | ALERT-01 | Phase 103 | Complete (103-02) |
 | ALERT-02 | Phase 104 | Pending |
-| ALERT-03 | Phase 104 | Pending |
+| ALERT-03 | Phase 104 | Complete (104-01) |
 | ALERT-04 | Phase 103 | Complete (103-02) |
-| ALERT-05 | Phase 104 | Pending |
+| ALERT-05 | Phase 104 | Complete (104-01) |
 | DEPLOY-01 | Phase 103 | Complete (103-03) |
 | DEPLOY-02 | Phase 104 | Pending |
 | DEPLOY-03 | Phase 105 | Pending |

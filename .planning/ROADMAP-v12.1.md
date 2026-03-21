@@ -71,7 +71,7 @@ Plans:
   4. racecontrol's own process guard module runs on server .23, logs to `C:\RacingPoint\process-guard.log`, and reports CRITICAL if rc-agent.exe is detected running on the server
 **Plans**: 3 plans
 Plans:
-- [ ] 104-01-PLAN.md — ViolationStore in fleet_health.rs + pod_violations field on AppState + ProcessViolation WS handler + fleet/health violation fields + email escalation on repeat offenders
+- [x] 104-01-PLAN.md — ViolationStore in fleet_health.rs + pod_violations field on AppState + ProcessViolation WS handler + fleet/health violation fields + email escalation on repeat offenders
 - [ ] 104-02-PLAN.md — spawn_server_guard() in process_guard.rs + sysinfo scan loop on server + rc-agent.exe CRITICAL detection + wired into lib.rs
 - [ ] 104-03-PLAN.md — PodFleetStatus TypeScript type updated + violation badge on kiosk fleet grid (Racing Red #E10600)
 

@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** No stale or unauthorized processes survive on any Racing Point machine — whitelist-enforced, continuously monitored, auto-killed.
-**Current focus:** Phase 103 — Process Scanner (rc-agent side)
+**Current focus:** Phase 104 — Server Guard Module Alerts
 
 ## Current Position
 
-Phase: 103 of 105 (Pod Guard Module) — COMPLETE
-Plan: 3 of 3 complete
-Status: Phase 103 complete — autostart audit + whitelist fetch + spawn wiring + WS drain + UpdateProcessWhitelist handler
-Last activity: 2026-03-21 — Phase 103 Plan 03 executed: process guard wired into live rc-agent
+Phase: 104 of 105 (Server Guard Module Alerts) — IN PROGRESS
+Plan: 1 of 1 complete
+Status: Phase 104 Plan 01 complete — ViolationStore, pod_violations AppState field, ProcessViolation WS handler, email escalation
+Last activity: 2026-03-21 — Phase 104 Plan 01 executed: server-side violation tracking and email escalation wired
 
-Progress: [██████░░░░] 65%
+Progress: [███████░░░] 70%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: 22 min
-- Total execution time: 1.9 hours
+- Total plans completed: 6
+- Average duration: 21 min
+- Total execution time: 2.2 hours
 
 **By Phase:**
 
@@ -30,6 +30,7 @@ Progress: [██████░░░░] 65%
 | 101-protocol-foundation | 1 | 35 min | 35 min |
 | 102-whitelist-schema-config-fetch-endpoint | 2 | 55 min | 27 min |
 | 103-pod-guard-module | 3 (of 3) | 47 min | 16 min |
+| 104-server-guard-module-alerts | 1 (of 1) | 18 min | 18 min |
 
 *Updated after each plan completion*
 
@@ -70,6 +71,10 @@ Progress: [██████░░░░] 65%
 - [103-03]: Whitelist fetch placed before AppState construction so config.core.url/config.pod.number accessible before config is moved
 - [103-03]: audit_startup_folder flag-only even in kill_and_report mode — file removal requires Phase 104 staff approval
 - [103-03]: #[cfg(windows)] use std::os::windows::process::CommandExt inside spawn_blocking closure — mirrors ws_handler.rs/debug_server.rs pattern
+- [104-01]: ViolationStore never cleared on disconnect — violations persist across reconnects, only deliberate reset should erase history
+- [104-01]: repeat_offender_check uses >= 2 prior kills in history (not >= 3) because current violation is pushed after the check
+- [104-01]: pod_key uses registered_pod_id (underscore format) over machine_id (dash format) for consistent HashMap keying
+- [104-01]: ProcessGuardStatus arm is log-only — storage deferred to future phase if needed
 
 ### Pending Todos
 
@@ -83,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21 14:57 IST
-Stopped at: 103-03-PLAN.md complete — process guard fully wired into rc-agent, Phase 103 complete
+Last session: 2026-03-21 16:20 IST
+Stopped at: 104-01-PLAN.md complete — server violation tracking, fleet/health API extension, email escalation wired
 Resume file: None

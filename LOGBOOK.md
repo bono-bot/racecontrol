@@ -449,3 +449,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 15:45 IST | James | af60071 | docs(106-03): complete plan 03 — 114 tracing calls migrated, [rc-bot] eliminated, kiosk-llm preserved |
 | 2026-03-21 18:10 IST | James | 47bc75d | feat(106-06): final audit — strip 43 bracket prefixes, fix pre-existing test failure (test_auto_fix_no_match) |
 | 2026-03-21 18:12 IST | James | d4bc612 | docs(106-06): complete final audit — Phase 106 structured log labels 100% migrated, 418 tests pass |
+| 2026-03-21 16:17 IST | James | d37f083 | feat(104-01): ViolationStore + pod_violations AppState field + fleet_health_handler violation stats |
+| 2026-03-21 16:19 IST | James | 42ebcb6 | feat(104-01): ProcessViolation WS handler + email escalation for repeat offenders |
