@@ -13,10 +13,12 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::state::AppState;
+use rc_common::types::ProcessViolation;
 
 /// Per-pod health state maintained by WS events and HTTP probes.
 /// Stored in `AppState::pod_fleet_health` keyed by pod_id.
@@ -53,6 +55,62 @@ pub struct FleetHealthStore {
     pub in_maintenance: bool,
     /// Phase 100: Check names from the most recent PreFlightFailed message.
     pub maintenance_failures: Vec<String>,
+    /// Phase 104: 24-hour violation count (populated by fleet_health_handler from pod_violations).
+    pub violation_count_24h: u32,
+    /// Phase 104: ISO-8601 timestamp of most recent violation for this pod.
+    pub violation_count_last_at: Option<String>,
+}
+
+/// Per-pod violation history. Capped at 100 entries (FIFO eviction).
+#[derive(Debug, Clone, Default)]
+pub struct ViolationStore {
+    entries: VecDeque<ProcessViolation>,
+}
+
+impl ViolationStore {
+    pub fn new() -> Self {
+        Self { entries: VecDeque::new() }
+    }
+
+    /// Insert a violation. Evicts oldest if over 100 entries.
+    pub fn push(&mut self, v: ProcessViolation) {
+        if self.entries.len() >= 100 {
+            self.entries.pop_front();
+        }
+        self.entries.push_back(v);
+    }
+
+    /// Count violations whose timestamp is within the last 86400 seconds of `now`.
+    pub fn violation_count_24h(&self, now: DateTime<Utc>) -> u32 {
+        self.entries.iter().filter(|v| {
+            DateTime::parse_from_rfc3339(&v.timestamp)
+                .map(|t| (now - t.with_timezone(&Utc)).num_seconds() <= 86400)
+                .unwrap_or(false)
+        }).count() as u32
+    }
+
+    /// Timestamp of the most recently pushed violation, or None if empty.
+    pub fn last_violation_at(&self) -> Option<&str> {
+        self.entries.back().map(|v| v.timestamp.as_str())
+    }
+
+    /// Returns true if `violation` should trigger email escalation:
+    /// action_taken == "killed" AND at least 2 prior entries in the last 300 seconds
+    /// with the same process name (case-insensitive) → 3 kills in window.
+    pub fn repeat_offender_check(&self, violation: &ProcessViolation, now: DateTime<Utc>) -> bool {
+        if violation.action_taken != "killed" {
+            return false;
+        }
+        let name_lower = violation.name.to_lowercase();
+        let window_count = self.entries.iter().filter(|v| {
+            v.action_taken == "killed"
+                && v.name.to_lowercase() == name_lower
+                && DateTime::parse_from_rfc3339(&v.timestamp)
+                    .map(|t| (now - t.with_timezone(&Utc)).num_seconds() <= 300)
+                    .unwrap_or(false)
+        }).count();
+        window_count >= 2  // 2 in history + 1 current = 3 total
+    }
 }
 
 /// API response shape for a single pod in GET /api/v1/fleet/health.
@@ -78,6 +136,10 @@ pub struct PodFleetStatus {
     pub in_maintenance: bool,
     /// Phase 100: Check names from the most recent PreFlightFailed event.
     pub maintenance_failures: Vec<String>,
+    /// Phase 104: Number of process violations in the last 24 hours.
+    pub violation_count_24h: u32,
+    /// Phase 104: ISO-8601 timestamp of most recent violation.
+    pub last_violation_at: Option<String>,
 }
 
 /// Called from the WS StartupReport handler.
@@ -218,6 +280,7 @@ pub async fn fleet_health_handler(
     let pods_snapshot = state.pods.read().await;
     let senders = state.agent_senders.read().await;
     let fleet = state.pod_fleet_health.read().await;
+    let violations = state.pod_violations.read().await;
 
     let mut result: Vec<PodFleetStatus> = Vec::with_capacity(8);
 
@@ -244,6 +307,8 @@ pub async fn fleet_health_handler(
                     last_http_check: None,
                     in_maintenance: false,
                     maintenance_failures: vec![],
+                    violation_count_24h: 0,
+                    last_violation_at: None,
                 });
             }
             Some(info) => {
@@ -281,6 +346,11 @@ pub async fn fleet_health_handler(
                 let in_maintenance = store.map(|s| s.in_maintenance).unwrap_or(false);
                 let maintenance_failures = store.map(|s| s.maintenance_failures.clone()).unwrap_or_default();
 
+                let vstore = violations.get(pod_id.as_str());
+                let now = Utc::now();
+                let violation_count_24h = vstore.map(|vs| vs.violation_count_24h(now)).unwrap_or(0);
+                let last_violation_at = vstore.and_then(|vs| vs.last_violation_at()).map(String::from);
+
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: Some(pod_id.clone()),
@@ -295,6 +365,8 @@ pub async fn fleet_health_handler(
                     last_http_check,
                     in_maintenance,
                     maintenance_failures,
+                    violation_count_24h,
+                    last_violation_at,
                 });
             }
         }

@@ -12,7 +12,7 @@ use crate::billing::BillingManager;
 use crate::config::Config;
 use crate::crypto::encryption::FieldCipher;
 use crate::email_alerts::EmailAlerter;
-use crate::fleet_health::FleetHealthStore;
+use crate::fleet_health::{FleetHealthStore, ViolationStore};
 use crate::game_launcher::GameManager;
 use crate::port_allocator::PortAllocator;
 use rc_common::protocol::{AiChannelMessage, CoreToAgentMessage, DashboardEvent};
@@ -168,6 +168,9 @@ pub struct AppState {
     /// Per-pod fleet health state: version, agent_started_at, http_reachable.
     /// Written by WS StartupReport/Disconnect handlers and background probe loop.
     pub pod_fleet_health: RwLock<HashMap<String, FleetHealthStore>>,
+    /// Phase 104: Per-pod process violation history. Keyed by pod_id.
+    /// Capped at 100 entries per pod. Never cleared on disconnect.
+    pub pod_violations: RwLock<HashMap<String, ViolationStore>>,
     /// Latest venue config snapshot from on-premise server (via comms-link sync_push).
     /// None until first config_snapshot received.
     pub venue_config: RwLock<Option<VenueConfigSnapshot>>,
@@ -225,6 +228,7 @@ impl AppState {
             pending_self_tests: RwLock::new(HashMap::new()),
             relay_available: AtomicBool::new(false),
             pod_fleet_health: RwLock::new(HashMap::new()),
+            pod_violations: RwLock::new(HashMap::new()),
             venue_config: RwLock::new(None),
             field_cipher,
         }
