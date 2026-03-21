@@ -739,6 +739,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 tracing::warn!("[self-test] Received SelfTestResult for unknown request_id: {}", request_id);
                             }
                         }
+                        _ => { /* new process guard variants — handled in Phase 103/104 */ }
                     }
                 }
                 Err(e) => {
