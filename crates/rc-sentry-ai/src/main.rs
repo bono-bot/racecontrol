@@ -5,6 +5,7 @@ mod detection;
 mod enrollment;
 mod frame;
 mod health;
+mod mjpeg;
 mod privacy;
 mod recognition;
 mod relay;
@@ -281,11 +282,19 @@ async fn main() -> anyhow::Result<()> {
         alert_tx: alert_tx.clone(),
     });
 
+    // Initialize MJPEG streaming state
+    let mjpeg_state = Arc::new(mjpeg::MjpegState {
+        frame_buf: frame_buf.clone(),
+        cameras: config.cameras.clone(),
+        service_port: config.service.port,
+    });
+
     let app = health::health_router(state)
         .merge(health::privacy_router(audit_writer.clone()))
         .merge(enrollment::routes::enrollment_router(enrollment_state))
         .merge(attendance::routes::attendance_router(attendance_state))
-        .merge(alerts::ws::alerts_router(alert_ws_state));
+        .merge(alerts::ws::alerts_router(alert_ws_state))
+        .merge(mjpeg::mjpeg_router(mjpeg_state));
     let addr = format!("{}:{}", config.service.host, config.service.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("rc-sentry-ai health endpoint listening on {addr}");
