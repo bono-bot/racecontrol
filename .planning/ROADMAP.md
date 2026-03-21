@@ -1024,8 +1024,8 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 84-01: TBD
-- [ ] 84-02: TBD
+- [ ] 84-01-PLAN.md — IracingAdapter core: shared memory, variable lookup, session transitions, lap detection, pre-flight check + 7 unit tests
+- [ ] 84-02-PLAN.md — Integration wiring: mod.rs registration, main.rs adapter creation, event_loop.rs PlayableSignal IsOnTrack
 
 ### Phase 85: LMU Telemetry
 **Goal**: Le Mans Ultimate lap times are captured via rFactor 2 shared memory plugin
