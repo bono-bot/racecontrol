@@ -46,6 +46,7 @@ use rc_common::types::*;
 use sims::SimAdapter;
 use sims::assetto_corsa::AssettoCorsaAdapter;
 use sims::f1_25::F125Adapter;
+use sims::iracing::IracingAdapter;
 use kiosk::KioskManager;
 use lock_screen::{LockScreenEvent, LockScreenManager};
 use overlay::OverlayManager;
@@ -402,6 +403,9 @@ async fn main() -> Result<()> {
         SimType::F125 => Some(Box::new(F125Adapter::new(
             pod_id.clone(),
             Some(signal_tx.clone()),
+        ))),
+        SimType::IRacing => Some(Box::new(IracingAdapter::new(
+            pod_id.clone(),
         ))),
         _ => {
             tracing::warn!("Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);

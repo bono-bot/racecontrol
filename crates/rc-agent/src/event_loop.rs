@@ -487,7 +487,8 @@ pub async fn run(
                 // Per-sim PlayableSignal dispatch (runs every game_check tick = 2s)
                 // AC billing is triggered via AcStatus::Live from telemetry_interval (100ms) — no action here.
                 // F1 25: UdpActive from DrivingDetector sets f1_udp_playable_received; fire billing on next tick.
-                // Other sims: 90s process-based fallback.
+                // iRacing: IsOnTrack shared-memory signal replaces 90s fallback.
+                // Other sims (LMU, EVO, WRC, Forza, etc.): 90s process-based fallback.
                 if state.game_process.is_some() {
                     match conn.current_sim_type {
                         Some(rc_common::types::SimType::AssettoCorsa) | None => {
@@ -509,8 +510,27 @@ pub async fn run(
                                 conn.launch_state = LaunchState::Live;
                             }
                         }
+                        Some(rc_common::types::SimType::IRacing) => {
+                            // iRacing: use IsOnTrack from shared memory instead of 90s process fallback
+                            if let Some(ref adapter) = state.adapter {
+                                if let Some(true) = adapter.read_is_on_track() {
+                                    if matches!(conn.launch_state, LaunchState::WaitingForLive { .. }) {
+                                        tracing::info!("[billing] iRacing IsOnTrack=true — emitting AcStatus::Live");
+                                        let msg = AgentMessage::GameStatusUpdate {
+                                            pod_id: state.pod_id.clone(),
+                                            ac_status: AcStatus::Live,
+                                            sim_type: Some(rc_common::types::SimType::IRacing),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&msg) {
+                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        }
+                                        conn.launch_state = LaunchState::Live;
+                                    }
+                                }
+                            }
+                        }
                         Some(sim_type) => {
-                            // Process-based fallback for iRacing, LMU, EVO, WRC, Forza, etc.
+                            // Process-based fallback for LMU, EVO, WRC, Forza, etc.
                             if let LaunchState::WaitingForLive { launched_at, .. } = &conn.launch_state {
                                 if launched_at.elapsed() >= Duration::from_secs(90) {
                                     tracing::info!("[billing] {:?} process fallback (90s elapsed) — emitting AcStatus::Live", sim_type);
