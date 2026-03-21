@@ -434,3 +434,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 14:57 IST | James | b5035a1 | feat(103-03): add run_autostart_audit() + autostart tests to process_guard.rs (TDD, 17 tests green) |
 | 2026-03-21 14:57 IST | James | 3416f9e | feat(103-03): wire process guard into rc-agent — whitelist fetch, spawn, WS drain, UpdateProcessWhitelist handler |
 | 2026-03-21 14:57 IST | James | a79f042 | docs(103-03): Phase 103 complete — AUTO-01/02/04, DEPLOY-01 requirements satisfied |
+| 2026-03-21 15:45 IST | James | 6ca77f0 | feat(106-01): add build_id to root span and migrate all 65 tracing calls in main.rs to LOG_TARGET |
+| 2026-03-21 15:45 IST | James | bc2e18f | docs(106-01): SUMMARY.md + STATE.md + ROADMAP.md — LOG-01, LOG-02, LOG-03 complete |
