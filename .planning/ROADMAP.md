@@ -1699,7 +1699,7 @@ Plans:
 | 113. Face Detection & Privacy Foundation | 3/3 | Complete    | 2026-03-21 |
 | 114. Face Recognition & Quality Gates | 3/3 | Complete    | 2026-03-21 |
 | 115. Face Enrollment System | 2/2 | Complete    | 2026-03-21 |
-| 116. Attendance Engine | 1/3 | In Progress|  |
+| 116. Attendance Engine | 2/3 | In Progress|  |
 | 117. Alerts & Notifications | 0/3 | Not started | - |
 | 118. Live Camera Feeds | 0/2 | Not started | - |
 | 119. NVR Playback Proxy | 0/3 | Not started | - |
