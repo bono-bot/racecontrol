@@ -1303,7 +1303,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 80. Audit Trail & Defense in Depth | 2/2 | Complete    | 2026-03-21 | - |
 | 81. Game Launch Core | 3/3 | Complete   | 2026-03-21 | - |
 | 82. Billing and Session Lifecycle | 2/3 | Complete    | 2026-03-21 | - |
-| 83. F1 25 Telemetry | 1/1 | Complete   | 2026-03-21 | - |
+| 83. F1 25 Telemetry | 1/1 | Complete    | 2026-03-21 | - |
 | 84. iRacing Telemetry | v13.0 | 0/2 | Not started | - |
 | 85. LMU Telemetry | v13.0 | 0/1 | Not started | - |
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |

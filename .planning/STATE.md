@@ -4,6 +4,21 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 83-01-PLAN.md
+last_updated: "2026-03-21T04:35:45.409Z"
+last_activity: "2026-03-21 -- 83-01 complete: 6 F1 25 unit tests added (lap completion, sector splits, invalid lap flag, session type mapping, first-packet safety, take semantics) — TEL-F1-01, TEL-F1-02, TEL-F1-03 verified"
+progress:
+  total_phases: 65
+  completed_phases: 37
+  total_plans: 100
+  completed_plans: 95
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 83-01-PLAN.md
 last_updated: "2026-03-21T04:32:00.084Z"
 last_activity: "2026-03-21 -- 97-02 complete: pre_flight.rs concurrent check runner (HID, ConspitLink, orphan game) + ws_handler pre-flight gate with billing_active.store(true) inside Pass branch (PF-01, PF-02, PF-03, HW-01, HW-02, HW-03, SYS-01)"
 progress:
