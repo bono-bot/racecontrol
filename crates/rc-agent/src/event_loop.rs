@@ -74,6 +74,17 @@ pub(crate) struct ConnectionState {
     pub(crate) session_max_speed_kmh: f32,
     pub(crate) session_race_position: Option<u32>,
     pub(crate) ws_connect_time: tokio::time::Instant,
+    /// 30s grace period after game exit — delays AcStatus::Off to prevent session fragmentation
+    pub(crate) exit_grace_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
+    pub(crate) exit_grace_armed: bool,
+    /// SimType of the game that exited (for correct sim_type on delayed Off signal)
+    pub(crate) exit_grace_sim_type: Option<rc_common::types::SimType>,
+    /// Track if we already emitted Loading state to server for current launch
+    pub(crate) loading_emitted: bool,
+    /// Track the current sim_type for the active game (set on LaunchGame, cleared on Idle)
+    pub(crate) current_sim_type: Option<rc_common::types::SimType>,
+    /// Track whether F1 25 playable signal has been received (from DrivingDetector UdpActive)
+    pub(crate) f1_udp_playable_received: bool,
 }
 
 impl ConnectionState {
@@ -96,6 +107,12 @@ impl ConnectionState {
             session_max_speed_kmh: 0.0,
             session_race_position: None,
             ws_connect_time: tokio::time::Instant::now(),
+            exit_grace_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
+            exit_grace_armed: false,
+            exit_grace_sim_type: None,
+            loading_emitted: false,
+            current_sim_type: None,
+            f1_udp_playable_received: false,
         }
     }
 }
@@ -182,18 +199,37 @@ pub async fn run(
                             }
                             if let (Some(stable_since), Some(status)) = (state.ac_status_stable_since, state.last_ac_status) {
                                 if stable_since.elapsed() >= Duration::from_secs(1) {
-                                    let msg = AgentMessage::GameStatusUpdate {
-                                        pod_id: state.pod_id.clone(),
-                                        ac_status: status,
-                                        sim_type: Some(rc_common::types::SimType::AssettoCorsa),
-                                    };
-                                    if let Ok(json) = serde_json::to_string(&msg) {
-                                        let _ = ws_tx.send(Message::Text(json.into())).await;
-                                    }
                                     state.ac_status_stable_since = None;
 
                                     if status == AcStatus::Live {
+                                        // Live: send immediately, transition launch_state
+                                        let msg = AgentMessage::GameStatusUpdate {
+                                            pod_id: state.pod_id.clone(),
+                                            ac_status: status,
+                                            sim_type: Some(rc_common::types::SimType::AssettoCorsa),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&msg) {
+                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        }
                                         conn.launch_state = LaunchState::Live;
+                                    } else if status == AcStatus::Off {
+                                        // Off: arm 30s grace timer — crash recovery may cancel it
+                                        if !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
+                                            tracing::info!("[billing] AcStatus::Off detected — arming 30s exit grace timer (AC)");
+                                            conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(30)));
+                                            conn.exit_grace_armed = true;
+                                            conn.exit_grace_sim_type = Some(rc_common::types::SimType::AssettoCorsa);
+                                        }
+                                    } else {
+                                        // Other statuses (e.g. Pause): send immediately
+                                        let msg = AgentMessage::GameStatusUpdate {
+                                            pod_id: state.pod_id.clone(),
+                                            ac_status: status,
+                                            sim_type: Some(rc_common::types::SimType::AssettoCorsa),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&msg) {
+                                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                                        }
                                     }
                                 }
                             }
@@ -248,6 +284,15 @@ pub async fn run(
             }
 
             Some(signal) = state.signal_rx.recv() => {
+                // F1 25 PlayableSignal: UdpActive on port 20777 is the billing trigger
+                if matches!(signal, crate::driving_detector::DetectorSignal::UdpActive) {
+                    if matches!(conn.current_sim_type, Some(rc_common::types::SimType::F125))
+                        && matches!(conn.launch_state, LaunchState::WaitingForLive { .. })
+                    {
+                        conn.f1_udp_playable_received = true;
+                    }
+                }
+
                 let (_, changed) = state.detector.process_signal(signal);
                 if changed {
                     let is_active = matches!(state.detector.state(), DrivingState::Active);
@@ -290,6 +335,26 @@ pub async fn run(
                             game.pid = Some(pid);
                             game_process::persist_pid(pid);
                             game.state = GameState::Running;
+
+                            // Emit GameState::Loading once — process detected, PlayableSignal not yet fired
+                            if !conn.loading_emitted && matches!(conn.launch_state, LaunchState::WaitingForLive { .. }) {
+                                let loading_info = GameLaunchInfo {
+                                    pod_id: state.pod_id.clone(),
+                                    sim_type: game.sim_type,
+                                    game_state: GameState::Loading,
+                                    pid: Some(pid),
+                                    launched_at: Some(Utc::now()),
+                                    error_message: None,
+                                    diagnostics: None,
+                                };
+                                let loading_msg = AgentMessage::GameStateUpdate(loading_info);
+                                if let Ok(json) = serde_json::to_string(&loading_msg) {
+                                    let _ = ws_tx.send(Message::Text(json.into())).await;
+                                }
+                                conn.loading_emitted = true;
+                                tracing::info!("[billing] GameState::Loading emitted for {:?}", game.sim_type);
+                            }
+
                             let info = GameLaunchInfo {
                                 pod_id: state.pod_id.clone(),
                                 sim_type: game.sim_type,
@@ -392,11 +457,71 @@ pub async fn run(
                                 };
                             } else {
                                 tracing::info!("Game exited with no active billing — enforcing safe state");
+                                // Arm exit grace timer so server gets AcStatus::Off after 30s
+                                // (handles non-AC sims that don't have shared memory Off signal)
+                                if !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
+                                    let exited_sim = conn.current_sim_type;
+                                    if exited_sim != Some(rc_common::types::SimType::AssettoCorsa) {
+                                        // Non-AC sims: server doesn't get AcStatus::Off from telemetry path
+                                        // so we arm the grace timer here
+                                        if let Some(sim) = exited_sim {
+                                            tracing::info!("[billing] {:?} exited — arming 30s exit grace timer", sim);
+                                            conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(30)));
+                                            conn.exit_grace_armed = true;
+                                            conn.exit_grace_sim_type = Some(sim);
+                                        }
+                                    }
+                                }
                                 ffb_controller::safe_session_end(&state.ffb).await;
                                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                 tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                                 state.lock_screen.show_idle_pin_entry();
+                            }
+                        }
+                    }
+                }
+
+                // Per-sim PlayableSignal dispatch (runs every game_check tick = 2s)
+                // AC billing is triggered via AcStatus::Live from telemetry_interval (100ms) — no action here.
+                // F1 25: UdpActive from DrivingDetector sets f1_udp_playable_received; fire billing on next tick.
+                // Other sims: 90s process-based fallback.
+                if state.game_process.is_some() {
+                    match conn.current_sim_type {
+                        Some(rc_common::types::SimType::AssettoCorsa) | None => {
+                            // AC handled via telemetry_interval — no action needed here
+                        }
+                        Some(rc_common::types::SimType::F125) => {
+                            if conn.f1_udp_playable_received
+                                && matches!(conn.launch_state, LaunchState::WaitingForLive { .. })
+                            {
+                                tracing::info!("[billing] F1 25 PlayableSignal (UdpActive) — emitting AcStatus::Live");
+                                let msg = AgentMessage::GameStatusUpdate {
+                                    pod_id: state.pod_id.clone(),
+                                    ac_status: AcStatus::Live,
+                                    sim_type: Some(rc_common::types::SimType::F125),
+                                };
+                                if let Ok(json) = serde_json::to_string(&msg) {
+                                    let _ = ws_tx.send(Message::Text(json.into())).await;
+                                }
+                                conn.launch_state = LaunchState::Live;
+                            }
+                        }
+                        Some(sim_type) => {
+                            // Process-based fallback for iRacing, LMU, EVO, WRC, Forza, etc.
+                            if let LaunchState::WaitingForLive { launched_at, .. } = &conn.launch_state {
+                                if launched_at.elapsed() >= Duration::from_secs(90) {
+                                    tracing::info!("[billing] {:?} process fallback (90s elapsed) — emitting AcStatus::Live", sim_type);
+                                    let msg = AgentMessage::GameStatusUpdate {
+                                        pod_id: state.pod_id.clone(),
+                                        ac_status: AcStatus::Live,
+                                        sim_type: Some(sim_type),
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&msg) {
+                                        let _ = ws_tx.send(Message::Text(json.into())).await;
+                                    }
+                                    conn.launch_state = LaunchState::Live;
+                                }
                             }
                         }
                     }
@@ -576,6 +701,23 @@ pub async fn run(
                 }
             }
 
+            _ = &mut conn.exit_grace_timer, if conn.exit_grace_armed => {
+                conn.exit_grace_armed = false;
+                tracing::info!("[billing] Exit grace period expired — emitting AcStatus::Off to server");
+                let msg = AgentMessage::GameStatusUpdate {
+                    pod_id: state.pod_id.clone(),
+                    ac_status: AcStatus::Off,
+                    sim_type: conn.exit_grace_sim_type,
+                };
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = ws_tx.send(Message::Text(json.into())).await;
+                }
+                conn.exit_grace_sim_type = None;
+                conn.current_sim_type = None;
+                conn.loading_emitted = false;
+                conn.f1_udp_playable_received = false;
+            }
+
             _ = async {
                 match &mut conn.crash_recovery {
                     CrashRecoveryState::PausedWaitingRelaunch { timer, .. } => {
@@ -590,6 +732,12 @@ pub async fn run(
                     CrashRecoveryState::PausedWaitingRelaunch { attempt, last_sim_type, last_launch_args, .. } => {
                         if state.game_process.as_ref().and_then(|g| g.pid).is_some() {
                             tracing::info!("[crash-recovery] Game PID detected during recovery wait (attempt {}) — resuming billing", attempt);
+                            // Cancel exit grace timer — game has relaunched, billing continues
+                            if conn.exit_grace_armed {
+                                tracing::info!("[billing] Crash recovery relaunch — cancelling exit grace timer");
+                                conn.exit_grace_armed = false;
+                                conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(86400)));
+                            }
                             let _ = state.failure_monitor_tx.send_modify(|s| { s.billing_paused = false; });
                             state.overlay.deactivate();
                             if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
