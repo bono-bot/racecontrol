@@ -16,6 +16,8 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+const LOG_TARGET: &str = "self-heal";
+
 /// Embedded config template -- compiled into the binary from deploy/rc-agent.template.toml.
 const CONFIG_TEMPLATE: &str = include_str!("../../../deploy/rc-agent.template.toml");
 
@@ -63,14 +65,14 @@ pub fn run(exe_dir: &Path) -> SelfHealResult {
     // 1. Config
     let config_path = exe_dir.join("rc-agent.toml");
     if !config_path.exists() {
-        tracing::warn!("[self-heal] rc-agent.toml missing -- attempting repair");
+        tracing::warn!(target: LOG_TARGET, "rc-agent.toml missing -- attempting repair");
         match repair_config(&config_path) {
             Ok(()) => {
-                tracing::warn!("[self-heal] rc-agent.toml regenerated from template");
+                tracing::warn!(target: LOG_TARGET, "rc-agent.toml regenerated from template");
                 result.config_repaired = true;
             }
             Err(e) => {
-                tracing::error!("[self-heal] Failed to repair config: {}", e);
+                tracing::error!(target: LOG_TARGET, "Failed to repair config: {}", e);
                 result.errors.push(format!("config: {}", e));
             }
         }
@@ -79,14 +81,14 @@ pub fn run(exe_dir: &Path) -> SelfHealResult {
     // 2. Start script
     let script_path = exe_dir.join("start-rcagent.bat");
     if !script_path.exists() {
-        tracing::warn!("[self-heal] start-rcagent.bat missing -- attempting repair");
+        tracing::warn!(target: LOG_TARGET, "start-rcagent.bat missing -- attempting repair");
         match repair_start_script(&script_path) {
             Ok(()) => {
-                tracing::warn!("[self-heal] start-rcagent.bat recreated");
+                tracing::warn!(target: LOG_TARGET, "start-rcagent.bat recreated");
                 result.script_repaired = true;
             }
             Err(e) => {
-                tracing::error!("[self-heal] Failed to repair start script: {}", e);
+                tracing::error!(target: LOG_TARGET, "Failed to repair start script: {}", e);
                 result.errors.push(format!("script: {}", e));
             }
         }
@@ -94,14 +96,14 @@ pub fn run(exe_dir: &Path) -> SelfHealResult {
 
     // 3. Registry key
     if !registry_key_exists() {
-        tracing::warn!("[self-heal] HKLM Run key missing -- attempting repair");
+        tracing::warn!(target: LOG_TARGET, "HKLM Run key missing -- attempting repair");
         match repair_registry_key(exe_dir) {
             Ok(()) => {
-                tracing::warn!("[self-heal] HKLM Run key recreated");
+                tracing::warn!(target: LOG_TARGET, "HKLM Run key recreated");
                 result.registry_repaired = true;
             }
             Err(e) => {
-                tracing::error!("[self-heal] Failed to repair registry key: {}", e);
+                tracing::error!(target: LOG_TARGET, "Failed to repair registry key: {}", e);
                 result.errors.push(format!("registry: {}", e));
             }
         }
@@ -109,14 +111,14 @@ pub fn run(exe_dir: &Path) -> SelfHealResult {
 
     // 4. Defender exclusion for C:\RacingPoint\
     if !defender_exclusion_exists() {
-        tracing::warn!("[self-heal] Defender exclusion for C:\\RacingPoint\\ missing -- attempting repair");
+        tracing::warn!(target: LOG_TARGET, "Defender exclusion for C:\\RacingPoint\\ missing -- attempting repair");
         match repair_defender_exclusion() {
             Ok(()) => {
-                tracing::warn!("[self-heal] Defender exclusion added for C:\\RacingPoint\\");
+                tracing::warn!(target: LOG_TARGET, "Defender exclusion added for C:\\RacingPoint\\");
                 result.defender_repaired = true;
             }
             Err(e) => {
-                tracing::error!("[self-heal] Failed to add Defender exclusion: {}", e);
+                tracing::error!(target: LOG_TARGET, "Failed to add Defender exclusion: {}", e);
                 result.errors.push(format!("defender: {}", e));
             }
         }

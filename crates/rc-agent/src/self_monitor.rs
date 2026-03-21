@@ -20,6 +20,7 @@ use serde::Deserialize;
 use crate::ai_debugger::AiDebuggerConfig;
 use crate::udp_heartbeat::HeartbeatStatus;
 
+const LOG_TARGET: &str = "self-monitor";
 const CHECK_INTERVAL_SECS: u64 = 60;      // check every minute
 const CLOSE_WAIT_THRESHOLD: usize = 20;   // flag if :8090 has 20+ stuck sockets
 const WS_DEAD_SECS: u64 = 300;           // relaunch if disconnected 5+ min — allows slow boot reconnect without false-positive kills
@@ -66,13 +67,14 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
             if issues.is_empty() {
                 tracing::debug!(
-                    "[rc-bot] OK (close_wait={}, ws_dead={}s)",
+                    target: LOG_TARGET,
+                    "OK (close_wait={}, ws_dead={}s)",
                     close_wait, ws_dead_secs
                 );
                 continue;
             }
 
-            tracing::warn!("[rc-bot] Issues: {}", issues.join("; "));
+            tracing::warn!(target: LOG_TARGET, "Issues: {}", issues.join("; "));
             log_event(&format!("ISSUE: {}", issues.join("; ")));
 
             // WS dead too long — relaunch directly, no AI needed.
@@ -91,11 +93,12 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
                 if switch_grace_active {
                     tracing::info!(
-                        "[rc-bot] WS dead {}s but SwitchController received {}ms ago — suppressing relaunch",
+                        target: LOG_TARGET,
+                        "WS dead {}s but SwitchController received {}ms ago — suppressing relaunch",
                         ws_dead_secs, since_switch_ms
                     );
                 } else {
-                    tracing::warn!("[rc-bot] WebSocket dead {}s — relaunching to reestablish", ws_dead_secs);
+                    tracing::warn!(target: LOG_TARGET, "WebSocket dead {}s — relaunching to reestablish", ws_dead_secs);
                     log_event(&format!("RELAUNCH: ws_dead={}s (threshold={}s) — no AI needed", ws_dead_secs, WS_DEAD_SECS));
                     relaunch_self();
                     continue;
@@ -106,7 +109,7 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
             // Ollama may not be installed on pods; don't let a missing model leave
             // 128 stuck sockets forever. 5 strikes = intentional threshold, not a blip.
             if close_wait_strikes >= 5 {
-                tracing::warn!("[rc-bot] CLOSE_WAIT persisted for {} checks — relaunching without AI", close_wait_strikes);
+                tracing::warn!(target: LOG_TARGET, "CLOSE_WAIT persisted for {} checks — relaunching without AI", close_wait_strikes);
                 log_event(&format!("RELAUNCH: close_wait={} (strike={}) — Ollama not consulted", close_wait, close_wait_strikes));
                 relaunch_self();
                 continue;
@@ -114,7 +117,7 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
             // CLOSE_WAIT flood (early strikes) — consult Ollama for nuanced diagnosis.
             if !config.enabled {
-                tracing::info!("[rc-bot] AI disabled — skipping CLOSE_WAIT analysis");
+                tracing::info!(target: LOG_TARGET, "AI disabled — skipping CLOSE_WAIT analysis");
                 log_event(&format!("SKIP: AI disabled, close_wait={}", close_wait));
                 continue;
             }
@@ -128,14 +131,14 @@ pub fn spawn(config: AiDebuggerConfig, status: Arc<HeartbeatStatus>) {
 
             match query_ollama(&config.ollama_url, &config.ollama_model, &prompt).await {
                 Ok(response) => {
-                    tracing::info!("[rc-bot] Ollama: {}", response.trim());
+                    tracing::info!(target: LOG_TARGET, "Ollama: {}", response.trim());
                     if response.trim().to_uppercase().contains("RESTART") {
-                        tracing::warn!("[rc-bot] Ollama recommends restart — relaunching");
+                        tracing::warn!(target: LOG_TARGET, "Ollama recommends restart — relaunching");
                         relaunch_self();
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("[rc-bot] Ollama unavailable ({}) — waiting for strike limit", e);
+                    tracing::warn!(target: LOG_TARGET, "Ollama unavailable ({}) — waiting for strike limit", e);
                 }
             }
         }
@@ -231,11 +234,11 @@ pub fn relaunch_self() {
         .spawn()
     {
         Ok(_) => {
-            tracing::info!("[rc-bot] Relaunch scheduled. Exiting current process.");
+            tracing::info!(target: LOG_TARGET, "Relaunch scheduled. Exiting current process.");
             std::process::exit(0);
         }
         Err(e) => {
-            tracing::error!("[rc-bot] Failed to spawn relaunch: {}", e);
+            tracing::error!(target: LOG_TARGET, "Failed to spawn relaunch: {}", e);
         }
     }
 }

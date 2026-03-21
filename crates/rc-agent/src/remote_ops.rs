@@ -44,6 +44,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(windows)]
 const DETACHED_PROCESS: u32 = 0x00000008;
 
+const LOG_TARGET: &str = "remote-ops";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_ID: &str = env!("GIT_HASH");
 const MAX_CONCURRENT_EXECS: usize = 8;
@@ -136,7 +137,7 @@ pub fn start(port: u16) {
                 ) {
                     Ok(s) => s,
                     Err(e) => {
-                        tracing::error!("Failed to create socket: {}", e);
+                        tracing::error!(target: LOG_TARGET, "Failed to create socket: {}", e);
                         return;
                     }
                 };
@@ -148,17 +149,18 @@ pub fn start(port: u16) {
                         let std_listener: std::net::TcpListener = sock.into();
                         match tokio::net::TcpListener::from_std(std_listener) {
                             Ok(l) => {
-                                tracing::info!("Remote ops server listening on http://{}", addr);
+                                tracing::info!(target: LOG_TARGET, "Remote ops server listening on http://{}", addr);
                                 bound = Some(l);
                                 break;
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to convert listener (attempt {}): {}", attempt, e);
+                                tracing::warn!(target: LOG_TARGET, "Failed to convert listener (attempt {}): {}", attempt, e);
                             }
                         }
                     }
                     Err(e) => {
                         tracing::warn!(
+                            target: LOG_TARGET,
                             "Port {} busy (attempt {}/10): {} — retrying in 3s",
                             port, attempt, e
                         );
@@ -169,7 +171,7 @@ pub fn start(port: u16) {
             match bound {
                 Some(l) => l,
                 None => {
-                    tracing::error!("Failed to bind port {} after 10 attempts (30s). Stale sockets?", port);
+                    tracing::error!(target: LOG_TARGET, "Failed to bind port {} after 10 attempts (30s). Stale sockets?", port);
                     return;
                 }
             }
@@ -186,14 +188,14 @@ pub fn start(port: u16) {
             let raw = listener.as_raw_socket() as usize;
             let ok = unsafe { SetHandleInformation(raw as *mut _, HANDLE_FLAG_INHERIT, 0) };
             if ok == 0 {
-                tracing::warn!("[remote_ops] SetHandleInformation failed — cmd.exe may inherit :8090 socket");
+                tracing::warn!(target: LOG_TARGET, "SetHandleInformation failed — cmd.exe may inherit :8090 socket");
             } else {
-                tracing::debug!("[remote_ops] Listening socket marked non-inheritable");
+                tracing::debug!(target: LOG_TARGET, "Listening socket marked non-inheritable");
             }
         }
 
         if let Err(e) = axum::serve(listener, app).await {
-            tracing::error!("Remote ops server error: {}", e);
+            tracing::error!(target: LOG_TARGET, "Remote ops server error: {}", e);
         }
     });
 }
@@ -239,7 +241,7 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
                 ) {
                     Ok(s) => s,
                     Err(e) => {
-                        tracing::error!("Failed to create socket: {}", e);
+                        tracing::error!(target: LOG_TARGET, "Failed to create socket: {}", e);
                         let _ = tx.send(Err(format!("remote ops socket create failed: {}", e)));
                         return;
                     }
@@ -252,17 +254,18 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
                         let std_listener: std::net::TcpListener = sock.into();
                         match tokio::net::TcpListener::from_std(std_listener) {
                             Ok(l) => {
-                                tracing::info!("Remote ops server listening on http://{}", addr);
+                                tracing::info!(target: LOG_TARGET, "Remote ops server listening on http://{}", addr);
                                 bound = Some(l);
                                 break;
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to convert listener (attempt {}): {}", attempt, e);
+                                tracing::warn!(target: LOG_TARGET, "Failed to convert listener (attempt {}): {}", attempt, e);
                             }
                         }
                     }
                     Err(e) => {
                         tracing::warn!(
+                            target: LOG_TARGET,
                             "Port {} busy (attempt {}/10): {} — retrying in 3s",
                             port, attempt, e
                         );
@@ -277,7 +280,7 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
                 }
                 None => {
                     let msg = format!("remote ops port {} bind failed after 10 attempts (30s)", port);
-                    tracing::error!("{}", msg);
+                    tracing::error!(target: LOG_TARGET, "{}", msg);
                     let _ = tx.send(Err(msg));
                     return;
                 }
@@ -295,14 +298,14 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
             let raw = listener.as_raw_socket() as usize;
             let ok = unsafe { SetHandleInformation(raw as *mut _, HANDLE_FLAG_INHERIT, 0) };
             if ok == 0 {
-                tracing::warn!("[remote_ops] SetHandleInformation failed — cmd.exe may inherit :8090 socket");
+                tracing::warn!(target: LOG_TARGET, "SetHandleInformation failed — cmd.exe may inherit :8090 socket");
             } else {
-                tracing::debug!("[remote_ops] Listening socket marked non-inheritable");
+                tracing::debug!(target: LOG_TARGET, "Listening socket marked non-inheritable");
             }
         }
 
         if let Err(e) = axum::serve(listener, app).await {
-            tracing::error!("Remote ops server error: {}", e);
+            tracing::error!(target: LOG_TARGET, "Remote ops server error: {}", e);
         }
     });
     rx
@@ -468,7 +471,8 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
         Ok(permit) => permit,
         Err(_) => {
             tracing::warn!(
-                "[remote_ops] SLOT EXHAUSTION: all {} slots occupied. Returning 429.",
+                target: LOG_TARGET,
+                "SLOT EXHAUSTION: all {} slots occupied. Returning 429.",
                 MAX_CONCURRENT_EXECS
             );
             return Err((
@@ -491,7 +495,7 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
     // relaunch_self() calls std::process::exit(0) on success — no response will be sent.
     // If relaunch_self() returns (spawn failed), we return HTTP 500.
     if req.cmd.trim() == "RCAGENT_SELF_RESTART" {
-        tracing::info!("[remote_ops] RCAGENT_SELF_RESTART received — calling relaunch_self()");
+        tracing::info!(target: LOG_TARGET, "RCAGENT_SELF_RESTART received — calling relaunch_self()");
         crate::self_monitor::relaunch_self();
         return Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ExecResponse {
             success: false,
