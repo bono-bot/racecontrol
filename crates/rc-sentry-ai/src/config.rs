@@ -6,6 +6,8 @@ pub struct Config {
     pub service: ServiceConfig,
     pub relay: RelayConfig,
     pub cameras: Vec<CameraConfig>,
+    #[serde(default)]
+    pub privacy: PrivacyConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -26,6 +28,31 @@ pub struct CameraConfig {
     pub stream_name: String,
     pub role: String,
     pub fps: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PrivacyConfig {
+    #[serde(default = "default_audit_log_path")]
+    pub audit_log_path: String,
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u64,
+}
+
+fn default_audit_log_path() -> String {
+    r"C:\RacingPoint\logs\face-audit.jsonl".to_string()
+}
+
+fn default_retention_days() -> u64 {
+    90
+}
+
+impl Default for PrivacyConfig {
+    fn default() -> Self {
+        Self {
+            audit_log_path: default_audit_log_path(),
+            retention_days: default_retention_days(),
+        }
+    }
 }
 
 impl Config {
