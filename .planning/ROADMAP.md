@@ -1848,7 +1848,7 @@ Parallel after 122: 125+126 | Parallel after 120: 127+128 | 129 after 124+125
 
 ## Phases (v18.0)
 
-- [ ] **Phase 130: Protocol Foundation + Dynamic Registry** - Protocol types, DynamicCommandRegistry, per-command env isolation
+- [x] **Phase 130: Protocol Foundation + Dynamic Registry** - Protocol types, DynamicCommandRegistry, per-command env isolation (completed 2026-03-21)
 - [ ] **Phase 131: Shell Relay** - Separate APPROVE-only handler for arbitrary binary execution with hardened approval gate
 - [ ] **Phase 132: Chain Orchestration** - ExecResultBroker + ChainOrchestrator for sequential multi-step execution
 - [ ] **Phase 133: Task Delegation + Audit Trail** - Claude-to-Claude Promise delegation and append-only exec audit log
@@ -1924,7 +1924,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 130. Protocol Foundation + Dynamic Registry | 1/2 | In Progress|  |
+| 130. Protocol Foundation + Dynamic Registry | 2/2 | Complete   | 2026-03-21 |
 | 131. Shell Relay | 0/? | Not started | - |
 | 132. Chain Orchestration | 0/? | Not started | - |
 | 133. Task Delegation + Audit Trail | 0/? | Not started | - |

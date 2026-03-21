@@ -1,16 +1,30 @@
 ---
 gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
+stopped_at: Completed 130-02-PLAN.md
+last_updated: "2026-03-21T21:44:28.233Z"
+progress:
+  total_phases: 96
+  completed_phases: 64
+  total_plans: 163
+  completed_plans: 160
+  percent: 98
+---
+
+---
+gsd_state_version: 1.0
 milestone: v18.0
 milestone_name: Seamless Execution
 status: in_progress
-stopped_at: Completed 130-01-PLAN.md
-last_updated: "2026-03-22T02:50:00.000Z"
+stopped_at: Completed 130-02-PLAN.md
+last_updated: "2026-03-22T03:43:07.000Z"
 progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 1
-  completed_plans: 1
-  percent: 5
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
+  percent: 10
 current_phase: 130
 current_phase_name: Protocol Foundation + Dynamic Registry
 current_plan: 2
@@ -18,6 +32,9 @@ decisions:
   - "130-01: Object.freeze(new Set()) for ALLOWED_BINARIES — test uses Object.isFrozen() since freeze doesn't block Set.add()"
   - "130-01: DynamicCommandRegistry uses private class fields (#commands, #safeEnv) for true encapsulation"
   - "130-01: Constructor DI pattern — safeEnv injected, not imported inside dynamic-registry.js"
+  - "130-02: wireBono() is sync -- used fire-and-forget async IIFE for persistence loading to avoid breaking call site"
+  - "130-02: ExecHandler dual-registry lookup: dynamicRegistry?.get(command) ?? staticRegistry[command] (DREG-04)"
+  - "130-02: #trackCompleted() private method centralizes LRU eviction check + add for completedExecs"
 ---
 
 ---
@@ -788,8 +805,8 @@ Plan: 1 of 2
 
 ## Session Continuity
 
-Last session: 2026-03-21T19:08:16.876Z
-Stopped at: Completed 119-03-PLAN.md
+Last session: 2026-03-21T21:44:28.224Z
+Stopped at: Completed 130-02-PLAN.md
 Resume file: None
 
 ---
