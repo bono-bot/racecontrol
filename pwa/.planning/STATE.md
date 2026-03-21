@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-03-22T01:15:00Z"
-last_activity: 2026-03-22 — Plan 01-02 complete (VPS deployment + production TLS)
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-03-22T03:17:00+05:30"
+last_activity: 2026-03-22 — Plan 02-01 complete (compose/Dockerfile/manifest config prep)
 progress:
   total_phases: 10
   completed_phases: 3
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers book and pay from anywhere, walk in with a PIN, and race — while Uday sees everything live from his phone without being on-site.
-**Current focus:** Phase 1: Cloud Infrastructure
+**Current focus:** Phase 2: API + PWA Cloud Deploy
 
 ## Current Position
 
-Phase: 1 of 10 (Cloud Infrastructure)
-Plan: 2 of 2 in current phase (01-02 complete)
-Status: Phase 01 complete
-Last activity: 2026-03-22 — Plan 01-02 complete (VPS deployment + production TLS)
+Phase: 2 of 10 (API + PWA Cloud Deploy)
+Plan: 1 of 2 in current phase (02-01 complete)
+Status: Phase 02 in progress
+Last activity: 2026-03-22 — Plan 02-01 complete (compose/Dockerfile/manifest config prep)
 
 Progress: [██████████] 100%
 
@@ -56,6 +56,7 @@ Progress: [██████████] 100%
 | Phase 05 P02 | 2 | 2 tasks | 3 files |
 | Phase 01 P01 | 2 min | 2 tasks | 4 files |
 | Phase 01 P02 | 5 min | 3 tasks | 2 files |
+| Phase 02 P01 | 3 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,8 @@ Recent decisions affecting current work:
 - [01-01]: Dashboard port changed from 3000 to 3200 to match port convention
 - [01-02]: Staging ACME CA used initially then switched to production after verification
 - [01-02]: Repo Caddyfile synced to match VPS after production cert confirmation
+- [02-01]: NEXT_PUBLIC_IS_CLOUD defaults to false in Dockerfile so local builds unaffected
+- [02-01]: Admin/dashboard service blocks kept in compose.yml, only Caddy depends_on trimmed
 
 ### Pending Todos
 
@@ -105,6 +108,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-22T01:15:00Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-03-22T03:17:00+05:30
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None

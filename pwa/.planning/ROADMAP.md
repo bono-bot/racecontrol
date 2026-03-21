@@ -53,7 +53,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Config prep: fix compose.yml build args (API URL + IS_CLOUD), remove premature Caddy deps, add Dockerfile build arg, verify manifest
+- [x] 02-01-PLAN.md — Config prep: fix compose.yml build args (API URL + IS_CLOUD), remove premature Caddy deps, add Dockerfile build arg, verify manifest
 - [ ] 02-02-PLAN.md — VPS deployment: send instructions to Bono, verify PWA + API live at racingpoint.cloud
 
 ### Phase 3: Sync Hardening
@@ -181,7 +181,7 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Cloud Infrastructure | 2/2 | Complete   | 2026-03-21 |
-| 2. API + PWA Cloud Deploy | 0/2 | Not started | - |
+| 2. API + PWA Cloud Deploy | 1/2 | In progress | - |
 | 3. Sync Hardening | 3/3 | Complete | 2026-03-21 |
 | 4. Remote Booking + PIN Generation | 3/3 | Complete   | 2026-03-21 |
 | 5. Kiosk PIN Launch | 0/2 | Not started | - |
