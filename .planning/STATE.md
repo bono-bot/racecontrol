@@ -1,5 +1,34 @@
 ---
 gsd_state_version: 1.0
+milestone: v11.2
+milestone_name: RC Sentry AI Debugger
+status: roadmap_created
+stopped_at: Roadmap written — awaiting plan-phase 101
+last_updated: "2026-03-21T20:00:00.000Z"
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+current_phase: 101
+current_phase_name: rc-common Types Foundation
+phases:
+  - "101: rc-common Types Foundation (FLEET-01)"
+  - "102: Watchdog Core (DETECT-01, DETECT-02, DETECT-05)"
+  - "103: Tier 1 Fixes and Escalation FSM (FIX-01 to FIX-06, ESC-01, ESC-02)"
+  - "104: Pattern Memory and Ollama Integration (MEM-01 to MEM-03, LLM-01 to LLM-03)"
+  - "105: Server Endpoint, bat File, and Fleet Rollout (FLEET-02, FLEET-03, ESC-03, DETECT-03, DETECT-04)"
+decisions:
+  - "Phases 101–105 start numbering — continues from Phase 100 (last shipped)"
+  - "DETECT-03 and DETECT-04 (bat file + self_heal update) placed in Phase 105 — they are deploy prerequisites verified in the canary integration test, not standalone watchdog code"
+  - "ESC-03 (escalation fleet report + email) placed in Phase 105 — requires FLEET-02 server endpoint to exist before end-to-end test can verify it"
+  - "Ollama is fire-and-forget on separate std::thread — restart latency target under 10s regardless of Ollama state"
+  - "Anti-cheat constraint is Phase 102 success criterion — confirmed in binary by absence of OpenProcess/CreateToolhelp32Snapshot"
+---
+
+---
+gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: AntiCheat Compatibility
 status: in_progress

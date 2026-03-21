@@ -68,35 +68,35 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DETECT-01 | TBD | Pending |
-| DETECT-02 | TBD | Pending |
-| DETECT-03 | TBD | Pending |
-| DETECT-04 | TBD | Pending |
-| DETECT-05 | TBD | Pending |
-| FIX-01 | TBD | Pending |
-| FIX-02 | TBD | Pending |
-| FIX-03 | TBD | Pending |
-| FIX-04 | TBD | Pending |
-| FIX-05 | TBD | Pending |
-| FIX-06 | TBD | Pending |
-| MEM-01 | TBD | Pending |
-| MEM-02 | TBD | Pending |
-| MEM-03 | TBD | Pending |
-| LLM-01 | TBD | Pending |
-| LLM-02 | TBD | Pending |
-| LLM-03 | TBD | Pending |
-| ESC-01 | TBD | Pending |
-| ESC-02 | TBD | Pending |
-| ESC-03 | TBD | Pending |
-| FLEET-01 | TBD | Pending |
-| FLEET-02 | TBD | Pending |
-| FLEET-03 | TBD | Pending |
+| DETECT-01 | Phase 102 | Pending |
+| DETECT-02 | Phase 102 | Pending |
+| DETECT-03 | Phase 105 | Pending |
+| DETECT-04 | Phase 105 | Pending |
+| DETECT-05 | Phase 102 | Pending |
+| FIX-01 | Phase 103 | Pending |
+| FIX-02 | Phase 103 | Pending |
+| FIX-03 | Phase 103 | Pending |
+| FIX-04 | Phase 103 | Pending |
+| FIX-05 | Phase 103 | Pending |
+| FIX-06 | Phase 103 | Pending |
+| MEM-01 | Phase 104 | Pending |
+| MEM-02 | Phase 104 | Pending |
+| MEM-03 | Phase 104 | Pending |
+| LLM-01 | Phase 104 | Pending |
+| LLM-02 | Phase 104 | Pending |
+| LLM-03 | Phase 104 | Pending |
+| ESC-01 | Phase 103 | Pending |
+| ESC-02 | Phase 103 | Pending |
+| ESC-03 | Phase 105 | Pending |
+| FLEET-01 | Phase 101 | Pending |
+| FLEET-02 | Phase 105 | Pending |
+| FLEET-03 | Phase 105 | Pending |
 
 **Coverage:**
 - v11.2 requirements: 23 total
-- Mapped to phases: 0
-- Unmapped: 23
+- Mapped to phases: 23
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after initial definition*
+*Last updated: 2026-03-21 — traceability filled after roadmap creation (Phases 101–105)*
