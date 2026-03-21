@@ -11,6 +11,7 @@ use crate::ac_server;
 use crate::accounting;
 use crate::auth;
 use crate::auth::middleware::require_staff_jwt;
+use crate::network_source::require_non_pod_source;
 use crate::billing;
 use crate::catalog;
 use crate::cloud_sync;
@@ -38,6 +39,7 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(auth_rate_limited_routes())
         .merge(public_routes())
         .merge(customer_routes())
+        .merge(kiosk_routes(state.clone()))
         .merge(staff_routes(state))
         .merge(service_routes())
 }
@@ -138,12 +140,28 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/ai/chat", post(customer_ai_chat))
 }
 
-// ─── Tier 3: Staff/Admin (permissive JWT middleware — logs warnings) ──────
+// ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
+
+/// Kiosk routes accessible from pod IPs. These require a staff JWT (the kiosk
+/// PWA authenticates via validate-pin which returns a staff JWT) but are NOT
+/// blocked by the pod source guard. Separated from staff_routes so pods can
+/// call them while staff/admin routes remain pod-blocked.
+fn kiosk_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/kiosk/experiences", get(list_kiosk_experiences))
+        .route("/kiosk/settings", get(get_kiosk_settings))
+        .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
+        .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
+        .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
+}
+
+// ─── Tier 3b: Staff/Admin (staff JWT + pod source block) ──────
 
 /// Staff and admin routes. Protected by `require_staff_jwt` (strict) which
-/// rejects unauthenticated requests with 401 Unauthorized. Switched from
-/// permissive mode (expand-migrate-contract pattern) now that dashboard,
-/// kiosk, and bots send staff JWTs.
+/// rejects unauthenticated requests with 401 Unauthorized, AND by
+/// `require_non_pod_source` which rejects pod-originated requests with 403.
+/// Switched from permissive mode (expand-migrate-contract pattern) now that
+/// dashboard, kiosk, and bots send staff JWTs.
 fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         // Pods
@@ -248,12 +266,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/waivers", get(list_waivers))
         .route("/waivers/check", get(check_waiver))
         .route("/waivers/{driver_id}/signature", get(get_waiver_signature))
-        // Kiosk
-        .route("/kiosk/experiences", get(list_kiosk_experiences).post(create_kiosk_experience))
+        // Kiosk (admin-only: create/update/delete -- pod-accessible routes are in kiosk_routes())
+        .route("/kiosk/experiences", post(create_kiosk_experience))
         .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
-        .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
-        .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
-        .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
+        .route("/kiosk/settings", put(update_kiosk_settings))
         // Config
         .route("/config/kiosk-allowlist", get(list_kiosk_allowlist).post(add_kiosk_allowlist_entry))
         .route("/config/kiosk-allowlist/{name}", axum::routing::delete(delete_kiosk_allowlist_entry))
@@ -323,6 +339,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/staff/events/{id}/link-session", post(link_group_session_to_event))
         .route("/staff/group-sessions/{id}/complete", post(complete_group_session))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
+        .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
 }
 

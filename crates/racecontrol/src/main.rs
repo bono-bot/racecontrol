@@ -12,6 +12,7 @@ use tower_http::trace::TraceLayer;
 use tower_helmet::HelmetLayer;
 
 use racecontrol_crate::config::Config;
+use racecontrol_crate::network_source::classify_source_middleware;
 use racecontrol_crate::tls;
 use racecontrol_crate::error_rate::{ErrorCountLayer, ErrorRateConfig, error_rate_alerter_task};
 use racecontrol_crate::state::AppState;
@@ -616,6 +617,7 @@ async fn main() -> anyhow::Result<()> {
                 .allow_credentials(false)
         )
         .layer(TraceLayer::new_for_http())
+        .layer(axum_mw::from_fn(classify_source_middleware))
         .with_state(state.clone());
 
     // Start HTTP server
