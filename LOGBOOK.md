@@ -508,3 +508,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 04:10 IST | James | 4102750 | docs(02-02): complete PWA cloud deployment plan (PWA live, API pending racecontrol on VPS) |
 | 2026-03-21 22:04 IST | James | 5dacfa5 | fix: prevent false MAINTENANCE_MODE from self-monitor graceful restarts |
 | 2026-03-21 22:06 IST | James | 4d940e7 | docs: add cross-process recovery standing rules from pod 6 incident |
+| 2026-03-22 03:46 IST | James | 8abcf0d | feat(131-01): ShellRelayHandler class -- binary allowlist, hardcoded APPROVE tier, 14 tests passing |
+| 2026-03-22 03:46 IST | James | 513f7c6 | feat(131-01): wire ShellRelayHandler into James/Bono WS routing + HTTP /relay/shell endpoint |
+| 2026-03-22 03:46 IST | James | a5e42e0 | docs(131-01): SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
