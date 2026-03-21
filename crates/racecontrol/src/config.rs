@@ -399,6 +399,10 @@ pub struct ProcessGuardConfig {
     /// Per-machine overrides. Keys: "james", "pod", "server".
     #[serde(default)]
     pub overrides: std::collections::HashMap<String, ProcessGuardOverride>,
+    /// Shared secret for POST /api/v1/guard/report from rc-process-guard (James).
+    /// If None, accepts all requests (dev mode). Always set in production.
+    #[serde(default)]
+    pub report_secret: Option<String>,
 }
 
 impl Default for ProcessGuardConfig {
@@ -410,6 +414,7 @@ impl Default for ProcessGuardConfig {
             warn_before_kill: true,
             allowed: Vec::new(),
             overrides: std::collections::HashMap::new(),
+            report_secret: None,
         }
     }
 }

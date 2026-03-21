@@ -16,8 +16,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::config::ProcessGuardConfig;
+use crate::fleet_health::ViolationStore;
 use crate::state::AppState;
-use rc_common::types::MachineWhitelist;
+use rc_common::types::{MachineWhitelist, ProcessViolation};
 
 /// Returns the machine_type string for a given machine_id.
 /// Returns None for unknown / invalid IDs.
@@ -322,7 +323,7 @@ pub fn spawn_server_guard(state: std::sync::Arc<crate::state::AppState>) {
                     .get(&name_lower)
                     .map(|(c, _)| *c)
                     .unwrap_or(1);
-                let violation = rc_common::types::ProcessViolation {
+                let violation = ProcessViolation {
                     machine_id: "server".to_string(),
                     violation_type: if is_critical {
                         rc_common::types::ViolationType::WrongMachineBinary
@@ -374,6 +375,63 @@ pub async fn get_whitelist_handler(
         )
             .into_response(),
     }
+}
+
+/// POST /api/v1/guard/report
+///
+/// Intake endpoint for rc-process-guard (James workstation standalone binary).
+/// Accepts a ProcessViolation JSON payload, stores to pod_violations[machine_id].
+///
+/// Auth: X-Guard-Token header checked against config.process_guard.report_secret.
+/// If report_secret is None (not configured), request is accepted with a warning log.
+///
+/// Config key: [process_guard] report_secret = "rp-guard-2026" in racecontrol.toml.
+/// Default: None (accepts all — dev mode). Always set in production.
+pub async fn post_guard_report_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(violation): Json<ProcessViolation>,
+) -> impl IntoResponse {
+    // Auth check
+    let expected = state.config.process_guard.report_secret.as_deref();
+    if let Some(secret) = expected {
+        let provided = headers
+            .get("x-guard-token")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if provided != secret {
+            tracing::warn!(
+                target: "process-guard",
+                "POST /guard/report rejected: invalid X-Guard-Token from machine={}",
+                violation.machine_id
+            );
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    } else {
+        tracing::warn!(
+            target: "process-guard",
+            "POST /guard/report: report_secret not configured — accepting unauthenticated report from machine={}",
+            violation.machine_id
+        );
+    }
+
+    let machine_id = violation.machine_id.clone();
+    tracing::info!(
+        target: "process-guard",
+        "HTTP violation report: machine={} type={:?} name={} action={}",
+        machine_id, violation.violation_type, violation.name, violation.action_taken
+    );
+
+    // Store in pod_violations (same ViolationStore used by WS pod violations)
+    {
+        let mut violations = state.pod_violations.write().await;
+        violations
+            .entry(machine_id.clone())
+            .or_insert_with(ViolationStore::new)
+            .push(violation);
+    }
+
+    StatusCode::OK.into_response()
 }
 
 #[cfg(test)]
@@ -437,6 +495,7 @@ mod tests {
                 );
                 m
             },
+            report_secret: None,
         }
     }
 
