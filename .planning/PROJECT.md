@@ -6,6 +6,22 @@
 
 The pod management stack is reliable and well-structured: rc-sentry is a hardened 6-endpoint fallback tool with timeout/truncation/concurrency safety; rc-agent main.rs is decomposed into 5 focused modules (config, app_state, ws_handler, event_loop); rc-common provides shared exec primitives with feature-gated tokio boundary; 67+ tests cover billing, failure detection, and FFB safety. 55+ phases shipped across 10 milestones.
 
+## Current Milestone: v11.1 Pre-Flight Session Checks
+
+**Goal:** Run automated pre-flight checks before every customer session (on BillingStarted). Auto-fix failures (restart ConspitLink, kill orphaned games, etc.), alert staff only if auto-fix fails. Block pod with "Maintenance Required" screen when unfixable.
+
+**Target features:**
+- Pre-flight check framework in rc-agent triggered by BillingStarted
+- Display checks: lock screen centered/visible, overlay renders correctly
+- Hardware checks: wheelbase HID connected, ConspitLink running with valid config
+- Network checks: WebSocket connected, UDP heartbeat alive
+- Game checks: no orphaned game processes, AC content accessible
+- Billing checks: no stuck session from previous customer
+- System checks: disk space > 1GB, memory > 2GB free
+- Auto-fix on failure before alerting staff
+- "Maintenance Required" lock screen state when pre-flight fails
+- Staff notification via WS + kiosk dashboard badge
+
 ## Active Milestone: v10.0 Connectivity & Redundancy
 
 **Goal:** Make James (.27) ↔ Server (.23) connectivity bulletproof and give Bono (cloud VPS) full failover capability so the venue keeps running even when the local server goes down.
@@ -267,4 +283,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-21 after v11.0 Agent & Sentry Hardening milestone shipped*
+*Last updated: 2026-03-21 after milestone v11.1 Pre-Flight Session Checks started*
