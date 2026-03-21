@@ -61,9 +61,14 @@ pub struct ErrorResponse {
     pub details: Option<String>,
 }
 
-/// Enrollment status based on embedding count.
+/// Enrollment status based on embedding count (default threshold of 3).
 pub fn enrollment_status(embedding_count: u64) -> &'static str {
-    if embedding_count >= 3 {
+    enrollment_status_with_threshold(embedding_count, 3)
+}
+
+/// Enrollment status based on embedding count with configurable threshold.
+pub fn enrollment_status_with_threshold(embedding_count: u64, min_complete: u64) -> &'static str {
+    if embedding_count >= min_complete {
         "complete"
     } else {
         "partial"

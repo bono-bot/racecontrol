@@ -12,6 +12,8 @@ pub struct Config {
     pub detection: DetectionConfig,
     #[serde(default)]
     pub recognition: RecognitionConfig,
+    #[serde(default)]
+    pub enrollment: EnrollmentConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -161,6 +163,66 @@ impl Default for RecognitionConfig {
             max_yaw_degrees: default_max_yaw_degrees(),
             tracker_cooldown_secs: default_tracker_cooldown_secs(),
             gallery_db_path: default_gallery_db_path(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnrollmentConfig {
+    #[serde(default = "default_duplicate_threshold")]
+    pub duplicate_threshold: f32,
+    #[serde(default = "default_body_limit_mb")]
+    pub body_limit_mb: usize,
+    #[serde(default = "default_enrollment_retention_days")]
+    pub retention_days: u64,
+    #[serde(default = "default_min_embeddings_complete")]
+    pub min_embeddings_complete: u64,
+    #[serde(default = "default_enrollment_min_face_size")]
+    pub min_face_size: u32,
+    #[serde(default = "default_enrollment_min_laplacian")]
+    pub min_laplacian_var: f64,
+    #[serde(default = "default_enrollment_max_yaw")]
+    pub max_yaw_degrees: f64,
+}
+
+fn default_duplicate_threshold() -> f32 {
+    0.6
+}
+
+fn default_body_limit_mb() -> usize {
+    10
+}
+
+fn default_enrollment_retention_days() -> u64 {
+    365
+}
+
+fn default_min_embeddings_complete() -> u64 {
+    3
+}
+
+fn default_enrollment_min_face_size() -> u32 {
+    120
+}
+
+fn default_enrollment_min_laplacian() -> f64 {
+    150.0
+}
+
+fn default_enrollment_max_yaw() -> f64 {
+    30.0
+}
+
+impl Default for EnrollmentConfig {
+    fn default() -> Self {
+        Self {
+            duplicate_threshold: default_duplicate_threshold(),
+            body_limit_mb: default_body_limit_mb(),
+            retention_days: default_enrollment_retention_days(),
+            min_embeddings_complete: default_min_embeddings_complete(),
+            min_face_size: default_enrollment_min_face_size(),
+            min_laplacian_var: default_enrollment_min_laplacian(),
+            max_yaw_degrees: default_enrollment_max_yaw(),
         }
     }
 }

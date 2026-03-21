@@ -188,7 +188,7 @@ pub fn insert_embedding(
     person_id: i64,
     embedding: &[f32; 512],
     retention_days: u64,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<i64> {
     let mut blob = Vec::with_capacity(512 * 4);
     for val in embedding.iter() {
         blob.extend_from_slice(&val.to_le_bytes());
@@ -202,7 +202,7 @@ pub fn insert_embedding(
         ),
         rusqlite::params![person_id, blob],
     )?;
-    Ok(())
+    Ok(conn.last_insert_rowid())
 }
 
 #[cfg(test)]
