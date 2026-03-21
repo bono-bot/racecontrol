@@ -15,6 +15,7 @@ mod game_process;
 mod kiosk;
 mod lock_screen;
 mod overlay;
+mod pre_flight;
 mod remote_ops;
 mod self_heal;
 mod self_monitor;
