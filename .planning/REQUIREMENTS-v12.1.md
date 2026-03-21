@@ -72,37 +72,45 @@ Deferred to future release.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GUARD-01 | — | Pending |
-| GUARD-02 | — | Pending |
-| GUARD-03 | — | Pending |
-| GUARD-04 | — | Pending |
-| GUARD-05 | — | Pending |
-| GUARD-06 | — | Pending |
-| PROC-01 | — | Pending |
-| PROC-02 | — | Pending |
-| PROC-03 | — | Pending |
-| PROC-04 | — | Pending |
-| PROC-05 | — | Pending |
-| AUTO-01 | — | Pending |
-| AUTO-02 | — | Pending |
-| AUTO-03 | — | Pending |
-| AUTO-04 | — | Pending |
-| PORT-01 | — | Pending |
-| PORT-02 | — | Pending |
-| ALERT-01 | — | Pending |
-| ALERT-02 | — | Pending |
-| ALERT-03 | — | Pending |
-| ALERT-04 | — | Pending |
-| ALERT-05 | — | Pending |
-| DEPLOY-01 | — | Pending |
-| DEPLOY-02 | — | Pending |
-| DEPLOY-03 | — | Pending |
+| GUARD-01 | Phase 102 | Pending |
+| GUARD-02 | Phase 102 | Pending |
+| GUARD-03 | Phase 102 | Pending |
+| GUARD-04 | Phase 101 | Pending |
+| GUARD-05 | Phase 101 | Pending |
+| GUARD-06 | Phase 102 | Pending |
+| PROC-01 | Phase 103 | Pending |
+| PROC-02 | Phase 103 | Pending |
+| PROC-03 | Phase 103 | Pending |
+| PROC-04 | Phase 103 | Pending |
+| PROC-05 | Phase 103 | Pending |
+| AUTO-01 | Phase 103 | Pending |
+| AUTO-02 | Phase 103 | Pending |
+| AUTO-03 | Phase 105 | Pending |
+| AUTO-04 | Phase 103 | Pending |
+| PORT-01 | Phase 105 | Pending |
+| PORT-02 | Phase 105 | Pending |
+| ALERT-01 | Phase 103 | Pending |
+| ALERT-02 | Phase 104 | Pending |
+| ALERT-03 | Phase 104 | Pending |
+| ALERT-04 | Phase 103 | Pending |
+| ALERT-05 | Phase 104 | Pending |
+| DEPLOY-01 | Phase 103 | Pending |
+| DEPLOY-02 | Phase 104 | Pending |
+| DEPLOY-03 | Phase 105 | Pending |
 
 **Coverage:**
 - v12.1 requirements: 25 total
-- Mapped to phases: 0
-- Unmapped: 25
+- Mapped to phases: 25
+- Unmapped: 0
+
+| Phase | Requirements |
+|-------|-------------|
+| Phase 101 | GUARD-04, GUARD-05 |
+| Phase 102 | GUARD-01, GUARD-02, GUARD-03, GUARD-06 |
+| Phase 103 | PROC-01, PROC-02, PROC-03, PROC-04, PROC-05, AUTO-01, AUTO-02, AUTO-04, ALERT-01, ALERT-04, DEPLOY-01 |
+| Phase 104 | ALERT-02, ALERT-03, ALERT-05, DEPLOY-02 |
+| Phase 105 | PORT-01, PORT-02, AUTO-03, DEPLOY-03 |
 
 ---
 *Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after initial definition*
+*Last updated: 2026-03-21 after roadmap creation — all 25 requirements mapped*
