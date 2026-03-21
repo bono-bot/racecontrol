@@ -2,7 +2,7 @@
 //! dynamic pricing suggestions based on peak/off-peak patterns.
 
 use std::sync::Arc;
-use chrono::{Local, NaiveTime, Timelike, Datelike, Weekday};
+use chrono::{Local, NaiveTime, Timelike, Datelike, Weekday, Utc, FixedOffset};
 use crate::state::AppState;
 use crate::wol;
 use rc_common::types::PodStatus;
@@ -153,6 +153,21 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
         ))
         .execute(&state.db)
         .await;
+    }
+
+    // ─── Daily retention checks (10:00 AM IST) ────────────────────────────────
+    // Run once per hour guard: only fire at 10 AM IST (minute 0-1 window)
+    let ist_offset = FixedOffset::east_opt(5 * 3600 + 30 * 60).unwrap();
+    let now_ist = Utc::now().with_timezone(&ist_offset);
+    if now_ist.hour() == 10 && now_ist.minute() < 2 {
+        // Streak-at-risk nudges (RET-05)
+        if let Err(e) = crate::psychology::check_streak_at_risk(state).await {
+            tracing::error!("[scheduler] check_streak_at_risk error: {}", e);
+        }
+        // Membership expiry loss-framed warnings (RET-04)
+        if let Err(e) = crate::psychology::check_membership_expiry_warnings(state).await {
+            tracing::error!("[scheduler] check_membership_expiry_warnings error: {}", e);
+        }
     }
 
     Ok(())

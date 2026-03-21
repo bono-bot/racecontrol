@@ -2410,6 +2410,9 @@ async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: 
 
     // 6. Update visit streak for this driver
     crate::psychology::update_streak(state, driver_id).await;
+
+    // 7. Maybe grant variable reward for milestone (10% probability, capped at 5% spend)
+    crate::psychology::maybe_grant_variable_reward(state, driver_id, "milestone").await;
 }
 
 async fn extend_billing_session(

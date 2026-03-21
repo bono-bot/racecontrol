@@ -177,6 +177,21 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
             lap_time_ms: lap.lap_time_ms as i64,
             lap_id: lap.id.clone(),
         });
+
+        // Retention hooks: notify beaten PB holders + chance of surprise reward
+        let state_clone = state.clone();
+        let driver_id_clone = lap.driver_id.clone();
+        let track_clone = lap.track.clone();
+        let car_clone = lap.car.clone();
+        let lap_time_clone = lap.lap_time_ms as i64;
+        tokio::spawn(async move {
+            crate::psychology::notify_pb_beaten_holders(
+                &state_clone, &driver_id_clone, &track_clone, &car_clone, lap_time_clone
+            ).await;
+            crate::psychology::maybe_grant_variable_reward(
+                &state_clone, &driver_id_clone, "pb"
+            ).await;
+        });
     }
 
     // 3. Check and update track record for this track+car+sim_type

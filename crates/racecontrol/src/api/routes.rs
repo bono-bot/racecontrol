@@ -15209,13 +15209,19 @@ async fn customer_passport(
 
     // Summary stats
     let total_laps: i64 = entries.iter().map(|(_, _, _, _, lc)| lc).sum();
-    let streak_weeks: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(current_streak, 0) FROM streaks WHERE driver_id = ?"
+    let streak_data: Option<(i64, i64, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT current_streak, longest_streak, last_visit_date, grace_expires_date
+         FROM streaks WHERE driver_id = ?"
     )
     .bind(&driver_id)
-    .fetch_one(&state.db)
+    .fetch_optional(&state.db)
     .await
-    .unwrap_or(0);
+    .ok()
+    .flatten();
+
+    let (streak_weeks, longest_streak, last_visit_date, grace_expires_date) = streak_data
+        .map(|(c, l, lv, ge)| (c, l, lv, ge))
+        .unwrap_or((0, 0, None, None));
 
     Json(json!({
         "passport": {
@@ -15243,7 +15249,10 @@ async fn customer_passport(
                 "unique_tracks": driven_tracks.len(),
                 "unique_cars": driven_cars.len(),
                 "total_laps": total_laps,
-                "streak_weeks": streak_weeks
+                "streak_weeks": streak_weeks,
+                "longest_streak": longest_streak,
+                "last_visit_date": last_visit_date,
+                "grace_expires_date": grace_expires_date
             }
         }
     }))
