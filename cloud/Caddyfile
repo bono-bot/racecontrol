@@ -1,9 +1,3 @@
-{
-    # Use staging during initial testing to avoid Let's Encrypt rate limits (50/domain/week).
-    # Remove this line after confirming certs work.
-    acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
-}
-
 (security_headers) {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
