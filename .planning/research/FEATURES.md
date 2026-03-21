@@ -1,126 +1,135 @@
-# Feature Research: Pre-Flight Session Checks
+# Feature Research: E2E Process Guard
 
-**Domain:** Pre-session health gate for kiosk/sim racing pod agent (rc-agent)
+**Domain:** Continuous process whitelist enforcement, auto-start auditing, and violation handling across a mixed Windows fleet (8 sim pods + 1 server + 1 operations workstation)
 **Researched:** 2026-03-21
-**Confidence:** HIGH (based on direct codebase audit + domain analysis of kiosk/arcade/sim racing health-gate patterns)
+**Confidence:** HIGH (based on direct codebase audit — kiosk.rs ALLOWED_PROCESSES already established, process detection patterns proven in game_process.rs, kiosk.rs, self_test.rs; Windows audit surface well-defined)
 
 ---
 
 ## Feature Landscape
 
-### Table Stakes (Staff Expect These)
+### Table Stakes (Operations Expects These)
 
-Features that a pre-flight gate must have. Missing any of these means the gate cannot do its job — it either blocks valid sessions, misses real failures, or produces noise that staff learn to ignore.
+Features the process guard must have to do its job. Missing any of these means the guard either misses violations, can't act on them, or creates so much noise that staff disable it.
 
 | # | Feature | Why Expected | Complexity | Existing Dependency |
 |---|---------|--------------|------------|---------------------|
-| TS-1 | **Triggered on BillingStarted, runs before session begins** | The gate must intercept the session lifecycle at the right point. A gate that runs at startup or on a cron is not a pre-flight check — it's a background monitor. | LOW | `ws_handler.rs` BillingStarted handler — the hook point already exists. Insert pre-flight call before `state.lock_screen.show_active_session()`. |
-| TS-2 | **WebSocket connected to racecontrol** | If the WS is down when a session starts, billing ticks cannot arrive, overlay will not update, and BillingStopped will be missed. A pod with a dead WS should not enter a customer session. | LOW | `HeartbeatStatus.ws_connected` atomic already exists. Read it. |
-| TS-3 | **UDP heartbeat alive (last packet < threshold)** | Telemetry silence means no lap times are being captured. For a sim racing pod, no telemetry = no laps = no leaderboard. The customer paid for nothing. | LOW | `HeartbeatStatus` already tracks UDP. `FailureMonitorState.last_udp_secs_ago` exists. Check it (warn if > 30s, but this is soft-fail since no session is running yet). |
-| TS-4 | **Wheelbase HID connected (Conspit Ares VID:0x1209 PID:0xFFB0)** | Customer cannot steer without the wheelbase. If HID is missing at session start, they get an unusable pod. Auto-fix: rescan HID. If still missing after rescan, alert staff and block. | LOW | `FailureMonitorState.hid_connected` exists. Auto-fix: re-enumerate HID via `ffb_controller`. |
-| TS-5 | **No orphaned game process from previous session** | A lingering `acs.exe` or `F12025.exe` from a crashed previous session means the new session will either fail to launch or the customer will walk into someone else's in-progress game. | LOW | `game_process.rs` has process detection. Auto-fix: `kill_orphaned_game()` — this pattern already exists in `ai_debugger.rs`. |
-| TS-6 | **Billing clear — no active session from previous customer** | If the previous session was not cleanly ended (billing_guard missed the orphan or the HTTP call failed), starting a new session on top of an active one corrupts billing state. | LOW | `FailureMonitorState.billing_active` and `active_billing_session_id` exist. Auto-fix: attempt HTTP orphan-end with existing `attempt_orphan_end()` logic. |
-| TS-7 | **Disk space > 1GB free on system drive** | AC replays, log files, and temp files accumulate. If disk is full, AC cannot write session data, Windows Update may fail mid-session, and game launch can fail silently. 1GB is the minimum safe floor. | LOW | `self_test.rs` already has disk probe logic — reuse it. |
-| TS-8 | **Memory > 2GB free** | AC + CSP + overlay + rc-agent together consume ~4-6GB. Less than 2GB free at session start means the customer will hit frame drops or OOM crashes mid-session. | LOW | `self_test.rs` already has memory probe logic — reuse it. |
-| TS-9 | **ConspitLink process running** | ConspitLink is the bridge between the Conspit Ares wheelbase firmware and AC. Without it, FFB is dead even if HID is connected. | LOW | `self_test.rs` already has process detection. Auto-fix: spawn ConspitLink. |
-| TS-10 | **Auto-fix failures before alerting** | A gate that alerts staff on every transient failure is noise. Staff will disable it or ignore it. Auto-fix first — restart the process, kill the orphan, rescan HID — then only alert if auto-fix cannot resolve. | MEDIUM | `ai_debugger.rs` `try_auto_fix()` with canonical keywords. Pattern already established. |
-| TS-11 | **"Maintenance Required" lock screen when unfixable** | If auto-fix fails, the pod should show a clear "Maintenance Required" screen and block the session. The customer should not be handed a broken pod. Staff need a visible signal. | LOW | `LockScreen` already has states for special displays. New state: `MaintenanceRequired` with failure summary text. |
-| TS-12 | **Staff notification via WebSocket on unresolved failure** | Staff at the kiosk dashboard need to know which pod blocked and why without walking to the pod. The WS channel is the established mechanism. | LOW | `AgentMessage` enum — add `PreFlightFailed` variant. Server receives, routes to kiosk dashboard badge. |
+| TS-1 | **Central whitelist in racecontrol.toml with per-machine overrides** | Different machines legitimately run different processes: James needs Ollama (11434), pods do not want Steam, server does not run ConspitLink. A flat global list causes false positives on every machine. | LOW | `racecontrol.toml` already has sections for per-feature config. TOML supports nested tables trivially. No new serialization infrastructure needed. |
+| TS-2 | **Process whitelist check — running processes vs approved list** | Core function of the guard. Scan running processes (via `sysinfo` crate, already used in `kiosk.rs`) and flag any exe not in the approved list. | LOW | `sysinfo::System` already imported in `kiosk.rs`. `ALLOWED_PROCESSES` static slice already has 60+ validated entries categorized. New guard reuses this foundation — no re-inventorying the Windows process namespace. |
+| TS-3 | **Auto-kill on violation** | A guard that only reports violations is easily ignored. Unauthorized processes are either customer attempts to bypass kiosk restrictions or silent installs from Windows Update/software. Auto-kill is the correct default. Staff cannot manually kill processes on 8 pods — it must be automated. | LOW | `taskkill /F /IM <name>` pattern already used in `game_process.rs` and `self_heal.rs`. Wrap in a safe fn with allowlist re-check before kill to prevent accidental kills. |
+| TS-4 | **Auto-start audit: HKCU/HKLM Run keys** | The trigger for v12.1 was a missed Steam auto-start. Registry Run keys are the canonical Windows auto-start mechanism and must be audited. Any non-whitelisted entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` or `HKLM\...\Run` must be removed. | MEDIUM | `self_heal.rs` already reads/writes HKLM Run keys (for RCAgent itself). `winreg` crate already in rc-agent's dependency tree. New: enumerate all values in Run keys and diff against whitelist. |
+| TS-5 | **Auto-start audit: Startup folder** | `%AppData%\Microsoft\Windows\Start Menu\Programs\Startup` is a second auto-start vector. Steam, Discord, and bundled software installers frequently drop shortcuts here. Must enumerate and remove non-whitelisted entries. | LOW | `std::fs::read_dir` on the Startup folder path. Known Windows path, no external crate needed. |
+| TS-6 | **Auto-start audit: Scheduled Tasks** | Scheduled Tasks are the third major auto-start vector and the most dangerous because they can run as SYSTEM. The venue's own legitimate tasks (kiosk, web dashboard) must be whitelisted; all others removed. | MEDIUM | `schtasks /query /fo CSV` → parse output. Already used as shell-out pattern via `rc-common::exec`. Alternatively `com_object`-based ITaskService but shell-out is sufficient and simpler. |
+| TS-7 | **Port audit: listening ports vs approved list** | A non-whitelisted listening port indicates an unauthorized server process (game server, remote access tool, crypto miner). Must detect and flag. Acts as a second layer beyond process name matching. | LOW | `netstat -ano` shell-out → parse listening ports. Pattern matches `remote_ops.rs` and `firewall.rs` existing approaches. `sysinfo` also exposes network info. |
+| TS-8 | **Pod binary guard: wrong binary on wrong machine** | Standing rule #2 — `rc-agent.exe` must never run on James, `racecontrol.exe` must never run on a pod. This was a source of past crashes. Detect by process name + machine role combination. | LOW | `config.rs` already has `PodConfig.pod_number` to identify machine role. If `racecontrol.exe` is found in process list on a pod, it's an immediate violation. |
+| TS-9 | **Violation alert via WebSocket to staff kiosk** | Staff must know about violations without polling. The WS notification channel is the established mechanism for all pod-to-server alerting. A new `ProcessViolation` AgentMessage variant routes to the kiosk dashboard. | LOW | `AgentMessage` enum in `rc-common/src/protocol.rs`. Adding a variant follows the exact same pattern as `ProcessApprovalRequest` (already exists). |
+| TS-10 | **Audit log: timestamp, machine, process name, action taken** | Operations log for Uday — can review what was killed, when, why. Critical for compliance (e.g., "did the guard kill a legitimate process?"). Also used to detect persistent violators (process keeps relaunching = deeper problem). | LOW | Append to `C:\RacingPoint\process-guard.log` using the same rotation pattern as `self_monitor.rs` (512KB cap, rotate-on-exceed). Structured lines: `[timestamp] MACHINE: pod-3 | NAME: steam.exe | PID: 4421 | ACTION: killed`. |
+| TS-11 | **Violation report to server on kill** | Beyond WS notification, the server should record every kill centrally. Enables cross-machine violation pattern analysis (e.g., Steam keeps reinstalling on pods 2 and 4 but not 6). | LOW | `AgentMessage::ProcessViolation` carries machine, process name, pid, action, timestamp. Server stores in-memory per-pod violation history (not DB — not worth schema cost for this milestone). |
+| TS-12 | **Continuous monitoring daemon with configurable poll interval** | The guard must run continuously — not just on startup. Process violations happen at runtime (customer triggers a download, Windows auto-update runs in background). Continuous polling at a configurable interval (default 60s) is the correct model. | LOW | `tokio::time::interval` loop, same structure as `self_monitor.rs` and `kiosk.rs` enforce loop. Interval configurable via `[process_guard]` TOML section. |
 
-### Differentiators (Competitive Advantage)
+### Differentiators (Beyond the Mandatory Floor)
 
-Features that go beyond the basic gate and make the system genuinely better for operations. Not required for the gate to work, but high value.
+Features that make the guard significantly more useful for operations without being mandatory for it to function.
 
 | # | Feature | Value Proposition | Complexity | Notes |
 |---|---------|-------------------|------------|-------|
-| D-1 | **Structured pre-flight result with per-check status** | Instead of a single pass/fail, the gate returns a structured result: which checks passed, which failed, what auto-fix was attempted, what the fix outcome was. Server logs this per session. Staff can see "pod 3: HID rescan needed (auto-fixed)" rather than just "failure". | MEDIUM | Model after existing `SelfTestReport` / `ProbeResult` types in `self_test.rs`. Pre-flight result serializes to JSON, sent as `PreFlightResult` AgentMessage. |
-| D-2 | **Configurable failure policy per check (hard vs soft block)** | Some checks (WS connected, HID connected, no active session) are hard blocks — do not start the session. Others (UDP heartbeat, disk space approaching limit) are soft warnings — start the session but flag the pod in the dashboard. Config-driven via `rc-agent.toml`. | MEDIUM | Adds `[preflight]` section to config. `hard_block_checks = ["ws", "hid", "billing_clear"]`, `soft_warn_checks = ["udp", "disk"]`. |
-| D-3 | **Pre-flight result visible in fleet health dashboard** | Uday and staff should see a "last pre-flight" field per pod in the fleet health view — timestamp, pass/fail, which check triggered. Adds operational visibility without requiring staff to watch logs. | MEDIUM | Extend `PodFleetStatus` with `last_preflight_at`, `last_preflight_ok`, `last_preflight_detail`. Server already has `/api/v1/fleet/health`. |
-| D-4 | **Kiosk dashboard badge on pre-flight failure** | When a pod's pre-flight fails, the pod card in the kiosk dashboard shows a badge (e.g. "Maintenance Required") in Racing Red (#E10600) until staff acknowledge or the pod self-clears. | MEDIUM | Requires server-side state (preflight_blocked: bool per pod) and kiosk frontend badge render. Not complex, but crosses the Rust/Next.js boundary. |
-| D-5 | **Overlay renders correctly check** | Verify the overlay process is alive and responding before the session starts. A dead overlay means the customer has no HUD. Auto-fix: restart overlay process. | LOW | `self_test.rs` already has TCP probe for overlay port. Reuse it. Restart via `overlay.rs`. |
-| D-6 | **AC content accessible check** | Verify the AC install directory and at least one car/track is present. A corrupted or missing content install will fail at launch, but the error message is cryptic. A pre-flight check surfaces this cleanly. | MEDIUM | Check `C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\content\cars` exists and is non-empty. This is a soft-fail (warn, don't block) unless content is completely absent. |
-| D-7 | **CLOSE_WAIT socket cleanup before session** | `self_test.rs` already detects CLOSE_WAIT leaks. Run this as a pre-flight check and auto-clean before the session starts rather than waiting for the self-test cron. Prevents "port 8090 already in use" on session start. | LOW | Reuse existing CLOSE_WAIT detection logic. Auto-fix: `netsh int ip delete tcpconnections` or process restart. |
+| D-1 | **Category-tagged whitelist (system, racecontrol, game, peripheral, ollama)** | Instead of a flat list of names, the whitelist entries carry a category tag. This enables per-machine policy by category: pods allow `game` category, James allows `ollama` category, server allows `racecontrol` category. Easier to maintain and audit than per-name machine overrides. | LOW | Add `category` field to whitelist entries. TOML: `[[process_guard.allowed]] name = "ollama.exe" category = "ollama" machines = ["james"]`. The existing `ALLOWED_PROCESSES` in `kiosk.rs` already has natural categories in comments — formalize them. |
+| D-2 | **Wildcard/prefix matching in whitelist** | Some processes need pattern matching: NVIDIA spawns `nvcontainer.exe`, `nvdisplay.container.exe`, `nvspcaps64.exe` — all from the same vendor. A `nv*.exe` wildcard is cleaner than enumerating each. Similarly, `acs_*.exe`, `msedge_*.exe`. | LOW | `glob` crate or simple prefix/suffix matching with `*` as wildcard character. The whitelist entry specifies `name = "nv*.exe"`. Complexity is LOW — this is pattern string matching, not regex engine. |
+| D-3 | **Severity tiers: kill-immediately vs warn-and-escalate vs monitor-only** | Not all violations warrant immediate kill. A first-time unknown process should be logged and escalated to staff (same `ProcessApprovalRequest` flow as `kiosk.rs`). A known-bad process (e.g., `steam.exe` on a pod) should be killed immediately. Severity tier is per-entry in the blocklist config. | MEDIUM | Three tiers: `KILL` (kill without approval), `ESCALATE` (warn staff, auto-kill after TTL), `MONITOR` (log only, no action). Per-entry in the `[process_guard.blocked]` section or derive from category. |
+| D-4 | **Violation trend reporting: escalate on repeat offenders** | If the same process is killed more than N times within a time window, escalate via email rather than just WS notification. Indicates a process is relaunching itself (installer, watchdog, malware). | MEDIUM | Track per-process kill counts in memory. If count > threshold (e.g., 3 kills in 30min), trigger `email_alerts.rs` via the same send_email.js shell-out. No new email infrastructure. |
+| D-5 | **Fleet-wide violation summary in /api/v1/fleet/health** | Extend `PodFleetStatus` to include `violation_count_24h` and `last_violation_at`. Uday can see at a glance which pods have been most active for the guard without reading logs. | MEDIUM | Requires server-side aggregation of `ProcessViolation` AgentMessages. Server maintains per-pod violation counter in `FleetHealthStore`. No DB schema change — in-memory only. |
+| D-6 | **Guard runs on James workstation as a standalone daemon (not rc-agent module)** | James is not a pod — it doesn't run rc-agent. The process guard for James needs to run as a separate light binary (or as part of racecontrol server ops if James runs a comms-link daemon). The guard logic should be a library crate so it compiles into both rc-agent (pods) and a standalone binary (James). | MEDIUM | Extract guard logic to `rc-common` or a new `rc-guard` helper crate. Standalone binary for James polls local processes and reports violations via Tailscale HTTP to the server. Pod variant runs as an rc-agent module. |
+| D-7 | **Guard runs on racecontrol server as a module** | The server (.23) runs racecontrol.exe — it needs its own process guard integrated as a `server_ops.rs`-style module. Violations on the server are higher severity (server compromise affects all 8 pods). | LOW | Add `process_guard::run_server_guard()` called from racecontrol's main event loop. Server guard is simpler — it only needs to audit the server's own processes, not pod processes. |
 
 ### Anti-Features (Do Not Build)
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **GPU temperature check** | GPU temp varies 30-80°C legitimately during normal operation. Checking temp at BillingStarted tells you nothing useful — it will always pass after idle and always spike during gaming. Creates noise without action criteria. | Monitor GPU temperature continuously in the background if thermal management is needed (future milestone). Not a session gate. |
-| **Full 22-probe self_test on every BillingStarted** | self_test.rs runs 22 probes with a 10-second per-probe timeout. Running all of them on every session start adds up to 10+ seconds of latency before a customer can play. Some probes (Ollama, Steam API ping) are irrelevant to session readiness. | Run only the 8-10 session-relevant checks. Reuse probe functions but do not invoke the full self_test pipeline. |
-| **Customer-visible error messages** | The pre-flight failure screen should target staff, not customers. A customer seeing "HID device VID:0x1209 PID:0xFFB0 not found" is confusing and undermines trust in the venue. | Lock screen shows "Setting Up Your Pod — Please Wait" during pre-flight. On hard failure, show "Maintenance Required — Staff Notified." No technical details to customers. |
-| **Blocking the WS send to racecontrol while pre-flight runs** | Pre-flight runs async. Blocking the WS event loop during pre-flight would prevent BillingTick, ping/pong, and other messages from arriving. This would cause the WS to drop due to keepalive timeout. | Pre-flight runs in a tokio::spawn (or spawn_blocking for sync probes). The WS event loop continues. Pre-flight completion triggers a single WS message (PreFlightResult) to the server. |
-| **Per-check timeouts > 5 seconds** | A pre-flight check that takes 5+ seconds per probe will make session start feel sluggish. Customers are standing at the pod waiting. | Cap all pre-flight probes at 2 seconds. Self_test already uses 10s timeouts for startup (acceptable then, not for session start). |
-| **Retry loops inside the auto-fix** | billing_guard already has a 3-attempt retry loop for orphan auto-end. Adding retry loops inside each pre-flight auto-fix creates unbounded wait time before staff are alerted. | Auto-fix attempts once. If it fails, send PreFlightFailed immediately. Do not retry in the pre-flight path — the retry logic belongs in the background monitors (failure_monitor, billing_guard). |
-| **Pre-flight cancellation on new BillingStarted** | If a second BillingStarted arrives while pre-flight is running (race condition or double-click from staff), running two concurrent pre-flights creates corrupted state. | Pre-flight acquires a per-pod mutex/atomic flag. Second BillingStarted is queued or rejected until pre-flight completes. |
+| **Real-time process event subscription (ETW/WMI events)** | ETW (Event Tracing for Windows) process creation events give sub-100ms detection. Sounds appealing but requires COM + elevated SYSTEM privileges + significant Win32 plumbing not representable in safe Rust. High complexity for marginal gain over 60s polling. | 60-second polling is sufficient for the threat model: Steam auto-starts, Windows Update agents, customer-triggered downloads. Near-real-time detection of process spawns is not the problem to solve. |
+| **Per-process cryptographic hash verification** | Checking SHA-256 of every running binary against a hash database catches process-name spoofing. However, managing hash updates across 8 pods (every Windows Update changes system binary hashes) creates enormous operational overhead. | Trust process name + path. Verify path is in an expected directory (e.g., `C:\RacingPoint\`, `C:\Windows\System32\`). Path-based allow is sufficient and maintainable. |
+| **Deep packet inspection on flagged ports** | Examining traffic on non-whitelisted ports to determine if it's "benign" network activity. Network DPI requires kernel-level drivers, is OS-version-specific, and creates far more operational risk than it solves. | Port audit at the socket level (listening ports via netstat). If a non-approved port is listening, kill the owning process. No DPI needed. |
+| **Behavioral analysis (CPU/memory heuristics for malware)** | CPU usage anomaly detection to identify cryptominers or runaway processes. This crosses into EDR territory. A sim racing venue has a narrow expected process tree — a simple whitelist is more effective than behavioral analysis. | If a process is not on the whitelist, kill it regardless of behavior. Behavioral analysis adds complexity without better outcomes for this threat model. |
+| **Quarantine mode (suspend instead of kill)** | Suspending a violating process rather than killing it to "preserve evidence." Adds process lifecycle complexity, suspended processes still consume memory, and staff cannot use a suspended process to diagnose anything useful. | Kill the process, log the violation with process name + path + PID. The audit log is the "evidence." |
+| **Auto-whitelisting via LLM on every scan** | Routing every unknown process through Ollama for classification (the kiosk ALLOWED pattern) is expensive at the process guard level. The kiosk LLM is justified because it's per-customer-session and the stakes are high (false positive = lock out customer). The process guard runs every 60s — LLM on each scan adds latency and Ollama load. | Use LLM only for `ESCALATE`-tier violations (first-time unknowns) when staff approval is needed. `KILL`-tier violations (known-bad names) skip LLM entirely. |
+| **DB schema for violation history** | Adding a `process_violations` table to track every kill over time. Adds migration, schema change, sync surface. | In-memory per-machine violation counters in `FleetHealthStore`. Structured log file for long-term history. The log file is queryable (grep, tail) without adding DB overhead. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-BillingStarted (ws_handler.rs)
-    └──triggers──> PreFlight framework (pre_flight.rs — new)
-                       ├──reads──> FailureMonitorState (hid_connected, billing_active, last_udp_secs_ago)
-                       ├──reads──> HeartbeatStatus (ws_connected)
-                       ├──reuses──> self_test.rs probe functions (disk, memory, tcp port)
-                       ├──reuses──> game_process.rs (orphan detection)
-                       ├──reuses──> ai_debugger.rs try_auto_fix() (auto-fix dispatch)
-                       ├──writes──> LockScreen (MaintenanceRequired state — new state)
-                       └──sends──> AgentMessage::PreFlightFailed (new variant)
-                                       └──routed by server──> kiosk dashboard badge (D-4)
+racecontrol.toml [process_guard] section (TS-1)
+    └──loaded by──> ProcessGuardConfig struct (new, in rc-common or rc-agent/config.rs)
+                        ├──used by──> rc-agent process_guard module (TS-2, TS-3, TS-4, TS-5, TS-6)
+                        └──used by──> racecontrol server guard module (D-7)
 
-TS-11 (MaintenanceRequired state)
-    └──requires──> lock_screen.rs show_maintenance_required() method (new)
+kiosk.rs ALLOWED_PROCESSES (existing)
+    └──reused by──> process_guard module base whitelist (TS-2)
+                        └──extended with──> per-machine overrides from TOML (TS-1)
 
-D-3 (Fleet dashboard pre-flight field)
-    └──requires──> PodFleetStatus extended with preflight fields
-                       └──requires──> AgentMessage::PreFlightResult variant
+sysinfo crate (existing in rc-agent)
+    └──used by──> TS-2 process scan
 
-D-4 (Kiosk badge)
-    └──requires──> Server-side preflight_blocked state per pod
-    └──requires──> D-3 (fleet status integration)
+winreg crate (existing in rc-agent via self_heal.rs)
+    └──used by──> TS-4 Run key audit
+
+rc-common::exec (existing)
+    └──used by──> TS-3 kill (taskkill), TS-6 schtasks query, TS-7 netstat
+
+AgentMessage enum (rc-common/protocol.rs)
+    └──new variant──> ProcessViolation { pod_id, machine, name, pid, action, timestamp } (TS-9, TS-11)
+
+TS-9 (WS alert) requires TS-2 (process scan produces violation)
+TS-10 (audit log) requires TS-3 (action taken is what gets logged)
+TS-11 (server record) requires TS-9 (WS channel carries the event)
+
+D-4 (repeat offender email) requires TS-3 (kill count tracked from kill actions)
+D-5 (fleet health violation count) requires TS-11 (server receives violations to count)
+D-6 (James standalone daemon) requires extracting guard logic from rc-agent to rc-common
+
+TS-8 (pod binary guard) requires TS-1 (machine role known from config) and TS-2 (process scan)
 ```
 
 ### Dependency Notes
 
-- **TS-10 (auto-fix) requires TS-5, TS-6, TS-4**: Cannot auto-fix what you cannot detect. Each check must produce a structured result before auto-fix can be dispatched.
-- **TS-11 (MaintenanceRequired screen) requires TS-10 (auto-fix)**: Only show the hard-blocked state after auto-fix has been attempted and failed.
-- **TS-12 (staff WS notification) requires TS-11 (lock screen block)**: Notify staff only when the pod is actually blocked, not on transient failures that auto-fix resolved.
-- **D-3 and D-4 are independent of each other** but both require the `PreFlightResult` AgentMessage variant to carry structured data to the server.
+- **TS-4, TS-5, TS-6 (auto-start audit) are independent of TS-2 (process scan)**: Audit checks can run at startup + periodic, process scanning runs continuously. They share config and logging infrastructure but not code paths.
+- **TS-3 (auto-kill) depends on TS-2 (process scan)**: Cannot kill what you have not scanned.
+- **D-6 (James standalone) requires guard logic in rc-common, not rc-agent**: This is an architectural decision that affects phase ordering — the library extraction should happen before building the standalone binary.
+- **kiosk.rs already has LLM classification for `ESCALATE`-tier unknowns**: The process guard can reuse `ProcessApprovalRequest` AgentMessage and `kiosk::classify_with_llm()` rather than rebuilding this path.
 
 ---
 
 ## MVP Definition
 
-### Launch With (v11.1 core)
+### Launch With (v12.1 core)
 
-Minimum gate that justifies the milestone. Covers the failure modes that actually bite operations — orphan sessions, dead wheelbases, dead WS.
+The minimum guard that solves the triggering incident (Steam missed during manual audit) and the pod binary rule violation risk.
 
-- [ ] **TS-1** — BillingStarted hook in ws_handler.rs calls pre_flight::run() before show_active_session()
-- [ ] **TS-2** — WS connected check (hard block)
-- [ ] **TS-4** — HID connected check with one HID rescan auto-fix attempt (hard block if rescan fails)
-- [ ] **TS-5** — Orphan game process check with kill auto-fix (hard block if kill fails)
-- [ ] **TS-6** — No active billing session check with orphan-end auto-fix (hard block if HTTP call fails)
-- [ ] **TS-7** — Disk space > 1GB check (hard block)
-- [ ] **TS-8** — Memory > 2GB check (soft warn, do not block)
-- [ ] **TS-9** — ConspitLink process running with spawn auto-fix (hard block if spawn fails)
-- [ ] **TS-10** — Auto-fix attempted before any alert
-- [ ] **TS-11** — MaintenanceRequired lock screen state on hard block
-- [ ] **TS-12** — PreFlightFailed AgentMessage to server on hard block
+- [ ] **TS-1** — `[process_guard]` section in racecontrol.toml with `allowed` list and per-machine `overrides` table. Schema validated on startup.
+- [ ] **TS-2** — Periodic process scan in rc-agent (`process_guard.rs` module) using `sysinfo`. 60s default poll interval.
+- [ ] **TS-3** — Auto-kill via `taskkill /F /IM` for processes not on the whitelist. Safe guard: never kill from `["system", "rc-agent.exe", "lsass.exe", "csrss.exe"]` hard-coded safety set regardless of config.
+- [ ] **TS-4** — HKCU + HKLM Run key audit at startup and every 5 minutes. Remove non-whitelisted entries.
+- [ ] **TS-5** — Startup folder audit at startup and every 5 minutes. Remove non-whitelisted shortcuts.
+- [ ] **TS-8** — Pod binary guard: if `racecontrol.exe` found running on a pod, immediate `ProcessViolation` alert (do not kill — log and escalate, restart rc-agent to be safe).
+- [ ] **TS-9** — `AgentMessage::ProcessViolation` variant sent to server on every kill or auto-start removal.
+- [ ] **TS-10** — Append-only audit log at `C:\RacingPoint\process-guard.log` (512KB rotation).
+- [ ] **TS-11** — Server receives `ProcessViolation` messages and stores per-pod violation list in `FleetHealthStore`.
+- [ ] **TS-12** — Continuous daemon spawned from rc-agent `event_loop.rs` via `tokio::spawn`.
 
-### Add After Validation (v11.1 polish)
+### Add After Validation (v12.1 polish)
 
-- [ ] **TS-3** — UDP heartbeat soft-warn (add after core checks proven stable — this is low-signal before any session has run)
-- [ ] **D-1** — Structured PreFlightResult with per-check status (add when staff ask "which check failed?")
-- [ ] **D-5** — Overlay TCP port check with restart auto-fix
+- [ ] **TS-6** — Scheduled Task audit (add after Run key + Startup folder proven stable — avoids scope creep in initial ship).
+- [ ] **TS-7** — Port audit (add after process guard stable — port violations are a secondary concern vs process violations).
+- [ ] **D-1** — Category-tagged whitelist entries (refactor after MVP ships and real-world false positives are identified).
+- [ ] **D-3** — Severity tiers: KILL vs ESCALATE vs MONITOR (add when operations has enough violation history to make informed tier decisions).
 
-### Future Consideration (v11.2+)
+### Future Consideration (v12.2+)
 
-- [ ] **D-2** — Configurable hard/soft policy per check via toml config
-- [ ] **D-3** — Fleet dashboard pre-flight field (requires frontend work)
-- [ ] **D-4** — Kiosk badge on pre-flight failure (requires server state + Next.js changes)
-- [ ] **D-6** — AC content directory existence check
-- [ ] **D-7** — CLOSE_WAIT pre-session cleanup
+- [ ] **D-4** — Repeat offender email escalation (add when violation log shows persistent offenders — data-driven trigger).
+- [ ] **D-5** — Fleet health violation count field (add when Uday asks "which pod has the most violations?").
+- [ ] **D-6** — James standalone guard binary (requires rc-common refactor, defer until v13.0 infrastructure phase).
+- [ ] **D-7** — Server-side process guard module (lower priority — server has no customers, lower violation risk).
+- [ ] **D-2** — Wildcard matching in whitelist (add when real-world wildcard patterns are identified — premature optimization otherwise).
 
 ---
 
@@ -128,63 +137,64 @@ Minimum gate that justifies the milestone. Covers the failure modes that actuall
 
 | Feature | Operational Value | Implementation Cost | Priority |
 |---------|-------------------|---------------------|----------|
-| TS-1 BillingStarted hook | HIGH — enables everything | LOW — one call site | P1 |
-| TS-4 HID check + rescan | HIGH — #1 cause of "pod not working" complaints | LOW — state already tracked | P1 |
-| TS-5 Orphan game kill | HIGH — prevents "walk into someone's game" | LOW — kill logic exists | P1 |
-| TS-6 Billing clear | HIGH — prevents billing corruption | LOW — state + HTTP exist | P1 |
-| TS-9 ConspitLink running | HIGH — no FFB without it | LOW — process check + spawn | P1 |
-| TS-11 Maintenance screen | HIGH — staff need visible signal | LOW — new lock screen state | P1 |
-| TS-12 Staff WS notification | HIGH — dashboard visibility | LOW — new AgentMessage variant | P1 |
-| TS-7 Disk space | MEDIUM — rare but catastrophic when it hits | LOW — reuse self_test logic | P1 |
-| TS-2 WS check | MEDIUM — WS reconnect usually self-heals | LOW — atomic read | P1 |
-| TS-8 Memory check | MEDIUM — soft warn only | LOW — reuse self_test logic | P1 |
-| D-1 Structured result | MEDIUM — better debugging | MEDIUM — new type + serialize | P2 |
-| D-5 Overlay check | LOW — overlay rarely dies at session start | LOW — TCP probe reuse | P2 |
-| TS-3 UDP check | LOW — no session running yet, false signal | LOW | P2 |
-| D-2 Config-driven policy | LOW — nice to have | MEDIUM | P3 |
-| D-3 Fleet dashboard field | MEDIUM — Uday visibility | MEDIUM — crosses Rust/Next.js | P3 |
-| D-4 Kiosk badge | MEDIUM — staff UX | HIGH — server state + frontend | P3 |
-| D-6 AC content check | LOW — content rarely disappears | MEDIUM | P3 |
-| D-7 CLOSE_WAIT cleanup | LOW — background monitor handles it | LOW | P3 |
+| TS-1 TOML config schema | HIGH — enables everything else | LOW — TOML table struct | P1 |
+| TS-2 Process scan | HIGH — core function | LOW — sysinfo already imported | P1 |
+| TS-3 Auto-kill | HIGH — guard without kill is just a logger | LOW — taskkill pattern exists | P1 |
+| TS-4 Run key audit | HIGH — exact trigger for this milestone | MEDIUM — winreg enumerate + diff | P1 |
+| TS-5 Startup folder audit | HIGH — second auto-start vector | LOW — read_dir + remove | P1 |
+| TS-8 Pod binary guard | HIGH — standing rule enforcement | LOW — name check in scan | P1 |
+| TS-9 WS violation alert | HIGH — staff visibility | LOW — new AgentMessage variant | P1 |
+| TS-10 Audit log | HIGH — operational record | LOW — append file + rotate | P1 |
+| TS-12 Continuous daemon | HIGH — periodic guard is useless | LOW — interval loop pattern | P1 |
+| TS-11 Server violation record | MEDIUM — aggregation value | LOW — FleetHealthStore field | P1 |
+| TS-6 Scheduled task audit | MEDIUM — third auto-start vector | MEDIUM — schtasks parse | P2 |
+| TS-7 Port audit | MEDIUM — secondary layer | LOW — netstat parse | P2 |
+| D-1 Category tags | MEDIUM — maintainability | LOW — TOML schema only | P2 |
+| D-3 Severity tiers | MEDIUM — precision | MEDIUM — tier dispatch logic | P2 |
+| D-4 Repeat offender email | LOW — rare scenario | MEDIUM — counter + email | P3 |
+| D-5 Fleet health count field | LOW — nice dashboard metric | MEDIUM — server aggregation | P3 |
+| D-6 James standalone binary | MEDIUM — coverage | HIGH — rc-common refactor | P3 |
+| D-7 Server guard module | LOW — low risk surface | MEDIUM — server integration | P3 |
+| D-2 Wildcard matching | LOW — premature | LOW | P3 |
 
 ---
 
-## Granularity Decision
+## Relationship to Existing Modules
 
-The right granularity for pre-flight is **pod-state checks, not probe-everything**. The distinction:
+This table maps each new feature to the rc-agent/racecontrol modules it touches or extends, to avoid hidden interface churn during implementation.
 
-**In scope (session-blocking conditions):**
-- Process running / not running (ConspitLink, orphaned game)
-- Hardware connected / not connected (HID)
-- Billing state clean / dirty (active session lingering)
-- Connectivity up / down (WebSocket)
-- Resources available / exhausted (disk, memory)
-
-**Out of scope (background monitoring, not session gates):**
-- GPU temperature (continuous background concern)
-- Ollama availability (debugging aid, not session-critical)
-- Steam process (not needed for AC to run once launched)
-- CLOSE_WAIT count (background leak, not a session blocker at normal counts)
-- Full TCP port scan of all agent ports (only session-relevant ports matter)
-
-Each check should complete in under 2 seconds. The full pre-flight set should complete in under 5 seconds total (concurrent execution). Anything that cannot meet this SLA should not be in the pre-flight path.
+| Feature | Touches / Extends | Creates New |
+|---------|-------------------|-------------|
+| TS-1 config schema | `rc-agent/config.rs` — add `ProcessGuardConfig` | `[process_guard]` TOML section |
+| TS-2, TS-3 process scan + kill | `kiosk.rs` — reuse `ALLOWED_PROCESSES` and sysinfo System | `process_guard.rs` module |
+| TS-4 Run key audit | `self_heal.rs` — reuse winreg patterns | `auto_start.rs` module (or sub-fn in process_guard.rs) |
+| TS-5 Startup folder audit | None — pure std::fs | Part of auto_start.rs |
+| TS-6 Scheduled task audit | `rc-common/exec.rs` — shell-out to schtasks | Part of auto_start.rs |
+| TS-7 Port audit | `firewall.rs` and `remote_ops.rs` — reuse netstat pattern | `port_audit.rs` fn or sub-fn |
+| TS-8 Pod binary guard | `process_guard.rs` scan path — special case by name | No new file |
+| TS-9 WS alert | `rc-common/protocol.rs` — add `ProcessViolation` variant | AgentMessage variant |
+| TS-10 audit log | `self_monitor.rs` — reuse log rotation pattern | `C:\RacingPoint\process-guard.log` |
+| TS-11 server record | `fleet_health.rs` — add `violations` to `FleetHealthStore` | Server-side handler for new AgentMessage |
+| TS-12 daemon spawn | `event_loop.rs` — add `process_guard::spawn()` call | `spawn()` fn in process_guard.rs |
 
 ---
 
 ## Sources
 
 - **Codebase audit (HIGH confidence):**
-  - `crates/rc-agent/src/self_test.rs` — 22 probes, ProbeResult/SelfTestReport types, reusable probe functions
-  - `crates/rc-agent/src/failure_monitor.rs` — FailureMonitorState, existing check conditions
-  - `crates/rc-agent/src/billing_guard.rs` — attempt_orphan_end(), existing orphan detection patterns
-  - `crates/rc-agent/src/ws_handler.rs` — BillingStarted hook point, existing session lifecycle
-  - `crates/rc-agent/src/lock_screen.rs` — LockScreen state machine, show_active_session() call site
-  - `crates/rc-agent/src/ai_debugger.rs` — try_auto_fix() pattern, canonical keyword dispatch
-  - `crates/rc-agent/src/game_process.rs` — orphan game process detection
-- **Domain analysis (MEDIUM confidence — derived from kiosk/arcade operational patterns):**
-  - Kiosk/sim-racing health gate patterns are well-established in arcade operations: check hardware, check connectivity, check software state, block if unresolvable. No novel research needed — this is applied codebase knowledge.
+  - `crates/rc-agent/src/kiosk.rs` — `ALLOWED_PROCESSES` (60+ entries, already categorized), `sysinfo` usage, LLM classification path, `ProcessApprovalRequest` flow
+  - `crates/rc-agent/src/self_heal.rs` — `winreg` Run key read/write patterns, log append/rotate pattern
+  - `crates/rc-agent/src/self_monitor.rs` — interval daemon pattern, log rotation constants
+  - `crates/rc-agent/src/config.rs` — `AgentConfig` schema, TOML section design pattern
+  - `crates/rc-agent/src/game_process.rs` — `taskkill` invocation pattern, process name constants
+  - `crates/racecontrol/src/fleet_health.rs` — `FleetHealthStore` extension points
+  - `crates/rc-common/src/protocol.rs` — `AgentMessage` variants, `ProcessApprovalRequest` as template for `ProcessViolation`
+- **Domain analysis (HIGH confidence — standard Windows process hardening operations):**
+  - Windows auto-start vectors (Run keys, Startup folder, Scheduled Tasks) are well-documented and stable. The `winreg` crate API for enumerating registry values is standard. schtasks CSV output format is stable since Windows 7. This is applied Windows system programming, not novel territory.
+- **Operational context (HIGH confidence — direct cause analysis from PROJECT.md):**
+  - The v12.1 milestone was triggered by Steam, Leaderboard kiosk, and voice assistant watchdog being missed during a manual audit. The feature set directly addresses these three auto-start vectors.
 
 ---
 
-*Feature research for: v11.1 Pre-Flight Session Checks (rc-agent)*
+*Feature research for: v12.1 E2E Process Guard (rc-agent pods + racecontrol server + James workstation)*
 *Researched: 2026-03-21*

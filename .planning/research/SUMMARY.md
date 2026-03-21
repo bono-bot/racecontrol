@@ -1,17 +1,17 @@
 # Project Research Summary
 
-**Project:** v11.1 Pre-Flight Session Checks
-**Domain:** rc-agent Windows service — pre-session health gate for sim racing kiosk pods
-**Researched:** 2026-03-21
+**Project:** v12.1 E2E Process Guard
+**Domain:** Windows process monitoring, whitelist enforcement, and auto-start auditing across a mixed fleet (8 sim pods + 1 server + 1 operations workstation)
+**Researched:** 2026-03-21 IST
 **Confidence:** HIGH
 
 ## Executive Summary
 
-The v11.1 pre-flight gate is a well-scoped addition to an existing, mature codebase. Every capability required — Win32 window checks, process scanning, HID enumeration, disk/memory probes, WebSocket messaging, and async concurrency — is already compiled into rc-agent via existing dependencies. Zero new Rust crates are needed. The primary research conclusion is that this feature is an integration exercise, not a greenfield build. The correct implementation is a single new module (`pre_flight.rs`) containing all check logic, called from the existing `BillingStarted` arm in `ws_handler.rs`, with reused probe helpers extracted from `self_test.rs`.
+The v12.1 E2E Process Guard is a continuous whitelist enforcement daemon that closes the gap exposed by the March 2026 incident: Steam, a leaderboard kiosk Edge instance, and a voice assistant watchdog all survived manual audits because those audits searched for known-bad processes rather than inverting the whitelist. The correct model is deny-by-default — `running_processes - whitelist = violations` — and this research confirms every capability required is already in the codebase. No new foundational work is needed: `sysinfo 0.33`, `winreg 0.55` (already in rc-agent via `self_heal.rs`), and `rc-common::exec` cover the core enforcement surface. Two new crates are required: `netstat2 0.11` for port-to-PID mapping and `walkdir 2` for Startup folder enumeration.
 
-The recommended approach is a concurrent check gate (`tokio::join!` over 8-10 targeted checks) with a hard 5-second total timeout, auto-fix attempted once per failure before alerting, and a new `MaintenanceRequired` lock screen state that blocks the pod and notifies staff via WebSocket. The gate fires on `BillingStarted` only — not on a cron or timer — making it a true per-session health check. The MVP covers the failure modes that actually bite operations: dead wheelbases, orphaned games, stuck billing sessions, and dead WebSocket connections. The build order is dictated by compile-time dependencies: `rc-common` protocol changes first, then lock screen state, then probe helpers, then the new module, then the handler integration.
+The recommended approach is three parallel guard deployments: a background tokio task module inside rc-agent covering all 8 pods, a new `process_guard.rs` module inside racecontrol for the server, and a standalone `rc-process-guard.exe` binary for James (.27) that reports via HTTP rather than WebSocket (standing rule: never run pod binaries on James). The central whitelist lives in `racecontrol.toml` with per-machine override sections, fetched by each agent on WS connect and pushed via a new `CoreToAgentMessage::UpdateProcessWhitelist` variant for mid-session updates. The monitoring surface covers four vectors: running processes, listening ports, HKCU/HKLM Run keys, and the Startup folder — with Scheduled Tasks as a Phase 2 addition.
 
-The critical risks are all concurrency and state machine related, not algorithmic. Blocking the WebSocket receive loop during checks would stall billing ticks. A `MaintenanceRequired` state without exit transitions would permanently lock pods. Auto-fix killing games by process name instead of PID could disrupt active sessions. A notification flood from repeated check failures would train staff to ignore alerts. All four risks have clear preventions documented at the code-pattern level in the research.
+The dominant risks are operational, not algorithmic. The three most dangerous pitfalls all have codebase precedents that prevent them: PID reuse races (require name + creation-time triple before `TerminateProcess`), self-kill (unconditional self-PID exclusion before any whitelist logic), and watchdog restart storms (storm detection after 3 kills in 60 seconds triggers auto-start source lookup rather than continued process killing). The kill grace period — require two consecutive scan cycles before acting — is the single most effective mitigation across multiple pitfalls and must be a first-class design primitive, not a later addition.
 
 ---
 
@@ -19,142 +19,143 @@ The critical risks are all concurrency and state machine related, not algorithmi
 
 ### Recommended Stack
 
-The entire pre-flight feature is built on the existing dependency graph. No changes to `rc-agent/Cargo.toml` are required. The only dependency change is a source-level one: add new `AgentMessage` variants to `rc-common/src/protocol.rs`.
+All enforcement primitives are already in the repo. The stack research found zero breaking upgrades needed and identified exactly two new Windows-only crates. The `sysinfo 0.33` API must not be upgraded to 0.38 during this milestone — the 0.33 → 0.38 migration includes breaking changes to `System` initialization that would require changes across `kiosk.rs`, `game_process.rs`, and `self_test.rs`.
 
 **Core technologies:**
-- `tokio::join!` — concurrent check execution — already the runtime, no new dep
-- `winapi 0.3` (`winuser` feature) — `FindWindowW` + `GetWindowRect` for display validation — already in Cargo.toml line 62
-- `sysinfo 0.33` — process scan (ConspitLink, orphaned game) and disk/memory probes — already used in `kiosk.rs`, `self_test.rs`, `game_process.rs`
-- `hidapi 2` — HID enumeration for wheelbase presence check — already used in `ffb_controller.rs`
-- `tokio-tungstenite 0.26` — WebSocket message to racecontrol on pre-flight failure — already the WS client
-- `reqwest 0.12` — HTTP orphan-end auto-fix call — already present for `billing_guard.rs`
+- `sysinfo 0.33` — process enumeration and kill via `Process::kill(Signal::Kill)` — already in both rc-agent and racecontrol
+- `winreg 0.55` — HKCU/HKLM Run key enumeration and `delete_value()` — already in rc-agent via `self_heal.rs`; add to racecontrol
+- `netstat2 0.11` — TCP/UDP listening sockets with owning PID via `GetExtendedTcpTable` — NEW, Windows-only dep
+- `walkdir 2` — Startup folder enumeration — NEW (or use `std::fs::read_dir` if avoiding deps; folders are flat)
+- `tokio 1` — `tokio::time::interval` for scan loop; `tokio::task::spawn_blocking` for WinAPI calls inside async
+- `winapi 0.3` — fallback `TerminateProcess` when sysinfo kill returns false; already in rc-agent
+- `rc-common::exec` — `schtasks /delete` and `schtasks /query /fo CSV` shell-outs; no new crate needed
 
-See STACK.md for full rationale and confirmed Cargo.toml line references.
+**Critical version note:** Do NOT add `windows = "0.58"` — conflicts with existing `winapi 0.3`. Do NOT add `wmi` — COM overhead plus large transitive dep. Do NOT upgrade `sysinfo`.
 
 ### Expected Features
 
-The feature set is grounded in codebase audit of existing state, not aspirational requirements. All MVP checks read from state that already exists in `AppState` or from patterns already in `self_test.rs`.
+The feature set is divided into a clear MVP (solve the triggering incident and prevent reoccurrence) and a validation-dependent backlog.
 
-**Must have (table stakes — v11.1 core):**
-- BillingStarted hook intercepts session lifecycle before `show_active_session()` — the single correct gate point
-- WebSocket connected check (hard block) — `HeartbeatStatus.ws_connected` atomic read
-- HID wheelbase present check with one HID rescan auto-fix attempt (hard block if rescan fails)
-- No orphaned game process check with PID-targeted kill auto-fix (hard block if kill fails)
-- Billing clear check — no stuck session from previous customer — local atomic, not HTTP query
-- Disk space >1GB free on C: (hard block) — reuse `self_test.rs probe_disk()` logic
-- Memory >2GB free (soft warn, do not block) — reuse `self_test.rs probe_memory()` logic
-- ConspitLink process running with spawn auto-fix (hard block if spawn fails)
-- Auto-fix attempted before any staff alert
-- `MaintenanceRequired` lock screen state on unresolvable failure
-- `PreFlightFailed` AgentMessage to racecontrol server on hard block
+**Must have (v12.1 core — all P1):**
+- `[process_guard]` section in racecontrol.toml with global whitelist and per-machine override tables (TS-1) — deny-by-default schema
+- Continuous process scan in rc-agent `process_guard.rs` module via sysinfo, 30s default poll interval (TS-2, TS-12)
+- Auto-kill violating processes via sysinfo kill + winapi fallback (TS-3) — with two-cycle grace period and self-exclusion
+- HKCU + HKLM Run key audit at startup and every 5 minutes, remove non-whitelisted entries (TS-4)
+- Startup folder audit at startup and every 5 minutes, remove non-whitelisted shortcuts (TS-5)
+- Pod binary guard: CRITICAL alert if `racecontrol.exe` found on a pod or `rc-agent.exe` found on James (TS-8)
+- `AgentMessage::ProcessViolation` WS variant to server on every kill or auto-start removal (TS-9)
+- Append-only audit log at `C:\RacingPoint\process-guard.log` with 512KB rotation (TS-10)
+- Server stores per-pod violation list in `FleetHealthStore` (TS-11)
 
-**Should have (v11.1 polish, add after core proven stable):**
-- UDP heartbeat soft-warn (low signal before any session has run)
-- Structured `PreFlightResult` with per-check status for dashboard visibility
-- Overlay TCP port check with restart auto-fix
+**Should have (add after MVP stable):**
+- Scheduled Task audit via `schtasks /query /fo CSV` (TS-6) — third auto-start vector; deferred to avoid scope creep
+- Port audit via netstat2 (TS-7) — secondary enforcement layer
+- Category-tagged whitelist entries (D-1) — refactor after real-world false positives identified
+- Severity tiers: KILL / ESCALATE / MONITOR (D-3) — add when violation history justifies tier decisions
 
-**Defer to v11.2+:**
-- Configurable hard/soft policy per check via `[preflight]` toml config section
-- Fleet dashboard pre-flight field (requires Next.js frontend work)
-- Kiosk dashboard badge on pre-flight failure (requires server pod state + Next.js changes)
-- AC content directory existence check
-- CLOSE_WAIT pre-session cleanup
+**Defer to v12.2+:**
+- Repeat offender email escalation (D-4) — data-driven trigger, needs violation log history first
+- Fleet health violation count in `/api/v1/fleet/health` (D-5) — nice metric, not blocking
+- James standalone guard binary as separate `rc-process-guard` crate (D-6) — requires rc-common refactor; higher scope
+- Server-side process guard module (D-7) — lower risk surface, lower priority
+- Wildcard/prefix matching in whitelist (D-2) — premature optimization
 
 **Anti-features (do not build):**
-- GPU temperature check — varies legitimately 30-80C, not a session gate
-- Full 22-probe self_test run on every BillingStarted — 10+ second latency, wrong scope
-- Customer-visible technical error messages — show only "Maintenance Required — Staff Notified"
-- Per-check retry loops — auto-fix attempts once, then alerts immediately
-- Screenshot-based display validation — Session 0 cannot capture Session 1 display; use HTTP probe to `:18923` instead
-
-See FEATURES.md for full prioritization matrix and feature dependency graph.
+- ETW/WMI real-time process event subscription — COM overhead, elevated privilege, marginal gain over 30s polling
+- SHA-256 hash verification per process — operational overhead across 11 machines per Windows Update
+- Database schema for violation history — in-memory counters + append log is sufficient
+- WMI `SELECT * FROM Win32_Process` — 100-500ms CPU spike per query during active gaming sessions
 
 ### Architecture Approach
 
-The pre-flight gate slots into the existing `ws_handler.rs` `BillingStarted` match arm — the only correct insertion point. The new module (`pre_flight.rs`) is self-contained with a single public function `run(&state, &config) -> PreFlightResult`. All checks run concurrently with `tokio::join!`; auto-fixes run sequentially after checks complete to prevent interference. The `MaintenanceRequired` lock screen state follows the exact same enum-variant pattern as the existing 13 states. Protocol changes (two new `AgentMessage` variants, one new `CoreToAgentMessage`) live in `rc-common`.
+The guard integrates as a background tokio task inside the existing agent binary — no new Windows Service, no new deployment unit for pods. The guard daemon runs parallel to (not inside) the existing WS event loop, connected via an `mpsc::Sender<AgentMessage>` channel that the event loop already drains for other outbound messages. This pattern is identical to `self_monitor.rs`.
 
 **Major components:**
-1. `pre_flight.rs` (new) — owns all check logic, `PreFlightResult` enum, `CheckResult` struct, concurrent execution via `tokio::join!`, sequential auto-fix dispatch
-2. `lock_screen.rs` (modify) — add `MaintenanceRequired { reasons: Vec<String> }` variant and `show_maintenance_required()` method
-3. `ws_handler.rs` (modify) — insert `pre_flight::run().await` at top of `BillingStarted` arm; handle new `ClearMaintenance` server message
-4. `rc-common/protocol.rs` (modify) — add `PreFlightFailed`, `PreFlightPassed`, `ClearMaintenance` message variants
-5. `self_test.rs` (modify, preparatory) — extract `pub(crate)` helper functions: `check_hid_device()`, `available_disk_gb()`, `available_memory_gb()`
+1. `rc-agent/src/process_guard.rs` (NEW) — pod guard module: `spawn()`, `run_scan()`, `enforce()`, `audit_autostart()`, `audit_ports()`; connects to server via existing WS AgentMessage channel
+2. `racecontrol/src/process_guard.rs` (NEW) — server guard module: `ProcessGuardStore`, `WhitelistConfig`, three new HTTP endpoints (`/api/v1/guard/whitelist/{id}`, `/api/v1/guard/violations`, `/api/v1/guard/audit`)
+3. `rc-common/src/protocol.rs` (MODIFIED) — three new messages: `AgentMessage::ProcessViolation`, `AgentMessage::ProcessGuardStatus`, `CoreToAgentMessage::UpdateProcessWhitelist`
+4. `rc-common/src/types.rs` (MODIFIED) — `MachineWhitelist`, `ViolationType`, `ProcessViolation` structs
+5. `racecontrol.toml` (MODIFIED) — `[process_guard]` section with global whitelist and `[process_guard.overrides.james]`, `[process_guard.overrides.pod]`, `[process_guard.overrides.server]` sections
 
-**Suggested build order (compiler-dependency-driven):**
-1. `rc-common/protocol.rs` — shared lib, must exist before rc-agent code that references it compiles
-2. `lock_screen.rs` — `MaintenanceRequired` state must exist before `pre_flight.rs` calls `show_maintenance_required()`
-3. `self_test.rs` — extract `pub(crate)` helpers (preparatory, no behavior change)
-4. `pre_flight.rs` — new module, all check logic
-5. `ws_handler.rs` — gate call + `ClearMaintenance` handler
-6. `main.rs` — add `mod pre_flight;`
-7. racecontrol server — handle `PreFlightFailed`, kiosk dashboard pod state
-
-See ARCHITECTURE.md for data flow diagrams, pass/fail paths, and anti-patterns.
+**Key architectural decisions:**
+- Whitelist fetched on WS connect (not polled separately) — avoids timer complexity and races with server-push updates
+- All WinAPI blocking calls (`TerminateProcess`, registry reads, `QueryFullProcessImageName`) wrapped in `tokio::task::spawn_blocking`
+- James workstation covered by rc-process-guard standalone binary (HTTP reporter) not rc-agent — standing rule #2
+- Do not merge guard into `kiosk.rs` — different lifecycle (always-on vs session-scoped), different whitelist source, different machine coverage
 
 ### Critical Pitfalls
 
-1. **Blocking the WS receive loop with inline `await`** — serial awaits inside `BillingStarted` arm stall BillingTick processing. Prevention: use `tokio::join!` inside `pre_flight::run()` for concurrent reads; wrap the entire gate in `tokio::time::timeout(Duration::from_secs(5), ...)`.
+1. **Keyword-scoped audit instead of whitelist inversion** — the exact cause of the triggering incident. Guard logic must be `running - whitelist = violations`, never a blocklist. Deny-by-default from day one in the schema.
 
-2. **Auto-fix killing game processes by name not PID** — `taskkill /F /IM acs.exe` kills any matching process without verifying it belongs to the current pod's orphan state. Prevention: cross-check `state.game_process` before any kill; only kill PIDs not tracked by the agent; use `taskkill /F /PID <pid>`.
+2. **PID reuse race kills the wrong process** — between snapshot and `TerminateProcess()` call, PID may be reused by rc-agent itself. Prevention: open handle, verify process name + creation time via `GetProcessTimes()`, call `TerminateProcess()` only if both match. Kill by PID alone is incorrect.
 
-3. **`MaintenanceRequired` state with no exit path** — pods stay blocked until manual restart. Prevention: two explicit exit transitions required at design time: (a) `ClearMaintenance` server command handler, (b) 30-second auto-retry background task that self-clears if all checks pass.
+3. **Self-kill — guard terminates itself or its parent** — `rc-agent.exe` not on the whitelist (typo or case mismatch) causes the guard to kill its own containing process. Prevention: `std::process::id()` and `std::env::current_exe()` excluded unconditionally before any whitelist lookup. All name comparisons use `eq_ignore_ascii_case()`.
 
-4. **Self-test probe semantics are wrong for warm-system context** — `self_test.rs` probes assume cold boot. UDP port bound at startup means no game running (pass). UDP port bound between sessions means orphan socket (fail). Prevention: `pre_flight.rs` must be a separate module with inverted probe semantics; never call `self_test::run_all_probes()` from pre-flight.
+4. **Watchdog restart storm survives kill** — the voice assistant watchdog was an infinite restart loop. Process-level kill without auto-start removal is futile. Prevention: kill sequence must check auto-start sources first. Storm detection: if same process killed 3 times in 60 seconds, suppress further kills and escalate to "auto-start audit required."
 
-5. **Staff notification flood on repeated check failures** — 8 `BillingStarted` calls during pre-opening pod testing = 8 identical WhatsApp alerts in 10 minutes. Prevention: `MaintenanceRequired` state is the deduplication gate — only alert on transition into `MaintenanceRequired`, not on every re-check failure.
+5. **Auto-start entry removed without per-machine context** — the leaderboard Run key was on a pod instead of the server. Removing it silently breaks the leaderboard with no recovery path. Prevention: per-machine whitelist sections in TOML; auto-start enforcement defaults to LOG → ALERT → REMOVE (not immediate remove); backup file written before any removal.
 
-6. **`MaintenanceRequired` breaks server pod reservation** — racecontrol continues booking the pod, sends another `BillingStarted`, illegal state transition occurs. Prevention: dual guard required — server marks pod unavailable on `PreFlightFailed`; agent checks lock screen state at top of `BillingStarted` arm and rejects new sessions while in `MaintenanceRequired`.
-
-See PITFALLS.md for all 11 pitfalls with code-level prevention guidance, integration gotchas, and a "Looks Done But Isn't" verification checklist.
+6. **Killing transient system processes during Windows Update** — `MpCmdRun.exe`, `TiWorker.exe`, `msiexec.exe` are short-lived, legitimate, and catastrophic to kill mid-run. Prevention: two-cycle grace period (must be flagged on two consecutive scans before kill); system path prefix rule (processes under `C:\Windows\System32\` default to ALERT-only); never kill children of `TrustedInstaller.exe`.
 
 ---
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+Based on the combined research, the build order is dictated by compile-time dependencies: rc-common changes must exist before either racecontrol or rc-agent can import the new types. Server endpoints must be live before pods can fetch the whitelist. Pod canary on Pod 8 before fleet rollout is the standing deploy rule.
 
-### Phase 1: Pre-Flight Framework + Hardware Checks
-**Rationale:** The concurrency model, timeout budget, `PreFlightResult` type, and safe-kill rules are foundational — every subsequent check inherits these decisions. Getting the concurrency model wrong means every check is wrong. Hardware checks (HID, ConspitLink) are the highest-value checks and must be implemented alongside the framework to validate the approach on the most complex cases first.
-**Delivers:** `pre_flight.rs` module with `run()` function, `PreFlightResult` enum, `CheckResult` struct, concurrent `tokio::join!` gate, 5-second timeout, HID check, ConspitLink process+HID liveness (two-stage), orphan game check with PID-targeted kill, safe-kill rules verified against `state.game_process`. Also: `disable_preflight` boolean in `AgentConfig` as day-one rollback option.
-**Addresses:** TS-4, TS-5, TS-9, TS-10 from FEATURES.md.
-**Avoids:** Pitfall 1 (WS loop blocking), Pitfall 2 (wrong game kill), Pitfall 4 (wrong probe semantics), Pitfall 6 (ConspitLink hung check), Pitfall 7 (5s budget), Pitfall 11 (PID-targeted kill).
+### Phase 1: Protocol Foundation (rc-common)
 
-### Phase 2: Lock Screen Integration + Protocol
-**Rationale:** Lock screen state and protocol messages are the output channel of the gate. They must compile before the gate is wired into `ws_handler.rs`. Both exit paths from `MaintenanceRequired` (staff clear command and auto-retry) must be designed alongside the state addition — not as a follow-up. Server-side pod reservation changes must be in this phase, not deferred, or Pitfall 9 (booking a blocked pod) will be live in production.
-**Delivers:** `MaintenanceRequired` lock screen state with `show_maintenance_required()` method and HTML template. `ClearMaintenance` server command handler in `ws_handler.rs`. `PreFlightFailed` / `PreFlightPassed` / `ClearMaintenance` variants in `rc-common/protocol.rs`. 30-second auto-retry background task. racecontrol marks pod unavailable on `PreFlightFailed`.
-**Addresses:** TS-11, TS-12 from FEATURES.md.
-**Avoids:** Pitfall 3 (no exit path), Pitfall 9 (server pod state breakage), Pitfall 10 (screenshot-based display check).
+**Rationale:** `rc-common` is a shared library dependency of both racecontrol and rc-agent. New protocol types and message variants must compile cleanly before either binary can reference them. This phase has no runtime deployment — library only. Zero risk to production.
+**Delivers:** `MachineWhitelist` struct, `ViolationType` enum, `ProcessViolation` struct in `rc-common/src/types.rs`. Three new message variants in `rc-common/src/protocol.rs`: `AgentMessage::ProcessViolation`, `AgentMessage::ProcessGuardStatus`, `CoreToAgentMessage::UpdateProcessWhitelist`.
+**Addresses:** Foundational types for all subsequent phases.
+**Avoids:** Compiler dependency failures that would block parallel server + agent work.
 
-### Phase 3: Billing + System Checks + Handler Integration
-**Rationale:** Billing and system checks (disk, memory, WS, billing clear) are simpler read-only checks with no auto-fix complexity. They belong after the framework is proven on the harder checks. Handler integration (`ws_handler.rs` wiring) is the final step so that a partially-working pre-flight never reaches pods — integration happens only when all checks are ready.
-**Delivers:** Billing stuck-session check (local atomic, not HTTP query), disk space check, memory check, WS connected check. `pre_flight::run()` wired into `ws_handler.rs` `BillingStarted` arm. `self_test.rs` `pub(crate)` helpers extracted. `main.rs` `mod pre_flight;` declaration. WhatsApp alerter deduplication (one alert per `MaintenanceRequired` entry, not per failure).
-**Addresses:** TS-1, TS-2, TS-6, TS-7, TS-8 from FEATURES.md.
-**Avoids:** Pitfall 5 (notification flood), Pitfall 8 (billing check racing session cleanup via local atomic).
+### Phase 2: Whitelist Schema + Config
 
-### Phase 4: Server-Side Staff UX
-**Rationale:** racecontrol changes are decoupled from the agent. Unknown `AgentMessage` variants are gracefully ignored by the existing server during the deployment window, so the agent can be deployed first without breakage. This phase completes the operational visibility story.
-**Delivers:** Kiosk dashboard maintenance badge (Racing Red `#E10600`) per pod. "Clear Maintenance" button in kiosk dashboard (staff PIN-gated). Maintenance failure details hidden from customer-visible kiosk displays. `preflight_alert_cooldown_secs` config field in racecontrol.
-**Addresses:** D-4 (kiosk badge), D-3 (fleet dashboard pre-flight field — MVP version).
-**Avoids:** UX pitfall (maintenance details visible to customers on TV-visible dashboard).
+**Rationale:** The whitelist schema is the most consequential design decision in the entire milestone. Getting deny-by-default right, per-machine sections right, and the `allowed_path_prefix` / `startup_delay_s` / `allowed_machines` fields right prevents six of the twelve documented pitfalls before a single line of enforcement code is written. Schema changes here determine whether the guard is correct by construction or correct by luck.
+**Delivers:** `ProcessGuardConfig` struct in rc-agent `config.rs` and racecontrol `config.rs`. `[process_guard]` section in `racecontrol.toml` with global whitelist, per-machine override tables, `violation_action = "kill_and_report"` initially set to `"report_only"` for safe rollout. Config version hash field for sync verification. `disable_process_guard` boolean in `AgentConfig` for day-one rollback.
+**Addresses:** TS-1 (central whitelist schema), pitfalls 1, 5, 7, 8, 9, 11, 12.
+**Avoids:** Pitfall 1 (deny-by-default schema), Pitfall 8 (allowed_machines per entry), Pitfall 11 (startup_delay_s), Pitfall 12 (allowed_path_prefix).
+
+### Phase 3: Server Side (racecontrol)
+
+**Rationale:** HTTP endpoints must be live before pods attempt to fetch the whitelist during their first WS connect post-deploy. Deploy server first, smoke-test whitelist endpoint with curl, then build agents. Server can receive violations before the violation sender exists — safe to deploy early.
+**Delivers:** `guard_store: Arc<RwLock<ProcessGuardStore>>` in `racecontrol/src/state.rs`. `racecontrol/src/process_guard.rs` with whitelist merge logic and HTTP handlers. New WS handler arm for `AgentMessage::ProcessViolation`. Routes registered in `racecontrol/src/main.rs`. Build and deploy to server .23.
+**Uses:** `winreg 0.55`, `netstat2 0.11`, `walkdir 2` added to racecontrol Cargo.toml.
+**Avoids:** Pitfall 5 (server records violation context for per-machine audit trail).
+
+### Phase 4: Pod Agent Module (rc-agent)
+
+**Rationale:** rc-agent needs server endpoints live (Phase 3) for whitelist fetch on WS connect. The guard module is the core enforcement engine — process scan, auto-kill, Run key audit, Startup folder audit. Canary on Pod 8 per standing deploy rules before fleet rollout. Initial deployment with `violation_action = "report_only"` in config to tune whitelist before enabling kills.
+**Delivers:** `rc-agent/src/process_guard.rs` with `spawn()`, `run_scan()`, `enforce()`, `audit_autostart()`, `audit_ports()`. `guard_whitelist: Arc<RwLock<MachineWhitelist>>` in `AppState`. Whitelist fetch on WS connect in `main.rs`. `CoreToAgentMessage::UpdateProcessWhitelist` handler in `ws_handler.rs`. Guard background task spawned from `main.rs`. Two-cycle grace period, self-exclusion, storm detection, PID+name+creation-time triple for all kills.
+**Addresses:** TS-2, TS-3, TS-4, TS-5, TS-8, TS-9, TS-10, TS-11, TS-12.
+**Avoids:** Pitfalls 2, 3, 4, 6, 9 (grace period, self-exclusion, storm detection, PID-triple verification).
+
+### Phase 5: Port Audit + Scheduled Tasks (Polish)
+
+**Rationale:** Port audit and Scheduled Task audit are secondary enforcement layers. Port audit catches what process name matching misses (dev vs prod server via port conflict, crypto miners on non-standard ports). Scheduled Tasks is the third auto-start vector and the most dangerous (can run as SYSTEM). Both deferred from MVP to avoid scope creep — process + Run key + Startup folder coverage addresses the three known incidents.
+**Delivers:** `audit_ports()` implementation using `netstat2::get_sockets_info()` in `process_guard.rs`. Scheduled Task audit via `schtasks /query /fo CSV` shell-out. Port whitelist section added to `racecontrol.toml`. Violation reporting for both new vectors via existing `ProcessViolation` message.
+**Addresses:** TS-6 (Scheduled Tasks), TS-7 (port audit), pitfall 7 (dev+prod server simultaneously).
+**Avoids:** Pitfall 7 (port audit catches node.exe dev server on pod even if process name matches).
 
 ### Phase Ordering Rationale
 
-- Phase 1 first because the concurrency model and safe-kill rules are foundational — wrong here means wrong everywhere.
-- Phase 2 before Phase 3 because `lock_screen.rs` and `rc-common/protocol.rs` changes must compile before `ws_handler.rs` integration builds. This is a hard compiler dependency, not a preference.
-- Phase 3 integrates the handler last so pods are never running a partially-wired gate. The gate goes live as a complete system.
-- Phase 4 last and decoupled because racecontrol can gracefully ignore `PreFlightFailed` messages until the server upgrade. Pod-side changes are independently deployable.
+- Phase 1 first: compiler hard dependency. No rc-agent or racecontrol code can reference new types until rc-common compiles.
+- Phase 2 before any enforcement code: the schema determines correctness. Retrofitting per-machine fields or path verification after enforcement is live creates a window where the guard is running with an incomplete model.
+- Phase 3 before Phase 4: pods need to fetch the whitelist on WS connect. The endpoint must exist before agents deploy.
+- Phase 4 deploys with `report_only` mode: allows whitelist tuning against real fleet process inventory before kills are enabled. Prevents false-kill incidents during rollout.
+- Phase 5 last: secondary enforcement vectors that do not block the core guard from functioning.
 
 ### Research Flags
 
-All implementation patterns are known from direct codebase inspection. No additional research phases are needed before implementation. The following verification steps should be confirmed during each phase:
+Phases needing deeper research or verification during planning:
+- **Phase 4 (Pod canary):** Benchmark test required on an active gaming pod. Scan cycle must complete in under 20ms. This must be measured, not assumed. If WMI was inadvertently used anywhere, it will manifest here.
+- **Phase 4 (Whitelist population):** The initial `racecontrol.toml` global_whitelist and pod override sections need to be populated from the actual running process inventory on all 8 pods. Suggest a one-time audit script (`sysinfo` dump) run before Phase 4 ships to capture the full legitimate process set.
 
-- **Phase 1:** Stopwatch test — BillingStarted to ActiveSession under 5s on a healthy pod. BillingTick messages arrive normally during gate execution (no dropped ticks in logs). Safe-kill test — manually set `game_process = None` in test, verify gate does NOT kill the running game.
-- **Phase 2:** Manual test — trigger a failure, fix it, confirm pod auto-clears within 60 seconds without restart. Confirm racecontrol marks pod unavailable and kiosk blocks booking.
-- **Phase 3:** False positive test — run pre-flight on healthy pod 20 consecutive times, zero failures. Confirm billing check uses local atomic, not HTTP query.
-- **Phase 4:** Confirm maintenance badge requires staff PIN to view failure details. Confirm "Clear Maintenance" button transitions pod back to available.
-
-Phases with well-established patterns (no additional research needed):
-- **All phases** — confidence is HIGH across all research files. Implementation patterns are directly sourced from the existing codebase. No novel algorithms or external service integrations.
+Phases with well-established patterns (skip additional research):
+- **Phase 1:** Protocol extension is a solved pattern — 15+ existing `AgentMessage` variants in `rc-common/src/protocol.rs` to follow.
+- **Phase 2:** TOML config schema follows the identical pattern as every other `[section]` in `racecontrol.toml`.
+- **Phase 3:** HTTP endpoint registration and `ProcessGuardStore` pattern are identical to `FleetHealthStore` in `fleet_health.rs`.
 
 ---
 
@@ -162,22 +163,22 @@ Phases with well-established patterns (no additional research needed):
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Every capability confirmed in Cargo.toml and existing source files. Zero new crates. All dep versions verified from actual Cargo.toml. |
-| Features | HIGH | Sourced from direct codebase audit of ws_handler.rs, self_test.rs, billing_guard.rs, failure_monitor.rs. MVP feature set exactly matches existing AppState structure. |
-| Architecture | HIGH | Build order derived from compiler dependency graph. Module boundaries sourced from inspection of all named files. Anti-patterns confirmed against existing codebase patterns. |
-| Pitfalls | HIGH | All 11 pitfalls grounded in actual rc-agent source code patterns with exact code-level prevention guidance. |
+| Stack | HIGH | All dep versions verified against actual Cargo.toml files in the repo. Two new crates (netstat2, walkdir) confirmed on crates.io. sysinfo 0.33 API confirmed in existing source files. |
+| Features | HIGH | Feature set sourced from direct codebase audit of kiosk.rs, self_heal.rs, fleet_health.rs, protocol.rs, and the trigger incident record. MVP is a direct response to known failures — no speculative requirements. |
+| Architecture | HIGH | Build order derived from compiler dependency graph. All integration points (event_loop.rs, AppState, ws_handler.rs) read directly. Anti-patterns confirmed against existing codebase. |
+| Pitfalls | HIGH | 12 pitfalls documented. All three trigger incidents (Steam, leaderboard Edge, watchdog.cmd) are confirmed real events. WMI performance pitfall confirmed in Microsoft Learn docs. PID reuse race is well-documented OS behavior. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Display validation check composite definition** — STACK.md confirms `GetWindowRect` is the correct approach. PITFALLS.md confirms screenshot is wrong (Session 0/1 boundary). ARCHITECTURE.md recommends composite check: HTTP probe to `:18923` + Edge process alive check + window rect check. The exact combination to use is a detail-level implementation decision. Recommend HTTP probe as primary (confirms server serving), Edge process check as secondary, `GetWindowRect` as tertiary. Resolve during Phase 2 implementation.
+- **Initial whitelist population:** The research defines the schema but does not enumerate every legitimate process on all 8 pods. A one-time inventory run (sysinfo dump via fleet exec endpoint) is needed before Phase 4 goes to production. Without it, the whitelist will have false positives that generate kills on legitimate processes.
 
-- **ConspitLink liveness limitation** — two-stage check (process exists + HID enumeration returns the OpenFFBoard VID:0x1209 PID:0xFFB0 device) is the best achievable signal without a ConspitLink health API. A hung ConspitLink that holds the HID handle cannot be detected by enumeration alone. Accept this limitation and document it. If ConspitLink hangs become a recurring issue, add a ConspitLink health TCP port in a future milestone.
+- **James whitelist scope:** `CLAUDE.md` and `STATE-v12.1.md` confirm James runs Ollama, node, python, comms-link, deploy tooling, and VS Code. The `[process_guard.overrides.james]` section needs to enumerate all of these explicitly. The rc-process-guard binary on James will use this section. Verify completeness before enabling enforcement on James.
 
-- **racecontrol pod reservation scope** — Phase 4 requires changes to racecontrol's pod reservation system. The research focused on rc-agent. Before Phase 4 implementation begins, read `crates/racecontrol/src/` pod reservation code to scope the server-side changes accurately.
+- **schtasks CSV output parsing:** Scheduled Task audit (Phase 5) relies on `schtasks /query /fo CSV` output parsing. The CSV column layout is stable since Windows 7 but the exact task names for the venue's own scheduled tasks (Kiosk, WebDashboard) need to be confirmed from the server .23 before populating the allowed list.
 
-- **`disable_preflight` config flag** — PITFALLS.md recovery strategies flag this as a day-one necessity. The flag is not in the current MVP feature list. Recommend adding to Phase 1 scope as a one-line boolean in `AgentConfig` plus an early-return guard in `pre_flight::run()`. Gives Uday a rollback without a redeploy.
+- **Port whitelist for pods:** Pod UDP telemetry ports (9996, 20777, 5300, 6789, 5555) and rc-agent HTTP (8090) need to be in the pod port whitelist. Confirm all ports against `CLAUDE.md` service table before Phase 5 ships.
 
 ---
 
@@ -185,21 +186,31 @@ Phases with well-established patterns (no additional research needed):
 
 ### Primary (HIGH confidence — direct source inspection)
 
-- `crates/rc-agent/src/ws_handler.rs` — BillingStarted dispatch, handle_ws_message signature, critical path structure
-- `crates/rc-agent/src/self_test.rs` — 22 probes, ProbeResult/SelfTestReport types, reusable probe functions, timeout patterns
-- `crates/rc-agent/src/lock_screen.rs` — LockScreenState enum (13 states), show_* methods, get_virtual_screen_bounds()
-- `crates/rc-agent/src/app_state.rs` — AppState 34 fields, hid_detected, game_process, failure_monitor_tx
-- `crates/rc-agent/src/failure_monitor.rs` — FailureMonitorState, watch channel pattern, debounce patterns
-- `crates/rc-agent/src/billing_guard.rs` — attempt_orphan_end(), suppression gate patterns (recovery_in_progress)
-- `crates/rc-agent/src/game_process.rs` — orphan game process detection pattern
-- `crates/rc-agent/src/kiosk.rs` — sysinfo process scan in spawn_blocking, enforce_process_whitelist_blocking
-- `crates/rc-agent/src/ai_debugger.rs` — try_auto_fix() pattern, canonical keyword dispatch
-- `crates/rc-agent/Cargo.toml` — confirmed winuser + wingdi features (line 62), all dependency versions
+- `crates/rc-agent/src/kiosk.rs` — `ALLOWED_PROCESSES` (60+ entries), `sysinfo` usage, `ProcessApprovalRequest` flow
+- `crates/rc-agent/src/self_heal.rs` — `winreg` Run key read/write patterns
+- `crates/rc-agent/src/self_monitor.rs` — background daemon pattern, log rotation constants
+- `crates/rc-agent/src/config.rs` — `AgentConfig` schema, TOML section design
+- `crates/rc-agent/src/game_process.rs` — `taskkill` invocation, process name constants
+- `crates/racecontrol/src/fleet_health.rs` — `FleetHealthStore` extension points
+- `crates/rc-common/src/protocol.rs` — all existing `AgentMessage` and `CoreToAgentMessage` variants
+- `crates/rc-agent/Cargo.toml` — sysinfo 0.33, winapi 0.3 features confirmed
+- `crates/racecontrol/Cargo.toml` — sysinfo 0.33 confirmed, no existing windows-only dep block
+- `Cargo.toml` (workspace) — tokio, tracing, serde, toml, anyhow versions confirmed
+- `.planning/PROJECT.md` — v12.1 milestone context, trigger incident
+- `CLAUDE.md` / `STATE-v12.1.md` — standing rule #2, incident origin, static IP assignments
 
-### Secondary (MEDIUM confidence)
+### Secondary (HIGH confidence — official documentation)
 
-- [winapi 0.3 docs — GetWindowRect](https://docs.rs/winapi/latest/winapi/um/winuser/fn.GetWindowRect.html) — confirmed in winuser module
-- [Rust forum — GetWindowRect window position](https://users.rust-lang.org/t/how-to-get-window-position-and-size-of-a-different-process/79224) — consistent with official docs
+- [winreg on crates.io](https://crates.io/crates/winreg) — 0.55.0 confirmed latest (2025-01-12)
+- [netstat2 on crates.io](https://crates.io/crates/netstat2) — 0.11.2 current; `GetExtendedTcpTable` confirmed
+- [TerminateProcess Win32 docs](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess) — fallback kill path
+- [WMI performance troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/scenario-guide-troubleshoot-wmi-performance-issues) — Microsoft Learn
+- [MITRE ATT&CK T1547.001](https://attack.mitre.org/techniques/T1547.001/) — Startup folder + Run key paths
+
+### Tertiary (MEDIUM confidence — corroborating)
+
+- [PID reuse race condition](https://access.redhat.com/solutions/30695) — Red Hat; Linux origin but PID reuse is OS-agnostic
+- [Windows Update svchost/wuauserv crash confirmation](https://www.windowslatest.com/2025/04/30/microsoft-confirms-windows-11-24h2-0x80240069-svchost-exe_wuauserv-crashes/) — Windows Latest
 
 ---
 

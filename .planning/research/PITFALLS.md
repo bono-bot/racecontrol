@@ -1,286 +1,286 @@
 # Pitfalls Research
 
-**Domain:** Pre-flight session health gates added to an existing kiosk/agent system (rc-agent on Windows gaming pods)
+**Domain:** Windows process monitoring / whitelist enforcement on gaming fleet (v12.1 E2E Process Guard)
 **Researched:** 2026-03-21
-**Confidence:** HIGH — all pitfalls grounded in the actual rc-agent codebase (ws_handler.rs, self_test.rs, lock_screen.rs, billing_guard.rs, failure_monitor.rs)
+**Confidence:** HIGH — drawn from direct incident record (Steam/leaderboard/watchdog/dev+prod incidents) + Windows internals knowledge + verified web sources
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Blocking BillingStarted with Synchronous Checks
+### Pitfall 1: Keyword-Scoped Audit Instead of Whitelist-Inversion
 
 **What goes wrong:**
-Pre-flight checks are awaited synchronously inside the `BillingStarted` arm of `handle_ws_message`. Each check takes up to 1-2 seconds (HID enumeration, ConspitLink process scan, disk space query). Total: 5-10 seconds of blocking on the critical path. The WebSocket receive loop is stalled. BillingTick messages queue up or are dropped. The lock screen never transitions from QrDisplay/PinEntry to ActiveSession. The customer sits at the PIN screen while the staff see billing as "started."
+The audit that triggered v12.1 is the canonical example. Steam, the leaderboard kiosk Edge instance, and the voice assistant watchdog were all missed because the audit searched for processes related to "racing/pod" keywords rather than enumerating everything running and checking it against a known-good list. Keyword scanning is an allowlist by accident — it only finds what you already know to look for.
 
 **Why it happens:**
-The `BillingStarted` handler in ws_handler.rs currently does fast in-memory work only (set atomics, send to failure_monitor_tx, call lock_screen.show_active_session). Adding `await` calls for I/O in-line feels natural but the handler runs on the single WS receive task — there is no separate executor for it.
+The natural tendency is to ask "is anything pod-related in the wrong place?" instead of "is everything running supposed to be running?" The audit felt complete because it caught several violations, but the framing was wrong from the start. String matching against suspected bad actors will always have gaps.
 
 **How to avoid:**
-Spawn the pre-flight check as a `tokio::spawn` from within the `BillingStarted` arm. The handler returns immediately; the check runs concurrently. Result is communicated back via a channel (the existing `ws_exec_result_tx` pattern or a new `preflight_result_tx`). Lock screen shows a transitional state ("Preparing your session...") during the check window. If checks pass within 3 seconds, transition to ActiveSession. If they fail, transition to MaintenanceRequired.
-
-The `self_test::run_all_probes()` already uses `join_all` with individual timeouts — that pattern must be reused, not a serial await chain.
+The guard's logic must be: `running_processes - whitelist = violations`. Never the reverse. The whitelist is the source of truth. Anything not on it is a violation regardless of whether anyone thought to search for it. Implement deny-by-default: unknown process = violation, not unknown process = ignore.
 
 **Warning signs:**
-- Pre-flight check code is written as `let result = run_checks().await;` inside the `BillingStarted` match arm
-- No `tokio::spawn` or channel around the check invocation
-- BillingTick processing stops during the check window
+- Guard code contains string matching (`contains("steam")`, `contains("game")`) instead of set membership check
+- Whitelist grows via "add what I know" rather than "enumerate what is running and approve selectively"
+- Audit reports "no violations found" but no one can name every process on the machine
 
 **Phase to address:**
-Phase 1 (Pre-flight framework) — the concurrency model must be established before any individual checks are written.
+Phase 1 (Whitelist Schema) — the data model must enforce deny-by-default. A `whitelist: Vec<ApprovedProcess>` where anything not in the set is a violation, never a blocklist.
 
 ---
 
-### Pitfall 2: Auto-Fix Kills a Game on a Pod That Is Mid-Session
+### Pitfall 2: Killing Transient System Processes During Boot and Windows Updates
 
 **What goes wrong:**
-The "no orphaned game processes" check finds `acs.exe` running and auto-kills it. But the pod is between splits (BetweenSessions state) where the customer is still billed and expects to continue. The game kill ends their session. The customer loses their in-progress time. Staff have to issue a refund.
-
-More subtle: the check runs during BillingStarted for pod N. Pod N's billing session just started. But the game kill logic uses `taskkill /F /IM acs.exe` without confirming the PID belongs to this pod's session. On a shared network segment, if there is any shared state, wrong assumptions compound.
+Windows spawns short-lived processes during startup, Windows Update, driver installation, and Defender scans. Examples: `MpCmdRun.exe` (Defender scan), `TiWorker.exe` (Windows Update), `msiexec.exe` (installer), `DismHost.exe` (DISM repair), `MusNotification.exe` (update notification), `wuauclt.exe`, `svchost.exe` with the `wuauserv` service. A process guard with a short scan cycle that kills anything not on the whitelist will terminate these mid-execution, corrupting update state, leaving drivers partially installed, or breaking Defender's signature database. Microsoft has confirmed svchost.exe/wuauserv crashes as a known Windows 11 24H2 issue — killing mid-process makes recovery harder.
 
 **Why it happens:**
-Orphan detection in billing_guard.rs correctly checks `billing_active=true + game_pid=None` before killing. But the pre-flight check runs at BillingStarted — billing IS active (billing_active just became true). The new code doesn't have access to the same suppression logic yet. It sees a game PID and calls it an orphan.
+These processes are transient — they appear, do work, and exit. They are not in the "installed software" mental model so they get omitted from the whitelist. The guard sees them once and kills them before anyone realizes they should be allowed.
 
 **How to avoid:**
-Pre-flight game checks must use `AppState.game_process` (the agent's authoritative game PID record) not a raw process list scan. If `state.game_process` is `Some(_)`, the game is agent-managed and must NOT be killed. Only kill processes not tracked by `state.game_process`. Cross-check: game PID from `game_process.pid()` must differ from any PID found by the orphan scan.
-
-Also: re-use `billing_guard`'s `recovery_in_progress` suppression gate. If `failure_monitor_tx.borrow().recovery_in_progress == true`, pre-flight auto-fix must be suppressed entirely.
+- Build a two-tier whitelist: permanent processes (always allowed) and a system-process exclusion zone. Processes with image paths under `C:\Windows\System32\`, `C:\Windows\SysWOW64\`, or `C:\Program Files\Windows Defender\` that are signed by Microsoft default to ALERT-only, never auto-kill.
+- Implement a kill grace period: flag for two consecutive scan cycles before killing. Transient Windows processes typically exit within 30-60 seconds without intervention. A process seen once and gone is never killed.
+- Never kill processes whose parent is `TrustedInstaller.exe`, `wininit.exe`, or `services.exe` unless explicitly configured.
 
 **Warning signs:**
-- Pre-flight orphan check uses `tasklist | find "acs.exe"` without checking `state.game_process`
-- Auto-fix kills processes by name without PID verification
-- No check for `BetweenSessions` lock screen state before killing
+- Windows Update silently fails or partially applies after guard deployment
+- Defender reports outdated signatures (update was killed mid-download)
+- Driver installs require multiple attempts
 
 **Phase to address:**
-Phase 1 (Pre-flight framework) — safe-kill rules must be written before any auto-fix logic ships.
+Phase 1 (Whitelist Schema) — system process exclusion rules in the data model from day one. Phase 2 (Enforcement Logic) — kill grace period baked into the enforcement loop, not added later.
 
 ---
 
-### Pitfall 3: "Maintenance Required" State Has No Exit Path
+### Pitfall 3: PID Reuse Race — Killing the Wrong Process
 
 **What goes wrong:**
-A new `MaintenanceRequired` lock screen state is added. A check fails, the pod enters MaintenanceRequired. Staff fix the issue (reconnect the wheelbase, restart ConspitLink). But MaintenanceRequired has no automatic recovery path. The pod stays in maintenance mode until staff find the rc-agent restart option in the kiosk dashboard, or until rc-agent is manually restarted. Customers cannot use the pod for the rest of the shift even though the hardware is fine.
+The guard scans, sees `SomeProcess.exe` (PID 4821) that is not whitelisted, resolves to kill it. Between the scan and the `TerminateProcess()` call, PID 4821 exits naturally and Windows reassigns that PID to a new process — possibly `rc-agent.exe` or `racecontrol.exe`. The guard kills the new holder of the PID. This is not hypothetical: the killproc PID reuse race is a documented failure mode in OS process management, and Windows PID reuse is as fast as Linux's.
 
 **Why it happens:**
-The lock screen state machine (13 states in `LockScreenState`) currently transitions on explicit server commands (`BillingStarted`, `SessionEnded`, `BillingStopped`) or on local events (PinEntered, blank timer). Adding a state without adding exit transitions is easy to miss — Rust's match blocks will compile with `_ => {}` fallthrough.
+Process enumeration (`CreateToolhelp32Snapshot`, WMI `Win32_Process`) returns a snapshot. The act of killing is a separate syscall. On a busy gaming machine with many short-lived processes (game shader compilers, audio helpers, overlay processes), the window between snapshot and kill can be 10-50ms — enough for PID reuse under load.
 
 **How to avoid:**
-MaintenanceRequired must have two explicit exit transitions:
-1. **Staff clearance:** A new `CoreToAgentMessage::ClearMaintenance` command from racecontrol (triggered by staff pressing "Clear Maintenance" on the kiosk dashboard). This transitions to `StartupConnecting` or `Hidden` and re-enables billing.
-2. **Auto-retry:** A background task re-runs the failed checks every 30 seconds. If all checks pass, the pod self-clears MaintenanceRequired and sends `AgentMessage::MaintenanceCleared` to racecontrol. Staff are notified.
-
-The auto-retry approach is critical — manual staff clearance adds toil and defeats the purpose of automated pre-flight.
+Never kill by PID alone. Kill by PID + process name + creation time triple. Open a handle with `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE)`, verify the process name and creation time (via `GetProcessTimes()`) against the snapshot values, then call `TerminateProcess()` only if both match. Mismatch means the PID was reused — log and skip.
 
 **Warning signs:**
-- MaintenanceRequired is added to the `LockScreenState` enum without a corresponding `ClearMaintenance` message in the protocol
-- No background task scheduled to re-probe the failed check
-- The kiosk dashboard shows the maintenance badge but has no "Clear" button
+- Kill function takes a `u32` pid with no additional identity verification
+- rc-agent crashes with no error in its own logs (killed externally)
+- Random pod disconnects correlating with guard scan cycle timing
 
 **Phase to address:**
-Phase 2 (Lock screen integration) — exit paths must be designed alongside the state addition, not as a follow-up.
+Phase 2 (Enforcement Logic) — the kill function must be: open handle, verify identity, kill or abort. This is correctness, not optional hardening.
 
 ---
 
-### Pitfall 4: Self-Test Probes Designed for Cold Boot Fail on Warm System
+### Pitfall 4: Self-Kill — Guard Terminates Itself or Its Parent Service
 
 **What goes wrong:**
-Several probes in `self_test.rs` assume a cold-start context. The `udp_port_AC` probe (Probe 6) checks whether the AC telemetry port is bound. At startup, nothing binds it — pass means "game not running yet." Between sessions, if AC crashed without cleanup, the port may still be bound by a zombie process — now the probe gives a false pass (port bound = must be OK) when the socket is actually dead. The CLOSE_WAIT probe checks `:8090` — between sessions, legitimate CLOSE_WAIT sockets accumulate during normal operation and do not indicate a problem.
+The process guard binary (`rc-process-guard.exe` or the guard module inside `rc-agent.exe`) appears in the process list. If its own name is not on the whitelist, or if it matches under a slightly different image name (renamed binary, different path, casing difference), it kills itself. For the embedded module case: the guard is a module inside `rc-agent.exe`. It scans, sees rc-agent is not on the whitelist (typo, wrong casing, path mismatch), triggers a kill of the containing process — which is itself.
 
 **Why it happens:**
-`self_test.rs` was written for startup verification after rc-agent starts — a cold system context. Between-session use is a "warm system" context with different baseline state. The probes were not designed with that context in mind.
+Self-reference is easy to overlook. The developer mentally excludes "us" but forgets to encode that exclusion. Windows file paths are case-insensitive but string equality is case-sensitive in Rust by default — `RC-Agent.exe` vs `rc-agent.exe` breaks a naive equality check.
 
 **How to avoid:**
-Pre-flight checks must be a separate module from `self_test.rs`, designed for warm-system semantics:
-- UDP port checks: between sessions, a bound telemetry port means an orphaned game socket. The probe must invert its success condition: bound = fail (orphan), unbound = pass.
-- CLOSE_WAIT: use a higher threshold for between-session checks (normal warm-system accumulation) vs. startup checks.
-- Disk/memory: these are context-agnostic and safe to reuse.
-- WS connected: safe to reuse — this is a live check regardless of context.
-
-Do not call `self_test::run_all_probes()` from pre-flight. Create `preflight::run_checks()` that implements context-appropriate versions.
+- Self-identity determined at runtime: `std::env::current_exe()` for canonical path, `std::process::id()` for own PID. Both excluded from kill candidates unconditionally, before whitelist lookup, regardless of whitelist contents.
+- For the embedded module case: the PID of the containing process (`rc-agent`) is unconditionally excluded.
+- All process name comparisons must use case-insensitive matching: `eq_ignore_ascii_case()` in Rust.
+- The direct parent of the guard process is also excluded from kills.
 
 **Warning signs:**
-- Pre-flight imports and calls `self_test::run_all_probes()` without filtering or adapting probes
-- UDP port check reports pass when a game is not expected to be running
-- CLOSE_WAIT threshold is the same 20-socket limit used at startup
+- Guard exits immediately after first scan with no error log
+- rc-agent restarts unexpectedly correlated with guard scan cycle timing
+- Guard never logs any violations (it died before it could report)
 
 **Phase to address:**
-Phase 1 (Pre-flight framework) — the probe semantics decision (reuse vs. new module) must be made upfront.
+Phase 2 (Enforcement Logic) — self-exclusion is the first filter applied before any whitelist logic runs.
 
 ---
 
-### Pitfall 5: Staff Notification Flood on Repeated Check Failures
+### Pitfall 5: Auto-Start Entry Removed Without Per-Machine Context
 
 **What goes wrong:**
-BillingStarted fires 8 times in 10 minutes as staff tests pods before opening. Each fires a pre-flight check. Checks fail (wheelbase cable was knocked). Each failure sends a WhatsApp/WS alert. Uday receives 8 identical "Pod 3 Maintenance Required" messages within 60 seconds. He ignores them as spam. The real failure that happens 2 hours later is also ignored.
-
-The existing `email_alerts.rs` has rate limiting (`ALERT-02`) but staff notifications via WS dashboard badge and WhatsApp alerter do not share that rate limiter.
+This happened already: Edge kiosk (leaderboard) had its `HKLM\Run` entry on a pod instead of the server. The auto-start audit removes it as a violation. The leaderboard stops loading after pod restart and no one knows why — there is no error, the process just never starts. Registry entries do not re-add themselves the way processes can be restarted.
 
 **Why it happens:**
-Each pre-flight check is a new event — the alert system sees each as a distinct trigger, not as a repeated condition. There is no "is the same alert already active?" check.
+Auto-start audit without per-machine context removes entries that are valid on one machine but invalid on another. The guard correctly identifies the entry as a violation on the pod, but the fix (remove it) silently breaks expected behavior with no recovery path unless someone knows to restore it.
 
 **How to avoid:**
-Pre-flight alerts must use a per-pod, per-failure-type deduplication window. Pattern from `failure_monitor.rs`: use `stuck_fired` / `idle_fired` boolean guards in the task-local state. For pre-flight: maintain a `HashMap<(pod_id, check_name), Instant>` of last-alerted times. Re-alert only after the pod has recovered and failed again, or after a 30-minute silence window.
-
-The `MaintenanceRequired` state itself is the natural deduplication gate: only alert when entering MaintenanceRequired, not on every re-check failure.
+- Per-machine whitelist sections in `racecontrol.toml`. The server's `[machine.server]` section includes `Edge --kiosk leaderboard` in auto-start. Pod sections do not. The guard computes violations relative to the machine's own whitelist section.
+- ALERT before REMOVE for auto-start entries. The kill-on-sight policy for processes does not extend to registry entries. Removing an auto-start entry is harder to detect and harder to recover from than killing a process. Auto-start enforcement should have a three-stage progression: LOG (default, configurable) → ALERT (after N cycles) → REMOVE (only with `autostart_enforcement = "remove"` explicitly set in config).
+- Write a restore backup file (`autostart-removed-YYYYMMDD.toml`) before removing any auto-start entry.
 
 **Warning signs:**
-- Pre-flight failure handler calls `send_staff_alert()` directly without checking last-alert time
-- No shared state between successive BillingStarted invocations for alert deduplication
-- WhatsApp alerter receives multiple identical pod+failure messages within 60 seconds
+- Service or kiosk stops loading after pod restart without any deploy event
+- Registry Run key count on a machine drops without a corresponding deploy commit
+- Kiosk shows blank screen instead of expected content after reboot
 
 **Phase to address:**
-Phase 3 (Staff notification) — rate limiting logic must be specified before any notification call site is written.
+Phase 1 (Whitelist Schema) — per-machine `[machine.pod_N]` sections with explicit auto-start entries. Phase 3 (Auto-Start Audit) — LOG → ALERT → REMOVE progression implemented as three distinct enforcement modes.
 
 ---
 
-### Pitfall 6: ConspitLink "Running" Check Passes but Process Is Hung
+### Pitfall 6: Watchdog Infinite Restart Loop Survives Kill
 
 **What goes wrong:**
-The ConspitLink check finds `ConspitLink.exe` in the process list via `tasklist`. Check passes. Session starts. Customer sits down. FFB wheel does not respond because ConspitLink's internal state is corrupted — it is running but not processing USB events. The customer complains, staff manually restart ConspitLink, session time is lost.
+The voice assistant watchdog (`watchdog.cmd`) was an infinite restart loop. The guard kills the process. The watchdog restarts it within 200ms. The guard kills it again. This creates a kill-restart storm that consumes CPU, floods the violation log, and fires repeated alerts — but the underlying problem (watchdog.cmd in the Startup folder) is never addressed because process-level kill does not remove the auto-start source.
 
 **Why it happens:**
-Process existence check (`tasklist | find "ConspitLink.exe"`) is a necessary but not sufficient health check. A hung process appears alive in the process list. The existing `kiosk.rs` already distinguishes between allowed processes and process health, but ConspitLink specifically has no liveness probe beyond presence.
+Process-level kill treats the symptom (running process) without treating the cause (auto-start entry). A self-restarting process cannot be eliminated by killing alone.
 
 **How to avoid:**
-ConspitLink health check must be two-stage:
-1. Process exists (`tasklist`)
-2. HID device is responding: enumerate HID devices (already in `self_test::probe_hid()`) and confirm OpenFFBoard VID:0x1209 PID:0xFFB0 is present
-
-If both pass, the combination is a reasonable (not perfect) proxy for ConspitLink health. If the process exists but HID is absent, classify as ConspitLink hung — kill and restart it.
-
-Note: do NOT open the HID device for a write/read test — `probe_hid()` explicitly enumerates only. Opening the HID device during a live session can cause ConspitLink to lose its handle. Enumerate only.
+- Kill sequence must be: (1) identify auto-start source for this process name, (2) remove or disable auto-start entry, (3) kill the process. Kill without auto-start removal is futile for watchdogged processes.
+- Implement restart storm detection: if the same process name is killed 3 or more times within 60 seconds, escalate to "auto-start audit required" and suppress further kills until the auto-start source is resolved. Alert staff with the specific auto-start location.
+- The `Startup` folder (both `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup` and `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup`) must be included in every auto-start audit alongside registry Run keys.
 
 **Warning signs:**
-- ConspitLink check is `tasklist | find "ConspitLink.exe"` and nothing more
-- No HID cross-check for ConspitLink liveness
-- Auto-fix restarts ConspitLink even when `state.game_process` is `Some(_)` (mid-session)
+- Same process name appears in kill log multiple times within 60 seconds
+- CPU usage on the pod increases after guard deployment (kill-restart storm overhead)
+- Alert rate for a single process does not decrease over time
 
 **Phase to address:**
-Phase 1 (Hardware checks) — liveness definition for ConspitLink must be established before the check is coded.
+Phase 2 (Enforcement Logic) — kill sequence includes auto-start source lookup. Phase 3 (Auto-Start Audit) — Startup folders included alongside HKCU/HKLM Run and Scheduled Tasks.
 
 ---
 
-### Pitfall 7: Pre-Flight Check Takes >5 Seconds and Customer Sees Blank Lock Screen
+### Pitfall 7: Interpreted Runtime Whitelisting — node.exe Covers Both Dev and Prod
 
 **What goes wrong:**
-A ConspitLink restart (auto-fix) takes 3 seconds. HID re-enumeration after restart takes 2 more seconds. Disk space check via `std::fs::metadata` on a spinning drive takes 1 second. Total: 6 seconds. The lock screen transitions to a loading state but the HTTP server serving it has no "checking..." page — it shows the last state (PinEntry or SessionSummary). The customer sees a stale screen with no indication anything is happening.
+On James's machine, `next dev` (dev server) and `next start` (prod server) both appear as `node.exe`. If `node.exe` is on the whitelist, both are allowed — and dev server left running alongside prod server causes port conflicts and inconsistent kiosk behavior. Process name whitelisting is insufficient for interpreted runtimes. This is the exact scenario that occurred: kiosk Next.js dev and prod server running simultaneously.
 
 **Why it happens:**
-The lock screen HTML pages are static per-state. There is no "loading" sub-state for PinEntry. The 5-second hard budget from the milestone context is not enforced by any timeout in the framework.
+Multiple `node.exe` instances are indistinguishable by name. The developer whitelists the runtime (`node.exe`) without constraining which invocations are permitted.
 
 **How to avoid:**
-1. **Enforce the budget:** wrap the entire `preflight::run_checks()` in `tokio::time::timeout(Duration::from_secs(5), ...)`. If it times out, fail fast with `PreflightResult::Timeout` and let the session proceed (timeout = probably fine, not definitely broken).
-2. **Show a transitional state:** Add `LockScreenState::PreflightChecking { driver_name }` or reuse `LaunchSplash` as the holding state during the 0-5 second window. The lock screen HTTP server already handles all states from a shared `Arc<Mutex<LockScreenState>>` — a state transition during the check window is safe.
-3. **Time-box individual checks:** HID enum ≤ 1s, process scan ≤ 0.5s, ConspitLink restart ≤ 2s, disk check ≤ 0.2s. Any check exceeding its sub-budget is skipped and logged as "check skipped: timeout."
+- Whitelist entries for interpreted runtimes must include a `args_pattern` field. Example: `node.exe` is allowed only when args match `*next*start*` or `*server.js*`. Any `node.exe` with `*dev*` or `*--inspect*` in its command line on a pod is a violation.
+- Add a `max_instances: 1` field for processes that should have exactly one copy running. Two `node.exe` instances when one is expected triggers a violation for the extra instance.
+- Port audit supplements process audit: if port 3000 is bound on a pod (never approved for pods), that is a violation regardless of what process holds it. Port audit catches what process audit misses.
+- Retrieve full command line via `QueryFullProcessImageName()` and the `NtQueryInformationProcess` / WMI `CommandLine` field.
 
 **Warning signs:**
-- No `tokio::time::timeout` wrapping the overall pre-flight call
-- Lock screen state is not updated before checks begin
-- Individual checks have no per-check timeout (they rely on OS-level timeouts which may be 30+ seconds)
+- Port already in use errors on startup (two servers competing)
+- Kiosk loads inconsistently (requests sometimes hitting dev server)
+- Process guard shows no violations despite known rogue process running
 
 **Phase to address:**
-Phase 1 (Pre-flight framework) — timeouts and the transitional lock screen state are foundational, not bolt-ons.
+Phase 1 (Whitelist Schema) — `args_pattern` and `max_instances` fields in the whitelist entry schema. Phase 4 (Port Audit) — port whitelist as a complementary enforcement layer.
 
 ---
 
-### Pitfall 8: Billing Check Detects "Stuck Session" Because Cleanup Hasn't Finished
+### Pitfall 8: Cross-Machine Boundary Violation — Pod Binary Running on James
 
 **What goes wrong:**
-BillingStarted fires. Pre-flight billing check queries the database: "is there an active billing session for this pod?" It finds one — from the session that just ended 500ms ago. The `BillingStopped` processing (session cleanup, database update) is asynchronous on the server side. The pre-flight check races the cleanup and sees stale state. It classifies the pod as having a stuck session and blocks the new session.
+Standing rule #2: NEVER run pod binaries on James's PC. `rc-agent.exe` on James crashes the workstation. Without programmatic enforcement, the rule is only as strong as human memory. A developer running `rc-agent.exe` locally to test behavior, or a deploy script targeting the wrong machine, violates this rule silently until the crash.
 
 **Why it happens:**
-The new session's BillingStarted is sent by racecontrol only after it has started the new session, but the previous session's database row may not yet be marked complete (async commit). The pre-flight check hits the same database 100ms later and finds two "active" sessions.
+During development or debugging, running a binary locally seems natural. The rule exists because of past crashes but is not enforced at the system level.
 
 **How to avoid:**
-Billing stuck-session check must use the agent's local state (`state.heartbeat_status.billing_active` atomic) not an HTTP query to the server. The agent knows when its own billing started — the `billing_active` atomic is set in `BillingStarted` before pre-flight runs. A stuck session from a previous customer would be caught by `billing_guard.rs` (already in production) before BillingStarted fires for a new session.
-
-If a server-side check is required, add a grace period: only flag stuck if the prior session has been active for more than 10 seconds at the time of BillingStarted. Sessions that ended < 5 seconds ago are not stuck.
+- Machine identity check built into the whitelist schema: each approved process entry carries an `allowed_machines` field specifying `["pod_*"]`, `["james"]`, or `["server"]`. The guard resolves machine identity at startup from hostname or static IP (read from config, not inferred) and filters the whitelist to only the entries for this machine.
+- `rc-agent.exe` on the `james` machine is a CRITICAL violation with immediate alerting — no kill grace period, no two-cycle wait. Same for `ollama.exe` or `webterm.py`/`python.exe` on pods.
+- Machine identity must be determined from the config (the `[machine]` section that names this machine), not from process introspection.
 
 **Warning signs:**
-- Pre-flight billing check makes an HTTP call to `/api/v1/billing/active?pod_id=X` rather than reading local atomic state
-- No grace period between `BillingStopped` and the stuck-session threshold
-- Test shows false positives when two sessions start within 2 seconds of each other
+- `rc-agent.exe` appears in James's process list
+- `ollama.exe` appears in a pod's process list
+- Deploy script output shows binary copied to wrong destination without any guard alert
 
 **Phase to address:**
-Phase 1 (Billing checks) — use local state first, server state only as secondary with a time-grace.
+Phase 1 (Whitelist Schema) — `allowed_machines` is a mandatory field on every whitelist entry, not optional. Phase 2 (Enforcement Logic) — machine identity resolved at daemon startup, immutable for the run.
 
 ---
 
-### Pitfall 9: "Maintenance Required" Breaks State Machine Transitions for Server
+### Pitfall 9: Config Sync Lag Kills a Newly Deployed Process
 
 **What goes wrong:**
-Pod enters MaintenanceRequired. Racecontrol still has the pod marked as "available" in its pod reservation system. Staff try to book the pod — racecontrol sends BillingStarted. Ws_handler receives BillingStarted while in MaintenanceRequired state. The BillingStarted handler runs anyway (ws_handler has no state guard for MaintenanceRequired). Lock screen tries to transition from MaintenanceRequired to ActiveSession — the HTML page for that combination is not defined. Browser shows a blank page or the wrong state.
+Central `racecontrol.toml` is updated to add a new approved process (a new game launcher, a new monitoring tool). The config sync pushes to pods on the existing 30-second cycle. Between the update and the sync completing on all pods, the process guard on pods kills the new process as soon as it starts. The operator sees the process they just deployed being killed by the guard with no apparent reason, no error from the process itself.
 
 **Why it happens:**
-The lock screen state machine in `lock_screen.rs` does not currently guard against illegal transitions. States transition whenever `set_state()` is called — there is no "transition allowed?" check. Adding MaintenanceRequired without adding transition guards leaves illegal paths open.
+The guard runs continuously. Config sync is periodic. There is a 0–30 second window where the guard has stale whitelist config. If the new process starts within that window, it gets killed.
 
 **How to avoid:**
-Two defenses:
-1. **Server-side gate:** When a pod sends `AgentMessage::MaintenanceRequired`, racecontrol's pod reservation system must mark the pod as unavailable. BillingStarted for a maintenance pod must be rejected at the server. Kiosk dashboard shows the maintenance badge and disables "Start Session" for that pod.
-2. **Agent-side guard:** In `ws_handler`'s BillingStarted arm, check if `state.lock_screen` is in MaintenanceRequired state. If so, send `AgentMessage::MaintenanceActive { pod_id }` back to racecontrol and return without starting the session.
-
-Both defenses are needed — the server guard prevents the race, the agent guard is the safety net.
+- The kill grace period (two consecutive scan cycles) provides a natural buffer. If the scan cycle is 10 seconds and grace period requires two hits, a process must be non-whitelisted for 20 seconds before being killed. This overlaps with the 30-second sync window — meaning a process that starts simultaneously with a config update will usually survive to see the updated whitelist.
+- Emit a `config_version` field (hash of the whitelist section) in the guard's heartbeat so the fleet dashboard can show which machines have current config.
+- Document the deploy sequence: push config first, verify `config_version` matches on all machines (check via fleet dashboard), then deploy the new process binary.
 
 **Warning signs:**
-- No `AgentMessage::MaintenanceRequired` type defined in `rc_common::protocol`
-- racecontrol's pod_reservation.rs is not updated to handle maintenance state
-- BillingStarted handler in ws_handler.rs has no early-return guard for MaintenanceRequired
+- Newly deployed process is killed within seconds of first start on a pod
+- Kill log shows the same process killed exactly once then never again (survived after config synced)
+- Alert fires for a process the operator just explicitly approved
 
 **Phase to address:**
-Phase 2 (Lock screen integration) and Phase 3 (Server-side pod state) must be sequenced together — the server pod state must be updated in the same phase as the lock screen state.
+Phase 1 (Whitelist Schema) — config includes version hash. Phase 5 (Fleet Integration) — deploy sequence documentation specifies config-first, verify-sync, then binary.
 
 ---
 
-### Pitfall 10: Screenshot-Based Display Validation Is Unreliable Between Sessions
+### Pitfall 10: WMI Query Performance Overhead on Active Gaming Sessions
 
 **What goes wrong:**
-A display validation check takes a screenshot and checks whether the lock screen is centered and visible. Between sessions, the previous customer may have changed display scaling (via Windows Display Settings — possible if kiosk lockdown is incomplete). The screenshot-based check uses pixel coordinates that assume 1920x1080 at 100% DPI. At 125% scaling, coordinates shift. The check reports "lock screen off-center" and blocks the session. In reality, the lock screen is fine.
-
-Additional failure mode: taking a screenshot on Windows requires GDI+ API calls from a process running in Session 1 (the user session). rc-agent runs as a Windows Service in Session 0. Session 0 cannot capture Session 1 screenshots without additional WTS API calls.
+`SELECT * FROM Win32_Process` via WMI, or repeated `tasklist /FO CSV` calls in a polling loop, can spike CPU for 100-500ms per query. WMI's `Win32_Process` with no property filter enumerates all properties for all processes, forcing WMI provider host (`WmiPrvSE.exe`) to collect memory maps, handle tables, and string data for every process on the system. On a gaming pod running Assetto Corsa at 60fps with FFB active, any CPU spike causes frame drops and stutter visible to the customer.
 
 **Why it happens:**
-Screenshots seem like the obvious way to verify "the lock screen is showing." But the Session 0/1 boundary and DPI scaling make it unreliable. The existing `lock_screen.rs` uses `GetSystemMetrics` to handle multi-monitor bounds — it already handles this complexity for positioning, but not for validation.
+`SELECT *` queries are standard in scripts but unacceptable in a daemon running during active sessions. The developer reaches for the familiar WMI approach without measuring the overhead on a loaded gaming machine.
 
 **How to avoid:**
-Skip screenshot-based validation entirely. The lock screen HTTP server at `127.0.0.1:18923` is a reliable liveness signal. The display check should be:
-1. TCP connect to `127.0.0.1:18923` — confirms the HTTP server is running
-2. HTTP GET `/` — confirms it returns 200 and the expected state HTML
-3. Check that the Edge browser process hosting the lock screen is alive (`tasklist | find "msedge.exe"` with the `--kiosk` flag in its command line)
-
-These three checks together confirm "lock screen is serving and browser is showing it" without requiring a screenshot.
+- Use `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)` via WinAPI instead of WMI. This is a kernel-level snapshot with near-zero overhead — it is what Task Manager uses. In Rust, use the `windows` crate with `tlhelp32` directly.
+- If WMI is used for any reason, project only needed columns: `SELECT Name, ProcessId, CreationDate FROM Win32_Process`, never `SELECT *`.
+- Poll at 10-second intervals during active billing sessions, 30-second intervals during idle. A rogue process running for 30 seconds before detection is fine — it has already been running for hours before the guard existed.
+- Run the scan loop on a thread with `THREAD_PRIORITY_BELOW_NORMAL` to yield to game processes.
+- Benchmark requirement: each scan cycle must complete in under 20ms on a loaded gaming pod. This must be a passing test in the test suite, not a verbal commitment.
 
 **Warning signs:**
-- Display check code imports a screenshot crate or uses `BitBlt`/GDI calls
-- Check assumes fixed pixel coordinates (1920, 1080)
-- No fallback when screenshot fails (returns false negative)
+- Guard code uses WMI `Win32_Process` queries in the polling loop
+- CPU usage on pods increases by 2-5% after guard deployment
+- Customers report frame stuttering that correlates with guard scan timing
+- `WmiPrvSE.exe` shows elevated CPU in Task Manager on pods
 
 **Phase to address:**
-Phase 2 (Display checks) — define the check methodology before coding. HTTP probe is correct, screenshot is wrong.
+Phase 2 (Enforcement Logic) — API selection (Toolhelp32 vs WMI) is decided here with a benchmark test, not as an afterthought.
 
 ---
 
-### Pitfall 11: Auto-Fix ConspitLink Restart Mid-Session When Another Billing Is Active
+### Pitfall 11: Startup Order Race — Guard Kills Whitelisted Processes Before They Finish Starting
 
 **What goes wrong:**
-Pod 3 pre-flight check detects ConspitLink is not running (it crashed between sessions). Auto-fix restarts it. Pod 4 happens to have an active session — ConspitLink on Pod 4 is unaffected (it's a per-pod process). But if the restart script uses a machine-wide ConspitLink path and the USB device is shared (unlikely but possible with a USB hub), the restart on Pod 3 causes a brief USB enumeration that disrupts Pod 4's active FFB feedback. The Pod 4 customer loses force feedback for 2-3 seconds.
+At pod boot: HKLM Run keys fire, `start-rcagent.bat` runs, and the process guard starts. The guard's first scan runs at second 3. `ConspitLink.exe` is whitelisted but takes 8-10 seconds to initialize its HID connection. The kiosk Edge instance takes 12-15 seconds to open and display. The guard's first scan sees neither and, depending on the kill grace period, may flag them for termination before they have had a chance to start.
 
-More realistic version: the restart script kills all `ConspitLink.exe` instances on the pod (`taskkill /F /IM ConspitLink.exe`) instead of the specific PID. If multiple instances are running (from a previous failed start), it kills the wrong one.
+**Why it happens:**
+Slow-starting processes (HID devices, browser kiosks, network-dependent services) take longer to reach "running" state than the guard's initial scan window. The guard correctly interprets their absence as a violation of "required process not running" — but it is a false alarm during the startup race.
 
 **How to avoid:**
-ConspitLink restart must be PID-targeted, not name-targeted:
-1. Get the PID of the non-responsive ConspitLink from `tasklist /FO CSV`
-2. Kill only that PID: `taskkill /F /PID <pid>`
-3. Start a new ConspitLink with full path from config
-
-Auto-fix must also check `state.heartbeat_status.billing_active` before restarting ConspitLink. If billing is active (another customer is in-session on this pod — unlikely given pre-flight fires at BillingStarted, but possible if a stuck session persists), do not restart ConspitLink. Send MaintenanceRequired instead.
+- Implement a startup amnesty window: the guard does not enforce presence-based violations (required processes not yet running) for the first 60 seconds after boot. It scans and logs but does not alert or kill during this window.
+- Per-process `startup_delay_s` field in the whitelist entry: the guard will not flag the absence of that process as a violation until N seconds after boot. `ConspitLink.exe: startup_delay_s: 30`, `msedge.exe (kiosk): startup_delay_s: 60`.
+- Presence enforcement (required process must be running) is separate from absence enforcement (non-whitelisted process must not be running). Non-whitelisted processes can be flagged immediately. Required-but-absent processes need the startup delay.
 
 **Warning signs:**
-- Auto-fix uses `taskkill /F /IM ConspitLink.exe` (name-based, kills all instances)
-- No billing_active check before the ConspitLink restart
-- ConspitLink path is hardcoded rather than read from config
+- Guard kill log shows a whitelisted process name in entries timestamped within 60 seconds of pod boot
+- ConspitLink or Edge kiosk killed during pod startup, rc-agent pre-flight fails immediately after every reboot
+- Operators have to manually restart ConspitLink after every reboot
 
 **Phase to address:**
-Phase 1 (Hardware checks + auto-fix) — PID-targeted kill must be the default pattern for all auto-fix process restarts.
+Phase 1 (Whitelist Schema) — `startup_delay_s` field on whitelist entries. Phase 2 (Enforcement Logic) — startup amnesty window is a first-class feature, not a workaround added after the first reboot failure.
+
+---
+
+### Pitfall 12: Process Path Not Verified — Masquerading Process Names
+
+**What goes wrong:**
+The whitelist allows `msedge.exe`. An attacker (or a careless software install) drops `msedge.exe` in `C:\Users\bono\Downloads\` and runs it. The guard sees `msedge.exe` on the whitelist, allows it. The real Microsoft Edge lives in `C:\Program Files (x86)\Microsoft\Edge\Application\`. Without path verification, any process can masquerade as a whitelisted process by using the same image name.
+
+**Why it happens:**
+`CreateToolhelp32Snapshot` returns only the image name (filename), not the full path. Developers use the filename for matching because it is immediately available, without realizing path verification requires an additional API call.
+
+**How to avoid:**
+- For all whitelist entries, use `QueryFullProcessImageName()` to get the full path, then match against the `allowed_path_prefix` in the whitelist entry. Example: `msedge.exe` is only allowed if its path starts with `C:\Program Files (x86)\Microsoft\Edge\` or `C:\Program Files\Microsoft\Edge\`.
+- `allowed_path_prefix` is optional for processes with no known-stable install path, but required for system binaries and any security-relevant process (Edge kiosk, ConspitLink).
+
+**Warning signs:**
+- Whitelist matching uses only the filename component of the process image path
+- No `QueryFullProcessImageName()` call in the guard code
+- `allowed_path` field absent from whitelist entry schema
+
+**Phase to address:**
+Phase 1 (Whitelist Schema) — `allowed_path_prefix` field in the schema. Phase 2 (Enforcement Logic) — path verification in the process identity check alongside name and creation time.
 
 ---
 
@@ -288,12 +288,13 @@ Phase 1 (Hardware checks + auto-fix) — PID-targeted kill must be the default p
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Reuse `self_test::run_all_probes()` for pre-flight | No new code | Cold-boot probes give wrong results in warm-system context (UDP port semantics inverted) | Never — create separate `preflight::run_checks()` |
-| Inline await in BillingStarted handler | Simple code | Blocks WS receive loop, customer waits at lock screen | Never — always spawn |
-| Name-based process kill (`taskkill /IM`) | Simpler command | Kills wrong instance, disrupts active sessions | Never for ConspitLink auto-fix; acceptable for game process cleanup when no session is active |
-| HTTP query to server for billing state check | Authoritative server data | Races async cleanup, causes false stuck-session positives | Acceptable only with a 5+ second grace period gate |
-| Screenshot for display validation | Intuitive approach | Session 0 cannot capture Session 1 display; DPI scaling breaks coordinates | Never — use HTTP probe to lock screen server instead |
-| Single alert per failure (no deduplication) | Simple alert code | Notification flood on repeated failures | Never in production — add deduplication from day one |
+| Hardcode whitelist in source code instead of TOML | Simpler first implementation | Every whitelist change requires binary rebuild and redeploy to all 8 pods | Never — TOML from day one |
+| Kill by process name only (no path check) | Easier to implement | Masquerading processes bypass guard; legitimate processes with same name get killed | Never for enforcement; acceptable for logging only |
+| Single global whitelist (no per-machine sections) | Simpler data model | Cannot express "Ollama allowed on James, not pods" | Never — per-machine is a day-one requirement given the cross-machine boundary rule |
+| Poll at 5-second interval regardless of session state | Simpler logic | Visible CPU spikes during active gaming sessions | Never on pods; acceptable on James and server |
+| Alert-only mode as permanent state | Safe, no false-kill risk | Violations accumulate without resolution; guard becomes noise nobody reads | Acceptable for first 2 weeks post-deploy to tune whitelist thresholds |
+| WMI `SELECT *` queries in polling loop | Familiar API | 100-500ms CPU spike per query on all pods | Never in the polling loop; acceptable for one-shot audit scripts |
+| REMOVE auto-start entries immediately (no LOG → ALERT → REMOVE progression) | Faster enforcement | Silently breaks services on wrong machine with no recovery path | Never — progression is required |
 
 ---
 
@@ -301,12 +302,14 @@ Phase 1 (Hardware checks + auto-fix) — PID-targeted kill must be the default p
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| `ws_handler` + pre-flight spawn | Borrowing `state` into the spawned task (not `Send`-safe) | Clone only the fields needed by the check (Arc refs, config values); do not move `state` into the spawn |
-| `LockScreenManager.set_state()` from spawned task | `LockScreenManager` holds `Arc<Mutex<>>` internally so it IS Send; but calling it from a spawn requires the manager reference to be cloned before spawn | Clone the `Arc` ref to the lock screen manager before spawning the pre-flight task |
-| `failure_monitor_tx` watch channel + pre-flight | Pre-flight reading `billing_active` via `failure_monitor_tx.borrow()` races with BillingStarted setting it | Read the `heartbeat_status.billing_active` atomic directly — it is set synchronously in BillingStarted before the spawn |
-| racecontrol `pod_reservation.rs` + MaintenanceRequired | Server has no maintenance pod concept; adding it requires changes to pod state enum, kiosk API, and dashboard | Server-side pod state update must be in scope for the lock screen integration phase, not deferred |
-| `whatsapp_alerter` + pre-flight failures | alerter has no per-pod cooldown for maintenance alerts | Add maintenance alert cooldown at the call site; do not rely on the alerter to deduplicate |
-| HID enumeration + open session | `hidapi::HidApi::new()` is safe (enumerate only); but if any code path calls `device.open()` on the HID device during a session, ConspitLink loses its handle | Never open the HID device; enumerate only. Add a code review rule. |
+| HKLM Run audit | Query `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` only | Also query `HKCU\...\Run`, `HKLM\...\RunOnce`, `HKCU\...\RunOnce`, and both Startup folders (user and all-users) |
+| Scheduled Tasks audit | Check Task Scheduler root folder only | Check all subfolders including `\Microsoft\Windows\*` — third-party software registers tasks in subfolders |
+| Port audit | Parse `netstat` output | Use `GetExtendedTcpTable` / `GetExtendedUdpTable` via WinAPI for reliable PID-to-port mapping; `netstat` output format varies |
+| Process path verification | Use `ImageName` from `PROCESSENTRY32` | `ImageName` is the filename only, not full path; use `QueryFullProcessImageName()` for path-based matching |
+| Windows Service processes | Whitelist `svchost.exe` processes by name | All Windows Services appear as `svchost.exe`; whitelist by service name via SCM query (`EnumServicesStatusEx`), not by process name |
+| ConspitLink identity | Name check only | Path must match `C:\RacingPoint\ConspitLink.exe`; a coincidentally named `ConspitLink.exe` elsewhere is a violation |
+| Config sync integration | Guard reads config directly from disk on each scan | Reuse the existing `racecontrol.toml` TOML watcher from v10.0 (config sync infra); do not add a separate file watcher |
+| rc-agent embedded module | Guard spawns `tokio::task` that calls `kill_process()` | The kill syscall blocks; use `tokio::task::spawn_blocking` for any WinAPI `TerminateProcess()` calls inside an async context |
 
 ---
 
@@ -314,37 +317,40 @@ Phase 1 (Hardware checks + auto-fix) — PID-targeted kill must be the default p
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Serial pre-flight checks | Total check time = sum of all check times (5-15s) | Run all checks concurrently with `tokio::join!` or `join_all`, same as `self_test::run_all_probes()` | Immediately — even 3 serial 2s checks exceed the 5s budget |
-| `netstat -ano` called multiple times | Each call takes 200-500ms on Windows; calling it for UDP check AND CLOSE_WAIT check means 1s+ overhead | Call `netstat -ano` once, cache output, parse for all checks that need it | First time — the overhead is immediate |
-| HID enumeration on every pre-flight | `HidApi::new()` enumerates all USB devices, takes 200-500ms | Cache result in `AppState.hid_detected` (already exists); only re-enumerate if the cached result is negative | Always — unnecessary if cached state is fresh |
-| ConspitLink process scan with full `tasklist` | `tasklist` outputs all processes; parsing takes 50-200ms | Use `tasklist /FI "IMAGENAME eq ConspitLink.exe" /FO CSV` to filter at the OS level | At 100+ running processes — common on gaming pods |
-| Disk space check on spinning HDD | `std::fs::metadata("C:")` blocks the thread; HDD seek time adds 20-100ms | Run in `tokio::task::spawn_blocking`; it already IS blocking I/O | Always on HDD pods (check if pods have SSDs) |
+| WMI `Win32_Process SELECT *` in polling loop | WmiPrvSE.exe CPU spike, game stutter | Use `CreateToolhelp32Snapshot` instead | Immediately on pods with active sessions |
+| Logging every scan (including clean scans) to disk | Log grows to GB; disk I/O during gaming | Log only violations and state changes; rotate at 10MB | After ~1 week of continuous operation |
+| Scanning all 8 pods sequentially from server | 8x scan time blocks server event loop | Parallel async scans with per-pod timeout | As soon as more than 2 pods are active |
+| Calling `QueryFullProcessImageName()` for every process on every scan | Each call is a syscall; 100+ processes = 100+ syscalls per scan | Cache process identities between scans; only query new PIDs (ones not seen in previous snapshot) | On a pod with 100+ running processes |
+| Kill verification loop without timeout | Guard hangs if `TerminateProcess()` is blocked (elevated process, protected process) | Set 500ms timeout on kill verification; log and escalate if process survives the kill attempt | Any process running with higher privilege than the guard |
 
 ---
 
-## UX Pitfalls
+## Security Mistakes
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| No lock screen state during check window | Customer sees stale PIN entry screen or session summary for 2-5 seconds; confusing | Add `LaunchSplash` or a "Preparing your session..." message immediately on BillingStarted, before checks begin |
-| MaintenanceRequired shows technical error details | Customer sees "ConspitLink.exe PID 4821 not found" — confusing and unprofessional | Show only branded message: "Pod maintenance in progress. Staff have been notified." Technical details go to logs only. |
-| Staff notified before auto-fix is attempted | Staff rush to the pod before the agent has had a chance to fix it | Attempt auto-fix first; notify staff only if auto-fix fails (same pattern as existing `failure_monitor` → `ai_debugger` → alert flow) |
-| Maintenance badge visible to customers on kiosk dashboard TV | Kiosk dashboard is sometimes on a TV visible to customers in the venue | Maintenance details (pod number, failure reason) should require staff PIN to view; public view shows only "Pod unavailable" |
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| Guard runs as standard user | Cannot kill processes owned by other users or running elevated; enforcement is incomplete | Guard must run as SYSTEM or the same administrative user as the processes it monitors; on pods this means the service context |
+| Auto-start entries removed without backup | Silent change with no recovery path if an entry was incorrectly removed | Write `autostart-removed-YYYYMMDD.toml` before removing any auto-start entry; enables one-command restore |
+| Whitelist stored in world-writable location | An attacker or rogue process modifies the whitelist to permit their process | `racecontrol.toml` on server is writable only by ADMIN; pods receive read-only config via the existing sync mechanism |
+| Kill log contains full process command lines | Command lines may contain passwords, API keys, or tokens passed as args | Truncate command lines at 200 chars in logs; do not log environment variables |
+| Guard binary path not verified | An attacker replaces the guard binary with a malicious one; the guard never detects violations | Not a v12.1 requirement but note: if the guard binary is in a user-writable path, it can be replaced without admin |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Timing budget:** Run a stopwatch test. Book a session on a healthy pod. Measure time from BillingStarted to lock screen showing "ActiveSession." Must be under 5 seconds wall-clock.
-- [ ] **Concurrency:** Check that BillingTick messages are processed normally while pre-flight is running. Look for dropped ticks in logs.
-- [ ] **MaintenanceRequired exit:** Manually trigger a failure on Pod 8, confirm MaintenanceRequired state. Then fix the issue. Verify the pod auto-clears within 60 seconds without a manual restart.
-- [ ] **False positive test:** Run pre-flight on a fully healthy pod 20 times consecutively. Zero should report failure.
-- [ ] **Safe-kill verification:** Start an active session on Pod 8. Manually set `game_process = None` in a test. Verify pre-flight does NOT kill the game that is actually running.
-- [ ] **Notification deduplication:** Trigger a failure that persists. Confirm only one staff notification is sent, not one per BillingStarted attempt.
-- [ ] **Server pod state:** After MaintenanceRequired, verify racecontrol marks the pod unavailable. Try booking the pod from the kiosk — it must be blocked.
-- [ ] **Warm-system UDP probe:** Run pre-flight immediately after a session ends (game just closed). The UDP telemetry port should NOT be bound; if it is, it's an orphan. Verify the check catches this correctly.
-- [ ] **ConspitLink restart race:** Kill ConspitLink manually on Pod 8. Start a new session. Verify ConspitLink is restarted and working before the lock screen shows ActiveSession.
-- [ ] **Check module separation:** Verify `preflight::run_checks()` is a different function from `self_test::run_all_probes()`. No shared call path.
+- [ ] **Deny-by-default:** Remove a known process from the whitelist and confirm the guard detects and kills it within two scan cycles
+- [ ] **Per-machine enforcement:** Start `ollama.exe` on Pod 8 and confirm kill and alert fire; start `rc-agent.exe` on James and confirm CRITICAL alert fires
+- [ ] **Auto-start all four sources:** Plant a test entry in each of HKCU Run, HKLM Run, user Startup folder, and Scheduled Tasks; confirm all four are detected
+- [ ] **Auto-start LOG-before-REMOVE:** Add a non-whitelisted Run key; confirm the guard logs and alerts before any removal action
+- [ ] **Self-exclusion:** Remove the guard binary from the whitelist; confirm the guard continues running and does not kill itself
+- [ ] **Startup amnesty:** Reboot a pod and verify ConspitLink and Edge kiosk survive the first scan cycle without being killed
+- [ ] **Kill grace period:** Start a short-lived Windows Update helper process; confirm it is not killed if it exits before the second scan cycle
+- [ ] **PID reuse protection:** Kill function verifies process name and creation time before calling TerminateProcess; reviewed in code review
+- [ ] **Watchdog storm detection:** Start an infinite-restart script; confirm storm detection fires after 3 kills within 60 seconds and escalates to auto-start audit
+- [ ] **Config sync lag:** Update whitelist on server; start a new process on a pod within 5 seconds; confirm it survives the grace period and is not killed after sync completes
+- [ ] **Performance benchmark:** Run a full scan cycle on an active gaming pod; confirm it completes in under 20ms (measured via tracing span)
+- [ ] **Port audit:** Bind a test TCP server to a non-approved port; confirm guard detects and alerts
 
 ---
 
@@ -352,12 +358,13 @@ Phase 1 (Hardware checks + auto-fix) — PID-targeted kill must be the default p
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| BillingStarted blocks WS loop | HIGH | Roll back pre-flight to a pass-through (disable checks temporarily). The `disable_preflight` config flag should exist from day one for exactly this scenario. |
-| MaintenanceRequired with no exit | MEDIUM | Restart rc-agent on the pod (racecontrol fleet exec → `sc stop rc-agent && sc start rc-agent`). Pod comes back in StartupConnecting state. |
-| False positive blocks healthy pod | MEDIUM | Staff uses "Clear Maintenance" button in kiosk dashboard. Temporarily raise check thresholds in config until false positive source is identified. |
-| ConspitLink restart kills active session | HIGH | Immediately issue BillingPause for the affected pod. Apply manual FFB restart via rc-sentry `/exec` endpoint. Session time compensation is manual. |
-| Notification flood | LOW | Add a `preflight_alert_cooldown_secs` config field. Set to 1800 (30 minutes) in production. Restart racecontrol to apply. |
-| Pre-flight timeout causes all checks to skip | LOW | Increase `preflight_timeout_secs` in config. Checks revert to pass-through until timeout is resolved. No customer impact. |
+| Guard killed whitelisted process during startup | LOW | Restart the affected process manually; extend `startup_delay_s` in config and push config update |
+| Guard removed auto-start registry entry incorrectly | MEDIUM | Restore from `autostart-removed-YYYYMMDD.toml` backup; re-add the Run key via the existing fleet exec endpoint |
+| Kill-restart storm consuming CPU | LOW | Push `enforcement_mode = "alert_only"` in config to affected pod; investigate and remove auto-start source; re-enable enforcement after source removed |
+| PID reuse killed rc-agent | HIGH | rc-agent self-restarts via Windows Service auto-restart; check billing session state on affected pod; fix creation-time verification in guard code |
+| Whitelist config out of sync causing mass kills | MEDIUM | Push `enforcement_mode = "alert_only"` immediately to all pods; push correct config; verify `config_version` matches on all machines; re-enable enforcement |
+| Guard killed itself | LOW | Guard exits; Windows Service auto-restart recovers it; fix self-exclusion logic before next deploy |
+| Auto-start removed on wrong machine breaks service | MEDIUM | Restore from backup file; identify which machine section in TOML was missing the entry; add it and push config |
 
 ---
 
@@ -365,31 +372,36 @@ Phase 1 (Hardware checks + auto-fix) — PID-targeted kill must be the default p
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Blocking BillingStarted with sync checks | Phase 1: Framework | BillingTick messages arrive normally during pre-flight; no dropped ticks in log |
-| Auto-fix kills game mid-session | Phase 1: Framework | Safe-kill checklist test: game not killed when `state.game_process` is Some |
-| MaintenanceRequired has no exit path | Phase 2: Lock screen integration | Manual test: fix a failure, pod auto-clears within 60s without restart |
-| Self-test probes wrong in warm context | Phase 1: Framework | Create separate `preflight::run_checks()`; no call to `self_test::run_all_probes()` |
-| Staff notification flood | Phase 3: Notifications | 20 consecutive failures → 1 staff notification, not 20 |
-| ConspitLink check passes but process hung | Phase 1: Hardware checks | HID liveness cross-check code present; code review confirms no `device.open()` |
-| >5s check blocks customer at lock screen | Phase 1: Framework | Stopwatch test: BillingStarted to ActiveSession under 5s on healthy pod |
-| Billing check races session cleanup | Phase 1: Billing checks | Local atomic used for billing state; no HTTP query to server |
-| MaintenanceRequired breaks server pod state | Phase 2 + Protocol | racecontrol marks pod unavailable on `AgentMessage::MaintenanceRequired`; kiosk blocks booking |
-| Screenshot-based display validation | Phase 2: Display checks | HTTP probe to :18923 used; no screenshot/GDI calls in codebase |
-| ConspitLink restart kills wrong process | Phase 1: Hardware checks | PID-targeted kill in all auto-fix code; name-based kill only for confirmed orphan games |
+| Keyword-scoped audit (whitelist inversion) | Phase 1 — Whitelist Schema | Schema uses deny-by-default `Vec<ApprovedProcess>`; no blocklist logic in codebase |
+| Transient system processes killed | Phase 1 (system exclusion rules) + Phase 2 (kill grace period) | Run Windows Update on a pod with guard active; update completes successfully |
+| PID reuse race | Phase 2 — Enforcement Logic | Kill function verifies name + creation time; code review confirms no PID-only kills |
+| Self-kill | Phase 2 — Enforcement Logic | Remove guard from whitelist; guard continues running |
+| Auto-start on wrong machine removed | Phase 1 (per-machine schema) + Phase 3 (auto-start audit) | Plant Run key on wrong machine; guard alerts but does not remove without `enforcement = "remove"` config |
+| Watchdog infinite restart loop | Phase 2 (storm detection) + Phase 3 (auto-start audit) | Infinite-restart script triggers storm detection and escalates to auto-start audit |
+| Dev + prod servers simultaneously | Phase 1 (args_pattern + max_instances) + Phase 4 (port audit) | Start `next dev` on James; guard detects via args_pattern or port conflict |
+| Cross-machine binary violation | Phase 1 (allowed_machines) + Phase 2 (enforcement) | Start rc-agent.exe on James; CRITICAL alert fires within one scan cycle |
+| Config sync lag kills new process | Phase 1 (config version hash) + Phase 5 (fleet integration) | New process survives 30-second sync window due to kill grace period |
+| WMI performance on gaming pods | Phase 2 — Enforcement Logic | Benchmark test: scan cycle under 20ms; no CPU spike during AC session |
+| Startup order kills slow-starting processes | Phase 1 (startup_delay_s) + Phase 2 (amnesty window) | Reboot pod; ConspitLink and Edge kiosk survive first scan cycle |
+| Process name masquerading | Phase 1 (allowed_path_prefix) + Phase 2 (path verification) | Drop fake `msedge.exe` in Downloads; guard detects path mismatch and kills |
 
 ---
 
 ## Sources
 
-- `crates/rc-agent/src/ws_handler.rs` — BillingStarted handler structure, critical path analysis
-- `crates/rc-agent/src/self_test.rs` — existing probe implementations, timeout patterns
-- `crates/rc-agent/src/lock_screen.rs` — LockScreenState enum (13 states), state machine structure
-- `crates/rc-agent/src/billing_guard.rs` — suppression gate patterns (recovery_in_progress, billing_paused)
-- `crates/rc-agent/src/failure_monitor.rs` — FailureMonitorState, debounce patterns (stuck_fired), CRASH-01/02 detection rules
-- `crates/rc-agent/src/app_state.rs` — AppState structure, game_process field, hid_detected field
-- `.planning/PROJECT.md` — v11.1 milestone goals, constraint list, existing system capabilities
-- `CLAUDE.md` — Windows Service context, Session 0/1 boundary, ConspitLink VID:PID, deploy rules
+- Direct incident record: Steam missed by keyword-scoped audit (v12.1 trigger incident, 2026-03-21)
+- Direct incident record: Leaderboard kiosk HKLM Run entry on wrong machine (v12.1 trigger incident)
+- Direct incident record: `watchdog.cmd` infinite restart loop surviving process kill (v12.1 trigger incident)
+- Direct incident record: `next dev` and prod server running simultaneously on James (v12.1 trigger incident)
+- `PROJECT.md`: v12.1 milestone context, standing rule #2 (no pod binaries on James), HKLM Run key architecture, existing config sync infra
+- `CLAUDE.md`: Windows Service context, Session 0/1 boundary, ConspitLink VID:PID, static IP assignments, deploy rules
+- [Windows Update svchost/wuauserv crash confirmation](https://www.windowslatest.com/2025/04/30/microsoft-confirms-windows-11-24h2-0x80240069-svchost-exe_wuauserv-crashes/) — Windows Latest (MEDIUM confidence — confirms transient svchost instability during updates)
+- [WMI performance troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/scenario-guide-troubleshoot-wmi-performance-issues) — Microsoft Learn (HIGH confidence)
+- [WMI Tasks: Performance Monitoring](https://learn.microsoft.com/en-us/windows/win32/wmisdk/wmi-tasks--performance-monitoring) — Microsoft Win32 docs (HIGH confidence)
+- [PID reuse race condition](https://access.redhat.com/solutions/30695) — Red Hat (MEDIUM confidence — Linux origin, but PID reuse is OS-agnostic; Windows exhibits identical behavior)
+- [SERVICE_DELAYED_AUTO_START_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_delayed_auto_start_info) — Microsoft Win32 docs (HIGH confidence — startup ordering)
+- [Windows Sessions internals](https://brianbondy.com/blog/100/understanding-windows-at-a-deeper-level-sessions-window-stations-and-desktop) — Brian Bondy (MEDIUM confidence — Session 0/1 boundary, service process isolation)
 
 ---
-*Pitfalls research for: Pre-flight session health gates added to existing kiosk/agent system*
-*Researched: 2026-03-21*
+*Pitfalls research for: Windows process monitoring / whitelist enforcement on gaming fleet (v12.1 E2E Process Guard)*
+*Researched: 2026-03-21 IST*
