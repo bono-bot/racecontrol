@@ -618,6 +618,74 @@ async fn cleanup_old_nudges(state: &Arc<AppState>) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ─── Driving Passport ─────────────────────────────────────────────────────────
+
+/// Upsert a driver's driving passport entry for a specific track+car combination.
+/// Called from persist_lap() after every valid lap INSERT.
+/// Uses ON CONFLICT to increment lap_count and update best_lap_ms if faster.
+pub async fn update_driving_passport(
+    state: &Arc<AppState>,
+    driver_id: &str,
+    track: &str,
+    car: &str,
+    lap_time_ms: i64,
+) {
+    let id = uuid::Uuid::new_v4().to_string();
+    if let Err(e) = sqlx::query(
+        "INSERT INTO driving_passport (id, driver_id, track, car, best_lap_ms, lap_count)
+         VALUES (?, ?, ?, ?, ?, 1)
+         ON CONFLICT(driver_id, track, car) DO UPDATE SET
+           lap_count = driving_passport.lap_count + 1,
+           best_lap_ms = CASE WHEN excluded.best_lap_ms < driving_passport.best_lap_ms
+                         THEN excluded.best_lap_ms ELSE driving_passport.best_lap_ms END"
+    )
+    .bind(&id)
+    .bind(driver_id)
+    .bind(track)
+    .bind(car)
+    .bind(lap_time_ms)
+    .execute(&state.db)
+    .await {
+        tracing::error!("[psychology] driving_passport upsert failed: {}", e);
+    }
+}
+
+/// Backfill driving_passport from the laps table for a single driver.
+/// Called lazily on first /customer/passport API call when passport is empty.
+/// Uses INSERT OR IGNORE so concurrent calls are safe (UNIQUE constraint).
+/// Only processes valid laps with lap_time_ms > 0.
+pub async fn backfill_driving_passport(state: &Arc<AppState>, driver_id: &str) {
+    let result = sqlx::query(
+        "INSERT OR IGNORE INTO driving_passport (id, driver_id, track, car, first_driven_at, best_lap_ms, lap_count)
+         SELECT
+             lower(hex(randomblob(16))),
+             driver_id,
+             track,
+             car,
+             MIN(created_at) as first_driven_at,
+             MIN(lap_time_ms) as best_lap_ms,
+             COUNT(*) as lap_count
+         FROM laps
+         WHERE driver_id = ? AND valid = 1 AND lap_time_ms > 0
+         GROUP BY driver_id, track, car"
+    )
+    .bind(driver_id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(r) => {
+            if r.rows_affected() > 0 {
+                tracing::info!(
+                    "[psychology] backfilled {} driving_passport entries for driver {}",
+                    r.rows_affected(), driver_id
+                );
+            }
+        }
+        Err(e) => tracing::error!("[psychology] driving_passport backfill failed for {}: {}", driver_id, e),
+    }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

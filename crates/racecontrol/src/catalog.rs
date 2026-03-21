@@ -83,6 +83,37 @@ pub fn get_min_lap_time_ms_for_track(track_id: &str) -> Option<u32> {
         .and_then(|t| t.min_lap_time_ms)
 }
 
+/// Return the full list of featured track entries for passport tier grouping.
+/// Used by the /customer/passport endpoint to build tiered collections.
+pub fn get_featured_tracks_for_passport() -> Vec<Value> {
+    FEATURED_TRACKS
+        .iter()
+        .enumerate()
+        .map(|(i, t)| json!({
+            "id": t.id,
+            "name": t.name,
+            "category": t.category,
+            "country": t.country,
+            "sort_order": i
+        }))
+        .collect()
+}
+
+/// Return the full list of featured car entries for passport tier grouping.
+/// Used by the /customer/passport endpoint to build tiered collections.
+pub fn get_featured_cars_for_passport() -> Vec<Value> {
+    FEATURED_CARS
+        .iter()
+        .enumerate()
+        .map(|(i, c)| json!({
+            "id": c.id,
+            "name": c.name,
+            "category": c.category,
+            "sort_order": i
+        }))
+        .collect()
+}
+
 // ─── Featured Cars ───────────────────────────────────────────────────────────
 
 const FEATURED_CARS: &[CarEntry] = &[
@@ -243,7 +274,7 @@ const ALL_CAR_IDS: &[&str] = &[
 ];
 
 /// Derive a human-readable name from a folder ID
-fn id_to_display_name(id: &str) -> String {
+pub fn id_to_display_name(id: &str) -> String {
     // Strip common prefixes
     let stripped = id
         .strip_prefix("ks_")

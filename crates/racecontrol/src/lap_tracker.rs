@@ -14,6 +14,7 @@ use rc_common::types::LapData;
 use sqlx::SqlitePool;
 
 use crate::catalog;
+use crate::psychology;
 use crate::state::AppState;
 
 /// Resolve which driver is currently on a pod (from active billing session).
@@ -265,6 +266,9 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .bind(&lap.driver_id)
     .execute(&state.db)
     .await;
+
+    // Update driving passport with this track+car combo
+    psychology::update_driving_passport(state, &lap.driver_id, &lap.track, &lap.car, lap.lap_time_ms as i64).await;
 
     // Phase 14: Auto-enter into matching hotlap events
     if suspect_flag == 0 {
