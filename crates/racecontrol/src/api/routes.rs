@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::ac_server;
 use crate::accounting;
 use crate::auth;
+use crate::whatsapp_alerter;
 use crate::psychology;
 use crate::auth::middleware::require_staff_jwt;
 use crate::network_source::require_non_pod_source;
@@ -875,6 +876,20 @@ async fn ws_exec_pod(
         None => return Json(json!({ "error": "missing 'cmd' field" })),
     };
     let timeout_ms = body["timeout_ms"].as_u64().unwrap_or(30_000);
+
+    // Truncate command preview to 100 chars for audit
+    let cmd_preview: String = cmd.chars().take(100).collect();
+
+    // Audit trail + WhatsApp alert for fleet exec (HIGH sensitivity)
+    accounting::log_admin_action(
+        &state, "fleet_exec",
+        &json!({"pod_id": id, "command": cmd_preview}).to_string(),
+        None, None,
+    ).await;
+    whatsapp_alerter::send_admin_alert(
+        &state.config, "Fleet Exec",
+        &format!("Pod {}: {}", id, cmd_preview),
+    ).await;
 
     match crate::ws::ws_exec_on_pod(&state, &id, cmd, timeout_ms).await {
         Ok((success, stdout, stderr)) => {
@@ -1775,7 +1790,14 @@ async fn create_pricing_tier(
     .await;
 
     match result {
-        Ok(_) => Json(json!({ "id": id, "name": name })),
+        Ok(_) => {
+            accounting::log_admin_action(
+                &state, "pricing_create",
+                &json!({"tier_id": id, "name": name, "duration_minutes": duration_minutes, "price_paise": price_paise}).to_string(),
+                None, None,
+            ).await;
+            Json(json!({ "id": id, "name": name }))
+        }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
 }
@@ -1834,6 +1856,11 @@ async fn update_pricing_tier(
                 &state, "pricing_tiers", &id, "update",
                 old_snapshot.as_deref(), new_values.as_deref(), None,
             ).await;
+            accounting::log_admin_action(
+                &state, "pricing_update",
+                &json!({"tier_id": id, "changes": body}).to_string(),
+                None, None,
+            ).await;
             Json(json!({ "ok": true }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -1857,6 +1884,11 @@ async fn delete_pricing_tier(
                 &state, "pricing_tiers", &id, "delete",
                 old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
             ).await;
+            accounting::log_admin_action(
+                &state, "pricing_delete",
+                &json!({"tier_id": id}).to_string(),
+                None, None,
+            ).await;
             Json(json!({ "ok": true }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -1866,8 +1898,8 @@ async fn delete_pricing_tier(
 // ─── Billing Rate Tiers (per-minute rates) ──────────────────────────────────
 
 async fn list_billing_rates(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, i64, String, i64, i64, bool)>(
-        "SELECT id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active
+    let rows = sqlx::query_as::<_, (String, i64, String, i64, i64, bool, Option<String>)>(
+        "SELECT id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active, sim_type
          FROM billing_rates ORDER BY tier_order ASC",
     )
     .fetch_all(&state.db)
@@ -1881,7 +1913,7 @@ async fn list_billing_rates(State(state): State<Arc<AppState>>) -> Json<Value> {
                     json!({
                         "id": r.0, "tier_order": r.1, "tier_name": r.2,
                         "threshold_minutes": r.3, "rate_per_min_paise": r.4,
-                        "is_active": r.5,
+                        "is_active": r.5, "sim_type": r.6,
                     })
                 })
                 .collect();
@@ -1901,15 +1933,18 @@ async fn create_billing_rate(
     let threshold_minutes = body.get("threshold_minutes").and_then(|v| v.as_i64()).unwrap_or(0);
     let rate_per_min_paise = body.get("rate_per_min_paise").and_then(|v| v.as_i64()).unwrap_or(2500);
 
+    let sim_type = body.get("sim_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+
     let result = sqlx::query(
-        "INSERT INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, sim_type)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(tier_order)
     .bind(tier_name)
     .bind(threshold_minutes)
     .bind(rate_per_min_paise)
+    .bind(&sim_type)
     .execute(&state.db)
     .await;
 
@@ -1934,6 +1969,8 @@ async fn update_billing_rate(
     let threshold_minutes = body.get("threshold_minutes").and_then(|v| v.as_i64());
     let rate_per_min_paise = body.get("rate_per_min_paise").and_then(|v| v.as_i64());
     let is_active = body.get("is_active").and_then(|v| v.as_bool());
+    // sim_type: present in body = update (even if null to clear); absent = don't touch
+    let sim_type_in_body = body.get("sim_type").map(|v| v.as_str().map(|s| s.to_string()));
 
     let mut updates = Vec::new();
     let mut binds: Vec<String> = Vec::new();
@@ -1958,6 +1995,14 @@ async fn update_billing_rate(
         updates.push("is_active = ?");
         binds.push(if a { "1".to_string() } else { "0".to_string() });
     }
+    let sim_type_val: Option<String> = if let Some(opt_s) = sim_type_in_body {
+        updates.push("sim_type = ?");
+        binds.push(opt_s.clone().unwrap_or_default());
+        opt_s
+    } else {
+        None
+    };
+    let _ = sim_type_val; // used via binds above
 
     if updates.is_empty() {
         return Json(json!({ "error": "No fields to update" }));
@@ -5488,6 +5533,17 @@ async fn topup_wallet(
         0
     };
 
+    // Audit trail + WhatsApp alert for wallet topup (HIGH sensitivity)
+    accounting::log_admin_action(
+        &state, "wallet_topup",
+        &json!({"driver_id": driver_id, "amount_paise": req.amount_paise, "method": req.method}).to_string(),
+        req.staff_id.as_deref(), None,
+    ).await;
+    whatsapp_alerter::send_admin_alert(
+        &state.config, "Wallet Topup",
+        &format!("{} paise for driver {}", req.amount_paise, driver_id),
+    ).await;
+
     Json(json!({
         "status": "ok",
         "new_balance_paise": new_balance,
@@ -7888,6 +7944,14 @@ async fn terminal_submit(
         Ok(_) => {
             tracing::info!("Terminal command queued: {} ({})", id, req.cmd);
 
+            // Audit trail for terminal command (MEDIUM sensitivity)
+            let cmd_truncated: String = req.cmd.chars().take(200).collect();
+            accounting::log_admin_action(
+                &state, "terminal_command",
+                &json!({"command_id": id, "command": cmd_truncated}).to_string(),
+                None, None,
+            ).await;
+
             // Execute locally in background for instant results (no cloud poll delay)
             let exec_state = state.clone();
             let exec_id = id.clone();
@@ -10224,6 +10288,11 @@ async fn create_pricing_rule(
                 &state, "pricing_rules", &id, "create",
                 None, new_values.as_deref(), None,
             ).await;
+            accounting::log_admin_action(
+                &state, "pricing_rule_create",
+                &json!({"rule_id": id, "rule_type": rule_type}).to_string(),
+                None, None,
+            ).await;
             Json(json!({ "id": id }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -10266,6 +10335,11 @@ async fn update_pricing_rule(
                 &state, "pricing_rules", &id, "update",
                 old_snapshot.as_deref(), new_values.as_deref(), None,
             ).await;
+            accounting::log_admin_action(
+                &state, "pricing_rule_update",
+                &json!({"rule_id": id, "changes": body}).to_string(),
+                None, None,
+            ).await;
             Json(json!({ "ok": true }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -10287,6 +10361,11 @@ async fn delete_pricing_rule(
     accounting::log_audit(
         &state, "pricing_rules", &id, "delete",
         old_snapshot.as_deref(), Some("{\"is_active\":false}"), None,
+    ).await;
+    accounting::log_admin_action(
+        &state, "pricing_rule_delete",
+        &json!({"rule_id": id}).to_string(),
+        None, None,
     ).await;
 
     Json(json!({ "ok": true }))
