@@ -1419,7 +1419,7 @@ Plans:
 - [x] **Phase 102: Whitelist Schema + Config + Fetch Endpoint** - completed 2026-03-21
 - [x] **Phase 103: Pod Guard Module** - completed 2026-03-21
 - [x] **Phase 104: Server Guard Module + Alerts** - racecontrol process_guard.rs receiving violations, kiosk notification badge, email escalation, and fleet health integration (completed 2026-03-21)
-- [ ] **Phase 105: Port Audit + Scheduled Tasks + James Binary** - Listening port enforcement, scheduled task audit, and standalone rc-process-guard binary for James workstation
+- [x] **Phase 105: Port Audit + Scheduled Tasks + James Binary** - Listening port enforcement, scheduled task audit, and standalone rc-process-guard binary for James workstation (completed 2026-03-21)
 
 ## v12.1 Phase Details (continued)
 

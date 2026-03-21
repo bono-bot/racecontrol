@@ -2316,6 +2316,25 @@ name = "rc-installer"
 version = "0.1.0"
 
 [[package]]
+name = "rc-process-guard"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rc-common",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "walkdir",
+ "winapi",
+]
+
+[[package]]
 name = "rc-sentry"
 version = "0.1.0"
 dependencies = [

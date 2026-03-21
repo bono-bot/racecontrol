@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 105 of 105 (Port Audit + Scheduled Tasks + James Binary) — IN PROGRESS
-Plan: 3 of 4 — completed (01 and 02 complete, 03 pending)
-Status: Port audit + schtasks audit in rc-agent; guard/report HTTP intake for James binary — both wired
-Last activity: 2026-03-21 — Phase 105 Plan 01 complete: run_port_audit + run_schtasks_audit in process_guard.rs (53f4551)
+Plan: 4 of 4 — completed (01, 02, 03 complete, 04 pending)
+Status: rc-process-guard standalone binary for James built and tested — HTTP POST violations, never WebSocket
+Last activity: 2026-03-21 — Phase 105 Plan 03 complete: rc-process-guard binary (e83b33e)
 
-Progress: [██████████] 97%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -87,6 +87,11 @@ Progress: [██████████] 97%
 - [105-01]: Port kill uses kill_process_verified primary + taskkill /F /PID fallback when sysinfo can't locate PID
 - [105-01]: schtask system task skip is unconditional (starts_with \\Microsoft\\) — before whitelist check
 - [105-01]: parse_schtasks_csv splits on '","' boundary — handles quoted CSV without adding a CSV library
+- [105-03]: winreg dep not added to rc-process-guard — winreg not in workspace; used reg shell-out (same as rc-agent) as plan directed
+- [105-03]: JAMES_CRITICAL_BINARIES = [rc-agent.exe, kiosk.exe] — zero grace on James; WrongMachineBinary violation type
+- [105-03]: rc-process-guard reports via HTTP POST only — never WebSocket (standing rule #2 compliance for James workstation)
+- [105-03]: fetch_whitelist_with_retry returns MachineWhitelist::default() on total failure — report_only safe default, never panics
+- [105-03]: whitelist_refresh (5min) and audit_interval (5min) are separate tokio::time::interval instances — clear separation of concerns
 
 ### Pending Todos
 
@@ -101,5 +106,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-21 IST
-Stopped at: Completed 105-01-PLAN.md
+Stopped at: Completed 105-03-PLAN.md
 Resume file: None
