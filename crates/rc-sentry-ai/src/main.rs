@@ -1,5 +1,6 @@
 mod config;
 mod detection;
+mod enrollment;
 mod frame;
 mod health;
 mod privacy;
@@ -112,46 +113,51 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Initialize SCRFD detector and spawn per-camera detection tasks
-    if config.detection.enabled {
-        match detection::scrfd::ScrfdDetector::new(&config.detection.model_path) {
-            Ok(detector) => {
-                let detector = Arc::new(detector);
-                tracing::info!(
-                    model = %config.detection.model_path,
-                    confidence = config.detection.confidence_threshold,
-                    "SCRFD detector initialized with CUDA EP"
-                );
-
-                // Spawn one detection task per camera
-                for camera in config.cameras.iter() {
-                    let cam_name = camera.name.clone();
-                    let buf = frame_buf.clone();
-                    let det = Arc::clone(&detector);
-                    let conf = config.detection.confidence_threshold;
-                    let stats = Arc::clone(&detection_stats);
-                    let rec = recognizer.clone();
-                    let qg = QualityGates {
-                        min_face_size: quality_gates_config.min_face_size,
-                        min_laplacian_var: quality_gates_config.min_laplacian_var,
-                        max_yaw_degrees: quality_gates_config.max_yaw_degrees,
-                    };
-                    let gal = Arc::clone(&gallery);
-                    let trk = Arc::clone(&tracker);
-                    tokio::spawn(async move {
-                        detection::pipeline::run(
-                            cam_name, buf, det, conf, stats, rec, qg, gal, trk,
-                        )
-                        .await;
-                    });
+    // Initialize SCRFD detector (shared between detection pipeline and enrollment)
+    let shared_detector: Option<Arc<detection::scrfd::ScrfdDetector>> =
+        if config.detection.enabled {
+            match detection::scrfd::ScrfdDetector::new(&config.detection.model_path) {
+                Ok(detector) => {
+                    tracing::info!(
+                        model = %config.detection.model_path,
+                        confidence = config.detection.confidence_threshold,
+                        "SCRFD detector initialized with CUDA EP"
+                    );
+                    Some(Arc::new(detector))
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to initialize SCRFD detector, detection disabled");
+                    None
                 }
             }
-            Err(e) => {
-                tracing::error!(error = %e, "failed to initialize SCRFD detector, detection disabled");
-            }
+        } else {
+            tracing::info!("face detection disabled in config");
+            None
+        };
+
+    // Spawn per-camera detection tasks (if detector available)
+    if let Some(ref detector) = shared_detector {
+        for camera in config.cameras.iter() {
+            let cam_name = camera.name.clone();
+            let buf = frame_buf.clone();
+            let det = Arc::clone(detector);
+            let conf = config.detection.confidence_threshold;
+            let stats = Arc::clone(&detection_stats);
+            let rec = recognizer.clone();
+            let qg = QualityGates {
+                min_face_size: quality_gates_config.min_face_size,
+                min_laplacian_var: quality_gates_config.min_laplacian_var,
+                max_yaw_degrees: quality_gates_config.max_yaw_degrees,
+            };
+            let gal = Arc::clone(&gallery);
+            let trk = Arc::clone(&tracker);
+            tokio::spawn(async move {
+                detection::pipeline::run(
+                    cam_name, buf, det, conf, stats, rec, qg, gal, trk,
+                )
+                .await;
+            });
         }
-    } else {
-        tracing::info!("face detection disabled in config");
     }
 
     // Initialize audit writer (single-writer pattern for Windows file locking)
@@ -187,8 +193,29 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Initialize enrollment API state
+    let enrollment_state = Arc::new(enrollment::service::EnrollmentState {
+        db_path: config.recognition.gallery_db_path.clone(),
+        gallery: Arc::clone(&gallery),
+        detector: shared_detector.clone(),
+        recognizer: recognizer.clone(),
+        audit: Arc::clone(&audit_writer),
+        quality_gates: QualityGates {
+            min_face_size: config.enrollment.min_face_size,
+            min_laplacian_var: config.enrollment.min_laplacian_var,
+            max_yaw_degrees: config.enrollment.max_yaw_degrees,
+        },
+        config: config.enrollment.clone(),
+        detection_confidence: config.detection.confidence_threshold,
+    });
+
+    if enrollment_state.detector.is_none() || enrollment_state.recognizer.is_none() {
+        tracing::warn!("enrollment photo processing unavailable (missing detector or recognizer); CRUD endpoints still work");
+    }
+
     let app = health::health_router(state)
-        .merge(health::privacy_router(audit_writer.clone()));
+        .merge(health::privacy_router(audit_writer.clone()))
+        .merge(enrollment::routes::enrollment_router(enrollment_state));
     let addr = format!("{}:{}", config.service.host, config.service.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("rc-sentry-ai health endpoint listening on {addr}");
