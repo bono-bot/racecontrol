@@ -473,3 +473,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 19:16 IST | James | 029554a | docs(107-01): complete behavior audit plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (AUDIT-01, AUDIT-03 closed) |
 | 2026-03-21 21:35 IST | James | 2d20fac | feat(108-01): replace SetWindowsHookEx with GPO registry lockdown — NoWinKeys=1 + DisableTaskMgr=1 via reg.exe, hook gated behind keyboard-hook feature flag |
 | 2026-03-21 20:36 IST | James | f2b0067 | docs(112-01): go2rtc v1.9.13 RTSP relay installed — 3 cameras, firewall rule, HKLM Run key, API verified at :1984 |
+| 2026-03-21 20:52 IST | James | 0921d5c | feat(109-01): create safe_mode.rs module — SafeMode struct, WMI watcher, startup scan, 21 tests passing |
+| 2026-03-21 20:53 IST | James | ebe1020 | feat(109-01): integrate safe_mode into AppState and main.rs — 5 new fields, startup detection, WMI spawn, process_guard stub |
+| 2026-03-21 20:54 IST | James | a2e2f22 | docs(109-01): complete safe mode state machine foundation — SUMMARY, STATE, ROADMAP, REQUIREMENTS (SAFE-01/02/03 closed) |
