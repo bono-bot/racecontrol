@@ -141,6 +141,19 @@ async fn main() -> anyhow::Result<()> {
     let (recognition_tx, _) =
         tokio::sync::broadcast::channel::<recognition::types::RecognitionResult>(256);
 
+    // Create broadcast channel for alert events (WebSocket fan-out)
+    let (alert_tx, _) =
+        tokio::sync::broadcast::channel::<alerts::types::AlertEvent>(256);
+
+    // Spawn alert engine (if enabled)
+    if config.alerts.enabled {
+        let alert_rx = recognition_tx.subscribe();
+        let atx = alert_tx.clone();
+        tokio::spawn(async move {
+            alerts::engine::run(alert_rx, atx).await;
+        });
+    }
+
     // Spawn attendance engine (if enabled)
     if config.attendance.enabled {
         let attendance_rx = recognition_tx.subscribe();
@@ -238,10 +251,16 @@ async fn main() -> anyhow::Result<()> {
         min_shift_hours: config.attendance.min_shift_hours,
     });
 
+    // Initialize alert WebSocket state
+    let alert_ws_state = Arc::new(alerts::ws::AlertWsState {
+        alert_tx: alert_tx.clone(),
+    });
+
     let app = health::health_router(state)
         .merge(health::privacy_router(audit_writer.clone()))
         .merge(enrollment::routes::enrollment_router(enrollment_state))
-        .merge(attendance::routes::attendance_router(attendance_state));
+        .merge(attendance::routes::attendance_router(attendance_state))
+        .merge(alerts::ws::alerts_router(alert_ws_state));
     let addr = format!("{}:{}", config.service.host, config.service.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("rc-sentry-ai health endpoint listening on {addr}");

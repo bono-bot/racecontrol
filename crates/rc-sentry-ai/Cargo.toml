@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 retina = "0.4"
-axum = "0.7"
+axum = { version = "0.7", features = ["ws"] }
 tokio = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
