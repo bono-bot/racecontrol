@@ -494,3 +494,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 22:47 IST | James | 3c0d39a | feat(111-01): build rc-agent from HEAD (243f03d) and deploy to Pod 8 canary — 11MB, ws_connected, uptime>30s |
 | 2026-03-22 00:15 IST | James | 518b00c | feat(118-02): add live cameras page with MJPEG feeds from rc-sentry-ai |
 | 2026-03-22 00:20 IST | James | 0b1550d | docs(118-02): complete live camera feeds dashboard page plan |
+| 2026-03-22 00:37 IST | James | 3cb363b | feat(119-03): NVR playback page with search, video player, event timeline |
+| 2026-03-22 00:37 IST | James | 861a717 | docs(119-03): complete NVR playback page plan (phase 119 complete 3/3) |
