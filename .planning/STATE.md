@@ -32,8 +32,8 @@ gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: AntiCheat Compatibility
 status: in_progress
-stopped_at: Completed 107-02-PLAN.md
-last_updated: "2026-03-21T13:37:00.000Z"
+stopped_at: Completed 107-01-PLAN.md (checkpoint:human-action -- awaiting Uday cert purchase)
+last_updated: "2026-03-21T19:08:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -59,6 +59,10 @@ decisions:
   - "ConspitLink audit deferred -- template created and ready; ProcMon capture requires physical access to Pod 8"
   - "SetWindowsHookEx is UNSAFE (permanent removal, Phase 108) for all kernel-level AC games -- not just suspended"
   - "Ollama queries must be SUSPENDED during protected game sessions due to GPU/VRAM contention visible to EAAC"
+  - "107-01: No ReadProcessMemory or WriteProcessMemory found in rc-agent -- critical CRITICAL-level API is absent from codebase"
+  - "107-01: All sim adapters use OpenFileMappingW + MapViewOfFile (correct safe pattern, not ReadProcessMemory)"
+  - "107-01: OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) in game_process.rs:321 is HIGH risk -- even query-only handles to game PID are detectable by EAAC/EOS/EAC"
+  - "107-01: Phase 108 MUST use GPO registry keys (NoWinKeys=1 + DisableTaskMgr=1) -- pods are Windows 11 Pro, Keyboard Filter requires IoT Enterprise LTSC"
 ---
 
 ---

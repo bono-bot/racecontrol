@@ -1454,7 +1454,7 @@ Plans:
 
 Audit and harden all pod-side RaceControl behaviors so that rc-agent, rc-sentry, and kiosk software never trigger anti-cheat detection in F1 25 (EA Javelin), iRacing (EOS), LMU (EAC), AC EVO, or EA WRC -- preventing customer account bans. Must complete before v13.0 Multi-Game Launcher deploys to customers.
 
-- [ ] **Phase 107: Behavior Audit + Certificate Procurement** - Exhaustive risk inventory of every pod-side behavior classified per anti-cheat system; ConspitLink signed-binary audit; code signing certificate procured and integrated into build pipeline
+- [x] **Phase 107: Behavior Audit + Certificate Procurement** - Exhaustive risk inventory of every pod-side behavior classified per anti-cheat system; ConspitLink signed-binary audit; code signing certificate procured and integrated into build pipeline (completed 2026-03-21)
 - [ ] **Phase 108: Keyboard Hook Replacement** - SetWindowsHookEx hook fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr); kiosk lockdown verified without any hook on Pod 8
 - [ ] **Phase 109: Safe Mode State Machine** - safe_mode.rs module; WMI Win32_ProcessStartTrace event subscription for sub-second game detection; 30-second exit cooldown; process guard, Ollama queries, and registry writes gated; safe mode startup default
 - [ ] **Phase 110: Telemetry Gating** - shm_connect_allowed() guard defers shared memory adapter connect by 5s; UDP sockets scoped to active game; AC EVO telemetry feature-flagged off by default
@@ -1528,7 +1528,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 107. Behavior Audit + Certificate Procurement | 1/2 | In Progress|  |
+| 107. Behavior Audit + Certificate Procurement | 2/2 | Complete   | 2026-03-21 |
 | 108. Keyboard Hook Replacement | TBD | Not started | - |
 | 109. Safe Mode State Machine | TBD | Not started | - |
 | 110. Telemetry Gating | TBD | Not started | - |
