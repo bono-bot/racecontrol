@@ -66,11 +66,12 @@ Plans:
   3. Sync payloads include origin tags and the receiving side skips rows that originated from itself (no sync loops)
   4. When sync lag exceeds 60 seconds, cloud UI shows "booking pending confirmation" status
   5. Sync health endpoint at api.racingpoint.cloud/sync/status returns last sync timestamp, lag, and relay status
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — Schema foundation: reservations + debit_intents tables, origin_id config, SCHEMA_VERSION bump
+- [ ] 03-02-PLAN.md — Sync integration: sync_changes/sync_push handlers, origin filter, debit intent processing
+- [ ] 03-03-PLAN.md — Sync health enhancement: lag_seconds, health status tiers, per-table staleness
 
 ### Phase 4: Remote Booking + PIN Generation
 **Goal**: Customer can book an experience from their phone at home and receive a PIN for venue redemption
@@ -181,7 +182,7 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 |-------|----------------|--------|-----------|
 | 1. Cloud Infrastructure | 0/2 | Not started | - |
 | 2. API + PWA Cloud Deploy | 0/2 | Not started | - |
-| 3. Sync Hardening | 0/2 | Not started | - |
+| 3. Sync Hardening | 0/3 | Not started | - |
 | 4. Remote Booking + PIN Generation | 0/3 | Not started | - |
 | 5. Kiosk PIN Launch | 0/2 | Not started | - |
 | 6. Admin Panel Cloud Deploy | 0/2 | Not started | - |
