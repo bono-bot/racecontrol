@@ -753,10 +753,12 @@ Plans:
   3. After failover fires: all 8 pods are connected to Bono's VPS WebSocket within 30s of racecontrol broadcasting SwitchController
   4. A pod that still has .23 reachable (split-brain scenario) does not honor the SwitchController until its own LAN probe confirms .23 is down
   5. Uday receives an email and WhatsApp notification within 2 minutes of failover completing, stating which URL pods switched to
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 69-01: TBD
+- [ ] 69-01-PLAN.md — Health probe FSM + failover orchestrator + wiring in james/index.js (HLTH-01, HLTH-02, HLTH-03, ORCH-01, ORCH-04)
+- [ ] 69-02-PLAN.md — Broadcast endpoint on racecontrol + split-brain guard on rc-agent (ORCH-02, ORCH-03)
+- [ ] 69-03-PLAN.md — Bono secondary watchdog for venue power outage (HLTH-04)
 
 ### Phase 70: Failback & Data Reconciliation
 **Goal**: When .23 comes back online, sessions created during failover are merged into local DB, and pods automatically reconnect to .23 — Uday notified of the all-clear
