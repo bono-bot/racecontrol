@@ -52,7 +52,7 @@ export default function RegisterPage() {
       return;
     }
     if (isMinor && !guardianName.trim()) {
-      setError("Guardian name is required for customers under 18");
+      setError("Guardian name is required for drivers under 18");
       return;
     }
 

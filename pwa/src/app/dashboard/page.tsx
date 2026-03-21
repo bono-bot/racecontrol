@@ -61,7 +61,7 @@ export default function DashboardPage() {
     <div className="px-4 pt-12 pb-4 max-w-lg mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <p className="text-rp-grey text-sm">Welcome back</p>
+        <p className="text-rp-grey text-sm">Welcome back, Driver</p>
         <h1 className="text-2xl font-bold text-white">
           {profile?.name || "Racer"}
         </h1>
