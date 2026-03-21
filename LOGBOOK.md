@@ -364,9 +364,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:21 IST | James | fa8a0be | feat(70-02): add COMMAND_REGISTRY entries (export_failover_sessions, notify_failback) + HealthMonitor server_recovery event (down->healthy guard) |
 | 2026-03-21 07:21 IST | James | e1826d5 | feat(70-02): FailoverOrchestrator.initiateFailback() 9-step sequence + #httpGet helper + failoverStartedAt tracking + james/index.js server_recovery wiring |
 | 2026-03-21 07:21 IST | James | 6effd53 | docs(70-02): 70-02-SUMMARY.md + STATE.md + ROADMAP.md updates |
-| 2026-03-21 13:15 IST | James | c06c6f9 | feat(70-01): add POST /api/v1/sync/import-sessions with INSERT OR IGNORE for lossless billing session failback (BACK-02) |
-| 2026-03-21 13:30 IST | James | efe1099 | docs(70-01): 70-01-SUMMARY.md + STATE.md + ROADMAP.md updates |
-
-| 2026-03-21 07:31 IST | James | 78e5cd2 | feat(74-04): extract inner select! loop to event_loop.rs with ConnectionState struct — main.rs 2037→1179 lines (DECOMP-04) |
-| 2026-03-21 07:45 IST | James | 53f6e2f | feat(81-03): TOML template + example config with all 6 game stanzas (F1 25, iRacing, AC EVO, EA WRC, LMU) — full pipeline green |
-| 2026-03-21 07:50 IST | James | a850ff0 | docs(81-03): 81-03-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — phase 81 complete |
+| 2026-03-21 07:38 IST | Bono | 9d95a18 | feat(89-01): 7 psychology tables (achievements, driver_achievements, streaks, driving_passport, nudge_queue, staff_badges, staff_challenges) + 8 indexes added to db/mod.rs migration |
+| 2026-03-21 07:38 IST | Bono | a620a52 | feat(89-01): psychology.rs module skeleton — NotificationChannel, NudgeStatus, MetricType, Operator, BadgeCriteria, parse_criteria_json, evaluate_criteria, 5 async stubs, 13 unit tests passing |
+| 2026-03-21 07:38 IST | Bono | 865e1fb | docs(89-01): 89-01-SUMMARY.md + STATE.md update |
+| 2026-03-21 07:38 IST | Bono | f26032a | docs(89-01): ROADMAP.md phase 89 progress update |
