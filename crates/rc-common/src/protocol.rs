@@ -56,7 +56,12 @@ pub enum AgentMessage {
     Pong { id: u64, #[serde(default)] agent_delay_us: Option<u64> },
 
     /// Agent reports AC shared memory STATUS change (Off/Replay/Live/Pause)
-    GameStatusUpdate { pod_id: String, ac_status: AcStatus },
+    GameStatusUpdate {
+        pod_id: String,
+        ac_status: AcStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sim_type: Option<SimType>,
+    },
 
     /// Agent reports FFB safety action completed (zeroed wheelbase torque)
     FfbZeroed { pod_id: String },
@@ -1100,12 +1105,13 @@ mod tests {
         let msg = AgentMessage::GameStatusUpdate {
             pod_id: "pod_3".to_string(),
             ac_status: AcStatus::Live,
+            sim_type: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("game_status_update"), "Expected 'game_status_update' in: {}", json);
         assert!(json.contains("\"ac_status\":\"live\""));
         let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
-        if let AgentMessage::GameStatusUpdate { pod_id, ac_status } = parsed {
+        if let AgentMessage::GameStatusUpdate { pod_id, ac_status, .. } = parsed {
             assert_eq!(pod_id, "pod_3");
             assert_eq!(ac_status, AcStatus::Live);
         } else {
@@ -1120,6 +1126,7 @@ mod tests {
             let msg = AgentMessage::GameStatusUpdate {
                 pod_id: "pod_1".to_string(),
                 ac_status: status,
+                sim_type: None,
             };
             let json = serde_json::to_string(&msg).unwrap();
             let parsed: AgentMessage = serde_json::from_str(&json).unwrap();

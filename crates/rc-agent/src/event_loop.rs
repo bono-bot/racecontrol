@@ -185,6 +185,7 @@ pub async fn run(
                                     let msg = AgentMessage::GameStatusUpdate {
                                         pod_id: state.pod_id.clone(),
                                         ac_status: status,
+                                        sim_type: Some(rc_common::types::SimType::AssettoCorsa),
                                     };
                                     if let Ok(json) = serde_json::to_string(&msg) {
                                         let _ = ws_tx.send(Message::Text(json.into())).await;
@@ -214,6 +215,7 @@ pub async fn run(
                             let msg = AgentMessage::GameStatusUpdate {
                                 pod_id: state.pod_id.clone(),
                                 ac_status: AcStatus::Off,
+                                sim_type: Some(rc_common::types::SimType::AssettoCorsa),
                             };
                             if let Ok(json) = serde_json::to_string(&msg) {
                                 let _ = ws_tx.send(Message::Text(json.into())).await;
@@ -235,6 +237,7 @@ pub async fn run(
                             let msg = AgentMessage::GameStatusUpdate {
                                 pod_id: state.pod_id.clone(),
                                 ac_status: AcStatus::Off,
+                                sim_type: Some(rc_common::types::SimType::AssettoCorsa),
                             };
                             if let Ok(json) = serde_json::to_string(&msg) {
                                 let _ = ws_tx.send(Message::Text(json.into())).await;

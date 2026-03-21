@@ -426,6 +426,7 @@ pub async fn handle_game_status_update(
     state: &Arc<AppState>,
     pod_id: &str,
     ac_status: rc_common::types::AcStatus,
+    _sim_type: Option<rc_common::types::SimType>,
     _cmd_tx: &tokio::sync::mpsc::Sender<CoreToAgentMessage>,
 ) {
     use rc_common::types::AcStatus;

@@ -412,10 +412,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 }
                             }
                         }
-                        AgentMessage::GameStatusUpdate { pod_id, ac_status } => {
+                        AgentMessage::GameStatusUpdate { pod_id, ac_status, sim_type } => {
                             tracing::info!("Pod {} AC STATUS: {:?}", pod_id, ac_status);
                             log_pod_activity(&state, pod_id, "game", &format!("AC Status: {:?}", ac_status), "", "agent");
-                            billing::handle_game_status_update(&state, pod_id, *ac_status, &cmd_tx).await;
+                            billing::handle_game_status_update(&state, pod_id, *ac_status, *sim_type, &cmd_tx).await;
                         }
                         AgentMessage::FfbZeroed { pod_id } => {
                             tracing::info!("Pod {} FFB zeroed (safety action completed)", pod_id);

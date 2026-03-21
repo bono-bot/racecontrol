@@ -4,13 +4,13 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Phase 97 context gathered
-last_updated: "2026-03-21T03:34:29.066Z"
+last_updated: "2026-03-21T03:40:37.614Z"
 last_activity: "2026-03-21 -- 79-02 complete: PII encryption migration, 9 phone queries use phone_hash, 7 log statements redacted, cloud sync encrypts (DATA-01, DATA-02, DATA-03)"
 progress:
   total_phases: 61
   completed_phases: 28
   total_plans: 80
-  completed_plans: 76
+  completed_plans: 77
 ---
 
 ---
@@ -257,10 +257,10 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 79 (data-protection)
-Plan: 02 of 03 complete
+Phase: 80 (audit-trail-defense-in-depth)
+Plan: 02 of 02 complete
 Status: In Progress
-Last activity: 2026-03-21 -- 79-02 complete: PII encryption migration, 9 phone queries use phone_hash, 7 log statements redacted, cloud sync encrypts (DATA-01, DATA-02, DATA-03)
+Last activity: 2026-03-21 -- 80-02 complete: PIN rotation alerting (system_settings + 24h WhatsApp check) + HMAC-SHA256 cloud sync signing/verification in permissive mode (ADMIN-06, AUTH-07)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -348,6 +348,8 @@ Last activity: 2026-03-21 -- 79-02 complete: PII encryption migration, 9 phone q
 - 81-01: pwa_game_request uses extract_driver_id() in-handler (customer JWT); validates pod in state.pods + installed_games; fire-and-forget broadcast; no AppState mutation (LAUNCH-05 complete)
 - 70-02: server_recovery uses prev === 'down' guard -- prevents spurious failback on degraded->healthy; only full outage recovery triggers failback sequence (BACK-01, BACK-03, BACK-04 complete)
 - 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
+- 80-02: SHA-256 of admin_pin_hash stored in system_settings for change detection without duplicating sensitive hash; 24h check in alerter loop sends WhatsApp if >30 days (ADMIN-06)
+- 80-02: HMAC verification in permissive mode initially -- warns but allows mismatches for deployment transition; GET signing uses reconstructed query string as body (AUTH-07)
 
 ### Blockers/Concerns
 
@@ -370,7 +372,7 @@ Last activity: 2026-03-21 -- 79-02 complete: PII encryption migration, 9 phone q
 
 ## Session Continuity
 
-Last session: 2026-03-21T03:34:29.060Z
-Stopped at: Phase 97 context gathered
-Resume file: .planning/phases/97-rc-common-protocol-pre-flight-rs-framework-hardware-checks/97-CONTEXT.md
-Next action: Phase 79 data protection complete -- all 3 plans done (DATA-01..06)
+Last session: 2026-03-21T03:39:00Z
+Stopped at: Completed 80-02-PLAN.md
+Resume file: .planning/phases/80-audit-trail-defense-in-depth/80-02-SUMMARY.md
+Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
