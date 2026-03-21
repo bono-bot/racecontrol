@@ -3,13 +3,106 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 90-01-PLAN.md
-last_updated: "2026-03-21T04:05:27.882Z"
+stopped_at: Completed 82-03-PLAN.md
+last_updated: "2026-03-21T04:11:01.247Z"
+last_activity: "2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed AgentMessage variants + ClearMaintenance CoreToAgentMessage variant + PreflightConfig struct wired into AgentConfig (PF-07)"
 progress:
-  total_phases: 72
-  completed_phases: 68
-  total_plans: 179
-  completed_plans: 175
+  total_phases: 61
+  completed_phases: 29
+  total_plans: 82
+  completed_plans: 81
+  percent: 99
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 97-01-PLAN.md
+last_updated: "2026-03-21T04:06:13.920Z"
+last_activity: "2026-03-21 -- 80-02 complete: PIN rotation alerting (system_settings + 24h WhatsApp check) + HMAC-SHA256 cloud sync signing/verification in permissive mode (ADMIN-06, AUTH-07)"
+progress:
+  [██████████] 99%
+  completed_phases: 29
+  total_plans: 82
+  completed_plans: 80
+  percent: 95
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Phase 97 context gathered
+last_updated: "2026-03-21T03:40:37.614Z"
+last_activity: "2026-03-21 -- 79-02 complete: PII encryption migration, 9 phone queries use phone_hash, 7 log statements redacted, cloud sync encrypts (DATA-01, DATA-02, DATA-03)"
+progress:
+  [██████████] 95%
+  completed_phases: 28
+  total_plans: 80
+  completed_plans: 77
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 79-02-PLAN.md
+last_updated: "2026-03-21T03:03:57.288Z"
+last_activity: 2026-03-21 — Milestone v11.1 Pre-Flight Session Checks started
+progress:
+  total_phases: 57
+  completed_phases: 28
+  total_plans: 75
+  completed_plans: 76
+  percent: 100
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Phase 82 context gathered
+last_updated: "2026-03-21T02:59:19.931Z"
+progress:
+  [██████████] 100%
+  completed_phases: 27
+  total_plans: 75
+  completed_plans: 75
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 79-03-PLAN.md
+last_updated: "2026-03-21T02:56:24Z"
+last_activity: "2026-03-21 -- 79-03 complete: DPDP data export (decrypted PII JSON) + cascade delete (21 child tables in transaction) with 8 unit tests (DATA-04, DATA-05)"
+progress:
+  total_phases: 57
+  completed_phases: 27
+  total_plans: 75
+  completed_plans: 75
+  percent: 100
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: completed
+stopped_at: Completed 89-03-PLAN.md
+last_updated: "2026-03-21T02:29:20.428Z"
+progress:
+  [██████████] 100%
+  completed_phases: 65
+  total_plans: 177
+  completed_plans: 170
 ---
 
 ---
@@ -192,12 +285,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** Phase 90 — Customer Progression
+**Current focus:** v11.1 Pre-Flight Session Checks — defining requirements
 
 ## Current Position
 
-Phase: 90 (Customer Progression) — EXECUTING
-Plan: 2 of 2
+Phase: 97 (rc-common-protocol-pre-flight-rs-framework-hardware-checks)
+Plan: 01 of 02 complete
+Status: In Progress
+Last activity: 2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed AgentMessage variants + ClearMaintenance CoreToAgentMessage variant + PreflightConfig struct wired into AgentConfig (PF-07)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -290,6 +385,7 @@ Plan: 2 of 2
 - 97-01: pod_id: String (not u32) for PreFlightPassed/PreFlightFailed -- CONTEXT.md had u32 but RESEARCH.md identified deserialization-breaking mismatch; all existing AgentMessage variants use String
 - 97-01: ClearMaintenance is a unit variant (no fields) -- CoreToAgentMessage is always routed to a specific pod via its WS connection, pod_id redundant
 - 97-01: PreflightConfig follows KioskConfig serde(default) pattern exactly -- reuses existing default_true() fn (PF-07)
+- 82-03: GameState union must include 'loading' for TypeScript to accept game_state === 'loading' comparisons in kiosk KioskPodCard; SIM_TYPE_LABELS + SIM_TYPE_OPTIONS module-level pattern for consistent sim_type display (BILL-03, BILL-05)
 
 ### Blockers/Concerns
 
@@ -312,7 +408,7 @@ Plan: 2 of 2
 
 ## Session Continuity
 
-Last session: 2026-03-21T04:05:27.876Z
-Stopped at: Completed 90-01-PLAN.md
+Last session: 2026-03-21T04:11:01.241Z
+Stopped at: Completed 82-03-PLAN.md
 Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
