@@ -356,3 +356,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:00 IST | James | 73244a9 | feat(81-02): GamePickerPanel + game logo display on pod card (LAUNCH-01, LAUNCH-06) |
 | 2026-03-21 07:02 IST | James | 5270be2 | feat(81-02): GameLaunchRequestBanner + PWA request WebSocket handling (LAUNCH-02) |
 | 2026-03-21 07:03 IST | James | 066ef8f | docs(81-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updates |
+| 2026-03-21 07:11 IST | James | ce15e55 | feat(81-01): non-AC crash recovery calling GameProcess::launch() + DashboardEvent::GameLaunchRequested variant |
+| 2026-03-21 07:12 IST | James | e04805c | feat(81-01): POST /api/v1/customer/game-request -- validates pod/game, broadcasts GameLaunchRequested |
+| 2026-03-21 07:13 IST | James | 59f9b95 | docs(81-01): 81-01-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md |
