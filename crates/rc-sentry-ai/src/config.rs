@@ -8,6 +8,8 @@ pub struct Config {
     pub cameras: Vec<CameraConfig>,
     #[serde(default)]
     pub privacy: PrivacyConfig,
+    #[serde(default)]
+    pub detection: DetectionConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,6 +53,45 @@ impl Default for PrivacyConfig {
         Self {
             audit_log_path: default_audit_log_path(),
             retention_days: default_retention_days(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DetectionConfig {
+    #[serde(default = "default_detection_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_model_path")]
+    pub model_path: String,
+    #[serde(default = "default_confidence")]
+    pub confidence_threshold: f32,
+    #[serde(default = "default_nms_threshold")]
+    pub nms_threshold: f32,
+}
+
+fn default_detection_enabled() -> bool {
+    true
+}
+
+fn default_model_path() -> String {
+    r"C:\RacingPoint\models\scrfd_10g_bnkps.onnx".to_string()
+}
+
+fn default_confidence() -> f32 {
+    0.5
+}
+
+fn default_nms_threshold() -> f32 {
+    0.4
+}
+
+impl Default for DetectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_detection_enabled(),
+            model_path: default_model_path(),
+            confidence_threshold: default_confidence(),
+            nms_threshold: default_nms_threshold(),
         }
     }
 }
