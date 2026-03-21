@@ -1309,7 +1309,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 85. LMU Telemetry | v13.0 | 0/1 | Not started | - |
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
 | 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
-| 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
+| 88. Leaderboard Integration | 1/2 | In Progress|  | - |
 | 89. Psychology Foundation | 3/3 | Complete    | 2026-03-21 | - |
 | 90. Customer Progression | 1/2 | Complete    | 2026-03-21 | - |
 | 91. Session Experience | 1/2 | In Progress|  | - |
