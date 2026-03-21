@@ -170,6 +170,84 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
         }
     }
 
+    // ─── Reservation expiry cleanup ──────────────────────────────────────
+    if let Err(e) = expire_reservations(state).await {
+        tracing::error!("[scheduler] expire_reservations error: {}", e);
+    }
+
+    Ok(())
+}
+
+// ─── Reservation expiry ──────────────────────────────────────────────────────
+
+/// Mark expired reservations and create refund debit_intents for completed debits.
+/// Runs every tick (60s). Finds reservations where status IN ('pending_debit', 'confirmed')
+/// AND expires_at < datetime('now').
+async fn expire_reservations(state: &Arc<AppState>) -> anyhow::Result<()> {
+    // Find expired reservations (both pending_debit and confirmed can expire)
+    let expired = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT id, driver_id, debit_intent_id FROM reservations
+         WHERE status IN ('pending_debit', 'confirmed')
+         AND expires_at < datetime('now')"
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    for (res_id, driver_id, debit_intent_id) in &expired {
+        // Mark reservation as expired
+        sqlx::query(
+            "UPDATE reservations SET status = 'expired', updated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(res_id)
+        .execute(&state.db)
+        .await?;
+
+        // Handle debit intent cleanup
+        if let Some(intent_id) = debit_intent_id {
+            // Check if debit was completed (needs refund) or pending (just cancel)
+            let intent_row = sqlx::query_as::<_, (String, i64)>(
+                "SELECT status, amount_paise FROM debit_intents WHERE id = ?"
+            )
+            .bind(intent_id)
+            .fetch_optional(&state.db)
+            .await?;
+
+            if let Some((intent_status, amount_paise)) = intent_row {
+                match intent_status.as_str() {
+                    "completed" => {
+                        // Create refund debit_intent (negative amount)
+                        let refund_id = uuid::Uuid::new_v4().to_string();
+                        sqlx::query(
+                            "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id, status, origin, created_at, updated_at)
+                             VALUES (?, ?, ?, ?, 'pending', 'local', datetime('now'), datetime('now'))"
+                        )
+                        .bind(&refund_id)
+                        .bind(driver_id)
+                        .bind(-amount_paise)  // negative = refund
+                        .bind(res_id)
+                        .execute(&state.db)
+                        .await?;
+                        tracing::info!("[scheduler] Created refund intent {} for expired reservation {} ({}p)", refund_id, res_id, amount_paise);
+                    }
+                    "pending" | "processing" => {
+                        // Cancel the pending debit intent
+                        sqlx::query(
+                            "UPDATE debit_intents SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?"
+                        )
+                        .bind(intent_id)
+                        .execute(&state.db)
+                        .await?;
+                        tracing::info!("[scheduler] Cancelled debit intent {} for expired reservation {}", intent_id, res_id);
+                    }
+                    _ => {} // failed/cancelled — nothing to do
+                }
+            }
+        }
+    }
+
+    if !expired.is_empty() {
+        tracing::info!("[scheduler] Expired {} reservation(s)", expired.len());
+    }
     Ok(())
 }
 
