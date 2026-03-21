@@ -1879,7 +1879,9 @@ Plans:
   3. An attempt to escalate shell relay to AUTO or NOTIFY tier is rejected at the handler — the tier is hardcoded APPROVE and the payload value is ignored
   4. A binary not in the shell relay allowlist (node, git, pm2, cargo, systemctl, curl, sqlite3, taskkill, shutdown, net, wmic) is rejected before any approval request is sent to Uday
   5. Shell relay uses execFile with shell:false and the same sanitized env as static commands — no shell injection surface exists
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 131-01-PLAN.md — ShellRelayHandler class + TDD tests + James/Bono wiring
 
 ### Phase 132: Chain Orchestration
 **Goal**: Either side can execute a multi-step chain where each step receives the previous step's output and the whole chain returns one structured result
