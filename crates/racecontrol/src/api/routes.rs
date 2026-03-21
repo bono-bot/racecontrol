@@ -1275,13 +1275,32 @@ async fn create_driver(
     let phone = body.get("phone").and_then(|v| v.as_str());
     let steam_guid = body.get("steam_guid").and_then(|v| v.as_str());
 
+    // Encrypt PII fields
+    let phone_hash = phone.filter(|p| !p.is_empty()).map(|p| state.field_cipher.hash_phone(p));
+    let phone_enc = match phone.filter(|p| !p.is_empty()).map(|p| state.field_cipher.encrypt_field(p)) {
+        Some(Ok(v)) => Some(v),
+        Some(Err(e)) => return Json(json!({ "error": format!("Encrypt error: {}", e) })),
+        None => None,
+    };
+    let email_enc = match email.filter(|e| !e.is_empty()).map(|e| state.field_cipher.encrypt_field(e)) {
+        Some(Ok(v)) => Some(v),
+        Some(Err(e)) => return Json(json!({ "error": format!("Encrypt error: {}", e) })),
+        None => None,
+    };
+    let name_enc = match state.field_cipher.encrypt_field(name) {
+        Ok(v) => Some(v),
+        Err(e) => return Json(json!({ "error": format!("Encrypt error: {}", e) })),
+    };
+
     let result = sqlx::query(
-        "INSERT INTO drivers (id, name, email, phone, steam_guid, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
+        "INSERT INTO drivers (id, name, name_enc, phone_hash, phone_enc, email_enc, steam_guid, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))"
     )
     .bind(&id)
-    .bind(name)
-    .bind(email)
-    .bind(phone)
+    .bind(name) // Keep plaintext name for leaderboard backward compat
+    .bind(&name_enc)
+    .bind(&phone_hash)
+    .bind(&phone_enc)
+    .bind(&email_enc)
     .bind(steam_guid)
     .execute(&state.db)
     .await;
@@ -4178,9 +4197,9 @@ async fn customer_verify_otp(
         Ok(jwt) => {
             // Check registration status
             let registered = sqlx::query_as::<_, (bool,)>(
-                "SELECT COALESCE(registration_completed, 0) FROM drivers WHERE phone = ?",
+                "SELECT COALESCE(registration_completed, 0) FROM drivers WHERE phone_hash = ?",
             )
-            .bind(&req.phone)
+            .bind(state.field_cipher.hash_phone(&req.phone))
             .fetch_optional(&state.db)
             .await
             .ok()
@@ -4810,18 +4829,19 @@ async fn check_waiver(
     }
 
     let row = if let Some(phone) = phone {
-        // Normalize: strip non-digits, use last 10
+        // Normalize: strip non-digits, use last 10 for hash lookup (full match only)
         let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
         let last10 = if digits.len() >= 10 { &digits[digits.len() - 10..] } else { &digits };
+        let ph = state.field_cipher.hash_phone(last10);
         sqlx::query_as::<_, (String, String, Option<String>, bool)>(
-            "SELECT id, name, phone, COALESCE(waiver_signed, 0) FROM drivers WHERE phone LIKE '%' || ?",
+            "SELECT id, name, phone_enc, COALESCE(waiver_signed, 0) FROM drivers WHERE phone_hash = ?",
         )
-        .bind(last10)
+        .bind(&ph)
         .fetch_optional(&state.db)
         .await
     } else if let Some(email) = email {
         sqlx::query_as::<_, (String, String, Option<String>, bool)>(
-            "SELECT id, name, phone, COALESCE(waiver_signed, 0) FROM drivers WHERE LOWER(email) = LOWER(?)",
+            "SELECT id, name, phone_enc, COALESCE(waiver_signed, 0) FROM drivers WHERE LOWER(email) = LOWER(?)",
         )
         .bind(email)
         .fetch_optional(&state.db)
@@ -4831,10 +4851,13 @@ async fn check_waiver(
     };
 
     match row {
-        Ok(Some((id, name, phone, signed))) => Json(json!({
-            "signed": signed,
-            "driver": { "id": id, "name": name, "phone": phone },
-        })),
+        Ok(Some((id, name, phone_enc, signed))) => {
+            let phone = phone_enc.and_then(|enc| state.field_cipher.decrypt_field(&enc).ok());
+            Json(json!({
+                "signed": signed,
+                "driver": { "id": id, "name": name, "phone": phone },
+            }))
+        }
         Ok(None) => Json(json!({ "signed": false, "driver": null })),
         Err(e) => Json(json!({ "error": format!("DB error: {}", e) })),
     }
@@ -7492,8 +7515,9 @@ async fn sync_push(
             let email = w.get("email").and_then(|v| v.as_str()).unwrap_or("");
 
             let resolved: Option<(String,)> = if !phone.is_empty() {
-                sqlx::query_as("SELECT id FROM drivers WHERE phone = ?")
-                    .bind(phone)
+                let ph = state.field_cipher.hash_phone(phone);
+                sqlx::query_as("SELECT id FROM drivers WHERE phone_hash = ?")
+                    .bind(&ph)
                     .fetch_optional(&state.db)
                     .await
                     .ok()
@@ -11206,11 +11230,12 @@ async fn bot_lookup(
         return Json(json!({ "error": "Phone number required" }));
     }
 
-    // Look up driver by phone
+    // Look up driver by phone hash
+    let ph = state.field_cipher.hash_phone(phone);
     let driver = sqlx::query_as::<_, (String, String, Option<String>, bool)>(
-        "SELECT id, name, phone, COALESCE(has_used_trial, 0) FROM drivers WHERE phone = ?",
+        "SELECT id, name, phone_enc, COALESCE(has_used_trial, 0) FROM drivers WHERE phone_hash = ?",
     )
-    .bind(phone)
+    .bind(&ph)
     .fetch_optional(&state.db)
     .await;
 
@@ -11283,11 +11308,12 @@ async fn bot_book(
         return e;
     }
 
-    // Look up driver by phone
+    // Look up driver by phone hash
+    let ph = state.field_cipher.hash_phone(&req.phone);
     let driver = sqlx::query_as::<_, (String, String, bool, bool)>(
-        "SELECT id, name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE phone = ?",
+        "SELECT id, name, COALESCE(has_used_trial, 0), COALESCE(unlimited_trials, 0) FROM drivers WHERE phone_hash = ?",
     )
-    .bind(&req.phone)
+    .bind(&ph)
     .fetch_optional(&state.db)
     .await;
 
@@ -11588,11 +11614,12 @@ async fn bot_customer_stats(
 
     let phone = params.phone.trim();
 
+    let ph = state.field_cipher.hash_phone(phone);
     let driver = sqlx::query_as::<_, (String, String, i64, i64)>(
         "SELECT id, name, COALESCE(total_laps, 0), COALESCE(total_time_ms, 0)
-         FROM drivers WHERE phone = ?"
+         FROM drivers WHERE phone_hash = ?"
     )
-    .bind(phone)
+    .bind(&ph)
     .fetch_optional(&state.db)
     .await;
 
@@ -14144,63 +14171,7 @@ async fn pwa_game_request(
     )
 }
 
-// ─── DPDP Act: Customer Data Rights (Plan 79-03) ────────────────────────────
-
-/// GET /api/v1/customer/data-export
-/// Returns a JSON dump of all customer data with decrypted PII fields.
-/// Requires valid customer JWT.
-async fn customer_data_export(
-    State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
-) -> Result<(axum::http::StatusCode, Json<Value>), (axum::http::StatusCode, Json<Value>)> {
-    let driver_id = match extract_driver_id(&state, &headers) {
-        Ok(id) => id,
-        Err(e) => {
-            return Err((
-                axum::http::StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": e })),
-            ))
-        }
-    };
-
-    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64)>(
-        "SELECT id, name, email, phone, name_enc, email_enc, phone_enc, total_laps, total_time_ms FROM drivers WHERE id = ?",
-    )
-    .bind(&driver_id)
-    .fetch_optional(&state.db)
-    .await;
-
-    let d = match driver {
-        Ok(Some(row)) => row,
-        Ok(None) => {
-            return Err((
-                axum::http::StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Driver not found" })),
-            ))
-        }
-        Err(e) => {
-            tracing::error!("data_export DB error for driver {}: {}", driver_id, e);
-            return Err((
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
-            ));
-        }
-    };
-
-    // Decrypt PII fields; fallback to plaintext columns if decryption fails or enc is NULL
-    let name = d.4.as_deref()
-        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
-        .or_else(|| Some(d.1.clone()));
-    let email = d.5.as_deref()
-        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
-        .or(d.2.clone());
-    let phone = d.6.as_deref()
-        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
-        .or(d.3.clone());
-
-    // Fetch nickname
-    let nickname: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
-        "SELECT nickname FROM drivers WHERE id = ?",// ─── Psychology handlers ──────────────────────────────────────────────────────
+// ─── Psychology handlers ──────────────────────────────────────────────────────
 
 async fn list_badges(
     State(state): State<Arc<AppState>>,
@@ -14257,7 +14228,156 @@ async fn driver_streak(
 ) -> Json<Value> {
     let streak: Option<(i64, i64, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT current_streak, longest_streak, last_visit_date, grace_expires_date, streak_started_at
-         FROM streaks WHERE driver_id = ?"    )
+         FROM streaks WHERE driver_id = ?"
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    match streak {
+        Some((current, longest, last_visit, grace, started)) => {
+            Json(json!({
+                "driver_id": driver_id,
+                "current_streak": current,
+                "longest_streak": longest,
+                "last_visit_date": last_visit,
+                "grace_expires_date": grace,
+                "streak_started_at": started
+            }))
+        }
+        None => {
+            Json(json!({
+                "driver_id": driver_id,
+                "current_streak": 0,
+                "longest_streak": 0,
+                "last_visit_date": null,
+                "grace_expires_date": null,
+                "streak_started_at": null
+            }))
+        }
+    }
+}
+
+async fn list_nudge_queue(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(50);
+    let status_filter = params.get("status").cloned();
+
+    let nudges: Vec<(String, String, String, i32, String, String, String, Option<String>, Option<String>)> = if let Some(status) = &status_filter {
+        sqlx::query_as(
+            "SELECT id, driver_id, channel, priority, template, payload_json, status, sent_at, created_at
+             FROM nudge_queue WHERE status = ? ORDER BY created_at DESC LIMIT ?"
+        )
+        .bind(status)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as(
+            "SELECT id, driver_id, channel, priority, template, payload_json, status, sent_at, created_at
+             FROM nudge_queue ORDER BY created_at DESC LIMIT ?"
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    };
+
+    let count = nudges.len();
+    let result: Vec<Value> = nudges.into_iter().map(|(id, driver, ch, pri, tpl, payload, status, sent, created)| {
+        json!({
+            "id": id, "driver_id": driver, "channel": ch, "priority": pri,
+            "template": tpl, "payload_json": payload, "status": status,
+            "sent_at": sent, "created_at": created
+        })
+    }).collect();
+
+    Json(json!({ "nudges": result, "count": count }))
+}
+
+async fn test_nudge(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let driver_id = body.get("driver_id").and_then(|v| v.as_str()).unwrap_or("");
+    let channel = body.get("channel").and_then(|v| v.as_str()).unwrap_or("pwa");
+    let message = body.get("message").and_then(|v| v.as_str()).unwrap_or("Test notification");
+
+    if driver_id.is_empty() {
+        return Json(json!({ "error": "driver_id required" }));
+    }
+
+    let ch = psychology::NotificationChannel::from_str(channel)
+        .unwrap_or(psychology::NotificationChannel::Pwa);
+
+    psychology::queue_notification(&state, driver_id, ch, 5, message, "{}").await;
+
+    Json(json!({ "ok": true, "queued_for": driver_id, "channel": channel }))
+}
+
+// ─── DPDP Act: Customer Data Rights (Plan 79-03) ────────────────────────────
+
+/// GET /api/v1/customer/data-export
+/// Returns a JSON dump of all customer data with decrypted PII fields.
+/// Requires valid customer JWT.
+async fn customer_data_export(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<(axum::http::StatusCode, Json<Value>), (axum::http::StatusCode, Json<Value>)> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => {
+            return Err((
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e })),
+            ))
+        }
+    };
+
+    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64)>(
+        "SELECT id, name, email, phone, name_enc, email_enc, phone_enc, total_laps, total_time_ms FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let d = match driver {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return Err((
+                axum::http::StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Driver not found" })),
+            ))
+        }
+        Err(e) => {
+            tracing::error!("data_export DB error for driver {}: {}", driver_id, e);
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            ));
+        }
+    };
+
+    // Decrypt PII fields; fallback to plaintext columns if decryption fails or enc is NULL
+    let name = d.4.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or_else(|| Some(d.1.clone()));
+    let email = d.5.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or(d.2.clone());
+    let phone = d.6.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or(d.3.clone());
+
+    // Fetch nickname
+    let nickname: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT nickname FROM drivers WHERE id = ?",
+    )
     .bind(&driver_id)
     .fetch_optional(&state.db)
     .await
@@ -14404,174 +14524,28 @@ mod data_rights_tests {
             .expect("in-memory sqlite");
 
         // Create required tables
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS drivers (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                email TEXT,
-                phone TEXT,
-                name_enc TEXT,
-                email_enc TEXT,
-                phone_enc TEXT,
-                nickname TEXT,
-                total_laps INTEGER DEFAULT 0,
-                total_time_ms INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT
-            )"
-        ).execute(&db).await.expect("create drivers");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS wallets (
-                driver_id TEXT PRIMARY KEY,
-                balance INTEGER DEFAULT 0
-            )"
-        ).execute(&db).await.expect("create wallets");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS wallet_transactions (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create wallet_transactions");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS billing_sessions (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create billing_sessions");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS laps (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create laps");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS customer_sessions (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create customer_sessions");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS friend_requests (
-                id TEXT PRIMARY KEY,
-                sender_id TEXT NOT NULL,
-                receiver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create friend_requests");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS friendships (
-                id TEXT PRIMARY KEY,
-                driver_a_id TEXT NOT NULL,
-                driver_b_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create friendships");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS group_session_members (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create group_session_members");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS tournament_registrations (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create tournament_registrations");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS pod_reservations (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create pod_reservations");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS auth_tokens (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create auth_tokens");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS personal_bests (
-                driver_id TEXT NOT NULL,
-                track TEXT NOT NULL,
-                car TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create personal_bests");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS event_entries (
-                event_id TEXT NOT NULL,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create event_entries");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS session_feedback (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create session_feedback");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS coupon_redemptions (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create coupon_redemptions");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS memberships (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create memberships");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS referrals (
-                id TEXT PRIMARY KEY,
-                referrer_id TEXT NOT NULL,
-                referee_id TEXT,
-                code TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create referrals");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS session_highlights (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create session_highlights");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS review_nudges (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create review_nudges");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS multiplayer_results (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create multiplayer_results");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS driver_ratings (
-                id TEXT PRIMARY KEY,
-                driver_id TEXT NOT NULL
-            )"
-        ).execute(&db).await.expect("create driver_ratings");
+        sqlx::query("CREATE TABLE IF NOT EXISTS drivers (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT, phone TEXT, name_enc TEXT, email_enc TEXT, phone_enc TEXT, nickname TEXT, total_laps INTEGER DEFAULT 0, total_time_ms INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT)").execute(&db).await.expect("create drivers");
+        sqlx::query("CREATE TABLE IF NOT EXISTS wallets (driver_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 0)").execute(&db).await.expect("create wallets");
+        sqlx::query("CREATE TABLE IF NOT EXISTS wallet_transactions (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create wallet_transactions");
+        sqlx::query("CREATE TABLE IF NOT EXISTS billing_sessions (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create billing_sessions");
+        sqlx::query("CREATE TABLE IF NOT EXISTS laps (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create laps");
+        sqlx::query("CREATE TABLE IF NOT EXISTS customer_sessions (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create customer_sessions");
+        sqlx::query("CREATE TABLE IF NOT EXISTS friend_requests (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, receiver_id TEXT NOT NULL)").execute(&db).await.expect("create friend_requests");
+        sqlx::query("CREATE TABLE IF NOT EXISTS friendships (id TEXT PRIMARY KEY, driver_a_id TEXT NOT NULL, driver_b_id TEXT NOT NULL)").execute(&db).await.expect("create friendships");
+        sqlx::query("CREATE TABLE IF NOT EXISTS group_session_members (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create group_session_members");
+        sqlx::query("CREATE TABLE IF NOT EXISTS tournament_registrations (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create tournament_registrations");
+        sqlx::query("CREATE TABLE IF NOT EXISTS pod_reservations (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create pod_reservations");
+        sqlx::query("CREATE TABLE IF NOT EXISTS auth_tokens (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create auth_tokens");
+        sqlx::query("CREATE TABLE IF NOT EXISTS personal_bests (driver_id TEXT NOT NULL, track TEXT NOT NULL, car TEXT NOT NULL)").execute(&db).await.expect("create personal_bests");
+        sqlx::query("CREATE TABLE IF NOT EXISTS event_entries (event_id TEXT NOT NULL, driver_id TEXT NOT NULL)").execute(&db).await.expect("create event_entries");
+        sqlx::query("CREATE TABLE IF NOT EXISTS session_feedback (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create session_feedback");
+        sqlx::query("CREATE TABLE IF NOT EXISTS coupon_redemptions (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create coupon_redemptions");
+        sqlx::query("CREATE TABLE IF NOT EXISTS memberships (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create memberships");
+        sqlx::query("CREATE TABLE IF NOT EXISTS referrals (id TEXT PRIMARY KEY, referrer_id TEXT NOT NULL, referee_id TEXT, code TEXT NOT NULL)").execute(&db).await.expect("create referrals");
+        sqlx::query("CREATE TABLE IF NOT EXISTS session_highlights (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create session_highlights");
+        sqlx::query("CREATE TABLE IF NOT EXISTS review_nudges (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create review_nudges");
+        sqlx::query("CREATE TABLE IF NOT EXISTS multiplayer_results (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create multiplayer_results");
+        sqlx::query("CREATE TABLE IF NOT EXISTS driver_ratings (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create driver_ratings");
 
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
@@ -14589,13 +14563,10 @@ mod data_rights_tests {
         headers
     }
 
-    // ── Data Export Tests ────────────────────────────────────────────────
-
     #[tokio::test]
     async fn data_export_without_jwt_returns_401() {
         let state = make_state_with_db().await;
         let headers = axum::http::HeaderMap::new();
-
         let result = customer_data_export(State(state), headers).await;
         assert!(result.is_err());
         let (status, _) = result.unwrap_err();
@@ -14605,27 +14576,12 @@ mod data_rights_tests {
     #[tokio::test]
     async fn data_export_with_valid_jwt_returns_200() {
         let state = make_state_with_db().await;
-
-        // Insert a test driver
         sqlx::query("INSERT INTO drivers (id, name, email, phone, total_laps, total_time_ms) VALUES (?, ?, ?, ?, ?, ?)")
-            .bind("d-001")
-            .bind("Test Driver")
-            .bind("test@example.com")
-            .bind("9876543210")
-            .bind(42i64)
-            .bind(360000i64)
-            .execute(&state.db)
-            .await
-            .expect("insert driver");
-
-        // Insert wallet
+            .bind("d-001").bind("Test Driver").bind("test@example.com").bind("9876543210").bind(42i64).bind(360000i64)
+            .execute(&state.db).await.expect("insert driver");
         sqlx::query("INSERT INTO wallets (driver_id, balance) VALUES (?, ?)")
-            .bind("d-001")
-            .bind(5000i64)
-            .execute(&state.db)
-            .await
-            .expect("insert wallet");
-
+            .bind("d-001").bind(5000i64)
+            .execute(&state.db).await.expect("insert wallet");
         let headers = make_auth_headers(&state, "d-001");
         let result = customer_data_export(State(state), headers).await;
         assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
@@ -14633,10 +14589,8 @@ mod data_rights_tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["driver_id"], "d-001");
         assert_eq!(body["total_laps"], 42);
-        assert_eq!(body["total_time_ms"], 360000);
         assert_eq!(body["wallet_balance"], 5000);
         assert!(body["exported_at"].as_str().is_some());
-        // name falls back to plaintext since no name_enc
         assert_eq!(body["name"], "Test Driver");
     }
 
@@ -14644,7 +14598,6 @@ mod data_rights_tests {
     async fn data_export_driver_not_found_returns_404() {
         let state = make_state_with_db().await;
         let headers = make_auth_headers(&state, "nonexistent");
-
         let result = customer_data_export(State(state), headers).await;
         assert!(result.is_err());
         let (status, _) = result.unwrap_err();
@@ -14654,41 +14607,25 @@ mod data_rights_tests {
     #[tokio::test]
     async fn data_export_decrypts_encrypted_fields() {
         let state = make_state_with_db().await;
-
-        // Encrypt some fields
         let name_enc = state.field_cipher.encrypt_field("Encrypted Name").expect("encrypt name");
         let email_enc = state.field_cipher.encrypt_field("secret@email.com").expect("encrypt email");
         let phone_enc = state.field_cipher.encrypt_field("9999999999").expect("encrypt phone");
-
         sqlx::query("INSERT INTO drivers (id, name, name_enc, email_enc, phone_enc, total_laps, total_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
-            .bind("d-enc")
-            .bind("Plaintext Name")
-            .bind(&name_enc)
-            .bind(&email_enc)
-            .bind(&phone_enc)
-            .bind(10i64)
-            .bind(100000i64)
-            .execute(&state.db)
-            .await
-            .expect("insert driver with enc");
-
+            .bind("d-enc").bind("Plaintext Name").bind(&name_enc).bind(&email_enc).bind(&phone_enc).bind(10i64).bind(100000i64)
+            .execute(&state.db).await.expect("insert driver with enc");
         let headers = make_auth_headers(&state, "d-enc");
         let result = customer_data_export(State(state), headers).await;
         assert!(result.is_ok());
         let (_, Json(body)) = result.unwrap();
-        // Encrypted fields should be decrypted
         assert_eq!(body["name"], "Encrypted Name");
         assert_eq!(body["email"], "secret@email.com");
         assert_eq!(body["phone"], "9999999999");
     }
 
-    // ── Data Delete Tests ────────────────────────────────────────────────
-
     #[tokio::test]
     async fn data_delete_without_jwt_returns_401() {
         let state = make_state_with_db().await;
         let headers = axum::http::HeaderMap::new();
-
         let result = customer_data_delete(State(state), headers).await;
         assert!(result.is_err());
         let (status, _) = result.unwrap_err();
@@ -14699,7 +14636,6 @@ mod data_rights_tests {
     async fn data_delete_driver_not_found_returns_404() {
         let state = make_state_with_db().await;
         let headers = make_auth_headers(&state, "nonexistent");
-
         let result = customer_data_delete(State(state), headers).await;
         assert!(result.is_err());
         let (status, _) = result.unwrap_err();
@@ -14709,149 +14645,33 @@ mod data_rights_tests {
     #[tokio::test]
     async fn data_delete_cascades_all_child_tables() {
         let state = make_state_with_db().await;
-
-        // Insert driver + child records
-        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)")
-            .bind("d-del").bind("Delete Me")
-            .execute(&state.db).await.expect("insert driver");
-        sqlx::query("INSERT INTO wallets (driver_id, balance) VALUES (?, ?)")
-            .bind("d-del").bind(1000i64)
-            .execute(&state.db).await.expect("insert wallet");
-        sqlx::query("INSERT INTO wallet_transactions (id, driver_id) VALUES (?, ?)")
-            .bind("wt-1").bind("d-del")
-            .execute(&state.db).await.expect("insert wallet_txn");
-        sqlx::query("INSERT INTO laps (id, driver_id) VALUES (?, ?)")
-            .bind("l-1").bind("d-del")
-            .execute(&state.db).await.expect("insert lap");
-        sqlx::query("INSERT INTO auth_tokens (id, driver_id) VALUES (?, ?)")
-            .bind("at-1").bind("d-del")
-            .execute(&state.db).await.expect("insert auth_token");
-
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)").bind("d-del").bind("Delete Me").execute(&state.db).await.expect("insert driver");
+        sqlx::query("INSERT INTO wallets (driver_id, balance) VALUES (?, ?)").bind("d-del").bind(1000i64).execute(&state.db).await.expect("insert wallet");
+        sqlx::query("INSERT INTO wallet_transactions (id, driver_id) VALUES (?, ?)").bind("wt-1").bind("d-del").execute(&state.db).await.expect("insert wallet_txn");
+        sqlx::query("INSERT INTO laps (id, driver_id) VALUES (?, ?)").bind("l-1").bind("d-del").execute(&state.db).await.expect("insert lap");
+        sqlx::query("INSERT INTO auth_tokens (id, driver_id) VALUES (?, ?)").bind("at-1").bind("d-del").execute(&state.db).await.expect("insert auth_token");
         let headers = make_auth_headers(&state, "d-del");
         let result = customer_data_delete(State(state.clone()), headers).await;
         assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
         assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
-
-        // Verify driver is gone
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM drivers WHERE id = ?")
-            .bind("d-del")
-            .fetch_one(&state.db)
-            .await
-            .expect("count drivers");
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM drivers WHERE id = ?").bind("d-del").fetch_one(&state.db).await.expect("count drivers");
         assert_eq!(count.0, 0, "Driver should be deleted");
-
-        // Verify child records are gone
-        let wallet_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM wallets WHERE driver_id = ?")
-            .bind("d-del")
-            .fetch_one(&state.db)
-            .await
-            .expect("count wallets");
+        let wallet_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM wallets WHERE driver_id = ?").bind("d-del").fetch_one(&state.db).await.expect("count wallets");
         assert_eq!(wallet_count.0, 0, "Wallet should be deleted");
-
-        let lap_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM laps WHERE driver_id = ?")
-            .bind("d-del")
-            .fetch_one(&state.db)
-            .await
-            .expect("count laps");
+        let lap_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM laps WHERE driver_id = ?").bind("d-del").fetch_one(&state.db).await.expect("count laps");
         assert_eq!(lap_count.0, 0, "Laps should be deleted");
     }
 
     #[tokio::test]
     async fn data_delete_returns_204_no_content() {
         let state = make_state_with_db().await;
-
-        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)")
-            .bind("d-204").bind("204 Test")
-            .execute(&state.db).await.expect("insert driver");
-
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)").bind("d-204").bind("204 Test").execute(&state.db).await.expect("insert driver");
         let headers = make_auth_headers(&state, "d-204");
         let result = customer_data_delete(State(state), headers).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
-    }    .flatten();
-
-    match streak {
-        Some((current, longest, last_visit, grace, started)) => {
-            Json(json!({
-                "driver_id": driver_id,
-                "current_streak": current,
-                "longest_streak": longest,
-                "last_visit_date": last_visit,
-                "grace_expires_date": grace,
-                "streak_started_at": started
-            }))
-        }
-        None => {
-            Json(json!({
-                "driver_id": driver_id,
-                "current_streak": 0,
-                "longest_streak": 0,
-                "last_visit_date": null,
-                "grace_expires_date": null,
-                "streak_started_at": null
-            }))
-        }
     }
 }
-
-async fn list_nudge_queue(
-    State(state): State<Arc<AppState>>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
-) -> Json<Value> {
-    let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(50);
-    let status_filter = params.get("status").cloned();
-
-    let nudges: Vec<(String, String, String, i32, String, String, String, Option<String>, Option<String>)> = if let Some(status) = &status_filter {
-        sqlx::query_as(
-            "SELECT id, driver_id, channel, priority, template, payload_json, status, sent_at, created_at
-             FROM nudge_queue WHERE status = ? ORDER BY created_at DESC LIMIT ?"
-        )
-        .bind(status)
-        .bind(limit)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-    } else {
-        sqlx::query_as(
-            "SELECT id, driver_id, channel, priority, template, payload_json, status, sent_at, created_at
-             FROM nudge_queue ORDER BY created_at DESC LIMIT ?"
-        )
-        .bind(limit)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-    };
-
-    let count = nudges.len();
-    let result: Vec<Value> = nudges.into_iter().map(|(id, driver, ch, pri, tpl, payload, status, sent, created)| {
-        json!({
-            "id": id, "driver_id": driver, "channel": ch, "priority": pri,
-            "template": tpl, "payload_json": payload, "status": status,
-            "sent_at": sent, "created_at": created
-        })
-    }).collect();
-
-    Json(json!({ "nudges": result, "count": count }))
-}
-
-async fn test_nudge(
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<Value>,
-) -> Json<Value> {
-    let driver_id = body.get("driver_id").and_then(|v| v.as_str()).unwrap_or("");
-    let channel = body.get("channel").and_then(|v| v.as_str()).unwrap_or("pwa");
-    let message = body.get("message").and_then(|v| v.as_str()).unwrap_or("Test notification");
-
-    if driver_id.is_empty() {
-        return Json(json!({ "error": "driver_id required" }));
-    }
-
-    let ch = psychology::NotificationChannel::from_str(channel)
-        .unwrap_or(psychology::NotificationChannel::Pwa);
-
-    psychology::queue_notification(&state, driver_id, ch, 5, message, "{}").await;
-
-    Json(json!({ "ok": true, "queued_for": driver_id, "channel": channel }))}
 
 #[cfg(test)]
 mod config_snapshot_tests {
