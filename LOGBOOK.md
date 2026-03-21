@@ -497,3 +497,4 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 00:37 IST | James | 3cb363b | feat(119-03): NVR playback page with search, video player, event timeline |
 | 2026-03-22 00:37 IST | James | 861a717 | docs(119-03): complete NVR playback page plan (phase 119 complete 3/3) |
 | 2026-03-21 21:23 IST | James | edc340c | chore(01-02): switch Caddyfile to production Let's Encrypt (remove staging ACME) |
+| 2026-03-21 21:29 IST | James | 24bcc7a | docs(01-02): complete VPS deployment plan |
