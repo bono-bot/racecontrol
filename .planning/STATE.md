@@ -3,13 +3,45 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
-stopped_at: Completed 91-01-PLAN.md
-last_updated: "2026-03-21T07:27:08.031Z"
+stopped_at: Phase 88 context gathered
+last_updated: "2026-03-21T07:40:02.916Z"
+last_activity: "2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)"
 progress:
-  total_phases: 82
-  completed_phases: 78
-  total_plans: 199
-  completed_plans: 196
+  total_phases: 70
+  completed_phases: 45
+  total_plans: 110
+  completed_plans: 108
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
+stopped_at: Completed 86-01-PLAN.md
+last_updated: "2026-03-21T07:22:25.991Z"
+last_activity: "2026-03-21 -- 86-01 complete: AssettoCorsaEvoAdapter with zero-guard SHM reads, warn-once flags, physics-based read_is_on_track(), 7 unit tests (TEL-EVO-01, TEL-EVO-02, TEL-EVO-03)"
+progress:
+  total_phases: 70
+  completed_phases: 44
+  total_plans: 110
+  completed_plans: 107
+  percent: 98
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
+stopped_at: Completed 100-02-PLAN.md
+last_updated: "2026-03-21T06:33:17.824Z"
+last_activity: "2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)"
+progress:
+  [██████████] 98%
+  completed_phases: 41
+  total_plans: 108
+  completed_plans: 104
   percent: 96
 ---
 
@@ -29,10 +61,8 @@ progress:
   completed_plans: 104
   percent: 96
 decisions:
-
   - "PIN gate accepts any 4-digit input for maintenance modal — casual venue TV protection; actual security is JWT-protected clear-maintenance endpoint"
   - "maintenance check runs first in statusBorder/statusLabel/statusLabelColor so in_maintenance=true always overrides WS/HTTP status visuals"
-
 ---
 
 ---
@@ -50,12 +80,10 @@ progress:
   completed_plans: 103
   percent: 96
 decisions:
-
   - "clear_on_disconnect() clears in_maintenance=false because offline pods are not in maintenance from the server's perspective"
   - "Optimistic server-side clear on clear_maintenance_pod() for instant staff visual feedback without waiting for PreFlightPassed roundtrip"
   - "sector_times_ms() uses .round() not truncation — (42.3-20.1)*1000 = 22199.99 would truncate to 22199 instead of 22200"
   - "pub mod lmu registered in Plan 01 (not Plan 02) — required for cargo test sims::lmu compilation"
-
 ---
 
 ---
@@ -469,12 +497,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers see their lap times, compete on leaderboards, and compare telemetry
-**Current focus:** Phase 91 — Session Experience
+**Current focus:** v11.1 Pre-Flight Session Checks — defining requirements
 
 ## Current Position
 
-Phase: 91 (Session Experience) — EXECUTING
-Plan: 1 of 2
+Phase: 84 (iracing-telemetry)
+Plan: 01 of 02 complete
+Status: In Progress
+Last activity: 2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -598,7 +628,7 @@ Plan: 1 of 2
 
 ## Session Continuity
 
-Last session: 2026-03-21T07:27:08.025Z
-Stopped at: Completed 91-01-PLAN.md
-Resume file: None
+Last session: 2026-03-21T07:40:02.909Z
+Stopped at: Phase 88 context gathered
+Resume file: .planning/phases/88-leaderboard-integration/88-CONTEXT.md
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
