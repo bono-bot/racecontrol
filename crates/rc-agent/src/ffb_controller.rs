@@ -8,6 +8,8 @@
 
 use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 
+const LOG_TARGET: &str = "ffb";
+
 /// Crash counter — tracks how many times ConspitLink has been restarted via
 /// watchdog (crash recovery) since rc-agent started. Resets on agent restart.
 static CONSPIT_CRASH_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -99,6 +101,7 @@ impl FfbController {
             Some(dev) => dev,
             None => {
                 tracing::debug!(
+                    target: LOG_TARGET,
                     "Wheelbase not found (VID:{:#06x} PID:{:#06x}) — skipping FFB zero",
                     self.vid, self.pid
                 );
@@ -108,14 +111,14 @@ impl FfbController {
 
         // Send estop command (CmdID 0x0A, Data = 1)
         if let Err(e) = self.send_vendor_cmd(&device, CMD_ESTOP, 1) {
-            tracing::warn!("FFB estop write failed: {}", e);
+            tracing::warn!(target: LOG_TARGET, "FFB estop write failed: {}", e);
             return Err(e);
         }
-        tracing::info!("FFB: emergency stop sent — wheelbase torque zeroed");
+        tracing::info!(target: LOG_TARGET, "FFB: emergency stop sent — wheelbase torque zeroed");
 
         // Also disable FFB active flag as belt-and-suspenders safety
         if let Err(e) = self.send_vendor_cmd(&device, CMD_FFB_ACTIVE, 0) {
-            tracing::debug!("FFB: ffbactive=0 write failed (non-critical): {}", e);
+            tracing::debug!(target: LOG_TARGET, "FFB: ffbactive=0 write failed (non-critical): {}", e);
         }
 
         Ok(true)
@@ -130,23 +133,23 @@ impl FfbController {
         for i in 1..=attempts {
             match self.zero_force() {
                 Ok(true) => {
-                    tracing::info!("FFB zero succeeded on attempt {}", i);
+                    tracing::info!(target: LOG_TARGET, "FFB zero succeeded on attempt {}", i);
                     return true;
                 }
                 Ok(false) => {
                     // Device not found — not retryable
-                    tracing::debug!("FFB zero: device not found (attempt {})", i);
+                    tracing::debug!(target: LOG_TARGET, "FFB zero: device not found (attempt {})", i);
                     return false;
                 }
                 Err(e) => {
-                    tracing::warn!("FFB zero attempt {}/{} failed: {}", i, attempts, e);
+                    tracing::warn!(target: LOG_TARGET, "FFB zero attempt {}/{} failed: {}", i, attempts, e);
                     if i < attempts {
                         std::thread::sleep(std::time::Duration::from_millis(delay_ms));
                     }
                 }
             }
         }
-        tracing::error!("FFB zero failed after {} attempts — wheelbase may retain torque", attempts);
+        tracing::error!(target: LOG_TARGET, "FFB zero failed after {} attempts — wheelbase may retain torque", attempts);
         false
     }
 
@@ -158,7 +161,7 @@ impl FfbController {
         let api = match hidapi::HidApi::new() {
             Ok(api) => api,
             Err(e) => {
-                tracing::warn!("FFB: failed to init HID API: {}", e);
+                tracing::warn!(target: LOG_TARGET, "FFB: failed to init HID API: {}", e);
                 return None;
             }
         };
@@ -178,6 +181,7 @@ impl FfbController {
                     Ok(dev) => Some(dev),
                     Err(e) => {
                         tracing::warn!(
+                            target: LOG_TARGET,
                             "FFB: found vendor interface but failed to open: {}",
                             e
                         );
@@ -189,12 +193,13 @@ impl FfbController {
                 // Try fallback: open by VID/PID directly (some firmware versions
                 // may not report usage page correctly)
                 tracing::debug!(
+                    target: LOG_TARGET,
                     "FFB: no device with usage_page {:#06x}, trying direct open",
                     OPENFFBOARD_USAGE_PAGE
                 );
                 match api.open(self.vid, self.pid) {
                     Ok(dev) => {
-                        tracing::debug!("FFB: opened device via direct VID/PID (fallback)");
+                        tracing::debug!(target: LOG_TARGET, "FFB: opened device via direct VID/PID (fallback)");
                         Some(dev)
                     }
                     Err(_) => None,
@@ -213,6 +218,7 @@ impl FfbController {
             Some(dev) => dev,
             None => {
                 tracing::debug!(
+                    target: LOG_TARGET,
                     "Wheelbase not found (VID:{:#06x} PID:{:#06x}) — skipping FFB gain",
                     self.vid, self.pid
                 );
@@ -226,7 +232,7 @@ impl FfbController {
         // Send to Axis class (0x0A01), not FFBWheel class
         self.send_vendor_cmd_to_class(&device, CLASS_AXIS, CMD_POWER, value)
             .map(|_| {
-                tracing::info!("FFB: gain set to {}% (HID value: {})", percent, value);
+                tracing::info!(target: LOG_TARGET, "FFB: gain set to {}% (HID value: {})", percent, value);
                 true
             })
     }
@@ -238,13 +244,13 @@ impl FfbController {
         let device = match self.open_vendor_interface() {
             Some(dev) => dev,
             None => {
-                tracing::debug!("Wheelbase not found — skipping fxm.reset");
+                tracing::debug!(target: LOG_TARGET, "Wheelbase not found — skipping fxm.reset");
                 return Ok(false);
             }
         };
         self.send_vendor_cmd_to_class(&device, CLASS_FXM, CMD_FXM_RESET, 0)
             .map(|_| {
-                tracing::info!("FFB: fxm.reset sent — orphaned effects cleared");
+                tracing::info!(target: LOG_TARGET, "FFB: fxm.reset sent — orphaned effects cleared");
                 true
             })
     }
@@ -257,13 +263,13 @@ impl FfbController {
         let device = match self.open_vendor_interface() {
             Some(dev) => dev,
             None => {
-                tracing::debug!("Wheelbase not found — skipping idlespring");
+                tracing::debug!(target: LOG_TARGET, "Wheelbase not found — skipping idlespring");
                 return Ok(false);
             }
         };
         self.send_vendor_cmd_to_class(&device, CLASS_AXIS, CMD_IDLESPRING, value)
             .map(|_| {
-                tracing::info!("FFB: idlespring set to {}", value);
+                tracing::info!(target: LOG_TARGET, "FFB: idlespring set to {}", value);
                 true
             })
     }
@@ -388,7 +394,7 @@ pub fn close_conspit_link(timeout: std::time::Duration) -> bool {
                         0,
                         0,
                     );
-                    tracing::info!("Sent WM_CLOSE to ConspitLink via \"{}\"", title);
+                    tracing::info!(target: LOG_TARGET, "Sent WM_CLOSE to ConspitLink via \"{}\"", title);
                     sent = true;
                     break;
                 }
@@ -396,7 +402,7 @@ pub fn close_conspit_link(timeout: std::time::Duration) -> bool {
         }
 
         if !sent {
-            tracing::debug!("ConspitLink window not found — may not be running");
+            tracing::debug!(target: LOG_TARGET, "ConspitLink window not found — may not be running");
             return true; // Not running = already "closed"
         }
 
@@ -405,6 +411,7 @@ pub fn close_conspit_link(timeout: std::time::Duration) -> bool {
         while start.elapsed() < timeout {
             if !crate::ac_launcher::is_process_running("ConspitLink2.0.exe") {
                 tracing::info!(
+                    target: LOG_TARGET,
                     "ConspitLink exited after WM_CLOSE ({}ms)",
                     start.elapsed().as_millis()
                 );
@@ -414,6 +421,7 @@ pub fn close_conspit_link(timeout: std::time::Duration) -> bool {
         }
 
         tracing::warn!(
+            target: LOG_TARGET,
             "ConspitLink still running after {}s WM_CLOSE timeout",
             timeout.as_secs()
         );
@@ -475,7 +483,7 @@ fn backup_conspit_configs_impl(base_dir: Option<&std::path::Path>) {
     for (path_str, name) in &config_entries {
         let src = std::path::Path::new(path_str);
         if !src.exists() {
-            tracing::debug!("Backup: {} does not exist — skipping", name);
+            tracing::debug!(target: LOG_TARGET, "Backup: {} does not exist — skipping", name);
             continue;
         }
         // Only backup if current file is valid JSON
@@ -484,17 +492,18 @@ fn backup_conspit_configs_impl(base_dir: Option<&std::path::Path>) {
                 if serde_json::from_str::<serde_json::Value>(&contents).is_ok() {
                     let bak = src.with_extension("json.bak");
                     match std::fs::copy(src, &bak) {
-                        Ok(_) => tracing::debug!("Backed up {} -> {}", name, bak.display()),
-                        Err(e) => tracing::warn!("Failed to backup {}: {}", name, e),
+                        Ok(_) => tracing::debug!(target: LOG_TARGET, "Backed up {} -> {}", name, bak.display()),
+                        Err(e) => tracing::warn!(target: LOG_TARGET, "Failed to backup {}: {}", name, e),
                     }
                 } else {
                     tracing::warn!(
+                        target: LOG_TARGET,
                         "Backup: {} contains invalid JSON — skipping (preserving existing .bak)",
                         name
                     );
                 }
             }
-            Err(e) => tracing::warn!("Backup: could not read {}: {}", name, e),
+            Err(e) => tracing::warn!(target: LOG_TARGET, "Backup: could not read {}: {}", name, e),
         }
     }
 }
@@ -521,32 +530,32 @@ fn verify_conspit_configs_impl(base_dir: Option<&std::path::Path>) -> bool {
     for (path_str, name) in &config_entries {
         let path = std::path::Path::new(path_str);
         if !path.exists() {
-            tracing::debug!("Verify: {} does not exist — skipping (CL may not have written it yet)", name);
+            tracing::debug!(target: LOG_TARGET, "Verify: {} does not exist — skipping (CL may not have written it yet)", name);
             continue;
         }
         match std::fs::read_to_string(path) {
             Ok(contents) => {
                 if serde_json::from_str::<serde_json::Value>(&contents).is_err() {
-                    tracing::warn!("{} is corrupted — attempting restore from backup", name);
+                    tracing::warn!(target: LOG_TARGET, "{} is corrupted — attempting restore from backup", name);
                     let bak = path.with_extension("json.bak");
                     if bak.exists() {
                         match std::fs::copy(&bak, path) {
-                            Ok(_) => tracing::info!("{} restored from backup", name),
+                            Ok(_) => tracing::info!(target: LOG_TARGET, "{} restored from backup", name),
                             Err(e) => {
-                                tracing::error!("Failed to restore {}: {}", name, e);
+                                tracing::error!(target: LOG_TARGET, "Failed to restore {}: {}", name, e);
                                 all_ok = false;
                             }
                         }
                     } else {
-                        tracing::error!("{} corrupted and no backup exists", name);
+                        tracing::error!(target: LOG_TARGET, "{} corrupted and no backup exists", name);
                         all_ok = false;
                     }
                 } else {
-                    tracing::debug!("{} integrity check passed", name);
+                    tracing::debug!(target: LOG_TARGET, "{} integrity check passed", name);
                 }
             }
             Err(e) => {
-                tracing::warn!("Could not read {} for verification: {}", name, e);
+                tracing::warn!(target: LOG_TARGET, "Could not read {} for verification: {}", name, e);
                 // Read error is not necessarily corruption — file may be locked briefly
             }
         }
@@ -578,6 +587,7 @@ pub fn minimize_conspit_window_with_retry() {
         // Check if CL is at least running (confirms it started)
         if crate::ac_launcher::is_process_running("ConspitLink2.0.exe") {
             tracing::info!(
+                target: LOG_TARGET,
                 "ConspitLink window minimize attempt {} ({}ms elapsed) — process is running",
                 attempt,
                 start.elapsed().as_millis()
@@ -586,6 +596,7 @@ pub fn minimize_conspit_window_with_retry() {
         }
     }
     tracing::warn!(
+        target: LOG_TARGET,
         "ConspitLink window minimize: process not detected after 8s — may not have started"
     );
 }
@@ -603,16 +614,17 @@ pub fn restart_conspit_link_hardened(is_crash_recovery: bool) {
     {
         let conspit_path = r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe";
         if !std::path::Path::new(conspit_path).exists() {
-            tracing::debug!("ConspitLink not installed — skipping restart");
+            tracing::debug!(target: LOG_TARGET, "ConspitLink not installed — skipping restart");
             return;
         }
 
         // 1. Increment crash counter (watchdog only, not session-end)
         if is_crash_recovery {
             let count = increment_crash_count();
-            tracing::warn!("ConspitLink crash recovery restart #{}", count);
+            tracing::warn!(target: LOG_TARGET, "ConspitLink crash recovery restart #{}", count);
             if count >= 5 {
                 tracing::error!(
+                    target: LOG_TARGET,
                     "ConspitLink has crashed {} times since agent start",
                     count
                 );
@@ -628,7 +640,7 @@ pub fn restart_conspit_link_hardened(is_crash_recovery: bool) {
             .spawn()
         {
             Ok(_) => {
-                tracing::info!("ConspitLink started, will verify + minimize...");
+                tracing::info!(target: LOG_TARGET, "ConspitLink started, will verify + minimize...");
                 // Single thread: minimize with retry, then verify configs
                 std::thread::spawn(|| {
                     minimize_conspit_window_with_retry();
@@ -636,7 +648,7 @@ pub fn restart_conspit_link_hardened(is_crash_recovery: bool) {
                     verify_conspit_configs();
                 });
             }
-            Err(e) => tracing::error!("Failed to restart ConspitLink: {}", e),
+            Err(e) => tracing::error!(target: LOG_TARGET, "Failed to restart ConspitLink: {}", e),
         }
     }
 }
@@ -664,6 +676,7 @@ pub async fn safe_session_end(ffb: &FfbController) {
 
     if !closed {
         tracing::warn!(
+            target: LOG_TARGET,
             "ConspitLink did not close within 5s -- proceeding with HID commands (P-20 risk accepted)"
         );
     }
@@ -673,7 +686,7 @@ pub async fn safe_session_end(ffb: &FfbController) {
     tokio::task::spawn_blocking(move || {
         // Clear all orphaned DirectInput effects
         if let Err(e) = ffb_clone.fxm_reset() {
-            tracing::warn!("fxm.reset failed: {} -- continuing with idlespring", e);
+            tracing::warn!(target: LOG_TARGET, "fxm.reset failed: {} -- continuing with idlespring", e);
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
 
@@ -695,7 +708,7 @@ pub async fn safe_session_end(ffb: &FfbController) {
         SESSION_END_IN_PROGRESS.store(false, Ordering::Release);
     });
 
-    tracing::info!("Session-end safety sequence complete -- wheel centering with idlespring");
+    tracing::info!(target: LOG_TARGET, "Session-end safety sequence complete -- wheel centering with idlespring");
 }
 
 #[cfg(test)]

@@ -6,6 +6,8 @@ use tokio::sync::mpsc;
 use rc_common::types::{AiDebugSuggestion, DrivingState, SimType};
 use crate::ffb_controller::FfbController;
 
+const LOG_TARGET: &str = "ai-debugger";
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct AiDebuggerConfig {
     #[serde(default)]
@@ -100,16 +102,16 @@ impl DebugMemory {
         let json = match serde_json::to_string_pretty(self) {
             Ok(j) => j,
             Err(e) => {
-                tracing::error!("[rc-bot] Failed to serialize: {}", e);
+                tracing::error!(target: LOG_TARGET, "Failed to serialize: {}", e);
                 return;
             }
         };
         if let Err(e) = std::fs::write(&tmp, &json) {
-            tracing::error!("[rc-bot] Failed to write temp file: {}", e);
+            tracing::error!(target: LOG_TARGET, "Failed to write temp file: {}", e);
             return;
         }
         if let Err(e) = std::fs::rename(&tmp, MEMORY_PATH) {
-            tracing::error!("[rc-bot] Failed to rename: {}", e);
+            tracing::error!(target: LOG_TARGET, "Failed to rename: {}", e);
         }
     }
 
@@ -189,7 +191,8 @@ pub async fn analyze_crash(
     result_tx: mpsc::Sender<AiDebugSuggestion>,
 ) {
     tracing::info!(
-        "[rc-bot] Starting crash analysis for {} ({:?}), model={}, url={}",
+        target: LOG_TARGET,
+        "Starting crash analysis for {} ({:?}), model={}, url={}",
         pod_id, sim_type, config.ollama_model, config.ollama_url
     );
 
@@ -197,7 +200,8 @@ pub async fn analyze_crash(
     let memory = DebugMemory::load();
     if let Some(cached_suggestion) = memory.instant_fix(&sim_type, &error_context) {
         tracing::info!(
-            "[rc-bot] INSTANT FIX from pattern memory for {} ({:?})",
+            target: LOG_TARGET,
+            "INSTANT FIX from pattern memory for {} ({:?})",
             pod_id, sim_type
         );
         let _ = result_tx
@@ -218,16 +222,16 @@ pub async fn analyze_crash(
     let error_ctx = tokio::task::spawn_blocking(PodErrorContext::collect)
         .await
         .unwrap_or_default();
-    tracing::info!("[rc-bot] Error context: {} bot events, {} win errors, {} CLOSE_WAIT",
+    tracing::info!(target: LOG_TARGET, "Error context: {} bot events, {} win errors, {} CLOSE_WAIT",
         error_ctx.recent_bot_events.len(), error_ctx.windows_app_errors.len(), error_ctx.close_wait_count);
 
     let prompt = build_prompt(&sim_type, &error_context, &snapshot, &error_ctx);
-    tracing::debug!("[rc-bot] Prompt length: {} chars", prompt.len());
+    tracing::debug!(target: LOG_TARGET, "Prompt length: {} chars", prompt.len());
 
     // Try Ollama first (local, fast, no internet needed)
     match query_ollama(&config.ollama_url, &config.ollama_model, &prompt).await {
         Ok(suggestion) => {
-            tracing::info!("[rc-bot] Ollama responded: {} chars", suggestion.len());
+            tracing::info!(target: LOG_TARGET, "Ollama responded: {} chars", suggestion.len());
             match result_tx
                 .send(AiDebugSuggestion {
                     pod_id,
@@ -239,13 +243,13 @@ pub async fn analyze_crash(
                 })
                 .await
             {
-                Ok(()) => tracing::info!("[rc-bot] Suggestion sent to result channel"),
-                Err(e) => tracing::error!("[rc-bot] Failed to send suggestion: {}", e),
+                Ok(()) => tracing::info!(target: LOG_TARGET, "Suggestion sent to result channel"),
+                Err(e) => tracing::error!(target: LOG_TARGET, "Failed to send suggestion: {}", e),
             }
             return;
         }
         Err(e) => {
-            tracing::warn!("[rc-bot] Ollama query failed: {}. Trying OpenRouter fallback...", e);
+            tracing::warn!(target: LOG_TARGET, "Ollama query failed: {}. Trying OpenRouter fallback...", e);
         }
     }
 
@@ -265,11 +269,11 @@ pub async fn analyze_crash(
                     .await;
             }
             Err(e) => {
-                tracing::error!("[rc-bot] OpenRouter query also failed: {}", e);
+                tracing::error!(target: LOG_TARGET, "OpenRouter query also failed: {}", e);
             }
         }
     } else {
-        tracing::warn!("[rc-bot] No OpenRouter API key configured and Ollama failed — no AI debug available");
+        tracing::warn!(target: LOG_TARGET, "No OpenRouter API key configured and Ollama failed — no AI debug available");
     }
 }
 
@@ -535,7 +539,7 @@ pub(crate) fn fix_frozen_game(snapshot: &PodStateSnapshot) -> AutoFixResult {
     // BILLING GATE — required inside fix function (not just at call site).
     // DebugMemory instant_fix() replays this function directly, bypassing call-site guards.
     if !snapshot.billing_active {
-        tracing::debug!("[auto-fix] fix_frozen_game: billing not active — skipping destructive action");
+        tracing::debug!(target: LOG_TARGET, "fix_frozen_game: billing not active — skipping destructive action");
         return AutoFixResult {
             fix_type: "fix_frozen_game".to_string(),
             detail: "billing not active — skipping".to_string(),
@@ -543,7 +547,7 @@ pub(crate) fn fix_frozen_game(snapshot: &PodStateSnapshot) -> AutoFixResult {
         };
     }
 
-    tracing::warn!("[auto-fix] fix_frozen_game: game frozen — zeroing FFB before kill");
+    tracing::warn!(target: LOG_TARGET, "fix_frozen_game: game frozen — zeroing FFB before kill");
 
     // SAFETY: FFB ZERO MUST happen before any game process kill.
     // An 8Nm Conspit Ares with a stale FFB command is a physical hazard.
@@ -555,7 +559,7 @@ pub(crate) fn fix_frozen_game(snapshot: &PodStateSnapshot) -> AutoFixResult {
         Ok(false) => "FFB not found (skipped)".to_string(),
         Err(e) => format!("FFB zero error: {}", e),
     };
-    tracing::info!("[auto-fix] fix_frozen_game: {}", ffb_detail);
+    tracing::info!(target: LOG_TARGET, "fix_frozen_game: {}", ffb_detail);
 
     // Kill error dialogs before game kill — customer must not see crash dialogs
     let _ = hidden_cmd("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
@@ -572,7 +576,7 @@ pub(crate) fn fix_frozen_game(snapshot: &PodStateSnapshot) -> AutoFixResult {
     }
 
     let detail = format!("{} | killed: {}", ffb_detail, killed.join(", "));
-    tracing::info!("[auto-fix] fix_frozen_game: {}", detail);
+    tracing::info!(target: LOG_TARGET, "fix_frozen_game: {}", detail);
     AutoFixResult {
         fix_type: "fix_frozen_game".to_string(),
         detail,
@@ -583,7 +587,7 @@ pub(crate) fn fix_frozen_game(snapshot: &PodStateSnapshot) -> AutoFixResult {
 pub(crate) fn fix_launch_timeout(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     // No billing gate here — launch timeout can occur before billing activates.
     // Detection in failure_monitor.rs gates on launch_started_at.is_some() instead.
-    tracing::warn!("[auto-fix] fix_launch_timeout: killing Content Manager — 90s timeout");
+    tracing::warn!(target: LOG_TARGET, "fix_launch_timeout: killing Content Manager — 90s timeout");
 
     // Kill both possible Content Manager process names (varies by install method on pods)
     let _ = hidden_cmd("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
@@ -592,7 +596,7 @@ pub(crate) fn fix_launch_timeout(_snapshot: &PodStateSnapshot) -> AutoFixResult 
     // Also kill acs.exe in case it spawned but hung before reaching Live state
     let _ = hidden_cmd("taskkill").args(["/IM", "acs.exe", "/F"]).output();
 
-    tracing::info!("[auto-fix] fix_launch_timeout: Content Manager and acs.exe killed");
+    tracing::info!(target: LOG_TARGET, "fix_launch_timeout: Content Manager and acs.exe killed");
     AutoFixResult {
         fix_type: "fix_launch_timeout".to_string(),
         detail: "Killed Content Manager.exe, acmanager.exe, acs.exe".to_string(),
@@ -604,7 +608,7 @@ pub(crate) fn fix_usb_reconnect(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     // USB-01: Conspit Ares wheelbase reconnected — zero FFB to clear stale state.
     // driving_detector.rs will pick up the device on its next 100ms HID poll cycle.
     // This fix only ensures the wheelbase starts from a clean (zero torque) state.
-    tracing::info!("[auto-fix] fix_usb_reconnect: wheelbase HID reconnected — resetting FFB state");
+    tracing::info!(target: LOG_TARGET, "fix_usb_reconnect: wheelbase HID reconnected — resetting FFB state");
 
     let ffb = FfbController::new(0x1209, 0xFFB0);
     let ffb_detail = match ffb.zero_force() {
@@ -612,7 +616,7 @@ pub(crate) fn fix_usb_reconnect(_snapshot: &PodStateSnapshot) -> AutoFixResult {
         Ok(false) => "Wheelbase not yet enumerable after reconnect (normal — retried next poll)".to_string(),
         Err(e) => format!("FFB zero error on reconnect: {}", e),
     };
-    tracing::info!("[auto-fix] fix_usb_reconnect: {}", ffb_detail);
+    tracing::info!(target: LOG_TARGET, "fix_usb_reconnect: {}", ffb_detail);
 
     AutoFixResult {
         fix_type: "fix_usb_reconnect".to_string(),
@@ -624,7 +628,7 @@ pub(crate) fn fix_usb_reconnect(_snapshot: &PodStateSnapshot) -> AutoFixResult {
 // ─── Auto-Fix Implementations ────────────────────────────────────────────────
 
 fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    tracing::info!("[auto-fix] Attempting to clear stale sockets");
+    tracing::info!(target: LOG_TARGET, "Attempting to clear stale sockets");
 
     // Kill any CLOSE_WAIT state by resetting network stack for our ports
     // Safe: only affects orphaned connections, not active ones
@@ -648,7 +652,7 @@ fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
         Ok(output) => {
             let detail = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let detail = if detail.is_empty() { "No stale sockets found".to_string() } else { detail };
-            tracing::info!("[auto-fix] Stale sockets: {}", detail);
+            tracing::info!(target: LOG_TARGET, "Stale sockets: {}", detail);
             AutoFixResult {
                 fix_type: "clear_stale_sockets".to_string(),
                 detail,
@@ -664,7 +668,7 @@ fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
 }
 
 fn fix_kill_stale_game() -> AutoFixResult {
-    tracing::info!("[auto-fix] Killing stale game processes");
+    tracing::info!(target: LOG_TARGET, "Killing stale game processes");
 
     let game_exes = [
         "acs.exe", "AssettoCorsa.exe",
@@ -694,7 +698,7 @@ fn fix_kill_stale_game() -> AutoFixResult {
         format!("Killed: {}", killed.join(", "))
     };
 
-    tracing::info!("[auto-fix] Stale games: {}", detail);
+    tracing::info!(target: LOG_TARGET, "Stale games: {}", detail);
     AutoFixResult {
         fix_type: "kill_stale_game".to_string(),
         detail,
@@ -703,7 +707,7 @@ fn fix_kill_stale_game() -> AutoFixResult {
 }
 
 fn fix_clean_temp() -> AutoFixResult {
-    tracing::info!("[auto-fix] Cleaning temp files");
+    tracing::info!(target: LOG_TARGET, "Cleaning temp files");
 
     let result = hidden_cmd("powershell")
         .args([
@@ -717,7 +721,7 @@ fn fix_clean_temp() -> AutoFixResult {
     match result {
         Ok(output) => {
             let detail = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            tracing::info!("[auto-fix] Temp cleanup: {}", detail);
+            tracing::info!(target: LOG_TARGET, "Temp cleanup: {}", detail);
             AutoFixResult {
                 fix_type: "clean_temp".to_string(),
                 detail,
@@ -733,7 +737,7 @@ fn fix_clean_temp() -> AutoFixResult {
 }
 
 fn fix_kill_error_dialogs() -> AutoFixResult {
-    tracing::info!("[auto-fix] Suppressing error dialogs before process kill");
+    tracing::info!(target: LOG_TARGET, "Suppressing error dialogs before process kill");
 
     let _ = hidden_cmd("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
     let _ = hidden_cmd("taskkill").args(["/IM", "WerFaultSecure.exe", "/F"]).output();
