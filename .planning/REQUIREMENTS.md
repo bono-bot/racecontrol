@@ -16,9 +16,9 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 
 ### Safe Mode
 
-- [ ] **SAFE-01**: rc-agent detects protected game launch within 1 second via WMI Win32_ProcessStartTrace event subscription (not polling)
-- [ ] **SAFE-02**: rc-agent enters safe mode automatically when a protected game is detected, managed by a state machine in AppState (safe_mode.rs)
-- [ ] **SAFE-03**: Safe mode remains active for 30 seconds after the protected game exits (EA Javelin post-game cooldown)
+- [x] **SAFE-01**: rc-agent detects protected game launch within 1 second via WMI Win32_ProcessStartTrace event subscription (not polling)
+- [x] **SAFE-02**: rc-agent enters safe mode automatically when a protected game is detected, managed by a state machine in AppState (safe_mode.rs)
+- [x] **SAFE-03**: Safe mode remains active for 30 seconds after the protected game exits (EA Javelin post-game cooldown)
 - [ ] **SAFE-04**: Process guard (allowlist enforcement + auto-kill) is suspended during safe mode
 - [ ] **SAFE-05**: Ollama LLM queries are suppressed during safe mode (GPU/memory contention + anti-cheat suspicion)
 - [ ] **SAFE-06**: Registry write operations are deferred until safe mode exits
@@ -63,9 +63,9 @@ Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases
 | AUDIT-02 | Phase 107 | Complete |
 | AUDIT-03 | Phase 107 | Complete |
 | AUDIT-04 | Phase 107 | Complete |
-| SAFE-01 | Phase 109 | Pending |
-| SAFE-02 | Phase 109 | Pending |
-| SAFE-03 | Phase 109 | Pending |
+| SAFE-01 | Phase 109 | Complete |
+| SAFE-02 | Phase 109 | Complete |
+| SAFE-03 | Phase 109 | Complete |
 | SAFE-04 | Phase 109 | Pending |
 | SAFE-05 | Phase 109 | Pending |
 | SAFE-06 | Phase 109 | Pending |
