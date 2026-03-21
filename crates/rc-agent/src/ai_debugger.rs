@@ -756,184 +756,251 @@ fn fix_kill_error_dialogs() -> AutoFixResult {
 // ─── Phase 50 Plan 02: Auto-fix patterns 8-14 ────────────────────────────────
 
 fn fix_directx_shader_cache(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    let dirs_to_clear = [
-        r"C:\Users\Public\AppData\Local\NVIDIA\GLCache",
-        r"C:\ProgramData\NVIDIA Corporation\NV_Cache",
-    ];
-    let mut cleared = 0;
-    let mut details = Vec::new();
-    for dir in &dirs_to_clear {
-        let path = std::path::Path::new(dir);
-        if path.exists() {
-            match std::fs::remove_dir_all(path) {
-                Ok(_) => {
-                    cleared += 1;
-                    details.push(format!("cleared {}", dir));
-                }
-                Err(e) => {
-                    details.push(format!("failed to clear {}: {}", dir, e));
+    #[cfg(test)]
+    {
+        return AutoFixResult {
+            fix_type: "directx_shader_cache".to_string(),
+            detail: "No shader cache directories found to clear".to_string(),
+            success: false,
+        };
+    }
+    #[cfg(not(test))]
+    {
+        let dirs_to_clear = [
+            r"C:\Users\Public\AppData\Local\NVIDIA\GLCache",
+            r"C:\ProgramData\NVIDIA Corporation\NV_Cache",
+        ];
+        let mut cleared = 0;
+        let mut details = Vec::new();
+        for dir in &dirs_to_clear {
+            let path = std::path::Path::new(dir);
+            if path.exists() {
+                match std::fs::remove_dir_all(path) {
+                    Ok(_) => {
+                        cleared += 1;
+                        details.push(format!("cleared {}", dir));
+                    }
+                    Err(e) => {
+                        details.push(format!("failed to clear {}: {}", dir, e));
+                    }
                 }
             }
         }
-    }
-    AutoFixResult {
-        fix_type: "directx_shader_cache".to_string(),
-        detail: if cleared > 0 {
-            format!("Cleared {} shader cache dirs: {}", cleared, details.join(", "))
-        } else {
-            "No shader cache directories found to clear".to_string()
-        },
-        success: cleared > 0,
+        AutoFixResult {
+            fix_type: "directx_shader_cache".to_string(),
+            detail: if cleared > 0 {
+                format!("Cleared {} shader cache dirs: {}", cleared, details.join(", "))
+            } else {
+                "No shader cache directories found to clear".to_string()
+            },
+            success: cleared > 0,
+        }
     }
 }
 
 fn fix_memory_pressure(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    // Enumerate high-memory non-protected processes, then trim their working set (non-destructive)
-    let output = hidden_cmd("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "Get-Process | Where-Object { $_.WorkingSet64 -gt 500MB -and $_.ProcessName -notin @('rc-agent','racecontrol','steam','msedge','msedgewebview2','explorer','System') } | ForEach-Object { $_.ProcessName }",
-        ])
-        .output();
-    match output {
-        Ok(out) => {
-            let procs = String::from_utf8_lossy(&out.stdout);
-            let proc_list: Vec<&str> = procs
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .collect();
-            if proc_list.is_empty() {
-                return AutoFixResult {
-                    fix_type: "memory_pressure".to_string(),
-                    detail: "No high-memory non-protected processes found".to_string(),
-                    success: true,
-                };
-            }
-            // Attempt to reduce working set via powershell (non-destructive)
-            let _ = hidden_cmd("powershell")
-                .args([
-                    "-NoProfile",
-                    "-Command",
-                    "Get-Process | Where-Object { $_.WorkingSet64 -gt 500MB -and $_.ProcessName -notin @('rc-agent','racecontrol','steam','msedge','msedgewebview2','explorer','System') } | ForEach-Object { $_.MinWorkingSet = 1MB }",
-                ])
-                .output();
-            AutoFixResult {
-                fix_type: "memory_pressure".to_string(),
-                detail: format!("Trimmed working set for: {}", proc_list.join(", ")),
-                success: true,
-            }
-        }
-        Err(e) => AutoFixResult {
+    #[cfg(test)]
+    {
+        return AutoFixResult {
             fix_type: "memory_pressure".to_string(),
-            detail: format!("Failed to enumerate processes: {}", e),
-            success: false,
-        },
+            detail: "No high-memory non-protected processes found".to_string(),
+            success: true,
+        };
+    }
+    #[cfg(not(test))]
+    {
+        // Enumerate high-memory non-protected processes, then trim their working set (non-destructive)
+        let output = hidden_cmd("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-Process | Where-Object { $_.WorkingSet64 -gt 500MB -and $_.ProcessName -notin @('rc-agent','racecontrol','steam','msedge','msedgewebview2','explorer','System') } | ForEach-Object { $_.ProcessName }",
+            ])
+            .output();
+        match output {
+            Ok(out) => {
+                let procs = String::from_utf8_lossy(&out.stdout);
+                let proc_list: Vec<&str> = procs
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .collect();
+                if proc_list.is_empty() {
+                    return AutoFixResult {
+                        fix_type: "memory_pressure".to_string(),
+                        detail: "No high-memory non-protected processes found".to_string(),
+                        success: true,
+                    };
+                }
+                // Attempt to reduce working set via powershell (non-destructive)
+                let _ = hidden_cmd("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-Command",
+                        "Get-Process | Where-Object { $_.WorkingSet64 -gt 500MB -and $_.ProcessName -notin @('rc-agent','racecontrol','steam','msedge','msedgewebview2','explorer','System') } | ForEach-Object { $_.MinWorkingSet = 1MB }",
+                    ])
+                    .output();
+                AutoFixResult {
+                    fix_type: "memory_pressure".to_string(),
+                    detail: format!("Trimmed working set for: {}", proc_list.join(", ")),
+                    success: true,
+                }
+            }
+            Err(e) => AutoFixResult {
+                fix_type: "memory_pressure".to_string(),
+                detail: format!("Failed to enumerate processes: {}", e),
+                success: false,
+            },
+        }
     }
 }
 
 fn fix_dll_repair(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    // Fire sfc /scannow in background — this takes minutes, don't block
-    match hidden_cmd("cmd")
-        .args(["/C", "start", "/MIN", "sfc", "/scannow"])
-        .spawn()
+    #[cfg(test)]
     {
-        Ok(_) => AutoFixResult {
+        return AutoFixResult {
             fix_type: "dll_repair".to_string(),
             detail: "Started sfc /scannow in background — scan takes 5-15 minutes".to_string(),
             success: true,
-        },
-        Err(e) => AutoFixResult {
-            fix_type: "dll_repair".to_string(),
-            detail: format!("Failed to start sfc: {}", e),
-            success: false,
-        },
+        };
+    }
+    #[cfg(not(test))]
+    {
+        // Fire sfc /scannow in background — this takes minutes, don't block
+        match hidden_cmd("cmd")
+            .args(["/C", "start", "/MIN", "sfc", "/scannow"])
+            .spawn()
+        {
+            Ok(_) => AutoFixResult {
+                fix_type: "dll_repair".to_string(),
+                detail: "Started sfc /scannow in background — scan takes 5-15 minutes".to_string(),
+                success: true,
+            },
+            Err(e) => AutoFixResult {
+                fix_type: "dll_repair".to_string(),
+                detail: format!("Failed to start sfc: {}", e),
+                success: false,
+            },
+        }
     }
 }
 
 fn fix_steam_restart(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    // Kill Steam, wait briefly, then restart it
-    let kill = hidden_cmd("taskkill")
-        .args(["/IM", "steam.exe", "/F"])
-        .output();
-    let killed = matches!(kill, Ok(ref o) if o.status.success());
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    let restart = hidden_cmd("cmd")
-        .args(["/C", "start", "", r"C:\Program Files (x86)\Steam\steam.exe"])
-        .spawn();
-    let restarted = restart.is_ok();
-    AutoFixResult {
-        fix_type: "steam_restart".to_string(),
-        detail: format!("kill={}, restart={}", killed, restarted),
-        success: killed || restarted,
+    // Guard: never execute real system commands during cargo test
+    #[cfg(test)]
+    {
+        return AutoFixResult {
+            fix_type: "steam_restart".to_string(),
+            detail: "kill=true, restart=true".to_string(),
+            success: true,
+        };
+    }
+    #[cfg(not(test))]
+    {
+        // Kill Steam, wait briefly, then restart it
+        let kill = hidden_cmd("taskkill")
+            .args(["/IM", "steam.exe", "/F"])
+            .output();
+        let killed = matches!(kill, Ok(ref o) if o.status.success());
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let restart = hidden_cmd("cmd")
+            .args(["/C", "start", "", r"C:\Program Files (x86)\Steam\steam.exe"])
+            .spawn();
+        let restarted = restart.is_ok();
+        AutoFixResult {
+            fix_type: "steam_restart".to_string(),
+            detail: format!("kill={}, restart={}", killed, restarted),
+            success: killed || restarted,
+        }
     }
 }
 
 fn fix_performance_throttle(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    // Set High Performance power plan (standard Windows GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c)
-    let output = hidden_cmd("powercfg")
-        .args(["/setactive", "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => AutoFixResult {
+    #[cfg(test)]
+    {
+        return AutoFixResult {
             fix_type: "performance_throttle".to_string(),
             detail: "Set power plan to High Performance".to_string(),
             success: true,
-        },
-        Ok(o) => AutoFixResult {
-            fix_type: "performance_throttle".to_string(),
-            detail: format!(
-                "powercfg failed: {}",
-                String::from_utf8_lossy(&o.stderr)
-            ),
-            success: false,
-        },
-        Err(e) => AutoFixResult {
-            fix_type: "performance_throttle".to_string(),
-            detail: format!("Failed to run powercfg: {}", e),
-            success: false,
-        },
+        };
+    }
+    #[cfg(not(test))]
+    {
+        // Set High Performance power plan (standard Windows GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c)
+        let output = hidden_cmd("powercfg")
+            .args(["/setactive", "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"])
+            .output();
+        match output {
+            Ok(o) if o.status.success() => AutoFixResult {
+                fix_type: "performance_throttle".to_string(),
+                detail: "Set power plan to High Performance".to_string(),
+                success: true,
+            },
+            Ok(o) => AutoFixResult {
+                fix_type: "performance_throttle".to_string(),
+                detail: format!(
+                    "powercfg failed: {}",
+                    String::from_utf8_lossy(&o.stderr)
+                ),
+                success: false,
+            },
+            Err(e) => AutoFixResult {
+                fix_type: "performance_throttle".to_string(),
+                detail: format!("Failed to run powercfg: {}", e),
+                success: false,
+            },
+        }
     }
 }
 
 fn fix_network_adapter_reset(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    // Detect active Ethernet adapter name, disable then re-enable
-    let name_output = hidden_cmd("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -like '*Ethernet*' } | Select-Object -First 1 -ExpandProperty Name",
-        ])
-        .output();
-    let adapter_name = match name_output {
-        Ok(ref o) if o.status.success() => {
-            let name = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if name.is_empty() {
-                "Ethernet".to_string()
-            } else {
-                name
+    #[cfg(test)]
+    {
+        return AutoFixResult {
+            fix_type: "network_adapter_reset".to_string(),
+            detail: "Reset adapter 'Ethernet': OK".to_string(),
+            success: true,
+        };
+    }
+    #[cfg(not(test))]
+    {
+        // Detect active Ethernet adapter name, disable then re-enable
+        let name_output = hidden_cmd("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -like '*Ethernet*' } | Select-Object -First 1 -ExpandProperty Name",
+            ])
+            .output();
+        let adapter_name = match name_output {
+            Ok(ref o) if o.status.success() => {
+                let name = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if name.is_empty() {
+                    "Ethernet".to_string()
+                } else {
+                    name
+                }
             }
+            _ => "Ethernet".to_string(),
+        };
+        // Disable adapter
+        let _ = hidden_cmd("netsh")
+            .args(["interface", "set", "interface", &adapter_name, "disable"])
+            .output();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        // Re-enable adapter
+        let enable = hidden_cmd("netsh")
+            .args(["interface", "set", "interface", &adapter_name, "enable"])
+            .output();
+        let success = matches!(enable, Ok(ref o) if o.status.success());
+        AutoFixResult {
+            fix_type: "network_adapter_reset".to_string(),
+            detail: format!(
+                "Reset adapter '{}': {}",
+                adapter_name,
+                if success { "OK" } else { "failed" }
+            ),
+            success,
         }
-        _ => "Ethernet".to_string(),
-    };
-    // Disable adapter
-    let _ = hidden_cmd("netsh")
-        .args(["interface", "set", "interface", &adapter_name, "disable"])
-        .output();
-    std::thread::sleep(std::time::Duration::from_secs(1));
-    // Re-enable adapter
-    let enable = hidden_cmd("netsh")
-        .args(["interface", "set", "interface", &adapter_name, "enable"])
-        .output();
-    let success = matches!(enable, Ok(ref o) if o.status.success());
-    AutoFixResult {
-        fix_type: "network_adapter_reset".to_string(),
-        detail: format!(
-            "Reset adapter '{}': {}",
-            adapter_name,
-            if success { "OK" } else { "failed" }
-        ),
-        success,
     }
 }
 
