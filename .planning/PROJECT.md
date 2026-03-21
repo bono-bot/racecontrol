@@ -25,6 +25,16 @@ The pod management stack is reliable: self-healing, branded screens, stable URLs
 
 **Goal:** Research and evaluate tools, skills, and plugins to improve Racing Point Operations — Claude Code skills, MCP servers, deployment automation, and monitoring/alerting.
 
+## Planned Milestone: v13.0 Multi-Game Launcher
+
+**Goal:** Launch games other than Assetto Corsa (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA with PlayableSignal-gated billing, per-game telemetry capture, and lap times feeding into the existing leaderboard. Extends existing SimAdapter trait, GameProcess, and BillingGuard — no new crate dependencies.
+
+**Target features:**
+- Game launch profiles (TOML config) for 5 games with crash recovery and fleet dashboard visibility
+- PlayableSignal billing — charges start when game is playable, not during loading/shader compilation
+- Per-game telemetry adapters: F1 25 (UDP), iRacing (shared memory), LMU (rF2 shared memory), AC EVO (best-effort, feature-flagged), EA WRC (JSON UDP)
+- Track name normalization and multi-game leaderboard integration
+
 ## Paused Milestone: v6.0 Salt Fleet Management
 
 **Goal:** Replace the custom pod-agent/remote_ops HTTP endpoint with SaltStack for fleet management. Blocked at BIOS AMD-V gate for WSL2.
@@ -152,6 +162,25 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - [ ] Investigate deployment automation tools for fleet management
 - [ ] Evaluate monitoring and alerting stack options
 - [ ] Produce actionable recommendations with adoption plan
+
+### Planned (v13.0)
+
+- [ ] Staff can launch F1 25, iRacing, AC EVO, EA WRC, or LMU from kiosk with safe defaults
+- [ ] Customer can request game launch from PWA/QR, staff confirms
+- [ ] Per-game TOML launch profiles (exe path, args, defaults)
+- [ ] Game crash/hang detection, auto-cleanup, crash recovery
+- [ ] Game state visible in kiosk and fleet health dashboard
+- [ ] PlayableSignal billing — starts when game is playable, not during loading
+- [ ] Per-game billing rates configurable in billing_rates table
+- [ ] Auto-stop billing on game exit/crash
+- [ ] F1 25 telemetry: UDP lap times and sector splits
+- [ ] iRacing telemetry: shared memory with session transition handling
+- [ ] LMU telemetry: rFactor 2 shared memory plugin
+- [ ] AC EVO telemetry: best-effort, feature-flagged (Early Access)
+- [ ] EA WRC telemetry: JSON-configured UDP with stage-to-lap mapping
+- [ ] Lap/stage times stored in laps table with sim_type field
+- [ ] Track name normalization across games
+- [ ] Leaderboard endpoints serve multi-game data
 
 ### Paused (v6.0 — blocked at BIOS AMD-V)
 

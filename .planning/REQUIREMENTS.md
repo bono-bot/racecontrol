@@ -53,6 +53,64 @@ Requirements for rc-sentry hardening, rc-agent decomposition, shared extraction,
 - [x] **TEST-03**: ffb_controller tests via FfbBackend trait seam (no real HID access in tests)
 - [x] **TEST-04**: rc-sentry endpoint integration tests (/ping, /exec, /health, /version, /files, /processes)
 
+## v13.0 Requirements
+
+Requirements for multi-game launch, billing, telemetry, and leaderboard integration.
+
+### Launch
+
+- [ ] **LAUNCH-01**: Staff can select F1 25, iRacing, AC EVO, EA WRC, or LMU from kiosk and launch on any pod with safe defaults
+- [ ] **LAUNCH-02**: Customer can request a game launch from PWA/QR, staff confirms via kiosk
+- [ ] **LAUNCH-03**: Game launch profiles define exe path, launch args, and safe defaults per game (TOML config)
+- [ ] **LAUNCH-04**: Game process monitored -- detect crash/hang, auto-cleanup stale processes
+- [ ] **LAUNCH-05**: Crash recovery auto-restarts game or alerts staff with option to relaunch
+- [ ] **LAUNCH-06**: Which game is running on which pod visible in kiosk and fleet health dashboard
+
+### Billing
+
+- [ ] **BILL-01**: Billing starts when game is playable (PlayableSignal), not at process launch
+- [ ] **BILL-02**: Per-game PlayableSignal: F1 25 (UDP session type), iRacing (IsOnTrack flag), AC EVO (non-zero physics), WRC (first stage packet), LMU (rF2 driving flag)
+- [ ] **BILL-03**: Per-game billing rates configurable in billing_rates table
+- [ ] **BILL-04**: Billing auto-stops on game exit, crash, or session end
+- [ ] **BILL-05**: Session lifecycle: launch -> loading -> playable (billing starts) -> gameplay -> exit (billing stops) -> cleanup
+
+### Telemetry -- F1 25
+
+- [ ] **TEL-F1-01**: F1 25 UDP telemetry captured on port 20777
+- [ ] **TEL-F1-02**: Lap times and sector splits extracted from F1 25 telemetry packets
+- [ ] **TEL-F1-03**: Lap data emitted as AgentMessage::LapCompleted with sim_type = F1_25
+
+### Telemetry -- iRacing
+
+- [ ] **TEL-IR-01**: iRacing shared memory reader using winapi OpenFileMappingA
+- [ ] **TEL-IR-02**: Handle session transitions -- re-open shared memory handle between races
+- [ ] **TEL-IR-03**: Lap times and sector splits extracted from iRacing telemetry
+- [ ] **TEL-IR-04**: Pre-flight check: verify irsdkEnableMem=1 in app.ini
+
+### Telemetry -- LMU
+
+- [ ] **TEL-LMU-01**: LMU shared memory reader using rFactor 2 shared memory plugin
+- [ ] **TEL-LMU-02**: Lap times and sector splits extracted from rF2 scoring data
+- [ ] **TEL-LMU-03**: Lap data emitted with sim_type = LMU
+
+### Telemetry -- AC EVO
+
+- [ ] **TEL-EVO-01**: AC EVO shared memory reader using ACC-format struct layout (best-effort, feature-flagged)
+- [ ] **TEL-EVO-02**: Graceful degradation -- if telemetry fields are unpopulated, log warning and continue
+- [ ] **TEL-EVO-03**: Lap data emitted when available, with sim_type = AC_EVO
+
+### Telemetry -- EA WRC
+
+- [ ] **TEL-WRC-01**: EA WRC UDP telemetry via JSON-configured packets (port 20432)
+- [ ] **TEL-WRC-02**: Stage times captured and mapped to laps schema
+- [ ] **TEL-WRC-03**: Rally adapter is best-effort -- launch works without telemetry
+
+### Leaderboard
+
+- [ ] **LB-01**: Lap/stage times from all games stored in existing laps table with sim_type field
+- [ ] **LB-02**: Track name normalization mapping table
+- [ ] **LB-03**: Existing leaderboard endpoints serve multi-game data with sim_type filtering
+
 ## v12.0 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -74,7 +132,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | rc-sentry authentication | Network-scoped by design (192.168.31.x subnet); adding auth increases complexity without security benefit |
 | rc-sentry async migration (tokio) | Deliberately stdlib-only for reliability as fallback; tokio would defeat the purpose |
 | rc-agent main.rs complete rewrite | Incremental extraction is safer; full rewrite risks regressions in safety-critical paths |
-| New sim adapter implementations | Separate milestone concern (iRacing, LMU, Forza telemetry) |
+| New sim adapter implementations | Now covered by v13.0 Multi-Game Launcher milestone |
 | rc-sentry TLS/HTTPS | Internal LAN only; no external exposure |
 
 ## Traceability
@@ -108,13 +166,46 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-03 | Phase 73 | Complete |
 | TEST-04 | Phase 72 | Complete |
 
+| LAUNCH-01 | Phase 81 | Pending |
+| LAUNCH-02 | Phase 81 | Pending |
+| LAUNCH-03 | Phase 81 | Pending |
+| LAUNCH-04 | Phase 81 | Pending |
+| LAUNCH-05 | Phase 81 | Pending |
+| LAUNCH-06 | Phase 81 | Pending |
+| BILL-01 | Phase 82 | Pending |
+| BILL-02 | Phase 82 | Pending |
+| BILL-03 | Phase 82 | Pending |
+| BILL-04 | Phase 82 | Pending |
+| BILL-05 | Phase 82 | Pending |
+| TEL-F1-01 | Phase 83 | Pending |
+| TEL-F1-02 | Phase 83 | Pending |
+| TEL-F1-03 | Phase 83 | Pending |
+| TEL-IR-01 | Phase 84 | Pending |
+| TEL-IR-02 | Phase 84 | Pending |
+| TEL-IR-03 | Phase 84 | Pending |
+| TEL-IR-04 | Phase 84 | Pending |
+| TEL-LMU-01 | Phase 85 | Pending |
+| TEL-LMU-02 | Phase 85 | Pending |
+| TEL-LMU-03 | Phase 85 | Pending |
+| TEL-EVO-01 | Phase 86 | Pending |
+| TEL-EVO-02 | Phase 86 | Pending |
+| TEL-EVO-03 | Phase 86 | Pending |
+| TEL-WRC-01 | Phase 87 | Pending |
+| TEL-WRC-02 | Phase 87 | Pending |
+| TEL-WRC-03 | Phase 87 | Pending |
+| LB-01 | Phase 88 | Pending |
+| LB-02 | Phase 88 | Pending |
+| LB-03 | Phase 88 | Pending |
+
 **Coverage:**
 - v10.0 requirements: 3 total
 - v10.0 mapped to phases: 3
 - v11.0 requirements: 21 total
 - v11.0 mapped to phases: 21
+- v13.0 requirements: 30 total
+- v13.0 mapped to phases: 30
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 -- added SYNC-01/02/03 for Phase 67 config sync*
+*Last updated: 2026-03-21 -- added v13.0 Multi-Game Launcher (30 requirements, Phases 81-88)*

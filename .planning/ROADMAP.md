@@ -220,6 +220,19 @@ Lock down the Racing Point operations stack — audit all exposed endpoints and 
 - [ ] **Phase 79: Data Protection** - AES-256-GCM on PII columns, deterministic phone hash for lookups, log redaction, customer data export/deletion
 - [ ] **Phase 80: Audit Trail & Defense in Depth** - Admin action logging, WhatsApp alerts on sensitive actions, PIN rotation alerts, cloud sync HMAC signing
 
+## v13.0 Multi-Game Launcher
+
+Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA with PlayableSignal-gated billing, per-game telemetry capture, and multi-game leaderboard integration. Extends existing SimAdapter trait and GameProcess — zero new crate dependencies.
+
+- [ ] **Phase 81: Game Launch Core** - Launch profiles, process monitoring, kiosk integration, crash recovery for 5 games
+- [ ] **Phase 82: Billing and Session Lifecycle** - PlayableSignal per game, billing accuracy, per-game rates, clean lifecycle
+- [ ] **Phase 83: F1 25 Telemetry** - Extend existing F1 25 UDP adapter for LapCompleted events with sector splits
+- [ ] **Phase 84: iRacing Telemetry** - Shared memory reader with session transition handling and pre-flight checks
+- [ ] **Phase 85: LMU Telemetry** - rFactor 2 shared memory reader for Le Mans Ultimate lap data
+- [ ] **Phase 86: AC EVO Telemetry** - Best-effort shared memory reader using ACC struct layout, feature-flagged
+- [ ] **Phase 87: EA WRC Telemetry** - JSON-configured UDP telemetry with stage-to-lap mapping
+- [ ] **Phase 88: Leaderboard Integration** - Multi-game lap storage, track name normalization, endpoint updates
+
 ## Phase Details
 
 ### Phase 36: WSL2 Infrastructure
@@ -931,6 +944,121 @@ Plans:
 - [ ] 80-01: TBD
 - [ ] 80-02: TBD
 
+## v13.0 Multi-Game Launcher -- Phase Details
+
+### Phase 81: Game Launch Core
+**Goal**: Staff can launch any supported game on any pod from the kiosk, see what is running where, and recover from crashes without manual intervention
+**Depends on**: Nothing (first phase of v13.0)
+**Requirements**: LAUNCH-01, LAUNCH-02, LAUNCH-03, LAUNCH-04, LAUNCH-05, LAUNCH-06
+**Success Criteria** (what must be TRUE):
+  1. Staff selects F1 25, iRacing, AC EVO, EA WRC, or LMU from kiosk and the game launches on the target pod with safe defaults
+  2. Customer can request a game from PWA/QR and staff sees the request in kiosk for confirmation
+  3. If a game crashes or hangs, rc-agent detects it within 30 seconds, cleans up stale processes, and alerts staff with relaunch option
+  4. Kiosk and fleet health dashboard show which game is running on which pod in real time
+  5. Each game has a TOML launch profile defining exe path, launch args, and safe defaults
+**Plans**: TBD
+
+Plans:
+- [ ] 81-01: TBD
+- [ ] 81-02: TBD
+- [ ] 81-03: TBD
+
+### Phase 82: Billing and Session Lifecycle
+**Goal**: Customers are charged only for actual gameplay time, with billing starting when the game is playable and stopping cleanly on exit or crash
+**Depends on**: Phase 81
+**Requirements**: BILL-01, BILL-02, BILL-03, BILL-04, BILL-05
+**Success Criteria** (what must be TRUE):
+  1. Billing does not start during loading screens or shader compilation -- only when the game reports a playable state
+  2. Each game has a configurable credit-per-minute rate in the billing_rates table
+  3. When a game exits normally, crashes, or the session ends, billing stops automatically
+  4. The full session lifecycle (launch, loading, playable, gameplay, exit, cleanup) is observable in logs and kiosk state
+**Plans**: TBD
+
+Plans:
+- [ ] 82-01: TBD
+- [ ] 82-02: TBD
+
+### Phase 83: F1 25 Telemetry
+**Goal**: F1 25 lap times and sector splits are captured and emitted as structured events
+**Depends on**: Phase 82
+**Requirements**: TEL-F1-01, TEL-F1-02, TEL-F1-03
+**Success Criteria** (what must be TRUE):
+  1. F1 25 UDP telemetry is received on port 20777 during gameplay
+  2. Lap times and sector splits are extracted from telemetry packets after each completed lap
+  3. Each completed lap emits an AgentMessage::LapCompleted with sim_type = F1_25
+**Plans**: TBD
+
+Plans:
+- [ ] 83-01: TBD
+
+### Phase 84: iRacing Telemetry
+**Goal**: iRacing lap times and sector splits are captured via shared memory with reliable session transition handling
+**Depends on**: Phase 82
+**Requirements**: TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04
+**Success Criteria** (what must be TRUE):
+  1. iRacing shared memory is read using winapi OpenFileMappingA during active sessions
+  2. When iRacing transitions between races, the adapter re-opens the shared memory handle without losing data
+  3. Lap times and sector splits are extracted and emitted as LapCompleted events with correct timing
+  4. On launch, the adapter checks irsdkEnableMem=1 in app.ini and warns staff if missing
+**Plans**: TBD
+
+Plans:
+- [ ] 84-01: TBD
+- [ ] 84-02: TBD
+
+### Phase 85: LMU Telemetry
+**Goal**: Le Mans Ultimate lap times are captured via rFactor 2 shared memory plugin
+**Depends on**: Phase 82
+**Requirements**: TEL-LMU-01, TEL-LMU-02, TEL-LMU-03
+**Success Criteria** (what must be TRUE):
+  1. LMU shared memory is read using rFactor 2 shared memory plugin mapped files ($rFactor2SMMP_*)
+  2. Lap times and sector splits are extracted from rF2 scoring data after each completed lap
+  3. Each completed lap emits a LapCompleted event with sim_type = LMU
+**Plans**: TBD
+
+Plans:
+- [ ] 85-01: TBD
+
+### Phase 86: AC EVO Telemetry
+**Goal**: AC EVO telemetry is captured on a best-effort basis with graceful degradation when data is unavailable
+**Depends on**: Phase 82
+**Requirements**: TEL-EVO-01, TEL-EVO-02, TEL-EVO-03
+**Success Criteria** (what must be TRUE):
+  1. AC EVO shared memory is read using ACC-format struct layout when data is available
+  2. If telemetry fields are unpopulated or the API changes, the adapter logs a warning and continues without crashing
+  3. When lap data is available, it is emitted as LapCompleted with sim_type = AC_EVO
+**Plans**: TBD
+
+Plans:
+- [ ] 86-01: TBD
+
+### Phase 87: EA WRC Telemetry
+**Goal**: EA WRC stage times are captured via UDP and mapped to the lap schema for leaderboard compatibility
+**Depends on**: Phase 82
+**Requirements**: TEL-WRC-01, TEL-WRC-02, TEL-WRC-03
+**Success Criteria** (what must be TRUE):
+  1. EA WRC UDP telemetry is received on port 20432 using JSON-configured packet format
+  2. Stage completion times are captured and mapped to the laps schema
+  3. If WRC telemetry config is unavailable, the game still launches and billing works
+**Plans**: TBD
+
+Plans:
+- [ ] 87-01: TBD
+
+### Phase 88: Leaderboard Integration
+**Goal**: Lap and stage times from all games appear on the existing Racing Point leaderboard with correct track names
+**Depends on**: Phase 83, Phase 84, Phase 85, Phase 86, Phase 87 (at least one adapter producing data)
+**Requirements**: LB-01, LB-02, LB-03
+**Success Criteria** (what must be TRUE):
+  1. Lap/stage times from all adapters are stored in the existing laps table with a sim_type field
+  2. A track name mapping table translates per-game track identifiers to Racing Point canonical track names
+  3. Existing leaderboard endpoints serve multi-game data and support filtering by sim_type
+**Plans**: TBD
+
+Plans:
+- [ ] 88-01: TBD
+- [ ] 88-02: TBD
+
 ## Progress
 
 **Execution Order:**
@@ -1025,3 +1153,11 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 78. Kiosk & Session Hardening | v12.0 | 0/? | Not started | - |
 | 79. Data Protection | v12.0 | 0/? | Not started | - |
 | 80. Audit Trail & Defense in Depth | v12.0 | 0/? | Not started | - |
+| 81. Game Launch Core | v13.0 | 0/3 | Not started | - |
+| 82. Billing and Session Lifecycle | v13.0 | 0/2 | Not started | - |
+| 83. F1 25 Telemetry | v13.0 | 0/1 | Not started | - |
+| 84. iRacing Telemetry | v13.0 | 0/2 | Not started | - |
+| 85. LMU Telemetry | v13.0 | 0/1 | Not started | - |
+| 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
+| 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
+| 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
