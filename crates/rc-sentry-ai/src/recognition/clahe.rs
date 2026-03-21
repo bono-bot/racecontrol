@@ -1,11 +1,27 @@
+use image::{DynamicImage, Rgb, RgbImage};
+
 /// Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to a face crop.
 ///
 /// Converts the input RGB image to grayscale, applies CLAHE for lighting normalization,
 /// then replicates the grayscale result to 3 channels (R=G=B) for ArcFace input.
 ///
 /// This ensures consistent face appearance under varying entrance lighting conditions.
-pub fn apply_clahe(face_crop: &image::RgbImage) -> image::RgbImage {
-    todo!("implement CLAHE normalization")
+pub fn apply_clahe(face_crop: &RgbImage) -> RgbImage {
+    // Convert to grayscale
+    let gray = DynamicImage::ImageRgb8(face_crop.clone()).into_luma8();
+
+    // Apply CLAHE: 8x8 tiles, clip limit 40.0
+    let enhanced = match clahe::clahe_u8_to_u8(8, 8, 40.0, &gray) {
+        Ok(result) => result,
+        Err(_) => gray, // fallback to original grayscale on error
+    };
+
+    // Replicate grayscale to 3-channel RGB (R=G=B=luma)
+    let (w, h) = enhanced.dimensions();
+    RgbImage::from_fn(w, h, |x, y| {
+        let luma = enhanced.get_pixel(x, y)[0];
+        Rgb([luma, luma, luma])
+    })
 }
 
 #[cfg(test)]
