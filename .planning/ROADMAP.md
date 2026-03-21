@@ -219,7 +219,7 @@ Lock down the Racing Point operations stack — audit all exposed endpoints and 
  (completed 2026-03-20)
 - [x] **Phase 78: Kiosk & Session Hardening** - Chrome lockdown, hotkey blocking, USB disable, session-scoped tokens, anomaly auto-pause with WhatsApp alert (completed 2026-03-21)
 - [x] **Phase 79: Data Protection** - AES-256-GCM on PII columns, deterministic phone hash for lookups, log redaction, customer data export/deletion (completed 2026-03-21)
-- [ ] **Phase 80: Audit Trail & Defense in Depth** - Admin action logging, WhatsApp alerts on sensitive actions, PIN rotation alerts, cloud sync HMAC signing
+- [x] **Phase 80: Audit Trail & Defense in Depth** - Admin action logging, WhatsApp alerts on sensitive actions, PIN rotation alerts, cloud sync HMAC signing (completed 2026-03-21)
 
 ## v13.0 Multi-Game Launcher
 
@@ -1236,7 +1236,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 77. Transport Security | 2/2 | Complete    | 2026-03-20 | - |
 | 78. Kiosk & Session Hardening | 3/3 | Complete    | 2026-03-21 | - |
 | 79. Data Protection | 3/3 | Complete    | 2026-03-21 | - |
-| 80. Audit Trail & Defense in Depth | 1/2 | In Progress|  | - |
+| 80. Audit Trail & Defense in Depth | 2/2 | Complete   | 2026-03-21 | - |
 | 81. Game Launch Core | 3/3 | Complete   | 2026-03-21 | - |
 | 82. Billing and Session Lifecycle | v13.0 | 0/2 | Not started | - |
 | 83. F1 25 Telemetry | v13.0 | 0/1 | Not started | - |
