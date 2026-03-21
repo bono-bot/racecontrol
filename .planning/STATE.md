@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
-milestone: v11.2
-milestone_name: RC Sentry AI Debugger
+milestone: v15.0
+milestone_name: AntiCheat Compatibility
 status: in_progress
 stopped_at: Defining requirements
-last_updated: "2026-03-21T16:00:00.000Z"
+last_updated: "2026-03-21T19:45:00.000Z"
 progress:
   total_phases: 0
   completed_phases: 0

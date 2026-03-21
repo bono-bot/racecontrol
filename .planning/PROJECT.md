@@ -55,6 +55,26 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Alert on violation: WS notification to staff kiosk + email escalation
 - Audit log: all violations logged with timestamp, machine, process, action taken
 
+## Current Milestone: v15.0 AntiCheat Compatibility
+
+**Goal:** Audit and harden all pod-side RaceControl behaviors so that rc-agent, rc-sentry, and kiosk software never trigger anti-cheat detection in F1 25 (EAC), iRacing, LMU, AC EVO, or EA WRC — preventing customer account bans.
+
+**Target features:**
+- Full pod-side behavior audit: keyboard hooks, process monitoring/killing, shared memory telemetry, USB lockdown, registry modifications, unsigned binaries, port listeners
+- Risk classification matrix per anti-cheat system (EAC, iRacing AC, rF2/LMU AC, Kunos AC, EA AC)
+- Auto safe mode in rc-agent: detect protected game launch, automatically disable risky subsystems (hooks, process killing, allowlist enforcement) until game exits
+- Replace low-level keyboard hook (Phase 78) with anti-cheat safe alternative (policy-based, no SetWindowsHookEx)
+- Gate shared memory telemetry readers to avoid triggering memory inspection detection
+- Code sign rc-agent.exe and rc-sentry.exe with real code signing certificate
+- Per-game anti-cheat compatibility validation via test sessions on Pod 8
+- Anti-cheat compatibility matrix documentation for ops reference
+
+**Constraints:**
+- Must NOT break existing billing, lock screen, or session management while in safe mode
+- Must complete BEFORE v13.0 Multi-Game Launcher deploys to customers
+- Same Rust/Axum stack, minimize new crate dependencies
+- Pod 8 canary-first testing for all changes
+
 ## Active Milestone: v10.0 Connectivity & Redundancy
 
 **Goal:** Make James (.27) ↔ Server (.23) connectivity bulletproof and give Bono (cloud VPS) full failover capability so the venue keeps running even when the local server goes down.
@@ -227,6 +247,17 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - [ ] Track name normalization across games
 - [ ] Leaderboard endpoints serve multi-game data
 
+### Planned (v15.0 — AntiCheat Compatibility)
+
+- [ ] Audit all pod-side behaviors for anti-cheat risk (keyboard hooks, process monitoring, shared memory, registry, unsigned binaries)
+- [ ] Classify each behavior by risk level per anti-cheat system (EAC, iRacing, rF2/LMU, Kunos/EVO, EA/WRC)
+- [ ] Implement auto safe mode: rc-agent detects protected game launch and disables risky subsystems
+- [ ] Replace low-level keyboard hook with anti-cheat safe kiosk lockdown
+- [ ] Gate shared memory telemetry readers behind safe mode (defer reads until anti-cheat allows)
+- [ ] Code sign rc-agent.exe and rc-sentry.exe with real certificate
+- [ ] Validate anti-cheat compatibility per game via test sessions
+- [ ] Document anti-cheat compatibility matrix for all 5 games
+
 ### Planned (v14.0 — Psychology Integration)
 
 - [ ] Psychology engine module (psychology.rs) with badge evaluation, streak tracking, notification dispatch (FOUND-01–05)
@@ -316,4 +347,4 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 | Batch file firewall rules | netsh in .bat scripts for port 8090 | ⚠️ Revisit — CRLF bug silently breaks rules, move to Rust |
 
 ---
-*Last updated: 2026-03-21 after milestone v11.2 RC Sentry AI Debugger started*
+*Last updated: 2026-03-21 after milestone v15.0 AntiCheat Compatibility started*
