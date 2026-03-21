@@ -1908,7 +1908,10 @@ Plans:
   3. After any remote execution (exec, shell relay, chain, or delegation), both the requesting machine and the executing machine have a new line in data/exec-audit.jsonl containing execId, command, requester, exitCode, durationMs, and tier
   4. Chain audit entries include chainId and stepIndex so a multi-step failure is traceable as one coherent event in the log, not isolated step entries
   5. The audit file is append-only and does not truncate on daemon restart — entries accumulate across sessions
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 133-01-PLAN.md — AuditLogger class + delegation protocol types (TDD)
+- [ ] 133-02-PLAN.md — Wire delegation + audit into james/index.js + bono/index.js
 
 ### Phase 134: Advanced Chain Features + Integration Hardening
 **Goal**: Chains support templates, output substitution, per-step retry, survive WS reconnects, and either AI can query what commands the other exposes
@@ -1932,5 +1935,5 @@ Plans:
 | 130. Protocol Foundation + Dynamic Registry | 2/2 | Complete    | 2026-03-21 |
 | 131. Shell Relay | 1/1 | Complete    | 2026-03-21 |
 | 132. Chain Orchestration | 2/2 | Complete    | 2026-03-21 |
-| 133. Task Delegation + Audit Trail | 0/? | Not started | - |
+| 133. Task Delegation + Audit Trail | 0/2 | Not started | - |
 | 134. Advanced Chain Features + Integration Hardening | 0/? | Not started | - |
