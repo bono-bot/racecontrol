@@ -1784,15 +1784,36 @@ async fn session_laps(State(state): State<Arc<AppState>>, Path(id): Path<String>
     }
 }
 
-async fn track_leaderboard(State(state): State<Arc<AppState>>, Path(track): Path<String>) -> Json<Value> {
-    let rows = sqlx::query_as::<_, (String, String, String, i64, String, Option<String>)>(
-        "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id
-         FROM track_records tr JOIN drivers d ON tr.driver_id = d.id
-         WHERE tr.track = ? ORDER BY tr.best_lap_ms ASC"
-    )
-    .bind(&track)
-    .fetch_all(&state.db)
-    .await;
+#[derive(Deserialize)]
+struct StaffTrackLeaderboardQuery {
+    sim_type: Option<String>,
+}
+
+async fn track_leaderboard(
+    State(state): State<Arc<AppState>>,
+    Path(track): Path<String>,
+    Query(params): Query<StaffTrackLeaderboardQuery>,
+) -> Json<Value> {
+    let rows = if let Some(ref st) = params.sim_type {
+        sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(
+            "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
+             FROM track_records tr JOIN drivers d ON tr.driver_id = d.id
+             WHERE tr.track = ? AND tr.sim_type = ? ORDER BY tr.best_lap_ms ASC"
+        )
+        .bind(&track)
+        .bind(st)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(
+            "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
+             FROM track_records tr JOIN drivers d ON tr.driver_id = d.id
+             WHERE tr.track = ? ORDER BY tr.best_lap_ms ASC"
+        )
+        .bind(&track)
+        .fetch_all(&state.db)
+        .await
+    };
 
     match rows {
         Ok(records) => {
@@ -1800,8 +1821,9 @@ async fn track_leaderboard(State(state): State<Arc<AppState>>, Path(track): Path
                 "position": i + 1,
                 "track": r.0, "car": r.1, "driver": r.2,
                 "best_lap_ms": r.3, "achieved_at": r.4, "lap_id": r.5,
+                "sim_type": r.6,
             })).collect();
-            Json(json!({ "track": track, "records": list }))
+            Json(json!({ "track": track, "sim_type": params.sim_type, "records": list }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
     }
@@ -9347,43 +9369,102 @@ async fn customer_subscribe_membership(
 
 // ─── Public Leaderboard (No Auth Required) ───────────────────────────────────
 
+#[derive(Deserialize)]
+struct PublicLeaderboardQuery {
+    sim_type: Option<String>,
+}
+
 async fn public_leaderboard(
     State(state): State<Arc<AppState>>,
+    Query(params): Query<PublicLeaderboardQuery>,
 ) -> Json<Value> {
-    // All-time track records across all tracks
-    let records = sqlx::query_as::<_, (String, String, String, i64, String, Option<String>)>(
-        "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id
-         FROM track_records tr
-         JOIN drivers d ON tr.driver_id = d.id
-         ORDER BY tr.achieved_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await;
+    // All-time track records across all tracks (optionally filtered by sim_type)
+    let records = if let Some(ref st) = params.sim_type {
+        sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(
+            "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
+             FROM track_records tr
+             JOIN drivers d ON tr.driver_id = d.id
+             WHERE tr.sim_type = ?
+             ORDER BY tr.achieved_at DESC",
+        )
+        .bind(st)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, (String, String, String, i64, String, Option<String>, String)>(
+            "SELECT tr.track, tr.car, CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, tr.best_lap_ms, tr.achieved_at, tr.lap_id, tr.sim_type
+             FROM track_records tr
+             JOIN drivers d ON tr.driver_id = d.id
+             ORDER BY tr.achieved_at DESC",
+        )
+        .fetch_all(&state.db)
+        .await
+    };
 
-    // Available tracks
-    let tracks = sqlx::query_as::<_, (String, i64)>(
-        "SELECT DISTINCT track, COUNT(*) as laps
-         FROM laps WHERE valid = 1
-         GROUP BY track
-         ORDER BY laps DESC",
+    // Available tracks (optionally filtered by sim_type)
+    let tracks = if let Some(ref st) = params.sim_type {
+        sqlx::query_as::<_, (String, i64)>(
+            "SELECT DISTINCT track, COUNT(*) as laps
+             FROM laps WHERE valid = 1 AND sim_type = ?
+             GROUP BY track
+             ORDER BY laps DESC",
+        )
+        .bind(st)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as::<_, (String, i64)>(
+            "SELECT DISTINCT track, COUNT(*) as laps
+             FROM laps WHERE valid = 1
+             GROUP BY track
+             ORDER BY laps DESC",
+        )
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    };
+
+    // Top drivers by total valid laps (optionally filtered by sim_type)
+    let top_drivers = if let Some(ref st) = params.sim_type {
+        sqlx::query_as::<_, (String, i64, Option<i64>)>(
+            "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest
+             FROM laps l
+             JOIN drivers d ON l.driver_id = d.id
+             WHERE l.valid = 1 AND l.sim_type = ?
+             GROUP BY l.driver_id
+             ORDER BY lap_count DESC
+             LIMIT 20",
+        )
+        .bind(st)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as::<_, (String, i64, Option<i64>)>(
+            "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest
+             FROM laps l
+             JOIN drivers d ON l.driver_id = d.id
+             WHERE l.valid = 1
+             GROUP BY l.driver_id
+             ORDER BY lap_count DESC
+             LIMIT 20",
+        )
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    };
+
+    // Available sim_types for frontend game picker
+    let available_sim_types: Vec<String> = sqlx::query_as::<_, (String,)>(
+        "SELECT DISTINCT sim_type FROM laps WHERE valid = 1 ORDER BY sim_type",
     )
     .fetch_all(&state.db)
     .await
-    .unwrap_or_default();
-
-    // Top drivers by total valid laps
-    let top_drivers = sqlx::query_as::<_, (String, i64, Option<i64>)>(
-        "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END, COUNT(l.id) as lap_count, MIN(l.lap_time_ms) as fastest
-         FROM laps l
-         JOIN drivers d ON l.driver_id = d.id
-         WHERE l.valid = 1
-         GROUP BY l.driver_id
-         ORDER BY lap_count DESC
-         LIMIT 20",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| r.0)
+    .collect();
 
     // Active time trial
     let time_trial = sqlx::query_as::<_, (String, String, String, String, String)>(
@@ -9404,6 +9485,7 @@ async fn public_leaderboard(
             "best_lap_display": format!("{}:{:02}.{:03}", r.3 / 60000, (r.3 % 60000) / 1000, r.3 % 1000),
             "achieved_at": r.4,
             "lap_id": r.5,
+            "sim_type": r.6,
         })).collect::<Vec<_>>(),
         "tracks": tracks.iter().map(|t| json!({
             "name": t.0, "total_laps": t.1,
@@ -9414,6 +9496,8 @@ async fn public_leaderboard(
             "total_laps": d.1,
             "fastest_lap_ms": d.2,
         })).collect::<Vec<_>>(),
+        "available_sim_types": available_sim_types,
+        "sim_type": params.sim_type,
         "time_trial": time_trial.map(|tt| json!({
             "id": tt.0, "track": tt.1, "car": tt.2,
             "week_start": tt.3, "week_end": tt.4,
@@ -9435,7 +9519,8 @@ async fn public_track_leaderboard(
     Path(track): Path<String>,
     Query(params): Query<LeaderboardQuery>,
 ) -> Json<Value> {
-    let sim_type = params.sim_type.unwrap_or_else(|| "assetto_corsa".to_string());
+    // sim_type is optional — None means all games (backward compatible)
+    let sim_type = params.sim_type.clone();
     let show_invalid = params.show_invalid.unwrap_or(false);
 
     // Build validity filter: suspect laps are ALWAYS hidden.
@@ -9446,50 +9531,62 @@ async fn public_track_leaderboard(
         "AND l.valid = 1 AND (l.suspect IS NULL OR l.suspect = 0)"
     };
 
+    let sim_type_clause = if sim_type.is_some() { "AND l.sim_type = ?" } else { "" };
+    let sim_type_subq_clause = if sim_type.is_some() { "AND l2.sim_type = ?" } else { "" };
     let car_clause = if params.car.is_some() { "AND l.car = ?" } else { "" };
 
-    // Top 50 fastest laps on this track (best per driver per car), filtered by sim_type
+    // Top 50 fastest laps on this track (best per driver per car), optionally filtered by sim_type
     let main_query = format!(
         "SELECT CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL THEN d.nickname ELSE d.name END,
                 l.car, MIN(l.lap_time_ms), MAX(l.created_at),
                 (SELECT l2.id FROM laps l2 WHERE l2.driver_id = l.driver_id AND l2.car = l.car AND l2.track = l.track
-                    AND l2.sim_type = ? {} ORDER BY l2.lap_time_ms ASC LIMIT 1)
+                    {} {} ORDER BY l2.lap_time_ms ASC LIMIT 1),
+                l.sim_type
          FROM laps l
          JOIN drivers d ON l.driver_id = d.id
-         WHERE l.track = ? AND l.sim_type = ? {} {}
+         WHERE l.track = ? {} {} {}
          GROUP BY l.driver_id, l.car
          ORDER BY MIN(l.lap_time_ms) ASC
          LIMIT 50",
+        sim_type_subq_clause,
         if show_invalid { "AND (l2.suspect IS NULL OR l2.suspect = 0)" } else { "AND l2.valid = 1 AND (l2.suspect IS NULL OR l2.suspect = 0)" },
+        sim_type_clause,
         validity_clause,
         car_clause,
     );
 
-    let mut query = sqlx::query_as::<_, (String, String, i64, String, Option<String>)>(&main_query)
-        .bind(&sim_type)  // subquery sim_type
-        .bind(&track)
-        .bind(&sim_type); // main WHERE sim_type
+    let mut query = sqlx::query_as::<_, (String, String, i64, String, Option<String>, String)>(&main_query);
 
+    // Bind subquery sim_type first (if present)
+    if let Some(ref st) = sim_type {
+        query = query.bind(st);
+    }
+    // Bind main WHERE params
+    query = query.bind(&track);
+    if let Some(ref st) = sim_type {
+        query = query.bind(st);
+    }
     if let Some(ref car) = params.car {
         query = query.bind(car);
     }
 
     let records = query.fetch_all(&state.db).await;
 
-    // Track stats (filtered by sim_type + same validity rules)
+    // Track stats (optionally filtered by sim_type + same validity rules)
     let stats_query = format!(
         "SELECT COUNT(*) as total_laps, COUNT(DISTINCT driver_id) as drivers, COUNT(DISTINCT car) as cars
-         FROM laps WHERE track = ? AND sim_type = ? {}",
+         FROM laps WHERE track = ? {} {}",
+        sim_type_clause,
         validity_clause,
     );
 
-    let stats: Option<(i64, i64, i64)> = sqlx::query_as(&stats_query)
-        .bind(&track)
-        .bind(&sim_type)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten();
+    let stats: Option<(i64, i64, i64)> = {
+        let mut sq = sqlx::query_as::<_, (i64, i64, i64)>(&stats_query).bind(&track);
+        if let Some(ref st) = sim_type {
+            sq = sq.bind(st);
+        }
+        sq.fetch_optional(&state.db).await.ok().flatten()
+    };
 
     Json(json!({
         "track": track,
@@ -9507,6 +9604,7 @@ async fn public_track_leaderboard(
             "best_lap_display": format!("{}:{:02}.{:03}", r.2 / 60000, (r.2 % 60000) / 1000, r.2 % 1000),
             "achieved_at": r.3,
             "lap_id": r.4,
+            "sim_type": r.5,
         })).collect::<Vec<_>>(),
     }))
 }
@@ -11914,6 +12012,7 @@ async fn bot_events(
 #[derive(Debug, Deserialize)]
 struct BotLeaderboardQuery {
     track: Option<String>,
+    sim_type: Option<String>,
 }
 
 async fn bot_leaderboard(
@@ -11925,27 +12024,57 @@ async fn bot_leaderboard(
         return e;
     }
 
-    let entries = if let Some(ref track) = params.track {
-        sqlx::query_as::<_, (String, String, i64, String)>(
-            "SELECT d.name, l.track, MIN(l.lap_time_ms) as best_time, l.car
-             FROM laps l
-             JOIN drivers d ON l.driver_id = d.id
-             WHERE l.track = ? AND l.lap_time_ms > 0
-             GROUP BY l.driver_id, l.track
-             ORDER BY best_time ASC LIMIT 10"
-        )
-        .bind(track)
-        .fetch_all(&state.db)
-        .await
+    let entries: Result<Vec<(String, String, i64, String)>, _> = if let Some(ref track) = params.track {
+        // Track-specific: query laps directly
+        if let Some(ref st) = params.sim_type {
+            sqlx::query_as::<_, (String, String, i64, String)>(
+                "SELECT d.name, l.track, MIN(l.lap_time_ms) as best_time, l.car
+                 FROM laps l
+                 JOIN drivers d ON l.driver_id = d.id
+                 WHERE l.track = ? AND l.sim_type = ? AND l.lap_time_ms > 0
+                 GROUP BY l.driver_id, l.track
+                 ORDER BY best_time ASC LIMIT 10"
+            )
+            .bind(track)
+            .bind(st)
+            .fetch_all(&state.db)
+            .await
+        } else {
+            sqlx::query_as::<_, (String, String, i64, String)>(
+                "SELECT d.name, l.track, MIN(l.lap_time_ms) as best_time, l.car
+                 FROM laps l
+                 JOIN drivers d ON l.driver_id = d.id
+                 WHERE l.track = ? AND l.lap_time_ms > 0
+                 GROUP BY l.driver_id, l.track
+                 ORDER BY best_time ASC LIMIT 10"
+            )
+            .bind(track)
+            .fetch_all(&state.db)
+            .await
+        }
     } else {
-        sqlx::query_as::<_, (String, String, i64, String)>(
-            "SELECT d.name, tr.track, tr.best_lap_ms, tr.car
-             FROM track_records tr
-             JOIN drivers d ON tr.driver_id = d.id
-             ORDER BY tr.best_lap_ms ASC LIMIT 10"
-        )
-        .fetch_all(&state.db)
-        .await
+        // All-tracks: query track_records
+        if let Some(ref st) = params.sim_type {
+            sqlx::query_as::<_, (String, String, i64, String)>(
+                "SELECT d.name, tr.track, tr.best_lap_ms, tr.car
+                 FROM track_records tr
+                 JOIN drivers d ON tr.driver_id = d.id
+                 WHERE tr.sim_type = ?
+                 ORDER BY tr.best_lap_ms ASC LIMIT 10"
+            )
+            .bind(st)
+            .fetch_all(&state.db)
+            .await
+        } else {
+            sqlx::query_as::<_, (String, String, i64, String)>(
+                "SELECT d.name, tr.track, tr.best_lap_ms, tr.car
+                 FROM track_records tr
+                 JOIN drivers d ON tr.driver_id = d.id
+                 ORDER BY tr.best_lap_ms ASC LIMIT 10"
+            )
+            .fetch_all(&state.db)
+            .await
+        }
     };
 
     let list: Vec<Value> = entries.unwrap_or_default().iter().enumerate().map(|(i, e)| json!({
@@ -11961,6 +12090,7 @@ async fn bot_leaderboard(
     Json(json!({
         "entries": list,
         "track_filter": params.track,
+        "sim_type": params.sim_type,
         "count": count,
     }))
 }
