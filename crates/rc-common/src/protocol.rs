@@ -599,6 +599,14 @@ pub enum DashboardEvent {
         waiting: Vec<String>,
         timestamp: String,
     },
+
+    /// Customer requested a game launch from PWA -- staff must confirm before launch
+    GameLaunchRequested {
+        pod_id: String,
+        sim_type: SimType,
+        driver_name: String,
+        request_id: String,
+    },
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)

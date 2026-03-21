@@ -1597,7 +1597,48 @@ async fn main() -> Result<()> {
                                     }
                                 }
                             } else {
-                                tracing::warn!("[crash-recovery] Non-AC relaunch for {:?} — check LaunchGame handler else branch", last_sim_type);
+                                // Non-AC crash recovery: mirrors LaunchGame handler's generic-sim branch
+                                let base_config = match last_sim_type {
+                                    SimType::AssettoCorsaEvo => &state.config.games.assetto_corsa_evo,
+                                    SimType::AssettoCorsaRally => &state.config.games.assetto_corsa_rally,
+                                    SimType::IRacing => &state.config.games.iracing,
+                                    SimType::F125 => &state.config.games.f1_25,
+                                    SimType::LeMansUltimate => &state.config.games.le_mans_ultimate,
+                                    SimType::Forza => &state.config.games.forza,
+                                    SimType::ForzaHorizon5 => &state.config.games.forza_horizon_5,
+                                    SimType::AssettoCorsa => unreachable!("AC handled in the if branch above"),
+                                };
+                                let mut game_cfg = base_config.clone();
+                                if let Some(ref a) = last_launch_args { game_cfg.args = Some(a.clone()); }
+
+                                state.heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
+                                let info = GameLaunchInfo {
+                                    pod_id: state.pod_id.clone(),
+                                    sim_type: last_sim_type,
+                                    game_state: GameState::Launching,
+                                    pid: None,
+                                    launched_at: Some(Utc::now()),
+                                    error_message: None,
+                                    diagnostics: None,
+                                };
+                                let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
+                                let _ = state.failure_monitor_tx.send_modify(|s| {
+                                    s.launch_started_at = Some(std::time::Instant::now());
+                                });
+
+                                match game_process::GameProcess::launch(&game_cfg, last_sim_type) {
+                                    Ok(gp) => {
+                                        tracing::info!("[crash-recovery] Attempt 2: {:?} launched (pid: {:?})", last_sim_type, gp.pid);
+                                        let gp_pid = gp.pid;
+                                        state.game_process = Some(gp);
+                                        let _ = state.failure_monitor_tx.send_modify(|s| {
+                                            s.game_pid = gp_pid;
+                                        });
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("[crash-recovery] Attempt 2: GameProcess::launch failed for {:?}: {}", last_sim_type, e);
+                                    }
+                                }
                             }
 
                             crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
