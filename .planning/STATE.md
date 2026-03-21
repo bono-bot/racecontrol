@@ -4,6 +4,21 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
 stopped_at: Completed 86-01-PLAN.md
+last_updated: "2026-03-21T07:24:43.262Z"
+last_activity: "2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, dynamic variable lookup, double-buffer tick-lock, session transition detection, pre-flight app.ini check, 8 unit tests (TEL-IR-01, TEL-IR-02, TEL-IR-03, TEL-IR-04)"
+progress:
+  total_phases: 70
+  completed_phases: 44
+  total_plans: 110
+  completed_plans: 107
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
+stopped_at: Completed 86-01-PLAN.md
 last_updated: "2026-03-21T07:22:25.991Z"
 last_activity: "2026-03-21 -- 86-01 complete: AssettoCorsaEvoAdapter with zero-guard SHM reads, warn-once flags, physics-based read_is_on_track(), 7 unit tests (TEL-EVO-01, TEL-EVO-02, TEL-EVO-03)"
 progress:
