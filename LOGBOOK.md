@@ -429,3 +429,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 14:18 IST | James | c6ef4c2 | feat(103-01): add ProcessGuardConfig to config.rs and walkdir dep |
 | 2026-03-21 14:18 IST | James | 93060ed | feat(103-01): add guard_whitelist and guard_violation channel to AppState |
 | 2026-03-21 14:18 IST | James | 368ac82 | docs(103-01): complete ProcessGuardConfig foundations plan |
+| 2026-03-21 14:43 IST | James | 482079b | feat(103-02): implement process_guard.rs — spawn_blocking sysinfo scan, two-cycle grace, PID-verified taskkill, CRITICAL racecontrol.exe, 512KB log rotation, 9 tests |
+| 2026-03-21 14:43 IST | James | b6e2344 | docs(103-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — PROC-01-05, ALERT-01, ALERT-04 complete |
