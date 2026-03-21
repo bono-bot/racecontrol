@@ -708,6 +708,10 @@ async fn main() -> Result<()> {
         .unwrap_or_default();
 
     loop {
+        // Reset startup report flag on each reconnection — so racecontrol always gets
+        // version + uptime after it restarts (fixes null version/uptime for long-running pods)
+        startup_report_sent = false;
+
         // Connect to core server — read active_url on each iteration (Phase 68: runtime switching)
         let url = active_url.read().await.clone();
         tracing::info!("Connecting to RaceControl core at {}...", url);
