@@ -468,3 +468,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 19:05 IST | James | 8ec4a4e | feat(107-02): create per-game anti-cheat compatibility matrix (17 subsystems x 6 games, SAFE/UNSAFE/SUSPEND/GATE) |
 | 2026-03-21 19:06 IST | James | f329291 | feat(107-02): create ConspitLink audit template with ProcMon capture procedure (verdict DEFERRED) |
 | 2026-03-21 19:08 IST | James | a1f0517 | docs(107-02): complete plan — 107-02-SUMMARY, STATE, ROADMAP, REQUIREMENTS (AUDIT-02, AUDIT-04 closed) |
+| 2026-03-21 19:14 IST | James | 9b432de | docs(107-01): create rc-agent anti-cheat risk inventory (28 behaviors classified, CRITICAL/HIGH/MEDIUM/LOW per system) |
+| 2026-03-21 19:15 IST | James | 3e1d12f | docs(107-01): populate pod OS edition table — Windows 11 Pro decision, Phase 108 MUST use GPO registry keys |
+| 2026-03-21 19:16 IST | James | 029554a | docs(107-01): complete behavior audit plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated (AUDIT-01, AUDIT-03 closed) |
