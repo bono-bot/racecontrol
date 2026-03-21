@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -7,6 +9,104 @@ use rc_common::types::ContentManifest;
 
 /// Maximum AI cars in single-player AC (20 slots total, 1 for player)
 const MAX_AI_SINGLE_PLAYER: u32 = 19;
+
+// ─── Track Name Normalization ─────────────────────────────────────────────────
+//
+// Maps (sim_type_stored_format, raw_track_id_lowercase) → canonical catalog track ID.
+//
+// sim_type_stored_format is the format stored in the DB:
+//   format!("{:?}", SimType::AssettoCorsa).to_lowercase() = "assettoCorsa"
+//   format!("{:?}", SimType::F125).to_lowercase()         = "f125"
+//   format!("{:?}", SimType::IRacing).to_lowercase()      = "iracing"
+//   format!("{:?}", SimType::LeMansUltimate).to_lowercase() = "lemansultimate"
+//
+// AC track IDs ARE canonical — no mapping needed for AC (passthrough).
+// Unknown combinations pass through unchanged — never block lap storage.
+
+static TRACK_NAME_MAP: LazyLock<HashMap<(String, String), &'static str>> = LazyLock::new(|| {
+    let mut m = HashMap::new();
+
+    // F1 25 (sim_type stored as "f125")
+    m.insert(("f125".to_string(), "monza".to_string()), "monza");
+    m.insert(("f125".to_string(), "spa".to_string()), "spa");
+    m.insert(("f125".to_string(), "silverstone".to_string()), "ks_silverstone");
+    m.insert(("f125".to_string(), "red_bull_ring".to_string()), "ks_red_bull_ring");
+    m.insert(("f125".to_string(), "barcelona".to_string()), "ks_barcelona");
+    m.insert(("f125".to_string(), "jeddah".to_string()), "jeddah21");
+    m.insert(("f125".to_string(), "las_vegas".to_string()), "lasvegas23");
+    m.insert(("f125".to_string(), "suzuka".to_string()), "rt_suzuka");
+    m.insert(("f125".to_string(), "zandvoort".to_string()), "ks_zandvoort");
+    m.insert(("f125".to_string(), "imola".to_string()), "imola");
+    m.insert(("f125".to_string(), "monaco".to_string()), "monaco");
+    m.insert(("f125".to_string(), "bahrain".to_string()), "bahrain");
+    m.insert(("f125".to_string(), "singapore".to_string()), "singapore");
+    m.insert(("f125".to_string(), "interlagos".to_string()), "interlagos");
+
+    // iRacing (sim_type stored as "iracing")
+    m.insert(("iracing".to_string(), "monza combined".to_string()), "monza");
+    m.insert(("iracing".to_string(), "spa-francorchamps".to_string()), "spa");
+    m.insert(("iracing".to_string(), "silverstone circuit".to_string()), "ks_silverstone");
+    m.insert(("iracing".to_string(), "suzuka international".to_string()), "rt_suzuka");
+    m.insert(("iracing".to_string(), "nurburgring nordschleife".to_string()), "ks_nordschleife");
+    m.insert(("iracing".to_string(), "laguna seca".to_string()), "ks_laguna_seca");
+
+    // Le Mans Ultimate (sim_type stored as "lemansultimate")
+    m.insert(("lemansultimate".to_string(), "monza".to_string()), "monza");
+    m.insert(("lemansultimate".to_string(), "spa".to_string()), "spa");
+    m.insert(("lemansultimate".to_string(), "nurburgring".to_string()), "ks_nurburgring");
+
+    // Forza (sim_type stored as "forza")
+    m.insert(("forza".to_string(), "monza".to_string()), "monza");
+    m.insert(("forza".to_string(), "spa-francorchamps".to_string()), "spa");
+    m.insert(("forza".to_string(), "laguna seca".to_string()), "ks_laguna_seca");
+
+    m
+});
+
+/// Normalize a raw game track name to the canonical Racing Point catalog ID.
+///
+/// `sim_type` must be the stored DB format: `format!("{:?}", SimType::X).to_lowercase()`.
+///   e.g. "assettoCorsa", "f125", "iracing", "lemansultimate"
+///
+/// AC track IDs are already canonical — they pass through unchanged.
+/// Unknown combinations also pass through unchanged — lap storage is never blocked.
+pub fn normalize_track_name(sim_type: &str, raw_track: &str) -> String {
+    let raw_lower = raw_track.to_lowercase();
+    let key = (sim_type.to_string(), raw_lower.clone());
+    match TRACK_NAME_MAP.get(&key) {
+        Some(&canonical) => canonical.to_string(),
+        None => raw_track.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod catalog_normalize_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_track_name_maps_known_tracks() {
+        // F1 25 → canonical
+        assert_eq!(normalize_track_name("f125", "silverstone"), "ks_silverstone");
+        assert_eq!(normalize_track_name("f125", "red_bull_ring"), "ks_red_bull_ring");
+        assert_eq!(normalize_track_name("f125", "monza"), "monza");
+
+        // iRacing → canonical
+        assert_eq!(normalize_track_name("iracing", "monza combined"), "monza");
+        assert_eq!(normalize_track_name("iracing", "spa-francorchamps"), "spa");
+
+        // AC passthrough (no mapping needed — already canonical)
+        assert_eq!(normalize_track_name("assettoCorsa", "spa"), "spa");
+        assert_eq!(normalize_track_name("assettoCorsa", "ks_silverstone"), "ks_silverstone");
+
+        // Unknown track → passthrough unchanged
+        assert_eq!(normalize_track_name("f125", "unknown_track_xyz"), "unknown_track_xyz");
+        assert_eq!(normalize_track_name("iracing", "some_new_track"), "some_new_track");
+
+        // Case-insensitive lookup for raw_track
+        assert_eq!(normalize_track_name("f125", "Silverstone"), "ks_silverstone");
+        assert_eq!(normalize_track_name("f125", "MONACO"), "monaco");
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackEntry {

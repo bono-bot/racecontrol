@@ -108,10 +108,11 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             driver_id TEXT REFERENCES drivers(id),
             track TEXT NOT NULL,
             car TEXT NOT NULL,
+            sim_type TEXT NOT NULL DEFAULT 'assettoCorsa',
             best_lap_ms INTEGER NOT NULL,
             lap_id TEXT REFERENCES laps(id),
             achieved_at TEXT,
-            PRIMARY KEY (driver_id, track, car)
+            PRIMARY KEY (driver_id, track, car, sim_type)
         )",
     )
     .execute(pool)
@@ -121,11 +122,12 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         "CREATE TABLE IF NOT EXISTS track_records (
             track TEXT NOT NULL,
             car TEXT NOT NULL,
+            sim_type TEXT NOT NULL DEFAULT 'assettoCorsa',
             driver_id TEXT REFERENCES drivers(id),
             best_lap_ms INTEGER NOT NULL,
             lap_id TEXT REFERENCES laps(id),
             achieved_at TEXT,
-            PRIMARY KEY (track, car)
+            PRIMARY KEY (track, car, sim_type)
         )",
     )
     .execute(pool)
@@ -2283,7 +2285,123 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .await;
     // ok() / let _ ignores "duplicate column" error on re-run -- idempotent
 
+    // Phase 88 (LB-01, LB-02): Migrate personal_bests and track_records to include
+    // sim_type in their PRIMARY KEY so F1 25 / iRacing / AC records are independent.
+    migrate_leaderboard_sim_type(pool).await?;
+
     tracing::info!("Database migrations complete");
+    Ok(())
+}
+
+/// Idempotent migration: add `sim_type` column to personal_bests and track_records
+/// and rebuild their PRIMARY KEYs to include sim_type.
+///
+/// SQLite does not support ALTER PRIMARY KEY, so we use the v2-table rebuild pattern.
+/// The migration is guarded by a pragma_table_info check — it runs exactly once.
+///
+/// Default sim_type for existing rows: 'assettoCorsa'
+/// (matching `format!("{:?}", SimType::AssettoCorsa).to_lowercase()` stored in laps.sim_type)
+async fn migrate_leaderboard_sim_type(pool: &SqlitePool) -> anyhow::Result<()> {
+    // Check if personal_bests already has sim_type column — if so, migration already done
+    let pb_col_exists: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('personal_bests') WHERE name = 'sim_type'"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0) > 0;
+
+    if !pb_col_exists {
+        tracing::info!("Phase 88: Migrating personal_bests to add sim_type to PRIMARY KEY");
+
+        // Create new table with sim_type in PK
+        sqlx::query(
+            "CREATE TABLE personal_bests_v2 (
+                driver_id TEXT REFERENCES drivers(id),
+                track TEXT NOT NULL,
+                car TEXT NOT NULL,
+                sim_type TEXT NOT NULL DEFAULT 'assettoCorsa',
+                best_lap_ms INTEGER NOT NULL,
+                lap_id TEXT REFERENCES laps(id),
+                achieved_at TEXT,
+                PRIMARY KEY (driver_id, track, car, sim_type)
+            )"
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("create personal_bests_v2: {}", e))?;
+
+        // Copy existing rows, assigning 'assettoCorsa' as sim_type
+        sqlx::query(
+            "INSERT INTO personal_bests_v2 (driver_id, track, car, sim_type, best_lap_ms, lap_id, achieved_at)
+             SELECT driver_id, track, car, 'assettoCorsa', best_lap_ms, lap_id, achieved_at
+             FROM personal_bests"
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("copy personal_bests: {}", e))?;
+
+        sqlx::query("DROP TABLE personal_bests")
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("drop personal_bests: {}", e))?;
+
+        sqlx::query("ALTER TABLE personal_bests_v2 RENAME TO personal_bests")
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("rename personal_bests_v2: {}", e))?;
+
+        tracing::info!("Phase 88: personal_bests migration complete");
+    }
+
+    // Check if track_records already has sim_type column
+    let tr_col_exists: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('track_records') WHERE name = 'sim_type'"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0) > 0;
+
+    if !tr_col_exists {
+        tracing::info!("Phase 88: Migrating track_records to add sim_type to PRIMARY KEY");
+
+        sqlx::query(
+            "CREATE TABLE track_records_v2 (
+                track TEXT NOT NULL,
+                car TEXT NOT NULL,
+                sim_type TEXT NOT NULL DEFAULT 'assettoCorsa',
+                driver_id TEXT REFERENCES drivers(id),
+                best_lap_ms INTEGER NOT NULL,
+                lap_id TEXT REFERENCES laps(id),
+                achieved_at TEXT,
+                PRIMARY KEY (track, car, sim_type)
+            )"
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("create track_records_v2: {}", e))?;
+
+        sqlx::query(
+            "INSERT INTO track_records_v2 (track, car, sim_type, driver_id, best_lap_ms, lap_id, achieved_at)
+             SELECT track, car, 'assettoCorsa', driver_id, best_lap_ms, lap_id, achieved_at
+             FROM track_records"
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("copy track_records: {}", e))?;
+
+        sqlx::query("DROP TABLE track_records")
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("drop track_records: {}", e))?;
+
+        sqlx::query("ALTER TABLE track_records_v2 RENAME TO track_records")
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("rename track_records_v2: {}", e))?;
+
+        tracing::info!("Phase 88: track_records migration complete");
+    }
+
     Ok(())
 }
 
