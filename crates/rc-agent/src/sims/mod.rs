@@ -1,4 +1,5 @@
 pub mod assetto_corsa;
+pub mod assetto_corsa_evo;
 pub mod f1_25;
 pub mod iracing;
 pub mod lmu;
