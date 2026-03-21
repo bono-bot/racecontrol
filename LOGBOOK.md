@@ -465,3 +465,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 17:46 IST | James | e83b33e | feat(105-03): rc-process-guard standalone binary — 10 tests pass, 4.0MB static CRT, HTTP POST violations |
 | 2026-03-21 17:46 IST | James | 93c6f1c | docs(105-03): complete rc-process-guard plan — DEPLOY-03 closed, STATE/ROADMAP updated |
 | 2026-03-21 18:10 IST | James | 205ce52 | docs: complete v15.0 AntiCheat Compatibility research — STACK, FEATURES, ARCHITECTURE, PITFALLS, SUMMARY-v15 |
+| 2026-03-21 19:05 IST | James | 8ec4a4e | feat(107-02): create per-game anti-cheat compatibility matrix (17 subsystems x 6 games, SAFE/UNSAFE/SUSPEND/GATE) |
+| 2026-03-21 19:06 IST | James | f329291 | feat(107-02): create ConspitLink audit template with ProcMon capture procedure (verdict DEFERRED) |
+| 2026-03-21 19:08 IST | James | a1f0517 | docs(107-02): complete plan — 107-02-SUMMARY, STATE, ROADMAP, REQUIREMENTS (AUDIT-02, AUDIT-04 closed) |
