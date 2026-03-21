@@ -232,7 +232,7 @@ Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA 
 - [ ] **Phase 85: LMU Telemetry** - rFactor 2 shared memory reader for Le Mans Ultimate lap data
 - [ ] **Phase 86: AC EVO Telemetry** - Best-effort shared memory reader using ACC struct layout, feature-flagged
 - [ ] **Phase 87: EA WRC Telemetry** - JSON-configured UDP telemetry with stage-to-lap mapping
-- [ ] **Phase 88: Leaderboard Integration** - Multi-game lap storage, track name normalization, endpoint updates
+- [x] **Phase 88: Leaderboard Integration** - Multi-game lap storage, track name normalization, endpoint updates (completed 2026-03-21)
 
 ## v14.0 HR & Marketing Psychology
 
@@ -1311,7 +1311,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 85. LMU Telemetry | v13.0 | 0/1 | Not started | - |
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
 | 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
-| 88. Leaderboard Integration | 1/2 | In Progress|  | - |
+| 88. Leaderboard Integration | 2/2 | Complete   | 2026-03-21 | - |
 | 89. Psychology Foundation | 3/3 | Complete    | 2026-03-21 | - |
 | 90. Customer Progression | 1/2 | Complete    | 2026-03-21 | - |
 | 91. Session Experience | 1/2 | In Progress|  | - |
