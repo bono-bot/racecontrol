@@ -1556,7 +1556,7 @@ Transform Racing Point's existing 13-camera Dahua setup into an automated face-r
 
 - [x] **Phase 112: RTSP Infrastructure & Camera Pipeline** - Relay service, multi-camera management, health monitoring, and people tracker integration (completed 2026-03-21)
 - [x] **Phase 113: Face Detection & Privacy Foundation** - SCRFD face detection on GPU via ort, plus DPDP Act consent framework (completed 2026-03-21)
-- [ ] **Phase 114: Face Recognition & Quality Gates** - ArcFace embedding extraction, cosine similarity matching, quality filtering, and lighting normalization
+- [x] **Phase 114: Face Recognition & Quality Gates** - ArcFace embedding extraction, cosine similarity matching, quality filtering, and lighting normalization (completed 2026-03-21)
 - [ ] **Phase 115: Face Enrollment System** - Profile management, multi-angle capture, and face database population
 - [ ] **Phase 116: Attendance Engine** - Auto-log entry timestamps on recognition, staff clock-in/clock-out with shift tracking
 - [ ] **Phase 117: Alerts & Notifications** - Dashboard notifications, desktop popups, and unknown person alerts
@@ -1699,7 +1699,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 112. RTSP Infrastructure & Camera Pipeline | 4/4 | Complete    | 2026-03-21 |
 | 113. Face Detection & Privacy Foundation | 3/3 | Complete    | 2026-03-21 |
-| 114. Face Recognition & Quality Gates | 2/3 | In Progress|  |
+| 114. Face Recognition & Quality Gates | 3/3 | Complete   | 2026-03-21 |
 | 115. Face Enrollment System | 0/4 | Not started | - |
 | 116. Attendance Engine | 0/3 | Not started | - |
 | 117. Alerts & Notifications | 0/3 | Not started | - |
