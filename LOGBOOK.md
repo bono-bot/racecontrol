@@ -444,3 +444,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 17:15 IST | James | 8dbd3ba | feat(106-05): migrate utility/monitor files to structured target: labels — 8 files, 36 call sites |
 | 2026-03-21 17:20 IST | James | 046f6a7 | feat(106-05): migrate sim module files to structured target: labels — 5 files, 32 call sites |
 | 2026-03-21 17:25 IST | James | 942f5ed | docs(106-05): complete plan — all remaining rc-agent files structured log labels (13 files, 68 calls) |
+| 2026-03-21 15:42 IST | James | 1aa9bf1 | feat(106-03): migrate ffb_controller.rs and ai_debugger.rs to structured target labels (44+28 calls) |
+| 2026-03-21 15:44 IST | James | 570f775 | feat(106-03): migrate kiosk.rs and lock_screen.rs to structured target labels (21+20 calls) |
+| 2026-03-21 15:45 IST | James | af60071 | docs(106-03): complete plan 03 — 114 tracing calls migrated, [rc-bot] eliminated, kiosk-llm preserved |
