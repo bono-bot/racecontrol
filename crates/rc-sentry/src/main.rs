@@ -17,6 +17,8 @@
 
 mod watchdog;
 mod tier1_fixes;
+mod debug_memory;
+mod ollama;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -116,6 +118,24 @@ fn main() {
                     ctx.panic_message, ctx.exit_code, ctx.last_phase
                 );
 
+                // Derive pattern key from crash context
+                let pattern_key = debug_memory::derive_pattern_key(
+                    ctx.panic_message.as_deref(),
+                    ctx.exit_code,
+                    ctx.last_phase.as_deref(),
+                );
+
+                // Check pattern memory for known fix
+                let memory = debug_memory::DebugMemory::load();
+                if let Some(known) = memory.instant_fix(&pattern_key) {
+                    tracing::info!(
+                        target: "crash-handler",
+                        "INSTANT FIX from pattern memory: {} (hit #{})",
+                        known.fix_type, known.hit_count
+                    );
+                }
+
+                // Run Tier 1 fixes + restart
                 let (results, restarted) = tier1_fixes::handle_crash(&ctx, &mut tracker);
 
                 tracing::info!(
@@ -124,7 +144,49 @@ fn main() {
                     results.len(), restarted
                 );
 
-                // Phase 104: Pattern memory update will be added here
+                // Record successful fix in pattern memory
+                if restarted {
+                    let fix_summary: String = results.iter()
+                        .filter(|r| r.success)
+                        .map(|r| r.fix_type.as_str())
+                        .collect::<Vec<_>>()
+                        .join("+");
+                    let mut memory = debug_memory::DebugMemory::load();
+                    memory.record(
+                        pattern_key.clone(),
+                        fix_summary.clone(),
+                        format!("{} fixes applied, restarted", results.len()),
+                    );
+                    memory.save();
+                    tracing::info!(target: "crash-handler", "pattern memory updated: {} -> {}", pattern_key, fix_summary);
+                }
+
+                // Fire-and-forget Ollama query for unknown patterns (Tier 3)
+                if memory.instant_fix(&pattern_key).is_none() {
+                    let crash_summary = format!(
+                        "panic: {:?}\nexit_code: {:?}\nlast_phase: {:?}\nstartup_log_tail: {}",
+                        ctx.panic_message, ctx.exit_code, ctx.last_phase,
+                        &ctx.startup_log[..ctx.startup_log.len().min(500)]
+                    );
+                    let pk = pattern_key.clone();
+                    ollama::query_async(
+                        crash_summary,
+                        Box::new(move |result| {
+                            if let Some(r) = result {
+                                tracing::info!(
+                                    target: "crash-handler",
+                                    "ollama suggestion for {}: {} (model: {})",
+                                    pk, r.suggestion, r.model
+                                );
+                                // Save Ollama suggestion to pattern memory for next time
+                                let mut mem = debug_memory::DebugMemory::load();
+                                mem.record(pk, format!("ollama:{}", r.suggestion), r.suggestion);
+                                mem.save();
+                            }
+                        }),
+                    );
+                }
+
                 // Phase 105: Fleet reporting will be added here
             }
         })
