@@ -1559,7 +1559,7 @@ Transform Racing Point's existing 13-camera Dahua setup into an automated face-r
 - [x] **Phase 114: Face Recognition & Quality Gates** - ArcFace embedding extraction, cosine similarity matching, quality filtering, and lighting normalization (completed 2026-03-21)
 - [x] **Phase 115: Face Enrollment System** - Profile management, multi-angle capture, and face database population (completed 2026-03-21)
 - [x] **Phase 116: Attendance Engine** - Auto-log entry timestamps on recognition, staff clock-in/clock-out with shift tracking (completed 2026-03-21)
-- [ ] **Phase 117: Alerts & Notifications** - Dashboard notifications, desktop popups, and unknown person alerts
+- [x] **Phase 117: Alerts & Notifications** - Dashboard notifications, desktop popups, and unknown person alerts (completed 2026-03-21)
 - [ ] **Phase 118: Live Camera Feeds** - MJPEG proxy for real-time camera viewing in dashboard
 - [ ] **Phase 119: NVR Playback Proxy** - Query Dahua NVR API for stored footage, serve through dashboard with event markers
 
@@ -1700,6 +1700,6 @@ Plans:
 | 114. Face Recognition & Quality Gates | 3/3 | Complete    | 2026-03-21 |
 | 115. Face Enrollment System | 2/2 | Complete    | 2026-03-21 |
 | 116. Attendance Engine | 3/3 | Complete    | 2026-03-21 |
-| 117. Alerts & Notifications | 2/3 | In Progress|  |
+| 117. Alerts & Notifications | 3/3 | Complete   | 2026-03-21 |
 | 118. Live Camera Feeds | 0/2 | Not started | - |
 | 119. NVR Playback Proxy | 0/3 | Not started | - |
