@@ -7534,6 +7534,62 @@ async fn sync_changes(
                     result["auth_tokens"] = json!(items);
                 }
             }
+            "reservations" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'driver_id', driver_id, 'experience_id', experience_id,
+                        'pin', pin, 'status', status, 'pod_number', pod_number,
+                        'debit_intent_id', debit_intent_id,
+                        'created_at', created_at, 'expires_at', expires_at,
+                        'redeemed_at', redeemed_at, 'cancelled_at', cancelled_at,
+                        'updated_at', updated_at
+                    ) FROM reservations
+                    WHERE updated_at > ? OR (updated_at IS NULL AND created_at > ?)
+                    ORDER BY COALESCE(updated_at, created_at) ASC
+                    LIMIT ?",
+                )
+                .bind(&since)
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["reservations"] = json!(items);
+                }
+            }
+            "debit_intents" => {
+                let rows = sqlx::query_as::<_, (String,)>(
+                    "SELECT json_object(
+                        'id', id, 'driver_id', driver_id, 'amount_paise', amount_paise,
+                        'reservation_id', reservation_id, 'status', status,
+                        'failure_reason', failure_reason, 'wallet_txn_id', wallet_txn_id,
+                        'origin', origin,
+                        'created_at', created_at, 'processed_at', processed_at,
+                        'updated_at', updated_at
+                    ) FROM debit_intents
+                    WHERE updated_at > ? OR (updated_at IS NULL AND created_at > ?)
+                    ORDER BY COALESCE(updated_at, created_at) ASC
+                    LIMIT ?",
+                )
+                .bind(&since)
+                .bind(&since)
+                .bind(limit)
+                .fetch_all(&state.db)
+                .await;
+
+                if let Ok(rows) = rows {
+                    let items: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|r| serde_json::from_str(&r.0).ok())
+                        .collect();
+                    result["debit_intents"] = json!(items);
+                }
+            }
             _ => {}
         }
     }
@@ -7620,6 +7676,14 @@ async fn sync_push(
             return Json(json!({ "error": format!("Invalid JSON: {}", e) }));
         }
     };
+
+    // Origin tag check: reject data that originated from us (anti-loop defense)
+    let incoming_origin = body.get("origin").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let my_origin = &state.config.cloud.origin_id;
+    if incoming_origin == my_origin {
+        tracing::warn!(target: "sync", "Rejecting sync_push from same origin: {}", my_origin);
+        return Json(json!({ "ok": true, "upserted": 0, "reason": "same_origin" }));
+    }
 
     let mut total = 0u64;
 
@@ -8058,6 +8122,76 @@ async fn sync_push(
         );
         *state.venue_config.write().await = Some(snapshot);
         total += 1;
+    }
+
+    // Upsert reservations (cloud-authoritative: cloud creates, local updates status)
+    if let Some(reservations) = body.get("reservations").and_then(|v| v.as_array()) {
+        for r in reservations {
+            let id = r.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let res = sqlx::query(
+                "INSERT INTO reservations (id, driver_id, experience_id, pin, status,
+                    pod_number, debit_intent_id, created_at, expires_at, redeemed_at,
+                    cancelled_at, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                 ON CONFLICT(id) DO UPDATE SET
+                    status = excluded.status,
+                    pod_number = COALESCE(excluded.pod_number, reservations.pod_number),
+                    debit_intent_id = COALESCE(excluded.debit_intent_id, reservations.debit_intent_id),
+                    redeemed_at = COALESCE(excluded.redeemed_at, reservations.redeemed_at),
+                    cancelled_at = COALESCE(excluded.cancelled_at, reservations.cancelled_at),
+                    updated_at = excluded.updated_at",
+            )
+            .bind(id)
+            .bind(r.get("driver_id").and_then(|v| v.as_str()))
+            .bind(r.get("experience_id").and_then(|v| v.as_str()))
+            .bind(r.get("pin").and_then(|v| v.as_str()))
+            .bind(r.get("status").and_then(|v| v.as_str()).unwrap_or("pending_debit"))
+            .bind(r.get("pod_number").and_then(|v| v.as_i64()))
+            .bind(r.get("debit_intent_id").and_then(|v| v.as_str()))
+            .bind(r.get("created_at").and_then(|v| v.as_str()))
+            .bind(r.get("expires_at").and_then(|v| v.as_str()))
+            .bind(r.get("redeemed_at").and_then(|v| v.as_str()))
+            .bind(r.get("cancelled_at").and_then(|v| v.as_str()))
+            .bind(r.get("updated_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if res.is_ok() { total += 1; }
+        }
+    }
+
+    // Upsert debit_intents (cloud creates pending, local processes and updates status)
+    if let Some(intents) = body.get("debit_intents").and_then(|v| v.as_array()) {
+        for di in intents {
+            let id = di.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let res = sqlx::query(
+                "INSERT INTO debit_intents (id, driver_id, amount_paise, reservation_id,
+                    status, failure_reason, wallet_txn_id, origin, created_at,
+                    processed_at, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                 ON CONFLICT(id) DO UPDATE SET
+                    status = excluded.status,
+                    failure_reason = COALESCE(excluded.failure_reason, debit_intents.failure_reason),
+                    wallet_txn_id = COALESCE(excluded.wallet_txn_id, debit_intents.wallet_txn_id),
+                    processed_at = COALESCE(excluded.processed_at, debit_intents.processed_at),
+                    updated_at = excluded.updated_at",
+            )
+            .bind(id)
+            .bind(di.get("driver_id").and_then(|v| v.as_str()))
+            .bind(di.get("amount_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(di.get("reservation_id").and_then(|v| v.as_str()))
+            .bind(di.get("status").and_then(|v| v.as_str()).unwrap_or("pending"))
+            .bind(di.get("failure_reason").and_then(|v| v.as_str()))
+            .bind(di.get("wallet_txn_id").and_then(|v| v.as_str()))
+            .bind(di.get("origin").and_then(|v| v.as_str()).unwrap_or("cloud"))
+            .bind(di.get("created_at").and_then(|v| v.as_str()))
+            .bind(di.get("processed_at").and_then(|v| v.as_str()))
+            .bind(di.get("updated_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if res.is_ok() { total += 1; }
+        }
     }
 
     tracing::info!("Sync push: upserted {} records", total);
