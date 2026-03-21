@@ -892,11 +892,11 @@ Plans:
   2. Admin login and sensitive actions (wallet topup, fleet exec) trigger a WhatsApp notification to Uday
   3. If the admin PIN has not been changed in 30+ days, Uday receives an alert prompting rotation
   4. Cloud sync payloads are signed with HMAC-SHA256 including timestamp and nonce -- replayed or tampered payloads are rejected
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 80-01: TBD
-- [ ] 80-02: TBD
+- [ ] 80-01-PLAN.md -- Audit trail infrastructure + WA alerts on admin actions (ADMIN-04, ADMIN-05)
+- [ ] 80-02-PLAN.md -- PIN rotation alerting + HMAC-SHA256 sync signing (ADMIN-06, AUTH-07)
 
 ## v13.0 Multi-Game Launcher -- Phase Details
 
@@ -1250,3 +1250,76 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 94. Pricing & Conversion | v14.0 | 0/? | Not started | - |
 | 95. Staff Gamification | v14.0 | 0/? | Not started | - |
 | 96. HR & Hiring Psychology | v14.0 | 0/? | Not started | - |
+# Roadmap: v11.1 Pre-Flight Session Checks
+
+## Overview
+
+Every customer session begins with automated health verification. On BillingStarted, rc-agent runs 8-10 targeted checks concurrently (tokio::join! with a 5-second hard timeout), attempts one auto-fix per failure, and either clears into the active session or blocks the pod with a "Maintenance Required" lock screen. Staff are notified exactly once per fault transition via WebSocket and kiosk badge. The implementation is a pure integration exercise — zero new Rust crates, one new module (pre_flight.rs), and surgical modifications to four existing files. Build order is compiler-dependency-driven: rc-common protocol first, then lock screen state, then check logic, then handler wiring, then server-side staff UX.
+
+## Phases
+
+- [ ] **Phase 90: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag
+- [ ] **Phase 91: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking
+- [ ] **Phase 92: System + Network + Billing Checks + BillingStarted Handler Wiring** - Billing stuck-session check, disk and memory probes, WS stability check, complete handler integration in ws_handler.rs, self_test.rs pub(crate) helper extraction, alert rate-limiting
+- [ ] **Phase 93: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear** - Kiosk dashboard maintenance badge per pod, "Clear Maintenance" staff action (PIN-gated), pod marked unavailable in fleet health, preflight_alert_cooldown_secs config
+
+## Phase Details
+
+### Phase 90: rc-common Protocol + pre_flight.rs Framework + Hardware Checks
+**Goal**: The foundational layer exists and compiles — new AgentMessage variants in rc-common are available to rc-agent, pre_flight.rs owns the concurrent check gate with a hard 5-second timeout, and the three highest-value hardware checks (HID wheelbase, ConspitLink process+config, orphaned game PID-targeted kill) run correctly with one auto-fix attempt each
+**Depends on**: Phase 89 (v14.0 Psychology Foundation)
+**Requirements**: PF-01, PF-02, PF-03, PF-07, HW-01, HW-02, HW-03, SYS-01
+**Success Criteria** (what must be TRUE):
+  1. cargo build --bin rc-agent and cargo build --bin racecontrol both succeed after rc-common protocol.rs changes — compiler validates new AgentMessage variants exist before any rc-agent code references them
+  2. On a healthy pod with wheelbase connected and ConspitLink running, pre_flight::run() returns PreFlightResult::Pass within 5 seconds and logs "pre-flight passed" — concurrent gate executes without blocking the WS receive loop
+  3. When a test simulates ConspitLink not running, rc-agent spawns ConspitLink, waits for process to appear, and if successful returns Pass — HW-03 auto-restart path executes once and stops
+  4. When an orphaned game PID is in AppState (game_process is Some but billing_active is false), pre_flight kills that specific PID via taskkill /F /PID — name-based kill is never used and active sessions are never touched
+  5. When disable_preflight = true in rc-agent.toml, BillingStarted proceeds directly to show_active_session() with no pre_flight::run() call — rollback escape hatch works
+**Plans**: TBD
+
+### Phase 91: MaintenanceRequired Lock Screen + Display Checks
+**Goal**: A pod that fails pre-flight shows a branded "Maintenance Required — Staff Notified" lock screen and stays blocked with two explicit exit paths — staff sends ClearMaintenance from kiosk, or 30 seconds of successful auto-retry self-clears the pod; display checks (HTTP probe and window rect) are wired into the pre-flight gate
+**Depends on**: Phase 90
+**Requirements**: PF-04, PF-05, PF-06, DISP-01, DISP-02
+**Success Criteria** (what must be TRUE):
+  1. When pre-flight fails and auto-fix cannot resolve it, the pod lock screen transitions to "Maintenance Required — Staff Notified" — customer never sees a raw error message or desktop
+  2. A PreFlightFailed AgentMessage arrives at racecontrol within 5 seconds of the pod entering MaintenanceRequired, containing the list of failed check names — server has the information it needs to mark the pod
+  3. Every 30 seconds while in MaintenanceRequired, the pod re-runs pre-flight silently; if all checks pass, the pod self-clears to Idle state without staff action — auto-retry loop works
+  4. When racecontrol sends a ClearMaintenance message to a pod, the pod transitions from MaintenanceRequired to Idle and accepts the next BillingStarted — staff manual clear path works
+  5. A GET to http://localhost:18923 returns HTTP 200 and the window rect of the lock screen Edge window is centered within 5% of the primary monitor center — display checks pass on a healthy pod
+**Plans**: TBD
+
+### Phase 92: System + Network + Billing Checks + BillingStarted Handler Wiring
+**Goal**: All remaining checks are live (billing stuck-session, disk, memory, WebSocket stability) and the pre-flight gate is wired into ws_handler.rs — every BillingStarted now triggers the complete concurrent check gate before any session state is mutated; staff alerts fire exactly once per MaintenanceRequired entry, not once per failure
+**Depends on**: Phase 91
+**Requirements**: SYS-02, SYS-03, SYS-04, NET-01, STAFF-04
+**Success Criteria** (what must be TRUE):
+  1. When billing_active is true at BillingStarted time (stuck session from previous customer), pre-flight reports BillingStuck failure and does not start a new session — local atomic check, no HTTP round-trip
+  2. When disk free on C: drops below 1GB in the sysinfo probe, pre-flight blocks the session and fires MaintenanceRequired; when disk is above 1GB, the check passes silently — disk probe runs every BillingStarted
+  3. When WebSocket has been connected for less than 10 seconds or has disconnected and reconnected within the last 10 seconds, NET-01 reports a warning but does not block the session — flap-detection logic is correct
+  4. Running pre-flight 20 consecutive times on a fully healthy pod produces zero failures and zero MaintenanceRequired transitions — no false positives from probe logic
+  5. When a pod is already in MaintenanceRequired and BillingStarted arrives, racecontrol does not book the pod for a new customer — the server rejects the booking before it reaches the pod, and the pod also guards the BillingStarted arm with a state check
+**Plans**: TBD
+
+### Phase 93: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear
+**Goal**: Staff can see at a glance which pods are in maintenance (Racing Red badge on kiosk dashboard), view failure reasons (PIN-gated), and manually clear a pod from the dashboard; maintenance pods appear as unavailable in fleet health; alert cooldown prevents notification floods
+**Depends on**: Phase 92
+**Requirements**: STAFF-01, STAFF-02, STAFF-03, STAFF-04
+**Success Criteria** (what must be TRUE):
+  1. When a pod enters MaintenanceRequired, the kiosk fleet grid shows a Racing Red (#E10600) "Maintenance" badge on that pod's card within one polling cycle — staff see the problem without checking logs
+  2. A staff member who knows the PIN can click the maintenance badge to see failure details (failed check names, timestamp); the failure details are not visible on the kiosk grid without PIN confirmation — customer privacy maintained on venue TV screens
+  3. Clicking "Clear Maintenance" on the kiosk dashboard (with PIN) sends ClearMaintenance to the pod, the pod transitions to Idle, and the dashboard badge disappears within one polling cycle
+  4. In the fleet health dashboard (/api/v1/fleet/health), a pod in MaintenanceRequired shows status "maintenance" (not "healthy" or "offline") — fleet visibility is accurate
+  5. If a pod enters MaintenanceRequired repeatedly within the preflight_alert_cooldown_secs window, only one WhatsApp/email alert fires — Uday does not receive notification floods from rapid re-entry
+**Plans**: TBD
+
+## Progress
+
+**Execution Order:** 90 → 91 → 92 → 93
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 90. rc-common Protocol + Framework + Hardware | TBD | Not started | - |
+| 91. MaintenanceRequired Lock Screen + Display | TBD | Not started | - |
+| 92. System + Network + Billing + Handler Wiring | TBD | Not started | - |
+| 93. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |
