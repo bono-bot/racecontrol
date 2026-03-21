@@ -2059,6 +2059,18 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // Seed initial badge definitions (psychology foundation)
+    sqlx::query(
+        "INSERT OR IGNORE INTO achievements (id, name, description, category, criteria_json, badge_icon, reward_credits_paise, sort_order) VALUES
+         ('badge_first_lap', 'First Lap', 'Completed your very first lap at RacingPoint', 'milestone', '{\"type\":\"first_lap\",\"operator\":\">=\",\"value\":1}', 'flag', 0, 1),
+         ('badge_10_tracks', 'Explorer', 'Driven on 10 different tracks', 'milestone', '{\"type\":\"unique_tracks\",\"operator\":\">=\",\"value\":10}', 'map', 0, 2),
+         ('badge_100_laps', 'Century', 'Completed 100 laps at RacingPoint', 'dedication', '{\"type\":\"total_laps\",\"operator\":\">=\",\"value\":100}', 'trophy', 0, 3),
+         ('badge_10_cars', 'Collector', 'Driven 10 different cars', 'milestone', '{\"type\":\"unique_cars\",\"operator\":\">=\",\"value\":10}', 'car', 0, 4),
+         ('badge_streak_4', 'Regular', 'Maintained a 4-week visit streak', 'dedication', '{\"type\":\"streak_weeks\",\"operator\":\">=\",\"value\":4}', 'fire', 0, 5)"
+    )
+    .execute(pool)
+    .await?;
+
     // Table 2: driver_achievements (which drivers earned which badges)
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS driver_achievements (
