@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 81-02-PLAN.md
-last_updated: "2026-03-21T01:33:11.799Z"
-last_activity: "2026-03-21 -- 74-02 complete: AppState struct with 34 pub(crate) fields extracted from main.rs; all reconnect loop references updated to state.field pattern (DECOMP-02)"
+stopped_at: Completed 70-02-PLAN.md
+last_updated: "2026-03-21T01:54:34.440Z"
+last_activity: "2026-03-21 -- 74-03 complete: ws_handler.rs extracted with handle_ws_message() dispatching 22 CoreToAgentMessage variants; select! ws_rx arm reduced to 27-line delegation; main.rs down from 3009 to 2037 lines (DECOMP-03)"
 progress:
   total_phases: 53
   completed_phases: 28
-  total_plans: 83
-  completed_plans: 74
+  total_plans: 85
+  completed_plans: 77
 ---
 
 ---
@@ -200,7 +200,7 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 Phase: 74 of 81 (rc-agent-decomposition)
 Plan: 03 of 04 complete
 Status: In Progress
-Last activity: 2026-03-21 -- 74-03 complete: ws_handler.rs extracted with handle_ws_message() dispatching 22 CoreToAgentMessage variants; select! ws_rx arm reduced to 27-line delegation; main.rs down from 3009 to 2037 lines (DECOMP-03)
+Last activity: 2026-03-21 -- 70-02 complete: HealthMonitor server_recovery event (down->healthy guard) + FailoverOrchestrator 9-step initiateFailback() + export_failover_sessions + notify_failback COMMAND_REGISTRY entries + james/index.js server_recovery wiring (BACK-01, BACK-03, BACK-04)
 
 Progress: [██████████] 93% (75/81 plans complete)
 
@@ -285,6 +285,8 @@ Progress: [██████████] 93% (75/81 plans complete)
 - 81-01: Non-AC crash recovery else branch: match last_sim_type to config.games field (7 variants), clone base_config, override args from last_launch_args, call GameProcess::launch() -- mirrors LaunchGame handler exactly (LAUNCH-02 complete)
 - 81-01: DashboardEvent::GameLaunchRequested added at end of enum using existing SimType -- no new imports needed (LAUNCH-04 complete)
 - 81-01: pwa_game_request uses extract_driver_id() in-handler (customer JWT); validates pod in state.pods + installed_games; fire-and-forget broadcast; no AppState mutation (LAUNCH-05 complete)
+- 70-02: server_recovery uses prev === 'down' guard -- prevents spurious failback on degraded->healthy; only full outage recovery triggers failback sequence (BACK-01, BACK-03, BACK-04 complete)
+- 70-02: sync failure does NOT block pod switchback -- sessions missed during export/import logged as syncError in Uday notify message; initiateFailback reuses same alertCooldown as initiateFailover
 
 ### Blockers/Concerns
 
@@ -307,7 +309,7 @@ Progress: [██████████] 93% (75/81 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:48:00Z
-Stopped at: Completed 74-03-PLAN.md
-Resume file: .planning/phases/74-rc-agent-decomposition/74-03-SUMMARY.md
+Last session: 2026-03-21T01:54:34.434Z
+Stopped at: Completed 70-02-PLAN.md
+Resume file: None
 Next action: Phase 74 Plan 04 -- event_loop.rs extraction (inner-loop locals -> ConnectionState struct, select! dispatch body)
