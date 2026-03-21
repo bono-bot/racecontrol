@@ -1471,7 +1471,11 @@ Audit and harden all pod-side RaceControl behaviors so that rc-agent, rc-sentry,
   2. ConspitLink is audited via Sysinternals Process Monitor on Pod 8: the audit report documents whether ConspitLink installs kernel drivers, performs DLL injection, or opens handles to game processes -- the risk level is known before v15.0 canary testing begins
   3. All 8 pods have their Windows 11 edition verified (winver output documented) -- the Keyboard Filter vs GPO registry key decision for Phase 108 is made with confirmed facts, not assumptions
   4. Ops team has a per-game anti-cheat compatibility matrix document (racecontrol.toml safe_mode_subsystems section + ops reference doc) covering what is safe to run while each game is active
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 107-01-PLAN.md — Risk inventory of all rc-agent anti-cheat behaviors + pod OS edition verification (AUDIT-01, AUDIT-03)
+- [ ] 107-02-PLAN.md — ConspitLink ProcMon audit + per-game compatibility matrix (AUDIT-02, AUDIT-04)
 
 ### Phase 108: Keyboard Hook Replacement
 **Goal**: The SetWindowsHookEx global keyboard hook installed by Phase 78 is fully removed from rc-agent source and permanently replaced by GPO registry key writes -- kiosk lockdown is equally effective without any hook, and no hook install/uninstall cycle is ever visible to a running anti-cheat driver
