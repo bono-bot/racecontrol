@@ -2310,6 +2310,64 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Remote Reservations (cloud booking) ────────────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS reservations (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            experience_id TEXT NOT NULL,
+            pin TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending_debit'
+                CHECK(status IN ('pending_debit','confirmed','redeemed','expired','cancelled','failed')),
+            pod_number INTEGER,
+            debit_intent_id TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            expires_at TEXT NOT NULL,
+            redeemed_at TEXT,
+            cancelled_at TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_reservations_pin ON reservations(pin, status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_reservations_driver ON reservations(driver_id, status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_reservations_expires ON reservations(expires_at, status)")
+        .execute(pool)
+        .await?;
+
+    // ─── Debit Intents (wallet debit tracking for reservations) ──────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS debit_intents (
+            id TEXT PRIMARY KEY,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            amount_paise INTEGER NOT NULL,
+            reservation_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending','processing','completed','failed','cancelled')),
+            failure_reason TEXT,
+            wallet_txn_id TEXT,
+            origin TEXT NOT NULL DEFAULT 'cloud',
+            created_at TEXT DEFAULT (datetime('now')),
+            processed_at TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_debit_intents_status ON debit_intents(status)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_debit_intents_reservation ON debit_intents(reservation_id)")
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
