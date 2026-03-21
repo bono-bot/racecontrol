@@ -488,3 +488,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 
 | 2026-03-21 21:50 IST | James | c727b70 | feat(110-02): gate F1 25 UDP socket to GameState::Running, enhance disconnect log with port 20777 |
 | 2026-03-21 21:51 IST | James | 2afab9d | docs(110-02): complete UDP socket lifecycle plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
+| 2026-03-21 22:25 IST | James | 185b4c3 | feat(110-01): add AC EVO telemetry feature flag (HARD-05) — defaults false, gates adapter creation |
+| 2026-03-21 22:30 IST | James | 1d2507d | feat(110-01): 5-second deferred SHM connect (HARD-03) — game_running_since + shm_connect_allowed() |
+| 2026-03-21 22:32 IST | James | 16a390c | docs(110-01): complete telemetry-gating plan 01 — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
