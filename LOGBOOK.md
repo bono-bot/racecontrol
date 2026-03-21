@@ -392,3 +392,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 10:17 IST | James | 11390d5 | docs(98-01): complete plan — 98-01-SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md |
 | 2026-03-21 09:59 IST | James | 483b4dc | test(83-01): add 6 F1 25 unit tests — lap completion, sector splits, invalid lap, session type mapping, first-packet safety, take semantics (TEL-F1-01, TEL-F1-02, TEL-F1-03) |
 | 2026-03-21 09:59 IST | James | 4f14435 | docs(83-01): complete F1 25 telemetry test coverage plan — 83-01-SUMMARY.md, STATE.md, ROADMAP.md |
+| 2026-03-21 10:48 IST | James | 9a4234b | feat(99-01): 4 new pre-flight checks (billing_stuck, disk_space, memory, ws_stability) + 9-way tokio::join! runner (SYS-02, SYS-03, SYS-04, NET-01) |
+| 2026-03-21 10:49 IST | James | dad850c | docs(99-01): complete system/network billing checks plan — 99-01-SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md |
