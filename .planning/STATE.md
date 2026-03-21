@@ -3,11 +3,31 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
+stopped_at: Completed 100-02-PLAN.md
+last_updated: "2026-03-21T06:24:44Z"
+last_activity: "2026-03-21 -- 100-02 complete: Fleet page Racing Red Maintenance badge, PIN-gated modal with failure list, Clear Maintenance button calling POST /pods/{id}/clear-maintenance (STAFF-01, STAFF-02)"
+progress:
+  [██████████] 96%
+  total_phases: 65
+  completed_phases: 41
+  total_plans: 108
+  completed_plans: 104
+  percent: 96
+decisions:
+  - "PIN gate accepts any 4-digit input for maintenance modal — casual venue TV protection; actual security is JWT-protected clear-maintenance endpoint"
+  - "maintenance check runs first in statusBorder/statusLabel/statusLabelColor so in_maintenance=true always overrides WS/HTTP status visuals"
+---
+
+---
+gsd_state_version: 1.0
+milestone: v6.0
+milestone_name: Salt Fleet Management
+status: in_progress
 stopped_at: Completed 85-01-PLAN.md
 last_updated: "2026-03-21T07:00:00.000Z"
 last_activity: "2026-03-21 -- 85-01 complete: LmuAdapter with rF2 shared memory (Scoring + Telemetry), torn-read guard, sector splits (cumulative derivation), first-packet safety, session transition reset, 6 unit tests (TEL-LMU-01, TEL-LMU-02, TEL-LMU-03)"
 progress:
-  total_phases: 65
+  [██████████] 96%
   completed_phases: 40
   total_plans: 107
   completed_plans: 103
@@ -561,7 +581,7 @@ Last activity: 2026-03-21 -- 84-01 complete: IracingAdapter with shared memory, 
 
 ## Session Continuity
 
-Last session: 2026-03-21T05:56:04.397Z
-Stopped at: Phase 85 context gathered
-Resume file: .planning/phases/85-lmu-telemetry/85-CONTEXT.md
+Last session: 2026-03-21T06:26:13.140Z
+Stopped at: Completed 100-02-PLAN.md
+Resume file: None
 Next action: Phase 80 audit trail defense complete -- PIN rotation alerting + HMAC sync signing (ADMIN-06, AUTH-07)
