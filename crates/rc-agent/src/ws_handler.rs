@@ -284,6 +284,16 @@ pub async fn handle_ws_message(
             conn.loading_emitted = false;
             conn.f1_udp_playable_received = false;
 
+            // ─── Safe Mode: enter before game spawn (zero delay) ──────────────
+            // SAFE-01: protected games require scan suppression from first instruction.
+            // SAFE-02: entry happens here, before any game process is created.
+            if crate::safe_mode::is_protected_game(launch_sim) {
+                state.safe_mode.enter(launch_sim);
+                state.safe_mode_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                // Disarm cooldown if another game launched during cooldown window
+                state.safe_mode_cooldown_armed = false;
+            }
+
             if launch_sim == SimType::AssettoCorsa {
                 if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
 

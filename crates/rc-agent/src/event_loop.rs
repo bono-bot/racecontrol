@@ -332,6 +332,47 @@ pub async fn run(
             }
 
             _ = conn.game_check_interval.tick() => {
+                // ─── Safe Mode: poll WMI watcher for externally launched games ──
+                // SAFE-01 secondary path: games launched outside rc-agent (e.g., Steam).
+                {
+                    let mut wmi_triggered = false;
+                    if let Some(ref wmi_rx) = state.wmi_rx {
+                        while let Ok(exe_name) = wmi_rx.try_recv() {
+                            tracing::info!(target: LOG_TARGET, "WMI detected protected game: {}", exe_name);
+                            if !state.safe_mode.active {
+                                if let Some(sim) = crate::safe_mode::exe_to_sim_type(&exe_name) {
+                                    state.safe_mode.enter(sim);
+                                    state.safe_mode_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    state.safe_mode_cooldown_armed = false;
+                                    wmi_triggered = true;
+                                } else {
+                                    // WRC.exe and future unrecognized protected exe: no SimType variant yet.
+                                    // Manually activate safe mode without a sim_type.
+                                    state.safe_mode.active = true;
+                                    state.safe_mode.game = None;
+                                    state.safe_mode.cooldown_until = None;
+                                    state.safe_mode_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    state.safe_mode_cooldown_armed = false;
+                                    wmi_triggered = true;
+                                    tracing::info!(target: LOG_TARGET, "WMI: ENTER safe mode — game={} (no SimType variant)", exe_name);
+                                }
+                            }
+                        }
+                    }
+                    // If safe mode is active (WMI or LaunchGame) but game_process is None,
+                    // check if any protected exe is still running. If not, start cooldown.
+                    if state.safe_mode.active && state.safe_mode.game.is_some() && state.game_process.is_none() && !wmi_triggered {
+                        // Protected game was launched externally — check if it's gone
+                        let still_running = crate::safe_mode::PROTECTED_EXE_NAMES.iter().any(|name| {
+                            // Use the game field to check the right process
+                            // We already know game is Some here — check via exe name
+                            let _ = name;
+                            false // conservative: don't trigger cooldown from this path
+                        });
+                        let _ = still_running;
+                    }
+                }
+
                 if let Some(ref mut game) = state.game_process {
                     let was_active = matches!(game.state, GameState::Running | GameState::Launching);
 
@@ -397,32 +438,49 @@ pub async fn run(
 
                             tracing::info!(target: LOG_TARGET, "AI debugger enabled={}, url={}, model={}",
                                 state.config.ai_debugger.enabled, state.config.ai_debugger.ollama_url, state.config.ai_debugger.ollama_model);
+                            // ─── Safe Mode: Ollama suppression (SAFE-05) ─────────────
                             if state.config.ai_debugger.enabled {
-                                let exit_info = game.last_exit_code
-                                    .map(|c| format!("exit code {}", c))
-                                    .unwrap_or_else(|| "no exit code".to_string());
-                                let err_ctx = format!("{:?} crashed on pod {} ({})", game.sim_type, state.pod_id, exit_info);
-                                tracing::info!(target: LOG_TARGET, "Spawning AI debugger for: {}", err_ctx);
-                                let snapshot = PodStateSnapshot {
-                                    pod_id: state.pod_id.clone(),
-                                    pod_number: state.config.pod.number,
-                                    lock_screen_active: state.lock_screen.is_active(),
-                                    billing_active: state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
-                                    game_pid: game.pid,
-                                    driving_state: Some(state.detector.current_state()),
-                                    wheelbase_connected: state.detector.is_hid_connected(),
-                                    ws_connected: state.heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
-                                    uptime_seconds: state.agent_start_time.elapsed().as_secs(),
-                                    ..Default::default()
-                                };
-                                tokio::spawn(crate::ai_debugger::analyze_crash(
-                                    state.config.ai_debugger.clone(),
-                                    state.pod_id.clone(),
-                                    game.sim_type,
-                                    err_ctx,
-                                    snapshot,
-                                    state.ai_result_tx.clone(),
-                                ));
+                                if state.safe_mode.active {
+                                    tracing::info!(target: LOG_TARGET, "safe mode active — Ollama analysis suppressed");
+                                } else {
+                                    let exit_info = game.last_exit_code
+                                        .map(|c| format!("exit code {}", c))
+                                        .unwrap_or_else(|| "no exit code".to_string());
+                                    let err_ctx = format!("{:?} crashed on pod {} ({})", game.sim_type, state.pod_id, exit_info);
+                                    tracing::info!(target: LOG_TARGET, "Spawning AI debugger for: {}", err_ctx);
+                                    let snapshot = PodStateSnapshot {
+                                        pod_id: state.pod_id.clone(),
+                                        pod_number: state.config.pod.number,
+                                        lock_screen_active: state.lock_screen.is_active(),
+                                        billing_active: state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed),
+                                        game_pid: game.pid,
+                                        driving_state: Some(state.detector.current_state()),
+                                        wheelbase_connected: state.detector.is_hid_connected(),
+                                        ws_connected: state.heartbeat_status.ws_connected.load(std::sync::atomic::Ordering::Relaxed),
+                                        uptime_seconds: state.agent_start_time.elapsed().as_secs(),
+                                        ..Default::default()
+                                    };
+                                    tokio::spawn(crate::ai_debugger::analyze_crash(
+                                        state.config.ai_debugger.clone(),
+                                        state.pod_id.clone(),
+                                        game.sim_type,
+                                        err_ctx,
+                                        snapshot,
+                                        state.ai_result_tx.clone(),
+                                    ));
+                                }
+                            }
+
+                            // ─── Safe Mode: start cooldown on protected game exit (SAFE-03) ──
+                            if state.safe_mode.active && state.safe_mode.game.is_some() {
+                                let until = state.safe_mode.start_cooldown();
+                                let duration = until.saturating_duration_since(std::time::Instant::now());
+                                state.safe_mode_cooldown_timer.as_mut().reset(
+                                    tokio::time::Instant::now() + duration
+                                );
+                                state.safe_mode_cooldown_armed = true;
+                                // safe_mode_active stays true during cooldown
+                                tracing::info!(target: LOG_TARGET, "Protected game exited — 30s safe mode cooldown started");
                             }
 
                             state.game_process = None;
@@ -816,6 +874,14 @@ pub async fn run(
                     let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                     tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
                 }
+            }
+
+            // ─── Safe Mode: cooldown expiry timer (SAFE-03) ─────────────────
+            _ = &mut state.safe_mode_cooldown_timer, if state.safe_mode_cooldown_armed => {
+                state.safe_mode_cooldown_armed = false;
+                state.safe_mode.exit();
+                state.safe_mode_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                tracing::info!(target: LOG_TARGET, "Safe mode cooldown expired — safe mode DEACTIVATED");
             }
 
             _ = &mut conn.exit_grace_timer, if conn.exit_grace_armed => {
