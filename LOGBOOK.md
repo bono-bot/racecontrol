@@ -328,3 +328,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-20 19:38 IST | James | 766b1da | feat(68-02): add last_switch_ms guard to self_monitor WS-dead relaunch check + 3 unit tests |
 | 2026-03-20 19:50 IST | James | cde40a7 | feat(77-02): wire HTTPS listener, security headers, CORS update in main.rs |
 | 2026-03-20 19:50 IST | James | e165e7b | feat(77-02): protocol-aware kiosk API_BASE -- no mixed content on HTTPS |
+| 2026-03-21 06:27 IST | James | 0849580 | feat(69-01): create HealthMonitor FSM — 12-tick/60s hysteresis, server_down event (comms-link) |
+| 2026-03-21 06:27 IST | James | 4545729 | feat(69-01): create FailoverOrchestrator + wire into james/index.js (comms-link) |
+| 2026-03-21 06:28 IST | James | df19db4 | docs(69-01): 69-01-SUMMARY.md + STATE.md + ROADMAP.md |
