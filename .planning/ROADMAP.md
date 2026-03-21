@@ -1546,7 +1546,7 @@ Plans:
 
 Transform Racing Point's existing 13-camera Dahua setup into an automated face-recognition attendance system. Starting with reliable RTSP frame access through a relay, then building the local AI pipeline (SCRFD detection + ArcFace recognition on RTX 4070 via ort), enrollment and attendance logging, alerts, and finally dashboard camera monitoring with NVR playback proxying. All inference runs locally -- zero cloud API cost, zero internet dependency, sub-10ms latency.
 
-- [ ] **Phase 112: RTSP Infrastructure & Camera Pipeline** - Relay service, multi-camera management, health monitoring, and people tracker integration
+- [x] **Phase 112: RTSP Infrastructure & Camera Pipeline** - Relay service, multi-camera management, health monitoring, and people tracker integration (completed 2026-03-21)
 - [ ] **Phase 113: Face Detection & Privacy Foundation** - SCRFD face detection on GPU via ort, plus DPDP Act consent framework
 - [ ] **Phase 114: Face Recognition & Quality Gates** - ArcFace embedding extraction, cosine similarity matching, quality filtering, and lighting normalization
 - [ ] **Phase 115: Face Enrollment System** - Profile management, multi-angle capture, and face database population
@@ -1691,7 +1691,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 112. RTSP Infrastructure & Camera Pipeline | 3/4 | In Progress|  |
+| 112. RTSP Infrastructure & Camera Pipeline | 4/4 | Complete   | 2026-03-21 |
 | 113. Face Detection & Privacy Foundation | 0/3 | Not started | - |
 | 114. Face Recognition & Quality Gates | 0/5 | Not started | - |
 | 115. Face Enrollment System | 0/4 | Not started | - |
