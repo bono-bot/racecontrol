@@ -461,6 +461,9 @@ export interface PassportData {
       unique_cars: number;
       total_laps: number;
       streak_weeks: number;
+      longest_streak: number | null;
+      last_visit_date: string | null;
+      grace_expires_date: string | null;
     };
   };
 }

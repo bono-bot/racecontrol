@@ -1144,8 +1144,8 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 92-01: TBD
-- [ ] 92-02: TBD
+- [ ] 92-01-PLAN.md — Backend: variable_reward_log table, 4 retention functions (PB beaten notify, variable rewards, streak-at-risk, membership expiry), wiring in lap_tracker/billing/scheduler/passport API
+- [ ] 92-02-PLAN.md — PWA: Passport streak card with grace urgency indicator, longest streak display, full build verification
 
 ### Phase 93: Community & Tribal Identity
 **Goal**: Discord becomes a living community hub with automated weekly rituals and record alerts
@@ -1325,6 +1325,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 Every customer session begins with automated health verification. On BillingStarted, rc-agent runs 8-10 targeted checks concurrently (tokio::join! with a 5-second hard timeout), attempts one auto-fix per failure, and either clears into the active session or blocks the pod with a "Maintenance Required" lock screen. Staff are notified exactly once per fault transition via WebSocket and kiosk badge. The implementation is a pure integration exercise — zero new Rust crates, one new module (pre_flight.rs), and surgical modifications to four existing files. Build order is compiler-dependency-driven: rc-common protocol first, then lock screen state, then check logic, then handler wiring, then server-side staff UX.
 
 ## Phases
+
 
 - [x] **Phase 97: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag (completed 2026-03-21)
 - [ ] **Phase 98: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking
