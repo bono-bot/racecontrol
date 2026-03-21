@@ -662,9 +662,50 @@ async fn main() -> Result<()> {
         startup_probe_failures
     );
 
+    // ─── Process Guard: fetch whitelist from server ──────────────────────────
+    // Fetch merged whitelist for this pod. Falls back to empty whitelist (report_only) if server
+    // is unreachable at startup — guard will still scan but log only.
+    let fetched_whitelist = {
+        let http_url = config.core.url
+            .replace("ws://", "http://")
+            .replace("wss://", "https://")
+            .split("/ws")
+            .next()
+            .unwrap_or("http://127.0.0.1:8080")
+            .to_string();
+        let whitelist_url = format!("{}/api/v1/guard/whitelist/pod-{}", http_url, config.pod.number);
+        match reqwest::Client::new()
+            .get(&whitelist_url)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<rc_common::types::MachineWhitelist>().await {
+                    Ok(wl) => {
+                        tracing::info!("Process guard: whitelist fetched ({} processes)", wl.processes.len());
+                        wl
+                    }
+                    Err(e) => {
+                        tracing::warn!("Process guard: whitelist parse error: {} — using default (report_only)", e);
+                        rc_common::types::MachineWhitelist::default()
+                    }
+                }
+            }
+            Ok(resp) => {
+                tracing::warn!("Process guard: whitelist fetch {} — using default (report_only)", resp.status());
+                rc_common::types::MachineWhitelist::default()
+            }
+            Err(e) => {
+                tracing::warn!("Process guard: whitelist fetch error: {} — using default (report_only)", e);
+                rc_common::types::MachineWhitelist::default()
+            }
+        }
+    };
+
     // ─── Bundle pre-loop state into AppState ────────────────────────────────
     let (guard_violation_tx, guard_violation_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(32);
-    let guard_whitelist = std::sync::Arc::new(RwLock::new(MachineWhitelist::default()));
+    let guard_whitelist = std::sync::Arc::new(RwLock::new(fetched_whitelist));
     let mut state = AppState {
         pod_id,
         pod_info,
@@ -706,6 +747,15 @@ async fn main() -> Result<()> {
         guard_violation_tx,
         guard_violation_rx,
     };
+
+    // ─── Process Guard: spawn background task ───────────────────────────────
+    process_guard::spawn(
+        state.config.process_guard.clone(),
+        state.guard_whitelist.clone(),
+        state.guard_violation_tx.clone(),
+        state.pod_id.clone(),
+    );
+    tracing::info!("Process guard spawned (interval={}s)", state.config.process_guard.scan_interval_secs);
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
     // On disconnect, retry with exponential backoff. All local state

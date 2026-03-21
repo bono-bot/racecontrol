@@ -58,7 +58,7 @@ impl Default for PreflightConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ProcessGuardConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,

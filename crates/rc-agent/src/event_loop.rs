@@ -1072,6 +1072,17 @@ pub async fn run(
                 }
             }
 
+            Some(msg) = state.guard_violation_rx.recv() => {
+                match serde_json::to_string(&msg) {
+                    Ok(json) => {
+                        if ws_tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => tracing::error!("guard_violation serialize error: {}", e),
+                }
+            }
+
             Some(hb_event) = state.heartbeat_event_rx.recv() => {
                 match hb_event {
                     udp_heartbeat::HeartbeatEvent::CoreDead => {

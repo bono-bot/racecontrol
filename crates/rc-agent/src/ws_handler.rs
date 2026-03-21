@@ -935,6 +935,12 @@ pub async fn handle_ws_message(
             state.lock_screen.show_idle_pin_entry();
         }
 
+        CoreToAgentMessage::UpdateProcessWhitelist { whitelist } => {
+            let mut wl = state.guard_whitelist.write().await;
+            *wl = whitelist;
+            tracing::info!("Process guard: whitelist updated via WS push ({} processes)", wl.processes.len());
+        }
+
         other => {
             tracing::warn!("Unhandled CoreToAgentMessage: {:?}", other);
         }
