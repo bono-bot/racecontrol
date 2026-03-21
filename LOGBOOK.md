@@ -379,3 +379,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 09:24 IST | James | be61b1f | feat(97-01): add PreFlightPassed, PreFlightFailed, ClearMaintenance protocol variants |
 | 2026-03-21 09:34 IST | James | 70612c2 | feat(97-01): add PreflightConfig struct and wire into AgentConfig |
 | 2026-03-21 09:34 IST | James | 411b779 | docs(97-01): complete protocol variants + PreflightConfig plan |
+| 2026-03-21 09:44 IST | James | 1064f1f | feat(97-02): create pre_flight.rs with concurrent check runner (HID, ConspitLink, orphan game) and auto-fix |
+| 2026-03-21 09:44 IST | James | 40467d8 | feat(97-02): wire pre-flight gate into BillingStarted — billing_active.store(true) inside Pass branch only |
+| 2026-03-21 09:44 IST | James | 89325ed | docs(97-02): complete pre_flight.rs + ws_handler gate plan |
