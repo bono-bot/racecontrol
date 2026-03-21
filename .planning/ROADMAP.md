@@ -1397,3 +1397,39 @@ Plans:
 | 98. MaintenanceRequired Lock Screen + Display | TBD | Not started | - |
 | 99. System + Network + Billing + Handler Wiring | TBD | Not started | - |
 | 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |
+
+## v12.1 E2E Process Guard (continued)
+
+- [x] **Phase 101: Protocol Foundation** - completed 2026-03-21
+- [x] **Phase 102: Whitelist Schema + Config + Fetch Endpoint** - completed 2026-03-21
+- [x] **Phase 103: Pod Guard Module** - completed 2026-03-21
+- [ ] **Phase 104: Server Guard Module + Alerts** - racecontrol process_guard.rs receiving violations, kiosk notification badge, email escalation, and fleet health integration
+- [ ] **Phase 105: Port Audit + Scheduled Tasks + James Binary** - Listening port enforcement, scheduled task audit, and standalone rc-process-guard binary for James workstation
+
+## v12.1 Phase Details (continued)
+
+### Phase 104: Server Guard Module + Alerts
+**Goal**: The racecontrol server receives all pod violations, displays an active-violation badge on the staff kiosk, escalates repeat offenders to email, and surfaces violation counts in the fleet health endpoint
+**Depends on**: Phase 103
+**Requirements**: ALERT-02, ALERT-03, ALERT-05, DEPLOY-02
+**Success Criteria** (what must be TRUE):
+  1. Staff kiosk shows notification badge for active unacknowledged violations
+  2. GET /api/v1/fleet/health includes violation_count_24h and last_violation_at per pod
+  3. Three kills in 5 minutes triggers email to Uday with machine ID, process name, kill count
+  4. racecontrol own guard reports CRITICAL if rc-agent.exe detected on server
+Plans:
+- [ ] 104-01: TBD
+- [ ] 104-02: TBD
+
+### Phase 105: Port Audit + Scheduled Tasks + James Binary
+**Goal**: Listening ports audited against approved list, non-whitelisted scheduled tasks flagged, and James runs standalone rc-process-guard reporting via HTTP
+**Depends on**: Phase 104
+**Requirements**: PORT-01, PORT-02, AUTO-03, DEPLOY-03
+**Success Criteria** (what must be TRUE):
+  1. Non-whitelisted listening port process killed within one scan cycle
+  2. Non-whitelisted scheduled task flagged in audit log with name, path, action
+  3. rc-process-guard.exe on James POSTs violations via HTTP — never WebSocket
+  4. James whitelist passes first run without false positives on legitimate tooling
+Plans:
+- [ ] 105-01: TBD
+- [ ] 105-02: TBD
