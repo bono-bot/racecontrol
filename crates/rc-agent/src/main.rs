@@ -1,6 +1,7 @@
 mod ac_launcher;
 mod ai_debugger;
 mod billing_guard;
+mod config;
 mod content_scanner;
 mod debug_server;
 mod driving_detector;
@@ -26,17 +27,16 @@ use std::time::Duration;
 use anyhow::Result;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+use config::{load_config, detect_installed_games};
 use driving_detector::{
     DetectorConfig, DetectorSignal, DrivingDetector,
     is_input_active, is_steering_moving, parse_openffboard_report,
 };
 use ffb_controller::FfbController;
-use ai_debugger::{AiDebuggerConfig, PodStateSnapshot};
-use game_process::GameExeConfig;
+use ai_debugger::PodStateSnapshot;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::*;
 use rc_common::types::AcStatus;
@@ -46,176 +46,6 @@ use sims::f1_25::F125Adapter;
 use kiosk::KioskManager;
 use lock_screen::{LockScreenEvent, LockScreenManager};
 use overlay::OverlayManager;
-
-#[derive(Debug, Deserialize)]
-struct AgentConfig {
-    pod: PodConfig,
-    core: CoreConfig,
-    #[serde(default)]
-    wheelbase: WheelbaseConfig,
-    #[serde(default)]
-    telemetry_ports: TelemetryPortsConfig,
-    #[serde(default)]
-    games: GamesConfig,
-    #[serde(default)]
-    ai_debugger: AiDebuggerConfig,
-    #[serde(default)]
-    kiosk: KioskConfig,
-    /// Orphan billing auto-end timeout in seconds (SESSION-01).
-    /// If billing is active but no game PID detected for this duration, session auto-ends.
-    /// Configurable via TOML, default 300s (5 minutes).
-    #[serde(default = "default_auto_end_orphan_session_secs")]
-    auto_end_orphan_session_secs: u64,
-}
-
-pub fn default_auto_end_orphan_session_secs() -> u64 { 300 }
-
-#[derive(Debug, Deserialize)]
-struct KioskConfig {
-    #[serde(default = "default_true")]
-    enabled: bool,
-}
-
-impl Default for KioskConfig {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
-}
-
-fn default_true() -> bool { true }
-
-#[derive(Debug, Default, Deserialize)]
-struct GamesConfig {
-    #[serde(default)]
-    assetto_corsa: GameExeConfig,
-    #[serde(default)]
-    assetto_corsa_evo: GameExeConfig,
-    #[serde(default)]
-    assetto_corsa_rally: GameExeConfig,
-    #[serde(default)]
-    iracing: GameExeConfig,
-    #[serde(default)]
-    f1_25: GameExeConfig,
-    #[serde(default)]
-    le_mans_ultimate: GameExeConfig,
-    #[serde(default)]
-    forza: GameExeConfig,
-    #[serde(default)]
-    forza_horizon_5: GameExeConfig,
-}
-
-/// Detect which games are actually installed on this pod.
-/// Checks both TOML config (exe_path/steam_app_id) AND verifies the game exists on disk
-/// via Steam appmanifest files. A game must be configured AND present on disk.
-/// AC (original) is always included — it's the default game on every pod.
-fn detect_installed_games(games: &GamesConfig) -> Vec<SimType> {
-    let mut installed = vec![SimType::AssettoCorsa]; // AC always available (Content Manager)
-
-    let candidates: &[(&GameExeConfig, SimType)] = &[
-        (&games.f1_25, SimType::F125),
-        (&games.iracing, SimType::IRacing),
-        (&games.forza, SimType::Forza),
-        (&games.le_mans_ultimate, SimType::LeMansUltimate),
-        (&games.assetto_corsa_evo, SimType::AssettoCorsaEvo),
-        (&games.assetto_corsa_rally, SimType::AssettoCorsaRally),
-        (&games.forza_horizon_5, SimType::ForzaHorizon5),
-    ];
-
-    for (config, sim_type) in candidates {
-        let configured = config.exe_path.is_some() || config.steam_app_id.is_some();
-        if !configured {
-            continue;
-        }
-
-        // If exe_path is set, check if the file exists on disk
-        if let Some(ref path) = config.exe_path {
-            if std::path::Path::new(path).exists() {
-                installed.push(*sim_type);
-                continue;
-            }
-        }
-
-        // If steam_app_id is set, check for appmanifest_{id}.acf in Steam
-        if let Some(app_id) = config.steam_app_id {
-            if is_steam_app_installed(app_id) {
-                installed.push(*sim_type);
-            } else {
-                tracing::info!(
-                    "Game {:?} configured (app_id={}) but not installed on disk — skipping",
-                    sim_type, app_id
-                );
-            }
-        }
-    }
-
-    installed
-}
-
-/// Check if a Steam app is installed by looking for its appmanifest file.
-fn is_steam_app_installed(app_id: u32) -> bool {
-    let manifest = format!(
-        r"C:\Program Files (x86)\Steam\steamapps\appmanifest_{}.acf",
-        app_id
-    );
-    std::path::Path::new(&manifest).exists()
-}
-
-#[derive(Debug, Deserialize)]
-struct PodConfig {
-    number: u32,
-    name: String,
-    sim: String,
-    #[serde(default = "default_sim_ip")]
-    sim_ip: String,
-    #[serde(default = "default_sim_port")]
-    sim_port: u16,
-}
-
-#[derive(Debug, Deserialize)]
-struct CoreConfig {
-    #[serde(default = "default_core_url")]
-    url: String,
-    #[serde(default)]
-    failover_url: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WheelbaseConfig {
-    #[serde(default = "default_wheelbase_vid")]
-    vendor_id: u16,
-    #[serde(default = "default_wheelbase_pid")]
-    product_id: u16,
-}
-
-impl Default for WheelbaseConfig {
-    fn default() -> Self {
-        Self {
-            vendor_id: default_wheelbase_vid(),
-            product_id: default_wheelbase_pid(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct TelemetryPortsConfig {
-    #[serde(default = "default_telemetry_ports")]
-    ports: Vec<u16>,
-}
-
-impl Default for TelemetryPortsConfig {
-    fn default() -> Self {
-        Self {
-            ports: default_telemetry_ports(),
-        }
-    }
-}
-
-fn default_sim_ip() -> String { "127.0.0.1".to_string() }
-fn default_sim_port() -> u16 { 9996 }
-fn default_core_url() -> String { "ws://127.0.0.1:8080/ws/agent".to_string() }
-fn default_wheelbase_vid() -> u16 { 0x1209 }
-fn default_wheelbase_pid() -> u16 { 0xFFB0 }
-fn default_telemetry_ports() -> Vec<u16> { vec![9996, 20777, 5300, 6789, 5555] }
 
 /// Tracks the state of a game launch attempt for timeout/retry handling.
 /// BILL-01: 3-minute launch timeout with auto-retry once, cancel on second fail (no charge).
@@ -935,6 +765,12 @@ async fn main() -> Result<()> {
         std::sync::Arc::new(RwLock::new(config.core.url.clone()));
     let primary_url: String = config.core.url.clone();
     let failover_url: Option<String> = config.core.failover_url.clone();
+
+    // Phase 69: Split-brain guard — reusable HTTP client for LAN probe (created once, not per-message)
+    let split_brain_probe = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap_or_default();
 
     loop {
         // Connect to core server — read active_url on each iteration (Phase 68: runtime switching)
@@ -2750,21 +2586,43 @@ async fn main() -> Result<()> {
                                             target_url, primary_url, failover_url
                                         );
                                     } else {
-                                        tracing::info!("[switch] SwitchController received: switching to {}", target_url);
-                                        *active_url.write().await = target_url.clone();
+                                        // Phase 69: Split-brain guard — verify .23 is actually unreachable before switching
+                                        let server_reachable = match split_brain_probe
+                                            .get("http://192.168.31.23:8090/ping")
+                                            .send()
+                                            .await
+                                        {
+                                            Ok(resp) if resp.status().is_success() => true,
+                                            _ => false,
+                                        };
 
-                                        // Record switch time so self_monitor suppresses relaunch for 60s
-                                        let now_ms = std::time::SystemTime::now()
-                                            .duration_since(std::time::UNIX_EPOCH)
-                                            .unwrap_or_default()
-                                            .as_millis() as u64;
-                                        heartbeat_status.last_switch_ms.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+                                        if server_reachable {
+                                            tracing::warn!(
+                                                "[switch] split-brain guard: .23 still reachable, ignoring SwitchController to {}",
+                                                target_url
+                                            );
+                                            // Do NOT switch — server is still up from this pod's perspective
+                                            // Do NOT break — stay in inner loop on current connection
+                                        } else {
+                                            tracing::info!(
+                                                "[switch] split-brain guard passed — .23 unreachable, accepting switch to {}",
+                                                target_url
+                                            );
+                                            *active_url.write().await = target_url.clone();
 
-                                        self_monitor::log_event(&format!("SWITCH: target={}", target_url));
+                                            // Record switch time so self_monitor suppresses relaunch for 60s
+                                            let now_ms = std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .unwrap_or_default()
+                                                .as_millis() as u64;
+                                            heartbeat_status.last_switch_ms.store(now_ms, std::sync::atomic::Ordering::Relaxed);
 
-                                        // Send WS Close frame before breaking (avoid ungraceful disconnect)
-                                        let _ = ws_tx.send(tokio_tungstenite::tungstenite::Message::Close(None)).await;
-                                        break; // → outer reconnect loop picks up new URL
+                                            self_monitor::log_event(&format!("SWITCH: target={}", target_url));
+
+                                            // Send WS Close frame before breaking (avoid ungraceful disconnect)
+                                            let _ = ws_tx.send(tokio_tungstenite::tungstenite::Message::Close(None)).await;
+                                            break; // → outer reconnect loop picks up new URL
+                                        }
                                     }
                                 }
                                 other => {
@@ -2835,90 +2693,6 @@ fn reconnect_delay_for_attempt(attempt: u32) -> Duration {
         let exp = (attempt - 2).min(5);
         Duration::from_secs(2u64.pow(exp)).min(Duration::from_secs(30))
     }
-}
-
-/// Validate agent configuration. Returns Err with all issues found (not fail-fast).
-///
-/// Rules:
-/// - pod.number must be 1–8 inclusive
-/// - pod.name must not be blank after trimming
-/// - core.url must start with "ws://" or "wss://"
-fn validate_config(config: &AgentConfig) -> Result<()> {
-    let mut errors: Vec<String> = Vec::new();
-
-    if config.pod.number == 0 || config.pod.number > 8 {
-        errors.push(format!(
-            "pod.number must be 1-8, got {}",
-            config.pod.number
-        ));
-    }
-
-    if config.pod.name.trim().is_empty() {
-        errors.push("pod.name must not be empty".to_string());
-    }
-
-    let url = config.core.url.trim();
-    if !url.starts_with("ws://") && !url.starts_with("wss://") {
-        errors.push(format!(
-            "core.url must start with ws:// or wss://, got {:?}",
-            url
-        ));
-    }
-
-    if let Some(ref furl) = config.core.failover_url {
-        let furl = furl.trim();
-        if !furl.starts_with("ws://") && !furl.starts_with("wss://") {
-            errors.push(format!(
-                "core.failover_url must start with ws:// or wss://, got {:?}",
-                furl
-            ));
-        }
-    }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!("{}", errors.join("; ")))
-    }
-}
-
-fn config_search_paths() -> Vec<std::path::PathBuf> {
-    let mut paths: Vec<std::path::PathBuf> = Vec::new();
-
-    // Primary: exe directory (correct on Windows regardless of CWD)
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            paths.push(exe_dir.join("rc-agent.toml"));
-        }
-    }
-    // Fallback: CWD (useful for `cargo run` in dev)
-    paths.push(std::path::PathBuf::from("rc-agent.toml"));
-    // Legacy Linux path
-    paths.push(std::path::PathBuf::from("/etc/racecontrol/rc-agent.toml"));
-
-    paths
-}
-
-fn load_config() -> Result<AgentConfig> {
-    let search_paths = config_search_paths();
-
-    for path in &search_paths {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            let config: AgentConfig = toml::from_str(&content)?;
-            tracing::info!("Loaded config from {}", path.display());
-            validate_config(&config)?;
-            return Ok(config);
-        }
-    }
-
-    Err(anyhow::anyhow!(
-        "No config file found. Searched: {}",
-        search_paths
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    ))
 }
 
 fn local_ip() -> String {
@@ -3111,204 +2885,6 @@ async fn run_udp_monitor(ports: Vec<u16>, signal_tx: mpsc::Sender<DetectorSignal
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_process::GameExeConfig;
-    use rc_common::types::SimType;
-
-    fn valid_config() -> AgentConfig {
-        AgentConfig {
-            pod: PodConfig {
-                number: 3,
-                name: "Pod 03".to_string(),
-                sim: "assetto_corsa".to_string(),
-                sim_ip: default_sim_ip(),
-                sim_port: default_sim_port(),
-            },
-            core: CoreConfig {
-                url: "ws://192.168.31.23:8080/ws/agent".to_string(),
-                failover_url: None,
-            },
-            wheelbase: WheelbaseConfig::default(),
-            telemetry_ports: TelemetryPortsConfig::default(),
-            games: GamesConfig::default(),
-            ai_debugger: AiDebuggerConfig::default(),
-            kiosk: KioskConfig::default(),
-            auto_end_orphan_session_secs: default_auto_end_orphan_session_secs(),
-        }
-    }
-
-    #[test]
-    fn validate_config_accepts_valid_config() {
-        let config = valid_config();
-        assert!(validate_config(&config).is_ok(), "Valid config should pass validation");
-    }
-
-    #[test]
-    fn validate_config_rejects_pod_number_zero() {
-        let mut config = valid_config();
-        config.pod.number = 0;
-        let err = validate_config(&config).unwrap_err();
-        assert!(
-            err.to_string().contains("pod.number must be 1-8"),
-            "Error should mention pod.number must be 1-8, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn validate_config_rejects_pod_number_nine() {
-        let mut config = valid_config();
-        config.pod.number = 9;
-        let err = validate_config(&config).unwrap_err();
-        assert!(
-            err.to_string().contains("pod.number must be 1-8"),
-            "Error should mention pod.number must be 1-8, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn validate_config_rejects_empty_pod_name() {
-        let mut config = valid_config();
-        config.pod.name = "   ".to_string(); // whitespace only
-        let err = validate_config(&config).unwrap_err();
-        assert!(
-            err.to_string().contains("pod.name"),
-            "Error should mention pod.name, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn validate_config_rejects_http_url() {
-        let mut config = valid_config();
-        config.core.url = "http://192.168.31.23:8080/ws/agent".to_string();
-        let err = validate_config(&config).unwrap_err();
-        assert!(
-            err.to_string().contains("ws://"),
-            "Error should mention ws://, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn validate_config_rejects_empty_url() {
-        let mut config = valid_config();
-        config.core.url = "".to_string();
-        let err = validate_config(&config).unwrap_err();
-        assert!(
-            err.to_string().contains("ws://"),
-            "Error should mention ws://, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn validate_config_accepts_wss_url() {
-        let mut config = valid_config();
-        config.core.url = "wss://app.racingpoint.cloud/ws/agent".to_string();
-        assert!(validate_config(&config).is_ok(), "wss:// URL should be accepted");
-    }
-
-    #[test]
-    fn validate_config_accepts_pod_number_1_and_8() {
-        let mut config = valid_config();
-        config.pod.number = 1;
-        assert!(validate_config(&config).is_ok(), "Pod 1 should be valid");
-        config.pod.number = 8;
-        assert!(validate_config(&config).is_ok(), "Pod 8 should be valid");
-    }
-
-    #[test]
-    fn load_config_returns_err_when_no_file_exists() {
-        // Temporarily change to a directory without a config file
-        // We test this by trying to parse an empty/nonexistent config
-        // Since load_config reads from CWD, we check it returns Err (not defaults)
-        // by verifying that the code path for missing files exists and returns Err.
-        // Direct testing of file-system behavior is done via integration test.
-        // Here we verify validate_config is the gatekeeper for default values.
-        let mut config = valid_config();
-        // A pod.number=1 with default core URL used to be the default. Now it must be explicit.
-        config.pod.number = 1;
-        config.core.url = "ws://127.0.0.1:8080/ws/agent".to_string();
-        // This SHOULD pass (valid explicit config, not a sneaky default)
-        assert!(validate_config(&config).is_ok(), "Explicitly valid config should pass");
-    }
-
-    #[test]
-    fn test_config_search_paths_includes_exe_dir() {
-        use std::path::PathBuf;
-        let paths = config_search_paths();
-        // Must have at least one path
-        assert!(!paths.is_empty(), "config_search_paths() must return at least one path");
-        // First path must end with rc-agent.toml
-        let first = &paths[0];
-        assert!(
-            first.file_name().map(|n| n == "rc-agent.toml").unwrap_or(false),
-            "First search path must end with rc-agent.toml, got: {}",
-            first.display()
-        );
-        // First path must NOT be just "rc-agent.toml" (must include a parent directory from exe)
-        assert!(
-            first != &PathBuf::from("rc-agent.toml"),
-            "First path must include exe directory, not bare 'rc-agent.toml', got: {}",
-            first.display()
-        );
-    }
-
-    #[test]
-    fn test_config_search_paths_includes_cwd_fallback() {
-        use std::path::PathBuf;
-        let paths = config_search_paths();
-        // Must contain CWD-relative fallback
-        let has_cwd_fallback = paths.contains(&PathBuf::from("rc-agent.toml"));
-        assert!(has_cwd_fallback, "config_search_paths() must include 'rc-agent.toml' (CWD fallback)");
-        // CWD fallback must appear AFTER the exe-dir path (index > 0)
-        let cwd_index = paths.iter().position(|p| p == &PathBuf::from("rc-agent.toml")).unwrap();
-        assert!(
-            cwd_index > 0,
-            "CWD fallback 'rc-agent.toml' must appear after exe-dir path (index {}), not at index 0",
-            cwd_index
-        );
-    }
-
-    #[test]
-    fn test_load_config_error_lists_all_searched_paths() {
-        // Change to a temp directory that has no rc-agent.toml
-        let tmp = std::env::temp_dir().join("rc_agent_test_no_config");
-        let _ = std::fs::create_dir_all(&tmp);
-        let original = std::env::current_dir().ok();
-
-        // Set CWD to temp dir (best effort — doesn't affect exe-dir search)
-        let _ = std::env::set_current_dir(&tmp);
-
-        let result = load_config();
-
-        // Restore original CWD
-        if let Some(orig) = original {
-            let _ = std::env::set_current_dir(orig);
-        }
-
-        let err = result.expect_err("load_config() must return Err when no config file exists");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("No config file found"),
-            "Error must contain 'No config file found', got: {}",
-            msg
-        );
-        assert!(
-            msg.contains("Searched:"),
-            "Error must contain 'Searched:', got: {}",
-            msg
-        );
-        // Must list at least 2 distinct path entries (exe-dir + CWD fallback)
-        let path_count = msg.matches("rc-agent.toml").count();
-        assert!(
-            path_count >= 2,
-            "Error must list at least 2 paths containing 'rc-agent.toml', found {} in: {}",
-            path_count,
-            msg
-        );
-    }
 
     #[test]
     fn test_reconnect_delay_fast_retries() {
@@ -3329,63 +2905,6 @@ mod tests {
     fn test_reconnect_delay_cap() {
         assert_eq!(reconnect_delay_for_attempt(7), Duration::from_secs(30));
         assert_eq!(reconnect_delay_for_attempt(100), Duration::from_secs(30));
-    }
-
-    // ─── installed games tests ─────────────────────────────────────────
-
-    #[test]
-    fn test_installed_games_empty_config_only_ac() {
-        // Default config (no games configured) should only have AC
-        let games = GamesConfig::default();
-        let installed = detect_installed_games(&games);
-        assert_eq!(installed, vec![SimType::AssettoCorsa]);
-    }
-
-    #[test]
-    fn test_installed_games_configured_but_not_on_disk() {
-        // steam_app_id set but no manifest on disk → should NOT be detected
-        let mut games = GamesConfig::default();
-        games.f1_25 = GameExeConfig { steam_app_id: Some(9999999), ..Default::default() };
-        games.iracing = GameExeConfig { steam_app_id: Some(9999998), ..Default::default() };
-        let installed = detect_installed_games(&games);
-        // Only AC — fake app_ids have no manifest files
-        assert_eq!(installed, vec![SimType::AssettoCorsa],
-            "Games with steam_app_id but no disk manifest should not appear");
-    }
-
-    #[test]
-    fn test_installed_games_exe_path_not_on_disk() {
-        // exe_path set but file does not exist → fall through to steam check (also fails)
-        let mut games = GamesConfig::default();
-        games.assetto_corsa_rally = GameExeConfig {
-            exe_path: Some("C:\\NonExistent\\fake_game.exe".to_string()),
-            ..Default::default()
-        };
-        let installed = detect_installed_games(&games);
-        assert!(!installed.contains(&SimType::AssettoCorsaRally),
-            "exe_path pointing to nonexistent file should not detect game");
-    }
-
-    #[test]
-    fn test_installed_games_exe_path_exists_on_disk() {
-        // exe_path pointing to a real file → should be detected
-        let tmp = std::env::temp_dir().join("test_game_detect.exe");
-        std::fs::write(&tmp, b"fake").unwrap();
-        let mut games = GamesConfig::default();
-        games.forza_horizon_5 = GameExeConfig {
-            exe_path: Some(tmp.to_string_lossy().to_string()),
-            ..Default::default()
-        };
-        let installed = detect_installed_games(&games);
-        assert!(installed.contains(&SimType::ForzaHorizon5),
-            "exe_path pointing to real file should detect game");
-        std::fs::remove_file(&tmp).ok();
-    }
-
-    #[test]
-    fn test_is_steam_app_installed_nonexistent() {
-        // Fake app_id should not have a manifest
-        assert!(!is_steam_app_installed(9999999));
     }
 
     // ─── SESSION-03: CrashRecoveryState tests ─────────────────────────────
@@ -3447,62 +2966,6 @@ mod tests {
         assert!(
             elapsed >= Duration::from_secs(30),
             "30s+ elapsed should be at/beyond grace window boundary"
-        );
-    }
-
-    // ─── Phase 68: failover_url validation tests ───────────────────────────
-
-    #[test]
-    fn validate_config_accepts_failover_url() {
-        let toml_str = r#"
-[pod]
-number = 8
-name = "Pod 8"
-sim = "assetto_corsa"
-[core]
-url = "ws://192.168.31.23:8080/ws/agent"
-failover_url = "ws://100.70.177.44:8080/ws/agent"
-"#;
-        let config: AgentConfig = toml::from_str(toml_str).unwrap();
-        assert!(validate_config(&config).is_ok());
-        assert_eq!(
-            config.core.failover_url.as_deref(),
-            Some("ws://100.70.177.44:8080/ws/agent")
-        );
-    }
-
-    #[test]
-    fn validate_config_accepts_missing_failover_url() {
-        let toml_str = r#"
-[pod]
-number = 8
-name = "Pod 8"
-sim = "assetto_corsa"
-[core]
-url = "ws://192.168.31.23:8080/ws/agent"
-"#;
-        let config: AgentConfig = toml::from_str(toml_str).unwrap();
-        assert!(validate_config(&config).is_ok());
-        assert!(config.core.failover_url.is_none());
-    }
-
-    #[test]
-    fn validate_config_rejects_non_ws_failover_url() {
-        let toml_str = r#"
-[pod]
-number = 8
-name = "Pod 8"
-sim = "assetto_corsa"
-[core]
-url = "ws://192.168.31.23:8080/ws/agent"
-failover_url = "http://bad-url"
-"#;
-        let config: AgentConfig = toml::from_str(toml_str).unwrap();
-        let err = validate_config(&config).unwrap_err();
-        assert!(
-            err.to_string().contains("failover_url"),
-            "Error should mention failover_url: {}",
-            err
         );
     }
 }
