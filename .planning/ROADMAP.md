@@ -226,9 +226,9 @@ Lock down the Racing Point operations stack — audit all exposed endpoints and 
 Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA with PlayableSignal-gated billing, per-game telemetry capture, and multi-game leaderboard integration. Extends existing SimAdapter trait and GameProcess — zero new crate dependencies.
 
 - [x] **Phase 81: Game Launch Core** - Launch profiles, process monitoring, kiosk integration, crash recovery for 5 games (completed 2026-03-21)
-- [x] **Phase 82: Billing and Session Lifecycle** - PlayableSignal per game, billing accuracy, per-game rates, clean lifecycle (completed 2026-03-21)
-- [x] **Phase 83: F1 25 Telemetry** - Extend existing F1 25 UDP adapter for LapCompleted events with sector splits (completed 2026-03-21)
-- [x] **Phase 84: iRacing Telemetry** - Shared memory reader with session transition handling and pre-flight checks (completed 2026-03-21)
+- [ ] **Phase 82: Billing and Session Lifecycle** - PlayableSignal per game, billing accuracy, per-game rates, clean lifecycle
+- [ ] **Phase 83: F1 25 Telemetry** - Extend existing F1 25 UDP adapter for LapCompleted events with sector splits
+- [ ] **Phase 84: iRacing Telemetry** - Shared memory reader with session transition handling and pre-flight checks
 - [ ] **Phase 85: LMU Telemetry** - rFactor 2 shared memory reader for Le Mans Ultimate lap data
 - [ ] **Phase 86: AC EVO Telemetry** - Best-effort shared memory reader using ACC struct layout, feature-flagged
 - [ ] **Phase 87: EA WRC Telemetry** - JSON-configured UDP telemetry with stage-to-lap mapping
@@ -239,7 +239,7 @@ Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA 
 Embed 12 behavioral psychology frameworks into RacingPoint's existing systems — centralized psychology engine with notification throttling, customer progression (driving passport, badges), peak-end session design, retention loops (streaks, variable rewards), community rituals (Discord), pricing psychology (anchoring, scarcity), staff gamification (opt-in leaderboards, badges, challenges), and HR/hiring enhancements (SJTs, Cialdini campaigns).
 
 - [x] **Phase 89: Psychology Foundation** - Notification budget, psychology engine module, DB schema, and badge criteria storage (completed 2026-03-21)
-- [ ] **Phase 90: Customer Progression** - Driving passport with track/car collections, badge system, and profile showcase
+- [x] **Phase 90: Customer Progression** - Driving passport with track/car collections, badge system, and profile showcase (completed 2026-03-21)
 - [ ] **Phase 91: Session Experience** - PB confetti celebrations, peak-end session reports, and real-time PB toasts
 - [ ] **Phase 92: Retention Loops** - Visit streaks, PB-beaten notifications, variable rewards, and loss-framed membership nudges
 - [ ] **Phase 93: Community & Tribal Identity** - Discord weekly rituals, record alerts, and RacingPoint Driver identity language
@@ -1007,10 +1007,10 @@ Plans:
   1. F1 25 UDP telemetry is received on port 20777 during gameplay
   2. Lap times and sector splits are extracted from telemetry packets after each completed lap
   3. Each completed lap emits an AgentMessage::LapCompleted with sim_type = F1_25
-**Plans**: 1 plan
+**Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 83-01-PLAN.md — Verify F1 25 adapter meets TEL-F1-01/02/03 + add lap completion unit tests
+- [ ] 83-01: TBD
 
 ### Phase 84: iRacing Telemetry
 **Goal**: iRacing lap times and sector splits are captured via shared memory with reliable session transition handling
@@ -1024,8 +1024,8 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 84-01-PLAN.md — IracingAdapter core: shared memory, variable lookup, session transitions, lap detection, pre-flight check + 7 unit tests
-- [ ] 84-02-PLAN.md — Integration wiring: mod.rs registration, main.rs adapter creation, event_loop.rs PlayableSignal IsOnTrack
+- [ ] 84-01: TBD
+- [ ] 84-02: TBD
 
 ### Phase 85: LMU Telemetry
 **Goal**: Le Mans Ultimate lap times are captured via rFactor 2 shared memory plugin
@@ -1038,8 +1038,7 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 85-01-PLAN.md — LmuAdapter core: rF2 shared memory, fixed-offset struct reading, torn-read guard, sector derivation, lap detection + 6 unit tests
-- [ ] 85-02-PLAN.md — Integration wiring: mod.rs registration, main.rs adapter creation, event_loop.rs LMU PlayableSignal
+- [ ] 85-01: TBD
 
 ### Phase 86: AC EVO Telemetry
 **Goal**: AC EVO telemetry is captured on a best-effort basis with graceful degradation when data is unavailable
@@ -1303,15 +1302,15 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 79. Data Protection | 3/3 | Complete    | 2026-03-21 | - |
 | 80. Audit Trail & Defense in Depth | 2/2 | Complete    | 2026-03-21 | - |
 | 81. Game Launch Core | 3/3 | Complete   | 2026-03-21 | - |
-| 82. Billing and Session Lifecycle | 2/3 | Complete    | 2026-03-21 | - |
-| 83. F1 25 Telemetry | 1/1 | Complete    | 2026-03-21 | - |
-| 84. iRacing Telemetry | 2/2 | Complete    | 2026-03-21 | - |
-| 85. LMU Telemetry | 1/2 | In Progress|  | - |
+| 82. Billing and Session Lifecycle | 2/3 | In Progress|  | - |
+| 83. F1 25 Telemetry | v13.0 | 0/1 | Not started | - |
+| 84. iRacing Telemetry | v13.0 | 0/2 | Not started | - |
+| 85. LMU Telemetry | v13.0 | 0/1 | Not started | - |
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
 | 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
 | 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
 | 89. Psychology Foundation | 3/3 | Complete    | 2026-03-21 | - |
-| 90. Customer Progression | 1/2 | In Progress|  | - |
+| 90. Customer Progression | 1/2 | Complete    | 2026-03-21 | - |
 | 91. Session Experience | v14.0 | 0/? | Not started | - |
 | 92. Retention Loops | v14.0 | 0/? | Not started | - |
 | 93. Community & Tribal Identity | v14.0 | 0/? | Not started | - |
@@ -1327,9 +1326,9 @@ Every customer session begins with automated health verification. On BillingStar
 ## Phases
 
 - [x] **Phase 97: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag (completed 2026-03-21)
-- [x] **Phase 98: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking (completed 2026-03-21)
-- [x] **Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring** - Billing stuck-session check, disk and memory probes, WS stability check, complete handler integration in ws_handler.rs, self_test.rs pub(crate) helper extraction, alert rate-limiting (completed 2026-03-21)
-- [x] **Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear** - Kiosk dashboard maintenance badge per pod, "Clear Maintenance" staff action (PIN-gated), pod marked unavailable in fleet health, preflight_alert_cooldown_secs config (completed 2026-03-21)
+- [ ] **Phase 98: MaintenanceRequired Lock Screen + Display Checks** - New LockScreenState variant with show_maintenance_required(), ClearMaintenance handler, 30-second auto-retry loop, display checks (HTTP probe :18923, GetWindowRect), and pod-unavailable server marking
+- [ ] **Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring** - Billing stuck-session check, disk and memory probes, WS stability check, complete handler integration in ws_handler.rs, self_test.rs pub(crate) helper extraction, alert rate-limiting
+- [ ] **Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear** - Kiosk dashboard maintenance badge per pod, "Clear Maintenance" staff action (PIN-gated), pod marked unavailable in fleet health, preflight_alert_cooldown_secs config
 
 ## Phase Details
 
@@ -1358,10 +1357,7 @@ Plans:
   3. Every 30 seconds while in MaintenanceRequired, the pod re-runs pre-flight silently; if all checks pass, the pod self-clears to Idle state without staff action — auto-retry loop works
   4. When racecontrol sends a ClearMaintenance message to a pod, the pod transitions from MaintenanceRequired to Idle and accepts the next BillingStarted — staff manual clear path works
   5. A GET to http://localhost:18923 returns HTTP 200 and the window rect of the lock screen Edge window is centered within 5% of the primary monitor center — display checks pass on a healthy pod
-**Plans**: 2 plans
-Plans:
-- [ ] 98-01-PLAN.md — MaintenanceRequired LockScreenState variant + AppState flag + ws_handler wiring
-- [ ] 98-02-PLAN.md — DISP-01 HTTP probe + DISP-02 GetWindowRect checks + 30s auto-retry loop
+**Plans**: TBD
 
 ### Phase 99: System + Network + Billing Checks + BillingStarted Handler Wiring
 **Goal**: All remaining checks are live (billing stuck-session, disk, memory, WebSocket stability) and the pre-flight gate is wired into ws_handler.rs — every BillingStarted now triggers the complete concurrent check gate before any session state is mutated; staff alerts fire exactly once per MaintenanceRequired entry, not once per failure
@@ -1373,10 +1369,7 @@ Plans:
   3. When WebSocket has been connected for less than 10 seconds or has disconnected and reconnected within the last 10 seconds, NET-01 reports a warning but does not block the session — flap-detection logic is correct
   4. Running pre-flight 20 consecutive times on a fully healthy pod produces zero failures and zero MaintenanceRequired transitions — no false positives from probe logic
   5. When a pod is already in MaintenanceRequired and BillingStarted arrives, racecontrol does not book the pod for a new customer — the server rejects the booking before it reaches the pod, and the pod also guards the BillingStarted arm with a state check
-**Plans**: 2 plans
-Plans:
-- [ ] 99-01-PLAN.md — Billing stuck, disk, memory, WS stability checks in pre_flight.rs (9-way concurrent runner)
-- [ ] 99-02-PLAN.md — PreFlightFailed alert rate-limiting (60s cooldown in ws_handler.rs)
+**Plans**: TBD
 
 ### Phase 100: Staff Visibility — Kiosk Badge + Fleet Health + Manual Clear
 **Goal**: Staff can see at a glance which pods are in maintenance (Racing Red badge on kiosk dashboard), view failure reasons (PIN-gated), and manually clear a pod from the dashboard; maintenance pods appear as unavailable in fleet health; alert cooldown prevents notification floods
@@ -1388,10 +1381,7 @@ Plans:
   3. Clicking "Clear Maintenance" on the kiosk dashboard (with PIN) sends ClearMaintenance to the pod, the pod transitions to Idle, and the dashboard badge disappears within one polling cycle
   4. In the fleet health dashboard (/api/v1/fleet/health), a pod in MaintenanceRequired shows status "maintenance" (not "healthy" or "offline") — fleet visibility is accurate
   5. If a pod enters MaintenanceRequired repeatedly within the preflight_alert_cooldown_secs window, only one WhatsApp/email alert fires — Uday does not receive notification floods from rapid re-entry
-**Plans**: 2 plans
-Plans:
-- [x] 100-01-PLAN.md — Server-side maintenance state tracking in FleetHealthStore + clear-maintenance endpoint
-- [ ] 100-02-PLAN.md — Kiosk fleet page maintenance badge with PIN-gated details and clear button
+**Plans**: TBD
 
 ## Progress
 
@@ -1399,7 +1389,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 97. rc-common Protocol + Framework + Hardware | 2/2 | Complete    | 2026-03-21 |
-| 98. MaintenanceRequired Lock Screen + Display | 2/2 | Complete    | 2026-03-21 |
-| 99. System + Network + Billing + Handler Wiring | 2/2 | Complete    | 2026-03-21 |
-| 100. Staff Visibility — Badge + Fleet + Manual Clear | 2/2 | Complete    | 2026-03-21 |
+| 97. rc-common Protocol + Framework + Hardware | 2/2 | Complete   | 2026-03-21 |
+| 98. MaintenanceRequired Lock Screen + Display | TBD | Not started | - |
+| 99. System + Network + Billing + Handler Wiring | TBD | Not started | - |
+| 100. Staff Visibility — Badge + Fleet + Manual Clear | TBD | Not started | - |

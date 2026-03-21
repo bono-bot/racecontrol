@@ -169,13 +169,13 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 97-02-PLAN.md
-last_updated: "2026-03-21T04:16:00.449Z"
-last_activity: "2026-03-21 -- 97-01 complete: PreFlightPassed + PreFlightFailed AgentMessage variants + ClearMaintenance CoreToAgentMessage variant + PreflightConfig struct wired into AgentConfig (PF-07)"
+last_updated: "2026-03-21T06:33:11.251Z"
+last_activity: "2026-03-21 -- 97-02 complete: pre_flight.rs concurrent check runner (HID, ConspitLink, orphan game) + ws_handler pre-flight gate with billing_active.store(true) inside Pass branch (PF-01, PF-02, PF-03, HW-01, HW-02, HW-03, SYS-01)"
 progress:
-  total_phases: 65
-  completed_phases: 36
-  total_plans: 97
-  completed_plans: 94
+  total_phases: 75
+  completed_phases: 73
+  total_plans: 186
+  completed_plans: 185
   percent: 97
 ---
 
