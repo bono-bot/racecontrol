@@ -410,4 +410,7 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 14:18 IST | James | 5c724a3 | docs(85-02): 85-02-SUMMARY.md + STATE.md + ROADMAP.md — phase 85 complete |
 | 2026-03-21 11:41 IST | James | 4b9e6a8 | feat(100-02): add in_maintenance+maintenance_failures to PodFleetStatus TypeScript type; api.clearMaintenance method (STAFF-01, STAFF-02) |
 | 2026-03-21 11:55 IST | James | af45623 | feat(100-02): fleet page Racing Red Maintenance badge + PIN-gated modal + Clear Maintenance button (STAFF-01, STAFF-02) |
+| 2026-03-21 12:37 IST | James | b9cb7ba | feat(86-01): AssettoCorsaEvoAdapter with zero-guard SHM reads — warn-once flags, physics-based read_is_on_track(), 7 unit tests (TEL-EVO-01, TEL-EVO-02, TEL-EVO-03) |
+| 2026-03-21 12:39 IST | James | 79ff2b4 | feat(86-01): wire EVO adapter into main.rs — sim string match + adapter creation + freedom_mode fix |
+| 2026-03-21 12:40 IST | James | e26075c | docs(86-01): 86-01-SUMMARY.md + STATE.md + ROADMAP.md — phase 86 complete |
 | 2026-03-21 11:57 IST | James | 58c3a36 | docs(100-02): 100-02-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — phase 100 complete |
