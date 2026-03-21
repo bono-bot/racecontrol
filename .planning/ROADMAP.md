@@ -1486,7 +1486,10 @@ Plans:
   2. On a Pod 8 canary build, pressing the Windows key, Alt+Tab, and Ctrl+Shift+Esc while the kiosk is active produces no response -- GPO registry keys (NoWinKeys=1, DisableTaskMgr=1) are enforced and kiosk lockdown is intact without any hook
   3. Task Manager cannot be opened by a customer at the pod after the hook replacement -- VALID-03 is satisfied by the registry key path, not by the removed hook
   4. cargo build --release --bin rc-agent succeeds and cargo test -p rc-agent passes with the hook removal in place -- no compilation errors from the removal
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 108-01-PLAN.md — Replace keyboard hook with GPO registry keys + Pod 8 canary verification (HARD-01, VALID-03)
 
 ### Phase 109: Safe Mode State Machine
 **Goal**: rc-agent automatically enters a defined safe mode within 1 second of a protected game launching, disables all risky subsystems (process guard, Ollama queries, registry writes) for the duration of the game plus a 30-second cooldown, and defaults to safe mode at startup if a protected game is already running -- billing, lock screen, and WebSocket exec are unaffected throughout
