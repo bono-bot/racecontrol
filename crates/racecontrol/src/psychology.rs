@@ -763,8 +763,13 @@ pub async fn maybe_grant_variable_reward(
         _ => return,
     };
 
-    let mut rng = rand::thread_rng();
-    if !rng.gen_bool(threshold) {
+    // Evaluate random gate before any await — ThreadRng is !Send and cannot
+    // be held across an await point (tokio::spawn requires Send futures).
+    let should_proceed = {
+        let mut rng = rand::thread_rng();
+        rng.gen_bool(threshold)
+    };
+    if !should_proceed {
         return;
     }
 
