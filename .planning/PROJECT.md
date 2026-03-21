@@ -35,6 +35,14 @@ The pod management stack is reliable: self-healing, branded screens, stable URLs
 - Per-game telemetry adapters: F1 25 (UDP), iRacing (shared memory), LMU (rF2 shared memory), AC EVO (best-effort, feature-flagged), EA WRC (JSON UDP)
 - Track name normalization and multi-game leaderboard integration
 
+## Planned Milestone: v14.0 HR & Marketing Psychology
+
+**Goal:** Embed 12 behavioral psychology frameworks into RacingPoint's HR and Marketing systems — customer progression (driving passport, badges), peak-end session design, retention loops (streaks, variable rewards, loss-framed notifications), community rituals (Discord weekly drops), pricing psychology (anchoring, scarcity), staff gamification (opt-in leaderboards, badges, challenges), and HR/hiring enhancements (SJTs, Cialdini campaign templates).
+
+**Phases:** 89–96 (8 phases, 38 requirements)
+**Owner:** Bono (cloud — psychology.rs, PWA, admin, bots) + James (venue — deploy rebuilt racecontrol binary after schema changes)
+**Research + Phase 89 plans:** Complete (2026-03-21)
+
 ## Paused Milestone: v6.0 Salt Fleet Management
 
 **Goal:** Replace the custom pod-agent/remote_ops HTTP endpoint with SaltStack for fleet management. Blocked at BIOS AMD-V gate for WSL2.
@@ -181,6 +189,17 @@ Customers see their lap times, compete on leaderboards, and compare telemetry �
 - [ ] Lap/stage times stored in laps table with sim_type field
 - [ ] Track name normalization across games
 - [ ] Leaderboard endpoints serve multi-game data
+
+### Planned (v14.0 — Psychology Integration)
+
+- [ ] Psychology engine module (psychology.rs) with badge evaluation, streak tracking, notification dispatch (FOUND-01–05)
+- [ ] Customer driving passport with track/car completion progress and badge showcase (PROG-01–05)
+- [ ] PB confetti celebrations and peak-end session reports (SESS-01–04)
+- [ ] Visit streaks, PB-beaten notifications, variable rewards, loss-framed membership nudges (RET-01–06)
+- [ ] Discord weekly rituals, record alerts, "RacingPoint Driver" tribal identity (COMM-01–04)
+- [ ] Anchoring/decoy pricing display, real-time pod scarcity, commitment ladder, social proof (PRICE-01–04)
+- [ ] Opt-in staff leaderboard, skill badges, team challenges, peer kudos (STAFF-01–05)
+- [ ] Hiring bot SJTs, Cialdini campaign templates, review nudge optimization, employee recognition (HR-01–05)
 
 ### Paused (v6.0 — blocked at BIOS AMD-V)
 

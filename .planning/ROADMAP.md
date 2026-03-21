@@ -233,6 +233,19 @@ Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA 
 - [ ] **Phase 87: EA WRC Telemetry** - JSON-configured UDP telemetry with stage-to-lap mapping
 - [ ] **Phase 88: Leaderboard Integration** - Multi-game lap storage, track name normalization, endpoint updates
 
+## v14.0 HR & Marketing Psychology
+
+Embed 12 behavioral psychology frameworks into RacingPoint's existing systems — centralized psychology engine with notification throttling, customer progression (driving passport, badges), peak-end session design, retention loops (streaks, variable rewards), community rituals (Discord), pricing psychology (anchoring, scarcity), staff gamification (opt-in leaderboards, badges, challenges), and HR/hiring enhancements (SJTs, Cialdini campaigns).
+
+- [ ] **Phase 89: Psychology Foundation** - Notification budget, psychology engine module, DB schema, and badge criteria storage
+- [ ] **Phase 90: Customer Progression** - Driving passport with track/car collections, badge system, and profile showcase
+- [ ] **Phase 91: Session Experience** - PB confetti celebrations, peak-end session reports, and real-time PB toasts
+- [ ] **Phase 92: Retention Loops** - Visit streaks, PB-beaten notifications, variable rewards, and loss-framed membership nudges
+- [ ] **Phase 93: Community & Tribal Identity** - Discord weekly rituals, record alerts, and RacingPoint Driver identity language
+- [ ] **Phase 94: Pricing & Conversion** - Anchoring/decoy pricing display, real-time pod scarcity, commitment ladder, and social proof
+- [ ] **Phase 95: Staff Gamification** - Opt-in performance leaderboard, skill badges, team challenges, and peer recognition
+- [ ] **Phase 96: HR & Hiring Psychology** - Hiring bot SJTs, Cialdini campaign templates, review nudge optimization, and employee recognition
+
 ## Phase Details
 
 ### Phase 36: WSL2 Infrastructure
@@ -1065,6 +1078,133 @@ Plans:
 - [ ] 88-01: TBD
 - [ ] 88-02: TBD
 
+---
+
+## v14.0 HR & Marketing Psychology -- Phase Details
+
+### Phase 89: Psychology Foundation
+**Goal**: The platform has a centralized psychology engine with notification throttling so every subsequent phase can trigger badges, streaks, and messages without spamming customers
+**Depends on**: Nothing (first phase in v14.0)
+**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05
+**Success Criteria** (what must be TRUE):
+  1. No customer receives more than 2 proactive WhatsApp messages per day, enforced at the system level
+  2. A new psychology.rs module exists in RaceControl that centralizes badge evaluation, streak tracking, and notification dispatch
+  3. Badge criteria are stored as JSON rows in the database and can be modified without code changes
+  4. Notifications route through a priority queue that selects the correct channel (WhatsApp, Discord, or PWA)
+  5. All psychology tables (achievements, streaks, driving_passport, nudge_queue, staff_badges, staff_challenges) exist in the database
+**Plans**: 3 (researched + planned 2026-03-21)
+
+Plans:
+- [ ] 89-01: DB schema (7 tables + indexes) + psychology.rs skeleton with types and JSON criteria evaluation
+- [ ] 89-02: Badge evaluation, streak tracking, notification budget enforcement, queue dispatcher with channel routing
+- [ ] 89-03: Integration wiring: post_session_hooks, dispatcher startup, seed badges, API endpoints
+
+### Phase 90: Customer Progression
+**Goal**: Customers can see their driving journey as a passport with track/car collections and earned badges, driving return visits through Zeigarnik-motivated completion
+**Depends on**: Phase 89
+**Requirements**: PROG-01, PROG-02, PROG-03, PROG-04, PROG-05
+**Success Criteria** (what must be TRUE):
+  1. Customer can open a driving passport page in the PWA showing which tracks and cars they have driven
+  2. Passport displays tiered collections (Starter/Explorer/Legend) so newcomers see achievable near-term goals
+  3. Returning customers see their existing lap history already backfilled into the passport on first load
+  4. Customers earn badges for milestones (first lap, 10 tracks, 100 laps, PB streak) and can view them on their profile page
+**Plans**: TBD
+
+Plans:
+- [ ] 90-01: TBD
+- [ ] 90-02: TBD
+
+### Phase 91: Session Experience
+**Goal**: Every sim racing session ends on a high note with PB celebrations and peak-end-optimized reports
+**Depends on**: Phase 90
+**Requirements**: SESS-01, SESS-02, SESS-03, SESS-04
+**Success Criteria** (what must be TRUE):
+  1. When a customer sets a personal best during a session, a confetti animation plays on their PWA session view
+  2. Session-end reports show the best moment first before displaying averages
+  3. Session-end report includes percentile ranking ("faster than 73% of drivers")
+  4. Customer sees a real-time toast notification in the PWA when they set a PB during an active session
+**Plans**: TBD
+
+Plans:
+- [ ] 91-01: TBD
+
+### Phase 92: Retention Loops
+**Goal**: Customers are drawn back through streaks, loss-framed notifications, and unpredictable bonus rewards
+**Depends on**: Phase 91
+**Requirements**: RET-01, RET-02, RET-03, RET-04, RET-05, RET-06
+**Success Criteria** (what must be TRUE):
+  1. System tracks each customer's weekly visit streak with a 1-week grace period
+  2. When someone beats a customer's PB, that customer receives a WhatsApp notification (throttled, within budget)
+  3. Customers occasionally receive surprise bonus credits on PBs (15%) or milestones (10%), capped at 5% of spend
+  4. Membership expiry warnings use loss-framed copy
+  5. Streak-at-risk WhatsApp nudge sent 2 days before grace period expires
+**Plans**: TBD
+
+Plans:
+- [ ] 92-01: TBD
+- [ ] 92-02: TBD
+
+### Phase 93: Community & Tribal Identity
+**Goal**: Discord becomes a living community hub with automated weekly rituals and record alerts
+**Depends on**: Phase 90
+**Requirements**: COMM-01, COMM-02, COMM-03, COMM-04
+**Success Criteria** (what must be TRUE):
+  1. Discord bot posts a formatted weekly leaderboard summary automatically
+  2. When a new track record is set, the Discord bot announces it within 1 hour
+  3. All customer-facing copy uses "RacingPoint Driver" instead of "customer"
+  4. Discord has weekly time trial challenge posts and tournament bracket update posts
+**Plans**: TBD
+
+Plans:
+- [ ] 93-01: TBD
+- [ ] 93-02: TBD
+
+### Phase 94: Pricing & Conversion
+**Goal**: Booking and pricing experience uses anchoring, real scarcity, and social proof to increase conversion
+**Depends on**: Phase 89
+**Requirements**: PRICE-01, PRICE-02, PRICE-03, PRICE-04
+**Success Criteria** (what must be TRUE):
+  1. Pricing page displays 3-tier structure with middle tier visually emphasized (decoy/anchoring)
+  2. Booking wizard shows real-time pod availability from live RaceControl data
+  3. System tracks each customer's commitment ladder position and surfaces next-step nudges
+  4. Booking page displays real social proof using actual data
+**Plans**: TBD
+
+Plans:
+- [ ] 94-01: TBD
+
+### Phase 95: Staff Gamification
+**Goal**: Staff who opt in can see performance, earn badges, participate in team challenges, and give recognition
+**Depends on**: Phase 89
+**Requirements**: STAFF-01, STAFF-02, STAFF-03, STAFF-04, STAFF-05
+**Success Criteria** (what must be TRUE):
+  1. Opted-in staff see a performance leaderboard in venue dashboard
+  2. Staff earn skill badges based on observable actions, not manager assignment
+  3. Team challenges with collective goals appear with progress tracking
+  4. Staff can give kudos to colleagues visible in dashboard
+  5. Participation is per-employee opt-in, never mandatory
+**Plans**: TBD
+
+Plans:
+- [ ] 95-01: TBD
+- [ ] 95-02: TBD
+
+### Phase 96: HR & Hiring Psychology
+**Goal**: Hiring pipeline uses SJTs, campaigns apply Cialdini principles, review nudges are optimized
+**Depends on**: Phase 89
+**Requirements**: HR-01, HR-02, HR-03, HR-04, HR-05
+**Success Criteria** (what must be TRUE):
+  1. Hiring bot presents 3 hospitality-specific SJT scenarios
+  2. Hiring bot includes realistic job preview content
+  3. WhatsApp campaign templates use Cialdini principles (3+ ready-to-send)
+  4. Review nudge copy uses loss-framed messaging with peak-end timing
+  5. Admin dashboard has employee recognition page
+**Plans**: TBD
+
+Plans:
+- [ ] 96-01: TBD
+- [ ] 96-02: TBD
+
 ## Progress
 
 **Execution Order:**
@@ -1167,3 +1307,11 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
 | 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
 | 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
+| 89. Psychology Foundation | v14.0 | 0/3 | Planned | - |
+| 90. Customer Progression | v14.0 | 0/? | Not started | - |
+| 91. Session Experience | v14.0 | 0/? | Not started | - |
+| 92. Retention Loops | v14.0 | 0/? | Not started | - |
+| 93. Community & Tribal Identity | v14.0 | 0/? | Not started | - |
+| 94. Pricing & Conversion | v14.0 | 0/? | Not started | - |
+| 95. Staff Gamification | v14.0 | 0/? | Not started | - |
+| 96. HR & Hiring Psychology | v14.0 | 0/? | Not started | - |
