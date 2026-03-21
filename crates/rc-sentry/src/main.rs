@@ -1,14 +1,21 @@
-//! rc-sentry — lightweight backup remote exec service.
+//! rc-sentry — lightweight backup remote exec service + rc-agent watchdog.
 //!
 //! Runs on port 8091 (server + pods), independent of racecontrol/rc-agent.
 //! Provides /ping, /exec, /health, /version, /files, /processes endpoints
 //! so we never lose remote access during deploys.
+//!
+//! v11.2: Added watchdog module — polls rc-agent /health every 5s, detects
+//! crashes with 3-poll hysteresis, reads crash logs for diagnostics.
+//! Anti-cheat safe: HTTP polling only, no process inspection APIs.
+//!
 //! No tokio, no async — pure std::net for minimal binary size and zero shared deps.
 //!
 //! SECURITY: This is an internal-only tool for LAN management of Racing Point pods.
 //! It binds to 0.0.0.0 on a private subnet (192.168.31.x) with no auth.
 //! NOT intended for public networks. The cmd.exe invocation is intentional —
 //! this is a remote admin tool equivalent to SSH, scoped to venue hardware.
+
+mod watchdog;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -92,6 +99,24 @@ fn main() {
     }
 
     tracing::info!("rc-sentry listening on :{port}");
+
+    // v11.2: Spawn watchdog thread to monitor rc-agent health
+    let crash_rx = watchdog::spawn(&SHUTDOWN_REQUESTED);
+
+    // Drain crash events in a background thread (Phase 103 will add fix logic here)
+    std::thread::Builder::new()
+        .name("sentry-crash-handler".to_string())
+        .spawn(move || {
+            while let Ok(ctx) = crash_rx.recv() {
+                tracing::warn!(
+                    target: "crash-handler",
+                    "rc-agent crash detected: panic={:?}, exit_code={:?}, last_phase={:?}",
+                    ctx.panic_message, ctx.exit_code, ctx.last_phase
+                );
+                // Phase 103: Tier 1 fixes + restart logic will be wired here
+            }
+        })
+        .expect("spawn crash handler thread");
 
     let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
     loop {
