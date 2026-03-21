@@ -245,6 +245,16 @@ pub enum AgentMessage {
         /// Guard is active and scanning (false if disabled in config).
         guard_active: bool,
     },
+
+    /// Freedom mode process monitoring report — sent periodically while freedom mode is active.
+    /// Lists all non-system processes running on the pod for audit trail.
+    FreedomModeReport {
+        pod_id: String,
+        /// Non-system processes: vec of (process_name, exe_path)
+        processes: Vec<(String, String)>,
+        /// Detected game executables currently running
+        games_detected: Vec<String>,
+    },
 }
 
 /// Messages sent from Core Server → Pod Agent
@@ -459,6 +469,7 @@ pub enum CoreToAgentMessage {
     UpdateProcessWhitelist {
         whitelist: MachineWhitelist,
     },
+
 }
 
 fn default_exec_timeout_ms() -> u64 {
