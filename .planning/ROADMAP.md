@@ -1691,7 +1691,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 112. RTSP Infrastructure & Camera Pipeline | 0/4 | Not started | - |
+| 112. RTSP Infrastructure & Camera Pipeline | 1/4 | In Progress|  |
 | 113. Face Detection & Privacy Foundation | 0/3 | Not started | - |
 | 114. Face Recognition & Quality Gates | 0/5 | Not started | - |
 | 115. Face Enrollment System | 0/4 | Not started | - |
