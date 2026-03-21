@@ -18,6 +18,8 @@ pub struct Config {
     pub attendance: AttendanceConfig,
     #[serde(default)]
     pub alerts: AlertsConfig,
+    #[serde(default)]
+    pub nvr: NvrConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,6 +40,8 @@ pub struct CameraConfig {
     pub stream_name: String,
     pub role: String,
     pub fps: u32,
+    #[serde(default)]
+    pub nvr_channel: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -305,6 +309,52 @@ impl Default for AlertsConfig {
             unknown_rate_limit_secs: default_unknown_rate_limit_secs(),
             face_crop_dir: default_face_crop_dir(),
             face_crop_quality: default_face_crop_quality(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NvrConfig {
+    #[serde(default = "default_nvr_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_nvr_host")]
+    pub host: String,
+    #[serde(default = "default_nvr_port")]
+    pub port: u16,
+    #[serde(default = "default_nvr_username")]
+    pub username: String,
+    #[serde(default = "default_nvr_password")]
+    pub password: String,
+}
+
+fn default_nvr_enabled() -> bool {
+    false
+}
+
+fn default_nvr_host() -> String {
+    "192.168.31.18".to_string()
+}
+
+fn default_nvr_port() -> u16 {
+    80
+}
+
+fn default_nvr_username() -> String {
+    "admin".to_string()
+}
+
+fn default_nvr_password() -> String {
+    "Admin@123".to_string()
+}
+
+impl Default for NvrConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_nvr_enabled(),
+            host: default_nvr_host(),
+            port: default_nvr_port(),
+            username: default_nvr_username(),
+            password: default_nvr_password(),
         }
     }
 }
