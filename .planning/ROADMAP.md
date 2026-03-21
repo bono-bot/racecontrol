@@ -1087,7 +1087,7 @@ Plans:
 **Goal:** Every rc-agent tracing call carries a structured target: label and build_id propagates via root span — enabling per-module RUST_LOG filtering and binary-traceable log lines
 **Requirements**: LOG-01 (build_id root span), LOG-02 (module target labels), LOG-03 (strip bracket prefixes), LOG-04 (full test suite green)
 **Depends on:** Phase 105
-**Plans:** 1/6 plans executed
+**Plans:** 2/6 plans executed
 
 Plans:
 - [ ] 106-01-PLAN.md — build_id root span + main.rs migration (66 calls)

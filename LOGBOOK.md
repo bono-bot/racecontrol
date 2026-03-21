@@ -436,3 +436,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 14:57 IST | James | a79f042 | docs(103-03): Phase 103 complete — AUTO-01/02/04, DEPLOY-01 requirements satisfied |
 | 2026-03-21 15:45 IST | James | 6ca77f0 | feat(106-01): add build_id to root span and migrate all 65 tracing calls in main.rs to LOG_TARGET |
 | 2026-03-21 15:45 IST | James | bc2e18f | docs(106-01): SUMMARY.md + STATE.md + ROADMAP.md — LOG-01, LOG-02, LOG-03 complete |
+| 2026-03-21 16:15 IST | James | 00e0bd3 | feat(106-02): migrate ws_handler.rs (60) and event_loop.rs (53) to structured target: labels |
+| 2026-03-21 16:20 IST | James | 578d053 | feat(106-02): migrate ac_launcher.rs (51 calls) to structured target: labels — 164 total migrated |
