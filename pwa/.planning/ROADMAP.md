@@ -13,7 +13,7 @@ Deploy three existing web properties (customer PWA, admin panel, live dashboard)
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Cloud Infrastructure** - DNS, Caddy reverse proxy, Docker Compose, firewall, and swap on VPS (completed 2026-03-21)
-- [ ] **Phase 2: API + PWA Cloud Deploy** - Customer PWA and cloud API live at racingpoint.cloud with HTTPS
+- [x] **Phase 2: API + PWA Cloud Deploy** - Customer PWA and cloud API live at racingpoint.cloud with HTTPS (completed 2026-03-22, API pending racecontrol start)
 - [x] **Phase 3: Sync Hardening** - Reservations table, wallet authority, anti-loop tags, sync health endpoint
 - [x] **Phase 4: Remote Booking + PIN Generation** - Customer books from phone, receives 6-char PIN via WhatsApp (completed 2026-03-21)
 - [ ] **Phase 5: Kiosk PIN Launch** - Customer enters PIN at venue kiosk, pod assigned, game auto-launches
@@ -54,7 +54,7 @@ Plans:
 
 Plans:
 - [x] 02-01-PLAN.md — Config prep: fix compose.yml build args (API URL + IS_CLOUD), remove premature Caddy deps, add Dockerfile build arg, verify manifest
-- [ ] 02-02-PLAN.md — VPS deployment: send instructions to Bono, verify PWA + API live at racingpoint.cloud
+- [x] 02-02-PLAN.md — VPS deployment: send instructions to Bono, verify PWA + API live at racingpoint.cloud
 
 ### Phase 3: Sync Hardening
 **Goal**: Cloud-local sync is financially correct, loop-free, and exposes health status for all tables needed by admin and dashboard
@@ -181,7 +181,7 @@ Phases execute in numeric order. Phases 6 and 7 can run in parallel (both depend
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Cloud Infrastructure | 2/2 | Complete   | 2026-03-21 |
-| 2. API + PWA Cloud Deploy | 1/2 | In progress | - |
+| 2. API + PWA Cloud Deploy | 2/2 | Complete | 2026-03-22 |
 | 3. Sync Hardening | 3/3 | Complete | 2026-03-21 |
 | 4. Remote Booking + PIN Generation | 3/3 | Complete   | 2026-03-21 |
 | 5. Kiosk PIN Launch | 0/2 | Not started | - |

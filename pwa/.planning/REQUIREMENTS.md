@@ -19,11 +19,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### PWA Deployment
 
-- [ ] **PWA-01**: Customer PWA serves at app.racingpoint.cloud with HTTPS
+- [x] **PWA-01**: Customer PWA serves at app.racingpoint.cloud with HTTPS
 - [ ] **PWA-02**: PWA connects to cloud racecontrol API at api.racingpoint.cloud
 - [ ] **PWA-03**: Customer can login, view profile, wallet, sessions, leaderboards from cloud
 - [ ] **PWA-04**: Customer can top up wallet via Razorpay from cloud PWA
-- [ ] **PWA-05**: PWA installable to home screen (manifest, service worker, icons)
+- [x] **PWA-05**: PWA installable to home screen (manifest, service worker, icons)
 
 ### Admin Deployment
 

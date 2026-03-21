@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-22T03:17:00+05:30"
-last_activity: 2026-03-22 — Plan 02-01 complete (compose/Dockerfile/manifest config prep)
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-03-22T04:10:00+05:30"
+last_activity: 2026-03-22 — Plan 02-02 complete (PWA deployed to app.racingpoint.cloud, API pending racecontrol start)
 progress:
   total_phases: 10
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 9
-  completed_plans: 10
+  completed_plans: 11
   percent: 100
 ---
 
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Customers book and pay from anywhere, walk in with a PIN, and race — while Uday sees everything live from his phone without being on-site.
-**Current focus:** Phase 2: API + PWA Cloud Deploy
+**Current focus:** Phase 5: Kiosk PIN Launch (next unstarted phase)
 
 ## Current Position
 
-Phase: 2 of 10 (API + PWA Cloud Deploy)
-Plan: 1 of 2 in current phase (02-01 complete)
-Status: Phase 02 in progress
-Last activity: 2026-03-22 — Plan 02-01 complete (compose/Dockerfile/manifest config prep)
+Phase: 2 of 10 (API + PWA Cloud Deploy) — COMPLETE
+Plan: 2 of 2 in current phase (02-02 complete)
+Status: Phase 02 complete (PWA live, API pending racecontrol binary on VPS)
+Last activity: 2026-03-22 — Plan 02-02 complete (PWA deployed, API unreachable pending racecontrol start)
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
-- Average duration: 3 min
-- Total execution time: 0.33 hours
+- Total plans completed: 10
+- Average duration: 7 min
+- Total execution time: 0.75 hours
 
 **By Phase:**
 
@@ -57,6 +57,7 @@ Progress: [██████████] 100%
 | Phase 01 P01 | 2 min | 2 tasks | 4 files |
 | Phase 01 P02 | 5 min | 3 tasks | 2 files |
 | Phase 02 P01 | 3 min | 2 tasks | 3 files |
+| Phase 02 P02 | 45 min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,8 @@ Recent decisions affecting current work:
 - [01-02]: Repo Caddyfile synced to match VPS after production cert confirmation
 - [02-01]: NEXT_PUBLIC_IS_CLOUD defaults to false in Dockerfile so local builds unaffected
 - [02-01]: Admin/dashboard service blocks kept in compose.yml, only Caddy depends_on trimmed
+- [02-02]: Approved deploy with known issue: api.racingpoint.cloud unreachable (racecontrol binary not running on VPS host)
+- [02-02]: PWA deployment proceeds independently of API availability — PWA container + Caddy working
 
 ### Pending Todos
 
@@ -105,9 +108,10 @@ None yet.
 - racingpoint.cloud domain: verify registered and DNS A records point to 72.60.101.58 before Phase 1
 - WhatsApp Business API templates: submit booking confirmation + PIN delivery templates early (Phase 3) for approval before Phase 4
 - Admin repo (racingpoint-admin): separate repo needs to be cloned to VPS or built and pushed to registry for Phase 6
+- racecontrol binary not running on VPS host: api.racingpoint.cloud routes to host.docker.internal:8080 but nothing listens there. Needs racecontrol binary started on VPS for API to work.
 
 ## Session Continuity
 
-Last session: 2026-03-22T03:17:00+05:30
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-03-22T04:10:00+05:30
+Stopped at: Completed 02-02-PLAN.md (Phase 02 complete)
 Resume file: None
