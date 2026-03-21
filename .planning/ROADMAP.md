@@ -142,6 +142,10 @@ Key: Single ops.bat entry point replacing 310 scattered scripts; centralized con
 
 **Milestone Goal:** Install the tooling layer that makes James+Claude more effective — CLAUDE.md project context + 5 custom skills so Claude always knows pod IPs and naming conventions, MCP servers for Google Workspace (Gmail/Sheets/Calendar) and racecontrol REST API access, deployment automation so staging auto-starts and every deploy runs a verified canary-first flow, structured JSON logs in racecontrol and rc-agent with error-rate email alerts, Netdata fleet monitoring on server and all 8 pods, WhatsApp P0 alerts to Uday, and a weekly fleet uptime report.
 
+### v17.0 Cloud Platform (Phases 120–129)
+
+**Milestone Goal:** Deploy three web properties (customer PWA, admin panel, live dashboard) to racingpoint.cloud subdomains with remote booking + PIN-based zero-staff game launch, hardened cloud-local sync, CI/CD, and health monitoring. Planning artifacts in `pwa/.planning/` (PWA phases 1-10 → unified 120-129). **3/10 phases complete (30%).**
+
 ## Phases
 
 **Phase Numbering:**
@@ -248,6 +252,23 @@ Embed 12 behavioral psychology frameworks into RacingPoint's existing systems �
 - [ ] **Phase 94: Pricing & Conversion** - Anchoring/decoy pricing display, real-time pod scarcity, commitment ladder, and social proof
 - [ ] **Phase 95: Staff Gamification** - Opt-in performance leaderboard, skill badges, team challenges, and peer recognition
 - [ ] **Phase 96: HR & Hiring Psychology** - Hiring bot SJTs, Cialdini campaign templates, review nudge optimization, and employee recognition
+
+## v17.0 Cloud Platform (Phases 120–129)
+
+Deploy three existing web properties (customer PWA, admin panel, live dashboard) to racingpoint.cloud subdomains, add remote booking with PIN-based zero-staff game launch, and harden the cloud-local sync layer for production reliability.
+
+**Planning artifacts:** `pwa/.planning/` (separate GSD project, phases numbered 1-10 there → mapped to 120-129 here)
+
+- [ ] **Phase 120: Cloud Infrastructure** - DNS, Caddy reverse proxy, Docker Compose, firewall, and swap on VPS
+- [ ] **Phase 121: API + PWA Cloud Deploy** - Customer PWA and cloud API live at racingpoint.cloud with HTTPS
+- [x] **Phase 122: Sync Hardening** - Reservations table, wallet authority, anti-loop tags, sync health endpoint (completed 2026-03-21)
+- [x] **Phase 123: Remote Booking + PIN Generation** - Customer books from phone, receives 6-char PIN via WhatsApp (completed 2026-03-21)
+- [x] **Phase 124: Kiosk PIN Launch** - Customer enters PIN at venue kiosk, pod assigned, game auto-launches (completed 2026-03-21)
+- [ ] **Phase 125: Admin Panel Cloud Deploy** - Business admin panel live at admin.racingpoint.cloud
+- [ ] **Phase 126: Dashboard Cloud Deploy** - Live ops dashboard at dashboard.racingpoint.cloud
+- [ ] **Phase 127: CI/CD Pipeline** - Automated build and deploy on push to main
+- [ ] **Phase 128: Health Monitoring + Alerts** - Container health checks with WhatsApp alerts on failure
+- [ ] **Phase 129: Operational Hardening** - Split-brain handling, rate limiting, production edge cases
 
 ## Phase Details
 
@@ -1702,3 +1723,116 @@ Plans:
 | 117. Alerts & Notifications | 3/3 | Complete    | 2026-03-21 |
 | 118. Live Camera Feeds | 2/2 | Complete    | 2026-03-21 |
 | 119. NVR Playback Proxy | 3/3 | Complete    | 2026-03-21 |
+
+## v17.0 Cloud Platform -- Phase Details
+
+> Planning artifacts live in `pwa/.planning/` (PWA phases 1-10 → unified phases 120-129)
+
+### Phase 120: Cloud Infrastructure
+**Goal**: All racingpoint.cloud subdomains resolve, terminate TLS, and route to running containers on the VPS
+**Depends on**: Nothing (first phase)
+**Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-06, INFRA-07
+**Success Criteria** (what must be TRUE):
+  1. Visiting app.racingpoint.cloud, admin.racingpoint.cloud, dashboard.racingpoint.cloud, and api.racingpoint.cloud in a browser shows HTTPS with valid Let's Encrypt certificates
+  2. All four containers (Caddy + 3 frontends) are running via Docker Compose with memory limits and healthchecks
+  3. VPS firewall blocks all inbound ports except 80 and 443
+  4. VPS has 2GB swap enabled and containers survive under memory pressure
+**Plans**: TBD
+
+### Phase 121: API + PWA Cloud Deploy
+**Goal**: Customers can access the PWA from any device and use existing features (login, wallet, sessions, leaderboards) via the cloud API
+**Depends on**: Phase 120
+**Requirements**: PWA-01, PWA-02, PWA-03, PWA-04, PWA-05, API-01, API-02
+**Success Criteria** (what must be TRUE):
+  1. Customer can open app.racingpoint.cloud on their phone and log in with phone + WhatsApp OTP
+  2. Customer can view their profile, wallet balance, session history, and leaderboards from the cloud PWA
+  3. Customer can top up wallet via Razorpay from the cloud PWA and see updated balance after sync
+  4. PWA is installable to home screen (manifest, service worker, icons all working)
+  5. All existing customer API endpoints at api.racingpoint.cloud return correct synced data
+**Plans**: TBD
+
+### Phase 122: Sync Hardening
+**Goal**: Cloud-local sync is financially correct, loop-free, and exposes health status for all tables needed by admin and dashboard
+**Depends on**: Phase 121
+**Requirements**: SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-06, SYNC-07
+**Plans**: 3 plans (complete)
+
+### Phase 123: Remote Booking + PIN Generation
+**Goal**: Customer can book an experience from their phone at home and receive a PIN for venue redemption
+**Depends on**: Phase 122
+**Requirements**: BOOK-01, BOOK-02, BOOK-03, BOOK-04, BOOK-05, BOOK-06, BOOK-07, API-04
+**Plans**: 3 plans (complete)
+
+### Phase 124: Kiosk PIN Launch
+**Goal**: Customer enters PIN at venue kiosk and the game auto-launches on an assigned pod with zero staff interaction
+**Depends on**: Phase 123
+**Requirements**: KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04, KIOSK-05, KIOSK-06
+**Plans**: 2 plans (complete)
+
+### Phase 125: Admin Panel Cloud Deploy
+**Goal**: Uday can manage all business operations remotely from admin.racingpoint.cloud
+**Depends on**: Phase 122
+**Requirements**: ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04, ADMIN-05, API-03
+**Success Criteria** (what must be TRUE):
+  1. Admin panel at admin.racingpoint.cloud requires authentication before any page loads
+  2. Uday can view revenue reports, booking history, and customer data from his phone
+  3. Uday can configure pricing tiers, experiences, and kiosk settings remotely and changes sync to local server
+  4. All existing admin API endpoints work correctly on the cloud instance with synced data
+**Plans**: TBD
+
+### Phase 126: Dashboard Cloud Deploy
+**Goal**: Uday can monitor live venue operations from dashboard.racingpoint.cloud
+**Depends on**: Phase 122
+**Requirements**: DASH-01, DASH-02, DASH-03, DASH-04, DASH-05
+**Success Criteria** (what must be TRUE):
+  1. Dashboard at dashboard.racingpoint.cloud requires authentication (admin-only)
+  2. Dashboard shows real-time pod status grid for all 8 pods, updated via polling
+  3. Dashboard shows today's revenue, active sessions, and billing timers
+  4. Dashboard shows connection status indicator reflecting cloud-to-local sync health
+**Plans**: TBD
+
+### Phase 127: CI/CD Pipeline
+**Goal**: Pushing to main automatically builds and deploys all services to the VPS
+**Depends on**: Phase 120
+**Requirements**: INFRA-04
+**Success Criteria** (what must be TRUE):
+  1. Pushing a commit to main in GitHub triggers a GitHub Actions workflow that builds Docker images and deploys them to the VPS via SSH
+  2. Failed builds do not deploy — only successful builds reach production
+**Plans**: TBD
+
+### Phase 128: Health Monitoring + Alerts
+**Goal**: Container failures and resource exhaustion are detected and reported automatically via WhatsApp
+**Depends on**: Phase 120
+**Requirements**: INFRA-05
+**Success Criteria** (what must be TRUE):
+  1. When a container crashes, restarts, or goes OOM, a WhatsApp alert is sent to Uday within 2 minutes
+  2. Container healthchecks detect unresponsive services and trigger automatic restart
+**Plans**: TBD
+
+### Phase 129: Operational Hardening
+**Goal**: Production edge cases (extended outages, brute force, sync conflicts) are handled gracefully
+**Depends on**: Phase 124, Phase 125
+**Requirements**: SYNC-05, API-05
+**Success Criteria** (what must be TRUE):
+  1. During an extended internet outage, cloud bookings queue as pending_sync and local server confirms them post-reconnection without data loss
+  2. Authentication endpoints (login, OTP verify, PIN entry) are rate-limited to prevent brute force attacks
+  3. After connectivity is restored, pending bookings resolve within two sync cycles
+**Plans**: TBD
+
+## v17.0 Progress
+
+**Execution Order:** 120 -> 121 -> 122 -> 123 -> 124 (critical path)
+Parallel after 122: 125+126 | Parallel after 120: 127+128 | 129 after 124+125
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 120. Cloud Infrastructure | 0/? | Not started | - |
+| 121. API + PWA Cloud Deploy | 0/? | Not started | - |
+| 122. Sync Hardening | 3/3 | Complete | 2026-03-21 |
+| 123. Remote Booking + PIN Generation | 3/3 | Complete | 2026-03-21 |
+| 124. Kiosk PIN Launch | 2/2 | Complete | 2026-03-21 |
+| 125. Admin Panel Cloud Deploy | 0/? | Not started | - |
+| 126. Dashboard Cloud Deploy | 0/? | Not started | - |
+| 127. CI/CD Pipeline | 0/? | Not started | - |
+| 128. Health Monitoring + Alerts | 0/? | Not started | - |
+| 129. Operational Hardening | 0/? | Not started | - |
