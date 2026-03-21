@@ -27,13 +27,13 @@
 
 - [x] **AUTO-01**: HKCU/HKLM Run key audit — enumerate all values, flag non-whitelisted entries
 - [x] **AUTO-02**: Startup folder audit — scan `%AppData%\...\Startup` for non-whitelisted shortcuts
-- [ ] **AUTO-03**: Scheduled Task audit — `schtasks /query` parse, flag non-whitelisted tasks
+- [x] **AUTO-03**: Scheduled Task audit — `schtasks /query` parse, flag non-whitelisted tasks
 - [x] **AUTO-04**: Three-stage enforcement progression: LOG → ALERT → REMOVE (configurable per entry)
 
 ### Port Enforcement
 
-- [ ] **PORT-01**: Listening port audit against approved port list per machine
-- [ ] **PORT-02**: Auto-kill process owning non-whitelisted listening port
+- [x] **PORT-01**: Listening port audit against approved port list per machine
+- [x] **PORT-02**: Auto-kill process owning non-whitelisted listening port
 
 ### Reporting & Alerting
 
@@ -85,10 +85,10 @@ Deferred to future release.
 | PROC-05 | Phase 103 | Complete (103-02) |
 | AUTO-01 | Phase 103 | Complete (103-03) |
 | AUTO-02 | Phase 103 | Complete (103-03) |
-| AUTO-03 | Phase 105 | Pending |
+| AUTO-03 | Phase 105 | Complete (105-01) |
 | AUTO-04 | Phase 103 | Complete (103-03) |
-| PORT-01 | Phase 105 | Pending |
-| PORT-02 | Phase 105 | Pending |
+| PORT-01 | Phase 105 | Complete (105-01) |
+| PORT-02 | Phase 105 | Complete (105-01) |
 | ALERT-01 | Phase 103 | Complete (103-02) |
 | ALERT-02 | Phase 104 | Pending |
 | ALERT-03 | Phase 104 | Complete (104-01) |

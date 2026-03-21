@@ -86,8 +86,8 @@ Plans:
   4. The James whitelist covers Ollama, node, python, VS Code, comms-link, cargo, and deploy tooling without false positives on the first run
 **Plans**: 3 plans
 Plans:
-- [ ] 105-01-PLAN.md — Port audit (netstat -ano parse + kill) + scheduled task audit (schtasks CSV parse + disable) added to rc-agent process_guard.rs; wired into audit_interval.tick() arm
-- [ ] 105-02-PLAN.md — POST /api/v1/guard/report endpoint in racecontrol (X-Guard-Token auth, stores to pod_violations ViolationStore); report_secret field in ProcessGuardConfig
+- [x] 105-01-PLAN.md — Port audit (netstat -ano parse + kill) + scheduled task audit (schtasks CSV parse + disable) added to rc-agent process_guard.rs; wired into audit_interval.tick() arm
+- [x] 105-02-PLAN.md — POST /api/v1/guard/report endpoint in racecontrol (X-Guard-Token auth, stores to pod_violations ViolationStore); report_secret field in ProcessGuardConfig
 - [ ] 105-03-PLAN.md — New crates/rc-process-guard/ workspace member; standalone binary with fetch whitelist + scan loop + HTTP POST violations; JAMES_CRITICAL_BINARIES enforcement
 
 ## Progress
@@ -99,8 +99,8 @@ Plans:
 | 101. Protocol Foundation | 1/1 | Complete | 2026-03-21 |
 | 102. Whitelist Schema + Config + Fetch Endpoint | 2/2 | Complete | 2026-03-21 |
 | 103. Pod Guard Module | 3/3 | Complete | 2026-03-21 |
-| 104. Server Guard Module + Alerts | 0/3 | Not started | - |
-| 105. Port Audit + Scheduled Tasks + James Binary | 0/3 | Not started | - |
+| 104. Server Guard Module + Alerts | 2/3 | In Progress | - |
+| 105. Port Audit + Scheduled Tasks + James Binary | 2/3 | In Progress | - |
 
 ---
 *Roadmap created: 2026-03-21 IST*

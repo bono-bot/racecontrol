@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 105 of 105 (Port Audit + Scheduled Tasks + James Binary) — IN PROGRESS
-Plan: 2 of 4 — completed
-Status: POST /api/v1/guard/report endpoint live — rc-process-guard James binary can now POST violations
-Last activity: 2026-03-21 — Phase 105 Plan 02 complete: guard/report intake endpoint (bd2f78e)
+Plan: 3 of 4 — completed (01 and 02 complete, 03 pending)
+Status: Port audit + schtasks audit in rc-agent; guard/report HTTP intake for James binary — both wired
+Last activity: 2026-03-21 — Phase 105 Plan 01 complete: run_port_audit + run_schtasks_audit in process_guard.rs (53f4551)
 
 Progress: [██████████] 97%
 
@@ -31,7 +31,7 @@ Progress: [██████████] 97%
 | 102-whitelist-schema-config-fetch-endpoint | 2 | 55 min | 27 min |
 | 103-pod-guard-module | 3 (of 3) | 47 min | 16 min |
 | 104-server-guard-module-alerts | 2 (of 2) | 40 min | 20 min |
-| 105-port-audit-scheduled-tasks-james-binary | 2 (of 4) | 12 min | 12 min |
+| 105-port-audit-scheduled-tasks-james-binary | 3 (of 4) | 50 min | 17 min |
 
 *Updated after each plan completion*
 
@@ -83,6 +83,10 @@ Progress: [██████████] 97%
 - [104-03]: inline style backgroundColor: '#E10600' for violation badge — brand color purity, consistent with Maintenance button pattern
 - [105-02]: POST /guard/report placed in service_routes() with in-handler X-Guard-Token auth — report_secret=None dev mode, set "rp-guard-2026" in prod toml
 - [105-02]: ViolationStore reused unchanged — james violations visible in /fleet/health immediately via pod_violations["james"]
+- [105-01]: parse_netstat_listening uses rfind(':') not split(':') — handles IPv6 [::]:port format correctly
+- [105-01]: Port kill uses kill_process_verified primary + taskkill /F /PID fallback when sysinfo can't locate PID
+- [105-01]: schtask system task skip is unconditional (starts_with \\Microsoft\\) — before whitelist check
+- [105-01]: parse_schtasks_csv splits on '","' boundary — handles quoted CSV without adding a CSV library
 
 ### Pending Todos
 
@@ -97,5 +101,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-21 IST
-Stopped at: Completed 105-02-PLAN.md
+Stopped at: Completed 105-01-PLAN.md
 Resume file: None
