@@ -119,12 +119,14 @@ async fn run_concurrent_checks(
     has_game_process: bool,
     game_pid: Option<u32>,
 ) -> Vec<CheckResult> {
-    let (hid, conspit, orphan) = tokio::join!(
+    let (hid, conspit, orphan, http, rect) = tokio::join!(
         check_hid(ffb),
         check_conspit(),
         check_orphan_game(billing_active, has_game_process, game_pid),
+        check_lock_screen_http(),
+        check_window_rect(),
     );
-    vec![hid, conspit, orphan]
+    vec![hid, conspit, orphan, http, rect]
 }
 
 // ─── Individual Check Functions ───────────────────────────────────────────────
@@ -282,6 +284,178 @@ async fn check_orphan_game(billing_active: bool, has_game_process: bool, game_pi
     }
 }
 
+// ─── DISP-01: Lock Screen HTTP Probe ─────────────────────────────────────────
+
+/// Public entry point: probe the lock screen HTTP server on port 18923.
+///
+/// Delegates to `check_lock_screen_http_on` for testability.
+async fn check_lock_screen_http() -> CheckResult {
+    check_lock_screen_http_on("127.0.0.1:18923").await
+}
+
+/// Implementation: TCP connect + HTTP/1.0 GET, check for 200 in response.
+///
+/// 2-second timeout. On connect success: sends a minimal HTTP request and
+/// checks the response starts with "HTTP/1." and contains "200".
+/// Returns Fail on connection error, timeout, or non-200 response.
+async fn check_lock_screen_http_on(addr: &str) -> CheckResult {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let addr_owned = addr.to_string();
+    let connect_result = tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::net::TcpStream::connect(&addr_owned),
+    )
+    .await;
+
+    let mut stream = match connect_result {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
+            return CheckResult {
+                name: "lock_screen_http",
+                status: CheckStatus::Fail,
+                detail: format!("Lock screen HTTP server not reachable on {}: {}", addr_owned, e),
+            };
+        }
+        Err(_) => {
+            return CheckResult {
+                name: "lock_screen_http",
+                status: CheckStatus::Fail,
+                detail: format!("Lock screen HTTP server timeout (>2s) on {}", addr_owned),
+            };
+        }
+    };
+
+    // Send minimal HTTP GET request
+    let request = format!("GET /health HTTP/1.0\r\nHost: {}\r\n\r\n", addr_owned);
+    if stream.write_all(request.as_bytes()).await.is_err() {
+        return CheckResult {
+            name: "lock_screen_http",
+            status: CheckStatus::Fail,
+            detail: format!("Lock screen HTTP server write failed on {}", addr_owned),
+        };
+    }
+
+    // Read up to 256 bytes of response
+    let mut buf = [0u8; 256];
+    let n = match stream.read(&mut buf).await {
+        Ok(n) => n,
+        Err(e) => {
+            return CheckResult {
+                name: "lock_screen_http",
+                status: CheckStatus::Fail,
+                detail: format!("Lock screen HTTP server read failed on {}: {}", addr_owned, e),
+            };
+        }
+    };
+
+    let response = String::from_utf8_lossy(&buf[..n]);
+    if response.starts_with("HTTP/1.") && response.contains("200") {
+        CheckResult {
+            name: "lock_screen_http",
+            status: CheckStatus::Pass,
+            detail: format!("Lock screen HTTP server responding on {}", addr_owned),
+        }
+    } else {
+        CheckResult {
+            name: "lock_screen_http",
+            status: CheckStatus::Fail,
+            detail: format!("Lock screen HTTP server on {} returned non-200: {}", addr_owned,
+                response.lines().next().unwrap_or("(empty)")),
+        }
+    }
+}
+
+// ─── DISP-02: Lock Screen Window Rect ────────────────────────────────────────
+
+/// Check that the Edge/Chromium lock screen window covers >= 90% of the screen.
+///
+/// Uses FindWindowA("Chrome_WidgetWin_1") + GetWindowRect via spawn_blocking.
+/// Returns Warn (not Fail) if the window is not found — it may not be launched yet.
+/// Returns Fail only if the window is found but does not cover enough of the screen.
+#[cfg(windows)]
+async fn check_window_rect() -> CheckResult {
+    let result = spawn_blocking(|| {
+        unsafe extern "system" {
+            fn GetSystemMetrics(nIndex: i32) -> i32;
+            fn FindWindowA(lpClassName: *const u8, lpWindowName: *const u8) -> isize;
+            fn GetWindowRect(hWnd: isize, lpRect: *mut [i32; 4]) -> i32;
+        }
+
+        // Get primary screen dimensions
+        let screen_w = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
+        let screen_h = unsafe { GetSystemMetrics(1) }; // SM_CYSCREEN
+
+        // Find the Edge/Chromium window by class name
+        let class_name = b"Chrome_WidgetWin_1\0";
+        let hwnd = unsafe { FindWindowA(class_name.as_ptr(), std::ptr::null()) };
+
+        if hwnd == 0 {
+            return CheckResult {
+                name: "lock_screen_window_rect",
+                status: CheckStatus::Warn,
+                detail: "Lock screen Edge window not found (may not be launched yet)".into(),
+            };
+        }
+
+        // Get the window rectangle
+        let mut rect = [0i32; 4]; // left, top, right, bottom
+        let ok = unsafe { GetWindowRect(hwnd, &mut rect as *mut [i32; 4]) };
+
+        if ok == 0 {
+            return CheckResult {
+                name: "lock_screen_window_rect",
+                status: CheckStatus::Warn,
+                detail: "GetWindowRect failed — window may have closed".into(),
+            };
+        }
+
+        let win_w = rect[2] - rect[0]; // right - left
+        let win_h = rect[3] - rect[1]; // bottom - top
+
+        // Check if window covers at least 90% of screen dimensions
+        let w_ok = screen_w > 0 && win_w as f32 >= screen_w as f32 * 0.90;
+        let h_ok = screen_h > 0 && win_h as f32 >= screen_h as f32 * 0.90;
+
+        if w_ok && h_ok {
+            CheckResult {
+                name: "lock_screen_window_rect",
+                status: CheckStatus::Pass,
+                detail: format!(
+                    "Lock screen window covers full screen ({}x{} of {}x{})",
+                    win_w, win_h, screen_w, screen_h
+                ),
+            }
+        } else {
+            CheckResult {
+                name: "lock_screen_window_rect",
+                status: CheckStatus::Fail,
+                detail: format!(
+                    "Lock screen window too small: {}x{} vs screen {}x{} (< 90%)",
+                    win_w, win_h, screen_w, screen_h
+                ),
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|e| CheckResult {
+        name: "lock_screen_window_rect",
+        status: CheckStatus::Warn,
+        detail: format!("spawn_blocking panicked in window rect check: {}", e),
+    });
+
+    result
+}
+
+#[cfg(not(windows))]
+async fn check_window_rect() -> CheckResult {
+    CheckResult {
+        name: "lock_screen_window_rect",
+        status: CheckStatus::Pass,
+        detail: "Window rect check skipped (non-Windows)".into(),
+    }
+}
+
 // ─── Auto-Fix Functions ───────────────────────────────────────────────────────
 
 /// Attempt to restart ConspitLink.exe.
@@ -386,5 +560,67 @@ mod tests {
         let result = check_orphan_game(false, true, None).await;
         assert!(matches!(result.status, CheckStatus::Warn));
         assert!(result.detail.contains("no PID"));
+    }
+
+    // ─── DISP-01 tests ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_lock_screen_http_fail() {
+        // No server bound on a high ephemeral port — connection should be refused
+        // We probe a port that should definitely not have a server running.
+        // Use a port in the ephemeral range that is extremely unlikely to be in use.
+        let result = check_lock_screen_http_on("127.0.0.1:19999").await;
+        assert!(matches!(result.status, CheckStatus::Fail),
+            "Expected Fail when no server is listening, got: {:?} ({})", result.status, result.detail);
+        assert_eq!(result.name, "lock_screen_http");
+    }
+
+    #[tokio::test]
+    async fn test_lock_screen_http_pass() {
+        use tokio::net::TcpListener;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Bind an ephemeral listener that responds with HTTP 200
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let addr_str = addr.to_string();
+
+        // Spawn a simple HTTP server that responds with 200
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 256];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nOK").await;
+            }
+        });
+
+        let result = check_lock_screen_http_on(&addr_str).await;
+        assert!(matches!(result.status, CheckStatus::Pass),
+            "Expected Pass when server is listening and responds 200, got: {:?} ({})", result.status, result.detail);
+        assert_eq!(result.name, "lock_screen_http");
+    }
+
+    // ─── DISP-02 tests ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_window_rect_non_windows() {
+        // On non-Windows, check_window_rect always returns Pass
+        let result = check_window_rect().await;
+        #[cfg(not(windows))]
+        assert!(matches!(result.status, CheckStatus::Pass),
+            "Expected Pass on non-Windows, got: {:?}", result.status);
+        // On Windows the result depends on environment — just verify name and no panic
+        assert_eq!(result.name, "lock_screen_window_rect");
+    }
+
+    // ─── Concurrent runner test ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_concurrent_checks_returns_five() {
+        let mut mock = MockHidBackend::new();
+        mock.expect_zero_force().returning(|| Ok(true));
+        let results = run_concurrent_checks(&mock, false, false, None).await;
+        assert_eq!(results.len(), 5,
+            "run_concurrent_checks must return exactly 5 results (was 3, now 5 with DISP-01 + DISP-02)");
     }
 }
