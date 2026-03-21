@@ -7,6 +7,7 @@ mod frame;
 mod health;
 mod mjpeg;
 mod nvr;
+mod playback;
 mod privacy;
 mod recognition;
 mod relay;
@@ -45,6 +46,10 @@ async fn main() -> anyhow::Result<()> {
         port = config.service.port,
         "rc-sentry-ai starting"
     );
+
+    if config.nvr.enabled {
+        tracing::info!(host = %config.nvr.host, port = config.nvr.port, "NVR playback proxy configured");
+    }
 
     let frame_buf = FrameBuffer::new();
 
@@ -290,12 +295,32 @@ async fn main() -> anyhow::Result<()> {
         service_port: config.service.port,
     });
 
+    // Initialize playback proxy state (if NVR enabled)
+    let playback_state = if config.nvr.enabled {
+        Some(Arc::new(playback::PlaybackState {
+            nvr_client: nvr::NvrClient::new(&config.nvr),
+            cameras: config.cameras.clone(),
+            db_path: config.recognition.gallery_db_path.clone(),
+        }))
+    } else {
+        None
+    };
+
     let app = health::health_router(state)
         .merge(health::privacy_router(audit_writer.clone()))
         .merge(enrollment::routes::enrollment_router(enrollment_state))
         .merge(attendance::routes::attendance_router(attendance_state))
         .merge(alerts::ws::alerts_router(alert_ws_state))
         .merge(mjpeg::mjpeg_router(mjpeg_state));
+
+    // Conditionally add playback routes
+    let app = if let Some(ps) = playback_state {
+        tracing::info!("NVR playback proxy enabled");
+        app.merge(playback::playback_router(ps))
+    } else {
+        tracing::info!("NVR playback proxy disabled (nvr.enabled = false)");
+        app
+    };
     let addr = format!("{}:{}", config.service.host, config.service.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("rc-sentry-ai health endpoint listening on {addr}");
