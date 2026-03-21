@@ -1307,7 +1307,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
 | 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
 | 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
-| 89. Psychology Foundation | v14.0 | 0/3 | Planned | - |
+| 89. Psychology Foundation | 1/3 | In Progress|  | - |
 | 90. Customer Progression | v14.0 | 0/? | Not started | - |
 | 91. Session Experience | v14.0 | 0/? | Not started | - |
 | 92. Retention Loops | v14.0 | 0/? | Not started | - |
