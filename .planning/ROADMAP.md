@@ -229,7 +229,7 @@ Launch games other than AC (F1 25, iRacing, AC EVO, EA WRC, LMU) from kiosk/PWA 
 - [ ] **Phase 82: Billing and Session Lifecycle** - PlayableSignal per game, billing accuracy, per-game rates, clean lifecycle
 - [ ] **Phase 83: F1 25 Telemetry** - Extend existing F1 25 UDP adapter for LapCompleted events with sector splits
 - [ ] **Phase 84: iRacing Telemetry** - Shared memory reader with session transition handling and pre-flight checks
-- [ ] **Phase 85: LMU Telemetry** - rFactor 2 shared memory reader for Le Mans Ultimate lap data
+- [x] **Phase 85: LMU Telemetry** - rFactor 2 shared memory reader for Le Mans Ultimate lap data (completed 2026-03-21)
 - [ ] **Phase 86: AC EVO Telemetry** - Best-effort shared memory reader using ACC struct layout, feature-flagged
 - [ ] **Phase 87: EA WRC Telemetry** - JSON-configured UDP telemetry with stage-to-lap mapping
 - [ ] **Phase 88: Leaderboard Integration** - Multi-game lap storage, track name normalization, endpoint updates
@@ -1305,7 +1305,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 82. Billing and Session Lifecycle | 2/3 | In Progress|  | - |
 | 83. F1 25 Telemetry | v13.0 | 0/1 | Not started | - |
 | 84. iRacing Telemetry | v13.0 | 0/2 | Not started | - |
-| 85. LMU Telemetry | v13.0 | 0/1 | Not started | - |
+| 85. LMU Telemetry | 2/2 | Complete   | 2026-03-21 | - |
 | 86. AC EVO Telemetry | v13.0 | 0/1 | Not started | - |
 | 87. EA WRC Telemetry | v13.0 | 0/1 | Not started | - |
 | 88. Leaderboard Integration | v13.0 | 0/2 | Not started | - |
