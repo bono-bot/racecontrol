@@ -903,7 +903,8 @@ mod tests {
     /// Build a minimal AppState using the provided pool.
     async fn make_state_with_db(db: sqlx::SqlitePool) -> Arc<AppState> {
         let config = crate::config::Config::default_test();
-        Arc::new(AppState::new(config, db))
+        let cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, cipher))
     }
 
     // ─── Badge evaluation tests ───────────────────────────────────────────────
