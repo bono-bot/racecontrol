@@ -1,9 +1,11 @@
-//! rc-agent watchdog — health polling FSM with crash log analysis.
+//! Service watchdog — health polling FSM with crash log analysis.
 //!
-//! Spawns a background thread that polls rc-agent's /health endpoint every 5s.
-//! Uses 3-poll hysteresis (15s) before declaring crash to avoid false positives
-//! during shader compilation or game launch. After crash: reads startup_log +
-//! stderr to build CrashContext for downstream fix functions.
+//! Spawns a background thread that polls a service's /health endpoint every 5s.
+//! Uses 3-poll hysteresis (15s) before declaring crash to avoid false positives.
+//! After crash: reads startup_log + stderr to build CrashContext for downstream fixes.
+//!
+//! Target service is configurable via SentryConfig (rc-sentry.toml).
+//! Default: rc-agent on :8090 (pod mode). Server mode: racecontrol on :8080.
 //!
 //! Anti-cheat safe: uses only std::net::TcpStream HTTP — no process inspection APIs.
 //! Pure std: no tokio, no async.
@@ -14,16 +16,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use crate::sentry_config;
+
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const READ_TIMEOUT: Duration = Duration::from_secs(3);
 const HYSTERESIS_THRESHOLD: u8 = 3; // consecutive failures before crash
-const RC_AGENT_HEALTH_URL: &str = "127.0.0.1:8090";
-
-const STARTUP_LOG_PATH: &str = r"C:\RacingPoint\rc-agent-startup.log";
-const STDERR_LOG_PATH: &str = r"C:\RacingPoint\rc-agent-stderr.log";
 
 const LOG_TARGET: &str = "watchdog";
 
@@ -61,8 +61,9 @@ pub struct CrashContext {
 /// Returns true if rc-agent responds with HTTP 200.
 /// Anti-cheat safe: just a TCP connection, no process APIs.
 fn poll_health() -> bool {
+    let cfg = sentry_config::load();
     let stream = match TcpStream::connect_timeout(
-        &RC_AGENT_HEALTH_URL.parse().expect("valid addr"),
+        &cfg.health_addr.parse().expect("valid addr"),
         CONNECT_TIMEOUT,
     ) {
         Ok(s) => s,
@@ -77,7 +78,11 @@ fn poll_health() -> bool {
     }
 
     let mut stream = stream;
-    let request = "GET /health HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let request = format!(
+        "GET {} HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        cfg.health_path
+    );
+    let request = request; // bind the formatted String
     if stream.write_all(request.as_bytes()).is_err() {
         return false;
     }
@@ -145,8 +150,9 @@ fn extract_last_phase(content: &str) -> Option<String> {
 
 /// Build CrashContext by reading available logs.
 fn build_crash_context() -> CrashContext {
-    let startup_log = read_log_tail(STARTUP_LOG_PATH, 2000);
-    let stderr_log = read_log_tail(STDERR_LOG_PATH, 2000);
+    let cfg = sentry_config::load();
+    let startup_log = read_log_tail(&cfg.startup_log, 2000);
+    let stderr_log = read_log_tail(&cfg.stderr_log, 2000);
 
     let combined = format!("{}\n{}", &stderr_log, &startup_log);
 
@@ -169,7 +175,8 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
     std::thread::Builder::new()
         .name("sentry-watchdog".to_string())
         .spawn(move || {
-            tracing::info!(target: LOG_TARGET, "watchdog started — polling rc-agent every {:?}", POLL_INTERVAL);
+            let cfg = sentry_config::load();
+            tracing::info!(target: LOG_TARGET, "watchdog started — polling {} ({}) every {:?}", cfg.service_name, cfg.health_addr, POLL_INTERVAL);
             let mut state = WatchdogState::Healthy;
 
             loop {

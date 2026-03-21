@@ -15,6 +15,7 @@
 //! NOT intended for public networks. The cmd.exe invocation is intentional —
 //! this is a remote admin tool equivalent to SSH, scoped to venue hardware.
 
+mod sentry_config;
 mod watchdog;
 mod tier1_fixes;
 mod debug_memory;
@@ -103,7 +104,11 @@ fn main() {
 
     tracing::info!("rc-sentry listening on :{port}");
 
-    // v11.2: Spawn watchdog thread to monitor rc-agent health
+    // Load sentry config (rc-sentry.toml if present, else defaults to rc-agent mode)
+    let cfg = sentry_config::load();
+    tracing::info!("watchdog target: {} ({})", cfg.service_name, cfg.health_addr);
+
+    // Spawn watchdog thread to monitor service health
     let crash_rx = watchdog::spawn(&SHUTDOWN_REQUESTED);
 
     // Drain crash events in a background thread — run Tier 1 fixes + restart

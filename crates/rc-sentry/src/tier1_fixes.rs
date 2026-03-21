@@ -9,17 +9,16 @@
 
 use rc_common::types::CrashDiagResult;
 use super::watchdog::CrashContext;
+use crate::sentry_config;
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
 const LOG_TARGET: &str = "tier1-fixes";
-const RC_AGENT_PORT: u16 = 8090;
 const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PORT_WAIT_POLL: Duration = Duration::from_millis(500);
 const MAINTENANCE_FILE: &str = r"C:\RacingPoint\MAINTENANCE_MODE";
-const START_SCRIPT: &str = r"C:\RacingPoint\start-rcagent.bat";
 
 // ─── Escalation State ────────────────────────────────────────────────────────
 
@@ -103,38 +102,41 @@ pub fn fix_kill_zombies() -> CrashDiagResult {
     }
     #[cfg(not(test))]
     {
+        let cfg = sentry_config::load();
         let output = std::process::Command::new("taskkill")
-            .args(["/IM", "rc-agent.exe", "/F"])
+            .args(["/IM", &cfg.process_name, "/F"])
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output();
         let success = matches!(output, Ok(ref o) if o.status.success());
         CrashDiagResult {
             fix_type: "zombie_kill".to_string(),
-            detail: if success { "Killed zombie rc-agent processes".to_string() }
-                    else { "No rc-agent processes to kill or taskkill failed".to_string() },
+            detail: if success { format!("Killed zombie {} processes", cfg.process_name) }
+                    else { format!("No {} processes to kill or taskkill failed", cfg.process_name) },
             success,
         }
     }
 }
 
-/// Wait for port 8090 to leave TIME_WAIT state before restarting rc-agent.
+/// Wait for service port to leave TIME_WAIT state before restart.
 pub fn fix_wait_for_port() -> CrashDiagResult {
     #[cfg(test)]
     {
         return CrashDiagResult {
             fix_type: "port_wait".to_string(),
-            detail: "Port 8090 is free".to_string(),
+            detail: "Port is free".to_string(),
             success: true,
         };
     }
     #[cfg(not(test))]
     {
+        let cfg = sentry_config::load();
+        let service_port = cfg.service_port;
         let start = Instant::now();
         while start.elapsed() < PORT_WAIT_TIMEOUT {
-            if !is_port_in_use(RC_AGENT_PORT) {
+            if !is_port_in_use(service_port) {
                 return CrashDiagResult {
                     fix_type: "port_wait".to_string(),
-                    detail: format!("Port {} free after {:?}", RC_AGENT_PORT, start.elapsed()),
+                    detail: format!("Port {} free after {:?}", service_port, start.elapsed()),
                     success: true,
                 };
             }
@@ -142,7 +144,7 @@ pub fn fix_wait_for_port() -> CrashDiagResult {
         }
         CrashDiagResult {
             fix_type: "port_wait".to_string(),
-            detail: format!("Port {} still in use after {:?}", RC_AGENT_PORT, PORT_WAIT_TIMEOUT),
+            detail: format!("Port {} still in use after {:?}", service_port, PORT_WAIT_TIMEOUT),
             success: false,
         }
     }
@@ -176,7 +178,7 @@ pub fn fix_close_wait(ctx: &CrashContext) -> CrashDiagResult {
                 success: true,
             };
         }
-        // Kill all connections to port 8090 to clear CLOSE_WAIT
+        // Kill stale CLOSE_WAIT connections
         tracing::info!(target: LOG_TARGET, "CLOSE_WAIT detected — cleaning stale connections");
         CrashDiagResult {
             fix_type: "close_wait_clean".to_string(),
@@ -198,8 +200,9 @@ pub fn fix_config_repair() -> CrashDiagResult {
     }
     #[cfg(not(test))]
     {
-        let toml_exists = std::path::Path::new(r"C:\RacingPoint\rc-agent.toml").exists();
-        let bat_exists = std::path::Path::new(START_SCRIPT).exists();
+        let cfg = sentry_config::load();
+        let toml_exists = std::path::Path::new(&cfg.service_toml).exists();
+        let bat_exists = std::path::Path::new(&cfg.start_script).exists();
 
         if toml_exists && bat_exists {
             CrashDiagResult {
@@ -208,14 +211,14 @@ pub fn fix_config_repair() -> CrashDiagResult {
                 success: true,
             }
         } else {
-            let missing: Vec<&str> = [
-                (!toml_exists).then_some("rc-agent.toml"),
-                (!bat_exists).then_some("start-rcagent.bat"),
+            let missing: Vec<String> = [
+                (!toml_exists).then(|| cfg.service_toml.clone()),
+                (!bat_exists).then(|| cfg.start_script.clone()),
             ].into_iter().flatten().collect();
             tracing::error!(target: LOG_TARGET, "Missing config files: {:?}", missing);
             CrashDiagResult {
                 fix_type: "config_repair".to_string(),
-                detail: format!("Missing: {}. Self-heal will repair on next rc-agent start.", missing.join(", ")),
+                detail: format!("Missing: {}. Self-heal will repair on next {} start.", missing.join(", "), cfg.service_name),
                 success: false,
             }
         }
@@ -269,29 +272,30 @@ pub fn fix_shader_cache(ctx: &CrashContext) -> CrashDiagResult {
     }
 }
 
-/// Restart rc-agent by launching start-rcagent.bat.
-pub fn restart_rc_agent() -> CrashDiagResult {
+/// Restart the monitored service by launching its start script.
+pub fn restart_service() -> CrashDiagResult {
     #[cfg(test)]
     {
         return CrashDiagResult {
             fix_type: "restart".to_string(),
-            detail: "rc-agent restarted".to_string(),
+            detail: "service restarted".to_string(),
             success: true,
         };
     }
     #[cfg(not(test))]
     {
+        let cfg = sentry_config::load();
         let result = std::process::Command::new("cmd")
-            .args(["/C", "start", "", START_SCRIPT])
+            .args(["/C", "start", "", &cfg.start_script])
             .creation_flags(0x08000000)
             .spawn();
         let success = result.is_ok();
         CrashDiagResult {
             fix_type: "restart".to_string(),
             detail: if success {
-                format!("rc-agent restarted via {}", START_SCRIPT)
+                format!("{} restarted via {}", cfg.service_name, cfg.start_script)
             } else {
-                format!("Failed to start {}", START_SCRIPT)
+                format!("Failed to start {}", cfg.start_script)
             },
             success,
         }
@@ -383,8 +387,8 @@ pub fn handle_crash(ctx: &CrashContext, tracker: &mut RestartTracker) -> (Vec<Cr
     std::thread::sleep(delay);
 
     // 8. Restart rc-agent
-    let r = restart_rc_agent();
-    tracing::info!(target: LOG_TARGET, "restart_rc_agent: {} ({})", r.success, r.detail);
+    let r = restart_service();
+    tracing::info!(target: LOG_TARGET, "restart_service: {} ({})", r.success, r.detail);
     let restarted = r.success;
     results.push(r);
 
@@ -445,8 +449,8 @@ mod tests {
     }
 
     #[test]
-    fn restart_rc_agent_returns_mock() {
-        let r = restart_rc_agent();
+    fn restart_service_returns_mock() {
+        let r = restart_service();
         assert_eq!(r.fix_type, "restart");
         assert!(r.success);
     }
