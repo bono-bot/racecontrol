@@ -38,6 +38,40 @@ async fn main() -> anyhow::Result<()> {
 
     let frame_buf = FrameBuffer::new();
 
+    // Initialize detection stats (shared with health endpoint regardless of detection enabled)
+    let detection_stats = Arc::new(detection::pipeline::DetectionStats::new());
+
+    // Initialize SCRFD detector and spawn per-camera detection tasks
+    if config.detection.enabled {
+        match detection::scrfd::ScrfdDetector::new(&config.detection.model_path) {
+            Ok(detector) => {
+                let detector = Arc::new(detector);
+                tracing::info!(
+                    model = %config.detection.model_path,
+                    confidence = config.detection.confidence_threshold,
+                    "SCRFD detector initialized with CUDA EP"
+                );
+
+                // Spawn one detection task per camera
+                for camera in config.cameras.iter() {
+                    let cam_name = camera.name.clone();
+                    let buf = frame_buf.clone();
+                    let det = Arc::clone(&detector);
+                    let conf = config.detection.confidence_threshold;
+                    let stats = Arc::clone(&detection_stats);
+                    tokio::spawn(async move {
+                        detection::pipeline::run(cam_name, buf, det, conf, stats).await;
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to initialize SCRFD detector, detection disabled");
+            }
+        }
+    } else {
+        tracing::info!("face detection disabled in config");
+    }
+
     // Initialize audit writer (single-writer pattern for Windows file locking)
     let (audit_writer, _audit_handle) = privacy::audit::AuditWriter::new(
         config.privacy.audit_log_path.clone(),
@@ -59,6 +93,7 @@ async fn main() -> anyhow::Result<()> {
         frame_buf: frame_buf.clone(),
         relay_api_url: config.relay.api_url.clone(),
         start_time: std::time::Instant::now(),
+        detection_stats: Arc::clone(&detection_stats),
     });
 
     // Spawn retention purge task (hourly)

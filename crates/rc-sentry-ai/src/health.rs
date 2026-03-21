@@ -13,6 +13,7 @@ pub struct AppState {
     pub frame_buf: FrameBuffer,
     pub relay_api_url: String,
     pub start_time: Instant,
+    pub detection_stats: Arc<crate::detection::pipeline::DetectionStats>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -72,6 +73,11 @@ async fn health_handler(State(state): State<SharedState>) -> Json<Value> {
         "ok"
     };
 
+    let det_frames = state.detection_stats.frames_processed.load(std::sync::atomic::Ordering::Relaxed);
+    let det_faces = state.detection_stats.faces_detected.load(std::sync::atomic::Ordering::Relaxed);
+    let det_last = state.detection_stats.last_detection.read().await;
+    let det_last_secs = det_last.map(|t| (Instant::now() - t).as_secs_f64());
+
     Json(json!({
         "service": "rc-sentry-ai",
         "status": overall_status,
@@ -80,6 +86,11 @@ async fn health_handler(State(state): State<SharedState>) -> Json<Value> {
         "relay": {
             "status": relay_status.status,
             "api_url": relay_status.api_url,
+        },
+        "detection": {
+            "frames_processed": det_frames,
+            "faces_detected": det_faces,
+            "last_detection_secs_ago": det_last_secs,
         },
     }))
 }
