@@ -197,12 +197,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 74 of 81 (rc-agent Decomposition)
-Plan: 02 of 04 complete
+Phase: 81 of 81 (game-launch-core)
+Plan: 01 of 01 complete
 Status: In Progress
-Last activity: 2026-03-21 -- 74-02 complete: AppState struct with 34 pub(crate) fields extracted from main.rs; all reconnect loop references updated to state.field pattern (DECOMP-02)
+Last activity: 2026-03-21 -- 81-01 complete: non-AC crash auto-relaunch via GameProcess::launch() + DashboardEvent::GameLaunchRequested + POST /api/v1/customer/game-request PWA endpoint (LAUNCH-02, LAUNCH-04, LAUNCH-05)
 
-Progress: [█████████░] 92% (72/80 plans complete)
+Progress: [██████████] 93% (73/81 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -281,6 +281,9 @@ Progress: [█████████░] 92% (72/80 plans complete)
 - 74-01: AgentConfig fields all pub (not pub(crate)) for cross-module access in later extractions; load_config pub; validate_config + detect_installed_games pub(crate); billing_guard.rs required crate::config:: path fix after root extraction (DECOMP-01)
 - 74-02: AppState fields all pub(crate) not pub -- crate-internal (matches config.rs pattern); crash_recovery bool renamed crash_recovery_startup to avoid collision with CrashRecoveryState inner-loop local; SelfHealResult (not HealResult) -- self_heal.rs uses that name; AiDebugSuggestion from rc_common::types (already a shared type); ws_tx/ws_rx stay loop-local (borrow conflict per RESEARCH.md Pitfall); DECOMP-02 complete
 - 78-03: Option<String> with #[serde(default)] for session_token -- backward compat with older agents; direct SQL UPDATE for emergency billing pause avoids circular HTTP dependency; LazyLock<Mutex<HashMap>> for per-pod security alert debounce (5min cooldown) (SESS-04, SESS-05)
+- 81-01: Non-AC crash recovery else branch: match last_sim_type to config.games field (7 variants), clone base_config, override args from last_launch_args, call GameProcess::launch() -- mirrors LaunchGame handler exactly (LAUNCH-02 complete)
+- 81-01: DashboardEvent::GameLaunchRequested added at end of enum using existing SimType -- no new imports needed (LAUNCH-04 complete)
+- 81-01: pwa_game_request uses extract_driver_id() in-handler (customer JWT); validates pod in state.pods + installed_games; fire-and-forget broadcast; no AppState mutation (LAUNCH-05 complete)
 
 ### Blockers/Concerns
 
@@ -303,7 +306,7 @@ Progress: [█████████░] 92% (72/80 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:33:11.793Z
-Stopped at: Completed 81-02-PLAN.md
-Resume file: None
-Next action: Phase 74 Plan 03 next -- ws_handler.rs extraction (WS_MAX_CONCURRENT_EXECS, WS_EXEC_SEMAPHORE, handle_ws_exec moved from main.rs to ws_handler.rs)
+Last session: 2026-03-21T01:40:49Z
+Stopped at: Completed 81-01-PLAN.md
+Resume file: .planning/phases/81-game-launch-core/81-01-SUMMARY.md
+Next action: Phase 81 Plan 02 -- game launcher UI wiring (if any remaining plans in phase 81)
