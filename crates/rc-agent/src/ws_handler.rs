@@ -12,6 +12,7 @@ use crate::app_state::AppState;
 use crate::ffb_controller;
 use crate::game_process;
 use crate::kiosk;
+use crate::pre_flight;
 use crate::self_monitor;
 use crate::self_test;
 use crate::event_loop::{ConnectionState, CrashRecoveryState, LaunchState};
@@ -135,6 +136,34 @@ pub async fn handle_ws_message(
             billing_session_id, driver_name, allocated_seconds, ..
         } => {
             tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
+
+            // Pre-flight gate (PF-01): check hardware before starting session
+            if state.config.preflight.enabled {
+                let ffb_ref: &dyn crate::ffb_controller::FfbBackend = state.ffb.as_ref();
+                match pre_flight::run(state, ffb_ref).await {
+                    pre_flight::PreFlightResult::Pass => {
+                        tracing::info!("Pre-flight passed, proceeding with session");
+                    }
+                    pre_flight::PreFlightResult::MaintenanceRequired { failures } => {
+                        tracing::warn!("Pre-flight FAILED: {:?}", failures.iter().map(|f| &f.detail).collect::<Vec<_>>());
+                        let failure_strings: Vec<String> = failures.iter().map(|f| f.detail.clone()).collect();
+                        let pod_id = state.config.pod.number.to_string();
+                        let msg = AgentMessage::PreFlightFailed {
+                            pod_id,
+                            failures: failure_strings,
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                        }
+                        // Do NOT set billing_active, do NOT show active session
+                        // Phase 98 will add MaintenanceRequired lock screen state here
+                        return Ok(HandleResult::Continue);
+                    }
+                }
+            }
+
+            // --- All code below only runs on Pass (or preflight disabled) ---
             state.heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
             conn.blank_timer_armed = false;
             let billing_session_id_clone = billing_session_id.clone();
@@ -225,6 +254,10 @@ pub async fn handle_ws_message(
         CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
             tracing::info!("Launching game: {:?} (args: {:?})", launch_sim, launch_args);
             conn.last_launch_args_stored = launch_args.clone();
+            // Track current sim_type for per-sim PlayableSignal dispatch
+            conn.current_sim_type = Some(launch_sim);
+            conn.loading_emitted = false;
+            conn.f1_udp_playable_received = false;
 
             if launch_sim == SimType::AssettoCorsa {
                 if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
