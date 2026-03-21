@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 
 ## Current Position
 
-Phase: 104 of 105 (Server Guard Module Alerts) — IN PROGRESS
-Plan: 3 of 3 — checkpoint:human-verify (violation badge built, awaiting visual verification)
-Status: Task 1 complete — PodFleetStatus violation_count_24h/last_violation_at added, fleet grid badge renders in Racing Red
-Last activity: 2026-03-21 — Phase 104 Plan 03 Task 1 committed: kiosk fleet grid violation badge (9506d1d)
+Phase: 105 of 105 (Port Audit + Scheduled Tasks + James Binary) — IN PROGRESS
+Plan: 2 of 4 — completed
+Status: POST /api/v1/guard/report endpoint live — rc-process-guard James binary can now POST violations
+Last activity: 2026-03-21 — Phase 105 Plan 02 complete: guard/report intake endpoint (bd2f78e)
 
-Progress: [████████░░] 80%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -31,6 +31,7 @@ Progress: [████████░░] 80%
 | 102-whitelist-schema-config-fetch-endpoint | 2 | 55 min | 27 min |
 | 103-pod-guard-module | 3 (of 3) | 47 min | 16 min |
 | 104-server-guard-module-alerts | 2 (of 2) | 40 min | 20 min |
+| 105-port-audit-scheduled-tasks-james-binary | 2 (of 4) | 12 min | 12 min |
 
 *Updated after each plan completion*
 
@@ -80,6 +81,8 @@ Progress: [████████░░] 80%
 - [104-02]: Server guard self-excludes racecontrol.exe by name (own binary) + own PID inline; rc-agent.exe = SERVER_CRITICAL_BINARIES zero grace
 - [104-03]: Null-safety via ?? 0 on violation_count_24h — old agents not yet sending this field default to no badge rather than TypeScript error
 - [104-03]: inline style backgroundColor: '#E10600' for violation badge — brand color purity, consistent with Maintenance button pattern
+- [105-02]: POST /guard/report placed in service_routes() with in-handler X-Guard-Token auth — report_secret=None dev mode, set "rp-guard-2026" in prod toml
+- [105-02]: ViolationStore reused unchanged — james violations visible in /fleet/health immediately via pod_violations["james"]
 
 ### Pending Todos
 
@@ -93,6 +96,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21 16:42 IST
-Stopped at: 104-03-PLAN.md checkpoint:human-verify — violation badge built, awaiting visual verification at /fleet
+Last session: 2026-03-21 IST
+Stopped at: Completed 105-02-PLAN.md
 Resume file: None
