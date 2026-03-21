@@ -2,7 +2,8 @@
 //! via Evolution API. Monitors bono_event_tx for pod events and error_rate broadcast
 //! channel for error spikes.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use sqlx::SqlitePool;
@@ -129,6 +130,30 @@ async fn resolve_incident(db: &SqlitePool, alert_type: &str) {
     if let Err(e) = result {
         tracing::warn!(target: "whatsapp_alerter", "Failed to resolve incident: {}", e);
     }
+}
+
+/// Per-pod debounce map for security alerts (5 min cooldown per pod).
+static SECURITY_ALERT_DEBOUNCE: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+const SECURITY_ALERT_COOLDOWN_SECS: u64 = 300; // 5 minutes per pod
+
+/// Send a security alert via WhatsApp with per-pod debounce (5 min cooldown).
+/// Called from ws/mod.rs on KioskLockdown events.
+pub(crate) async fn send_security_alert(config: &Config, pod_id: &str, message: &str) {
+    // Debounce check
+    {
+        let mut map = SECURITY_ALERT_DEBOUNCE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(last) = map.get(pod_id) {
+            if last.elapsed().as_secs() < SECURITY_ALERT_COOLDOWN_SECS {
+                tracing::debug!(target: "whatsapp_alerter", "Security alert for pod {} suppressed (cooldown)", pod_id);
+                return;
+            }
+        }
+        map.insert(pod_id.to_string(), Instant::now());
+    }
+
+    send_whatsapp(config, message).await;
 }
 
 /// Main WhatsApp alerter task. Subscribes to bono_event_tx for pod events
