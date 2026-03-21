@@ -36,7 +36,7 @@ Requirements for rc-sentry hardening, rc-agent decomposition, shared extraction,
 ### Agent Decomposition
 
 - [x] **DECOMP-01**: rc-agent config types extracted from main.rs to config.rs (<500 lines)
-- [ ] **DECOMP-02**: rc-agent AppState struct and shared state extracted to app_state.rs
+- [x] **DECOMP-02**: rc-agent AppState struct and shared state extracted to app_state.rs
 - [ ] **DECOMP-03**: rc-agent WebSocket message handler extracted to ws_handler.rs
 - [ ] **DECOMP-04**: rc-agent event loop select! body extracted to event_loop.rs using ConnectionState struct pattern
 
@@ -155,7 +155,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEXP-03 | Phase 72 | Complete |
 | SEXP-04 | Phase 72 | Complete |
 | DECOMP-01 | Phase 74 | Complete |
-| DECOMP-02 | Phase 74 | Pending |
+| DECOMP-02 | Phase 74 | Complete |
 | DECOMP-03 | Phase 74 | Pending |
 | DECOMP-04 | Phase 74 | Pending |
 | SHARED-01 | Phase 71 | Complete |

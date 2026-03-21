@@ -182,12 +182,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 78 of 81 (Kiosk Session Hardening)
-Plan: 03 of 03 complete
-Status: Phase 78 complete
-Last activity: 2026-03-21 -- 78-03 complete: BillingStarted session_token + KioskLockdown auto-pause billing + debounced WhatsApp alert (SESS-04, SESS-05)
+Phase: 74 of 81 (rc-agent Decomposition)
+Plan: 02 of 04 complete
+Status: In Progress
+Last activity: 2026-03-21 -- 74-02 complete: AppState struct with 34 pub(crate) fields extracted from main.rs; all reconnect loop references updated to state.field pattern (DECOMP-02)
 
-Progress: [█████████░] 92% (70/76 plans complete)
+Progress: [█████████░] 92% (72/80 plans complete)
 
 ## Phase Map -- v11.0 Agent & Sentry Hardening
 
@@ -264,6 +264,7 @@ Progress: [█████████░] 92% (70/76 plans complete)
 - 69-04: notify_failover tier AUTO (command itself delivers WhatsApp via Evolution API); EXEC_REASON injected as env var by ExecHandler#execute so notify_failover gets the failover reason string; buildSafeEnv() extended with Evolution API vars conditionally; notifyFn fixed to call sendEvolutionText directly; send-email.js stdlib-only with sendmail+SMTP fallback; email on both failover paths (ORCH-04 complete)
 - 78-01: Defense-in-depth for DevTools: both --disable-dev-tools browser flag AND F12/Ctrl+Shift+I/J keyboard hook blocks; USBSTOR Start=4 disables mass storage only (HID unaffected); accessibility Flags 506/122/58 disable hotkeys not features (KIOSK-01, KIOSK-02, KIOSK-03, KIOSK-04)
 - 74-01: AgentConfig fields all pub (not pub(crate)) for cross-module access in later extractions; load_config pub; validate_config + detect_installed_games pub(crate); billing_guard.rs required crate::config:: path fix after root extraction (DECOMP-01)
+- 74-02: AppState fields all pub(crate) not pub -- crate-internal (matches config.rs pattern); crash_recovery bool renamed crash_recovery_startup to avoid collision with CrashRecoveryState inner-loop local; SelfHealResult (not HealResult) -- self_heal.rs uses that name; AiDebugSuggestion from rc_common::types (already a shared type); ws_tx/ws_rx stay loop-local (borrow conflict per RESEARCH.md Pitfall); DECOMP-02 complete
 - 78-03: Option<String> with #[serde(default)] for session_token -- backward compat with older agents; direct SQL UPDATE for emergency billing pause avoids circular HTTP dependency; LazyLock<Mutex<HashMap>> for per-pod security alert debounce (5min cooldown) (SESS-04, SESS-05)
 
 ### Blockers/Concerns
@@ -287,7 +288,7 @@ Progress: [█████████░] 92% (70/76 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:38:00Z
-Stopped at: Completed 69-04-PLAN.md
-Resume file: .planning/phases/69-health-monitor-failover-orchestration/69-04-SUMMARY.md
-Next action: Phase 69 complete (4/4 plans done) -- notify_failover + send-email.js + watchdog fix; Bono needs pm2 restart to activate changes
+Last session: 2026-03-21T08:00:00Z
+Stopped at: Completed 74-02-PLAN.md
+Resume file: .planning/phases/74-rc-agent-decomposition/74-02-SUMMARY.md
+Next action: Phase 74 Plan 03 next -- ws_handler.rs extraction (WS_MAX_CONCURRENT_EXECS, WS_EXEC_SEMAPHORE, handle_ws_exec moved from main.rs to ws_handler.rs)
