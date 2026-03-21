@@ -140,6 +140,9 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/ai/chat", post(customer_ai_chat))
         // Game launch request (PWA -- customer requests staff-confirmed game launch)
         .route("/customer/game-request", post(pwa_game_request))
+        // DPDP Act data rights (Plan 79-03)
+        .route("/customer/data-export", get(customer_data_export))
+        .route("/customer/data-delete", axum::routing::delete(customer_data_delete))
 }
 
 // ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
@@ -14132,6 +14135,577 @@ async fn pwa_game_request(
         axum::http::StatusCode::OK,
         Json(json!({ "ok": true, "request_id": request_id })),
     )
+}
+
+// ─── DPDP Act: Customer Data Rights (Plan 79-03) ────────────────────────────
+
+/// GET /api/v1/customer/data-export
+/// Returns a JSON dump of all customer data with decrypted PII fields.
+/// Requires valid customer JWT.
+async fn customer_data_export(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<(axum::http::StatusCode, Json<Value>), (axum::http::StatusCode, Json<Value>)> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => {
+            return Err((
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e })),
+            ))
+        }
+    };
+
+    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64)>(
+        "SELECT id, name, email, phone, name_enc, email_enc, phone_enc, total_laps, total_time_ms FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let d = match driver {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return Err((
+                axum::http::StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Driver not found" })),
+            ))
+        }
+        Err(e) => {
+            tracing::error!("data_export DB error for driver {}: {}", driver_id, e);
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            ));
+        }
+    };
+
+    // Decrypt PII fields; fallback to plaintext columns if decryption fails or enc is NULL
+    let name = d.4.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or_else(|| Some(d.1.clone()));
+    let email = d.5.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or(d.2.clone());
+    let phone = d.6.as_deref()
+        .and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+        .or(d.3.clone());
+
+    // Fetch nickname
+    let nickname: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT nickname FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|r| r.0);
+
+    // Fetch wallet balance
+    let wallet_balance: i64 = sqlx::query_as::<_, (i64,)>(
+        "SELECT COALESCE(balance, 0) FROM wallets WHERE driver_id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    let exported_at = chrono::Utc::now().to_rfc3339();
+    tracing::info!("Data export requested by driver {}", driver_id);
+
+    Ok((
+        axum::http::StatusCode::OK,
+        Json(json!({
+            "driver_id": d.0,
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "nickname": nickname,
+            "total_laps": d.7,
+            "total_time_ms": d.8,
+            "wallet_balance": wallet_balance,
+            "exported_at": exported_at,
+        })),
+    ))
+}
+
+/// DELETE /api/v1/customer/data-delete
+/// Cascades deletion to all child tables and the driver record in a single transaction.
+/// Requires valid customer JWT.
+async fn customer_data_delete(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::http::StatusCode, (axum::http::StatusCode, Json<Value>)> {
+    let driver_id = match extract_driver_id(&state, &headers) {
+        Ok(id) => id,
+        Err(e) => {
+            return Err((
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e })),
+            ))
+        }
+    };
+
+    // Verify driver exists
+    let exists = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM drivers WHERE id = ?",
+    )
+    .bind(&driver_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match exists {
+        Ok(None) => {
+            return Err((
+                axum::http::StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Driver not found" })),
+            ))
+        }
+        Err(e) => {
+            tracing::error!("data_delete lookup error for driver {}: {}", driver_id, e);
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            ));
+        }
+        Ok(Some(_)) => {}
+    }
+
+    // Begin transaction -- cascade delete all child tables
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("data_delete transaction start error for driver {}: {}", driver_id, e);
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            ));
+        }
+    };
+
+    // Delete from child tables (children first, then parent)
+    // wallet_transactions before wallets (wallet_transactions references wallets)
+    let _ = sqlx::query("DELETE FROM wallet_transactions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM wallets WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM billing_sessions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM laps WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM customer_sessions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM friend_requests WHERE sender_id = ? OR receiver_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM friendships WHERE driver_a_id = ? OR driver_b_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM group_session_members WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM tournament_registrations WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM pod_reservations WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM auth_tokens WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM personal_bests WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM event_entries WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM session_feedback WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM coupon_redemptions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM memberships WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM referrals WHERE referrer_id = ? OR referee_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM session_highlights WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM review_nudges WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM multiplayer_results WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let _ = sqlx::query("DELETE FROM driver_ratings WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+
+    // Delete the driver record itself
+    let _ = sqlx::query("DELETE FROM drivers WHERE id = ?").bind(&driver_id).execute(&mut *tx).await;
+
+    // Commit transaction
+    if let Err(e) = tx.commit().await {
+        tracing::error!("data_delete commit error for driver {}: {}", driver_id, e);
+        return Err((
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Database error" })),
+        ));
+    }
+
+    tracing::info!("Customer {} deleted their data (DPDP compliance)", driver_id);
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod data_rights_tests {
+    use super::*;
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use std::sync::Arc;
+
+    async fn make_state_with_db() -> Arc<AppState> {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        // Create required tables
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS drivers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT,
+                phone TEXT,
+                name_enc TEXT,
+                email_enc TEXT,
+                phone_enc TEXT,
+                nickname TEXT,
+                total_laps INTEGER DEFAULT 0,
+                total_time_ms INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT
+            )"
+        ).execute(&db).await.expect("create drivers");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS wallets (
+                driver_id TEXT PRIMARY KEY,
+                balance INTEGER DEFAULT 0
+            )"
+        ).execute(&db).await.expect("create wallets");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS wallet_transactions (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create wallet_transactions");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS billing_sessions (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create billing_sessions");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS laps (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create laps");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS customer_sessions (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create customer_sessions");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS friend_requests (
+                id TEXT PRIMARY KEY,
+                sender_id TEXT NOT NULL,
+                receiver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create friend_requests");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS friendships (
+                id TEXT PRIMARY KEY,
+                driver_a_id TEXT NOT NULL,
+                driver_b_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create friendships");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS group_session_members (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create group_session_members");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS tournament_registrations (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create tournament_registrations");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS pod_reservations (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create pod_reservations");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS auth_tokens (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create auth_tokens");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS personal_bests (
+                driver_id TEXT NOT NULL,
+                track TEXT NOT NULL,
+                car TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create personal_bests");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS event_entries (
+                event_id TEXT NOT NULL,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create event_entries");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS session_feedback (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create session_feedback");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS coupon_redemptions (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create coupon_redemptions");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS memberships (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create memberships");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS referrals (
+                id TEXT PRIMARY KEY,
+                referrer_id TEXT NOT NULL,
+                referee_id TEXT,
+                code TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create referrals");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS session_highlights (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create session_highlights");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS review_nudges (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create review_nudges");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS multiplayer_results (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create multiplayer_results");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS driver_ratings (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL
+            )"
+        ).execute(&db).await.expect("create driver_ratings");
+
+        let config = crate::config::Config::default_test();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, field_cipher))
+    }
+
+    fn make_auth_headers(state: &AppState, driver_id: &str) -> axum::http::HeaderMap {
+        let token = crate::auth::create_jwt(driver_id, &state.config.auth.jwt_secret)
+            .expect("generate test JWT");
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        headers
+    }
+
+    // ── Data Export Tests ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn data_export_without_jwt_returns_401() {
+        let state = make_state_with_db().await;
+        let headers = axum::http::HeaderMap::new();
+
+        let result = customer_data_export(State(state), headers).await;
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn data_export_with_valid_jwt_returns_200() {
+        let state = make_state_with_db().await;
+
+        // Insert a test driver
+        sqlx::query("INSERT INTO drivers (id, name, email, phone, total_laps, total_time_ms) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind("d-001")
+            .bind("Test Driver")
+            .bind("test@example.com")
+            .bind("9876543210")
+            .bind(42i64)
+            .bind(360000i64)
+            .execute(&state.db)
+            .await
+            .expect("insert driver");
+
+        // Insert wallet
+        sqlx::query("INSERT INTO wallets (driver_id, balance) VALUES (?, ?)")
+            .bind("d-001")
+            .bind(5000i64)
+            .execute(&state.db)
+            .await
+            .expect("insert wallet");
+
+        let headers = make_auth_headers(&state, "d-001");
+        let result = customer_data_export(State(state), headers).await;
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
+        let (status, Json(body)) = result.unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["driver_id"], "d-001");
+        assert_eq!(body["total_laps"], 42);
+        assert_eq!(body["total_time_ms"], 360000);
+        assert_eq!(body["wallet_balance"], 5000);
+        assert!(body["exported_at"].as_str().is_some());
+        // name falls back to plaintext since no name_enc
+        assert_eq!(body["name"], "Test Driver");
+    }
+
+    #[tokio::test]
+    async fn data_export_driver_not_found_returns_404() {
+        let state = make_state_with_db().await;
+        let headers = make_auth_headers(&state, "nonexistent");
+
+        let result = customer_data_export(State(state), headers).await;
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn data_export_decrypts_encrypted_fields() {
+        let state = make_state_with_db().await;
+
+        // Encrypt some fields
+        let name_enc = state.field_cipher.encrypt_field("Encrypted Name").expect("encrypt name");
+        let email_enc = state.field_cipher.encrypt_field("secret@email.com").expect("encrypt email");
+        let phone_enc = state.field_cipher.encrypt_field("9999999999").expect("encrypt phone");
+
+        sqlx::query("INSERT INTO drivers (id, name, name_enc, email_enc, phone_enc, total_laps, total_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .bind("d-enc")
+            .bind("Plaintext Name")
+            .bind(&name_enc)
+            .bind(&email_enc)
+            .bind(&phone_enc)
+            .bind(10i64)
+            .bind(100000i64)
+            .execute(&state.db)
+            .await
+            .expect("insert driver with enc");
+
+        let headers = make_auth_headers(&state, "d-enc");
+        let result = customer_data_export(State(state), headers).await;
+        assert!(result.is_ok());
+        let (_, Json(body)) = result.unwrap();
+        // Encrypted fields should be decrypted
+        assert_eq!(body["name"], "Encrypted Name");
+        assert_eq!(body["email"], "secret@email.com");
+        assert_eq!(body["phone"], "9999999999");
+    }
+
+    // ── Data Delete Tests ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn data_delete_without_jwt_returns_401() {
+        let state = make_state_with_db().await;
+        let headers = axum::http::HeaderMap::new();
+
+        let result = customer_data_delete(State(state), headers).await;
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn data_delete_driver_not_found_returns_404() {
+        let state = make_state_with_db().await;
+        let headers = make_auth_headers(&state, "nonexistent");
+
+        let result = customer_data_delete(State(state), headers).await;
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn data_delete_cascades_all_child_tables() {
+        let state = make_state_with_db().await;
+
+        // Insert driver + child records
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)")
+            .bind("d-del").bind("Delete Me")
+            .execute(&state.db).await.expect("insert driver");
+        sqlx::query("INSERT INTO wallets (driver_id, balance) VALUES (?, ?)")
+            .bind("d-del").bind(1000i64)
+            .execute(&state.db).await.expect("insert wallet");
+        sqlx::query("INSERT INTO wallet_transactions (id, driver_id) VALUES (?, ?)")
+            .bind("wt-1").bind("d-del")
+            .execute(&state.db).await.expect("insert wallet_txn");
+        sqlx::query("INSERT INTO laps (id, driver_id) VALUES (?, ?)")
+            .bind("l-1").bind("d-del")
+            .execute(&state.db).await.expect("insert lap");
+        sqlx::query("INSERT INTO auth_tokens (id, driver_id) VALUES (?, ?)")
+            .bind("at-1").bind("d-del")
+            .execute(&state.db).await.expect("insert auth_token");
+
+        let headers = make_auth_headers(&state, "d-del");
+        let result = customer_data_delete(State(state.clone()), headers).await;
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+
+        // Verify driver is gone
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM drivers WHERE id = ?")
+            .bind("d-del")
+            .fetch_one(&state.db)
+            .await
+            .expect("count drivers");
+        assert_eq!(count.0, 0, "Driver should be deleted");
+
+        // Verify child records are gone
+        let wallet_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM wallets WHERE driver_id = ?")
+            .bind("d-del")
+            .fetch_one(&state.db)
+            .await
+            .expect("count wallets");
+        assert_eq!(wallet_count.0, 0, "Wallet should be deleted");
+
+        let lap_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM laps WHERE driver_id = ?")
+            .bind("d-del")
+            .fetch_one(&state.db)
+            .await
+            .expect("count laps");
+        assert_eq!(lap_count.0, 0, "Laps should be deleted");
+    }
+
+    #[tokio::test]
+    async fn data_delete_returns_204_no_content() {
+        let state = make_state_with_db().await;
+
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)")
+            .bind("d-204").bind("204 Test")
+            .execute(&state.db).await.expect("insert driver");
+
+        let headers = make_auth_headers(&state, "d-204");
+        let result = customer_data_delete(State(state), headers).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+    }
 }
 
 #[cfg(test)]
