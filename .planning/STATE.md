@@ -4,8 +4,8 @@ milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
 stopped_at: Completed 70-01-PLAN.md
-last_updated: "2026-03-21T01:58:22.999Z"
-last_activity: "2026-03-21 -- 70-02 complete: HealthMonitor server_recovery event (down->healthy guard) + FailoverOrchestrator 9-step initiateFailback() + export_failover_sessions + notify_failback COMMAND_REGISTRY entries + james/index.js server_recovery wiring (BACK-01, BACK-03, BACK-04)"
+last_updated: "2026-03-21T02:02:48.124Z"
+last_activity: "2026-03-21 -- 70-01 complete: POST /api/v1/sync/import-sessions with INSERT OR IGNORE for lossless billing session failback (BACK-02)"
 progress:
   total_phases: 61
   completed_phases: 29
