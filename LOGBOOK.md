@@ -351,3 +351,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 |-----------|--------|--------|---------|
 | 2026-03-21 07:08 IST | James | 7ce7abf (comms-link) | feat(69-04): notify_failover COMMAND_REGISTRY + EXEC_REASON + send-email.js + watchdog fix + email on both failover paths (ORCH-04) |
 | 2026-03-21 07:10 IST | James | e5d5f78 (racecontrol) | docs(69-04): SUMMARY.md + STATE.md + ROADMAP.md update |
+| 2026-03-21 13:28 IST | James | 4c7a591 | feat(74-02): extract AppState struct from main.rs — 34 pub(crate) fields, all reconnect loop refs updated to state.field pattern (DECOMP-02) |
+| 2026-03-21 13:35 IST | James | bde40b3 | docs(74-02): SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updates |
