@@ -150,14 +150,17 @@ pub async fn handle_ws_message(
                         let pod_id = state.config.pod.number.to_string();
                         let msg = AgentMessage::PreFlightFailed {
                             pod_id,
-                            failures: failure_strings,
+                            failures: failure_strings.clone(),
                             timestamp: chrono::Utc::now().to_rfc3339(),
                         };
                         if let Ok(json) = serde_json::to_string(&msg) {
                             let _ = ws_tx.send(Message::Text(json.into())).await;
                         }
                         // Do NOT set billing_active, do NOT show active session
-                        // Phase 98 will add MaintenanceRequired lock screen state here
+                        // PF-04: show maintenance required lock screen
+                        state.lock_screen.show_maintenance_required(failure_strings);
+                        // PF-06: arm maintenance flag so retry loop fires
+                        state.in_maintenance.store(true, std::sync::atomic::Ordering::Relaxed);
                         return Ok(HandleResult::Continue);
                     }
                 }
@@ -876,6 +879,12 @@ pub async fn handle_ws_message(
                     return Ok(HandleResult::Break); // -> outer reconnect loop picks up new URL
                 }
             }
+        }
+
+        CoreToAgentMessage::ClearMaintenance => {
+            tracing::info!("ClearMaintenance received from server — clearing maintenance state");
+            state.in_maintenance.store(false, std::sync::atomic::Ordering::Relaxed);
+            state.lock_screen.show_idle_pin_entry();
         }
 
         other => {

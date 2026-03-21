@@ -55,4 +55,5 @@ pub struct AppState {
     pub(crate) game_process: Option<game_process::GameProcess>,
     pub(crate) last_ac_status: Option<AcStatus>,
     pub(crate) ac_status_stable_since: Option<std::time::Instant>,
+    pub(crate) in_maintenance: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }

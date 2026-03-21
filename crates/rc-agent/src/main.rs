@@ -682,6 +682,7 @@ async fn main() -> Result<()> {
         game_process: None,
         last_ac_status: None,
         ac_status_stable_since: None,
+        in_maintenance: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     // ─── Reconnection Loop ──────────────────────────────────────────────────
