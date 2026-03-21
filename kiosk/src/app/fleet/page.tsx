@@ -11,21 +11,24 @@ function formatUptime(secs: number | null): string {
   return `${hours}h ${minutes}m`;
 }
 
-function statusBorder(ws: boolean, http: boolean): string {
+function statusBorder(ws: boolean, http: boolean, maintenance: boolean): string {
+  if (maintenance) return "border-l-[#E10600]";
   if (ws && http) return "border-l-green-500";
   if (ws && !http) return "border-l-yellow-500";
   if (!ws && http) return "border-l-orange-500";
   return "border-l-red-500/50";
 }
 
-function statusLabel(ws: boolean, http: boolean): string {
+function statusLabel(ws: boolean, http: boolean, maintenance: boolean): string {
+  if (maintenance) return "Maintenance";
   if (ws && http) return "Healthy";
   if (ws && !http) return "WS Only";
   if (!ws && http) return "HTTP Only";
   return "Offline";
 }
 
-function statusLabelColor(ws: boolean, http: boolean): string {
+function statusLabelColor(ws: boolean, http: boolean, maintenance: boolean): string {
+  if (maintenance) return "text-[#E10600]";
   if (ws && http) return "text-green-500";
   if (ws && !http) return "text-yellow-500";
   if (!ws && http) return "text-orange-500";
@@ -48,6 +51,10 @@ export default function FleetPage() {
   const [pods, setPods] = useState<PodFleetStatus[]>([]);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedMaintenancePod, setSelectedMaintenancePod] = useState<number | null>(null);
+  const [pinVerified, setPinVerified] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
@@ -95,19 +102,20 @@ export default function FleetPage() {
           const ws = pod.ws_connected;
           const http = pod.http_reachable;
           const offline = !ws && !http;
+          const maintenance = pod.in_maintenance;
 
           return (
             <div
               key={pod.pod_number}
-              className={`bg-[var(--color-rp-card)] rounded-lg p-3 border-l-4 ${statusBorder(ws, http)} ${offline ? "opacity-50" : ""}`}
+              className={`bg-[var(--color-rp-card)] rounded-lg p-3 border-l-4 ${statusBorder(ws, http, maintenance)} ${offline && !maintenance ? "opacity-50" : ""}`}
             >
               <div className="flex items-baseline justify-between mb-0.5">
                 <span className="text-sm font-bold text-white">Pod {pod.pod_number}</span>
                 <span className="text-xs text-gray-400">{pod.version ? `v${pod.version}` : "v--"}</span>
               </div>
 
-              <div className={`text-xs font-medium mb-2 ${statusLabelColor(ws, http)}`}>
-                {statusLabel(ws, http)}
+              <div className={`text-xs font-medium mb-2 ${statusLabelColor(ws, http, maintenance)}`}>
+                {statusLabel(ws, http, maintenance)}
               </div>
 
               <div className="space-y-1">
@@ -134,6 +142,20 @@ export default function FleetPage() {
               {pod.crash_recovery === true && (
                 <div className="mt-1 text-xs text-red-500">Crash recovered</div>
               )}
+
+              {pod.in_maintenance && (
+                <button
+                  onClick={() => {
+                    setSelectedMaintenancePod(pod.pod_number);
+                    setPinVerified(false);
+                    setPinInput("");
+                  }}
+                  className="mt-1.5 px-2 py-0.5 rounded text-xs font-bold text-white"
+                  style={{ backgroundColor: "#E10600" }}
+                >
+                  Maintenance
+                </button>
+              )}
             </div>
           );
         })}
@@ -144,6 +166,84 @@ export default function FleetPage() {
           </div>
         )}
       </div>
+
+      {selectedMaintenancePod !== null && (() => {
+        const pod = pods.find(p => p.pod_number === selectedMaintenancePod);
+        if (!pod) return null;
+        return (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setSelectedMaintenancePod(null)}>
+            <div className="bg-[#222222] rounded-lg p-6 max-w-sm w-full mx-4 border border-[#333333]" onClick={e => e.stopPropagation()}>
+              <h2 className="text-lg font-bold text-white mb-2">Pod {pod.pod_number} — Maintenance</h2>
+
+              {!pinVerified ? (
+                <div>
+                  <p className="text-sm text-gray-400 mb-3">Enter staff PIN to view details</p>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pinInput}
+                    onChange={e => setPinInput(e.target.value.replace(/\D/g, ""))}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && pinInput.length === 4) {
+                        setPinVerified(true);
+                      }
+                    }}
+                    className="w-full bg-[#1A1A1A] border border-[#333333] text-white text-center text-2xl tracking-widest rounded px-4 py-2 mb-3"
+                    placeholder="----"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => { if (pinInput.length === 4) setPinVerified(true); }}
+                    disabled={pinInput.length < 4}
+                    className="w-full py-2 rounded text-sm font-bold text-white disabled:opacity-40"
+                    style={{ backgroundColor: "#E10600" }}
+                  >
+                    Verify
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-gray-400 mb-2">Failed checks:</p>
+                  <ul className="list-disc list-inside text-sm text-white mb-4 space-y-1">
+                    {pod.maintenance_failures.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                    {pod.maintenance_failures.length === 0 && (
+                      <li className="text-gray-500">No details available</li>
+                    )}
+                  </ul>
+                  <button
+                    onClick={async () => {
+                      setClearing(true);
+                      try {
+                        await api.clearMaintenance(pod.pod_id!);
+                        setSelectedMaintenancePod(null);
+                      } catch (err) {
+                        console.error("Failed to clear maintenance:", err);
+                      } finally {
+                        setClearing(false);
+                      }
+                    }}
+                    disabled={clearing}
+                    className="w-full py-2 rounded text-sm font-bold text-white disabled:opacity-60"
+                    style={{ backgroundColor: "#E10600" }}
+                  >
+                    {clearing ? "Clearing..." : "Clear Maintenance"}
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => setSelectedMaintenancePod(null)}
+                className="w-full py-2 mt-2 rounded text-sm text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
