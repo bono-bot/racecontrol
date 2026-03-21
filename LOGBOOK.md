@@ -359,3 +359,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 07:11 IST | James | ce15e55 | feat(81-01): non-AC crash recovery calling GameProcess::launch() + DashboardEvent::GameLaunchRequested variant |
 | 2026-03-21 07:12 IST | James | e04805c | feat(81-01): POST /api/v1/customer/game-request -- validates pod/game, broadcasts GameLaunchRequested |
 | 2026-03-21 07:13 IST | James | 59f9b95 | docs(81-01): 81-01-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md |
+| 2026-03-21 07:18 IST | James | 985b3db | feat(74-03): extract ws_handler.rs with handle_ws_message() dispatching 22 CoreToAgentMessage variants; select! ws_rx arm to 27-line delegation; main.rs 3009->2037 lines (DECOMP-03) |
+| 2026-03-21 07:18 IST | James | d7c42ac | docs(74-03): 74-03-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md updates |
