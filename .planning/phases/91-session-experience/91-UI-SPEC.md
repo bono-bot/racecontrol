@@ -61,18 +61,19 @@ Source: Phase 90 UI-SPEC (inherited)
 
 Two weights only: 400 (regular) and 700 (bold). Inherited from Phase 90 UI-SPEC.
 
-| Role | Size | Weight | Line Height | Notes |
-|------|------|--------|-------------|-------|
-| Body | 14px (`text-sm`) | 400 regular | 1.5 | Main content text, stats grid values |
-| Label | 12px (`text-xs`) | 400 regular | 1.4 | Secondary labels, percentile ranking text |
-| Heading | 24px (`text-2xl`) | 700 bold | 1.2 | Peak moment lap time display, hero card value |
-| Display | 20px (`text-xl`) | 700 bold | 1.2 | Section headings, PB banner heading |
+| Role | Size | Weight | Line Height | Tailwind | Notes |
+|------|------|--------|-------------|----------|-------|
+| Label | 12px | 400 regular | 1.4 | `text-xs` | Secondary labels, percentile sublabel, "Best Lap · Lap N" |
+| Body | 14px | 400 regular | 1.5 | `text-sm` | Main content text, stats grid values |
+| Heading | 20px | 700 bold | 1.2 | `text-xl` | Section headings, PB banner heading, percentile ranking text, PB "NEW PERSONAL BEST!" banner |
+| Hero/Display | 36px | 700 bold | 1.0 | `text-4xl` | Peak moment lap time — dominant visual centrepiece of the session report page, also used for the page-level "Session Report" heading if one is added |
 
 Notes:
 
-- Peak moment hero card lap time: `text-4xl font-bold text-white` — this is the single visual centrepiece of the peak-end layout. Exception to the 4-size scale allowed for this one data point only; it is display data, not navigation or body text.
+- The 36px Hero/Display size is reserved for the single lap time value in PeakMomentHeroCard and any top-level page heading. Do not apply it to section headings or secondary data.
 - PB toast title "NEW PERSONAL BEST!" uses sonner's built-in success variant rendering — do not override font size in the toast body.
 - All type is white (`text-white`) or muted grey (`text-rp-grey: #5A5A5A`).
+- Lap time values always use `font-mono` in addition to the declared weight.
 
 Source: Phase 90 UI-SPEC (inherited), RESEARCH.md Pattern 5
 
@@ -158,7 +159,7 @@ div.bg-rp-card.border.border-rp-border.rounded-xl.p-5.mb-4
     p.text-xs.text-rp-grey.mt-1               "Best Lap · Lap {peak_lap_number}"
   [if is_new_pb === true]
     div.bg-yellow-500/10.border.border-yellow-500/30.rounded-lg.p-3.text-center
-      p.text-yellow-400.font-bold.text-sm  "NEW PERSONAL BEST!"
+      p.text-yellow-400.font-bold.text-xl  "NEW PERSONAL BEST!"
   [if improvement_ms present and > 0]
     p.text-xs.text-rp-grey.text-center.mt-2
       span.text-emerald-400.font-mono  "-{improvement_delta}"
@@ -175,8 +176,8 @@ Conditions: render only when `session.percentile_rank` is present (backend retur
 Layout:
 ```
 div.bg-rp-red/10.border.border-rp-red/20.rounded-xl.p-4.mb-4.text-center
-  p.text-rp-red.font-bold.text-lg  "Faster than {percentile_rank}% of drivers"
-  p.text-xs.text-rp-grey.mt-1      "{track} · {car}"
+  p.text-rp-red.font-bold.text-xl  "Faster than {percentile_rank}% of drivers"
+  p.text-xs.text-rp-grey.mt-1     "{track} · {car}"
 ```
 
 Do NOT show this banner when `percentile_rank` is null or undefined. Do NOT show "Not enough data for ranking" — simply omit the banner entirely below the 5-driver threshold. The backend enforces the threshold.
