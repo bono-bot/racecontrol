@@ -242,7 +242,8 @@ Embed 12 behavioral psychology frameworks into RacingPoint's existing systems �
 - [x] **Phase 90: Customer Progression** - Driving passport with track/car collections, badge system, and profile showcase
  (completed 2026-03-21)
 - [ ] **Phase 91: Session Experience** - PB confetti celebrations, peak-end session reports, and real-time PB toasts
-- [ ] **Phase 92: Retention Loops** - Visit streaks, PB-beaten notifications, variable rewards, and loss-framed membership nudges
+- [x] **Phase 92: Retention Loops** - Visit streaks, PB-beaten notifications, variable rewards, and loss-framed membership nudges
+ (completed 2026-03-21)
 - [ ] **Phase 93: Community & Tribal Identity** - Discord weekly rituals, record alerts, and RacingPoint Driver identity language
 - [ ] **Phase 94: Pricing & Conversion** - Anchoring/decoy pricing display, real-time pod scarcity, commitment ladder, and social proof
 - [ ] **Phase 95: Staff Gamification** - Opt-in performance leaderboard, skill badges, team challenges, and peer recognition
@@ -1078,8 +1079,8 @@ Plans:
 **Plans**: 2 (researched + planned 2026-03-21)
 
 Plans:
-- [ ] 88-01-PLAN.md — Track name normalization + sim_type-scoped personal_bests and track_records schema migration
-- [ ] 88-02-PLAN.md — Add sim_type filtering to all leaderboard endpoints (public, staff, bot)
+- [ ] 88-01: TBD
+- [ ] 88-02: TBD
 
 ---
 
@@ -1314,7 +1315,7 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 | 89. Psychology Foundation | 3/3 | Complete    | 2026-03-21 | - |
 | 90. Customer Progression | 1/2 | Complete    | 2026-03-21 | - |
 | 91. Session Experience | 1/2 | In Progress|  | - |
-| 92. Retention Loops | v14.0 | 0/? | Not started | - |
+| 92. Retention Loops | 2/2 | Complete   | 2026-03-21 | - |
 | 93. Community & Tribal Identity | v14.0 | 0/? | Not started | - |
 | 94. Pricing & Conversion | v14.0 | 0/? | Not started | - |
 | 95. Staff Gamification | v14.0 | 0/? | Not started | - |
@@ -1326,7 +1327,6 @@ For v7.0: Phase 41 (Foundation) must complete before any script can source the s
 Every customer session begins with automated health verification. On BillingStarted, rc-agent runs 8-10 targeted checks concurrently (tokio::join! with a 5-second hard timeout), attempts one auto-fix per failure, and either clears into the active session or blocks the pod with a "Maintenance Required" lock screen. Staff are notified exactly once per fault transition via WebSocket and kiosk badge. The implementation is a pure integration exercise — zero new Rust crates, one new module (pre_flight.rs), and surgical modifications to four existing files. Build order is compiler-dependency-driven: rc-common protocol first, then lock screen state, then check logic, then handler wiring, then server-side staff UX.
 
 ## Phases
-
 
 - [x] **Phase 97: rc-common Protocol + pre_flight.rs Framework + Hardware Checks** - New AgentMessage variants, pre_flight.rs module with concurrent check gate, HID wheelbase check, ConspitLink two-stage check with auto-restart, orphan game kill with PID-targeted safe-kill, and disable_preflight config flag
  (completed 2026-03-21)
