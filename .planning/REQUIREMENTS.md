@@ -1,89 +1,105 @@
-# Requirements: Racing Point Operations — v15.0 AntiCheat Compatibility
+# Requirements: v18.0 Seamless Execution
 
-**Defined:** 2026-03-21
-**Core Value:** Customers never get banned because of RaceControl software running alongside their games
+**Defined:** 2026-03-22
+**Core Value:** When either AI needs something done on the other's machine, it delegates the task, the remote side executes, and results flow back seamlessly — no manual relay.
 
-## v15.0 Requirements
+## v18.0 Requirements
 
-Requirements for anti-cheat compatibility hardening. Each maps to roadmap phases.
+Requirements for full bidirectional dynamic execution between James and Bono.
 
-### Audit
+### Dynamic Registry
 
-- [x] **AUDIT-01**: Staff can view a risk inventory of every pod-side behavior classified by severity (CRITICAL/HIGH/MEDIUM/LOW) per anti-cheat system (EA Javelin, iRacing EOS, LMU EAC, Kunos, EA WRC)
-- [x] **AUDIT-02**: ConspitLink is audited via Sysinternals Process Monitor for kernel drivers, DLL injection, and process handle behaviors that could trigger anti-cheat
-- [x] **AUDIT-03**: All 8 pods have their Windows 11 edition verified and documented (affects Keyboard Filter vs GPO decision)
-- [x] **AUDIT-04**: Ops team has a per-game anti-cheat compatibility matrix documenting what is safe/unsafe while each game runs
+- [ ] **DREG-01**: Either side can register a new command at runtime without redeploying
+- [ ] **DREG-02**: Dynamic commands use a binary allowlist — only permitted binaries can be registered
+- [ ] **DREG-03**: Static COMMAND_REGISTRY (20 commands) remains frozen and unmodified
+- [ ] **DREG-04**: Lookup order: dynamic registry first, static registry fallback
+- [ ] **DREG-05**: Dynamic commands can specify allowed env var keys merged with safeEnv at execution
+- [ ] **DREG-06**: Either AI can query the other's full command registry (name, description, tier — never binary/args)
 
-### Safe Mode
+### Shell Relay
 
-- [x] **SAFE-01**: rc-agent detects protected game launch within 1 second via WMI Win32_ProcessStartTrace event subscription (not polling)
-- [x] **SAFE-02**: rc-agent enters safe mode automatically when a protected game is detected, managed by a state machine in AppState (safe_mode.rs)
-- [x] **SAFE-03**: Safe mode remains active for 30 seconds after the protected game exits (EA Javelin post-game cooldown)
-- [x] **SAFE-04**: Process guard (allowlist enforcement + auto-kill) is suspended during safe mode
-- [x] **SAFE-05**: Ollama LLM queries are suppressed during safe mode (GPU/memory contention + anti-cheat suspicion)
-- [x] **SAFE-06**: Registry write operations are deferred until safe mode exits
-- [x] **SAFE-07**: Billing, lock screen, overlay, heartbeat, and WebSocket exec continue uninterrupted during safe mode
+- [ ] **SHRL-01**: Either side can send arbitrary binary+args to the other for execution
+- [ ] **SHRL-02**: Shell relay always uses APPROVE tier — never AUTO or NOTIFY
+- [ ] **SHRL-03**: Binary must be in allowlist (node, git, pm2, cargo, systemctl, curl, sqlite3, taskkill, shutdown, net, wmic)
+- [ ] **SHRL-04**: Uday receives WhatsApp notification with full command text before approval
+- [ ] **SHRL-05**: Shell relay uses same sanitized env + no-shell execution model as static commands
 
-### Hardening
+### Execution Chains
 
-- [x] **HARD-01**: SetWindowsHookEx keyboard hook (Phase 78) is fully removed and replaced with GPO registry keys (NoWinKeys, DisableTaskMgr)
-- [ ] **HARD-02**: rc-agent.exe and rc-sentry.exe are code signed with an OV certificate via signtool in the deploy pipeline
-- [x] **HARD-03**: Shared memory telemetry readers defer MapViewOfFile connect until 5 seconds after game process is stable (anti-cheat init window)
-- [x] **HARD-04**: UDP telemetry sockets are created only when the corresponding game is active and destroyed on game exit
-- [x] **HARD-05**: AC EVO telemetry is feature-flagged off by default until anti-cheat status is confirmed at v1.0 release
+- [ ] **CHAIN-01**: Multi-step chains: step N+1 receives step N output, executed sequentially
+- [ ] **CHAIN-02**: Chain aborts on step failure by default (exit code != 0)
+- [ ] **CHAIN-03**: Per-step continue_on_error flag overrides abort behavior
+- [ ] **CHAIN-04**: Structured chain_result returns all step outputs as single response
+- [ ] **CHAIN-05**: Chain-level timeout caps entire chain duration regardless of step count
+- [ ] **CHAIN-06**: Named chain templates loadable from config file, invocable by name
+- [ ] **CHAIN-07**: Output templating: {{prev_stdout}} in step args substituted with previous step output
+- [ ] **CHAIN-08**: Per-step retry with configurable count and backoff
+- [ ] **CHAIN-09**: Chain state survives WebSocket disconnects — pause/resume across reconnects
 
-### Validation
+### Claude-to-Claude Delegation
 
-- [x] **VALID-01**: Each protected game (F1 25, iRacing, LMU) completes a full staff test session on Pod 8 with safe mode active and no anti-cheat warnings
-- [ ] **VALID-02**: Billing lifecycle (start, ticks, end) works correctly during safe mode with no gaps or incorrect amounts
-- [x] **VALID-03**: Kiosk lockdown remains effective (no Win key, no Alt+Tab, no Task Manager) after keyboard hook replacement
+- [ ] **DELEG-01**: James can send a chain_request to Bono; Bono executes and returns chain_result
+- [ ] **DELEG-02**: Bono can send a chain_request to James; James executes and returns chain_result
+- [ ] **DELEG-03**: Delegation is transparent — requesting AI integrates response without exposing relay to user
 
-## Future Requirements
+### Observability
 
-### v15.1 (deferred)
+- [ ] **AUDIT-01**: Every remote execution logged to append-only audit file on both machines
+- [ ] **AUDIT-02**: Audit entries include: timestamp, execId, command, requester, exitCode, durationMs, tier
+- [ ] **AUDIT-03**: Chain executions include chainId and stepIndex in audit entries
 
-- **VALID-04**: EA WRC anti-cheat compatibility validated (pending v13.0 EA WRC telemetry adapter)
-- **VALID-05**: AC EVO anti-cheat compatibility validated (pending Kunos v1.0 release)
-- **SAFE-08**: Windows Keyboard Filter integration (if pods are upgraded to Enterprise/Education SKU)
+## Future Requirements (v18.1+)
+
+None — all features scoped into v18.0.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Anti-cheat SDK integration (EAC/Javelin whitelisting) | Requires publisher partnership -- not available to venue operators |
-| Kernel-level driver for rc-agent | Explicitly prohibited -- user-mode only, forever |
-| Modifying game files or game memory | Obvious ban trigger -- never considered |
-| Anti-cheat bypass or circumvention | Illegal and unethical -- we make our software transparent, not invisible |
+| Shell-mode execution (shell: true) | Breaks entire security model — shell injection risk. Use binary+args array instead. |
+| Shared registry across machines | Windows/Linux command mismatch. Registries stay local; use introspection to discover. |
+| Conditional chain branching (if/else) | Workflow engine scope creep. Conditional logic stays in Claude reasoning layer. |
+| Cross-session chain state across process restarts | Chains bounded by TASK_TIMEOUT_MS (5 min). Restart = failure; AI re-issues chain. |
+| Real-time chain progress streaming | chain_result already returns all steps. Complexity for marginal UX benefit. |
+| Arbitrary env passthrough from payload | Security risk. Only allowlisted env keys permitted; values from local env. |
+| AUTO/NOTIFY tier for shell relay | Shell relay must always be APPROVE. Non-negotiable security gate. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUDIT-01 | Phase 107 | Complete |
-| AUDIT-02 | Phase 107 | Complete |
-| AUDIT-03 | Phase 107 | Complete |
-| AUDIT-04 | Phase 107 | Complete |
-| SAFE-01 | Phase 109 | Complete |
-| SAFE-02 | Phase 109 | Complete |
-| SAFE-03 | Phase 109 | Complete |
-| SAFE-04 | Phase 109 | Complete |
-| SAFE-05 | Phase 109 | Complete |
-| SAFE-06 | Phase 109 | Complete |
-| SAFE-07 | Phase 109 | Complete |
-| HARD-01 | Phase 108 | Complete |
-| HARD-02 | Phase 111 | Pending |
-| HARD-03 | Phase 110 | Complete |
-| HARD-04 | Phase 110 | Complete |
-| HARD-05 | Phase 110 | Complete |
-| VALID-01 | Phase 111 | Complete |
-| VALID-02 | Phase 111 | Pending |
-| VALID-03 | Phase 108 | Complete |
+| DREG-01 | — | Pending |
+| DREG-02 | — | Pending |
+| DREG-03 | — | Pending |
+| DREG-04 | — | Pending |
+| DREG-05 | — | Pending |
+| DREG-06 | — | Pending |
+| SHRL-01 | — | Pending |
+| SHRL-02 | — | Pending |
+| SHRL-03 | — | Pending |
+| SHRL-04 | — | Pending |
+| SHRL-05 | — | Pending |
+| CHAIN-01 | — | Pending |
+| CHAIN-02 | — | Pending |
+| CHAIN-03 | — | Pending |
+| CHAIN-04 | — | Pending |
+| CHAIN-05 | — | Pending |
+| CHAIN-06 | — | Pending |
+| CHAIN-07 | — | Pending |
+| CHAIN-08 | — | Pending |
+| CHAIN-09 | — | Pending |
+| DELEG-01 | — | Pending |
+| DELEG-02 | — | Pending |
+| DELEG-03 | — | Pending |
+| AUDIT-01 | — | Pending |
+| AUDIT-02 | — | Pending |
+| AUDIT-03 | — | Pending |
 
 **Coverage:**
-- v15.0 requirements: 19 total
-- Mapped to phases: 19
-- Unmapped: 0
+- v18.0 requirements: 26 total
+- Mapped to phases: 0
+- Unmapped: 26
 
 ---
-*Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after roadmap creation (phases 107-111 assigned)*
+*Requirements defined: 2026-03-22*
+*Last updated: 2026-03-22 after initial definition*
