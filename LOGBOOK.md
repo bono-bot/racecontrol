@@ -492,3 +492,5 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-21 22:30 IST | James | 1d2507d | feat(110-01): 5-second deferred SHM connect (HARD-03) — game_running_since + shm_connect_allowed() |
 | 2026-03-21 22:32 IST | James | 16a390c | docs(110-01): complete telemetry-gating plan 01 — SUMMARY, STATE, ROADMAP, REQUIREMENTS updated |
 | 2026-03-21 22:47 IST | James | 3c0d39a | feat(111-01): build rc-agent from HEAD (243f03d) and deploy to Pod 8 canary — 11MB, ws_connected, uptime>30s |
+| 2026-03-22 00:15 IST | James | 518b00c | feat(118-02): add live cameras page with MJPEG feeds from rc-sentry-ai |
+| 2026-03-22 00:20 IST | James | 0b1550d | docs(118-02): complete live camera feeds dashboard page plan |
