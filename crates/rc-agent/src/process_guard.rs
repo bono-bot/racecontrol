@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use tokio::sync::{mpsc, RwLock};
+use walkdir;
 
 use rc_common::protocol::AgentMessage;
 use rc_common::types::{MachineWhitelist, ProcessViolation, ViolationType};
@@ -51,15 +52,25 @@ pub fn spawn(
 
         let mut scan_interval =
             tokio::time::interval(Duration::from_secs(config.scan_interval_secs));
+        let mut audit_interval = tokio::time::interval(Duration::from_secs(300)); // 5 min
         // grace_counts: process_name -> (consecutive_count, start_time_of_first_sighting)
         let mut grace_counts: HashMap<String, (u32, u64)> = HashMap::new();
 
+        // Run autostart audit immediately at startup (before first tick)
+        run_autostart_audit(&whitelist, &tx, &machine_id).await;
+
         loop {
-            scan_interval.tick().await;
-            if let Err(e) =
-                run_scan_cycle(&whitelist, &tx, &machine_id, &mut grace_counts).await
-            {
-                tracing::error!("Process guard scan error: {}", e);
+            tokio::select! {
+                _ = scan_interval.tick() => {
+                    if let Err(e) =
+                        run_scan_cycle(&whitelist, &tx, &machine_id, &mut grace_counts).await
+                    {
+                        tracing::error!("Process guard scan error: {}", e);
+                    }
+                }
+                _ = audit_interval.tick() => {
+                    run_autostart_audit(&whitelist, &tx, &machine_id).await;
+                }
             }
         }
     });
@@ -290,6 +301,205 @@ pub(crate) fn log_guard_event(event: &str) {
     }
 }
 
+/// Run one autostart audit: check HKCU Run, HKLM Run, and Startup folder.
+/// Three-stage enforcement: LOG → ALERT → REMOVE (configurable via whitelist.violation_action).
+/// Backup removals to C:\RacingPoint\autostart-backup.json before deletion.
+pub(crate) async fn run_autostart_audit(
+    whitelist: &Arc<RwLock<MachineWhitelist>>,
+    tx: &mpsc::Sender<AgentMessage>,
+    machine_id: &str,
+) {
+    let wl = whitelist.read().await;
+    let allowed_keys: Vec<String> = wl.autostart_keys.iter().map(|s| s.to_lowercase()).collect();
+    let violation_action = wl.violation_action.clone();
+    drop(wl);
+
+    // Audit HKCU Run
+    audit_run_key(
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+        &allowed_keys, &violation_action, machine_id, tx
+    ).await;
+
+    // Audit HKLM Run
+    audit_run_key(
+        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        &allowed_keys, &violation_action, machine_id, tx
+    ).await;
+
+    // Audit per-user Startup folder
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let startup_path = format!(
+            r"{}\Microsoft\Windows\Start Menu\Programs\Startup",
+            appdata
+        );
+        audit_startup_folder(&startup_path, &allowed_keys, &violation_action, machine_id, tx).await;
+    }
+
+    // Audit all-users Startup folder
+    audit_startup_folder(
+        r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup",
+        &allowed_keys, &violation_action, machine_id, tx
+    ).await;
+}
+
+async fn audit_run_key(
+    key_path: &str,
+    allowed_keys: &[String],
+    violation_action: &str,
+    machine_id: &str,
+    tx: &mpsc::Sender<AgentMessage>,
+) {
+    let key_path_owned = key_path.to_string();
+    let output = tokio::task::spawn_blocking(move || {
+        #[cfg(windows)]
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("reg")
+            .args(["query", &key_path_owned])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output()
+    }).await;
+
+    let stdout = match output {
+        Ok(Ok(out)) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).to_string()
+        }
+        _ => return,
+    };
+
+    let entries = parse_run_key_entries(&stdout);
+    for entry_name in entries {
+        if is_autostart_whitelisted(&entry_name, allowed_keys) {
+            continue;
+        }
+        let action_taken = if violation_action == "kill_and_report" {
+            // REMOVE stage — backup first
+            backup_autostart_entry(&entry_name, &format!("run_key:{}", key_path));
+            let key_path_del = key_path.to_string();
+            let entry_clone = entry_name.clone();
+            let del_result = tokio::task::spawn_blocking(move || {
+                #[cfg(windows)]
+                use std::os::windows::process::CommandExt;
+                std::process::Command::new("reg")
+                    .args(["delete", &key_path_del, "/v", &entry_clone, "/f"])
+                    .creation_flags(0x08000000)
+                    .output()
+            }).await;
+            if del_result.map(|r| r.map(|o| o.status.success()).unwrap_or(false)).unwrap_or(false) {
+                log_guard_event(&format!("AUTOSTART_REMOVED run_key={} entry={}", key_path, entry_name));
+                "removed"
+            } else {
+                log_guard_event(&format!("AUTOSTART_REMOVE_FAILED run_key={} entry={}", key_path, entry_name));
+                "flagged"
+            }
+        } else {
+            log_guard_event(&format!("AUTOSTART_FLAGGED run_key={} entry={}", key_path, entry_name));
+            "flagged"
+        };
+
+        let violation = ProcessViolation {
+            machine_id: machine_id.to_string(),
+            violation_type: ViolationType::AutoStart,
+            name: entry_name.clone(),
+            exe_path: None,
+            action_taken: action_taken.to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            consecutive_count: 1,
+        };
+        let _ = tx.send(AgentMessage::ProcessViolation(violation)).await;
+    }
+}
+
+async fn audit_startup_folder(
+    folder_path: &str,
+    allowed_keys: &[String],
+    violation_action: &str,
+    machine_id: &str,
+    tx: &mpsc::Sender<AgentMessage>,
+) {
+    // walkdir scan of the Startup folder for .lnk and .url files
+    let folder_path_owned = folder_path.to_string();
+    let entries = tokio::task::spawn_blocking(move || {
+        walkdir::WalkDir::new(&folder_path_owned)
+            .max_depth(1)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_lowercase();
+                if name.ends_with(".lnk") || name.ends_with(".url") || name.ends_with(".bat") {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+    }).await.unwrap_or_default();
+
+    for entry_name in entries {
+        if is_autostart_whitelisted(&entry_name, allowed_keys) {
+            continue;
+        }
+        log_guard_event(&format!("AUTOSTART_STARTUP_FLAGGED folder={} entry={}", folder_path, entry_name));
+
+        let action_taken = if violation_action == "kill_and_report" {
+            backup_autostart_entry(&entry_name, &format!("startup_folder:{}", folder_path));
+            // Note: file removal is LOG stage in Phase 103 — REMOVE requires Phase 104 staff approval
+            // For now: flag only, do not delete files from Startup folder
+            "flagged"
+        } else {
+            "flagged"
+        };
+
+        let violation = ProcessViolation {
+            machine_id: machine_id.to_string(),
+            violation_type: ViolationType::AutoStart,
+            name: entry_name.clone(),
+            exe_path: None,
+            action_taken: action_taken.to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            consecutive_count: 1,
+        };
+        let _ = tx.send(AgentMessage::ProcessViolation(violation)).await;
+    }
+}
+
+/// Parse `reg query` stdout into a list of value names.
+/// Input format per line: "    ValueName    REG_SZ    C:\path\to\exe"
+/// Returns only lines that are actual values (skip HKEY header lines and blank lines).
+pub(crate) fn parse_run_key_entries(stdout: &str) -> Vec<String> {
+    stdout.lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with("HKEY"))
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 && parts[1].starts_with("REG_") {
+                Some(parts[0].to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Case-insensitive check if an autostart entry name is in the whitelist.
+pub(crate) fn is_autostart_whitelisted(name: &str, allowed: &[String]) -> bool {
+    let lower = name.to_lowercase();
+    allowed.iter().any(|a| a == &lower)
+}
+
+/// Write entry info to the autostart backup file before removal.
+/// Appends a JSON line to C:\RacingPoint\autostart-backup.json.
+fn backup_autostart_entry(entry_name: &str, source: &str) {
+    use std::io::Write;
+    const BACKUP_FILE: &str = r"C:\RacingPoint\autostart-backup.json";
+    let line = format!(
+        "{{\"entry\":{:?},\"source\":{:?},\"backed_up_at\":{:?}}}\n",
+        entry_name, source, Utc::now().to_rfc3339()
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(BACKUP_FILE) {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,6 +554,37 @@ mod tests {
     #[test]
     fn not_critical_notepad() {
         assert!(!is_critical_violation("notepad.exe"));
+    }
+
+    #[test]
+    fn parse_run_key_entries_basic() {
+        let stdout = "    MyApp    REG_SZ    C:\\Program Files\\app.exe\n";
+        let entries = parse_run_key_entries(stdout);
+        assert_eq!(entries, vec!["MyApp"]);
+    }
+
+    #[test]
+    fn parse_run_key_entries_empty() {
+        assert!(parse_run_key_entries("").is_empty());
+    }
+
+    #[test]
+    fn parse_run_key_entries_skips_header() {
+        let stdout = "HKEY_CURRENT_USER\\Software\\...\n\n    App    REG_SZ    C:\\app.exe\n";
+        let entries = parse_run_key_entries(stdout);
+        assert_eq!(entries, vec!["App"]);
+    }
+
+    #[test]
+    fn autostart_whitelisted_case_insensitive() {
+        let allowed = vec!["rcagent".to_string()];
+        assert!(is_autostart_whitelisted("RCAgent", &allowed));
+    }
+
+    #[test]
+    fn autostart_not_whitelisted() {
+        let allowed = vec!["rcagent".to_string()];
+        assert!(!is_autostart_whitelisted("SteamClient", &allowed));
     }
 
     #[test]
