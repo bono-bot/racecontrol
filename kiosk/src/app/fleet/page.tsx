@@ -139,6 +139,16 @@ export default function FleetPage() {
                 Uptime: {formatUptime(pod.uptime_secs)}
               </div>
 
+              {(pod.violation_count_24h ?? 0) > 0 && (
+                <div
+                  className="mt-1.5 inline-block px-2 py-0.5 rounded text-xs font-bold text-white"
+                  style={{ backgroundColor: '#E10600' }}
+                  title={pod.last_violation_at ? `Last: ${pod.last_violation_at}` : 'Process violations detected'}
+                >
+                  {pod.violation_count_24h} {pod.violation_count_24h === 1 ? 'violation' : 'violations'}
+                </div>
+              )}
+
               {pod.crash_recovery === true && (
                 <div className="mt-1 text-xs text-red-500">Crash recovered</div>
               )}

@@ -384,6 +384,9 @@ export interface PodFleetStatus {
   ip_address: string | null;
   last_seen: string | null;
   last_http_check: string | null;
+  // Phase 104: Process guard violation tracking
+  violation_count_24h: number;
+  last_violation_at: string | null;
 }
 
 export interface FleetHealthResponse {
