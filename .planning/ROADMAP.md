@@ -1542,7 +1542,7 @@ Plans:
 | 107. Behavior Audit + Certificate Procurement | 2/2 | Complete    | 2026-03-21 |
 | 108. Keyboard Hook Replacement | 1/1 | Complete    | 2026-03-21 |
 | 109. Safe Mode State Machine | 2/2 | Complete    | 2026-03-21 |
-| 110. Telemetry Gating | 2/2 | Complete   | 2026-03-21 |
+| 110. Telemetry Gating | 2/2 | Complete    | 2026-03-21 |
 | 111. Code Signing + Per-Game Canary Validation | TBD | Not started | - |
 
 
