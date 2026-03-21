@@ -665,6 +665,57 @@ fn team_name(id: u8) -> &'static str {
 mod tests {
     use super::*;
 
+    /// Build a minimal F1 25 UDP packet with the 2025 header.
+    /// Returns a Vec<u8> = 29-byte header + data bytes.
+    /// player_car_index is always 0 (player is car 0).
+    fn build_test_packet(packet_id: u8, data: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0u8; HEADER_SIZE + data.len()];
+        // packet_format = 2025 little-endian
+        buf[0] = 0xE9; // 0x07E9 = 2025
+        buf[1] = 0x07;
+        // packet_id at byte 5
+        buf[5] = packet_id;
+        // session_uid bytes 6..14 — leave as zeros (valid)
+        // player_car_index at byte 21 = 0 (player is car index 0)
+        buf[21] = 0;
+        // copy data after header
+        buf[HEADER_SIZE..].copy_from_slice(data);
+        buf
+    }
+
+    /// Build a 57-byte LapData car buffer for player car (index 0).
+    fn build_lap_data_car(
+        last_lap_ms: u32,
+        current_lap_ms: u32,
+        s1_ms_part: u16,
+        s1_min: u8,
+        s2_ms_part: u16,
+        s2_min: u8,
+        lap_num: u8,
+        sector: u8,
+        invalid: u8,
+    ) -> Vec<u8> {
+        let mut car = vec![0u8; LAP_DATA_SIZE];
+        car[0..4].copy_from_slice(&last_lap_ms.to_le_bytes());
+        car[4..8].copy_from_slice(&current_lap_ms.to_le_bytes());
+        car[8..10].copy_from_slice(&s1_ms_part.to_le_bytes());
+        car[10] = s1_min;
+        car[11..13].copy_from_slice(&s2_ms_part.to_le_bytes());
+        car[13] = s2_min;
+        car[33] = lap_num;
+        car[36] = sector;
+        car[37] = invalid;
+        car
+    }
+
+    /// Build a Session data buffer (8 bytes minimum).
+    fn build_session_data(session_type: u8, track_id: u8) -> Vec<u8> {
+        let mut data = vec![0u8; 8];
+        data[6] = session_type;
+        data[7] = track_id; // track_id 11 = Monza
+        data
+    }
+
     #[test]
     fn test_parse_header_valid() {
         let mut adapter = F125Adapter::new("test".to_string(), None);
@@ -717,5 +768,161 @@ mod tests {
         assert_eq!(team_name(1), "Ferrari");
         assert_eq!(team_name(8), "McLaren");
         assert_eq!(team_name(255), "Unknown Team");
+    }
+
+    // ─── New tests for TEL-F1-01, TEL-F1-02, TEL-F1-03 ─────────────────────
+
+    /// TEL-F1-02: Lap completion produces LapData with correct lap_time_ms and sim_type F125.
+    /// Feed lap 1 packet (prev_lap_num stays 0), then lap 2 packet (triggers completion).
+    #[test]
+    fn test_lap_completion_on_lap_transition() {
+        let mut adapter = F125Adapter::new("pod-test".to_string(), None);
+
+        // Packet 1: lap_num=1, sector=0, no last lap time (first packet)
+        let car1 = build_lap_data_car(0, 5000, 0, 0, 0, 0, 1, 0, 0);
+        let pkt1 = build_test_packet(PACKET_LAP_DATA, &car1);
+        adapter.process_packet(&pkt1);
+
+        // No lap yet — first packet establishes prev_lap_num=1
+        let result = adapter.poll_lap_completed().unwrap();
+        assert!(result.is_none(), "No lap should be produced on first packet");
+
+        // Packet 2: lap_num=2, last_lap_time_ms=90000 — triggers lap 1 completion
+        let car2 = build_lap_data_car(90_000, 1000, 0, 0, 0, 0, 2, 0, 0);
+        let pkt2 = build_test_packet(PACKET_LAP_DATA, &car2);
+        adapter.process_packet(&pkt2);
+
+        let lap = adapter.poll_lap_completed().unwrap();
+        assert!(lap.is_some(), "Lap should be produced on lap number transition");
+        let lap = lap.unwrap();
+        assert_eq!(lap.lap_time_ms, 90_000, "lap_time_ms must match last_lap_time_ms");
+        assert_eq!(lap.sim_type, SimType::F125, "sim_type must be F125");
+        assert!(lap.valid, "Lap should be valid when no invalid flag set");
+    }
+
+    /// TEL-F1-02: Sector split times are captured and sector3_ms = total - S1 - S2.
+    #[test]
+    fn test_sector_splits_captured() {
+        let mut adapter = F125Adapter::new("pod-test".to_string(), None);
+
+        // Lap 1, sector 0 — establish initial state
+        let car0 = build_lap_data_car(0, 1000, 0, 0, 0, 0, 1, 0, 0);
+        let pkt0 = build_test_packet(PACKET_LAP_DATA, &car0);
+        adapter.process_packet(&pkt0);
+
+        // Transition to sector 1 (S1 complete): s1=30000ms (ms_part=30000, min=0)
+        // sector field goes from 0 -> 1, s1_ms_part=30000
+        let car1 = build_lap_data_car(0, 31_000, 30_000, 0, 0, 0, 1, 1, 0);
+        let pkt1 = build_test_packet(PACKET_LAP_DATA, &car1);
+        adapter.process_packet(&pkt1);
+
+        // Transition to sector 2 (S2 complete): s2=28000ms (ms_part=28000, min=0)
+        let car2 = build_lap_data_car(0, 59_000, 30_000, 0, 28_000, 0, 1, 2, 0);
+        let pkt2 = build_test_packet(PACKET_LAP_DATA, &car2);
+        adapter.process_packet(&pkt2);
+
+        // Lap 2 start (lap completion): total=88000ms, S1=30000, S2=28000 -> S3=30000
+        let car3 = build_lap_data_car(88_000, 1_000, 30_000, 0, 28_000, 0, 2, 0, 0);
+        let pkt3 = build_test_packet(PACKET_LAP_DATA, &car3);
+        adapter.process_packet(&pkt3);
+
+        let lap = adapter.poll_lap_completed().unwrap().expect("Lap must complete");
+        assert_eq!(lap.lap_time_ms, 88_000);
+        assert_eq!(lap.sector1_ms, Some(30_000), "S1 must be 30000ms");
+        assert_eq!(lap.sector2_ms, Some(28_000), "S2 must be 28000ms");
+        assert_eq!(lap.sector3_ms, Some(30_000), "S3 = total - S1 - S2 = 30000ms");
+    }
+
+    /// TEL-F1-02: When current_lap_invalid=1 is set during a lap, LapData.valid == false.
+    #[test]
+    fn test_invalid_lap_flagged() {
+        let mut adapter = F125Adapter::new("pod-test".to_string(), None);
+
+        // Lap 1 established
+        let car0 = build_lap_data_car(0, 5_000, 0, 0, 0, 0, 1, 0, 0);
+        let pkt0 = build_test_packet(PACKET_LAP_DATA, &car0);
+        adapter.process_packet(&pkt0);
+
+        // Mid-lap: invalid flag set (track limits, etc.)
+        let car_inv = build_lap_data_car(0, 50_000, 0, 0, 0, 0, 1, 0, 1);
+        let pkt_inv = build_test_packet(PACKET_LAP_DATA, &car_inv);
+        adapter.process_packet(&pkt_inv);
+
+        // Lap 2 — triggers completion of lap 1 which was flagged invalid
+        let car2 = build_lap_data_car(95_000, 1_000, 0, 0, 0, 0, 2, 0, 0);
+        let pkt2 = build_test_packet(PACKET_LAP_DATA, &car2);
+        adapter.process_packet(&pkt2);
+
+        let lap = adapter.poll_lap_completed().unwrap().expect("Lap must complete");
+        assert!(!lap.valid, "Lap must be marked invalid when current_lap_invalid was set");
+    }
+
+    /// TEL-F1-01 + TEL-F1-03: Session type values map to correct SessionType variants.
+    /// Values: 1=Practice, 5=Qualifying, 10=Race, 12=Hotlap
+    #[test]
+    fn test_session_type_mapping() {
+        let cases = [
+            (1u8, SessionType::Practice),
+            (5u8, SessionType::Qualifying),
+            (10u8, SessionType::Race),
+            (12u8, SessionType::Hotlap),
+        ];
+
+        for (session_val, expected) in cases {
+            let mut adapter = F125Adapter::new("pod-test".to_string(), None);
+            adapter.connected = true; // session_info() requires connected
+
+            // Feed a Session packet (packet id 1)
+            let session_data = build_session_data(session_val, 11); // track_id 11 = Monza
+            let pkt = build_test_packet(PACKET_SESSION, &session_data);
+            adapter.process_packet(&pkt);
+
+            let info = adapter.session_info().unwrap();
+            assert!(info.is_some(), "session_info should return Some after Session packet");
+            let info = info.unwrap();
+            assert_eq!(
+                info.session_type, expected,
+                "session_type {} should map to {:?}",
+                session_val, expected
+            );
+        }
+    }
+
+    /// TEL-F1-02: First LapData packet does not produce a spurious lap completion.
+    /// (prev_lap_num starts at 0, condition requires prev_lap_num > 0)
+    #[test]
+    fn test_no_lap_on_first_packet() {
+        let mut adapter = F125Adapter::new("pod-test".to_string(), None);
+
+        // First packet ever: lap_num=1, last_lap_ms=0 (no previous lap recorded)
+        let car = build_lap_data_car(0, 12_000, 0, 0, 0, 0, 1, 0, 0);
+        let pkt = build_test_packet(PACKET_LAP_DATA, &car);
+        adapter.process_packet(&pkt);
+
+        let result = adapter.poll_lap_completed().unwrap();
+        assert!(result.is_none(), "No lap should be produced on the very first packet");
+    }
+
+    /// TEL-F1-02: poll_lap_completed() uses take() semantics — first call returns Some,
+    /// second call returns None (data is cleared after first poll).
+    #[test]
+    fn test_poll_lap_completed_clears() {
+        let mut adapter = F125Adapter::new("pod-test".to_string(), None);
+
+        // Establish lap 1
+        let car0 = build_lap_data_car(0, 5_000, 0, 0, 0, 0, 1, 0, 0);
+        adapter.process_packet(&build_test_packet(PACKET_LAP_DATA, &car0));
+
+        // Trigger lap completion (lap 2 arrives)
+        let car1 = build_lap_data_car(80_000, 1_000, 0, 0, 0, 0, 2, 0, 0);
+        adapter.process_packet(&build_test_packet(PACKET_LAP_DATA, &car1));
+
+        // First poll: should return the completed lap
+        let first = adapter.poll_lap_completed().unwrap();
+        assert!(first.is_some(), "First poll must return the completed lap");
+
+        // Second poll: must return None (cleared)
+        let second = adapter.poll_lap_completed().unwrap();
+        assert!(second.is_none(), "Second poll must return None — take() semantics");
     }
 }
