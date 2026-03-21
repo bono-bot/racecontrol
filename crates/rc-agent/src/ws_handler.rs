@@ -14,7 +14,7 @@ use crate::game_process;
 use crate::kiosk;
 use crate::self_monitor;
 use crate::self_test;
-use crate::{CrashRecoveryState, LaunchState};
+use crate::event_loop::{ConnectionState, CrashRecoveryState, LaunchState};
 use rc_common::protocol::{AgentMessage, CoreToAgentMessage};
 use rc_common::types::*;
 
@@ -110,22 +110,12 @@ pub(crate) async fn handle_ws_exec(
 
 /// Dispatch a decoded WebSocket text frame to the appropriate handler.
 ///
-/// Parameters passed separately to avoid borrow conflicts in the select! loop.
+/// Per-connection locals are bundled into ConnectionState (event_loop.rs).
 /// SwitchController uses outer-loop URL state for the split-brain guard.
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_ws_message(
     text: &str,
     state: &mut AppState,
-    crash_recovery: &mut CrashRecoveryState,
-    launch_state: &mut LaunchState,
-    blank_timer: &mut std::pin::Pin<Box<tokio::time::Sleep>>,
-    blank_timer_armed: &mut bool,
-    current_driver_name: &mut Option<String>,
-    last_launch_args_stored: &mut Option<String>,
-    last_ffb_percent: &mut u8,
-    last_ffb_preset: &mut String,
-    session_max_speed_kmh: &mut f32,
-    session_race_position: &mut Option<u32>,
+    conn: &mut ConnectionState,
     ws_tx: &mut WsTx,
     primary_url: &str,
     failover_url: &Option<String>,
@@ -146,15 +136,15 @@ pub async fn handle_ws_message(
         } => {
             tracing::info!("Billing started: {} for {} ({}s)", billing_session_id, driver_name, allocated_seconds);
             state.heartbeat_status.billing_active.store(true, std::sync::atomic::Ordering::Relaxed);
-            *blank_timer_armed = false;
+            conn.blank_timer_armed = false;
             let billing_session_id_clone = billing_session_id.clone();
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = true;
                 s.active_billing_session_id = Some(billing_session_id_clone);
             });
-            *current_driver_name = Some(driver_name.clone());
-            *session_max_speed_kmh = 0.0;
-            *session_race_position = None;
+            conn.current_driver_name = Some(driver_name.clone());
+            conn.session_max_speed_kmh = 0.0;
+            conn.session_race_position = None;
             if allocated_seconds == 0 || allocated_seconds >= 10800 {
                 state.overlay.activate_v2(driver_name.clone());
             } else {
@@ -182,7 +172,7 @@ pub async fn handle_ws_message(
             state.overlay.deactivate();
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
-            *launch_state = LaunchState::Idle;
+            conn.launch_state = LaunchState::Idle;
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = false;
                 s.active_billing_session_id = None;
@@ -196,7 +186,7 @@ pub async fn handle_ws_message(
             let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
             let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
             tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-            *current_driver_name = None;
+            conn.current_driver_name = None;
         }
 
         CoreToAgentMessage::SessionEnded {
@@ -204,11 +194,11 @@ pub async fn handle_ws_message(
         } => {
             tracing::info!("Session ended: {} -- {} laps, best: {:?}, {}s", billing_session_id, total_laps, best_lap_ms, driving_seconds);
             state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Relaxed);
-            *crash_recovery = CrashRecoveryState::Idle;
+            conn.crash_recovery = CrashRecoveryState::Idle;
             state.overlay.deactivate();
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
-            *launch_state = LaunchState::Idle;
+            conn.launch_state = LaunchState::Idle;
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = false;
                 s.active_billing_session_id = None;
@@ -219,22 +209,22 @@ pub async fn handle_ws_message(
             ffb_controller::safe_session_end(&state.ffb).await;
             state.lock_screen.show_session_summary(
                 driver_name, total_laps, best_lap_ms, driving_seconds,
-                if *session_max_speed_kmh > 0.0 { Some(*session_max_speed_kmh) } else { None },
-                *session_race_position,
+                if conn.session_max_speed_kmh > 0.0 { Some(conn.session_max_speed_kmh) } else { None },
+                conn.session_race_position,
             );
             if let Some(ref mut game) = state.game_process { let _ = game.stop(); state.game_process = None; }
             if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
             let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
             let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
             tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-            *current_driver_name = None;
-            blank_timer.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(30));
-            *blank_timer_armed = true;
+            conn.current_driver_name = None;
+            conn.blank_timer.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(30));
+            conn.blank_timer_armed = true;
         }
 
         CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args } => {
             tracing::info!("Launching game: {:?} (args: {:?})", launch_sim, launch_args);
-            *last_launch_args_stored = launch_args.clone();
+            conn.last_launch_args_stored = launch_args.clone();
 
             if launch_sim == SimType::AssettoCorsa {
                 if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
@@ -271,7 +261,7 @@ pub async fn handle_ws_message(
                     SimType::AssettoCorsaRally => 7, SimType::ForzaHorizon5 => 8,
                 }, std::sync::atomic::Ordering::Relaxed);
 
-                let splash_name = current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
+                let splash_name = conn.current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
                 state.lock_screen.show_launch_splash(splash_name);
 
                 let info = GameLaunchInfo {
@@ -283,7 +273,7 @@ pub async fn handle_ws_message(
                 let json_str = serde_json::to_string(&msg)?;
                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
 
-                *launch_state = LaunchState::WaitingForLive { launched_at: std::time::Instant::now(), attempt: 1 };
+                conn.launch_state = LaunchState::WaitingForLive { launched_at: std::time::Instant::now(), attempt: 1 };
                 let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = Some(std::time::Instant::now()); });
 
                 let pod_id_clone = state.pod_id.clone();
@@ -404,9 +394,9 @@ pub async fn handle_ws_message(
                     SimType::AssettoCorsaRally => 7, SimType::ForzaHorizon5 => 8,
                 }, std::sync::atomic::Ordering::Relaxed);
 
-                let splash_name = current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
+                let splash_name = conn.current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
                 state.lock_screen.show_launch_splash(splash_name);
-                *launch_state = LaunchState::WaitingForLive { launched_at: std::time::Instant::now(), attempt: 1 };
+                conn.launch_state = LaunchState::WaitingForLive { launched_at: std::time::Instant::now(), attempt: 1 };
                 let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = Some(std::time::Instant::now()); });
 
                 let launching_info = GameLaunchInfo {
@@ -439,7 +429,7 @@ pub async fn handle_ws_message(
                         tracing::error!("Failed to launch {:?}: {}", launch_sim, e);
                         state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                         state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
-                        *launch_state = LaunchState::Idle;
+                        conn.launch_state = LaunchState::Idle;
                         let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
                         let info = GameLaunchInfo {
                             pod_id: state.pod_id.clone(), sim_type: launch_sim,
@@ -459,7 +449,7 @@ pub async fn handle_ws_message(
             state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
-            *launch_state = LaunchState::Idle;
+            conn.launch_state = LaunchState::Idle;
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.recovery_in_progress = true;
                 s.launch_started_at = None;
@@ -524,11 +514,11 @@ pub async fn handle_ws_message(
                 "Sub-session ended: {} -- split {}/{}, {} laps, wallet: {}p",
                 billing_session_id, current_split_number, total_splits, total_laps, wallet_balance_paise
             );
-            *crash_recovery = CrashRecoveryState::Idle;
+            conn.crash_recovery = CrashRecoveryState::Idle;
             state.overlay.deactivate();
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
-            *launch_state = LaunchState::Idle;
+            conn.launch_state = LaunchState::Idle;
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.launch_started_at = None;
                 s.recovery_in_progress = false;
@@ -604,14 +594,14 @@ pub async fn handle_ws_message(
         CoreToAgentMessage::SetFfb { preset } => {
             tracing::info!("Setting FFB to '{}' mid-session", preset);
             match preset.as_str() {
-                "light" | "medium" | "strong" => *last_ffb_preset = preset.clone(),
+                "light" | "medium" | "strong" => conn.last_ffb_preset = preset.clone(),
                 _ => {}
             }
             if let Ok(percent) = preset.parse::<u8>() {
                 match state.ffb.set_gain(percent) {
                     Ok(true) => {
                         let clamped = percent.clamp(10, 100);
-                        *last_ffb_percent = clamped;
+                        conn.last_ffb_percent = clamped;
                         state.overlay.show_toast(format!("FFB: {}%", clamped));
                         let confirm = AgentMessage::FfbGainChanged {
                             pod_id: state.pod_id.clone(), percent: clamped
@@ -710,7 +700,7 @@ pub async fn handle_ws_message(
             match state.ffb.set_gain(percent) {
                 Ok(true) => {
                     let clamped = percent.clamp(10, 100);
-                    *last_ffb_percent = clamped;
+                    conn.last_ffb_percent = clamped;
                     state.overlay.show_toast(format!("FFB: {}%", clamped));
                     let confirm = AgentMessage::FfbGainChanged {
                         pod_id: state.pod_id.clone(), percent: clamped,
@@ -728,7 +718,7 @@ pub async fn handle_ws_message(
             let (abs, tc, auto_shifter) = state.adapter.as_ref()
                 .and_then(|a| a.read_assist_state()).unwrap_or((0, 0, false));
             let assist_msg = AgentMessage::AssistState {
-                pod_id: state.pod_id.clone(), abs, tc, auto_shifter, ffb_percent: *last_ffb_percent,
+                pod_id: state.pod_id.clone(), abs, tc, auto_shifter, ffb_percent: conn.last_ffb_percent,
             };
             if let Ok(json) = serde_json::to_string(&assist_msg) {
                 let _ = ws_tx.send(Message::Text(json.into())).await;
