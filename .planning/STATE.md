@@ -3,18 +3,20 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: in_progress
-stopped_at: Completed 100-01-PLAN.md
-last_updated: "2026-03-21T06:28:00.000Z"
-last_activity: "2026-03-21 -- 100-01 complete: FleetHealthStore in_maintenance+maintenance_failures fields, PreFlightFailed/Passed WS handlers update state, POST /pods/{id}/clear-maintenance endpoint (STAFF-02, STAFF-03)"
+stopped_at: Completed 85-01-PLAN.md
+last_updated: "2026-03-21T07:00:00.000Z"
+last_activity: "2026-03-21 -- 85-01 complete: LmuAdapter with rF2 shared memory (Scoring + Telemetry), torn-read guard, sector splits (cumulative derivation), first-packet safety, session transition reset, 6 unit tests (TEL-LMU-01, TEL-LMU-02, TEL-LMU-03)"
 progress:
   total_phases: 65
   completed_phases: 40
   total_plans: 107
-  completed_plans: 102
+  completed_plans: 103
   percent: 96
 decisions:
   - "clear_on_disconnect() clears in_maintenance=false because offline pods are not in maintenance from the server's perspective"
   - "Optimistic server-side clear on clear_maintenance_pod() for instant staff visual feedback without waiting for PreFlightPassed roundtrip"
+  - "sector_times_ms() uses .round() not truncation — (42.3-20.1)*1000 = 22199.99 would truncate to 22199 instead of 22200"
+  - "pub mod lmu registered in Plan 01 (not Plan 02) — required for cargo test sims::lmu compilation"
 ---
 
 ---
