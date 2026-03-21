@@ -739,7 +739,57 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                                 tracing::warn!("[self-test] Received SelfTestResult for unknown request_id: {}", request_id);
                             }
                         }
-                        _ => { /* new process guard variants — handled in Phase 103/104 */ }
+                        AgentMessage::ProcessViolation(violation) => {
+                            let machine_id = violation.machine_id.clone();
+                            let name = violation.name.clone();
+                            let action = violation.action_taken.clone();
+                            let ts = violation.timestamp.clone();
+                            let now = chrono::Utc::now();
+
+                            tracing::warn!(
+                                "[guard] Violation on {}: {} action={} ts={}",
+                                machine_id, name, action, ts
+                            );
+
+                            // Prefer registered_pod_id (authoritative WS key); fall back to machine_id
+                            let pod_key = if let Some(pod_id) = &registered_pod_id {
+                                pod_id.clone()
+                            } else {
+                                machine_id.replace('-', "_")
+                            };
+
+                            // Store violation and check for repeat offender
+                            let should_escalate = {
+                                let mut vmap = state.pod_violations.write().await;
+                                let store = vmap.entry(pod_key.clone()).or_default();
+                                let escalate = store.repeat_offender_check(violation, now);
+                                store.push(violation.clone());
+                                escalate
+                            };
+
+                            // Email escalation: 3 kills of same process within 5 minutes
+                            if should_escalate {
+                                let subject = format!(
+                                    "GUARD ALERT: Repeat offender on {} — {}",
+                                    machine_id, name
+                                );
+                                let body = format!(
+                                    "Process '{}' has been killed 3+ times in the last 5 minutes on machine '{}'.\n\
+                                     Last action: {}\nTimestamp: {}\n\n\
+                                     Check C:\\RacingPoint\\process-guard.log on the affected machine.",
+                                    name, machine_id, action, ts
+                                );
+                                let mut alerter = state.email_alerter.write().await;
+                                alerter.send_alert(&pod_key, &subject, &body).await;
+                            }
+                        }
+                        AgentMessage::ProcessGuardStatus { pod_id, scan_count, violation_count_total, violation_count_last_scan, last_scan_at, guard_active } => {
+                            tracing::info!(
+                                "[guard] Status from {}: scans={}, violations_total={}, violations_last_scan={}, last_scan={}, active={}",
+                                pod_id, scan_count, violation_count_total, violation_count_last_scan, last_scan_at, guard_active
+                            );
+                        }
+                        _ => { /* catch-all for future protocol additions */ }
                     }
                 }
                 Err(e) => {
