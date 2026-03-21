@@ -502,3 +502,6 @@ Both must append here when committing. Format: `| timestamp | author | commit | 
 | 2026-03-22 02:35 IST | James | 6d4a9ca | test(130-01): add failing TDD tests for DynamicCommandRegistry (18 test cases) |
 | 2026-03-22 02:45 IST | James | d8eb9c1 | feat(130-01): implement DynamicCommandRegistry — Map storage, binary allowlist, env key isolation, TDD GREEN |
 | 2026-03-22 02:50 IST | James | df436fc | docs(130-01): complete protocol-foundation-dynamic-registry plan — SUMMARY, STATE, ROADMAP, REQUIREMENTS (DREG-01, DREG-02, DREG-05) |
+| 2026-03-22 03:43 IST | James | 2ee10f2 | feat(130-02): ExecHandler dynamic-first lookup, completedExecs LRU cap, integration tests |
+| 2026-03-22 03:43 IST | James | 43f9faf | feat(130-02): James HTTP registry endpoints, Bono WS handler, both-side JSON persistence |
+| 2026-03-22 03:43 IST | James | b9dd5df | docs(130-02): SUMMARY + STATE + ROADMAP + REQUIREMENTS updates |
