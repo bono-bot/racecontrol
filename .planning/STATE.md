@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Salt Fleet Management
 status: completed
-stopped_at: Completed 78-02-PLAN.md
-last_updated: "2026-03-21T01:12:48.207Z"
+stopped_at: Phase 81 UI-SPEC approved
+last_updated: "2026-03-21T01:14:28.542Z"
 last_activity: "2026-03-21 -- 78-03 complete: BillingStarted session_token + KioskLockdown auto-pause billing + debounced WhatsApp alert (SESS-04, SESS-05)"
 progress:
   total_phases: 53
-  completed_phases: 28
-  total_plans: 76
+  completed_phases: 27
+  total_plans: 77
   completed_plans: 71
 ---
 
@@ -286,7 +286,7 @@ Progress: [█████████░] 92% (70/76 plans complete)
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:07:00Z
-Stopped at: Completed 78-02-PLAN.md
-Resume file: .planning/phases/78-kiosk-session-hardening/78-02-SUMMARY.md
+Last session: 2026-03-21T01:14:28.537Z
+Stopped at: Phase 81 UI-SPEC approved
+Resume file: .planning/phases/81-game-launch-core/81-UI-SPEC.md
 Next action: Phase 78 complete (3/3 plans done) -- all plans including 78-02 now have summaries
